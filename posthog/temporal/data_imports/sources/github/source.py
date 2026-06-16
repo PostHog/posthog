@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -39,6 +40,7 @@ class GithubSource(ResumableSource[GithubSourceConfig, GithubResumeConfig], OAut
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.GITHUB,
+            category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="GitHub",
             releaseStatus=ReleaseStatus.GA,
             caption="Connect your GitHub repository to sync issues, pull requests, commits, and more.",

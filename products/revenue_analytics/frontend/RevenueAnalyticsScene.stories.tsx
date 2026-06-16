@@ -103,6 +103,28 @@ export function RevenueAnalyticsDashboard(): JSX.Element {
     return <App />
 }
 
+export function RevenueAnalyticsDashboardAreaMode(): JSX.Element {
+    const { setInsightsDisplayMode, addBreakdown } = useActions(revenueAnalyticsLogic)
+
+    useEffect(() => {
+        setInsightsDisplayMode('area')
+        addBreakdown(PRODUCT_A_BREAKDOWN)
+    }, [setInsightsDisplayMode, addBreakdown])
+
+    return <App />
+}
+
+export function RevenueAnalyticsDashboardBarMode(): JSX.Element {
+    const { setInsightsDisplayMode, addBreakdown } = useActions(revenueAnalyticsLogic)
+
+    useEffect(() => {
+        setInsightsDisplayMode('bar')
+        addBreakdown(PRODUCT_A_BREAKDOWN)
+    }, [setInsightsDisplayMode, addBreakdown])
+
+    return <App />
+}
+
 export function RevenueAnalyticsDashboardSyncInProgress(): JSX.Element {
     const { setTopCustomersDisplayMode, addBreakdown, setRevenueAnalyticsFilters } = useActions(revenueAnalyticsLogic)
 

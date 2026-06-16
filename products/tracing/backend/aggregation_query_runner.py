@@ -55,7 +55,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
 from posthog.models.filters.mixins.utils import cached_property
 
-from .logic import TIME_BUCKET_DATE_RANGE_WHERE, translate_span_filter
+from .logic import TIME_BUCKET_DATE_RANGE_WHERE, translate_span_filter, with_span_attribute_type_suffix
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -90,14 +90,6 @@ class _SpanAggregationMixin:
         # Replicates the filter extraction the per-trace runner mixin does. We can't reuse
         # that mixin directly: it validates against TraceSpansQuery and wires a paginator
         # that does not apply here.
-        def get_property_type(value: str | float | bool) -> str:
-            try:
-                float(value)
-                return "float"
-            except (ValueError, TypeError):
-                pass
-            return "str"
-
         self.span_filters: list[SpanPropertyFilter] = []
         self.span_attribute_filters: list[SpanPropertyFilter] = []
         self.resource_attribute_filters: list[SpanPropertyFilter] = []
@@ -113,18 +105,8 @@ class _SpanAggregationMixin:
                 elif prop_type == SpanPropertyFilterType.SPAN:
                     self.span_filters.append(cast(SpanPropertyFilter, prop))
                 elif prop_type == SpanPropertyFilterType.SPAN_ATTRIBUTE:
-                    if isinstance(prop, SpanPropertyFilter) and prop.value:
-                        property_type = "str"
-                        if isinstance(prop.value, list):
-                            property_types = {get_property_type(v) for v in prop.value}
-                            if len(property_types) == 1:
-                                property_type = property_types.pop()
-                        else:
-                            property_type = get_property_type(prop.value)
-
-                        prop = prop.model_copy(deep=True)
-                        prop.key = f"{prop.key}__{property_type}"
-
+                    if isinstance(prop, SpanPropertyFilter):
+                        prop = with_span_attribute_type_suffix(prop)
                     self.span_attribute_filters.append(cast(SpanPropertyFilter, prop))
 
     def validate_query_runner_access(self, user: "User") -> bool:

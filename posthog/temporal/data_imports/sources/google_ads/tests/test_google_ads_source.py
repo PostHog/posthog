@@ -1,5 +1,8 @@
 import pytest
+from unittest import mock
 
+from posthog.models.integration import Integration
+from posthog.temporal.data_imports.sources.generated_configs import GoogleAdsSourceConfig
 from posthog.temporal.data_imports.sources.google_ads.configs import clean_customer_id
 from posthog.temporal.data_imports.sources.google_ads.source import GoogleAdsSource
 
@@ -181,3 +184,33 @@ class TestGoogleAdsNonRetryableErrors:
         friendly = self.non_retryable["access_not_configured"]
         assert friendly is not None
         assert "admin" in friendly.lower()
+
+
+class TestValidateCredentials:
+    def test_missing_integration_does_not_exist_returns_reconnect_message(self):
+        # `google_ads_client` calls `Integration.objects.get(...)`, which raises the typed
+        # `Integration.DoesNotExist` when the OAuth connection row is gone. Surface an
+        # actionable reconnect message instead of the raw ORM error.
+        config = GoogleAdsSourceConfig(customer_id="1234567890", google_ads_integration_id=1)
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.google_ads.google_ads.google_ads_client",
+            side_effect=Integration.DoesNotExist(),
+        ):
+            ok, message = GoogleAdsSource().validate_credentials(config, team_id=1)
+
+        assert ok is False
+        assert "no longer exists" in (message or "")
+        assert "Integration matching query" not in (message or "")
+
+    def test_missing_integration_string_match_returns_friendly_message(self):
+        # The same condition can also surface as a generic exception whose message contains
+        # the ORM "matching query does not exist" text; still surface a reconnect message.
+        config = GoogleAdsSourceConfig(customer_id="123-456-7890", google_ads_integration_id=1)
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.google_ads.google_ads.google_ads_client",
+            side_effect=Exception("Integration matching query does not exist"),
+        ):
+            ok, message = GoogleAdsSource().validate_credentials(config, team_id=1)
+
+        assert ok is False
+        assert "reconnect your Google Ads account" in (message or "")
