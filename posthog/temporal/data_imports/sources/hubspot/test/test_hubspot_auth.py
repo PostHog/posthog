@@ -37,10 +37,11 @@ def _patch_post(responses: MagicMock | list[MagicMock | BaseException]) -> Any:
 @pytest.fixture(autouse=True)
 def _no_retry_sleep() -> Iterator[None]:
     # The token refresh is wrapped in tenacity backoff; skip real sleeps so retry tests stay fast.
-    original = hubspot_refresh_access_token.retry.sleep
-    hubspot_refresh_access_token.retry.sleep = lambda _: None
+    retrying = hubspot_refresh_access_token.retry  # type: ignore[attr-defined]  # tenacity adds .retry at runtime
+    original_sleep = retrying.sleep
+    retrying.sleep = lambda _: None
     yield
-    hubspot_refresh_access_token.retry.sleep = original
+    retrying.sleep = original_sleep
 
 
 @pytest.mark.parametrize(
