@@ -42,7 +42,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.user import User
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
-from posthog.temporal.data_imports.cdc.adapters import CDCSourceAdapter, get_cdc_adapter
+from posthog.temporal.data_imports.cdc.adapters import CDCSourceAdapter, get_cdc_adapter, source_type_supports_cdc
 from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.temporal.data_imports.sources.common.base import AnySource, ExternalWebhookInfo, FieldType, WebhookSource
 from posthog.temporal.data_imports.sources.common.config import Config
@@ -2395,12 +2395,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         and by the self-managed setup popup to verify user-created publications.
         """
         source_type = request.data.get("source_type")
-        if source_type != ExternalDataSourceType.POSTGRES:
+        if not source_type_supports_cdc(source_type):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": "CDC prerequisite checks are only supported for Postgres."},
+                data={"message": "CDC prerequisite checks are only supported for Postgres and Supabase."},
             )
 
+        # Supabase is Postgres on the wire, so the Postgres impl handles config parsing and
+        # the live prerequisite checks for both.
         source_impl: PostgresSource = PostgresSource()
         is_valid, errors = source_impl.validate_config(request.data)
         if not is_valid:

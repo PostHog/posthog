@@ -7485,6 +7485,7 @@ def _make_postgres_source(
     slot_name: str = "posthog_slot",
     pub_name: str = "posthog_pub",
     extra_job_inputs: dict | None = None,
+    source_type: str = "Postgres",
 ) -> ExternalDataSource:
     job_inputs: dict[str, t.Any] = {
         "host": "localhost",
@@ -7514,7 +7515,7 @@ def _make_postgres_source(
         source_id=str(uuid.uuid4()),
         connection_id=str(uuid.uuid4()),
         destination_id=str(uuid.uuid4()),
-        source_type="Postgres",
+        source_type=source_type,
         created_by=user,
         prefix="pg_",
         job_inputs=job_inputs,
@@ -7663,6 +7664,20 @@ class TestCheckCDCPrerequisitesWizard(APIBaseTest):
         assert "Could not connect to Postgres to check prerequisites" in response.json()["message"]
         # User/upstream connection failures must not pollute error tracking.
         mock_capture.assert_not_called()
+
+    @patch.object(PostgresSource, "is_database_host_valid", return_value=(True, None))
+    @patch.object(PostgresSource, "ssh_tunnel_is_valid", return_value=(True, None))
+    @patch.object(PostgresSource, "check_cdc_prerequisites", return_value=[])
+    def test_supabase_source_type_is_accepted(self, _mock_prereqs, _mock_ssh, _mock_host) -> None:
+        # Supabase is Postgres on the wire — the prereq endpoint must not reject it by source type.
+        response = self._post(source_type="Supabase")
+        assert response.status_code == 200, response.content
+        assert response.json() == {"valid": True, "errors": []}
+
+    def test_unsupported_source_type_is_rejected(self) -> None:
+        response = self._post(source_type="Stripe")
+        assert response.status_code == 400
+        assert "only supported for" in response.json()["message"]
 
     @patch("products.data_warehouse.backend.api.external_data_source.capture_exception")
     @patch.object(PostgresSource, "is_database_host_valid", return_value=(True, None))
@@ -7834,6 +7849,34 @@ class TestEnableCDC(APIBaseTest):
 
         mock_sync_extraction.assert_called_once()
         mock_ensure_cleanup.assert_called_once()
+
+    @patch("products.data_warehouse.backend.api.external_data_source.is_cdc_enabled_for_team", return_value=True)
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.validate_prerequisites",
+        return_value=[],
+    )
+    @patch("products.data_warehouse.backend.api.external_data_source.ExternalDataSourceViewSet._setup_cdc_resources")
+    @patch("products.data_warehouse.backend.api.external_data_source.sync_cdc_extraction_schedule")
+    @patch("products.data_warehouse.backend.api.external_data_source.ensure_cdc_slot_cleanup_schedule")
+    def test_enable_cdc_succeeds_for_supabase(
+        self,
+        _mock_ensure_cleanup,
+        _mock_sync_extraction,
+        mock_setup_cdc_resources,
+        _check,
+        _flag,
+    ) -> None:
+        # Supabase reuses the Postgres CDC adapter, so the source-type gate must let it through.
+        source = _make_postgres_source(self.team.pk, self.user, source_type="Supabase")
+        mock_setup_cdc_resources.return_value = None
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/enable_cdc/",
+            data={"cdc_management_mode": "posthog"},
+            format="json",
+        )
+
+        assert response.status_code == 200, response.content
 
     @patch("products.data_warehouse.backend.api.external_data_source.is_cdc_enabled_for_team", return_value=True)
     @patch(

@@ -47,28 +47,28 @@ def test_supabase_host_field_points_at_the_pooler():
         "  db.abcdefgh.supabase.co  ",
     ],
 )
-def test_direct_host_is_rejected_with_pooler_guidance(host):
+def test_direct_host_failure_surfaces_ipv4_addon_hint(host):
+    # The direct host is the only one that supports logical replication (CDC), so we let the
+    # connection attempt run; on failure we explain the IPv4 add-on requirement.
     config = mock.MagicMock(host=host)
 
-    with mock.patch.object(PostgresSource, "validate_credentials") as super_validate:
+    with mock.patch.object(PostgresSource, "validate_credentials", return_value=(False, "could not connect")):
         success, error = SupabaseSource().validate_credentials(config, team_id=1)
 
     assert success is False
     assert error is not None
-    assert "pooler" in error.lower()
-    # We short-circuit before attempting the generic Postgres connection.
-    super_validate.assert_not_called()
+    assert "ipv4 add-on" in error.lower()
 
 
 @pytest.mark.parametrize(
     "host",
     [
+        "db.abcdefghijklmnop.supabase.co",
         "aws-0-us-east-1.pooler.supabase.com",
         "db.example.com",
-        "my-db.internal",
     ],
 )
-def test_pooler_and_other_hosts_delegate_to_postgres(host):
+def test_successful_connection_delegates_to_postgres(host):
     config = mock.MagicMock(host=host)
 
     with mock.patch.object(PostgresSource, "validate_credentials", return_value=(True, None)) as super_validate:
@@ -77,3 +77,20 @@ def test_pooler_and_other_hosts_delegate_to_postgres(host):
     assert success is True
     assert error is None
     super_validate.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "host",
+    [
+        "aws-0-us-east-1.pooler.supabase.com",
+        "my-db.internal",
+    ],
+)
+def test_non_direct_host_failure_uses_postgres_error(host):
+    config = mock.MagicMock(host=host)
+
+    with mock.patch.object(PostgresSource, "validate_credentials", return_value=(False, "postgres error")):
+        success, error = SupabaseSource().validate_credentials(config, team_id=1)
+
+    assert success is False
+    assert error == "postgres error"

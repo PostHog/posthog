@@ -15,7 +15,7 @@ from posthog.hogql.database.database import Database
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.exceptions_capture import capture_exception
-from posthog.temporal.data_imports.cdc.adapters import get_cdc_adapter
+from posthog.temporal.data_imports.cdc.adapters import get_cdc_adapter, source_type_supports_cdc
 from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.temporal.data_imports.sources.common.base import WebhookSource
 from posthog.temporal.data_imports.sources.common.sql import (
@@ -622,7 +622,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         is_cdc = (sync_type == ExternalDataSchema.SyncType.CDC) or (
             sync_type is None and instance.sync_type == ExternalDataSchema.SyncType.CDC
         )
-        if is_cdc and source.source_type == ExternalDataSourceType.POSTGRES:
+        if is_cdc and source_type_supports_cdc(source.source_type):
             self._handle_cdc_publication_change(instance, source, should_sync, sync_type)
 
         if trigger_refresh:

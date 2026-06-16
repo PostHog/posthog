@@ -31,6 +31,7 @@ import {
     type SourceWizardLogicProps,
     sourceWizardLogic,
 } from '../../../scenes/NewSourceScene/sourceWizardLogic'
+import { CDC_SOURCE_TYPES } from '../../cdc'
 import { CustomSourceManifestBuilder } from './CustomSourceManifestBuilder'
 import { GitHubRepositorySelector } from './GitHubRepositorySelector'
 import { SourceIntegrationChoice } from './IntegrationChoice'
@@ -451,13 +452,24 @@ function CDCPrerequisitesCheck(): JSX.Element {
     )
 }
 
-function CDCConfigSection(): JSX.Element {
+function CDCConfigSection({ sourceName }: { sourceName: string }): JSX.Element {
     // showAdvanced is purely local UI toggle — not a form field
     const [showAdvanced, setShowAdvanced] = React.useState(false)
 
     return (
         <Group name="payload">
             <div className="space-y-4 mt-4">
+                {sourceName === 'Supabase' && (
+                    <LemonBanner type="warning">
+                        <p className="font-semibold mb-1">Supabase CDC needs the direct connection + IPv4 add-on</p>
+                        <p className="text-xs m-0">
+                            Logical replication doesn't work through the Supabase pooler. Use the{' '}
+                            <strong>direct host</strong> (<code>db.&lt;ref&gt;.supabase.co</code>) and enable Supabase's{' '}
+                            <strong>IPv4 add-on</strong> (Project settings → Add-ons) so PostHog can reach it. The
+                            pooler host is fine for standard syncs but won't work for CDC.
+                        </p>
+                    </LemonBanner>
+                )}
                 <LemonField name="cdc_enabled">
                     {({ value: cdcEnabled, onChange }) => (
                         <div
@@ -806,9 +818,9 @@ export function SourceFormComponent({
             </Group>
             {!isUpdateMode &&
                 showCdcConfig &&
-                sourceConfig.name === 'Postgres' &&
+                CDC_SOURCE_TYPES.includes(sourceConfig.name) &&
                 featureFlags[FEATURE_FLAGS.DWH_POSTGRES_CDC] &&
-                selectedAccessMethod === 'warehouse' && <CDCConfigSection />}
+                selectedAccessMethod === 'warehouse' && <CDCConfigSection sourceName={sourceConfig.name} />}
             {showPrefix && !isPostgresDirectQuery && (
                 <LemonField
                     name="prefix"

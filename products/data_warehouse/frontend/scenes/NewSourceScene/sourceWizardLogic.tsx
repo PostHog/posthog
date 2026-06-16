@@ -624,7 +624,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     try {
                         return await api.externalDataSources.check_cdc_prerequisites(
                             {
-                                source_type: 'Postgres' as ExternalDataSourceType,
+                                source_type: (values.selectedConnector?.name || 'Postgres') as ExternalDataSourceType,
                                 ...payload,
                                 cdc_management_mode: mode,
                                 tables: [],
@@ -661,7 +661,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     try {
                         return await api.externalDataSources.check_cdc_prerequisites(
                             {
-                                source_type: 'Postgres' as ExternalDataSourceType,
+                                source_type: (values.selectedConnector?.name || 'Postgres') as ExternalDataSourceType,
                                 ...connectionPayload,
                                 cdc_management_mode: 'self_managed',
                                 // PostHog creates the slot itself — only verify the publication.
