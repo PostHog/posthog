@@ -13,7 +13,7 @@ import { z } from 'zod'
 import { createLogger } from '@posthog/agent-shared'
 import type { Logger } from '@posthog/agent-shared'
 
-import { asyncHandler, errorHandler, requestLogger } from './http-utils'
+import { asyncHandler, errorHandler, redactUrl, requestLogger } from './http-utils'
 import { AmbiguousRevisionError } from './resolver'
 
 function buildHarness(routes: (r: Router) => void): express.Express {
@@ -190,5 +190,41 @@ describe('requestLogger', () => {
         await request(appWith(log)).get('/healthz')
         await tick()
         expect(lastRequestLine(records)!.level).toBe('debug')
+    })
+
+    it('redacts token / preview_token query params from the logged url', async () => {
+        const { records, log } = fakeLogger()
+        await request(appWith(log)).get('/ok?session_id=s1&token=phx_secret&preview_token=jwt.secret.val')
+        await tick()
+        const line = lastRequestLine(records)!
+        const url = line.obj.url as string
+        expect(url).not.toContain('phx_secret')
+        expect(url).not.toContain('jwt.secret.val')
+        expect(url).toContain('token=REDACTED')
+        expect(url).toContain('preview_token=REDACTED')
+        // Non-sensitive params are preserved.
+        expect(url).toContain('session_id=s1')
+        // request_start (debug) is redacted too.
+        const startLine = records.find((r) => r.msg === 'request_start')!
+        expect(startLine.obj.url as string).not.toContain('phx_secret')
+    })
+})
+
+describe('redactUrl', () => {
+    it('returns the url unchanged when there is no query string', () => {
+        expect(redactUrl('/listen')).toBe('/listen')
+    })
+
+    it('returns the url unchanged when no sensitive params are present', () => {
+        expect(redactUrl('/listen?session_id=s1')).toBe('/listen?session_id=s1')
+    })
+
+    it('masks token and preview_token values, preserving other params', () => {
+        const out = redactUrl('/listen?token=abc&session_id=s1&preview_token=xyz')
+        expect(out).toContain('token=REDACTED')
+        expect(out).toContain('preview_token=REDACTED')
+        expect(out).toContain('session_id=s1')
+        expect(out).not.toContain('abc')
+        expect(out).not.toContain('xyz')
     })
 })
