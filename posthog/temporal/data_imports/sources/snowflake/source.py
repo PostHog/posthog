@@ -186,6 +186,9 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             # Snowflake error 250001: the user account was disabled by the customer's Snowflake admin
             # (e.g. `ALTER USER ... SET DISABLED = TRUE`). Retrying can never succeed until they re-enable it.
             "User access disabled. Contact your local system administrator": "Your Snowflake user account has been disabled. Please contact your Snowflake administrator to re-enable it, then resync.",
+            # Snowflake error 250001 (08001): the user's password has expired. Snowflake requires it
+            # to be changed via the web console before any login can succeed, so retrying never works.
+            "Specified password has expired": "Your Snowflake password has expired. Please change it in the Snowflake web console (or switch to key-pair authentication), then resync.",
             "MFA authentication is required": None,
             # The account enforces Duo Security multi-factor auth for this user, so the
             # connector's login is rejected (250001 / 08001). An unattended sync can't answer a

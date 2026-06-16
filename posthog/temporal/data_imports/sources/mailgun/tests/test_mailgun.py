@@ -463,12 +463,15 @@ class TestGetRows:
         assert saved_states[-1].next_url is None
         assert saved_states[-1].pending_domains == []
 
+    @pytest.mark.parametrize("status_code", [400, 401, 403])
     @mock.patch("posthog.temporal.data_imports.sources.mailgun.mailgun.make_tracked_session")
-    def test_domain_scoped_400_skips_domain_and_continues_fan_out(self, mock_session):
-        # The account lists a domain that can't be queried for events (disabled / unverified):
-        # its 400 must skip the domain, not abort the whole fan-out, so b.com still imports.
+    def test_domain_scoped_access_error_skips_domain_and_continues_fan_out(self, mock_session, status_code):
+        # The account lists a domain that can't be queried (disabled / unverified for 400, or a
+        # domain the key has no access to for 401/403). It must skip that domain, not abort the
+        # whole fan-out, so b.com still imports. A global credential failure 401s the /v4/domains
+        # listing instead, which never reaches the fan-out and stays non-retryable.
         domains_page = {"items": [{"name": "a.com"}, {"name": "b.com"}]}
-        a_bad = _error_response(400, f"{US_BASE}/v3/a.com/events")
+        a_bad = _error_response(status_code, f"{US_BASE}/v3/a.com/events")
         b_events = _paging_page([{"id": "e2", "timestamp": 1700000100.5}], None)
         mock_session.return_value.get.side_effect = [
             _response(domains_page),
@@ -486,6 +489,16 @@ class TestGetRows:
         assert saved_states[0].current_domain is None
         assert saved_states[-1].next_url is None
         assert saved_states[-1].pending_domains == []
+
+    @mock.patch("posthog.temporal.data_imports.sources.mailgun.mailgun.make_tracked_session")
+    def test_domain_listing_401_still_raises(self, mock_session):
+        # A 401 on the /v4/domains listing is a global credential failure, not a single bad
+        # domain — it must surface (and stay non-retryable) rather than be skipped per-domain.
+        mock_session.return_value.get.return_value = _error_response(401, f"{US_BASE}/v4/domains")
+
+        manager = _make_manager()
+        with pytest.raises(requests.HTTPError, match="401 Client Error"):
+            list(get_rows("key", "us", "events", mock.MagicMock(), manager))
 
     @mock.patch("posthog.temporal.data_imports.sources.mailgun.mailgun.make_tracked_session")
     def test_account_level_400_still_raises(self, mock_session):

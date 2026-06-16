@@ -88,6 +88,44 @@ def _get_recalc_state(recalculation_id: str) -> _RecalcState:
     )
 
 
+def discover_metrics_for_experiment(experiment: Experiment) -> list[ExperimentMetricToRecalculate]:
+    """Traverse the experiment definition and return the list of metrics a recalc should process.
+
+    Pure read of the experiment object — no database writes, no scoping concerns. The activity wrapper
+    (`_discover_experiment_metrics_sync`) loads + scopes + persists `metric_uuids`; the service layer can
+    call this directly when it already has the experiment in scope (e.g., to seed `total_metrics` at create
+    time so the client can show progress without waiting for the workflow's discovery activity to run).
+
+    Named `discover_metrics_for_experiment` (not `discover_experiment_metrics`) to avoid colliding with the
+    Temporal activity of the same shape in `recalculation_activities.py`, which takes a `recalculation_id`
+    instead of an Experiment.
+    """
+    metrics_to_recalculate: list[ExperimentMetricToRecalculate] = []
+
+    def _add(metric_uuid: str | None, metric_type: str) -> None:
+        if metric_uuid:
+            metrics_to_recalculate.append(
+                ExperimentMetricToRecalculate(
+                    experiment_id=experiment.id, metric_uuid=metric_uuid, metric_type=metric_type
+                )
+            )
+
+    # Inline metrics carry their uuid directly on the dict; the metric_type is the source list.
+    for source, metric_type in [(experiment.metrics, "primary"), (experiment.metrics_secondary, "secondary")]:
+        for metric in source or []:
+            _add(metric.get("uuid"), metric_type)
+
+    # Saved (shared) metrics live in the M2M through-model: uuid is on saved_metric.query["uuid"], and
+    # primary/secondary is recorded on the link's metadata["type"] (default "primary").
+    for link in experiment.experimenttosavedmetric_set.select_related("saved_metric").all():
+        saved_query = link.saved_metric.query
+        metric_uuid = saved_query.get("uuid") if saved_query else None
+        metric_type = link.metadata.get("type", "primary") if link.metadata else "primary"
+        _add(metric_uuid, metric_type)
+
+    return metrics_to_recalculate
+
+
 @database_sync_to_async
 def _discover_experiment_metrics_sync(recalculation_id: str) -> list[ExperimentMetricToRecalculate]:
     close_old_connections()
@@ -97,28 +135,7 @@ def _discover_experiment_metrics_sync(recalculation_id: str) -> list[ExperimentM
         recalculation = ExperimentMetricsRecalculation.objects.select_related("experiment").get(id=recalculation_id)
         experiment = recalculation.experiment
 
-        metrics_to_recalculate: list[ExperimentMetricToRecalculate] = []
-
-        def _add(metric_uuid: str | None, metric_type: str) -> None:
-            if metric_uuid:
-                metrics_to_recalculate.append(
-                    ExperimentMetricToRecalculate(
-                        experiment_id=experiment.id, metric_uuid=metric_uuid, metric_type=metric_type
-                    )
-                )
-
-        # Inline metrics carry their uuid directly on the dict; the metric_type is the source list.
-        for source, metric_type in [(experiment.metrics, "primary"), (experiment.metrics_secondary, "secondary")]:
-            for metric in source or []:
-                _add(metric.get("uuid"), metric_type)
-
-        # Saved (shared) metrics live in the M2M through-model: uuid is on saved_metric.query["uuid"], and
-        # primary/secondary is recorded on the link's metadata["type"] (default "primary").
-        for link in experiment.experimenttosavedmetric_set.select_related("saved_metric").all():
-            saved_query = link.saved_metric.query
-            metric_uuid = saved_query.get("uuid") if saved_query else None
-            metric_type = link.metadata.get("type", "primary") if link.metadata else "primary"
-            _add(metric_uuid, metric_type)
+        metrics_to_recalculate = discover_metrics_for_experiment(experiment)
 
         recalculation.metric_uuids = [m.metric_uuid for m in metrics_to_recalculate]
         recalculation.save(update_fields=["metric_uuids"])
