@@ -1,3 +1,4 @@
+from collections.abc import Iterable
 from contextlib import contextmanager
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, cast
@@ -3338,7 +3339,7 @@ class TestOffsetChunkingServerCursorFallback:
 
             # Without the fix this raises `ServerCursor.__init__() missing 1 required
             # positional argument: 'name'`; with it, offset_chunking yields every row.
-            tables = list(response.items())
+            tables = list(cast(Iterable[Any], response.items()))
             assert sum(t.num_rows for t in tables) == 5
         finally:
             with setup_conn.cursor() as cur:
