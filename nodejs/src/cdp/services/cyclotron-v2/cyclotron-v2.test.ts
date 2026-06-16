@@ -922,7 +922,7 @@ describe('Cyclotron V2', () => {
             const createFairWorker = (overrides?: Record<string, unknown>): CyclotronV2Worker =>
                 createWorker(EMAIL_QUEUE, { fairDequeue: true, ...overrides })
 
-            it('interleaves teams when fairDequeue is true', async () => {
+            it('interleaves teams when fairDequeue is true (small case)', async () => {
                 // The 2M-vs-1 scenario at a smaller scale: team A enqueues 5,
                 // team B enqueues 1. Without fair dequeue, A's 5 come before
                 // B's 1. With fair dequeue, B's 1 lands right after A's first.
@@ -937,11 +937,164 @@ describe('Cyclotron V2', () => {
                 const jobs = await dequeueOneBatch(worker)
 
                 expect(jobs).toHaveLength(2)
-                // First job is team A (counter 1, lower team_id → sorts first
-                // within the counter=1 group). Second job is team B (counter 1).
-                // The remaining 4 of team A all have counter >= 2 → sort after.
-                const teamIds = jobs.map((j) => j.teamId).sort()
-                expect(teamIds).toEqual([teamA, teamB])
+                // Order matters: A is counter=1 with lower team_id, B is counter=1
+                // with higher team_id — both have the smallest dequeue_seq values
+                // in the queue (round 1), and within round 1 team_id breaks ties.
+                expect(jobs.map((j) => j.teamId)).toEqual([teamA, teamB])
+            })
+
+            it('interleaves three teams across multiple rounds in the right order', async () => {
+                // Mixed-volume scenario:
+                //   team A enqueues 20 emails
+                //   team B enqueues 10
+                //   team C enqueues 1
+                //
+                // Expected dequeue order when draining everything in one batch:
+                //   Round 1 (counter=1): A1, B1, C1     ← team_id ASC within round
+                //   Round 2 (counter=2): A2, B2          ← C ran out at round 1
+                //   Round 3 (counter=3): A3, B3
+                //   ... rounds 4-10:     A_n, B_n
+                //   Rounds 11-20:        A11..A20       ← only A left
+                //
+                // Total: 31 jobs. Teams interleave for as long as both have
+                // backlog, then the larger backlog drains alone.
+                const teamA = 100
+                const teamB = 200
+                const teamC = 300
+                await manager.bulkCreateJobs(
+                    Array.from({ length: 20 }, () => ({ teamId: teamA, queueName: EMAIL_QUEUE }))
+                )
+                await manager.bulkCreateJobs(
+                    Array.from({ length: 10 }, () => ({ teamId: teamB, queueName: EMAIL_QUEUE }))
+                )
+                await manager.createJob({ teamId: teamC, queueName: EMAIL_QUEUE })
+
+                const worker = createFairWorker({ batchMaxSize: 100 })
+                const jobs = await dequeueOneBatch(worker)
+                expect(jobs).toHaveLength(31)
+
+                // Build the expected sequence explicitly.
+                const expected: number[] = []
+                // Rounds 1-10: A and B both active (C only contributes in round 1)
+                for (let round = 1; round <= 10; round++) {
+                    expected.push(teamA)
+                    expected.push(teamB)
+                    if (round === 1) {
+                        expected.push(teamC)
+                    }
+                }
+                // Rounds 11-20: only A
+                for (let round = 11; round <= 20; round++) {
+                    expected.push(teamA)
+                }
+                expect(jobs.map((j) => j.teamId)).toEqual(expected)
+            })
+
+            it('sorts by team_id ascending within the same round', async () => {
+                // All three teams enqueue exactly one job — they all sit at
+                // counter=1, so the round is the same and team_id breaks ties.
+                // Enqueue order shouldn't matter; only team_id should.
+                const teamHigh = 999
+                const teamMid = 500
+                const teamLow = 1
+                // Deliberately enqueue out of order to prove team_id wins.
+                await manager.createJob({ teamId: teamHigh, queueName: EMAIL_QUEUE })
+                await manager.createJob({ teamId: teamLow, queueName: EMAIL_QUEUE })
+                await manager.createJob({ teamId: teamMid, queueName: EMAIL_QUEUE })
+
+                const worker = createFairWorker({ batchMaxSize: 10 })
+                const jobs = await dequeueOneBatch(worker)
+
+                expect(jobs.map((j) => j.teamId)).toEqual([teamLow, teamMid, teamHigh])
+            })
+
+            it('keeps interleaving when the same teams enqueue across multiple batches', async () => {
+                // First wave: A and B each enqueue 3.
+                // Then: B enqueues 2 more (counters 4 and 5).
+                // Then: A enqueues 2 more (counters 4 and 5).
+                //
+                // Per-team counters don't reset across enqueue calls. So:
+                //   A1, A2, A3 (from wave 1) → counter 1, 2, 3
+                //   B1, B2, B3 (from wave 1) → counter 1, 2, 3
+                //   B4, B5     (from wave 2) → counter 4, 5
+                //   A4, A5     (from wave 3) → counter 4, 5
+                //
+                // Dequeue order (interleaved by counter, then team_id):
+                //   round 1: A, B
+                //   round 2: A, B
+                //   round 3: A, B
+                //   round 4: A, B   ← both teams have counter=4 jobs
+                //   round 5: A, B   ← both teams have counter=5 jobs
+                const teamA = 100
+                const teamB = 200
+                await manager.bulkCreateJobs(
+                    Array.from({ length: 3 }, () => ({ teamId: teamA, queueName: EMAIL_QUEUE }))
+                )
+                await manager.bulkCreateJobs(
+                    Array.from({ length: 3 }, () => ({ teamId: teamB, queueName: EMAIL_QUEUE }))
+                )
+                await manager.bulkCreateJobs(
+                    Array.from({ length: 2 }, () => ({ teamId: teamB, queueName: EMAIL_QUEUE }))
+                )
+                await manager.bulkCreateJobs(
+                    Array.from({ length: 2 }, () => ({ teamId: teamA, queueName: EMAIL_QUEUE }))
+                )
+
+                const worker = createFairWorker({ batchMaxSize: 10 })
+                const jobs = await dequeueOneBatch(worker)
+                expect(jobs).toHaveLength(10)
+
+                // Strict A,B,A,B,... pattern across all 5 rounds.
+                const expected = [teamA, teamB, teamA, teamB, teamA, teamB, teamA, teamB, teamA, teamB]
+                expect(jobs.map((j) => j.teamId)).toEqual(expected)
+            })
+
+            it('preserves fairness when draining in smaller batches', async () => {
+                // Three teams (10, 5, 2 jobs) drained in batches of 3.
+                // Each batch should still pick teams in the fair order — no
+                // batch should starve one team in favor of another.
+                const teamA = 100
+                const teamB = 200
+                const teamC = 300
+                await manager.bulkCreateJobs(
+                    Array.from({ length: 10 }, () => ({ teamId: teamA, queueName: EMAIL_QUEUE }))
+                )
+                await manager.bulkCreateJobs(
+                    Array.from({ length: 5 }, () => ({ teamId: teamB, queueName: EMAIL_QUEUE }))
+                )
+                await manager.bulkCreateJobs(
+                    Array.from({ length: 2 }, () => ({ teamId: teamC, queueName: EMAIL_QUEUE }))
+                )
+
+                // Drain in batches of 3 and accumulate the full order.
+                const collected: number[] = []
+                for (let i = 0; i < 6; i++) {
+                    const worker = createFairWorker({ batchMaxSize: 3 })
+                    const jobs = await dequeueOneBatch(worker)
+                    for (const job of jobs) {
+                        collected.push(job.teamId)
+                        await job.ack()
+                    }
+                }
+
+                // Expected full order: rounds drain fairly until a team runs out.
+                //   round 1: A, B, C  (all three active)
+                //   round 2: A, B, C  (all three still active)
+                //   round 3: A, B     (C ran out)
+                //   round 4: A, B
+                //   round 5: A, B
+                //   rounds 6-10: A    (B ran out)
+                const expected: number[] = []
+                for (let round = 1; round <= 2; round++) {
+                    expected.push(teamA, teamB, teamC)
+                }
+                for (let round = 3; round <= 5; round++) {
+                    expected.push(teamA, teamB)
+                }
+                for (let round = 6; round <= 10; round++) {
+                    expected.push(teamA)
+                }
+                expect(collected).toEqual(expected)
             })
 
             it('preserves FIFO when fairDequeue is false (default)', async () => {
