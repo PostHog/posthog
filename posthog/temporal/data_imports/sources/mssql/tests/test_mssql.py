@@ -302,6 +302,14 @@ class TestFetchTableStats:
         cursor.fetchone.return_value = ("t", "1000", "40 ZB", "32 ZB", "8 ZB", "0 ZB")
         assert impl.fetch_table_stats(cursor, "dbo", "t", logger) is None
 
+    def test_returns_none_when_view_returns_null_stats(self, impl, cursor, logger, mocker):
+        # sp_spaceused on a view returns NULL for rows/reserved/data. This must be a graceful
+        # skip — not an int(None) crash routed through capture_exception (which floods error tracking).
+        capture = mocker.patch("posthog.temporal.data_imports.sources.mssql.mssql.capture_exception")
+        cursor.fetchone.return_value = ("vw_thing", None, None, None, "0 KB", "0 KB")
+        assert impl.fetch_table_stats(cursor, "dbo", "vw_thing", logger) is None
+        capture.assert_not_called()
+
     def test_returns_none_on_exception(self, impl, cursor, logger):
         cursor.execute.side_effect = RuntimeError("boom")
         assert impl.fetch_table_stats(cursor, "dbo", "t", logger) is None

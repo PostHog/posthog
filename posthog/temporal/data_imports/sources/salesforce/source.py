@@ -33,6 +33,10 @@ class SalesforceSource(ResumableSource[SalesforceSourceConfig, SalesforceResumeC
             "400 Client Error: Bad Request for url": None,
             "403 Client Error: Forbidden for url": None,
             "inactive organization": None,
+            # Salesforce's OAuth token endpoint returns error_description "inactive user" when the
+            # user that authorized the connection has been deactivated. Retrying can't fix it —
+            # the user must be reactivated in Salesforce or the source reconnected with an active user.
+            "inactive user": "The Salesforce user for this connection is inactive. Reactivate it in Salesforce or reconnect the source with an active user.",
             # SalesforceAuthRequestError.raise_from_response formats token-refresh failures as
             # "<code> Client Error: <reason>: <error_description>", so the "... for url" patterns
             # above never match it. Key off the stable error_description returned by Salesforce
