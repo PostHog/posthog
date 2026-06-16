@@ -594,6 +594,35 @@ class TestSnowflakeSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            "invalid identifier 'PROPERTIES_HS_DATE_ENTERED_2698018010'",
+            # The real shape from production: the error code and identifier vary, but the
+            # "invalid identifier" substring is stable. Newlines are normalized to spaces upstream.
+            "000904 (42000): 01c5127d-0107-1b91-0002-d576110f85ca: SQL compilation error: error line 64 at position 36 "
+            "invalid identifier 'PROPERTIES_HS_DATE_ENTERED_2698018010'",
+        ],
+    )
+    def test_invalid_identifier_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Invalid-identifier error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "Specified password has expired",
+            # The real shape from production: codes + host vary, but the substring is stable.
+            "250001 (08001): None: Failed to connect to DB: gbnacyk-mlb13594.snowflakecomputing.com:443. "
+            "Specified password has expired.  Password must be changed using the Snowflake web console.",
+        ],
+    )
+    def test_expired_password_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Expired-password error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             "250003 (08001): Failed to connect to DB: acme-xy123.snowflakecomputing.com:443. Connection timed out",
             "Operation timed out while waiting for the warehouse to resume",
         ],

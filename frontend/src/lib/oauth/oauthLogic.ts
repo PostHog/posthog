@@ -2,7 +2,7 @@ import { actions, kea, listeners, path, reducers } from 'kea'
 import { urlToAction } from 'kea-router'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { getRelativeNextPath } from 'lib/utils'
+import { getRelativeNextPath } from 'lib/utils/url'
 
 import { Region } from '~/types'
 
