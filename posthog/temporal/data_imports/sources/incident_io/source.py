@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -40,6 +41,8 @@ class IncidentIoSource(ResumableSource[IncidentIoSourceConfig, IncidentIoResumeC
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.INCIDENT_IO,
+            category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
+            keywords=["incident.io"],
             label="incident.io",
             caption="""Enter your incident.io API key to pull your incident data into the PostHog Data warehouse.
 

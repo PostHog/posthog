@@ -9,39 +9,6 @@ feature: conversations
 url_prefix: /conversations/tickets
 ui_apps: {}
 tools:
-    conversations-append-message-create:
-        operation: conversations_append_message_create
-        enabled: false
-    conversations-cancel-partial-update:
-        operation: conversations_cancel_partial_update
-        enabled: false
-    conversations-create:
-        operation: conversations_create
-        enabled: false
-    conversations-destroy:
-        operation: conversations_destroy
-        enabled: false
-    conversations-list:
-        operation: conversations_list
-        enabled: false
-    conversations-queue-clear-create:
-        operation: conversations_queue_clear_create
-        enabled: false
-    conversations-queue-create:
-        operation: conversations_queue_create
-        enabled: false
-    conversations-queue-destroy:
-        operation: conversations_queue_destroy
-        enabled: false
-    conversations-queue-partial-update:
-        operation: conversations_queue_partial_update
-        enabled: false
-    conversations-queue-retrieve:
-        operation: conversations_queue_retrieve
-        enabled: false
-    conversations-retrieve:
-        operation: conversations_retrieve
-        enabled: false
     conversations-tickets-bulk-update-status-create:
         operation: conversations_tickets_bulk_update_status_create
         enabled: false

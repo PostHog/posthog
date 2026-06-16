@@ -12,6 +12,7 @@ from requests import Response
 from urllib3.util.retry import Retry
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -480,6 +481,7 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.CUSTOM,
+            category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Custom REST source",
             releaseStatus=ReleaseStatus.ALPHA,
             caption=(
