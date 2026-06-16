@@ -40,6 +40,7 @@ from posthog.temporal.data_imports.sources.postgres.partitioned_tables import (
 )
 from posthog.temporal.data_imports.sources.postgres.postgres import (
     _MAX_SETUP_RECOVERY_CONFLICT_RETRIES,
+    _MIN_RECOVERY_CONFLICT_CHUNK_SIZE,
     FORCE_UTF8_CLIENT_ENCODING,
     SSL_REQUIRED_AFTER_DATE,
     JsonAsStringLoader,
@@ -71,8 +72,10 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     _is_partitioned_table,
     _is_read_replica,
     _is_unsupported_function_error,
+    _next_recovery_conflict_chunk_size,
     _normalize_function_names,
     _raise_if_setup_connection_broken,
+    _recovery_conflict_abort_error,
     _rls_active_from_conn,
     _role_subject_to_rls,
     _statement_timeout_as_non_retryable,
@@ -336,17 +339,11 @@ class TestPostgresSourceNonRetryableErrors:
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Non-integer incremental cursor error should be non-retryable: {error_msg}"
 
-    @pytest.mark.parametrize(
-        "error_msg",
-        [
-            "Hit 30 successive SerializationFailure errors. Aborting.",
-            "Exception: Hit 30 successive SerializationFailure errors. Aborting.",
-        ],
-    )
-    def test_exhausted_recovery_conflict_retries_are_non_retryable(self, source, error_msg):
+    def test_exhausted_recovery_conflict_retries_are_non_retryable(self, source):
+        error_msg = str(_recovery_conflict_abort_error(10))
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
-        assert is_non_retryable, f"Exhausted recovery-conflict error should be non-retryable: {error_msg}"
+        assert is_non_retryable, f"Exhausted recovery-conflict abort should be non-retryable: {error_msg}"
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -470,8 +467,10 @@ class TestPostgresSourceSetupRecoveryConflictRetry:
                 with pytest.raises(Exception) as exc_info:
                     self._call_postgres_source()
 
-        # Exhausting the in-process retries surfaces the message wired into NonRetryableErrors.
-        assert "successive SerializationFailure errors. Aborting." in str(exc_info.value)
+        message = str(exc_info.value)
+        assert "conflict with recovery" in message and "max_standby_streaming_delay" in message
+        non_retryable = PostgresSource().get_non_retryable_errors()
+        assert any(pattern in message for pattern in non_retryable.keys())
         # Each retry reconnects, so connect is called once per attempt.
         assert connect_mock.call_count == _MAX_SETUP_RECOVERY_CONFLICT_RETRIES
 
@@ -643,6 +642,43 @@ class TestConnectWithDroppedRetry:
                 _connect_with_dropped_retry(connect, logger, max_attempts=3)
 
         assert connect.call_count == 3
+
+
+class TestNextRecoveryConflictChunkSize:
+    @pytest.mark.parametrize(
+        "chunk_size,successive_errors,expected",
+        [
+            # Grace period — don't shrink on a one-off blip.
+            (20_000, 1, 20_000),
+            (20_000, 4, 20_000),
+            # Sustained conflict → reduce.
+            (20_000, 5, int(20_000 / 1.5)),
+            # Never drops below the floor.
+            (120, 5, _MIN_RECOVERY_CONFLICT_CHUNK_SIZE),
+            (_MIN_RECOVERY_CONFLICT_CHUNK_SIZE, 5, _MIN_RECOVERY_CONFLICT_CHUNK_SIZE),
+        ],
+    )
+    def test_chunk_size_reduction(self, chunk_size, successive_errors, expected):
+        assert _next_recovery_conflict_chunk_size(chunk_size, successive_errors) == expected
+
+    def test_converges_to_floor(self):
+        chunk_size = 20_000
+        for _ in range(50):
+            chunk_size = _next_recovery_conflict_chunk_size(chunk_size, 5)
+        assert chunk_size == _MIN_RECOVERY_CONFLICT_CHUNK_SIZE
+
+
+class TestRecoveryConflictAbortError:
+    def test_message_is_actionable(self):
+        message = str(_recovery_conflict_abort_error(10))
+        assert "conflict with recovery" in message
+        assert "max_standby_streaming_delay" in message
+        assert "hot_standby_feedback" in message
+
+    def test_message_is_non_retryable(self):
+        message = str(_recovery_conflict_abort_error(10))
+        non_retryable = PostgresSource().get_non_retryable_errors()
+        assert any(pattern in message for pattern in non_retryable.keys())
 
 
 # Redshift (and other Postgres-wire engines) report `client_encoding` as the legacy alias
