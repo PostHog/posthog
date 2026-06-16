@@ -623,8 +623,7 @@ class TestSnowflakeSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
-            "View definition for 'MY_DB.PUBLIC.MY_VIEW' declared 5 column(s), "
-            "but view query produces 6 column(s).",
+            "View definition for 'MY_DB.PUBLIC.MY_VIEW' declared 5 column(s), but view query produces 6 column(s).",
             # The production shape: the query id, view name, and column counts vary, but the
             # message template substring is stable.
             "002057 (42601): 00000000-0000-0000-0000-000000000000: SQL compilation error: "
