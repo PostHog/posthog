@@ -407,10 +407,14 @@ function findRootDocument(rootNode: Element | Document, defaults: Options): Elem
 function unique(path: Knot[], rootDocument: Element | Document): boolean {
     const css = selector(path)
     switch (rootDocument.querySelectorAll(css).length) {
-        case 0:
-            throw new Error(`Can't select any node with this selector: ${css}`)
         case 1:
             return true
+        // PostHog: upstream throws on a 0-match, but a candidate that matches no
+        // nodes (a DOM race during hover, or a shadow-DOM/iframe-scoped class) is
+        // simply not a unique selector. Treat it as non-unique so callers skip it
+        // and fall back to a positional path instead of surfacing the throw as
+        // error-tracking noise (it is caught in computeElementQuery).
+        case 0:
         default:
             return false
     }
