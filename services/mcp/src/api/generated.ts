@@ -509,15 +509,9 @@ export namespace Schemas {
     }
 
     export interface AccountsQuery {
-      /** Match accounts whose account executive is any of these user ids (OR semantics). */
-      accountExecutive?: number[] | null;
-      /** Match accounts whose account owner is any of these user ids (OR semantics). */
-      accountOwner?: number[] | null;
       allRolesUnassigned?: boolean | null;
       /** Match accounts where any of these user ids is the CSM or the account executive (OR over both roles). Drives the "My accounts" shortcut (the current user's id) and the shareable "Assigned to" filter — the ids are explicit so a shared URL resolves identically for every viewer. */
       assignedToUserIds?: number[] | null;
-      /** Match accounts whose CSM is any of these user ids (OR semantics). */
-      csm?: number[] | null;
       /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
       filterExpression?: string | null;
       kind?: 'AccountsQuery';
@@ -30097,6 +30091,7 @@ export namespace Schemas {
      * * `pganalyze` - pganalyze
      * * `signals_scout` - Signals scout
      * * `logs` - Logs
+     * * `health_checks` - Health checks
      */
     export type SourceProductEnum = typeof SourceProductEnum[keyof typeof SourceProductEnum];
 
@@ -30112,6 +30107,7 @@ export namespace Schemas {
       Pganalyze: 'pganalyze',
       SignalsScout: 'signals_scout',
       Logs: 'logs',
+      HealthChecks: 'health_checks',
     } as const;
 
     /**
@@ -30124,6 +30120,7 @@ export namespace Schemas {
      * * `issue_spiking` - Issue spiking
      * * `cross_source_issue` - Cross source issue
      * * `alert_state_change` - Alert state change
+     * * `health_issue` - Health issue
      */
     export type SignalSourceConfigSourceTypeEnum = typeof SignalSourceConfigSourceTypeEnum[keyof typeof SignalSourceConfigSourceTypeEnum];
 
@@ -30138,6 +30135,7 @@ export namespace Schemas {
       IssueSpiking: 'issue_spiking',
       CrossSourceIssue: 'cross_source_issue',
       AlertStateChange: 'alert_state_change',
+      HealthIssue: 'health_issue',
     } as const;
 
     export interface SignalSourceConfig {
@@ -55902,7 +55900,7 @@ export namespace Schemas {
 
 
     export const FeatureFlagsListEvaluationRuntime = {
-      Both: 'both',
+      All: 'all',
       Client: 'client',
       Server: 'server',
     } as const;
