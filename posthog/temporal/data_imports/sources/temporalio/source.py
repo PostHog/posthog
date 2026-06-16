@@ -38,6 +38,13 @@ class TemporalIOSource(ResumableSource[TemporalIOSourceConfig, TemporalIOResumeC
             # The Temporal core builds the connection target from the configured host:port. An empty
             # or scheme-only host yields no parseable host — a config problem retrying never fixes.
             "invalid target URL: empty host": "Temporal could not connect because the configured host is empty or invalid. Update the source with the hostname of your Temporal namespace's gRPC endpoint (for example, your-namespace.account.tmprl.cloud) — without a protocol scheme or port.",
+            # tonic's DNS resolver surfaces getaddrinfo's EAI_NONAME as this exact phrase when the
+            # configured host does not resolve at all (a wrong/typo'd hostname, a deleted namespace,
+            # or a scheme/port accidentally pasted into the host field). Retrying never recovers a
+            # name that doesn't exist in DNS. Match the EAI_NONAME phrase specifically — the transient
+            # EAI_AGAIN ("Temporary failure in name resolution") is a different message and stays
+            # retryable.
+            "failed to lookup address information: Name or service not known": "Temporal could not connect because the configured host could not be found in DNS. Check the source's host points at your Temporal namespace's gRPC endpoint (for example, your-namespace.account.tmprl.cloud) — without a protocol scheme or port — and that the namespace still exists.",
             "received fatal alert: UnknownCA": "Temporal rejected this source's client certificate because it is not signed by a certificate authority the namespace trusts. This usually means the namespace's CA certificates were rotated — update the source with a client certificate and key signed by the current CA.",
             "received fatal alert: CertificateExpired": "This source's client certificate has expired. Update the source with a renewed client certificate and key.",
             "received fatal alert: CertificateRevoked": "This source's client certificate has been revoked. Update the source with a new client certificate and key.",
