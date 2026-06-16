@@ -102,8 +102,8 @@ tools:
         description: >
             Body `{ value: "…" }`. Merges into the encrypted env without touching siblings. **Disabled for the standard
             MCP surface** — agents should never see raw secret values in their tool-call history. The standard path is
-            to deep-link the user into the agent console's secret editor (see the `secrets-and-integrations` skill for
-            the URL contract and callback flow); this endpoint exists for CI / scripts that already hold the value
+            to deep-link the user into the agent console's secret editor (see the secrets-and-integrations skill for the
+            URL contract and callback flow); this endpoint exists for CI / scripts that already hold the value
             out-of-band.
     agent-applications-list:
         operation: agent_applications_list
@@ -543,7 +543,7 @@ tools:
             Body `{ env: { KEY: "value", … } }` — the whole env is replaced (not patched). **Disabled for the standard
             MCP surface** — the body carries raw secret values, which would land in the agent's tool-call history. Raw
             secret entry goes through the agent console's secret editor instead (deep-link flow; see the
-            `secrets-and-integrations` skill). Values are encrypted at rest with the team's Fernet keys and never leave
+            secrets-and-integrations skill). Values are encrypted at rest with the team's Fernet keys and never leave
             Django; this endpoint stays available on the REST API for the console / CI that already hold the values.
     agent-applications-stats:
         operation: agent_applications_stats

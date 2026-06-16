@@ -144,12 +144,29 @@ class TestPostgresSourceNonRetryableErrors:
             'FATAL: no such database "nonexistent_db"',
             "Name or service not known",
             "BaseSSHTunnelForwarderError: Could not establish session to SSH gateway",
+            # Newer Supabase/Supavisor pooler wording for a missing tenant/user. The older
+            # "Tenant or user not found connection to server" / "FATAL: Tenant or user not found"
+            # patterns don't substring-match this, so it needs its own key.
+            'connection failed: connection to server at "52.45.94.125", port 6543 failed: FATAL:  (ENOTFOUND) tenant/user postgres.hksbxxtlcfeyyalgveif not found',
         ],
     )
     def test_permanent_connection_errors_are_non_retryable(self, source, error_msg):
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Permanent error should be non-retryable: {error_msg}"
+
+    def test_supavisor_enotfound_tenant_user_uses_new_key(self, source):
+        # The older tenant/user patterns don't cover the newer "(ENOTFOUND) tenant/user" wording,
+        # so confirm it's specifically the new key that recognises this message.
+        error_msg = (
+            'connection failed: connection to server at "52.45.94.125", port 6543 failed: '
+            "FATAL:  (ENOTFOUND) tenant/user postgres.hksbxxtlcfeyyalgveif not found"
+        )
+        non_retryable = source.get_non_retryable_errors()
+        assert "(ENOTFOUND) tenant/user" in non_retryable
+        assert "Tenant or user not found connection to server" not in error_msg
+        assert "FATAL: Tenant or user not found" not in error_msg
+        assert any(pattern in error_msg for pattern in non_retryable.keys())
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -186,6 +203,29 @@ class TestPostgresSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Exhausted recovery-conflict error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Raw psycopg message (what the activity-level check sees via str(e)) — no class name.
+            "permission denied for table brand",
+            "permission denied for view posthog_areas",
+            "permission denied for materialized view posthog_notifications",
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            "InsufficientPrivilege: permission denied for table brand",
+        ],
+    )
+    def test_permission_denied_errors_are_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Permission-denied error should be non-retryable: {error_msg}"
+
+    def test_permission_denied_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = "permission denied for table brand"
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "Permission-denied error should surface an actionable message"
+        assert "SELECT" in friendly[0]
 
     @pytest.mark.parametrize(
         "error_msg",
