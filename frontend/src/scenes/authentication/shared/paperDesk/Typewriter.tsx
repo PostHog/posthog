@@ -41,7 +41,7 @@ export function Typewriter({ lines }: { lines: string[] }): JSX.Element {
             aria-hidden
         >
             {parts.map((part, idx) => (
-                <div key={idx} className="text-tertiary first:font-semibold first:text-secondary">
+                <div key={idx} className="text-tertiary first:font-semibold first:text-tertiary">
                     {part}
                     {idx === parts.length - 1 && (
                         <span className="PaperDesk__caret inline-block w-2 h-[1.05em] ml-0.5 [vertical-align:-2px] bg-warning rounded-[1px]" />
