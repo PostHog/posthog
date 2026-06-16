@@ -721,7 +721,7 @@ class TestServerCursorStatementTimeout:
                 incremental_field="updated_at" if should_use_incremental_field else None,
                 incremental_field_type=IncrementalFieldType.Timestamp if should_use_incremental_field else None,
             )
-            list(response.items())
+            list(cast(Iterable[Any], response.items()))
 
     @pytest.mark.parametrize(
         "should_use_incremental_field,expected_exception,expected_substr",
