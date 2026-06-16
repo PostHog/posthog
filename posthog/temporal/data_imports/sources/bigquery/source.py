@@ -60,6 +60,15 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # customer's service account — retrying can't resolve them; the user must grant the
             # missing permission (or the referenced table/dataset must exist).
             "Access Denied:": "BigQuery denied access to a table or dataset. Please ensure your service account has read access (the bigquery.tables.getData permission, e.g. the BigQuery Data Viewer role) on every dataset and table you're syncing, then reconnect the source.",
+            # Federated/external BigQuery tables (e.g. a Cloud SQL connection) read through to the
+            # underlying database. When that database's role lacks read access, BigQuery surfaces the
+            # upstream ACL failure inside a 400 BadRequest, e.g. "Error while reading data ...
+            # Failed to fetch row from PostgreSQL server. Error: ERROR:  permission denied for table
+            # <name>". This is a deterministic permission problem on the customer's data source —
+            # retrying can't resolve it; the user must grant the federation's database user read
+            # access. The "Access Denied:"/403 keys above only cover BigQuery's own IAM wording, so
+            # this lowercase upstream form slips through and retries forever.
+            "permission denied for table": 'BigQuery couldn\'t read a federated table because the underlying database denied permission ("permission denied for table"). Please grant the database user behind your BigQuery connection read access to the table, then reconnect the source.',
             # Raised from the shared `evolve_pyarrow_schema` in `pipelines/pipeline/utils.py`
             # when an integer column's source type was widened (e.g. `INT64` widened from a
             # narrower numeric type) after the destination table was created with the narrower
