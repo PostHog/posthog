@@ -1,6 +1,7 @@
 import uuid
 
 from posthog.test.base import NonAtomicBaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -8,7 +9,7 @@ from posthog.models import Project, Team
 
 from products.actions.backend.models.action import Action
 
-from ee.hogai.tool_errors import MaxToolRetryableError
+from ee.hogai.tool_errors import MaxToolAccessDeniedError, MaxToolRetryableError
 from ee.hogai.tools.actions.core import MAX_LIST_LIMIT, ActionStepInput
 from ee.hogai.tools.actions.tool import (
     CreateActionTool,
@@ -65,7 +66,6 @@ class TestActionTools(NonAtomicBaseTest):
     async def test_list_offset_paginates_without_overlap(self):
         page1, _ = await self._list_tool()._arun_impl(limit=2, offset=0)
         page2, _ = await self._list_tool()._arun_impl(limit=2, offset=2)
-        # Ordered by name; pages must be disjoint.
         self.assertIn("Checkout completed", page1)
         self.assertIn("Checkout started", page1)
         self.assertIn("Pricing viewed", page2)
@@ -100,7 +100,6 @@ class TestActionTools(NonAtomicBaseTest):
         self.assertEqual(step["url"], "/x")
         self.assertEqual(step["url_matching"], "contains")
         self.assertEqual(action.created_by_id, self.user.id)
-        # Saving computes bytecode.
         self.assertIsNotNone(action.bytecode)
 
     @parameterized.expand([("blank", "   "), ("empty", "")])
@@ -153,7 +152,6 @@ class TestActionTools(NonAtomicBaseTest):
         self.assertIn("Deleted", content)
         refreshed = await Action.objects.aget(pk=action.id)
         self.assertTrue(refreshed.deleted)
-        # Deleted actions are excluded from listing and lookups.
         with self.assertRaises(MaxToolRetryableError):
             await GetActionTool(team=self.team, user=self.user)._arun_impl(action_id=action.id)
 
@@ -165,6 +163,15 @@ class TestActionTools(NonAtomicBaseTest):
         self.assertIn("Signup", preview)
 
     async def test_team_isolation(self):
-        # A tool scoped to self.team must not reach an action in another team.
         with self.assertRaises(MaxToolRetryableError):
             await GetActionTool(team=self.team, user=self.user)._arun_impl(action_id=self.foreign_action.id)
+
+    async def test_update_denied_by_object_level_access(self):
+        action = await Action.objects.aget(team=self.team, name="Signup")
+        # Object-level access control denying editor must block the write, even though
+        # the user has team/resource-level access (the team filter would let it through).
+        with patch("ee.hogai.tool.UserAccessControl.check_access_level_for_object", return_value=False):
+            with self.assertRaises(MaxToolAccessDeniedError):
+                await UpdateActionTool(team=self.team, user=self.user)._arun_impl(action_id=action.id, name="Blocked")
+        refreshed = await Action.objects.aget(pk=action.id)
+        self.assertEqual(refreshed.name, "Signup")

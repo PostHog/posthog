@@ -6,8 +6,9 @@ from pydantic import BaseModel, Field
 
 from posthog.models import Team, User
 from posthog.models.activity_logging.utils import activity_storage
+from posthog.resource_limits import LimitKey, check_count_limit
 
-from products.actions.backend.models.action import Action, ActionStepJSON
+from products.actions.backend.models.action import Action, ActionStepJSON, ActionStepMatching
 
 # Cap how many actions a single list call can return, so the tool can never blow up
 # the agent's context window the way the unbounded REST default could.
@@ -35,12 +36,12 @@ class ActionStepInput(BaseModel):
     )
     tag_name: Optional[str] = Field(default=None, description='HTML tag name to match (e.g. "button", "a").')
     text: Optional[str] = Field(default=None, description="Element text content to match.")
-    text_matching: Optional[str] = Field(default=None, description="How to match text: contains, regex, or exact.")
+    text_matching: Optional[ActionStepMatching] = Field(default=None, description="How to match text.")
     href: Optional[str] = Field(default=None, description="Link href attribute to match.")
-    href_matching: Optional[str] = Field(default=None, description="How to match href: contains, regex, or exact.")
+    href_matching: Optional[ActionStepMatching] = Field(default=None, description="How to match href.")
     url: Optional[str] = Field(default=None, description="Page URL to match.")
-    url_matching: Optional[str] = Field(
-        default=None, description="How to match the URL: contains (default), regex, or exact."
+    url_matching: Optional[ActionStepMatching] = Field(
+        default=None, description="How to match the URL (default: contains)."
     )
 
     def to_step_dict(self) -> dict:
@@ -192,6 +193,10 @@ def create_action(
     team: Team, user: User, name: str, description: Optional[str], steps: Optional[list[ActionStepInput]]
 ) -> str:
     _check_name_available(team.id, name)
+    # Emit the same "resource limit hit" telemetry the REST create path does. This is
+    # notification-only — check_count_limit never raises or blocks.
+    current_count = Action.objects.filter(team=team, deleted=False).count()
+    check_count_limit(team=team, key=LimitKey.MAX_ACTIONS_PER_TEAM, current_count=current_count, user=user)
     action = Action(team=team, name=name, description=description or "", created_by=user)
     if steps:
         action.steps = [s.to_step_dict() for s in steps]

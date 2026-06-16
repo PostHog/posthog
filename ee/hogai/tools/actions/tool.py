@@ -42,7 +42,7 @@ looking for a specific action by name, and use `limit`/`offset` to page rather t
 Use this to discover an action's ID before reading its properties (read_taxonomy), updating, or deleting it.
 """.strip()
 
-GET_ACTION_DESCRIPTION = "Get a single action by ID, including its full step (trigger condition) definition.".strip()
+GET_ACTION_DESCRIPTION = "Get a single action by ID, including its full step (trigger condition) definition."
 
 CREATE_ACTION_DESCRIPTION = """
 Create a new action. An action unifies one or more trigger conditions ("steps", OR-ed together) into a single
@@ -55,7 +55,7 @@ Update an existing action's name, description, or steps. Providing `steps` REPLA
 the full desired set. Look up the current definition with get_action first if you only want to tweak part of it.
 """.strip()
 
-DELETE_ACTION_DESCRIPTION = "Delete an action by ID. This removes it from insights and funnels that use it.".strip()
+DELETE_ACTION_DESCRIPTION = "Delete an action by ID. This removes it from insights and funnels that use it."
 
 
 class ListActionsTool(MaxTool):
