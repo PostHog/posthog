@@ -1,6 +1,6 @@
 from collections.abc import Iterable
 from contextlib import contextmanager
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta, timezone
 from typing import Any, cast
 
 import pytest
@@ -48,8 +48,10 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     PostgreSQLColumn,
     RangeAsStringLoader,
     SafeDateLoader,
+    SafeTimeLoader,
     SafeTimestampLoader,
     SafeTimestamptzLoader,
+    SafeTimetzLoader,
     _build_count_query,
     _build_query,
     _connect_to_postgres,
@@ -162,6 +164,51 @@ class TestSafeTimestamptzLoader:
         # timestamptz columns map to a UTC-aware Arrow type, so clamps must stay aware
         # to avoid mixing naive and aware datetimes in the same column.
         assert loader.load(b"200082-12-31 18:30:00+00").tzinfo is UTC
+
+
+class TestSafeTimeLoader:
+    @pytest.fixture
+    def loader(self):
+        return SafeTimeLoader(oid=1083)
+
+    @pytest.mark.parametrize(
+        "input_data,expected",
+        [
+            # Postgres allows 24:00:00 (end-of-day) but Python's time caps at 23 — clamp to max.
+            (b"24:00:00", time.max),
+            (b"24:00:00.000000", time.max),
+            # Normal values are parsed unchanged.
+            (b"00:00:00", time(0, 0, 0)),
+            (b"13:45:30", time(13, 45, 30)),
+            (b"13:45:30.123456", time(13, 45, 30, 123456)),
+            (b"23:59:59.999999", time(23, 59, 59, 999999)),
+        ],
+    )
+    def test_load_times(self, loader, input_data, expected):
+        assert loader.load(input_data) == expected
+
+    def test_non_hour_24_errors_still_propagate(self, loader):
+        with pytest.raises(psycopg.DataError):
+            loader.load(b"99:99:99")
+
+
+class TestSafeTimetzLoader:
+    @pytest.fixture
+    def loader(self):
+        return SafeTimetzLoader(oid=1266)
+
+    @pytest.mark.parametrize(
+        "input_data,expected",
+        [
+            (b"24:00:00+00", time.max.replace(tzinfo=UTC)),
+            (b"24:00:00.000000+00", time.max.replace(tzinfo=UTC)),
+            (b"24:00:00+05:30", time.max.replace(tzinfo=timezone(timedelta(hours=5, minutes=30)))),
+            (b"24:00:00-08", time.max.replace(tzinfo=timezone(timedelta(hours=-8)))),
+            (b"13:45:30+02", time(13, 45, 30, tzinfo=timezone(timedelta(hours=2)))),
+        ],
+    )
+    def test_load_timetz(self, loader, input_data, expected):
+        assert loader.load(input_data) == expected
 
 
 class TestPostgresImplementationWiring:
