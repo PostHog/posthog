@@ -18871,6 +18871,32 @@
             },
             "type": "object"
         },
+        "ExperimentExposureEstimateConfig": {
+            "additionalProperties": false,
+            "description": "Exposure estimate settings for the experiment running-time calculator.",
+            "properties": {
+                "conversionRateInputType": {
+                    "description": "'manual' when the baseline value and exposure rate were entered by hand, 'automatic' when derived from live experiment data.",
+                    "enum": ["manual", "automatic"],
+                    "type": "string"
+                },
+                "manualBaselineValue": {
+                    "description": "Manually entered baseline metric value (a conversion percentage for funnel metrics). Only used in manual mode.",
+                    "type": "number"
+                },
+                "manualExposureRate": {
+                    "description": "Manually entered estimate of users exposed to the experiment per day. Only used in manual mode.",
+                    "type": "number"
+                },
+                "manualMetricType": {
+                    "description": "Metric type the manual baseline value refers to. Only used in manual mode.",
+                    "enum": ["funnel", "mean_count", "mean_sum_or_avg"],
+                    "type": "string"
+                }
+            },
+            "required": ["conversionRateInputType"],
+            "type": "object"
+        },
         "ExperimentExposureQuery": {
             "additionalProperties": false,
             "properties": {
@@ -19966,6 +19992,36 @@
             ],
             "type": "object"
         },
+        "ExperimentRunningTimeCalculation": {
+            "additionalProperties": false,
+            "description": "Running-time calculator state for an experiment. Canonical home for keys that historically lived in `parameters`.",
+            "properties": {
+                "exposure_estimate_config": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/ExperimentExposureEstimateConfig"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "How the exposure estimate is configured: manual user-entered values or automatic from live experiment data."
+                },
+                "minimum_detectable_effect": {
+                    "description": "Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes.",
+                    "type": "number"
+                },
+                "recommended_running_time": {
+                    "description": "Estimated number of days needed to reach the recommended sample size.",
+                    "type": "number"
+                },
+                "recommended_sample_size": {
+                    "description": "Recommended number of exposed users needed for statistical significance.",
+                    "type": "number"
+                }
+            },
+            "type": "object"
+        },
         "ExperimentSignificanceCode": {
             "enum": ["significant", "not_enough_exposure", "low_win_probability", "high_loss", "high_p_value"],
             "type": "string"
@@ -20649,6 +20705,7 @@
                 "AmazonKinesis",
                 "AmazonCloudWatch",
                 "OpenAIAds",
+                "Grafana",
                 "Custom"
             ],
             "type": "string"
@@ -24129,6 +24186,7 @@
                 "google-cloud-service-account",
                 "google-cloud-storage",
                 "google-ads",
+                "google-analytics",
                 "google-search-console",
                 "google-sheets",
                 "linkedin-ads",
@@ -39914,7 +39972,7 @@
             "type": "string"
         },
         "SlackIntegrationScopeInReview": {
-            "enum": ["assistant:write", "im:history", "mpim:read"],
+            "enum": ["assistant:write", "channels:manage", "im:history", "mpim:read"],
             "type": "string"
         },
         "SlashCommandName": {

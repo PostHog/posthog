@@ -549,6 +549,56 @@ export interface BarRect {
 
 export const DEFAULT_BAR_CORNER_RADIUS = 4
 
+/** d3 `.darker()` factor for a bar's hover highlight — shared by BarChart and ComboChart so the
+ *  hovered-bar shade stays consistent. */
+export const BAR_HIGHLIGHT_DARKEN = 0.6
+
+/** Run `draw` with the canvas clipped to the plot area vertically (full width, padded `pad` px top
+ *  and bottom). Keeps out-of-domain values (e.g. a trendline below 0) out of the axis gutters while
+ *  leaving the left/right edges unclipped so line caps and edge point markers render whole. Shared
+ *  by LineChart and ComboChart. `restore` always runs, even if `draw` throws. */
+export function withVerticalClip(
+    ctx: CanvasRenderingContext2D,
+    dimensions: ChartDimensions,
+    draw: () => void,
+    pad = 8
+): void {
+    ctx.save()
+    ctx.beginPath()
+    ctx.rect(0, dimensions.plotTop - pad, dimensions.width, dimensions.plotHeight + pad * 2)
+    ctx.clip()
+    try {
+        draw()
+    } finally {
+        ctx.restore()
+    }
+}
+
+/** Draw hover highlight rings for line/area series at the hovered index. Skips excluded,
+ *  fill-between (`fill.lowerData`), and overlay series (trendlines/moving averages opt out of hover
+ *  points). `pointFor` lets each chart supply its own anchor — LineChart resolves the point x and
+ *  stacked-top y per series; ComboChart anchors at the band center with raw values. Returns whether
+ *  any point was drawn. Shared by LineChart and ComboChart. */
+export function drawLineHoverPoints(
+    ctx: CanvasRenderingContext2D,
+    series: readonly ResolvedSeries[],
+    backgroundColor: string,
+    pointFor: (s: ResolvedSeries) => { x: number; y: number } | null
+): boolean {
+    let drew = false
+    for (const s of series) {
+        if (s.visibility?.excluded || s.fill?.lowerData || s.overlay) {
+            continue
+        }
+        const point = pointFor(s)
+        if (point && isFinite(point.x) && isFinite(point.y)) {
+            drawHighlightPoint(ctx, point.x, point.y, s.color, backgroundColor)
+            drew = true
+        }
+    }
+    return drew
+}
+
 export interface BarShadow {
     color: string
     blur: number

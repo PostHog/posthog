@@ -4690,6 +4690,7 @@ export namespace Schemas {
       GoogleCloudServiceAccount: 'google-cloud-service-account',
       GoogleCloudStorage: 'google-cloud-storage',
       GoogleAds: 'google-ads',
+      GoogleAnalytics: 'google-analytics',
       GoogleSearchConsole: 'google-search-console',
       GoogleSheets: 'google-sheets',
       LinkedinAds: 'linkedin-ads',
@@ -12840,6 +12841,14 @@ export namespace Schemas {
       has_misconfigured: boolean;
     }
 
+    export type ConversionRateInputType = typeof ConversionRateInputType[keyof typeof ConversionRateInputType];
+
+
+    export const ConversionRateInputType = {
+      Manual: 'manual',
+      Automatic: 'automatic',
+    } as const;
+
     /**
      * * `0` - Disabled
      * * `1` - Stateless
@@ -14651,6 +14660,7 @@ export namespace Schemas {
      * * `AmazonKinesis` - AmazonKinesis
      * * `AmazonCloudWatch` - AmazonCloudWatch
      * * `OpenAIAds` - OpenAIAds
+     * * `Grafana` - Grafana
      * * `Custom` - Custom
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
@@ -14889,6 +14899,7 @@ export namespace Schemas {
       AmazonKinesis: 'AmazonKinesis',
       AmazonCloudWatch: 'AmazonCloudWatch',
       OpenAIAds: 'OpenAIAds',
+      Grafana: 'Grafana',
       Custom: 'Custom',
     } as const;
 
@@ -15134,6 +15145,7 @@ export namespace Schemas {
        * * `AmazonKinesis` - AmazonKinesis
        * * `AmazonCloudWatch` - AmazonCloudWatch
        * * `OpenAIAds` - OpenAIAds
+       * * `Grafana` - Grafana
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
     }
@@ -18449,6 +18461,37 @@ export namespace Schemas {
       rollout_percentage?: number | null;
     }
 
+    export type ManualMetricType = typeof ManualMetricType[keyof typeof ManualMetricType];
+
+
+    export const ManualMetricType = {
+      Funnel: 'funnel',
+      MeanCount: 'mean_count',
+      MeanSumOrAvg: 'mean_sum_or_avg',
+    } as const;
+
+    export interface ExperimentExposureEstimateConfig {
+      /** 'manual' when the baseline value and exposure rate were entered by hand, 'automatic' when derived from live experiment data. */
+      conversionRateInputType: ConversionRateInputType;
+      /** Manually entered baseline metric value (a conversion percentage for funnel metrics). Only used in manual mode. */
+      manualBaselineValue?: number | null;
+      /** Manually entered estimate of users exposed to the experiment per day. Only used in manual mode. */
+      manualExposureRate?: number | null;
+      /** Metric type the manual baseline value refers to. Only used in manual mode. */
+      manualMetricType?: ManualMetricType | null;
+    }
+
+    export interface ExperimentRunningTimeCalculation {
+      /** How the exposure estimate is configured: manual user-entered values or automatic from live experiment data. */
+      exposure_estimate_config?: ExperimentExposureEstimateConfig | null;
+      /** Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. */
+      minimum_detectable_effect?: number | null;
+      /** Estimated number of days needed to reach the recommended sample size. */
+      recommended_running_time?: number | null;
+      /** Recommended number of exposed users needed for statistical significance. */
+      recommended_sample_size?: number | null;
+    }
+
     export interface ExperimentToSavedMetric {
       readonly id: number;
       experiment: number;
@@ -18616,8 +18659,10 @@ export namespace Schemas {
       holdout_id?: number | null;
       /** @nullable */
       readonly exposure_cohort: number | null;
-      /** Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded). */
+      /** Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded). The running-time calculator keys (`minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `exposure_estimate_config`) are deprecated here — prefer `running_time_calculation`. */
       parameters?: ExperimentParameters | null;
+      /** Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`; values are kept in sync with `parameters` during the deprecation window. */
+      running_time_calculation?: ExperimentRunningTimeCalculation | null;
       secondary_metrics?: unknown;
       readonly saved_metrics: readonly ExperimentToSavedMetric[];
       /**
@@ -19317,6 +19362,7 @@ export namespace Schemas {
        * * `AmazonKinesis` - AmazonKinesis
        * * `AmazonCloudWatch` - AmazonCloudWatch
        * * `OpenAIAds` - OpenAIAds
+       * * `Grafana` - Grafana
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
@@ -23084,6 +23130,7 @@ export namespace Schemas {
      * * `github` - Github
      * * `gitlab` - Gitlab
      * * `google-ads` - Google Ads
+     * * `google-analytics` - Google Analytics
      * * `google-cloud-service-account` - Google Cloud Service Account
      * * `google-cloud-storage` - Google Cloud Storage
      * * `google-pubsub` - Google Pubsub
@@ -23125,6 +23172,7 @@ export namespace Schemas {
       Github: 'github',
       Gitlab: 'gitlab',
       GoogleAds: 'google-ads',
+      GoogleAnalytics: 'google-analytics',
       GoogleCloudServiceAccount: 'google-cloud-service-account',
       GoogleCloudStorage: 'google-cloud-storage',
       GooglePubsub: 'google-pubsub',
@@ -32151,8 +32199,10 @@ export namespace Schemas {
       holdout_id?: number | null;
       /** @nullable */
       readonly exposure_cohort?: number | null;
-      /** Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded). */
+      /** Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded). The running-time calculator keys (`minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `exposure_estimate_config`) are deprecated here — prefer `running_time_calculation`. */
       parameters?: ExperimentParameters | null;
+      /** Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`; values are kept in sync with `parameters` during the deprecation window. */
+      running_time_calculation?: ExperimentRunningTimeCalculation | null;
       secondary_metrics?: unknown;
       readonly saved_metrics?: readonly ExperimentToSavedMetric[];
       /**
@@ -42630,6 +42680,7 @@ export namespace Schemas {
        * * `AmazonKinesis` - AmazonKinesis
        * * `AmazonCloudWatch` - AmazonCloudWatch
        * * `OpenAIAds` - OpenAIAds
+       * * `Grafana` - Grafana
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
@@ -42901,6 +42952,7 @@ export namespace Schemas {
        * * `AmazonKinesis` - AmazonKinesis
        * * `AmazonCloudWatch` - AmazonCloudWatch
        * * `OpenAIAds` - OpenAIAds
+       * * `Grafana` - Grafana
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
@@ -48397,6 +48449,7 @@ export namespace Schemas {
      * * `github` - Github
      * * `gitlab` - Gitlab
      * * `google-ads` - Google Ads
+     * * `google-analytics` - Google Analytics
      * * `google-cloud-service-account` - Google Cloud Service Account
      * * `google-cloud-storage` - Google Cloud Storage
      * * `google-pubsub` - Google Pubsub
@@ -48449,6 +48502,7 @@ export namespace Schemas {
       Github: 'github',
       Gitlab: 'gitlab',
       GoogleAds: 'google-ads',
+      GoogleAnalytics: 'google-analytics',
       GoogleCloudServiceAccount: 'google-cloud-service-account',
       GoogleCloudStorage: 'google-cloud-storage',
       GooglePubsub: 'google-pubsub',
@@ -54509,6 +54563,7 @@ export namespace Schemas {
      * * `github` - Github
      * * `gitlab` - Gitlab
      * * `google-ads` - Google Ads
+     * * `google-analytics` - Google Analytics
      * * `google-cloud-service-account` - Google Cloud Service Account
      * * `google-cloud-storage` - Google Cloud Storage
      * * `google-pubsub` - Google Pubsub
@@ -54561,6 +54616,7 @@ export namespace Schemas {
       Github: 'github',
       Gitlab: 'gitlab',
       GoogleAds: 'google-ads',
+      GoogleAnalytics: 'google-analytics',
       GoogleCloudServiceAccount: 'google-cloud-service-account',
       GoogleCloudStorage: 'google-cloud-storage',
       GooglePubsub: 'google-pubsub',

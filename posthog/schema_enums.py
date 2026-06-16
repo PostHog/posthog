@@ -1081,6 +1081,17 @@ class StartHandling(StrEnum):
     LAST_SEEN = "last_seen"
 
 
+class ConversionRateInputType(StrEnum):
+    MANUAL = "manual"
+    AUTOMATIC = "automatic"
+
+
+class ManualMetricType(StrEnum):
+    FUNNEL = "funnel"
+    MEAN_COUNT = "mean_count"
+    MEAN_SUM_OR_AVG = "mean_sum_or_avg"
+
+
 class ExperimentMetricGoal(StrEnum):
     INCREASE = "increase"
     DECREASE = "decrease"
@@ -1369,6 +1380,7 @@ class ExternalDataSourceType(StrEnum):
     AMAZON_KINESIS = "AmazonKinesis"
     AMAZON_CLOUD_WATCH = "AmazonCloudWatch"
     OPEN_AI_ADS = "OpenAIAds"
+    GRAFANA = "Grafana"
     CUSTOM = "Custom"
 
 
@@ -1718,6 +1730,7 @@ class IntegrationKind(StrEnum):
     GOOGLE_CLOUD_SERVICE_ACCOUNT = "google-cloud-service-account"
     GOOGLE_CLOUD_STORAGE = "google-cloud-storage"
     GOOGLE_ADS = "google-ads"
+    GOOGLE_ANALYTICS = "google-analytics"
     GOOGLE_SEARCH_CONSOLE = "google-search-console"
     GOOGLE_SHEETS = "google-sheets"
     LINKEDIN_ADS = "linkedin-ads"
@@ -2585,6 +2598,7 @@ class SlackIntegrationScope(StrEnum):
 
 class SlackIntegrationScopeInReview(StrEnum):
     ASSISTANT_WRITE = "assistant:write"
+    CHANNELS_MANAGE = "channels:manage"
     IM_HISTORY = "im:history"
     MPIM_READ = "mpim:read"
 
