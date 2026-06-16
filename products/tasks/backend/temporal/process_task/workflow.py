@@ -87,7 +87,7 @@ class CIFollowUpDecision(StrEnum):
 
 
 # Legacy re-exports kept while process_task is still on the worker. New
-# workers should import these directly from `products.tasks.backend.temporal.constants`.
+# workers should import them directly from `products.tasks.backend.temporal.constants`.
 from products.tasks.backend.temporal.constants import (  # noqa: E402
     CI_FOLLOW_UP_DELAY,
     DEFAULT_CI_MESSAGE,

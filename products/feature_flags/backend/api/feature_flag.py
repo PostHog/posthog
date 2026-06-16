@@ -638,6 +638,12 @@ class FeatureFlagCreateRequestSchemaSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Whether this flag is a remote configuration flag that delivers a payload rather than gating a feature.",
     )
+    ensure_experience_continuity = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        help_text="Whether to persist a user's flag value across the anonymous-to-identified transition "
+        "(the 'persist across authentication steps' option). Incompatible with device_id bucketing.",
+    )
 
 
 class FeatureFlagPartialUpdateRequestSchemaSerializer(serializers.Serializer):
@@ -663,6 +669,12 @@ class FeatureFlagPartialUpdateRequestSchemaSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         help_text="Whether this flag is a remote configuration flag that delivers a payload rather than gating a feature.",
+    )
+    ensure_experience_continuity = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        help_text="Whether to persist a user's flag value across the anonymous-to-identified transition "
+        "(the 'persist across authentication steps' option). Incompatible with device_id bucketing.",
     )
 
 
@@ -3746,8 +3758,16 @@ class FeatureFlagViewSet(
         if not feature_flag.is_remote_configuration:
             return Response(status=status.HTTP_404_NOT_FOUND)
 
+        # Remote config usage is tracked for telemetry only (never billed), and only genuine SDK
+        # fetches (team secret token, phs_…) count. Session and personal-key requests are the app's
+        # own preview/decrypt feature, not customer usage, and a session-authenticated GET would
+        # otherwise let a cross-site request inflate the team's usage numbers.
+        should_count = isinstance(request.successful_authenticator, TeamSecretTokenAuthentication)
+
         if not feature_flag.has_encrypted_payloads:
             payloads = feature_flag.filters.get("payloads", {})
+            if should_count:
+                increment_request_count(self.team.pk, 1, FlagRequestType.REMOTE_CONFIG)
             return Response(payloads.get("true") or None)
 
         # Note: This decryption step is protected by the feature_flag:read scope, so we can assume the
@@ -3757,9 +3777,9 @@ class FeatureFlagViewSet(
             request, feature_flag.filters.get("payloads", {})
         )
 
-        sampling_rate = getattr(settings, "DECIDE_BILLING_SAMPLING_RATE", 1.0)
-        count = int(1 / sampling_rate)
-        increment_request_count(self.team.pk, count, FlagRequestType.REMOTE_CONFIG)
+        # Count after a successful decryption so a decrypt failure (500) is never counted.
+        if should_count:
+            increment_request_count(self.team.pk, 1, FlagRequestType.REMOTE_CONFIG)
 
         return Response(decrypted_flag_payloads["true"] or None)
 
