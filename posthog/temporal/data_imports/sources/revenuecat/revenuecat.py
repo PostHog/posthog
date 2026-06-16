@@ -72,8 +72,9 @@ def _normalize_project_id(raw: str | None) -> str:
     The setup form points users at their dashboard URL
     (``app.revenuecat.com/projects/<project_id>``) to find the id, so a large
     share of connection failures come from pasting the whole URL, a
-    ``projects/<id>`` path fragment, or a value with stray whitespace. Pull the
-    id back out and trim it so those copy-paste mistakes don't become a 404.
+    ``projects/<id>`` path fragment, a value with stray whitespace, or the bare
+    id with its ``proj`` prefix dropped. Pull the id back out, trim it, and
+    restore a missing prefix so those copy-paste mistakes don't become a 404.
     """
     if not raw:
         return ""
@@ -86,8 +87,16 @@ def _normalize_project_id(raw: str | None) -> str:
         value = value.split(marker, 1)[1]
     # Keep only the first path segment, dropping any trailing `/overview`,
     # query string, or fragment that rode along with the paste.
-    value = value.split("/", 1)[0].split("?", 1)[0].split("#", 1)[0]
-    return value.strip()
+    value = value.split("/", 1)[0].split("?", 1)[0].split("#", 1)[0].strip()
+    # RevenueCat project ids are always `proj`-prefixed (e.g. `proj1a2b3c4d`),
+    # but the setup form points users at the dashboard where the id is shown
+    # without the prefix, so a large share of failures are bare ids like
+    # `1a2b3c4d`. Restore the prefix so that copy-paste slip isn't a dead-end
+    # 404 — the membership check against the live project list still rejects
+    # anything that isn't a real, reachable project.
+    if value and not value.startswith("proj"):
+        value = f"proj{value}"
+    return value
 
 
 def _accessible_project_ids(payload: dict[str, Any] | None) -> list[str]:
