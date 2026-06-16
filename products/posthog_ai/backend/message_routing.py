@@ -123,7 +123,9 @@ class MessageRoutingService(BaseSandboxService):
         super().__init__(team=conversation.team, user=user)
         self.conversation = conversation
 
-    def handle(self, data: Mapping[str, Any]) -> SandboxRouteResult:
+    def handle(
+        self, data: Mapping[str, Any], *, resumed_context: str | None = None, is_conversion: bool = False
+    ) -> SandboxRouteResult:
         content = data.get("content")
         if not isinstance(content, str) or not content.strip():
             raise exceptions.ValidationError("`content` is required.")
@@ -132,10 +134,14 @@ class MessageRoutingService(BaseSandboxService):
         attached_context = self._validate_attached_context(data.get("attached_context"))
 
         if self.conversation.task_id is None:
+            # `resumed_context` / `is_conversion` only apply to the conversion event, which is
+            # always a first message (the gate requires `task_id is None`).
             return self._handle_first_message(
                 content=content,
                 trace_id=trace_id,
                 attached_context=attached_context,
+                resumed_context=resumed_context,
+                is_conversion=is_conversion,
             )
 
         current_run = self.conversation.current_run
@@ -374,11 +380,17 @@ class MessageRoutingService(BaseSandboxService):
         content: str,
         trace_id: str | None,
         attached_context: list[AttachedContext],
+        resumed_context: str | None = None,
+        is_conversion: bool = False,
     ) -> SandboxRouteResult:
         context_service = ContextService()
         # First turn — the prior-seen set is empty, so dedupe is a no-op.
         deduped = context_service.prune_repeated_entity_refs(attached_context, prior=[])
         wrapped = context_service.wrap_user_message(content, deduped)
+        if resumed_context:
+            # Conversion event: lead the first prompt with the legacy conversation window so the
+            # sandbox agent has continuity, then the user's own attachments + message.
+            wrapped = f"{resumed_context}\n\n{wrapped}"
 
         system_prompt = PromptService(self.team, self.user).build()
 
@@ -411,20 +423,34 @@ class MessageRoutingService(BaseSandboxService):
         )
         run_state: dict[str, Any] = dict(task_run.state or {})
         run_state.update(ph_state.model_dump(mode="json", by_alias=True, exclude_unset=True))
-        # Persist the enriched run state and conversation linkage together: a half-write
-        # would orphan the run (enriched state, but conversation.task still NULL) and the
-        # next retry would look like a fresh first message.
-        with transaction.atomic():
+        # Persist the enriched run state and conversation linkage together, under the row lock so a
+        # concurrent first message / conversion in another tab can't double-link. Re-check
+        # `task_id is None` inside the lock; a half-write would orphan the run (enriched state, but
+        # conversation.task still NULL) and the next retry would look like a fresh first message. On
+        # a conversion, the runtime flip to sandbox happens here too, atomically with the link.
+        with lock_conversation_for_followup(str(self.conversation.id), self.team.pk) as locked:
+            if locked.task_id is not None:
+                raise Conflict("This conversation was just resumed in another tab. Please try again.")
             task_run.state = run_state
             task_run.save(update_fields=["state"])
-            self.conversation.task = task
-            self.conversation.save(update_fields=["task", "updated_at"])
+            locked.task = task
+            update_fields = ["task", "updated_at"]
+            if is_conversion:
+                locked.agent_runtime = Conversation.AgentRuntime.SANDBOX
+                update_fields = ["task", "agent_runtime", "updated_at"]
+            locked.save(update_fields=update_fields)
+
+        # Mirror the committed writes onto the in-memory instance for the response + the rollback below.
+        self.conversation.task = task
+        if is_conversion:
+            self.conversation.agent_runtime = Conversation.AgentRuntime.SANDBOX
 
         # Start the run after the commit. `posthog_mcp_scopes="full"` mirrors the legacy
         # first-message path: the agent creates insights, dashboards, and notebooks, so it
         # needs write scopes (the workflow client otherwise defaults to read-only). If the
         # start fails, un-link the conversation so the user's retry is a fresh first message
-        # rather than a follow-up onto a run that never started.
+        # rather than a follow-up onto a run that never started; on a conversion, also revert the
+        # runtime flip so the user is left on a clean idle LangGraph conversation.
         try:
             execute_task_processing_workflow(
                 task_id=str(task.id),
@@ -436,7 +462,11 @@ class MessageRoutingService(BaseSandboxService):
             )
         except Exception:
             self.conversation.task = None
-            self.conversation.save(update_fields=["task", "updated_at"])
+            revert_fields = ["task", "updated_at"]
+            if is_conversion:
+                self.conversation.agent_runtime = Conversation.AgentRuntime.LANGGRAPH
+                revert_fields = ["task", "agent_runtime", "updated_at"]
+            self.conversation.save(update_fields=revert_fields)
             raise
 
         return SandboxRouteResult(

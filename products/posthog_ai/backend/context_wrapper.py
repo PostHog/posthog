@@ -4,8 +4,16 @@ attached context. See `ContextService`.
 The template lives only here, in Python — the frontend never builds it.
 """
 
-from collections.abc import Iterable
-from typing import Literal, TypedDict, get_args
+import time
+from collections.abc import Iterable, Sequence
+from typing import TYPE_CHECKING, Any, Literal, TypedDict, get_args
+
+import posthoganalytics
+
+if TYPE_CHECKING:
+    from posthog.models import Team, User
+
+    from products.posthog_ai.backend.models.assistant import Conversation
 
 # Allowed attachment types.
 AttachedContextType = Literal[
@@ -24,6 +32,10 @@ ALLOWED_TYPES: frozenset[str] = frozenset(get_args(AttachedContextType))
 # Caps on attached-context size.
 MAX_ATTACHED_ITEMS = 32
 MAX_TEXT_LENGTH = 4096
+
+# Preamble for the one-time `<posthog_context>` block that carries a converted conversation's
+# legacy history into its first sandbox message.
+RESUMED_CONTEXT_PREFIX = "This session was resumed from the legacy implementation."
 
 
 class AttachedContext(TypedDict, total=False):
@@ -118,3 +130,70 @@ class ContextService:
         if name:
             line += f' ("{name}")'
         return line
+
+    async def abuild_resumed_legacy_context(
+        self, conversation: "Conversation", team: "Team", user: "User"
+    ) -> str | None:
+        """Render a converted conversation's legacy history into a one-time `<posthog_context>` block.
+
+        Called once, on the conversion event, while the conversation is still on the LangGraph
+        runtime: it reads the legacy state via the shared serializer path and limits it to the
+        current conversation window — the same window the agent runs on (see
+        `ee/hogai/core/agent_modes/executables.py`). Returns None when there's no readable state or
+        no renderable turns, so the caller just forwards the user's message without an empty block.
+        """
+        # Deferred: keeps the LangGraph graph-compile + compaction (heavy) off the sandbox
+        # message-routing import path — only the conversion event pays for them.
+        from ee.hogai.api.serializers import (
+            aget_conversation_state,  # noqa: PLC0415 — keeps LangGraph off the sandbox import path
+        )
+        from ee.hogai.core.agent_modes.compaction_manager import (  # noqa: PLC0415 — heavy compaction dep
+            AnthropicConversationCompactionManager,
+        )
+
+        started_at = time.monotonic()
+        state, _, _ = await aget_conversation_state(conversation, team, user)
+        if state is None:
+            return None
+
+        window = AnthropicConversationCompactionManager().get_messages_in_window(
+            state.messages, state.root_conversation_start_id
+        )
+        transcript = self._render_legacy_transcript(window)
+
+        posthoganalytics.capture(
+            distinct_id=str(user.distinct_id),
+            event="phai_legacy_conversion",
+            properties={
+                "conversation_id": str(conversation.id),
+                "messages_total": len(state.messages),
+                "window_messages": len(window),
+                "duration_ms": int((time.monotonic() - started_at) * 1000),
+            },
+            groups={"organization": str(team.organization_id)},
+        )
+
+        if not transcript:
+            return None
+        return f"<posthog_context>{RESUMED_CONTEXT_PREFIX}\n{transcript}</posthog_context>"
+
+    def _render_legacy_transcript(self, messages: Sequence[Any]) -> str:
+        """Render windowed legacy messages to a plain `User:` / `Assistant:` transcript.
+
+        Tool calls and visualizations are intentionally dropped — the resumed block only needs the
+        conversational gist for continuity; the full legacy thread is still rendered in the UI above
+        the conversion divider.
+        """
+        from posthog.schema import AssistantMessage, HumanMessage  # noqa: PLC0415 — large schema module
+
+        from ee.hogai.utils.helpers import should_output_assistant_message  # noqa: PLC0415 — pulls ee.hogai
+
+        lines: list[str] = []
+        for message in messages:
+            if not should_output_assistant_message(message):
+                continue
+            if isinstance(message, HumanMessage) and message.content:
+                lines.append(f"User: {message.content}")
+            elif isinstance(message, AssistantMessage) and message.content:
+                lines.append(f"Assistant: {message.content}")
+        return "\n".join(lines)

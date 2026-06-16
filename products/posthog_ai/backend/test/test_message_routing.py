@@ -1,21 +1,15 @@
-import json
 from contextlib import contextmanager
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from django.db import connection
 from django.test import override_settings
-from django.test.utils import CaptureQueriesContext
 
 from rest_framework import exceptions
-
-from posthog.schema import AssistantMessage, HumanMessage
 
 from posthog.exceptions import Conflict
 
 from products.posthog_ai.backend.context_wrapper import MAX_ATTACHED_ITEMS, MAX_TEXT_LENGTH
-from products.posthog_ai.backend.conversion_service import LegacyConversionService
 from products.posthog_ai.backend.message_routing import (
     MessageRoutingService,
     SandboxCommandError,
@@ -23,16 +17,12 @@ from products.posthog_ai.backend.message_routing import (
 )
 from products.posthog_ai.backend.models.assistant import Conversation
 from products.posthog_ai.backend.system_prompt import PromptService
-from products.posthog_ai.backend.wire_types import NotificationFrame, parse_log_entry
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.services.agent_command import CommandResult
 from products.tasks.backend.services.connection_token import reset_sandbox_jwt_key_cache
 from products.tasks.backend.tests.test_api import TEST_RSA_PRIVATE_KEY
 
-from ee.hogai.utils.types import AssistantState
-
 ROUTING = "products.posthog_ai.backend.message_routing"
-CONVERSION = "products.posthog_ai.backend.conversion_service"
 
 
 class TestHandleSandboxMessage(APIBaseTest):
@@ -636,7 +626,13 @@ class TestSandboxPrewarm(APIBaseTest):
         m_lock.assert_called_once_with(str(self.conversation.id), self.team.pk)
 
 
-class TestLegacyConversionService(APIBaseTest):
+class TestSandboxFirstMessageConversion(APIBaseTest):
+    """Converting an idle LangGraph conversation on its first sandbox message.
+
+    Conversion is just: flip the runtime + link the Task on the normal first-message path, with the
+    legacy window prepended to the first prompt. No ACP seeding, no synthetic historical run.
+    """
+
     def setUp(self):
         super().setUp()
         self.conversation = Conversation.objects.create(
@@ -647,168 +643,97 @@ class TestLegacyConversionService(APIBaseTest):
             status=Conversation.Status.IDLE,
         )
 
-    def _state(self, messages=None):
-        if messages is None:
-            messages = [
-                HumanMessage(content="Why did checkout drop?"),
-                AssistantMessage(content="Let me check.", id="m1"),
-            ]
-        return AssistantState(messages=messages)
+    def _block(self) -> str:
+        return "<posthog_context>This session was resumed from the legacy implementation.\nUser: hi</posthog_context>"
 
-    @contextmanager
-    def _seeder_patches(self, state=None, storage=None):
-        storage_map = storage if storage is not None else {}
+    def _handle(self, *, resumed_context=None, is_conversion=False, content="continue here"):
+        with patch(f"{ROUTING}.execute_task_processing_workflow") as m_workflow:
+            result = MessageRoutingService(self.conversation, self.user).handle(
+                {"content": content, "trace_id": "t"},
+                resumed_context=resumed_context,
+                is_conversion=is_conversion,
+            )
+        return result, m_workflow
 
-        def _read(url, missing_ok=False):
-            return storage_map.get(url)
+    def test_first_message_conversion_flips_runtime_and_links_task(self):
+        result, m_workflow = self._handle(resumed_context=self._block(), is_conversion=True)
 
-        def _write(url, content):
-            storage_map[url] = content
-
-        async def _aget(conversation, team, user):
-            return self._state() if state is None else state, False, {}
-
-        with (
-            patch(f"{CONVERSION}.aget_conversation_state", side_effect=_aget),
-            patch("products.tasks.backend.models.object_storage.read", side_effect=_read),
-            patch("products.tasks.backend.models.object_storage.write", side_effect=_write),
-            patch("products.tasks.backend.models.object_storage.tag"),
-            patch(f"{CONVERSION}.posthoganalytics.capture") as m_capture,
-        ):
-            yield storage_map, m_capture
-
-    def _service(self) -> LegacyConversionService:
-        return LegacyConversionService(self.conversation, self.user)
-
-    def test_conversion_creates_one_task_and_one_terminal_run(self):
-        with self._seeder_patches():
-            converted = self._service().convert_if_needed()
-
-        assert converted is True
         self.conversation.refresh_from_db()
         assert self.conversation.agent_runtime == Conversation.AgentRuntime.SANDBOX
         assert self.conversation.task_id is not None
 
         task = self.conversation.task
         assert task.origin_product == Task.OriginProduct.POSTHOG_AI
+        # The live first run, not a synthetic terminal one.
         assert task.runs.count() == 1
-        run = task.runs.first()
-        assert run.status == TaskRun.Status.COMPLETED
+        assert task.runs.first().status != TaskRun.Status.COMPLETED
+        assert result.just_created_run is True
+        m_workflow.assert_called_once()
 
-    def test_conversion_seeds_log_with_mapped_frames(self):
-        with self._seeder_patches() as (storage, _):
-            self._service().convert_if_needed()
+    def test_first_message_conversion_does_not_seed_s3_log(self):
+        with patch.object(TaskRun, "append_log") as m_append:
+            self._handle(resumed_context=self._block(), is_conversion=True)
+        m_append.assert_not_called()
+
+    def test_first_message_conversion_prepends_window_context(self):
+        self._handle(resumed_context=self._block(), is_conversion=True)
 
         self.conversation.refresh_from_db()
         run = self.conversation.task.runs.first()
-        content = storage[run.log_url]
-        entries = [json.loads(line) for line in content.splitlines() if line]
-        assert len(entries) == 2
+        pending = run.state["pending_user_message"]
+        assert pending.startswith(self._block())
+        assert pending.endswith("continue here")
 
-        assert entries[0]["notification"]["method"] == "_posthog/user_message"
-        assert entries[1]["notification"]["method"] == "session/update"
-        assert entries[1]["notification"]["params"]["update"]["sessionUpdate"] == "agent_message"
+    def test_first_message_conversion_idempotent_under_lock(self):
+        # Simulate a concurrent winner: the DB row is linked to a Task after this request's entry
+        # check but before it takes the lock. The under-lock re-check must surface a Conflict.
+        other_task = Task.objects.create(
+            team=self.team,
+            title="t",
+            description="d",
+            origin_product=Task.OriginProduct.POSTHOG_AI,
+            created_by=self.user,
+        )
+        Conversation.objects.filter(id=self.conversation.id).update(task=other_task)
 
-        # Every seeded frame must carry the `type: notification` envelope so it survives
-        # `parse_log_entry` (and the frontend's `isNotificationFrame`) on bootstrap replay. A
-        # future drop of that field would silently make the whole converted thread invisible.
-        for entry in entries:
-            assert entry["type"] == "notification"
-            assert isinstance(parse_log_entry(entry), NotificationFrame)
+        with self.assertRaises(Conflict):
+            self._handle(resumed_context=self._block(), is_conversion=True)
 
-    def test_conversion_does_not_inherit_default_ttl(self):
-        with (
-            self._seeder_patches(),
-            patch("products.tasks.backend.models.object_storage.tag") as m_tag,
-        ):
-            self._service().convert_if_needed()
+        self.conversation.refresh_from_db()
+        assert self.conversation.task_id == other_task.id
 
-        # Converted history must never be tagged for the 30-day expiry.
-        m_tag.assert_not_called()
+    def test_first_message_conversion_reverts_on_workflow_start_failure(self):
+        with patch(f"{ROUTING}.execute_task_processing_workflow", side_effect=RuntimeError("boom")):
+            with self.assertRaises(RuntimeError):
+                MessageRoutingService(self.conversation, self.user).handle(
+                    {"content": "continue here", "trace_id": "t"},
+                    resumed_context=self._block(),
+                    is_conversion=True,
+                )
 
-    def test_conversion_does_not_start_workflow(self):
-        with (
-            self._seeder_patches(),
-            patch("products.tasks.backend.temporal.client.execute_task_processing_workflow") as m_workflow,
-        ):
-            self._service().convert_if_needed()
+        # A failed start leaves a clean idle LangGraph conversation the user can retry.
+        self.conversation.refresh_from_db()
+        assert self.conversation.agent_runtime == Conversation.AgentRuntime.LANGGRAPH
+        assert self.conversation.task_id is None
 
-        m_workflow.assert_not_called()
-
-    def test_conversion_is_idempotent(self):
-        with self._seeder_patches():
-            first = self._service().convert_if_needed()
-            self.conversation.refresh_from_db()
-            second = LegacyConversionService(self.conversation, self.user).convert_if_needed()
-
-        assert first is True
-        assert second is False
-        assert Task.objects.filter(team=self.team).count() == 1
-
-    def test_conversion_skips_non_langgraph_conversation(self):
+    def test_born_sandbox_first_message_does_not_flip(self):
         self.conversation.agent_runtime = Conversation.AgentRuntime.SANDBOX
         self.conversation.save(update_fields=["agent_runtime"])
 
-        with self._seeder_patches():
-            converted = self._service().convert_if_needed()
+        result, m_workflow = self._handle()
 
-        assert converted is False
-        assert Task.objects.filter(team=self.team).count() == 0
-
-    def test_conversion_skips_non_idle_conversation(self):
-        self.conversation.status = Conversation.Status.IN_PROGRESS
-        self.conversation.save(update_fields=["status"])
-
-        with self._seeder_patches():
-            converted = self._service().convert_if_needed()
-
-        assert converted is False
         self.conversation.refresh_from_db()
-        assert self.conversation.agent_runtime == Conversation.AgentRuntime.LANGGRAPH
-        assert self.conversation.task_id is None
+        assert self.conversation.agent_runtime == Conversation.AgentRuntime.SANDBOX
+        assert self.conversation.task_id is not None
+        assert result.just_created_run is True
+        m_workflow.assert_called_once()
 
-    def test_conversion_is_atomic_on_save_failure(self):
-        with self._seeder_patches():
-            with patch.object(Conversation, "save", side_effect=RuntimeError("boom")):
-                with self.assertRaises(RuntimeError):
-                    self._service().convert_if_needed()
+    def test_born_sandbox_first_message_has_no_resumed_context(self):
+        self.conversation.agent_runtime = Conversation.AgentRuntime.SANDBOX
+        self.conversation.save(update_fields=["agent_runtime"])
 
-        # The flip failed, so the conversation must stay on LangGraph with no Task linked.
+        self._handle(content="just this please")
+
         self.conversation.refresh_from_db()
-        assert self.conversation.agent_runtime == Conversation.AgentRuntime.LANGGRAPH
-        assert self.conversation.task_id is None
-
-    def test_conversion_emits_telemetry(self):
-        with self._seeder_patches() as (_, m_capture):
-            self._service().convert_if_needed()
-
-        # `posthoganalytics.capture` is shared, so Task creation also routes through this mock —
-        # isolate the conversion event.
-        conversion_calls = [c for c in m_capture.call_args_list if c.kwargs.get("event") == "phai_legacy_conversion"]
-        assert len(conversion_calls) == 1
-        props = conversion_calls[0].kwargs["properties"]
-        assert props["messages_total"] == 2
-        assert props["frames_total"] == 2
-        assert "frames_dropped_by_type" in props
-        assert "duration_ms" in props
-
-    def _conversion_query_count(self, message_count: int) -> int:
-        conversation = Conversation.objects.create(
-            user=self.user,
-            team=self.team,
-            title="t",
-            agent_runtime=Conversation.AgentRuntime.LANGGRAPH,
-            status=Conversation.Status.IDLE,
-        )
-        state = AssistantState(messages=[HumanMessage(content=f"q{i}") for i in range(message_count)])
-        with self._seeder_patches(state=state):
-            with CaptureQueriesContext(connection) as ctx:
-                LegacyConversionService(conversation, self.user).convert_if_needed()
-            return len(ctx.captured_queries)
-
-    def test_conversion_does_not_n_plus_one_over_messages(self):
-        # Conversion must run a bounded number of queries — the count for a long history must
-        # match a short one (the graph state read is mocked; only Task/Run create + the flip run).
-        small = self._conversion_query_count(2)
-        large = self._conversion_query_count(50)
-        assert small == large
+        run = self.conversation.task.runs.first()
+        assert run.state["pending_user_message"] == "just this please"

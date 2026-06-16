@@ -27,6 +27,7 @@ import {
     LemonButtonPropsBase,
     LemonCheckbox,
     LemonDialog,
+    LemonDivider,
     LemonInput,
     LemonSkeleton,
     Spinner,
@@ -231,10 +232,63 @@ function SandboxThinkingIndicator({ progress }: { progress: string | null }): JS
 }
 
 export function Thread({ className }: { className?: string }): JSX.Element | null {
-    const { conversationLoading, messagesLoading, conversationId } = useValues(maxLogic)
-    const { threadGrouped, streamingActive, threadLoading, sandboxEntries, conversation, sandboxConversationKey } =
-        useValues(maxThreadLogic)
+    const { conversation, sandboxConversationKey, isConvertedConversation } = useValues(maxThreadLogic)
     const isSandboxRuntime = conversation?.agent_runtime === 'sandbox'
+
+    const containerClassName = cn(
+        '@container/thread flex flex-col items-stretch w-full max-w-180 self-center gap-1.5 grow mx-auto',
+        className
+    )
+
+    // Born-sandbox conversation (no legacy history): render only the sandbox thread.
+    if (isSandboxRuntime && !isConvertedConversation) {
+        if (!sandboxConversationKey) {
+            return null
+        }
+        return (
+            <div className={containerClassName}>
+                {/* Same key maxThreadLogic's connect() uses, so both resolve the same instance */}
+                <BindLogic logic={sandboxStreamLogic} props={{ conversationId: sandboxConversationKey }}>
+                    <SandboxThread />
+                </BindLogic>
+            </div>
+        )
+    }
+
+    // Converted conversation: the full legacy thread, a "history was converted" divider, then the
+    // live sandbox thread — all in one scroll container so auto-scroll lands at the sandbox bottom.
+    if (isConvertedConversation) {
+        if (!sandboxConversationKey) {
+            return null
+        }
+        return (
+            <div className={containerClassName}>
+                <LegacyThread showTrailers={false} />
+                <LemonDivider dashed label="Message history was converted to the new format" className="my-3" />
+                <BindLogic logic={sandboxStreamLogic} props={{ conversationId: sandboxConversationKey }}>
+                    <SandboxThread />
+                </BindLogic>
+            </div>
+        )
+    }
+
+    // Pure LangGraph conversation.
+    return (
+        <div className={containerClassName}>
+            <LegacyThread showTrailers />
+        </div>
+    )
+}
+
+/**
+ * LangGraph thread renderer: renders `maxThreadLogic.threadGrouped` (message history), loading
+ * skeletons, or a NotFound fallback. `showTrailers` gates the feedback / ticket prompts so a
+ * converted conversation renders them once at the true bottom (below the sandbox thread), not
+ * wedged above the conversion divider.
+ */
+function LegacyThread({ showTrailers }: { showTrailers: boolean }): JSX.Element | null {
+    const { conversationLoading, messagesLoading, conversationId } = useValues(maxLogic)
+    const { threadGrouped, streamingActive, threadLoading, sandboxEntries } = useValues(maxThreadLogic)
     const sandboxModeEnabled = useFeatureFlag('PHAI_SANDBOX_MODE')
     const { isPromptVisible, isDetailedFeedbackVisible, isThankYouVisible, traceId } = useFeedback(conversationId)
 
@@ -248,181 +302,148 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
         [threadGrouped, streamingActive]
     )
 
-    if (isSandboxRuntime) {
-        if (!sandboxConversationKey) {
-            return null
-        }
-        return (
-            <div
-                className={cn(
-                    '@container/thread flex flex-col items-stretch w-full max-w-180 self-center gap-1.5 grow mx-auto',
-                    className
-                )}
-            >
-                {/* Same key maxThreadLogic's connect() uses, so both resolve the same instance */}
-                <BindLogic logic={sandboxStreamLogic} props={{ conversationId: sandboxConversationKey }}>
-                    <SandboxThread />
-                </BindLogic>
-            </div>
-        )
-    }
+    return (conversationLoading || messagesLoading) && threadGrouped.length === 0 ? (
+        <>
+            <MessageGroupSkeleton groupType="human" />
+            <MessageGroupSkeleton groupType="ai" className="opacity-80" />
+            <MessageGroupSkeleton groupType="human" className="opacity-65" />
+            <MessageGroupSkeleton groupType="ai" className="opacity-40" />
+            <MessageGroupSkeleton groupType="human" className="opacity-20" />
+            <MessageGroupSkeleton groupType="ai" className="opacity-10" />
+            <MessageGroupSkeleton groupType="human" className="opacity-5" />
+        </>
+    ) : threadGrouped.length > 0 ? (
+        <>
+            {(() => {
+                // Track the current trace_id as we iterate forward through messages
+                let currentTraceId: string | undefined
 
-    return (
-        <div
-            className={cn(
-                '@container/thread flex flex-col items-stretch w-full max-w-180 self-center gap-1.5 grow mx-auto',
-                className
-            )}
-        >
-            {(conversationLoading || messagesLoading) && threadGrouped.length === 0 ? (
-                <>
-                    <MessageGroupSkeleton groupType="human" />
-                    <MessageGroupSkeleton groupType="ai" className="opacity-80" />
-                    <MessageGroupSkeleton groupType="human" className="opacity-65" />
-                    <MessageGroupSkeleton groupType="ai" className="opacity-40" />
-                    <MessageGroupSkeleton groupType="human" className="opacity-20" />
-                    <MessageGroupSkeleton groupType="ai" className="opacity-10" />
-                    <MessageGroupSkeleton groupType="human" className="opacity-5" />
-                </>
-            ) : threadGrouped.length > 0 ? (
-                <>
-                    {(() => {
-                        // Track the current trace_id as we iterate forward through messages
-                        let currentTraceId: string | undefined
+                return threadGrouped.map((message, index) => {
+                    // Update trace_id when we encounter a human message
+                    if (message.type === 'human' && 'trace_id' in message && message.trace_id) {
+                        currentTraceId = message.trace_id
+                    }
 
-                        return threadGrouped.map((message, index) => {
-                            // Update trace_id when we encounter a human message
-                            if (message.type === 'human' && 'trace_id' in message && message.trace_id) {
-                                currentTraceId = message.trace_id
-                            }
+                    // Hide failed AI messages when retrying
+                    if (threadLoading && isErrorMessage(message)) {
+                        return null
+                    }
 
-                            // Hide failed AI messages when retrying
-                            if (threadLoading && isErrorMessage(message)) {
-                                return null
-                            }
+                    // Hide old failed attempts - only show the most recent error
+                    if (isErrorMessage(message)) {
+                        const hasNewerError = threadGrouped.slice(index + 1).some(isErrorMessage)
+                        if (hasNewerError) {
+                            return null
+                        }
+                    }
 
-                            // Hide old failed attempts - only show the most recent error
-                            if (isErrorMessage(message)) {
-                                const hasNewerError = threadGrouped.slice(index + 1).some(isErrorMessage)
-                                if (hasNewerError) {
-                                    return null
-                                }
-                            }
+                    // Hide duplicate human messages from retry pattern: Human → AI Error → Human (duplicate)
+                    // This specific pattern only occurs when "Try again" is clicked after a failure
+                    if (message.type === 'human' && 'content' in message && index >= 2) {
+                        const prevMessage = threadGrouped[index - 1]
+                        const prevPrevMessage = threadGrouped[index - 2]
 
-                            // Hide duplicate human messages from retry pattern: Human → AI Error → Human (duplicate)
-                            // This specific pattern only occurs when "Try again" is clicked after a failure
-                            if (message.type === 'human' && 'content' in message && index >= 2) {
-                                const prevMessage = threadGrouped[index - 1]
-                                const prevPrevMessage = threadGrouped[index - 2]
+                        const isRetryPattern =
+                            isErrorMessage(prevMessage) &&
+                            prevPrevMessage.type === 'human' &&
+                            'content' in prevPrevMessage &&
+                            prevPrevMessage.content === message.content
 
-                                const isRetryPattern =
-                                    isErrorMessage(prevMessage) &&
-                                    prevPrevMessage.type === 'human' &&
-                                    'content' in prevPrevMessage &&
-                                    prevPrevMessage.content === message.content
+                        if (isRetryPattern) {
+                            return null
+                        }
+                    }
 
-                                if (isRetryPattern) {
-                                    return null
-                                }
-                            }
+                    // Hide UI payload answers that are not renderable to prevent rendering an empty message component
+                    if (
+                        isAssistantToolCallMessage(message) &&
+                        (!message.ui_payload ||
+                            !isRenderableUIPayloadTool(Object.keys(message.ui_payload)[0], message.ui_payload))
+                    ) {
+                        return null
+                    }
 
-                            // Hide UI payload answers that are not renderable to prevent rendering an empty message component
-                            if (
-                                isAssistantToolCallMessage(message) &&
-                                (!message.ui_payload ||
-                                    !isRenderableUIPayloadTool(Object.keys(message.ui_payload)[0], message.ui_payload))
-                            ) {
-                                return null
-                            }
+                    const nextMessage = threadGrouped[index + 1]
+                    const isLastInGroup = !nextMessage || (message.type === 'human') !== (nextMessage.type === 'human')
 
-                            const nextMessage = threadGrouped[index + 1]
-                            const isLastInGroup =
-                                !nextMessage || (message.type === 'human') !== (nextMessage.type === 'human')
+                    // Hiding rating buttons after /feedback and /ticket command outputs
+                    const prevMessage = threadGrouped[index - 1]
+                    const isSlashCommandResponse =
+                        message.type !== 'human' &&
+                        prevMessage?.type === 'human' &&
+                        'content' in prevMessage &&
+                        (prevMessage.content.startsWith(SlashCommandName.SlashFeedback) ||
+                            prevMessage.content.startsWith(SlashCommandName.SlashTicket))
 
-                            // Hiding rating buttons after /feedback and /ticket command outputs
-                            const prevMessage = threadGrouped[index - 1]
-                            const isSlashCommandResponse =
-                                message.type !== 'human' &&
-                                prevMessage?.type === 'human' &&
-                                'content' in prevMessage &&
-                                (prevMessage.content.startsWith(SlashCommandName.SlashFeedback) ||
-                                    prevMessage.content.startsWith(SlashCommandName.SlashTicket))
+                    // Also hide for ticket confirmation messages
+                    const isTicketConfirmation = isTicketConfirmationMessage(message)
 
-                            // Also hide for ticket confirmation messages
-                            const isTicketConfirmation = isTicketConfirmationMessage(message)
+                    // Check if this message is a ticket summary that needs the ticket creation button
+                    const isTicketSummaryMessage = ticketSummaryData && ticketSummaryData.messageIndex === index
 
-                            // Check if this message is a ticket summary that needs the ticket creation button
-                            const isTicketSummaryMessage = ticketSummaryData && ticketSummaryData.messageIndex === index
+                    // For AI messages, use the current trace_id from the preceding human message
+                    const messageTraceId = message.type !== 'human' ? currentTraceId : undefined
 
-                            // For AI messages, use the current trace_id from the preceding human message
-                            const messageTraceId = message.type !== 'human' ? currentTraceId : undefined
-
-                            return (
-                                <React.Fragment key={`${conversationId}-${index}`}>
-                                    <TraceIdProvider value={messageTraceId}>
-                                        <Message
-                                            message={message}
-                                            nextMessage={nextMessage}
-                                            isLastInGroup={isLastInGroup}
-                                            isFinal={index === threadGrouped.length - 1}
-                                            isSlashCommandResponse={isSlashCommandResponse || isTicketConfirmation}
-                                        />
-                                    </TraceIdProvider>
-                                    {sandboxModeEnabled &&
-                                        sandboxEntries.length > 0 &&
-                                        isAssistantMessage(message) &&
-                                        message.id?.startsWith('sandbox-') &&
-                                        isLastInGroup && <SandboxActivityPanel entries={sandboxEntries} />}
-                                    {conversationId &&
-                                        isTicketSummaryMessage &&
-                                        (ticketSummaryData.discarded ? (
-                                            <p className="m-0 ml-1 mt-1 text-xs text-muted italic">
-                                                Ticket creation discarded
-                                            </p>
-                                        ) : (
-                                            <TicketPrompt
-                                                conversationId={conversationId}
-                                                traceId={traceId}
-                                                summary={ticketSummaryData.summary}
-                                            />
-                                        ))}
-                                </React.Fragment>
-                            )
-                        })
-                    })()}
-                    {conversationId && isPromptVisible && !streamingActive && (
-                        <MessageTemplate type="ai">
-                            <div className="flex flex-col gap-2">
-                                <span className="text-xs text-muted">How is PostHog AI doing? (optional)</span>
-                                <FeedbackDisplay conversationId={conversationId} />
-                            </div>
-                        </MessageTemplate>
-                    )}
-                    {conversationId && isDetailedFeedbackVisible && !streamingActive && (
-                        <FeedbackPrompt conversationId={conversationId} traceId={traceId} />
-                    )}
-                    {conversationId && isThankYouVisible && !streamingActive && (
-                        <MessageTemplate type="ai">
-                            <p className="m-0 text-sm text-secondary">Thanks for your feedback and using PostHog AI!</p>
-                        </MessageTemplate>
-                    )}
-                    {conversationId && ticketPromptData.needed && (
-                        <TicketPrompt
-                            conversationId={conversationId}
-                            traceId={traceId}
-                            initialText={ticketPromptData.initialText}
-                        />
-                    )}
-                </>
-            ) : (
-                conversationId && (
-                    <div className="flex flex-1 items-center justify-center">
-                        <NotFound object="conversation" className="m-0" />
+                    return (
+                        <React.Fragment key={`${conversationId}-${index}`}>
+                            <TraceIdProvider value={messageTraceId}>
+                                <Message
+                                    message={message}
+                                    nextMessage={nextMessage}
+                                    isLastInGroup={isLastInGroup}
+                                    isFinal={index === threadGrouped.length - 1}
+                                    isSlashCommandResponse={isSlashCommandResponse || isTicketConfirmation}
+                                />
+                            </TraceIdProvider>
+                            {sandboxModeEnabled &&
+                                sandboxEntries.length > 0 &&
+                                isAssistantMessage(message) &&
+                                message.id?.startsWith('sandbox-') &&
+                                isLastInGroup && <SandboxActivityPanel entries={sandboxEntries} />}
+                            {conversationId &&
+                                isTicketSummaryMessage &&
+                                (ticketSummaryData.discarded ? (
+                                    <p className="m-0 ml-1 mt-1 text-xs text-muted italic">Ticket creation discarded</p>
+                                ) : (
+                                    <TicketPrompt
+                                        conversationId={conversationId}
+                                        traceId={traceId}
+                                        summary={ticketSummaryData.summary}
+                                    />
+                                ))}
+                        </React.Fragment>
+                    )
+                })
+            })()}
+            {showTrailers && conversationId && isPromptVisible && !streamingActive && (
+                <MessageTemplate type="ai">
+                    <div className="flex flex-col gap-2">
+                        <span className="text-xs text-muted">How is PostHog AI doing? (optional)</span>
+                        <FeedbackDisplay conversationId={conversationId} />
                     </div>
-                )
+                </MessageTemplate>
             )}
+            {showTrailers && conversationId && isDetailedFeedbackVisible && !streamingActive && (
+                <FeedbackPrompt conversationId={conversationId} traceId={traceId} />
+            )}
+            {showTrailers && conversationId && isThankYouVisible && !streamingActive && (
+                <MessageTemplate type="ai">
+                    <p className="m-0 text-sm text-secondary">Thanks for your feedback and using PostHog AI!</p>
+                </MessageTemplate>
+            )}
+            {showTrailers && conversationId && ticketPromptData.needed && (
+                <TicketPrompt
+                    conversationId={conversationId}
+                    traceId={traceId}
+                    initialText={ticketPromptData.initialText}
+                />
+            )}
+        </>
+    ) : conversationId ? (
+        <div className="flex flex-1 items-center justify-center">
+            <NotFound object="conversation" className="m-0" />
         </div>
-    )
+    ) : null
 }
 
 function SandboxActivityPanel({ entries }: { entries: LogEntry[] }): JSX.Element | null {

@@ -113,20 +113,6 @@ def has_sandbox_mode_feature_flag(team: Team, user: User) -> bool:
     )
 
 
-def has_convert_legacy_history_feature_flag(team: Team, user: User) -> bool:
-    """Gate on-demand conversion of legacy LangGraph history to the sandbox runtime.
-
-    Layered on top of `phai-sandbox-mode` — only convert for users already flipped to sandbox.
-    """
-    return posthoganalytics.feature_enabled(
-        "phai-convert-legacy-history",
-        str(user.distinct_id),
-        groups={"organization": str(team.organization_id)},
-        group_properties={"organization": {"id": str(team.organization_id)}},
-        send_feature_flag_events=False,
-    )
-
-
 def has_user_interview_mode_feature_flag(team: Team, user: User) -> bool:
     return posthoganalytics.feature_enabled(
         "user-interviews",

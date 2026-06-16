@@ -53,8 +53,10 @@ from posthog.temporal.ai.research_agent import (
     ResearchAgentWorkflowInputs,
 )
 
-from products.posthog_ai.backend.context_wrapper import ALLOWED_TYPES as ALLOWED_ATTACHED_CONTEXT_TYPES
-from products.posthog_ai.backend.conversion_service import LegacyConversionService
+from products.posthog_ai.backend.context_wrapper import (
+    ALLOWED_TYPES as ALLOWED_ATTACHED_CONTEXT_TYPES,
+    ContextService,
+)
 from products.posthog_ai.backend.message_routing import MessageRoutingService
 from products.posthog_ai.backend.models.assistant import Conversation
 from products.tasks.backend.models import Task, TaskRun
@@ -68,7 +70,7 @@ from ee.hogai.core.executor import AgentExecutor
 from ee.hogai.queue import ConversationQueueMessage, ConversationQueueStore, QueueFullError, build_queue_message
 from ee.hogai.stream.redis_stream import get_conversation_stream_key
 from ee.hogai.utils.aio import async_to_sync
-from ee.hogai.utils.feature_flags import has_convert_legacy_history_feature_flag, has_sandbox_mode_feature_flag
+from ee.hogai.utils.feature_flags import has_sandbox_mode_feature_flag
 from ee.hogai.utils.sse import AssistantSSESerializer
 from ee.hogai.utils.types import PartialAssistantState
 
@@ -425,35 +427,9 @@ class ConversationViewSet(
         return context
 
     def retrieve(self, request: Request, *args, **kwargs):
-        # Convert a legacy LangGraph thread to sandbox on open, before serializing, so the
-        # response reflects the converted (sandbox) shape on this very request. Flag-gated and
-        # idempotent; subsequent opens skip it (the conversation is already sandbox).
         conversation = self.get_object()
-        self._maybe_convert_legacy_history(request, conversation)
         serializer = self.get_serializer(conversation)
         return Response(serializer.data)
-
-    def _maybe_convert_legacy_history(self, request: Request, conversation: Conversation) -> None:
-        """On-demand convert an idle LangGraph conversation to sandbox when both flags are on.
-
-        Layered gate: the user must already be on `phai-sandbox-mode` and have
-        `phai-convert-legacy-history` enabled. The seeder is idempotent and serializes concurrent
-        opens under the conversation row lock, so a double-submit cannot create two Tasks. Any
-        failure degrades to leaving the conversation on LangGraph — it never blocks the open.
-        """
-        if conversation.agent_runtime != Conversation.AgentRuntime.LANGGRAPH or conversation.task_id is not None:
-            return
-        user = cast(User, request.user)
-        if not has_sandbox_mode_feature_flag(self.team, user):
-            return
-        if not has_convert_legacy_history_feature_flag(self.team, user):
-            return
-        try:
-            LegacyConversionService(conversation, user).convert_if_needed()
-        except Exception as e:
-            # A failed conversion must not break the conversation load — the thread stays on
-            # LangGraph (still fully readable) and the next open can retry.
-            capture_exception(e)
 
     def create(self, request: Request, *args, **kwargs):
         """
@@ -514,21 +490,42 @@ class ConversationViewSet(
             )
             is_new_conversation = True
 
-        # Convert a reopened legacy LangGraph thread to sandbox before routing, so the message
-        # below takes the sandbox path. Flag-gated, idempotent, and a no-op for new / non-idle /
-        # already-sandbox conversations.
-        if not is_new_conversation:
-            self._maybe_convert_legacy_history(request, conversation)
-
         is_idle = conversation.status == Conversation.Status.IDLE
         has_message = serializer.validated_data.get("message") is not None
         has_resume_payload = serializer.validated_data.get("resume_payload") is not None
+
+        # Convert a reopened legacy LangGraph thread on its first new message: read the current
+        # conversation window into a one-time resumed-context block (while still LangGraph), then
+        # route the message through the sandbox path, which flips the runtime + links the Task
+        # atomically. Gated on `phai-sandbox-mode` only; the legacy thread itself is kept and still
+        # rendered (above the conversion divider).
+        resumed_context: str | None = None
+        is_conversion = bool(
+            not is_new_conversation
+            and conversation.agent_runtime == Conversation.AgentRuntime.LANGGRAPH
+            and conversation.task_id is None
+            and is_idle
+            and has_message
+            and has_sandbox_mode_feature_flag(self.team, cast(User, request.user))
+        )
+        if is_conversion:
+            try:
+                resumed_context = asgi_async_to_sync(ContextService().abuild_resumed_legacy_context)(
+                    conversation, self.team, cast(User, request.user)
+                )
+            except Exception as e:
+                # A failed read must not block the conversion — continue with no resumed context.
+                # The user can still continue, and the legacy thread is rendered by the serializer.
+                capture_exception(e)
+                resumed_context = None
+
         is_sandbox = (
             serializer.validated_data.get("is_sandbox", False)
             or serializer.validated_data.get("agent_mode") == AgentMode.SANDBOX
-            # A just-converted thread is sandbox now even if the request wasn't flagged sandbox —
-            # route the message through the sandbox path so it lands on the new Task.
             or conversation.agent_runtime == Conversation.AgentRuntime.SANDBOX
+            # A converting thread is still LangGraph here (the flip happens in the routing service),
+            # so route it through the sandbox path explicitly.
+            or is_conversion
         )
 
         if conversation.type == Conversation.Type.DEEP_RESEARCH:
@@ -554,7 +551,9 @@ class ConversationViewSet(
             if is_new_conversation:
                 conversation.title = serializer.validated_data["content"][:80]
                 conversation.save(update_fields=["title"])
-            return self._route_sandbox_message(request, conversation)
+            return self._route_sandbox_message(
+                request, conversation, resumed_context=resumed_context, is_conversion=is_conversion
+            )
 
         workflow_inputs: ChatAgentWorkflowInputs | ResearchAgentWorkflowInputs
         workflow_class: type[ChatAgentWorkflow] | type[ResearchAgentWorkflow]
@@ -742,9 +741,18 @@ class ConversationViewSet(
             raise exceptions.ValidationError("This conversation is not on the sandbox runtime.")
         return self._route_sandbox_message(request, conversation)
 
-    def _route_sandbox_message(self, request: Request, conversation: Conversation) -> Response:
+    def _route_sandbox_message(
+        self,
+        request: Request,
+        conversation: Conversation,
+        *,
+        resumed_context: str | None = None,
+        is_conversion: bool = False,
+    ) -> Response:
         user = cast(User, request.user)
-        result = MessageRoutingService(conversation, user).handle(request.data)
+        result = MessageRoutingService(conversation, user).handle(
+            request.data, resumed_context=resumed_context, is_conversion=is_conversion
+        )
         report_user_action(
             user,
             "prompt sent",
@@ -753,6 +761,7 @@ class ConversationViewSet(
                 "conversation_id": str(conversation.id),
                 "execution_type": "sandbox",
                 "agent_runtime": "sandbox",
+                "is_conversion": is_conversion,
                 "just_created_run": result.just_created_run,
                 "has_attached_context": result.attached_context_count > 0,
                 "attached_context_count": result.attached_context_count,

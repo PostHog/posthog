@@ -868,15 +868,15 @@ class TaskRun(models.Model):
         return update.get("sessionUpdate") == "agent_message_chunk" if isinstance(update, dict) else False
 
     # Default S3 retention for a freshly-created run log. Live runs auto-expire after a month;
-    # converted historical logs (see products/posthog_ai langgraph_to_acp seeder) pass `None` so
-    # they are never tagged for expiry — user history must not silently vanish after 30 days.
+    # callers that must preserve a log indefinitely pass `ttl_days=None` so it is never tagged for
+    # expiry — user history must not silently vanish after 30 days.
     DEFAULT_LOG_TTL_DAYS = 30
 
     def append_log(self, entries: list[dict], *, ttl_days: int | None = DEFAULT_LOG_TTL_DAYS):
         """Append log entries to S3 storage.
 
         `ttl_days` tags a newly-created log file for expiry; pass `None` to write a log that is
-        never auto-expired (used for seeded historical conversions). The tag is only applied on
+        never auto-expired. The tag is only applied on
         first write — re-tagging an existing log would not change a TTL already in flight.
         """
         entries = [e for e in entries if not self._is_agent_message_chunk(e)]
