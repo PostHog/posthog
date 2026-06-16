@@ -1430,6 +1430,22 @@
             "readOnlyHint": true
         }
     },
+    "characterize-metric-anomaly": {
+        "description": "Characterize how a metric behaves in a suspicious window compared to a healthy baseline. This is the FIRST call to make when investigating \"metric X is rising/dropping — why?\": one call answers how big the change is, exactly when it started, and which label values moved.\n\nRequired: `metricName` (exact — discover via `metric-names-list` first) and `anomalyFrom` (when things started looking wrong; the alert fire time works). `anomalyTo` defaults to now. The baseline defaults to the equal-length window immediately before `anomalyFrom`; pass `baselineFrom`/`baselineTo` to compare against a known-good period instead (e.g. same time yesterday).\n\nThe aggregation is auto-picked from the metric's OTel type (counter -> rate, gauge -> avg, histogram -> p95); override with `aggregation` if you need a different lens. Use `filters` to scope to a service or region. `candidateKeys` controls which label keys are drilled into for the movers analysis — omit it to auto-discover.\n\nRead the report in this order:\n\n1. `direction` + `change_ratio` + `anomaly_peak`: how bad is it? (`flat` means the windows don't meaningfully differ — widen the anomaly window or check you have the right metric.)\n2. `onset_time`: when it started. Use this exact timestamp as the pivot for cross-signal correlation.\n3. `top_movers`: which label values changed. One label value moving alone (e.g. a single pod or shard) points at a localized culprit; everything moving together points at a shared cause upstream.\n4. `series`: the full baseline+anomaly time series if you need to eyeball the shape.\n\nThen correlate: query logs (`query-logs` with the same service and a window around `onset_time`, severity error first) and traces (APM span tools, same service/window) to find what broke and its blast radius. All parameters are nested inside a `query` object.",
+        "category": "Metrics",
+        "feature": "metrics",
+        "summary": "Characterize metric anomaly",
+        "title": "Characterize metric anomaly",
+        "required_scopes": ["metrics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "metrics",
+        "system_prompt_hint": "First call when investigating \"metric X looks wrong\" — magnitude, onset, which labels moved"
+    },
     "cohorts-add-persons-to-static-cohort-partial-update": {
         "description": "Add persons to a static cohort by their UUIDs. Only works for static cohorts (is_static: true).\n\nIntended for small, ad-hoc additions — pass at most ~20 person UUIDs per call. To build or grow a static cohort from a larger set, do NOT loop this tool over many UUIDs; instead create the cohort from a query ('cohorts-create' with 'is_static: true' and a 'query'), or add to an existing static cohort by setting a 'query' on it via 'cohorts-partial-update'. The server then runs the query and inserts every matching person in a single call, with no row limit.",
         "category": "Cohorts",

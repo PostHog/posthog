@@ -644,6 +644,20 @@ class FeatureFlagCreateRequestSchemaSerializer(serializers.Serializer):
         help_text="Whether to persist a user's flag value across the anonymous-to-identified transition "
         "(the 'persist across authentication steps' option). Incompatible with device_id bucketing.",
     )
+    evaluation_runtime = serializers.ChoiceField(
+        choices=FeatureFlag.EVALUATION_RUNTIME_CHOICES,
+        required=False,
+        allow_null=True,
+        help_text="Where this flag is allowed to evaluate: 'server' (server-side SDKs only), "
+        "'client' (client-side SDKs only), or 'all' (both). Defaults to 'all'.",
+    )
+    bucketing_identifier = serializers.ChoiceField(
+        choices=FeatureFlag.BUCKETING_IDENTIFIER_CHOICES,
+        required=False,
+        allow_null=True,
+        help_text="Identifier used to bucket users into rollout percentages and variants: 'distinct_id' "
+        "(user ID, the default) or 'device_id'. Using 'device_id' is incompatible with ensure_experience_continuity=True.",
+    )
 
 
 class FeatureFlagPartialUpdateRequestSchemaSerializer(serializers.Serializer):
@@ -675,6 +689,20 @@ class FeatureFlagPartialUpdateRequestSchemaSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Whether to persist a user's flag value across the anonymous-to-identified transition "
         "(the 'persist across authentication steps' option). Incompatible with device_id bucketing.",
+    )
+    evaluation_runtime = serializers.ChoiceField(
+        choices=FeatureFlag.EVALUATION_RUNTIME_CHOICES,
+        required=False,
+        allow_null=True,
+        help_text="Where this flag is allowed to evaluate: 'server' (server-side SDKs only), "
+        "'client' (client-side SDKs only), or 'all' (both). Defaults to 'all'.",
+    )
+    bucketing_identifier = serializers.ChoiceField(
+        choices=FeatureFlag.BUCKETING_IDENTIFIER_CHOICES,
+        required=False,
+        allow_null=True,
+        help_text="Identifier used to bucket users into rollout percentages and variants: 'distinct_id' "
+        "(user ID, the default) or 'device_id'. Using 'device_id' is incompatible with ensure_experience_continuity=True.",
     )
 
 
