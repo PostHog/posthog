@@ -14,7 +14,7 @@ from temporalio.api.enums.v1 import EventType
 from temporalio.client import Client
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.temporal.common.codec import EncryptionCodec, _prepare_key, _resize_key
+from posthog.temporal.common.codec import EncryptionCodec, _load_as_bytes, _prepare_key, _resize_key
 
 from products.batch_exports.backend.service import NoOpInputs
 from products.batch_exports.backend.temporal.noop import NoOpWorkflow, noop_activity
@@ -57,6 +57,29 @@ def test_prepare_key(key: bytes, expected: bytes) -> None:
     result = _prepare_key(key)
     assert result == expected
     assert base64.urlsafe_b64decode(result) == _resize_key(key)
+
+
+# The presence of '?' is important as it encodes differently in standard and
+# urlsafe base64 ('/' vs '_').
+BYTES = b"decaf???" * 4  # 32 bytes
+TEST_HEX_STRING = "hex:" + (BYTES).hex()
+TEST_BASE64_URLSAFE_STRING = "base64-urlsafe:" + base64.urlsafe_b64encode(BYTES).decode()
+TEST_BASE64_STRING = "base64:" + base64.b64encode(BYTES).decode()
+
+
+@pytest.mark.parametrize(
+    "raw,check_length,expected",
+    [
+        (b"a", False, b"a"),
+        (TEST_HEX_STRING, True, BYTES),
+        (TEST_BASE64_URLSAFE_STRING, True, BYTES),
+        (TEST_BASE64_STRING, True, BYTES),
+        ("any string", False, b"any string"),
+    ],
+)
+def test_load_as_bytes(raw: str | bytes, check_length: bool, expected: bytes) -> None:
+    result = _load_as_bytes(raw, check_length=check_length)
+    assert result == expected
 
 
 def test_codec_rejects_short_keys_when_not_debug_or_test():

@@ -81,15 +81,13 @@ def get_property_values_for_key(
 
 # property_values_distributed routes to the aggregated table on the aux cluster.
 SELECT_EVENT_PROPERTY_VALUES_FROM_AGGREGATED_TABLE_SQL = """
-SELECT property_value, sum(property_count) AS prop_count
+SELECT DISTINCT property_value
 FROM property_values_distributed
 WHERE team_id = %(team_id)s
     AND property_type = 'event'
     AND property_key = %(key)s
     AND last_seen >= now() - INTERVAL 7 DAY
     {value_filter}
-GROUP BY property_value
-ORDER BY prop_count DESC
 LIMIT 10
 """
 

@@ -103,6 +103,10 @@ export const PRLifecycleEventApi = zod.object({
         ),
     at: zod.iso.datetime({ offset: true }).describe('When the event occurred.'),
     detail: zod.string().nullish().describe('Optional detail, e.g. workflow name and conclusion for CI events.'),
+    run_id: zod
+        .number()
+        .nullish()
+        .describe('GitHub Actions run id for ci_started\/ci_finished events, null otherwise.'),
 })
 
 export type PRLifecycleEventApi = zod.input<typeof PRLifecycleEventApi>
@@ -172,6 +176,10 @@ export const PRLifecycleApi = zod.object({
                     .string()
                     .nullish()
                     .describe('Optional detail, e.g. workflow name and conclusion for CI events.'),
+                run_id: zod
+                    .number()
+                    .nullish()
+                    .describe('GitHub Actions run id for ci_started\/ci_finished events, null otherwise.'),
             })
         )
         .describe('Lifecycle events ordered by time.'),
@@ -310,7 +318,34 @@ export const PullRequestListApi = zod.object({
 export type PullRequestListApi = zod.input<typeof PullRequestListApi>
 export type PullRequestListApiOutput = zod.output<typeof PullRequestListApi>
 
+export const WorkflowHealthDayApi = zod.object({
+    day: zod.iso.date().describe('UTC calendar day.'),
+    run_count: zod.number().describe('Runs started that day.'),
+    completed: zod.number().describe('Runs that completed that day.'),
+    successes: zod.number().describe("Completed runs with conclusion 'success' that day."),
+})
+
+export type WorkflowHealthDayApi = zod.input<typeof WorkflowHealthDayApi>
+export type WorkflowHealthDayApiOutput = zod.output<typeof WorkflowHealthDayApi>
+
 export const WorkflowHealthItemApi = zod.object({
+    repo: zod
+        .object({
+            provider: zod.string().describe("Code host provider, e.g. 'github'."),
+            owner: zod.string().describe('Repository owner or organization.'),
+            name: zod.string().describe('Repository name.'),
+        })
+        .describe('Repository the workflow runs in.'),
+    daily: zod
+        .array(
+            zod.object({
+                day: zod.iso.date().describe('UTC calendar day.'),
+                run_count: zod.number().describe('Runs started that day.'),
+                completed: zod.number().describe('Runs that completed that day.'),
+                successes: zod.number().describe("Completed runs with conclusion 'success' that day."),
+            })
+        )
+        .describe('Daily run history across the whole window, oldest first, zero-filled.'),
     workflow_name: zod.string().describe('GitHub Actions workflow name.'),
     run_count: zod.number().describe('Total runs started in the window.'),
     success_rate: zod

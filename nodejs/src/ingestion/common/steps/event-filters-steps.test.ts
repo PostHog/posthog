@@ -32,7 +32,7 @@ describe('createEventFiltersBatchAppMetricsBeforeBatchStep', () => {
         const step = createEventFiltersBatchAppMetricsBeforeBatchStep(mockOutputs)
         const result = await step({
             elements: [{ result: ok({ foo: 1 }), context: makePipelineContext() }],
-            batchId: 0,
+            batchContext: { batchId: 0 },
         })
 
         expect(isOkResult(result)).toBe(true)
@@ -42,14 +42,14 @@ describe('createEventFiltersBatchAppMetricsBeforeBatchStep', () => {
         expect(result.value.batchContext.eventFiltersBatchAppMetrics).toBeInstanceOf(EventFiltersBatchAppMetrics)
     })
 
-    it('attaches the same batch metrics instance to each element', async () => {
+    it('attaches the same batch metrics instance to the batch context', async () => {
         const step = createEventFiltersBatchAppMetricsBeforeBatchStep(mockOutputs)
         const result = await step({
             elements: [
                 { result: ok({ a: 1 }), context: makePipelineContext() },
                 { result: ok({ a: 2 }), context: makePipelineContext() },
             ],
-            batchId: 0,
+            batchContext: { batchId: 0 },
         })
 
         expect(isOkResult(result)).toBe(true)
@@ -57,17 +57,15 @@ describe('createEventFiltersBatchAppMetricsBeforeBatchStep', () => {
             return
         }
 
-        const batchMetrics = result.value.batchContext.eventFiltersBatchAppMetrics
-        for (const element of result.value.elements) {
-            expect(element.result.value.eventFiltersBatchAppMetrics).toBe(batchMetrics)
-        }
+        expect(result.value.batchContext.eventFiltersBatchAppMetrics).toBeInstanceOf(EventFiltersBatchAppMetrics)
+        expect(result.value.elements).toHaveLength(2)
     })
 
     it('preserves existing element values and context', async () => {
         const step = createEventFiltersBatchAppMetricsBeforeBatchStep(mockOutputs)
         const result = await step({
             elements: [{ result: ok({ data: 'hello' }), context: makePipelineContext({ ctx: true }) }],
-            batchId: 0,
+            batchContext: { batchId: 0 },
         })
 
         expect(isOkResult(result)).toBe(true)
@@ -503,7 +501,7 @@ describe('createFlushEventFiltersBatchAppMetricsStep', () => {
         const step = createFlushEventFiltersBatchAppMetricsStep()
         const input = {
             elements: [],
-            batchContext: { eventFiltersBatchAppMetrics: metrics },
+            batchContext: { eventFiltersBatchAppMetrics: metrics, batchId: 0 },
         }
 
         const result = await step(input)
@@ -524,7 +522,7 @@ describe('createFlushEventFiltersBatchAppMetricsStep', () => {
         const step = createFlushEventFiltersBatchAppMetricsStep()
         const input = {
             elements: [],
-            batchContext: { eventFiltersBatchAppMetrics: metrics },
+            batchContext: { eventFiltersBatchAppMetrics: metrics, batchId: 0 },
         }
 
         const result = await step(input)
@@ -545,7 +543,7 @@ describe('createFlushEventFiltersBatchAppMetricsStep', () => {
         const step = createFlushEventFiltersBatchAppMetricsStep()
         const input = {
             elements: [{ some: 'data' }],
-            batchContext: { eventFiltersBatchAppMetrics: metrics },
+            batchContext: { eventFiltersBatchAppMetrics: metrics, batchId: 0 },
         }
 
         const result = await step(input)

@@ -1,4 +1,4 @@
-import { BindLogic, connect, kea, path, props, selectors, useActions, useValues } from 'kea'
+import { BindLogic, connect, kea, path, selectors, useActions, useValues } from 'kea'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { IconCopy, IconQuestion } from '@posthog/icons'
@@ -19,8 +19,6 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { nonHogFunctionTemplatesLogic } from 'scenes/data-pipelines/utils/nonHogFunctionTemplatesLogic'
-import { HogFunctionTemplateList } from 'scenes/hog-functions/list/HogFunctionTemplateList'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -40,6 +38,7 @@ import { BillingLimitNotice } from './components/BillingLimitNotice'
 import { SelfManagedSourceForm } from './components/SelfManagedSourceForm'
 import type { newSourceSceneLogicType } from './NewSourceSceneType'
 import { selfManagedSourceLogic } from './selfManagedSourceLogic'
+import { SourceCatalog } from './SourceCatalog'
 import { type SourceWizardLogicProps, sourceWizardLogic } from './sourceWizardLogic'
 
 export const getEffectiveAccessMethod = (
@@ -53,13 +52,8 @@ export const getEffectiveAccessMethod = (
     return persistedAccessMethod
 }
 
-export interface NewSourceSceneLogicProps {
-    tabId: string
-}
-
 export const newSourceSceneLogic = kea<newSourceSceneLogicType>([
     path(['products', 'dataWarehouse', 'newSourceSceneLogic']),
-    props({} as NewSourceSceneLogicProps),
     connect(() => ({
         values: [availableSourcesLogic, ['availableSources', 'availableSourcesLoading']],
     })),
@@ -89,31 +83,21 @@ export const scene: SceneExport = {
     logic: newSourceSceneLogic,
 }
 
-export function NewSourceScene({ tabId }: { tabId?: string }): JSX.Element {
-    if (!tabId) {
-        throw new Error('NewSourceScene rendered with no tabId')
-    }
-
-    const sceneRootLogic = newSourceSceneLogic({ tabId })
+export function NewSourceScene(): JSX.Element {
+    const sceneRootLogic = newSourceSceneLogic()
     const { availableSources, availableSourcesLoading } = useValues(sceneRootLogic)
 
     if (availableSourcesLoading || availableSources === null) {
         return <LemonSkeleton />
     }
 
-    return <MountedNewSourceScene availableSources={availableSources} tabId={tabId} />
+    return <MountedNewSourceScene availableSources={availableSources} />
 }
 
-function MountedNewSourceScene({
-    availableSources,
-    tabId,
-}: {
-    availableSources: Record<string, SourceConfig>
-    tabId: string
-}): JSX.Element {
-    const sourceWizardLogicProps = useMemo(() => ({ availableSources, tabId }), [availableSources, tabId])
+function MountedNewSourceScene({ availableSources }: { availableSources: Record<string, SourceConfig> }): JSX.Element {
+    const sourceWizardLogicProps = useMemo(() => ({ availableSources }), [availableSources])
     const wizardLogic = sourceWizardLogic(sourceWizardLogicProps)
-    const sceneRootLogic = newSourceSceneLogic({ tabId })
+    const sceneRootLogic = newSourceSceneLogic()
 
     useAttachedLogic(wizardLogic, sceneRootLogic)
 
@@ -452,37 +436,12 @@ CREATE PUBLICATION "${pubName}" FOR TABLE ${tableList}
 
 function FirstStep({ allowedSources }: NewSourcesWizardProps): JSX.Element {
     const { availableSourcesLoading } = useValues(availableSourcesLogic)
-    const { connectors } = useValues(sourceWizardLogic)
 
-    // Filter out sources for onboarding flow
-    const sources = connectors.reduce(
-        (acc, cur) => {
-            if (allowedSources) {
-                if (allowedSources.indexOf(cur.name) !== -1) {
-                    acc[cur.name] = cur
-                }
-            } else {
-                acc[cur.name] = cur
-            }
+    if (availableSourcesLoading) {
+        return <LemonSkeleton className="h-64" />
+    }
 
-            return acc
-        },
-        {} as Record<string, SourceConfig>
-    )
-
-    const { hogFunctionTemplatesDataWarehouseSources } = useValues(
-        nonHogFunctionTemplatesLogic({
-            availableSources: sources ?? {},
-        })
-    )
-
-    return (
-        <HogFunctionTemplateList
-            type="source_webhook"
-            manualTemplates={hogFunctionTemplatesDataWarehouseSources}
-            manualTemplatesLoading={availableSourcesLoading}
-        />
-    )
+    return <SourceCatalog allowedSources={allowedSources} />
 }
 
 function SecondStep({ sourceWizardLogicProps }: { sourceWizardLogicProps?: SourceWizardLogicProps }): JSX.Element {

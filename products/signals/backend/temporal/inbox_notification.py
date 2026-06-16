@@ -1,8 +1,12 @@
-"""Decides when to send a report's inbox Slack notification.
+"""Decides when (and whether) to send a report's inbox Slack notification.
 
-A report that auto-starts an implementation task waits for the PR to open (so the card can
-carry a "Review PR" button), bounded by a timeout. A report with no auto-start task notifies
-immediately. Posting itself stays in `dispatch_inbox_item_notifications`; this governs timing.
+A notification is only sent when the report has an implementation PR to link — otherwise
+there's nothing actionable, so it's suppressed (it still appears in the inbox UI). A report
+that auto-starts an implementation task waits for the PR to open (so the card can carry a
+"Review PR" button), bounded by a timeout; if that task never opens a PR (it fails, is
+cancelled, or the wait times out) the notification is suppressed. A report with no auto-start
+task can never produce a PR, so it's suppressed immediately without waiting. Posting itself
+stays in `dispatch_inbox_item_notifications`; this governs timing and suppression.
 """
 
 from __future__ import annotations
@@ -96,7 +100,12 @@ def _send_report_inbox_notifications(team_id: int, report_id: str) -> int:
     # Re-derive source products at send time so a deferred notification reflects the current signals.
     signals = fetch_signals_for_report_sync(team, report_id)
     source_products = sorted({s["source_product"] for s in signals if s.get("source_product")})
-    return dispatch_inbox_item_notifications(report_id=report_id, team_id=team_id, source_products=source_products)
+    return dispatch_inbox_item_notifications(
+        report_id=report_id,
+        team_id=team_id,
+        source_products=source_products,
+        signals=signals,
+    )
 
 
 @temporalio.activity.defn
@@ -127,6 +136,25 @@ class SignalReportInboxNotificationWorkflow:
                 state = await self._fetch_state(inputs)
                 if state.pr_available or state.task_terminal:
                     break
+
+        # A report with no implementation PR has nothing actionable to link, so suppress its
+        # notification (it still shows in the inbox). The patch guards keep workflows already in
+        # flight at deploy on their prior, narrower behavior to preserve replay determinism:
+        # `signals-inbox-skip-any-no-pr` suppresses any PR-less report; the older
+        # `signals-inbox-skip-no-pr` only suppressed reports whose implementation task produced no PR.
+        if workflow.patched("signals-inbox-skip-any-no-pr"):
+            should_skip = not state.pr_available
+        elif workflow.patched("signals-inbox-skip-no-pr"):
+            should_skip = state.has_implementation_task and not state.pr_available
+        else:
+            should_skip = False
+
+        if should_skip:
+            workflow.logger.info(
+                "inbox notification skipped: no implementation PR to link",
+                extra={"report_id": inputs.report_id, "team_id": inputs.team_id},
+            )
+            return 0
 
         return await workflow.execute_activity(
             send_report_inbox_notifications_activity,

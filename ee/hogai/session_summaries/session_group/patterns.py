@@ -10,13 +10,14 @@ from temporalio.exceptions import ApplicationError
 from posthog.models.person import Person
 from posthog.models.person.util import get_persons_mapped_by_distinct_id
 
+from products.replay.backend.models.session_summaries import SingleSessionSummary
+
 from ee.hogai.session_summaries import SummaryValidationError
 from ee.hogai.session_summaries.constants import FAILED_PATTERNS_ENRICHMENT_MIN_RATIO
 from ee.hogai.session_summaries.session.output_data import SessionSummaryIssueTypes, SessionSummarySerializer
 from ee.hogai.session_summaries.session.summarize_session import SingleSessionSummaryLlmInputs
 from ee.hogai.session_summaries.utils import logging_session_ids
 from ee.hogai.utils.yaml import load_yaml_from_raw_llm_content
-from ee.models.session_summaries import SingleSessionSummary
 
 logger = structlog.get_logger(__name__)
 

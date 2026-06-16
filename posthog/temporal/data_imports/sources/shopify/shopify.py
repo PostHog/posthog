@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import dataclasses
 from collections.abc import Iterator
@@ -39,6 +40,14 @@ SHOPIFY_ACCESS_TOKEN_AUTH_ERROR = (
     "Failed to retrieve Shopify access token: the app credentials are invalid or the "
     "app was uninstalled. Please reconnect your Shopify integration."
 )
+
+# Substring of the GraphQL error Shopify returns when the connected access token lacks the
+# scope needed to read a field, e.g. "Access denied for fulfillmentOrders field." or
+# "Access denied for paymentTerms field. Required access: `read_payment_terms` access scope."
+# Retrying can't grant the missing scope — the user must reconnect with expanded permissions —
+# so `ShopifySource.get_non_retryable_errors` matches this substring to fail the job fast.
+# The field name varies, so the match anchors on the stable leading phrase.
+SHOPIFY_GRAPHQL_ACCESS_DENIED_ERROR = "Access denied for"
 
 
 @dataclasses.dataclass
@@ -155,7 +164,43 @@ def _make_paginated_shopify_request(
                 resumable_source_manager.save_state(ShopifyResumeConfig(phase=phase, cursor=next_cursor))
 
 
+# A Shopify store subdomain is lowercase alphanumerics and hyphens.
+_SHOPIFY_SUBDOMAIN_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+
+
+def normalize_store_id(raw: str) -> str:
+    """Reduce whatever the user pasted to the bare Shopify store subdomain.
+
+    The store id is interpolated into ``https://{}.myshopify.com/...``, so a value
+    that already carries a scheme, a path, or the ``.myshopify.com`` suffix builds a
+    broken host (e.g. ``store.myshopify.com.myshopify.com`` or a host of ``https``) —
+    the single biggest cause of Shopify connection failures. Accepts ``my-store``,
+    ``my-store.myshopify.com``, ``https://my-store.myshopify.com`` and the admin
+    deep-link ``https://admin.shopify.com/store/my-store``, all returning ``my-store``.
+
+    Raises ``ValueError`` if the result isn't a plain subdomain, which also pins
+    outbound traffic to ``*.myshopify.com`` (no breaking out to another host).
+    """
+    store_id = (raw or "").strip().lower()
+    store_id = store_id.removeprefix("https://").removeprefix("http://")
+    # Admin deep-link: admin.shopify.com/store/<store-id>[/...]
+    if store_id.startswith("admin.shopify.com/store/"):
+        store_id = store_id.removeprefix("admin.shopify.com/store/")
+    # Drop any path/query/fragment that rode along with a pasted URL.
+    store_id = store_id.split("/", 1)[0].split("?", 1)[0].split("#", 1)[0]
+    # Strip the domain suffix, looping to collapse an accidental double suffix.
+    while store_id.endswith(".myshopify.com"):
+        store_id = store_id.removesuffix(".myshopify.com")
+    if not _SHOPIFY_SUBDOMAIN_RE.match(store_id):
+        raise ValueError(
+            f"Invalid Shopify store id {raw!r}. Enter just your store subdomain — the 'my-store' "
+            "in 'my-store.myshopify.com'."
+        )
+    return store_id
+
+
 def _get_shopify_access_token(shopify_store_id: str, shopify_client_id: str, shopify_client_secret: str) -> str:
+    # Callers pass an already-normalized store id (see normalize_store_id).
     access_token_url = SHOPIFY_ACCESS_TOKEN_URL.format(shopify_store_id)
     access_data = {
         "client_id": shopify_client_id,
@@ -184,8 +229,9 @@ def shopify_source(
     resumable_source_manager: ResumableSourceManager[ShopifyResumeConfig],
     should_use_incremental_field: bool = False,
 ):
-    api_url = SHOPIFY_API_URL.format(shopify_store_id, SHOPIFY_API_VERSION)
-    shopify_access_token = _get_shopify_access_token(shopify_store_id, shopify_client_id, shopify_client_secret)
+    store_id = normalize_store_id(shopify_store_id)
+    api_url = SHOPIFY_API_URL.format(store_id, SHOPIFY_API_VERSION)
+    shopify_access_token = _get_shopify_access_token(store_id, shopify_client_id, shopify_client_secret)
     schema_name = resolve_schema_name(graphql_object_name)
 
     def get_rows():
@@ -289,8 +335,9 @@ def validate_credentials(shopify_store_id: str, shopify_client_id: str, shopify_
     - Raise ShopifyPermissionError if the access token is valid but lacks permissions for specific resources
     - Raise Exception if the access token is invalid or there's any other error
     """
-    api_url = SHOPIFY_API_URL.format(shopify_store_id, SHOPIFY_API_VERSION)
-    shopify_access_token = _get_shopify_access_token(shopify_store_id, shopify_client_id, shopify_client_secret)
+    store_id = normalize_store_id(shopify_store_id)
+    api_url = SHOPIFY_API_URL.format(store_id, SHOPIFY_API_VERSION)
+    shopify_access_token = _get_shopify_access_token(store_id, shopify_client_id, shopify_client_secret)
     sess = make_tracked_session(
         headers={
             "Content-Type": "application/json",

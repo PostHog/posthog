@@ -1,6 +1,7 @@
+import { initKeaTests } from '~/test/init'
 import { ExportedAssetType, ExporterFormat } from '~/types'
 
-import { pickPollDelayMs } from './exportsLogic'
+import { exportsLogic, pickPollDelayMs } from './exportsLogic'
 
 const asset = (overrides: Partial<ExportedAssetType> = {}): ExportedAssetType => ({
     id: 1,
@@ -11,35 +12,64 @@ const asset = (overrides: Partial<ExportedAssetType> = {}): ExportedAssetType =>
     ...overrides,
 })
 
-describe('pickPollDelayMs', () => {
-    it('returns the default delay when nothing is pending', () => {
-        expect(pickPollDelayMs([asset({ has_content: true })])).toBe(10000)
+describe('exportsLogic', () => {
+    describe('pickPollDelayMs', () => {
+        it('returns the default delay when nothing is pending', () => {
+            expect(pickPollDelayMs([asset({ has_content: true })])).toBe(10000)
+        })
+
+        it('returns the default delay when at least one pending asset is fast', () => {
+            expect(
+                pickPollDelayMs([
+                    asset({ id: 1, export_format: ExporterFormat.MP4 }),
+                    asset({ id: 2, export_format: ExporterFormat.CSV }),
+                ])
+            ).toBe(10000)
+        })
+
+        it('backs off when every pending asset is a long-running format', () => {
+            expect(
+                pickPollDelayMs([
+                    asset({ id: 1, export_format: ExporterFormat.MP4 }),
+                    asset({ id: 2, export_format: ExporterFormat.WEBM }),
+                ])
+            ).toBe(30000)
+        })
+
+        it('ignores assets that already have content or an exception when deciding', () => {
+            expect(
+                pickPollDelayMs([
+                    asset({ id: 1, export_format: ExporterFormat.CSV, has_content: true }),
+                    asset({ id: 2, export_format: ExporterFormat.MP4 }),
+                ])
+            ).toBe(30000)
+        })
     })
 
-    it('returns the default delay when at least one pending asset is fast', () => {
-        expect(
-            pickPollDelayMs([
-                asset({ id: 1, export_format: ExporterFormat.MP4 }),
-                asset({ id: 2, export_format: ExporterFormat.CSV }),
-            ])
-        ).toBe(10000)
-    })
+    describe('startReplayExport', () => {
+        let logic: ReturnType<typeof exportsLogic.build>
+        let startExportSpy: jest.SpyInstance
 
-    it('backs off when every pending asset is a long-running format', () => {
-        expect(
-            pickPollDelayMs([
-                asset({ id: 1, export_format: ExporterFormat.MP4 }),
-                asset({ id: 2, export_format: ExporterFormat.WEBM }),
-            ])
-        ).toBe(30000)
-    })
+        beforeEach(() => {
+            initKeaTests()
+            logic = exportsLogic()
+            logic.mount()
+            startExportSpy = jest.spyOn(logic.actions, 'startExport')
+        })
 
-    it('ignores assets that already have content or an exception when deciding', () => {
-        expect(
-            pickPollDelayMs([
-                asset({ id: 1, export_format: ExporterFormat.CSV, has_content: true }),
-                asset({ id: 2, export_format: ExporterFormat.MP4 }),
-            ])
-        ).toBe(30000)
+        afterEach(() => {
+            startExportSpy.mockRestore()
+        })
+
+        it.each([
+            { options: { skip_inactivity: true as const }, expected: true },
+            { options: { skip_inactivity: false as const }, expected: false },
+            { options: {}, expected: true },
+        ])('sets skip_inactivity from export options', ({ options, expected }) => {
+            logic.actions.startReplayExport('session-abc', ExporterFormat.MP4, 0, 3600, undefined, options)
+
+            expect(startExportSpy).toHaveBeenCalledTimes(1)
+            expect(startExportSpy.mock.calls[0][0].export_context?.skip_inactivity).toBe(expected)
+        })
     })
 })

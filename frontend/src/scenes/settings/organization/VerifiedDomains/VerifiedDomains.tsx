@@ -107,6 +107,7 @@ function VerifiedDomainsTable(): JSX.Element {
         isSSOEnforcementAvailable,
         isSAMLAvailable,
         isSCIMAvailable,
+        isXAAAuthenticationAvailable,
     } = useValues(verifiedDomainsLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const {
@@ -121,7 +122,7 @@ function VerifiedDomainsTable(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const isXAAAuthenticationEnabled = !!featureFlags[FEATURE_FLAGS.XAA_AUTHENTICATION]
+    const showXAAControls = !!featureFlags[FEATURE_FLAGS.XAA_AUTHENTICATION] && isXAAAuthenticationAvailable
 
     const restrictionReason = useRestrictedArea({
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
@@ -287,7 +288,7 @@ function VerifiedDomainsTable(): JSX.Element {
                     )
                 }
 
-                if (isXAAAuthenticationEnabled && has_id_jag) {
+                if (showXAAControls && has_id_jag) {
                     badges.push(
                         <IntegrationBadge
                             key="xaa"
@@ -333,7 +334,7 @@ function VerifiedDomainsTable(): JSX.Element {
                                 >
                                     Configure SCIM
                                 </LemonButton>
-                                {isXAAAuthenticationEnabled && (
+                                {showXAAControls && (
                                     <LemonButton
                                         onClick={() => setConfigureIdJagModalId(id)}
                                         fullWidth
@@ -483,7 +484,7 @@ function VerifiedDomainsTable(): JSX.Element {
             <AddDomainModal />
             <ConfigureSAMLModal />
             <ConfigureSCIMModal />
-            {isXAAAuthenticationEnabled && <ConfigureIdJagModal />}
+            {showXAAControls && <ConfigureIdJagModal />}
             <ScimLogsModal />
             <VerifyDomainModal />
         </div>

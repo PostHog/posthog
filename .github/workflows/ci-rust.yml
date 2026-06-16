@@ -252,6 +252,9 @@ jobs:
               with:
                   toolchain: 1.91.1
 
+            - name: Set sccache WebDAV key prefix (Cargo.lock hash)
+              run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
+
             - name: Install sccache
               uses: ./.github/actions/setup-sccache
 
@@ -260,7 +263,7 @@ jobs:
               with:
                   shared-key: 'v2-rust-ci'
                   workspaces: rust
-                  save-if: ${{ github.ref == 'refs/heads/master' && !matrix.is_shadow }}
+                  save-if: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Run cargo build
               env:
@@ -337,6 +340,9 @@ jobs:
 
             - name: Install protoc
               uses: ./.github/actions/setup-protoc
+
+            - name: Set sccache WebDAV key prefix (Cargo.lock hash)
+              run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
 
             - name: Install sccache
               uses: ./.github/actions/setup-sccache
@@ -449,6 +455,9 @@ jobs:
                   toolchain: 1.91.1
                   components: clippy,rustfmt
 
+            - name: Set sccache WebDAV key prefix (Cargo.lock hash)
+              run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
+
             - name: Install sccache
               uses: ./.github/actions/setup-sccache
 
@@ -457,7 +466,7 @@ jobs:
               with:
                   shared-key: 'v2-rust-ci'
                   workspaces: rust
-                  save-if: ${{ github.ref == 'refs/heads/master' && !matrix.is_shadow }}
+                  save-if: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Check format
               run: cargo fmt -- --check

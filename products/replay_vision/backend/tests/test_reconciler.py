@@ -360,7 +360,7 @@ def test_reconcile_parse_inputs() -> None:
 @pytest.mark.asyncio
 @parameterized.expand([("missing", False, "create"), ("present", True, "update")])
 async def test_create_reconciler_schedule_routes_by_existence(_name: str, exists: bool, expected: str) -> None:
-    schedule_mod = "posthog.temporal.common.schedule"
+    schedule_mod = "products.replay_vision.backend.temporal.schedule"
     with (
         patch(f"{schedule_mod}.a_schedule_exists", AsyncMock(return_value=exists)),
         patch(f"{schedule_mod}.a_create_schedule", AsyncMock()) as create,

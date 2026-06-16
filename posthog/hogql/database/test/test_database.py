@@ -1,13 +1,18 @@
+import io
 import json
+import pickle
+import dataclasses
 from typing import Any, cast
 
 import pytest
 from posthog.test.base import BaseTest, FuzzyInt, QueryMatchingTest, snapshot_postgres_queries
+from unittest import TestCase
 from unittest.mock import patch
 
 from django.test import override_settings
 
 from parameterized import parameterized
+from pydantic import BaseModel
 
 from posthog.schema import (
     DatabaseSchemaDataWarehouseTable,
@@ -22,10 +27,15 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import (
     ROOT_TABLES__DO_NOT_ADD_ANY_MORE,
     Database,
+    _CatalogUnpickler,
+    _compute_system_table_access_decision,
+    _construct_database_root_node,
     _preload_active_external_data_schemas,
     build_database_root_node,
     get_data_warehouse_table_name,
 )
+from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
+from posthog.hogql.database.lazy_join_tags import FOREIGN_KEY
 from posthog.hogql.database.models import (
     DANGEROUS_NoTeamIdCheckTable,
     ExpressionField,
@@ -38,7 +48,7 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
-from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast
@@ -59,6 +69,99 @@ from products.warehouse_sources.backend.models.external_data_source import Exter
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
+def _collect_mutable_object_ids(obj: Any, ids: set[int]) -> None:
+    # Record the id() of every mutable object in a catalog tree, so two trees can be checked for sharing.
+    stack = [obj]
+    seen: set[int] = set()
+    while stack:
+        current = stack.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        if isinstance(current, BaseModel):
+            ids.add(id(current))
+            stack.extend(current.__dict__.values())
+        elif dataclasses.is_dataclass(current) and not isinstance(current, type):
+            ids.add(id(current))
+            stack.extend(getattr(current, f.name) for f in dataclasses.fields(current))
+        elif isinstance(current, dict):
+            ids.add(id(current))
+            stack.extend(current.values())
+        elif isinstance(current, (list, set)):
+            ids.add(id(current))
+            stack.extend(current)
+        elif isinstance(current, (tuple, frozenset)):
+            stack.extend(current)
+
+
+class TestBuildDatabaseRootNode(TestCase):
+    # The static catalog build touches no database, so these run on a plain TestCase (no Postgres).
+
+    @parameterized.expand([("with_posthog_tables", True), ("without_posthog_tables", False)])
+    def test_build_database_root_node_matches_fresh_construction(self, _name: str, include_posthog_tables: bool):
+        cached = build_database_root_node(include_posthog_tables=include_posthog_tables)
+        fresh = _construct_database_root_node(include_posthog_tables=include_posthog_tables)
+
+        assert cached == fresh
+        assert cached is not fresh
+        if include_posthog_tables:
+            assert "events" in cached.children
+
+    @parameterized.expand([("with_posthog_tables", True), ("without_posthog_tables", False)])
+    def test_build_database_root_node_catalog_stays_picklable(self, _name: str, include_posthog_tables: bool):
+        # Guards against a future catalog field becoming unpicklable (which would otherwise fail at request time).
+        fresh = _construct_database_root_node(include_posthog_tables=include_posthog_tables)
+        restored = pickle.loads(pickle.dumps(fresh, protocol=pickle.HIGHEST_PROTOCOL))
+
+        assert restored == fresh
+        if include_posthog_tables:
+            assert restored.children["events"].table is not fresh.children["events"].table
+
+    def test_build_database_root_node_loads_are_deeply_independent(self):
+        # Hold both trees while walking, or a GC'd first tree's id()s get recycled by the second (false overlap).
+        first = build_database_root_node()
+        second = build_database_root_node()
+        first_ids: set[int] = set()
+        second_ids: set[int] = set()
+        _collect_mutable_object_ids(first, first_ids)
+        _collect_mutable_object_ids(second, second_ids)
+
+        assert first_ids and second_ids
+        assert first_ids.isdisjoint(second_ids)
+
+    def test_slim_pickle_state_falls_back_when_private_or_extra_present(self):
+        # Slim path: a plain field round-trips its values.
+        field = StringDatabaseField(name="col")
+        restored = pickle.loads(pickle.dumps(field, protocol=pickle.HIGHEST_PROTOCOL))
+        assert restored == field and restored.name == "col"
+
+        # extra/private set: must fall back to full state so they survive the round-trip.
+        with_private = StringDatabaseField(name="col")
+        object.__setattr__(with_private, "__pydantic_private__", {"secret": 1})
+        restored_private = pickle.loads(pickle.dumps(with_private, protocol=pickle.HIGHEST_PROTOCOL))
+        assert restored_private.__pydantic_private__ == {"secret": 1}
+
+        with_extra = StringDatabaseField(name="col")
+        object.__setattr__(with_extra, "__pydantic_extra__", {"extra_key": "value"})
+        restored_extra = pickle.loads(pickle.dumps(with_extra, protocol=pickle.HIGHEST_PROTOCOL))
+        assert restored_extra.__pydantic_extra__ == {"extra_key": "value"}
+
+    def test_catalog_unpickler_allowlists_catalog_classes_and_rejects_others(self):
+        # Restricted unpickler resolves catalog classes but rejects anything else, so a tampered blob
+        # can't instantiate code-execution gadgets.
+        unpickler = _CatalogUnpickler(io.BytesIO(b""))
+        assert unpickler.find_class("posthog.hogql.database.models", "StringDatabaseField") is not None
+        assert unpickler.find_class("posthog.clickhouse.workload", "Workload") is not None
+        for module, name in [
+            ("os", "system"),
+            ("builtins", "eval"),
+            ("subprocess", "Popen"),
+            ("posthog.models", "Team"),
+        ]:
+            with self.assertRaises(pickle.UnpicklingError):
+                unpickler.find_class(module, name)
+
+
 class TestDatabase(BaseTest, QueryMatchingTest):
     snapshot: Any
 
@@ -69,6 +172,12 @@ class TestDatabase(BaseTest, QueryMatchingTest):
     def test_create_hogql_database_must_have_either_team_id_or_team(self):
         with self.assertRaises(ValueError, msg="Either team_id or team must be provided"):
             Database.create_for()
+
+    def test_create_hogql_database_raises_query_error_for_missing_team(self):
+        missing_team_id = self.team.pk + 10_000
+        with self.assertRaises(QueryError) as cm:
+            Database.create_for(team_id=missing_team_id)
+        self.assertIn(str(missing_team_id), str(cm.exception))
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_serialize_database_no_person_on_events(self):
@@ -131,7 +240,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                     from_field=["dashboard_id"],
                     to_field=["id"],
                     join_table="direct_table",
-                    join_function=lambda *_args: None,
+                    resolver=FOREIGN_KEY,
                 )
             },
             postgres_table_name="events",
@@ -550,7 +659,9 @@ class TestDatabase(BaseTest, QueryMatchingTest):
     @snapshot_postgres_queries
     @patch("posthog.hogql.query.sync_execute", return_value=([], []))
     def test_database_with_warehouse_tables_and_saved_queries_n_plus_1(self, patch_execute):
-        max_queries = FuzzyInt(6, 8)
+        # +1 vs the pre-bulk-credential baseline: one bulk credential fetch replaces the per-row
+        # credential joins (decrypt once per credential, not per table/view).
+        max_queries = FuzzyInt(7, 9)
         credential = DataWarehouseCredential.objects.create(
             team=self.team, access_key="_accesskey", access_secret="_secret"
         )
@@ -605,8 +716,9 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 status=DataWarehouseSavedQuery.Status.COMPLETED,
             )
 
-        # initialization team query doesn't run
-        with self.assertNumQueries(5):
+        # initialization team query doesn't run; the extra query is the single bulk credential fetch
+        # (credentials are decrypted once each here instead of re-decrypted per table/view row)
+        with self.assertNumQueries(6):
             modifiers = create_default_modifiers_for_team(
                 self.team, modifiers=HogQLQueryModifiers(useMaterializedViews=True)
             )
@@ -752,6 +864,44 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert db.has_table("whatever_endpoint")
         assert "some_field" in db.get_table("events").fields
         assert "timestamp" in db.get_table("whatever0").fields
+
+    @patch("posthog.hogql.query.sync_execute", return_value=([], []))
+    def test_build_from_sources_performs_no_io_for_direct_postgres(self, patch_execute):
+        # Direct-query mode builds a DirectPostgresTable, whose hogql_definition reads the source's
+        # job_inputs when no schema option is set on the table. _fetch_sources must hydrate job_inputs in
+        # this mode (defer_job_inputs=False) rather than deferring it, so the build phase stays query-free;
+        # otherwise the deferred field would lazily reload during build. This guards that branch.
+        credential = DataWarehouseCredential.objects.create(
+            team=self.team, access_key="_accesskey", access_secret="_secret"
+        )
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="direct_source",
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={"schema": "myschema"},
+        )
+        # No direct_postgres_schema in options, so hogql_definition falls back to job_inputs["schema"].
+        DataWarehouseTable.objects.create(
+            name="direct_table",
+            format="Parquet",
+            team=self.team,
+            credential=credential,
+            external_data_source=source,
+            external_data_source_id=source.id,
+            url_pattern="s3://test/*",
+            columns={"id": {"clickhouse": "Int64", "hogql": "integer"}},
+        )
+
+        sources = Database._fetch_sources(team=self.team, connection_id=str(source.id))
+
+        with self.assertNumQueries(0):
+            db = Database._build_from_sources(sources)
+
+        direct_table = db.get_table("direct_table")
+        assert isinstance(direct_table, DirectPostgresTable)
+        # The schema came from the source's job_inputs, proving that branch ran during the zero-query build.
+        assert direct_table.postgres_schema == "myschema"
 
     @patch("posthog.hogql.query.sync_execute", return_value=([], []))
     def test_build_from_sources_raises_when_modifier_table_has_no_backing_row(self, patch_execute):
@@ -1034,7 +1184,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         sql = "select id from persons"
         query, _ = prepare_and_print_ast(parse_select(sql), context, dialect="clickhouse")
         assert (
-            "ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, %(hogql_val_0)s)), person.version), 1), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))"
+            "equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, %(hogql_val_0)s)), person.version), 1), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))"
             in query
         ), query
 
@@ -1052,7 +1202,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         sql = "select person.id from events"
         query, _ = prepare_and_print_ast(parse_select(sql), context, dialect="clickhouse")
         assert (
-            "ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, %(hogql_val_0)s)), person.version), 1), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))), 0)"
+            "less(tupleElement(argMax(tuple(toTimeZone(person.created_at, %(hogql_val_0)s)), person.version), 1), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1)))"
             in query
         ), query
 
@@ -1073,12 +1223,16 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 },
             )
 
-            with self.assertNumQueries(FuzzyInt(5, 8)):
+            # +1 vs the pre-bulk-credential baseline: one bulk credential fetch replaces the per-row
+            # credential joins (decrypt once per credential, not per table/view).
+            with self.assertNumQueries(FuzzyInt(6, 9)):
                 Database.create_for(team=self.team)
 
     # We keep adding sources, credentials and tables, number of queries should be stable
     def test_external_data_source_is_not_n_plus_1(self) -> None:
-        num_queries = FuzzyInt(5, 11)
+        # +2 vs the pre-bulk baseline: one bulk source fetch and one bulk credential fetch replace the
+        # per-row source/credential joins (hydrate/decrypt once each, not per table).
+        num_queries = FuzzyInt(7, 13)
 
         for i in range(10):
             source = ExternalDataSource.objects.create(
@@ -2819,3 +2973,56 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         database = Database.create_for(team=self.team)
         persons = database.get_table("persons")
         assert "ext_data" not in persons.fields
+
+    def test_create_for_with_synthetic_user_skips_user_rbac(self):
+        from posthog.auth import ProjectSecretAPIKeyUser
+        from posthog.models.project_secret_api_key import ProjectSecretAPIKey
+
+        psak = ProjectSecretAPIKey.objects.create(
+            team=self.team,
+            label="rbac-shortcircuit",
+            secure_value="sha256$" + "f" * 64,
+            scopes=["endpoint:read"],
+        )
+        synthetic_user = ProjectSecretAPIKeyUser(psak)
+
+        captured: dict = {}
+
+        def spy(team, user):
+            result = _compute_system_table_access_decision(team, user)
+            captured["result"] = result
+            return result
+
+        with (
+            patch("posthoganalytics.feature_enabled", return_value=True),
+            patch("posthog.hogql.database.database._compute_system_table_access_decision", side_effect=spy) as decision,
+        ):
+            Database.create_for(team=self.team, user=synthetic_user)
+
+        decision.assert_called_once()
+        user_access_control, denied = captured["result"]
+        # No per-user access control, but the endpoint:read scope keeps the endpoint-scoped
+        # system tables; other scoped tables (e.g. feature_flags) stay hidden.
+        assert user_access_control is None
+        assert "data_modeling_endpoints" not in denied
+        assert "data_modeling_endpoint_versions" not in denied
+        assert "feature_flags" in denied
+
+    def test_create_for_with_real_user_uses_user_rbac(self):
+        captured: dict = {}
+
+        def spy(team, user):
+            result = _compute_system_table_access_decision(team, user)
+            captured["result"] = result
+            return result
+
+        with (
+            patch("posthoganalytics.feature_enabled", return_value=True),
+            patch("posthog.hogql.database.database._compute_system_table_access_decision", side_effect=spy) as decision,
+        ):
+            Database.create_for(team=self.team, user=self.user)
+
+        decision.assert_called_once()
+        user_access_control, _denied = captured["result"]
+        # A real user gets per-user access control computed rather than the anonymous all-deny path.
+        assert user_access_control is not None

@@ -12,7 +12,7 @@ from llm_gateway.auth.service import AuthService
 
 
 @pytest.fixture(autouse=True)
-def reset_cache() -> Generator[None, None, None]:
+def reset_cache() -> Generator[None]:
     reset_auth_cache()
     yield
     reset_auth_cache()
@@ -238,6 +238,7 @@ class TestAuthServiceCaching:
                 "scopes": ["llm_gateway:read"],
                 "current_team_id": 456,
                 "distinct_id": "test-distinct-id",
+                "is_staff": False,
             }
         )
 
@@ -277,6 +278,7 @@ class TestAuthServiceCaching:
                 "current_team_id": 456,
                 "application_id": 789,
                 "distinct_id": "test-distinct-id",
+                "is_staff": False,
             }
         )
 
@@ -316,6 +318,7 @@ class TestAuthServiceCaching:
                 "current_team_id": 456,
                 "application_id": 789,
                 "distinct_id": "test-distinct-id",
+                "is_staff": False,
             }
         )
 
@@ -373,6 +376,7 @@ class TestAuthServiceMetrics:
                 "application_id": 789,
                 "expires": datetime.now(UTC) + timedelta(hours=1),
                 "distinct_id": "test-distinct-id",
+                "is_staff": False,
             }
         )
 
@@ -403,6 +407,7 @@ class TestAuthServiceMetrics:
                 "application_id": 789,
                 "expires": datetime.now(UTC) + timedelta(hours=1),
                 "distinct_id": "test-distinct-id",
+                "is_staff": False,
             }
         )
 

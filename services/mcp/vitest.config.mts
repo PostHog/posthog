@@ -23,6 +23,9 @@ const markdownLoader = {
 // aren't suitable for the default run.
 export default defineConfig({
     test: {
+        // Materializes `shared/guidelines.md` (imported via the `@shared/*` alias by the
+        // dispatcher and the unit suite) before any project runs — see tests/global-setup.ts.
+        globalSetup: ['tests/global-setup.ts'],
         projects: [
             {
                 plugins: [tsconfigPaths({ root: '.' }), markdownLoader],

@@ -9,7 +9,8 @@ from django.db.models import QuerySet
 
 import structlog
 from asgiref.sync import async_to_sync
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import exceptions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
@@ -24,8 +25,9 @@ from posthog.rate_limit import BurstRateThrottle, SustainedRateThrottle
 from posthog.temporal.common.client import sync_connect
 
 from .. import logic
+from ..constants import BK_DRILLDOWN_DEFAULT_RADIUS, BK_DRILLDOWN_MAX_RADIUS
 from ..file_parse import FileParseError
-from ..models import KnowledgeSource, SourceType
+from ..models import KnowledgeDocument, KnowledgeSource, SourceType
 from ..models.constants import CrawlMode
 from ..temporal.coordinator import IngestSourceInputs, RefreshSourceInputs
 from .serializers import (
@@ -33,6 +35,8 @@ from .serializers import (
     CreateFileSourceSerializer,
     CreateTextSourceSerializer,
     CreateUrlSourceSerializer,
+    KnowledgeDocumentWindowSerializer,
+    KnowledgeSearchResultSerializer,
     KnowledgeSourceSerializer,
     UpdateTextSourceSerializer,
     UpdateUrlSourceSerializer,
@@ -352,3 +356,119 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if not logic.delete_source(source_id, self.team_id):
             raise exceptions.NotFound()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class KnowledgeDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """
+    Read-only access to parsed knowledge documents. Exposes hybrid search
+    (``search``) and a drill-down window (``window``) so an agent (PHAI or
+    MCP) can find and explore business knowledge chunks.
+    """
+
+    scope_object = "business_knowledge"
+    queryset = KnowledgeDocument.objects.unscoped()
+    serializer_class = KnowledgeDocumentWindowSerializer
+    permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
+    posthog_feature_flag = "product-business-knowledge"
+    throttle_classes = [BurstRateThrottle, SustainedRateThrottle]
+
+    def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
+        return queryset.filter(team_id=self.team_id)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "around_ordinal",
+                OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="Zero-based chunk ordinal to center the window on (from a search result).",
+            ),
+            OpenApiParameter(
+                "radius",
+                OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    f"Number of chunks before and after the center to include. "
+                    f"Defaults to {BK_DRILLDOWN_DEFAULT_RADIUS}, clamped to [0, {BK_DRILLDOWN_MAX_RADIUS}]."
+                ),
+            ),
+        ],
+        responses={200: KnowledgeDocumentWindowSerializer(many=True)},
+    )
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="window",
+        pagination_class=None,
+        # Custom actions aren't in APIScopePermission's default read list, so
+        # programmatic tokens (personal API key / OAuth — how MCP authenticates)
+        # would otherwise be rejected as "does not support personal API key access".
+        required_scopes=["business_knowledge:read"],
+    )
+    def window(self, request: Request, pk: str, **kwargs) -> Response:
+        try:
+            document_id = UUID(pk)
+        except (ValueError, DjangoValidationError):
+            raise exceptions.NotFound()
+
+        # 404 for unknown / cross-team docs before touching the chunk window so
+        # an attacker can't probe doc existence. `.unscoped()` + explicit
+        # team_id filter mirrors the source viewset (the manager needs an
+        # explicit team scope otherwise).
+        if not KnowledgeDocument.objects.unscoped().filter(id=document_id, team_id=self.team_id).exists():
+            raise exceptions.NotFound()
+
+        around_ordinal = self._parse_int_param(request, "around_ordinal", required=True)
+        radius = self._parse_int_param(request, "radius", required=False, default=BK_DRILLDOWN_DEFAULT_RADIUS)
+
+        results = logic.get_document_window(self.team_id, document_id, around_ordinal, radius=radius)
+        return Response(KnowledgeDocumentWindowSerializer(instance=results, many=True).data)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "query",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="Natural-language search query. Runs hybrid (semantic + full-text) retrieval over all SAFE, READY knowledge chunks in this project.",
+            ),
+            OpenApiParameter(
+                "limit",
+                OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Maximum number of ranked chunks to return. Defaults to 10, capped at 20.",
+            ),
+        ],
+        responses={200: KnowledgeSearchResultSerializer(many=True)},
+    )
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="search",
+        pagination_class=None,
+        required_scopes=["business_knowledge:read"],
+    )
+    def search(self, request: Request, **kwargs) -> Response:
+        query = request.query_params.get("query")
+        if not query or not query.strip():
+            raise exceptions.ValidationError({"query": "This query parameter is required."})
+        limit = self._parse_int_param(request, "limit", required=False, default=10)
+        results = logic.search_knowledge_for_team(self.team, query.strip(), limit=limit)
+        return Response(KnowledgeSearchResultSerializer(instance=results, many=True).data)
+
+    def _parse_int_param(self, request: Request, name: str, *, required: bool, default: int | None = None) -> int:
+        raw = request.query_params.get(name)
+        if raw is None:
+            if required:
+                raise exceptions.ValidationError({name: "This query parameter is required."})
+            if default is None:
+                raise ValueError(f"Non-required param {name!r} must have a non-None default")
+            return default
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            raise exceptions.ValidationError({name: "Must be an integer."})

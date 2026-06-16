@@ -27,6 +27,7 @@ class SlackThreadTaskMapping(UUIDModel):
         related_name="slack_thread_mappings",
     )
     mentioning_slack_user_id = models.CharField(max_length=64)
+    latest_actor_slack_user_id = models.CharField(max_length=64, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

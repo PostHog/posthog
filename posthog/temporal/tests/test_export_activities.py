@@ -10,8 +10,9 @@ from django.conf import settings
 
 import temporalio.workflow
 from asgiref.sync import sync_to_async
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from temporalio.client import Client, WorkflowFailureError
-from temporalio.exceptions import ActivityError
+from temporalio.exceptions import ActivityError, ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
@@ -21,7 +22,7 @@ from posthog.temporal.exports.retry_policy import EXPORT_RETRY_POLICY
 from posthog.temporal.exports.types import ExportAssetActivityInputs, ExportAssetResult
 
 from products.exports.backend.models.exported_asset import ExportedAsset
-from products.exports.backend.tasks.failure_handler import ExcelColumnLimitExceeded
+from products.exports.backend.tasks.failure_handler import ExcelColumnLimitExceeded, ExportCancelled
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
 
@@ -115,3 +116,32 @@ async def test_export_asset_activity_propagates_user_errors(mock_exporter: Magic
     app_error = activity_error.cause
     assert app_error is not None
     assert "ExcelColumnLimitExceeded" in str(app_error) or "18,278 columns" in str(app_error)
+
+
+@pytest.mark.parametrize(
+    "exception,expected_non_retryable",
+    [
+        (TimeoutError("Timeout while waiting for the page to load"), False),
+        (PlaywrightTimeoutError("Timeout 30000ms exceeded"), False),
+        (ExportCancelled("export canceled"), True),
+        (ValueError("bad input"), True),
+    ],
+)
+@patch("posthog.temporal.exports.activities.exporter")
+async def test_export_asset_activity_timeout_errors_are_retryable(
+    mock_exporter: MagicMock, activity_environment, team, exception, expected_non_retryable
+):
+    asset = await sync_to_async(ExportedAsset.objects.create)(
+        team=team,
+        export_format=ExportedAsset.ExportFormat.PNG,
+    )
+
+    def fake_export(asset_obj, **kwargs):
+        raise exception
+
+    mock_exporter.export_asset_direct = fake_export
+
+    with pytest.raises(ApplicationError) as exc_info:
+        await activity_environment.run(export_asset_activity, ExportAssetActivityInputs(exported_asset_id=asset.id))
+
+    assert exc_info.value.non_retryable is expected_non_retryable

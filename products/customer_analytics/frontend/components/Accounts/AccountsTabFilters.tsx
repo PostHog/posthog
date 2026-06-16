@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconChevronDown, IconRefresh, IconX } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonDropdown, LemonInput, LemonInputSelect } from '@posthog/lemon-ui'
 
-import { MemberSelect } from 'lib/components/MemberSelect'
+import { MemberSelectMultiple } from 'lib/components/MemberSelectMultiple'
 
 import { tagsModel } from '~/models/tagsModel'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -11,13 +11,23 @@ import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { accountsLogic, RoleFilterValue } from './accountsLogic'
 
 export function AccountsTabFilters(): JSX.Element {
-    const { searchInput, tagsFilter, allRolesUnassigned, csmFilter, accountExecutiveFilter, accountOwnerFilter } =
-        useValues(accountsLogic)
+    const {
+        searchInput,
+        tagsFilter,
+        allRolesUnassigned,
+        assignedToCurrentUser,
+        assignedToFilter,
+        csmFilter,
+        accountExecutiveFilter,
+        accountOwnerFilter,
+    } = useValues(accountsLogic)
     const { responseLoading: accountsLoading } = useValues(dataNodeLogic)
     const {
         setSearchInput,
         setTagsFilter,
         setAllRolesUnassigned,
+        setAssignedToCurrentUser,
+        setAssignedToFilter,
         setCsmFilter,
         setAccountExecutiveFilter,
         setAccountOwnerFilter,
@@ -103,6 +113,33 @@ export function AccountsTabFilters(): JSX.Element {
                 }}
                 dataAttr="accounts-owner-filter"
             />
+            <RolePicker
+                label="Assigned to"
+                value={assignedToFilter}
+                onChange={(value) => {
+                    setAssignedToFilter(value)
+                    reportFilterChange('assigned_to')
+                }}
+                dataAttr="accounts-assigned-to-filter"
+                formatButtonLabel={(count) =>
+                    count === 0
+                        ? 'Assigned to anyone'
+                        : count === 1
+                          ? 'Assigned to 1 person'
+                          : `Assigned to ${count} people`
+                }
+            />
+            <LemonCheckbox
+                checked={assignedToCurrentUser}
+                onChange={(value) => {
+                    setAssignedToCurrentUser(value)
+                    reportFilterChange('my_accounts')
+                }}
+                label="My accounts"
+                info="Shortcut for Assigned to: you — accounts where you are the CSM or account executive"
+                disabledReason={accountsLoading ? 'Loading…' : undefined}
+                data-attr="accounts-my-accounts-filter"
+            />
             <LemonCheckbox
                 checked={allRolesUnassigned}
                 onChange={(value) => {
@@ -136,21 +173,48 @@ function RolePicker({
     value,
     onChange,
     dataAttr,
+    formatButtonLabel,
 }: {
     label: string
     value: RoleFilterValue
     onChange: (value: RoleFilterValue) => void
     dataAttr: string
+    formatButtonLabel?: (count: number) => string
 }): JSX.Element {
+    const buttonLabel = formatButtonLabel
+        ? formatButtonLabel(value.length)
+        : value.length === 0
+          ? `Any ${label}`
+          : value.length === 1
+            ? `1 ${label}`
+            : `${value.length} ${label}s`
     return (
-        <div data-attr={dataAttr}>
-            <MemberSelect
-                size="small"
-                type="secondary"
-                defaultLabel={`Any ${label}`}
-                value={value}
-                onChange={(user) => onChange(user ? user.id : null)}
-            />
+        <div className="flex gap-1 items-center" data-attr={dataAttr}>
+            <LemonDropdown
+                closeOnClickInside={false}
+                overlay={
+                    <div className="p-2 min-w-64">
+                        <MemberSelectMultiple
+                            idKey="id"
+                            value={value}
+                            onChange={(users) => onChange(users.map((user) => user.id))}
+                        />
+                    </div>
+                }
+            >
+                <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
+                    {buttonLabel}
+                </LemonButton>
+            </LemonDropdown>
+            {value.length > 0 && (
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    icon={<IconX />}
+                    onClick={() => onChange([])}
+                    tooltip={`Clear ${label} filter`}
+                />
+            )}
         </div>
     )
 }

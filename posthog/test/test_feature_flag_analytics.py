@@ -24,6 +24,7 @@ from posthog.models.team.team import Team
 from products.feature_flags.backend.api.feature_flag import _create_usage_dashboard
 from products.feature_flags.backend.flag_analytics import (
     SDK_LIBRARIES,
+    _enriched_flag_key_expr_sql,
     _extract_sdk_breakdown_from_redis,
     _flag_key_filter_sql,
     capture_team_decide_usage,
@@ -611,6 +612,7 @@ class TestSdkBreakdown(BaseTest):
             "posthog-java",
             "posthog-dotnet",
             "posthog-elixir",
+            "posthog-rs",
             "posthog-android",
             "posthog-ios",
             "posthog-react-native",
@@ -1085,7 +1087,7 @@ class TestFlagKeyFilterSQL(BaseTest):
             sql = _flag_key_filter_sql()
         assert "JSONExtractString(properties, '$feature_flag')" in sql
 
-    def test_uses_materialized_column_when_available(self):
+    def test_uses_escaped_materialized_column_when_available(self):
         fake_column = MagicMock()
         fake_column.name = "mat_$feature_flag"
         with patch(
@@ -1093,5 +1095,37 @@ class TestFlagKeyFilterSQL(BaseTest):
             return_value=fake_column,
         ):
             sql = _flag_key_filter_sql()
-        assert "mat_$feature_flag" in sql
+        assert "`mat_$feature_flag` = %(flag_key)s" in sql
         assert "JSONExtractString" not in sql
+
+
+class TestEnrichedFlagKeyExprSQL(BaseTest):
+    def test_falls_back_to_json_extract_when_not_materialized(self):
+        with patch(
+            "products.feature_flags.backend.flag_analytics.get_materialized_column_for_property",
+            return_value=None,
+        ):
+            sql = _enriched_flag_key_expr_sql()
+        assert sql == "JSONExtractString(properties, 'feature_flag')"
+
+    def test_uses_escaped_materialized_column_when_available(self):
+        fake_column = MagicMock()
+        fake_column.name = "mat_feature_flag"
+        fake_column.is_nullable = False
+        with patch(
+            "products.feature_flags.backend.flag_analytics.get_materialized_column_for_property",
+            return_value=fake_column,
+        ):
+            sql = _enriched_flag_key_expr_sql()
+        assert sql == "`mat_feature_flag`"
+
+    def test_coalesces_nullable_materialized_column(self):
+        fake_column = MagicMock()
+        fake_column.name = "mat_feature_flag"
+        fake_column.is_nullable = True
+        with patch(
+            "products.feature_flags.backend.flag_analytics.get_materialized_column_for_property",
+            return_value=fake_column,
+        ):
+            sql = _enriched_flag_key_expr_sql()
+        assert sql == "ifNull(`mat_feature_flag`, '')"

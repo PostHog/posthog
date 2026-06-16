@@ -21,14 +21,16 @@ def patched_modal(mocker):
 
 class TestModalSandboxVmRuntime:
     @pytest.mark.parametrize(
-        "vm_runtime, expected_experimental_options",
+        "template, vm_runtime, expected_experimental_options",
         [
-            (True, {"vm_runtime": True}),
-            (False, None),
+            (SandboxTemplate.DEFAULT_BASE, True, {"vm_runtime": True}),
+            (SandboxTemplate.DEFAULT_BASE, False, None),
+            # VM_BASE forces vm_runtime even when the flag is explicitly False.
+            (SandboxTemplate.VM_BASE, False, {"vm_runtime": True}),
         ],
     )
-    def test_vm_runtime_experimental_option(self, patched_modal, vm_runtime, expected_experimental_options):
-        ModalSandbox.create(SandboxConfig(name="test", template=SandboxTemplate.DEFAULT_BASE, vm_runtime=vm_runtime))
+    def test_vm_runtime_experimental_option(self, patched_modal, template, vm_runtime, expected_experimental_options):
+        ModalSandbox.create(SandboxConfig(name="test", template=template, vm_runtime=vm_runtime))
 
         kwargs = patched_modal.call_args.kwargs
         if expected_experimental_options is None:

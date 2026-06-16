@@ -226,6 +226,13 @@ def dispatch_recordings_remote_config_sync(team_ids: Iterable[int]) -> None:
             capture_exception(e, {"team_id": team_id})
 
 
+def is_team_over_ai_credit_budget(team_api_token: str) -> bool:
+    """Single AI-credit quota signal for LLM-spending paths to share — one resource + cache-key
+    pair. On a cache miss this issues a synchronous Redis read, so async callers must wrap it in
+    sync_to_async."""
+    return is_team_limited(team_api_token, QuotaResource.AI_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
+
+
 # -------------------------------------------------------------------------------------------------
 # MAIN FUNCTIONS
 # -------------------------------------------------------------------------------------------------

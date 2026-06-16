@@ -186,7 +186,6 @@ async fn setup_ai_router_with_restriction(
         0.0_f32,
         26_214_400,
         Some(create_mock_blob_storage()),
-        Some(10),
         None,
         256,              // body_read_chunk_size_kb
         10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
@@ -504,7 +503,6 @@ async fn setup_ai_router_with_redirect_to_topic(
         0.0_f32,
         26_214_400,
         Some(create_mock_blob_storage()),
-        Some(10),
         None,
         256,              // body_read_chunk_size_kb
         10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
@@ -579,7 +577,6 @@ async fn setup_ai_router_with_force_overflow_and_limiter(
         0.0_f32,
         26_214_400,
         Some(create_mock_blob_storage()),
-        Some(10),
         None,
         256,
         10 * 1024 * 1024,       // capture_v1_max_compressed_body_bytes

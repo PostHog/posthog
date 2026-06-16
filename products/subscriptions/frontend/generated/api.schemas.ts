@@ -8,84 +8,9 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
- * * `starting` - Starting
- * `completed` - Completed
- * `failed` - Failed
- * `skipped` - Skipped
- */
-export type SubscriptionDeliveryStatusEnumApi =
-    (typeof SubscriptionDeliveryStatusEnumApi)[keyof typeof SubscriptionDeliveryStatusEnumApi]
-
-export const SubscriptionDeliveryStatusEnumApi = {
-    Starting: 'starting',
-    Completed: 'completed',
-    Failed: 'failed',
-    Skipped: 'skipped',
-} as const
-
-export interface SubscriptionDeliveryApi {
-    /** Primary key for this delivery row. */
-    readonly id: string
-    /** Parent subscription id. */
-    readonly subscription: number
-    /** Temporal workflow id for this delivery run. */
-    readonly temporal_workflow_id: string
-    /** Dedupes activity retries for the same logical run. */
-    readonly idempotency_key: string
-    /** Why the run started (e.g. scheduled, manual, target_change). */
-    readonly trigger_type: string
-    /**
-     * Planned send time when applicable.
-     * @nullable
-     */
-    readonly scheduled_at: string | null
-    /** Channel snapshot at send time (email or slack). */
-    readonly target_type: string
-    /** Destination snapshot at send time (emails, channel id, URL). */
-    readonly target_value: string
-    /** ExportedAsset ids generated for this send. */
-    readonly exported_asset_ids: readonly number[]
-    /** Snapshot at send time: dashboard metadata, total_insight_count, and per-exported-insight entries (id, short_id, name, query_hash, cache_key, query_results, optional query_error). */
-    readonly content_snapshot: unknown
-    /** Per-destination outcomes; items use status success, failed, or partial. */
-    readonly recipient_results: unknown
-    /** Overall run status: starting, completed, failed, or skipped.
-
-  * `starting` - Starting
-  * `completed` - Completed
-  * `failed` - Failed
-  * `skipped` - Skipped */
-    readonly status: SubscriptionDeliveryStatusEnumApi
-    /** Top-level failure payload when status is failed, if any. */
-    readonly error: unknown
-    /** When the delivery row was created. */
-    readonly created_at: string
-    /** Last ORM update to this row. */
-    readonly last_updated_at: string
-    /**
-     * When the run finished, if applicable.
-     * @nullable
-     */
-    readonly finished_at: string | null
-    /**
-     * AI-generated summary included in this delivery, when one was produced.
-     * @nullable
-     */
-    readonly change_summary: string | null
-}
-
-export interface PaginatedSubscriptionDeliveryListApi {
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: SubscriptionDeliveryApi[]
-}
-
-/**
  * * `insight` - Insight
- * `dashboard` - Dashboard
- * `ai_prompt` - AI prompt
+ * * `dashboard` - Dashboard
+ * * `ai_prompt` - AI prompt
  */
 export type ResourceTypeEnumApi = (typeof ResourceTypeEnumApi)[keyof typeof ResourceTypeEnumApi]
 
@@ -97,7 +22,7 @@ export const ResourceTypeEnumApi = {
 
 /**
  * * `email` - Email
- * `slack` - Slack
+ * * `slack` - Slack
  */
 export type TargetTypeEnumApi = (typeof TargetTypeEnumApi)[keyof typeof TargetTypeEnumApi]
 
@@ -108,9 +33,9 @@ export const TargetTypeEnumApi = {
 
 /**
  * * `daily` - Daily
- * `weekly` - Weekly
- * `monthly` - Monthly
- * `yearly` - Yearly
+ * * `weekly` - Weekly
+ * * `monthly` - Monthly
+ * * `yearly` - Yearly
  */
 export type SubscriptionFrequencyEnumApi =
     (typeof SubscriptionFrequencyEnumApi)[keyof typeof SubscriptionFrequencyEnumApi]
@@ -124,12 +49,12 @@ export const SubscriptionFrequencyEnumApi = {
 
 /**
  * * `monday` - Monday
- * `tuesday` - Tuesday
- * `wednesday` - Wednesday
- * `thursday` - Thursday
- * `friday` - Friday
- * `saturday` - Saturday
- * `sunday` - Sunday
+ * * `tuesday` - Tuesday
+ * * `wednesday` - Wednesday
+ * * `thursday` - Thursday
+ * * `friday` - Friday
+ * * `saturday` - Saturday
+ * * `sunday` - Sunday
  */
 export type SubscriptionApiByweekdayItem =
     (typeof SubscriptionApiByweekdayItem)[keyof typeof SubscriptionApiByweekdayItem]
@@ -146,13 +71,13 @@ export const SubscriptionApiByweekdayItem = {
 
 /**
  * * `engineering` - Engineering
- * `data` - Data
- * `product` - Product Management
- * `founder` - Founder
- * `leadership` - Leadership
- * `marketing` - Marketing
- * `sales` - Sales / Success
- * `other` - Other
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
@@ -205,10 +130,10 @@ export interface UserBasicApi {
 export interface SubscriptionApi {
     readonly id: number
     /** What the subscription delivers: 'insight' (snapshot of one insight), 'dashboard' (snapshot of one dashboard), or 'ai_prompt' (LLM-generated report). Read-only — derived from the populated target (insight → insight, dashboard → dashboard, prompt → ai_prompt).
-
-  * `insight` - Insight
-  * `dashboard` - Dashboard
-  * `ai_prompt` - AI prompt */
+     *
+     * * `insight` - Insight
+     * * `dashboard` - Dashboard
+     * * `ai_prompt` - AI prompt */
     readonly resource_type: ResourceTypeEnumApi
     /**
      * Dashboard ID to subscribe to (mutually exclusive with insight on create).
@@ -232,18 +157,18 @@ export interface SubscriptionApi {
      */
     prompt?: string | null
     /** Delivery channel: email or slack.
-
-  * `email` - Email
-  * `slack` - Slack */
+     *
+     * * `email` - Email
+     * * `slack` - Slack */
     target_type: TargetTypeEnumApi
     /** Recipient(s): comma-separated email addresses for email, or Slack channel name/ID for slack. */
     target_value: string
     /** How often to deliver: daily, weekly, monthly, or yearly.
-
-  * `daily` - Daily
-  * `weekly` - Weekly
-  * `monthly` - Monthly
-  * `yearly` - Yearly */
+     *
+     * * `daily` - Daily
+     * * `weekly` - Weekly
+     * * `monthly` - Monthly
+     * * `yearly` - Yearly */
     frequency: SubscriptionFrequencyEnumApi
     /**
      * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Required on create; must be 1 or greater.
@@ -303,8 +228,12 @@ export interface SubscriptionApi {
      * @nullable
      */
     invite_message?: string | null
+    /** Whether to attach an AI-generated summary to each delivery (insight and dashboard subscriptions only). Requires the organization to have approved AI data processing, and is subject to the org's active-summary cap and AI credit budget; otherwise the write is rejected. Not applicable to prompt subscriptions, which are themselves AI-generated. */
     summary_enabled?: boolean
-    /** @maxLength 500 */
+    /**
+     * Optional free-text guidance (max 500 chars) steering the AI summary, e.g. which metrics to emphasize. Only settable when AI summary context is enabled for the organization; clearing it (empty string) is always allowed.
+     * @maxLength 500
+     */
     summary_prompt_guide?: string
 }
 
@@ -319,12 +248,12 @@ export interface PaginatedSubscriptionListApi {
 
 /**
  * * `monday` - Monday
- * `tuesday` - Tuesday
- * `wednesday` - Wednesday
- * `thursday` - Thursday
- * `friday` - Friday
- * `saturday` - Saturday
- * `sunday` - Sunday
+ * * `tuesday` - Tuesday
+ * * `wednesday` - Wednesday
+ * * `thursday` - Thursday
+ * * `friday` - Friday
+ * * `saturday` - Saturday
+ * * `sunday` - Sunday
  */
 export type PatchedSubscriptionApiByweekdayItem =
     (typeof PatchedSubscriptionApiByweekdayItem)[keyof typeof PatchedSubscriptionApiByweekdayItem]
@@ -345,10 +274,10 @@ export const PatchedSubscriptionApiByweekdayItem = {
 export interface PatchedSubscriptionApi {
     readonly id?: number
     /** What the subscription delivers: 'insight' (snapshot of one insight), 'dashboard' (snapshot of one dashboard), or 'ai_prompt' (LLM-generated report). Read-only — derived from the populated target (insight → insight, dashboard → dashboard, prompt → ai_prompt).
-
-  * `insight` - Insight
-  * `dashboard` - Dashboard
-  * `ai_prompt` - AI prompt */
+     *
+     * * `insight` - Insight
+     * * `dashboard` - Dashboard
+     * * `ai_prompt` - AI prompt */
     readonly resource_type?: ResourceTypeEnumApi
     /**
      * Dashboard ID to subscribe to (mutually exclusive with insight on create).
@@ -372,18 +301,18 @@ export interface PatchedSubscriptionApi {
      */
     prompt?: string | null
     /** Delivery channel: email or slack.
-
-  * `email` - Email
-  * `slack` - Slack */
+     *
+     * * `email` - Email
+     * * `slack` - Slack */
     target_type?: TargetTypeEnumApi
     /** Recipient(s): comma-separated email addresses for email, or Slack channel name/ID for slack. */
     target_value?: string
     /** How often to deliver: daily, weekly, monthly, or yearly.
-
-  * `daily` - Daily
-  * `weekly` - Weekly
-  * `monthly` - Monthly
-  * `yearly` - Yearly */
+     *
+     * * `daily` - Daily
+     * * `weekly` - Weekly
+     * * `monthly` - Monthly
+     * * `yearly` - Yearly */
     frequency?: SubscriptionFrequencyEnumApi
     /**
      * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Required on create; must be 1 or greater.
@@ -443,31 +372,93 @@ export interface PatchedSubscriptionApi {
      * @nullable
      */
     invite_message?: string | null
+    /** Whether to attach an AI-generated summary to each delivery (insight and dashboard subscriptions only). Requires the organization to have approved AI data processing, and is subject to the org's active-summary cap and AI credit budget; otherwise the write is rejected. Not applicable to prompt subscriptions, which are themselves AI-generated. */
     summary_enabled?: boolean
-    /** @maxLength 500 */
+    /**
+     * Optional free-text guidance (max 500 chars) steering the AI summary, e.g. which metrics to emphasize. Only settable when AI summary context is enabled for the organization; clearing it (empty string) is always allowed.
+     * @maxLength 500
+     */
     summary_prompt_guide?: string
 }
 
-export type SubscriptionsDeliveriesListParams = {
-    /**
-     * The pagination cursor value.
-     */
-    cursor?: string
-    /**
-     * Return only deliveries in this run status (starting, completed, failed, or skipped).
-     */
-    status?: SubscriptionsDeliveriesListStatus
-}
+/**
+ * * `starting` - Starting
+ * * `completed` - Completed
+ * * `failed` - Failed
+ * * `skipped` - Skipped
+ */
+export type SubscriptionDeliveryStatusEnumApi =
+    (typeof SubscriptionDeliveryStatusEnumApi)[keyof typeof SubscriptionDeliveryStatusEnumApi]
 
-export type SubscriptionsDeliveriesListStatus =
-    (typeof SubscriptionsDeliveriesListStatus)[keyof typeof SubscriptionsDeliveriesListStatus]
-
-export const SubscriptionsDeliveriesListStatus = {
+export const SubscriptionDeliveryStatusEnumApi = {
+    Starting: 'starting',
     Completed: 'completed',
     Failed: 'failed',
     Skipped: 'skipped',
-    Starting: 'starting',
 } as const
+
+export interface SubscriptionDeliveryApi {
+    /** Primary key for this delivery row. */
+    readonly id: string
+    /** Parent subscription id. */
+    readonly subscription: number
+    /** Temporal workflow id for this delivery run. */
+    readonly temporal_workflow_id: string
+    /** Dedupes activity retries for the same logical run. */
+    readonly idempotency_key: string
+    /** Why the run started (e.g. scheduled, manual, target_change). */
+    readonly trigger_type: string
+    /**
+     * Planned send time when applicable.
+     * @nullable
+     */
+    readonly scheduled_at: string | null
+    /** Channel snapshot at send time (email or slack). */
+    readonly target_type: string
+    /** Destination snapshot at send time (emails, channel id, URL). */
+    readonly target_value: string
+    /**
+     * ExportedAsset ids generated for this send.
+     * @items.minimum -2147483648
+     * @items.maximum 2147483647
+     */
+    readonly exported_asset_ids: readonly number[]
+    /** Snapshot at send time: dashboard metadata, total_insight_count, and per-exported-insight entries (id, short_id, name, query_hash, cache_key, query_results, optional query_error). */
+    readonly content_snapshot: unknown
+    /** Per-destination outcomes; items use status success, failed, or partial. */
+    readonly recipient_results: unknown
+    /** Overall run status: starting, completed, failed, or skipped.
+     *
+     * * `starting` - Starting
+     * * `completed` - Completed
+     * * `failed` - Failed
+     * * `skipped` - Skipped */
+    readonly status: SubscriptionDeliveryStatusEnumApi
+    /** Top-level failure payload when status is failed, if any. */
+    readonly error: unknown
+    /** When the delivery row was created. */
+    readonly created_at: string
+    /** Last ORM update to this row. */
+    readonly last_updated_at: string
+    /**
+     * When the run finished, if applicable.
+     * @nullable
+     */
+    readonly finished_at: string | null
+    /**
+     * AI-generated summary included in this delivery, when one was produced.
+     * @nullable
+     */
+    readonly change_summary: string | null
+}
+
+export interface PaginatedSubscriptionDeliveryListApi {
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: SubscriptionDeliveryApi[]
+}
 
 export type SubscriptionsListParams = {
     /**
@@ -522,6 +513,27 @@ export type SubscriptionsListTargetType = (typeof SubscriptionsListTargetType)[k
 export const SubscriptionsListTargetType = {
     Email: 'email',
     Slack: 'slack',
+} as const
+
+export type SubscriptionsDeliveriesListParams = {
+    /**
+     * The pagination cursor value.
+     */
+    cursor?: string
+    /**
+     * Return only deliveries in this run status (starting, completed, failed, or skipped).
+     */
+    status?: SubscriptionsDeliveriesListStatus
+}
+
+export type SubscriptionsDeliveriesListStatus =
+    (typeof SubscriptionsDeliveriesListStatus)[keyof typeof SubscriptionsDeliveriesListStatus]
+
+export const SubscriptionsDeliveriesListStatus = {
+    Completed: 'completed',
+    Failed: 'failed',
+    Skipped: 'skipped',
+    Starting: 'starting',
 } as const
 
 export type SubscriptionsSummaryQuotaRetrieve200 = {

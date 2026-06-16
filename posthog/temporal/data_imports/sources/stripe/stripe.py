@@ -1,7 +1,7 @@
 import os
 import re
 import dataclasses
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any, Literal, Optional, Union, cast, get_args, get_type_hints
 
 import orjson
@@ -54,10 +54,38 @@ LOGGER = get_logger(__name__)
 DEFAULT_LIMIT = 100
 
 
+class _RateLimitRetryingRequestsClient(RequestsClient):
+    """Stripe's SDK retries 409/5xx (and whatever ``Stripe-Should-Retry`` advises) but never
+    retries 429s on its own — ``_should_retry`` excludes them. A rate limit during a large sync,
+    most often while ``auto_paging_iter`` lazily fetches the next page, therefore propagates
+    straight out of ``get_rows`` and fails the whole import activity.
+
+    Opt 429 into the SDK's existing ``Retry-After``-aware exponential backoff so transient rate
+    limits are absorbed in-process (bounded by ``max_network_retries``) instead of crashing the
+    run. Our Stripe reads are list/GET calls, so retrying them is idempotent."""
+
+    def _should_retry(
+        self,
+        response: Optional[tuple[Any, int, Optional[Mapping[str, str]]]],
+        api_connection_error: Optional[stripe_lib.APIConnectionError],
+        num_retries: int,
+        max_network_retries: Optional[int],
+    ) -> bool:
+        if super()._should_retry(response, api_connection_error, num_retries, max_network_retries):
+            return True
+        # The base logic already enforced the retry budget and declined; the only retryable case
+        # it leaves on the table is a 429, which the SDK omits but which is safe to retry here.
+        if num_retries >= (max_network_retries or 0):
+            return False
+        return response is not None and response[1] == 429
+
+
 def _tracked_stripe_http_client() -> RequestsClient:
     """Wrap a tracked `requests.Session` in Stripe's `RequestsClient` so every
-    Stripe SDK call participates in our HTTP logging, metrics, and sample capture."""
-    return RequestsClient(session=make_tracked_session())
+    Stripe SDK call participates in our HTTP logging, metrics, and sample capture.
+
+    Uses a subclass that additionally retries 429 rate limits via the SDK's built-in backoff."""
+    return _RateLimitRetryingRequestsClient(session=make_tracked_session())
 
 
 def _clean_stripe_error_message(msg: str) -> str:
@@ -558,6 +586,24 @@ def _all_known_webhook_events() -> list[str]:
     return [e for e in possible_event_values if any(e.startswith(f"{p}.") for p in prefixes_set)]
 
 
+def _is_stripe_account_access_error(error: Exception, error_str: str) -> bool:
+    """Detect Stripe's account-access/account-mismatch rejection (code ``account_invalid``).
+
+    A restricted key sent with a ``stripe_account`` header that doesn't match the key's own
+    account makes Stripe reject the request for the account rather than the webhook scope, so it
+    never matches the permission/403/forbidden branch. Surfacing the raw message strands the user;
+    classifying it lets us point them at the manual-setup fallback instead.
+    """
+    if getattr(error, "code", None) == "account_invalid":
+        return True
+    lowered = error_str.lower()
+    return (
+        "does not have access to account" in lowered
+        or "application access may have been revoked" in lowered
+        or "no such account" in lowered
+    )
+
+
 def create_webhook(api_key: str, stripe_account_id: str | None, webhook_url: str) -> WebhookCreationResult:
     logger = LOGGER.bind()
 
@@ -593,11 +639,24 @@ def create_webhook(api_key: str, stripe_account_id: str | None, webhook_url: str
 
         return WebhookCreationResult(success=True, extra_inputs=extra_inputs)
     except Exception as e:
-        error_str = str(e)
+        error_str = _clean_stripe_error_message(str(e))
         logger.warning(
             "Failed to create Stripe webhook",
             error=error_str,
         )
+
+        # Check account access before the permission branch — an account-access rejection can carry a
+        # 403 and would otherwise be misclassified as a missing webhook scope.
+        if _is_stripe_account_access_error(e, error_str):
+            return WebhookCreationResult(
+                success=False,
+                error=(
+                    "Stripe rejected the request because your API key isn't authorized for the configured "
+                    "Stripe account. The 'Account id' in your source settings only applies to Stripe Connect "
+                    "platform accounts — remove or correct it if your key belongs directly to the account, "
+                    "then retry. Otherwise, set up the webhook manually below."
+                ),
+            )
 
         if "permission" in error_str.lower() or "403" in error_str or "forbidden" in error_str.lower():
             return WebhookCreationResult(
