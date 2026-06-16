@@ -468,7 +468,7 @@ export function FeatureFlagReleaseConditions({
                                     return (
                                         <div className="basis-full flex flex-col mt-1 text-secondary tabular-nums">
                                             <span>
-                                                Filters match: <b>{pluralize(affected, singularName, pluralName)}</b>
+                                                Filters match: <b>~{pluralize(affected, singularName, pluralName)}</b>
                                                 {filters.aggregation_group_type_index == null && (
                                                     <Tooltip title={MATCHING_ESTIMATE_TOOLTIP} interactive>
                                                         <IconInfo className="text-muted text-xs ml-0.5" />
@@ -477,7 +477,7 @@ export function FeatureFlagReleaseConditions({
                                             </span>
                                             <span>
                                                 Rollout will be to{' '}
-                                                <b>{pluralize(receivingFlag, singularName, pluralName)}</b> -{' '}
+                                                <b>~{pluralize(receivingFlag, singularName, pluralName)}</b> -{' '}
                                                 <b>{rolloutPct}%</b>
                                             </span>
                                         </div>

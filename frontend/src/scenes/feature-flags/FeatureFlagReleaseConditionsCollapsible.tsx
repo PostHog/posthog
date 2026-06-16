@@ -661,6 +661,7 @@ const ConditionContent = ({
                                                             <span>
                                                                 Filters match:{' '}
                                                                 <b className="tabular-nums">
+                                                                    ~
                                                                     {pluralize(
                                                                         affected,
                                                                         resolvedSingularTargetName,
@@ -681,6 +682,7 @@ const ConditionContent = ({
                                                             <span>
                                                                 Rollout will be to{' '}
                                                                 <b className="tabular-nums">
+                                                                    ~
                                                                     {pluralize(
                                                                         receivingFlag,
                                                                         resolvedSingularTargetName,
