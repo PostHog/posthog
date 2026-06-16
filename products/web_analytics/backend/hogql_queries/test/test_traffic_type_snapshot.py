@@ -80,6 +80,7 @@ class TestTrafficTypeSnapshot(BaseTest):
             ("isLikelyBot", "__preview_isBot"),
             ("getBotType", "__preview_getBotType"),
             ("getBotName", "__preview_getBotName"),
+            ("getBotOperator", "__preview_getBotOperator"),
         ]
     )
     def test_legacy_preview_alias_matches_ga(self, ga_name: str, preview_name: str):
