@@ -708,6 +708,71 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
             assert res.status_code == 200
             assert res.json()["email"] == "user1@posthog.com"
 
+    def test_loginas_logout_with_safe_next_returns_to_app(self):
+        """The loginas logout endpoint honors a safe `next` so staff can return to the PostHog app."""
+        now = datetime.now()
+        with freeze_time(now):
+            self.login_as_other_user()
+
+            res = self.client.get("/admin/logout/?next=/")
+            assert res.status_code == 302
+            assert res.headers["Location"] == "/"
+
+            # Verify we're back to the original staff user
+            res = self.client.get("/api/users/@me")
+            assert res.status_code == 200
+            assert res.json()["email"] == "user1@posthog.com"
+
+    def test_loginas_logout_without_next_redirects_to_admin(self):
+        """Without `next`, the loginas logout endpoint keeps the default admin redirect."""
+        now = datetime.now()
+        with freeze_time(now):
+            self.login_as_other_user()
+
+            res = self.client.get("/admin/logout/")
+            assert res.status_code == 302
+            assert res.headers["Location"] == f"/admin/posthog/user/{self.other_user.id}/change/"
+
+    @parameterized.expand(
+        [
+            ("scheme_relative", "//evil.com/path"),
+            ("absolute_url", "https://evil.com"),
+        ]
+    )
+    def test_loginas_logout_ignores_unsafe_next(self, _name, unsafe):
+        """An unsafe `next` is ignored, falling back to the default admin redirect."""
+        now = datetime.now()
+        with freeze_time(now):
+            self.login_as_other_user()
+
+            res = self.client.get(f"/admin/logout/?next={unsafe}")
+            assert res.status_code == 302
+            assert res.headers["Location"] == f"/admin/posthog/user/{self.other_user.id}/change/"
+
+    def test_loginas_logout_with_next_returns_to_app_after_expiry(self):
+        """Even when the session has expired server-side, `next` survives the middleware
+        bounce so staff still land back in the PostHog app."""
+        now = datetime.now()
+        with freeze_time(now):
+            self.login_as_other_user()
+
+        with freeze_time(now + timedelta(seconds=35)):
+            # First hit: the auto-logout middleware restores the original login and
+            # bounces back to the same path, preserving ?next=/.
+            res = self.client.get("/admin/logout/?next=/")
+            assert res.status_code == 302
+            assert res.headers["Location"] == "/admin/logout/?next=/"
+
+            # Second hit: no longer an impersonated session, so the view honors `next`.
+            res = self.client.get("/admin/logout/?next=/")
+            assert res.status_code == 302
+            assert res.headers["Location"] == "/"
+
+            # Verify we're back to the original staff user
+            res = self.client.get("/api/users/@me")
+            assert res.status_code == 200
+            assert res.json()["email"] == "user1@posthog.com"
+
 
 @override_settings(IMPERSONATION_TIMEOUT_SECONDS=100)
 @override_settings(IMPERSONATION_IDLE_TIMEOUT_SECONDS=20)
