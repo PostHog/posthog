@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, cast
 
@@ -37,6 +38,7 @@ from posthog.temporal.data_imports.sources.postgres.partitioned_tables import (
     should_preserve_asc_sort,
 )
 from posthog.temporal.data_imports.sources.postgres.postgres import (
+    _MAX_SETUP_RECOVERY_CONFLICT_RETRIES,
     SSL_REQUIRED_AFTER_DATE,
     JsonAsStringLoader,
     PostgresDiscoveredSchema,
@@ -70,6 +72,7 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     get_leading_index_columns,
     get_postgres_row_count,
     get_schemas,
+    postgres_source,
 )
 from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
 
@@ -237,6 +240,8 @@ class TestPostgresSourceNonRetryableErrors:
             # A single recovery conflict is retried in-process; on its own it must stay retryable.
             "canceling statement due to conflict with recovery",
             "could not serialize access due to conflict with recovery",
+            # The connection-terminating variant is retried by the setup phase the same way.
+            "terminating connection due to conflict with recovery",
             # The connection-dropped abort is a separate, genuinely transient condition.
             "Hit 10 successive connection-dropped errors. Aborting.",
         ],
@@ -245,6 +250,73 @@ class TestPostgresSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert not is_non_retryable, f"Transient error should remain retryable: {error_msg}"
+
+
+class TestPostgresSourceSetupRecoveryConflictRetry:
+    @staticmethod
+    @contextmanager
+    def _tunnel():
+        yield ("localhost", 5432)
+
+    def _make_failing_connection(self, error: BaseException) -> mock.MagicMock:
+        cursor = mock.MagicMock()
+        cursor.execute.side_effect = error
+        cursor_cm = mock.MagicMock()
+        cursor_cm.__enter__.return_value = cursor
+        cursor_cm.__exit__.return_value = False
+        connection = mock.MagicMock()
+        connection.closed = False
+        connection.cursor.return_value = cursor_cm
+        connection.__enter__.return_value = connection
+        # Must return falsy so the raised error propagates out of the `with` block.
+        connection.__exit__.return_value = False
+        return connection
+
+    def _call_postgres_source(self):
+        return postgres_source(
+            tunnel=self._tunnel,
+            user="u",
+            password="p",
+            database="db",
+            sslmode="prefer",
+            schema="public",
+            table_names=["t"],
+            should_use_incremental_field=False,
+            logger=structlog.get_logger(),
+            db_incremental_field_last_value=None,
+        )
+
+    def test_sustained_recovery_conflict_during_setup_aborts_non_retryably(self):
+        err = psycopg.errors.SerializationFailure("terminating connection due to conflict with recovery")
+        connection = self._make_failing_connection(err)
+
+        with patch(
+            "posthog.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
+            return_value=connection,
+        ) as connect_mock:
+            with patch("posthog.temporal.data_imports.sources.postgres.postgres.time.sleep"):
+                with pytest.raises(Exception) as exc_info:
+                    self._call_postgres_source()
+
+        # Exhausting the in-process retries surfaces the message wired into NonRetryableErrors.
+        assert "successive SerializationFailure errors. Aborting." in str(exc_info.value)
+        # Each retry reconnects, so connect is called once per attempt.
+        assert connect_mock.call_count == _MAX_SETUP_RECOVERY_CONFLICT_RETRIES
+
+    def test_non_recovery_serialization_failure_during_setup_is_not_retried(self):
+        # A serialization failure unrelated to standby recovery must propagate immediately —
+        # the retry is scoped strictly to "conflict with recovery".
+        err = psycopg.errors.SerializationFailure("could not serialize access due to concurrent update")
+        connection = self._make_failing_connection(err)
+
+        with patch(
+            "posthog.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
+            return_value=connection,
+        ) as connect_mock:
+            with pytest.raises(psycopg.errors.SerializationFailure):
+                self._call_postgres_source()
+
+        assert connect_mock.call_count == 1
 
 
 class TestIsConnectionDroppedError:
