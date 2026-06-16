@@ -142,13 +142,13 @@ class TestBotDefinitionsDataStructure:
 
 
 class TestBotDefinitionUDFs:
-    def test_all_five_udfs_generated_with_clash_safe_names(self):
-        # Every UDF name carries "Bot" so it stays clash-safe in ClickHouse's single global
-        # function catalog (no generic single-word name).
+    def test_all_five_udfs_generated_with_namespaced_names(self):
+        # Namespaced with a webAnalytics prefix to stay clash-safe in ClickHouse's single global
+        # function catalog (the HogQL layer exposes them without the prefix).
         assert len(BOT_DEFINITION_UDFS_SQL) == 5
         joined = "\n".join(BOT_DEFINITION_UDFS_SQL)
         for name in BOT_DEFINITION_UDF_NAMES:
-            assert "Bot" in name, f"UDF {name} is not bot-specific (clash risk)"
+            assert name.startswith("webAnalytics"), f"UDF {name} is not namespaced (clash risk)"
             assert f"CREATE OR REPLACE FUNCTION {name} AS (ua)" in joined
 
     def test_no_udf_uses_dictget(self):
@@ -157,12 +157,12 @@ class TestBotDefinitionUDFs:
             assert "dictGet" not in sql, f"UDF must not use dictGet: {sql[:80]}"
 
     def test_isbot_uses_cheapest_multimatchany(self):
-        is_bot = next(s for s in BOT_DEFINITION_UDFS_SQL if "isLikelyBot" in s)
+        is_bot = next(s for s in BOT_DEFINITION_UDFS_SQL if "webAnalyticsIsLikelyBot" in s)
         assert "multiMatchAny(ifNull(ua, '')," in is_bot  # boolean: cheapest form, no index lookup
 
     # Derive the attribute UDFs from the canonical name list so a newly added UDF can't be
     # silently skipped (it gets parametrized automatically).
-    @pytest.mark.parametrize("udf_name", [n for n in BOT_DEFINITION_UDF_NAMES if n != "isLikelyBot"])
+    @pytest.mark.parametrize("udf_name", [n for n in BOT_DEFINITION_UDF_NAMES if n != "webAnalyticsIsLikelyBot"])
     def test_attribute_udf_uses_multimatchanyindex(self, udf_name):
         sql = next(s for s in BOT_DEFINITION_UDFS_SQL if udf_name in s)
         assert "multiMatchAnyIndex(ifNull(ua, '')," in sql
@@ -173,14 +173,16 @@ class TestBotDefinitionUDFs:
         # Reconstruct the expected array literal with the same escaping rather than counting quotes
         # (apostrophe-safe: a label like "it's bot" escapes to '' and would break a naive count).
         expected = _format_array(["", *(bot.name for bot in BOT_DEFINITIONS.values()), ""])
-        bot_name_sql = next(s for s in BOT_DEFINITION_UDFS_SQL if "getBotName" in s)
+        bot_name_sql = next(s for s in BOT_DEFINITION_UDFS_SQL if "webAnalyticsGetBotName" in s)
         assert f"arrayElement({expected}, multiMatchAnyIndex(" in bot_name_sql
 
     def test_isbot_equivalent_to_traffic_type_not_regular(self):
-        # isLikelyBot is multiMatchAny (any pattern matches). That equals the dict's
+        # webAnalyticsIsLikelyBot is multiMatchAny (any pattern matches). That equals the dict's
         # "traffic_type != 'Regular'" only if every defined bot is non-Regular — assert it holds.
         for pattern, bot in BOT_DEFINITIONS.items():
-            assert bot.traffic_type != "Regular", f"{pattern} has Regular traffic_type; isLikelyBot would diverge"
+            assert bot.traffic_type != "Regular", (
+                f"{pattern} has Regular traffic_type; webAnalyticsIsLikelyBot would diverge"
+            )
 
     def test_drop_statements_cover_every_udf(self):
         assert len(DROP_BOT_DEFINITION_UDFS_SQL) == len(BOT_DEFINITION_UDF_NAMES)
@@ -189,7 +191,7 @@ class TestBotDefinitionUDFs:
 
     def test_patterns_match_inline_hogql_path(self):
         # The UDF patterns must be exactly the inline HogQL path's patterns (parity): bot keys + ^$.
-        bot_name_sql = next(s for s in BOT_DEFINITION_UDFS_SQL if "isLikelyBot" in s)
+        bot_name_sql = next(s for s in BOT_DEFINITION_UDFS_SQL if "webAnalyticsIsLikelyBot" in s)
         for pattern in BOT_DEFINITIONS:
             assert pattern.replace("\\", "\\\\").replace("'", "''") in bot_name_sql
         assert "'^$'" in bot_name_sql

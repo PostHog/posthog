@@ -131,14 +131,15 @@ LAYOUT(REGEXP_TREE())
 """
 
 
-# Bot-detection UDFs. Names mirror the HogQL `__preview_*` functions and every one carries "Bot"
-# so they stay clash-safe in ClickHouse's single global function catalog (no generic single-word
-# name like `name`). Bodies use multiMatchAnyIndex (Hyperscan), NOT the REGEXP_TREE dict's dictGet:
-# benchmarks on real traffic showed dictGet costs 7-46x more CPU and grows with row count, while
-# multiMatch stays flat (~200 ms at any window). SQL UDFs are macro-expanded at query-analysis
-# time, so call sites stay tiny (`getBotName(ua)`) yet execute at full multiMatch speed.
-# BOT_DEFINITIONS remains the single source of truth — the same patterns/labels the dict is
-# seeded from and the inline HogQL path emits.
+# Bot-detection UDFs. Names are prefixed with `webAnalytics` because ClickHouse functions share one
+# global catalog, so generic names risk clashing with built-ins or other products. The HogQL layer
+# exposes them without the prefix (`getBotName`/`isLikelyBot`), so query authors still get clean
+# names while the installed ClickHouse functions stay namespaced. Bodies use multiMatchAnyIndex
+# (Hyperscan), NOT the REGEXP_TREE dict's dictGet: benchmarks on real traffic showed dictGet costs
+# 7-46x more CPU and grows with row count, while multiMatch stays flat (~200 ms at any window). SQL
+# UDFs are macro-expanded at query-analysis time, so call sites stay tiny yet execute at full
+# multiMatch speed. BOT_DEFINITIONS remains the single source of truth — the same patterns/labels
+# the dict is seeded from and the inline HogQL path emits.
 _BOT_UDF_PATTERNS = _format_array([*BOT_DEFINITIONS.keys(), "^$"])
 
 
@@ -151,21 +152,21 @@ def _bot_udf_label_lookup(attr: str, default: str, empty_ua_value: str) -> str:
 
 
 BOT_DEFINITION_UDF_NAMES = [
-    "isLikelyBot",
-    "getBotName",
-    "getBotCategory",
-    "getBotTrafficType",
-    "getBotOperator",
+    "webAnalyticsIsLikelyBot",
+    "webAnalyticsGetBotName",
+    "webAnalyticsGetBotCategory",
+    "webAnalyticsGetBotTrafficType",
+    "webAnalyticsGetBotOperator",
 ]
 
 # CREATE OR REPLACE so a later BOT_DEFINITIONS change re-creates the functions idempotently via a
 # follow-up migration. Defaults mirror the inline HogQL builder (traffic_type.py).
 BOT_DEFINITION_UDFS_SQL = [
-    f"CREATE OR REPLACE FUNCTION isLikelyBot AS (ua) -> multiMatchAny(ifNull(ua, ''), {_BOT_UDF_PATTERNS})",
-    f"CREATE OR REPLACE FUNCTION getBotName AS (ua) -> {_bot_udf_label_lookup('name', '', '')}",
-    f"CREATE OR REPLACE FUNCTION getBotCategory AS (ua) -> {_bot_udf_label_lookup('category', 'regular', 'no_user_agent')}",
-    f"CREATE OR REPLACE FUNCTION getBotTrafficType AS (ua) -> {_bot_udf_label_lookup('traffic_type', 'Regular', 'Automation')}",
-    f"CREATE OR REPLACE FUNCTION getBotOperator AS (ua) -> {_bot_udf_label_lookup('operator', '', '')}",
+    f"CREATE OR REPLACE FUNCTION webAnalyticsIsLikelyBot AS (ua) -> multiMatchAny(ifNull(ua, ''), {_BOT_UDF_PATTERNS})",
+    f"CREATE OR REPLACE FUNCTION webAnalyticsGetBotName AS (ua) -> {_bot_udf_label_lookup('name', '', '')}",
+    f"CREATE OR REPLACE FUNCTION webAnalyticsGetBotCategory AS (ua) -> {_bot_udf_label_lookup('category', 'regular', 'no_user_agent')}",
+    f"CREATE OR REPLACE FUNCTION webAnalyticsGetBotTrafficType AS (ua) -> {_bot_udf_label_lookup('traffic_type', 'Regular', 'Automation')}",
+    f"CREATE OR REPLACE FUNCTION webAnalyticsGetBotOperator AS (ua) -> {_bot_udf_label_lookup('operator', '', '')}",
 ]
 
 DROP_BOT_DEFINITION_UDFS_SQL = [f"DROP FUNCTION IF EXISTS {name}" for name in BOT_DEFINITION_UDF_NAMES]
