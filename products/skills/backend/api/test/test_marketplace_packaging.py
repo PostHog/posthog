@@ -57,6 +57,10 @@ class TestFrontmatter:
         assert parsed["metadata"]["version"] == "7"
         assert parsed["metadata"]["author"] == "posthog"
 
+    def test_stored_metadata_version_cannot_clobber_platform_version(self):
+        parsed = yaml.safe_load(render_frontmatter(_skill(version=7, metadata={"version": "hax"})).strip().strip("-"))
+        assert parsed["metadata"]["version"] == "7"
+
     def test_blank_optional_fields_are_omitted(self):
         parsed = yaml.safe_load(
             render_frontmatter(_skill(license="", compatibility="", allowed_tools=[])).strip().strip("-")
@@ -152,6 +156,7 @@ class TestGitTreeSafety:
             {"a/": "x"},  # trailing slash → empty filename
             {"a//b.md": "x"},  # empty path segment
             {"scripts": "a", "scripts/x.sh": "b"},  # path used as both a file and a directory
+            {"a.md": "x", "A.md": "y"},  # case-only collision (breaks clone on case-insensitive FS)
         ],
     )
     def test_corrupt_tree_is_rejected(self, files):

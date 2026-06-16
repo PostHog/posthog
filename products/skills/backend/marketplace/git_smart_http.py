@@ -97,9 +97,14 @@ class _DirNode:
 def _reject_bad_tree_entry(name: str, seen: set[str]) -> None:
     if not name:
         raise GitSynthesisError("empty tree-entry name (a file path is empty or ends in '/')")
-    if name in seen:
-        raise GitSynthesisError(f"path used as both a file and a directory: {name!r}")
-    seen.add(name)
+    # Case-insensitive: two entries differing only by case pass git fsck but abort `git clone`
+    # on a case-insensitive filesystem (macOS/Windows) — break the whole team's clone.
+    key = name.lower()
+    if key in seen:
+        raise GitSynthesisError(
+            f"tree-entry name collides (case-insensitively) or is used as both file and dir: {name!r}"
+        )
+    seen.add(key)
 
 
 def synthesize_repo(files: FileTree, *, author: str, message: str) -> SynthesizedRepo:

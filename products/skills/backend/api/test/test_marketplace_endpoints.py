@@ -206,6 +206,26 @@ class TestSkillFilePathValidation:
         assert validate_skill_file_path(good_path) == good_path
 
 
+class TestMarketplaceResilience(APIBaseTest):
+    def test_skill_with_uncloneable_paths_is_skipped_not_fatal(self):
+        # A skill with two files colliding only by case would synthesize a tree that aborts
+        # `git clone` on a case-insensitive filesystem — it must be skipped, not break the whole
+        # team's marketplace.
+        good = LLMSkill.objects.create(
+            team=self.team, name="good", description="d", body="b", version=1, is_latest=True, created_by=self.user
+        )
+        LLMSkillFile.objects.create(skill=good, path="scripts/run.py", content="x", content_type="text/x-python")
+        bad = LLMSkill.objects.create(
+            team=self.team, name="bad", description="d", body="b", version=1, is_latest=True, created_by=self.user
+        )
+        LLMSkillFile.objects.create(skill=bad, path="a.md", content="x", content_type="text/markdown")
+        LLMSkillFile.objects.create(skill=bad, path="A.md", content="y", content_type="text/markdown")
+
+        tree = build_team_marketplace_tree(self.team)
+        assert "plugins/posthog-skills/skills/good/SKILL.md" in tree
+        assert "plugins/posthog-skills/skills/bad/SKILL.md" not in tree
+
+
 class TestMarketplaceVersion(APIBaseTest):
     def _plugin_version_epoch(self) -> int:
         tree = build_team_marketplace_tree(self.team)

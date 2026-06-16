@@ -7,11 +7,17 @@ serialization and git synthesis stay unit-testable without booting the app.
 from django.core.cache import cache
 from django.db.models import Max
 
+import structlog
+from rest_framework import serializers
+
 from posthog.models import Team
 
+from ..api.skill_serializers import validate_skill_file_path
 from ..models.skills import LLMSkill, LLMSkillFile
 from .git_smart_http import FileTree, SynthesizedRepo, synthesize_repo
 from .packaging import SkillExport, SkillFileExport, build_marketplace_tree, compute_plugin_version
+
+logger = structlog.get_logger(__name__)
 
 # One plugin per team (the agreed grouping). Stable, predictable names so skills are
 # invocable as ``/posthog-skills:<name>`` once installed.
@@ -74,7 +80,20 @@ def build_team_marketplace_tree(team: Team, version: str | None = None) -> FileT
     skills = list(LLMSkill.objects.filter(team=team, deleted=False, is_latest=True).order_by("name"))
 
     files_by_skill = _files_by_skill_id(skills)
-    exports = [skill_to_export(skill, files_by_skill.get(skill.id, [])) for skill in skills]
+
+    # Drop any skill whose bundled-file paths would synthesize a corrupt/uncloneable git tree
+    # (e.g. legacy rows that predate the stricter path validation, or case-only collisions). One
+    # bad skill is skipped rather than 500-ing the whole team's marketplace clone.
+    exports: list[SkillExport] = []
+    skipped: list[str] = []
+    for skill in skills:
+        files = files_by_skill.get(skill.id, [])
+        if _skill_files_are_tree_safe(files):
+            exports.append(skill_to_export(skill, files))
+        else:
+            skipped.append(skill.name)
+    if skipped:
+        logger.warning("skills_marketplace_skipped_unsafe_skills", team_id=team.id, skills=skipped)
 
     return build_marketplace_tree(
         plugin_name=PLUGIN_NAME,
@@ -84,6 +103,22 @@ def build_team_marketplace_tree(team: Team, version: str | None = None) -> FileT
         marketplace_name=MARKETPLACE_NAME,
         skills=exports,
     )
+
+
+def _skill_files_are_tree_safe(files: list[LLMSkillFile]) -> bool:
+    """True if every file path is valid and no two collide case-insensitively — i.e. the set
+    synthesizes a tree real git can clone on any filesystem."""
+    seen_lower: set[str] = set()
+    for skill_file in files:
+        try:
+            validate_skill_file_path(skill_file.path)
+        except serializers.ValidationError:
+            return False
+        lowered = skill_file.path.lower()
+        if lowered in seen_lower:
+            return False
+        seen_lower.add(lowered)
+    return True
 
 
 def _files_by_skill_id(skills: list[LLMSkill]) -> dict[str, list[LLMSkillFile]]:

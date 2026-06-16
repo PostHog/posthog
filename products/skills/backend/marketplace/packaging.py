@@ -59,9 +59,10 @@ def render_frontmatter(skill: SkillExport) -> str:
     if skill.compatibility:
         document["compatibility"] = skill.compatibility
 
-    # Spec metadata is a string->string map; carry version here, then any stored metadata.
-    metadata: dict[str, str] = {"version": str(skill.version)}
-    metadata.update({str(k): str(v) for k, v in skill.metadata.items()})
+    # Spec metadata is a string->string map. Stored metadata first, then the platform version
+    # last so it always wins — a user-stored metadata["version"] must not clobber the real one.
+    metadata: dict[str, str] = {str(k): str(v) for k, v in skill.metadata.items()}
+    metadata["version"] = str(skill.version)
     document["metadata"] = metadata
 
     if skill.allowed_tools:
