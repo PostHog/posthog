@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonDialog, LemonTable, Tooltip } from '@posthog/lemon-ui'
 
-import { humanFriendlyDetailedTime } from 'lib/utils'
+import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { type PasskeyCredential, passkeySettingsLogic } from 'scenes/settings/user/passkeySettingsLogic'
 import { personalAPIKeysLogic } from 'scenes/settings/user/personalAPIKeysLogic'
 

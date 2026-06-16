@@ -2,7 +2,7 @@ import { kea, key, path, props, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { combineUrl } from 'kea-router'
 
-import { colonDelimitedDuration, reverseColonDelimitedDuration } from 'lib/utils'
+import { colonDelimitedDuration, reverseColonDelimitedDuration } from 'lib/utils/durations'
 import { urls } from 'scenes/urls'
 
 import type { playerShareLogicType } from './playerShareLogicType'

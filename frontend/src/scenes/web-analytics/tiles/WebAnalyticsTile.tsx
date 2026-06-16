@@ -18,18 +18,16 @@ import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import {
-    UnexpectedNeverError,
-    capitalizeFirstLetter,
-    humanFriendlyDuration,
-    percentage,
-    tryDecodeURIComponent,
-} from 'lib/utils'
-import {
     COUNTRY_CODE_TO_LONG_NAME,
     LANGUAGE_CODE_TO_NAME,
     countryCodeToFlag,
     languageCodeToFlag,
-} from 'lib/utils/geography/country'
+} from 'lib/utils/country'
+import { humanFriendlyDuration } from 'lib/utils/durations'
+import { UnexpectedNeverError } from 'lib/utils/guards'
+import { percentage } from 'lib/utils/numbers'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
+import { tryDecodeURIComponent } from 'lib/utils/url'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'

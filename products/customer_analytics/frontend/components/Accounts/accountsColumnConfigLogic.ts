@@ -1,6 +1,6 @@
 import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
 
-import { objectsEqual } from 'lib/utils'
+import { objectsEqual } from 'lib/utils/objects'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { teamLogic } from 'scenes/teamLogic'
 

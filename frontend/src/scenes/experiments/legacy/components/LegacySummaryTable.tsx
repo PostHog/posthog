@@ -7,7 +7,7 @@ import { LemonTable, LemonTableColumns, LemonTag, Tooltip } from '@posthog/lemon
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
-import { humanFriendlyNumber } from 'lib/utils'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { ExperimentFunnelsQuery, ExperimentTrendsQuery, isExperimentTrendsQuery } from '~/queries/schema/schema-general'
 import {

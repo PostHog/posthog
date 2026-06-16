@@ -1,6 +1,6 @@
 import { Dayjs, dayjs } from 'lib/dayjs'
-import { pluralize } from 'lib/utils'
 import { createFuse } from 'lib/utils/fuseSearch'
+import { pluralize } from 'lib/utils/strings'
 
 interface FuseSearchable {
     name: string
