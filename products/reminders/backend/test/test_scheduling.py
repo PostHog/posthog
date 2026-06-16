@@ -38,6 +38,9 @@ class TestDailyFrequencyCap(SimpleTestCase):
             ("* * * * *", True),
             ("0 0,6,12,18 * * *", False),  # 4 fires including midnight => at cap, allowed
             ("0 0,6,12,18,23 * * *", True),  # 5 fires including midnight => over cap, rejected
+            ("* * * * 2", True),  # every minute, Tuesdays only => must not slip the cap
+            ("*/10 * * * 4", True),  # every 10 min, Thursdays only => over cap
+            ("0 9 * * 3", False),  # once on Wednesdays => within cap
         ]
     )
     def test_cron_frequency(self, cron_expression: str, expected_exceeds: bool) -> None:

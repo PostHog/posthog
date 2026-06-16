@@ -91,6 +91,26 @@ class TestProcessDueReminders(BaseTest):
         self.assertIn("boom", reminder.last_error or "")
 
     @freeze_time("2026-06-15T09:00:00Z")
+    @patch("products.reminders.backend.firing.create_notification", side_effect=RuntimeError("boom"))
+    def test_recurring_resets_retry_budget_after_advance(self, mock_create: MagicMock) -> None:
+        reminder = Reminder.objects.create(
+            organization=self.organization,
+            team=self.team,
+            created_by=self.user,
+            title="Daily boom",
+            recurrence_interval="daily",
+            next_fire_at=datetime(2026, 6, 15, 8, 59, tzinfo=UTC),
+            failure_count=4,
+        )
+        process_due_reminders()
+        reminder.refresh_from_db()
+        # Threshold hit -> advance to the next window with a fresh budget, not stuck at >= max.
+        self.assertEqual(reminder.status, Reminder.Status.ACTIVE)
+        self.assertEqual(reminder.failure_count, 0)
+        self.assertIsNone(reminder.last_error)
+        self.assertEqual(reminder.next_fire_at, datetime(2026, 6, 16, 8, 59, tzinfo=UTC))
+
+    @freeze_time("2026-06-15T09:00:00Z")
     @patch("products.reminders.backend.firing.create_notification")
     def test_org_level_fires_and_completes(self, mock_create: MagicMock) -> None:
         reminder = Reminder.objects.create(

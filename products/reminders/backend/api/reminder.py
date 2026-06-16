@@ -166,7 +166,10 @@ class ReminderSerializer(serializers.ModelSerializer):
         if sum([bool(scheduled_at), bool(interval), bool(cron)]) != 1:
             raise ValidationError("Provide exactly one of scheduled_at, recurrence_interval, or cron_expression.")
 
-        if scheduled_at and scheduled_at <= timezone.now():
+        # Only enforce a future time on new or still-active reminders; a fired one-off keeps its
+        # past scheduled_at, and editing its title/message shouldn't be rejected over that.
+        is_active = instance is None or instance.status == Reminder.Status.ACTIVE
+        if scheduled_at and is_active and scheduled_at <= timezone.now():
             raise ValidationError("scheduled_at must be in the future.")
 
         if cron and exceeds_daily_frequency_cap(cron):

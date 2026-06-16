@@ -121,6 +121,9 @@ def process_due_reminders() -> None:
                     if reminder.failure_count >= MAX_RETRY_ATTEMPTS:
                         if reminder.recurrence_interval or reminder.cron_expression:
                             _advance(reminder, now)
+                            # Give the next window a fresh retry budget, like a successful fire does.
+                            reminder.failure_count = 0
+                            reminder.last_error = None
                         else:
                             reminder.status = Reminder.Status.ERRORED
                     reminder.save()

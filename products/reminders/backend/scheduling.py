@@ -50,12 +50,11 @@ def compute_next_fire_at(
 
 
 def exceeds_daily_frequency_cap(cron_expression: str) -> bool:
-    # Count fires across a representative 24h window. Sampling several start days
-    # catches day-of-week-dependent crons (e.g. "0 9 * * 1-5").
-    for start in (
-        datetime(2026, 6, 15, 0, 0, tzinfo=UTC),  # Monday
-        datetime(2026, 6, 20, 0, 0, tzinfo=UTC),  # Saturday
-    ):
+    # Count fires across a representative 24h window for every weekday, so a cron pinned
+    # to a single day (e.g. "* * * * 2") can't slip past the cap by avoiding the samples.
+    week_start = datetime(2026, 6, 15, 0, 0, tzinfo=UTC)  # Monday
+    for offset in range(7):
+        start = week_start + timedelta(days=offset)
         window_end = start + timedelta(days=1)
         # Seed just before the window so a fire landing exactly on `start` is counted
         # (croniter.get_next returns the first fire strictly after the seed).

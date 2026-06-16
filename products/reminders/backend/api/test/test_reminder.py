@@ -73,6 +73,21 @@ class TestReminderAPI(APIBaseTest):
         response = self.client.post(self._url(), self._payload(scheduled_at=past))
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_update_completed_one_off_title_allowed(self) -> None:
+        reminder = Reminder.objects.create(
+            organization=self.organization,
+            created_by=self.user,
+            title="old",
+            status=Reminder.Status.COMPLETED,
+            scheduled_at=datetime.now(UTC) - timedelta(days=1),
+            next_fire_at=datetime.now(UTC) - timedelta(days=1),
+        )
+        response = self.client.patch(self._url(f"{reminder.id}/"), {"title": "new"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        reminder.refresh_from_db()
+        self.assertEqual(reminder.title, "new")
+        self.assertEqual(reminder.status, Reminder.Status.COMPLETED)
+
     def test_rejects_resource_without_team(self) -> None:
         response = self.client.post(
             self._url(),
