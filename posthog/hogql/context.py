@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from datetime import timedelta
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
@@ -104,6 +105,10 @@ class HogQLContext:
     # that the current user is denied access to. Populated before type resolution so that
     # FieldType.get_child() can raise QueryError for restricted properties.
     restricted_properties: Optional[set[tuple[str, int]]] = None
+
+    # Cohort-gated events data retention: when set, the ClickHouse printer floors every events-table scan to
+    # now() - this window. Computed once per query in prepare_ast_for_printing; None means not enforced.
+    events_retention_window: Optional[timedelta] = None
 
     def __post_init__(self):
         if self.team:

@@ -518,6 +518,15 @@ class BasePrinter(Visitor[str]):
         scope = ast.SelectQueryType(tables={"t": node_type})
         return [resolve_types(clone_expr(pred), self.context, self.DIALECT_NAME, [scope]) for pred in predicates]
 
+    def _events_retention_floor(
+        self,
+        table_type: ast.TableType | ast.LazyTableType,
+        node_type: ast.TableOrSelectType | None,
+    ) -> ast.Expr | None:
+        """Floor events-table scans to the team's retention window. Overridden by the ClickHouse dialect;
+        default no-op — the HogQL and warehouse dialects don't enforce events retention."""
+        return None
+
     def _print_table_ref(self, table_type: ast.TableType | ast.LazyTableType, node: ast.JoinExpr) -> str:
         """Print a table reference. Fail-fast by default: each dialect must override.
 
@@ -575,8 +584,12 @@ class BasePrinter(Visitor[str]):
             else:
                 extra_where = team_id_expr
 
-            # Apply table-level predicates (e.g., date filters on PostgresTable).
+            # Apply table-level predicates (e.g., date filters on PostgresTable), plus the cohort-gated
+            # events-retention floor (timestamp > now() - retention) injected at the lowest level on the events table.
             predicate_exprs = self._get_table_predicates(table_type, node.type)
+            retention_floor = self._events_retention_floor(table_type, node.type)
+            if retention_floor is not None:
+                predicate_exprs = [*predicate_exprs, retention_floor]
             for pred in predicate_exprs:
                 if is_left_join and node.constraint is not None:
                     if team_id_for_on_clause is None:

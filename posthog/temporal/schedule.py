@@ -71,6 +71,7 @@ from posthog.temporal.session_replay.replay_count_metrics.types import ReplayCou
 from posthog.temporal.session_replay.summarization_sweep.reconciler import (
     create_summarization_sweep_reconciler_schedule,
 )
+from posthog.temporal.sync_events_retention.types import SyncEventsRetentionInput
 from posthog.temporal.usage_report.types import RunUsageReportsInputs
 from posthog.temporal.warehouse_sources_queue_partition_management.schedule import (
     create_warehouse_sources_queue_partition_management_schedule,
@@ -328,6 +329,42 @@ async def create_enforce_max_replay_retention_schedule(client: Client):
             client,
             "enforce-max-replay-retention-schedule",
             enforce_max_replay_retention_schedule,
+            trigger_immediately=False,
+        )
+
+
+async def create_sync_events_retention_schedule(client: Client):
+    """Create or update the schedule for the events retention sync workflow.
+
+    This schedule runs daily at 2 AM UTC.
+    """
+    sync_events_retention_schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "sync-events-retention",
+            SyncEventsRetentionInput(dry_run=False),
+            id="sync-events-retention-schedule",
+            task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+            retry_policy=common.RetryPolicy(
+                maximum_attempts=1,
+            ),
+        ),
+        spec=ScheduleSpec(
+            calendars=[
+                ScheduleCalendarSpec(
+                    comment="Daily at 2 AM UTC",
+                    hour=[ScheduleRange(start=2, end=2)],
+                )
+            ]
+        ),
+    )
+
+    if await a_schedule_exists(client, "sync-events-retention-schedule"):
+        await a_update_schedule(client, "sync-events-retention-schedule", sync_events_retention_schedule)
+    else:
+        await a_create_schedule(
+            client,
+            "sync-events-retention-schedule",
+            sync_events_retention_schedule,
             trigger_immediately=False,
         )
 
@@ -671,6 +708,7 @@ schedules = [
     create_count_all_playlists_schedule,
     create_error_tracking_recommendations_refresh_schedule,
     create_enforce_max_replay_retention_schedule,
+    create_sync_events_retention_schedule,
     create_replay_count_metrics_schedule,
     create_weekly_digest_schedule,
     create_batch_trace_summarization_schedule,

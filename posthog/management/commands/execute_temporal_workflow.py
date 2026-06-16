@@ -25,6 +25,7 @@ from posthog.temporal.session_replay.export_recording import EXPORT_RECORDING_WO
 from posthog.temporal.session_replay.import_recording import IMPORT_RECORDING_WORKFLOWS
 from posthog.temporal.session_replay.rasterize_recording import RASTERIZE_RECORDING_WORKFLOWS
 from posthog.temporal.session_replay.summarization_sweep import SUMMARIZATION_SWEEP_WORKFLOWS
+from posthog.temporal.sync_events_retention import SYNC_EVENTS_RETENTION_WORKFLOWS
 from posthog.temporal.tests.utils.workflow import WORKFLOWS as TEST_WORKFLOWS
 from posthog.temporal.usage_report import WORKFLOWS as USAGE_REPORTS_WORKFLOWS
 from posthog.temporal.weekly_digest import WORKFLOWS as WEEKLY_DIGEST_WORKFLOWS
@@ -146,6 +147,7 @@ class Command(BaseCommand):
             + TEST_WORKFLOWS
             + DELETE_RECORDINGS_WORKFLOWS
             + ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS
+            + SYNC_EVENTS_RETENTION_WORKFLOWS
             + EXPORT_RECORDING_WORKFLOWS
             + IMPORT_RECORDING_WORKFLOWS
             + WEEKLY_DIGEST_WORKFLOWS

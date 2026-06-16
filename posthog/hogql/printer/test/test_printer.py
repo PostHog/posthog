@@ -168,6 +168,40 @@ class TestPrinter(BaseTest):
         )
         return printed
 
+    @parameterized.expand([("1y", 365), ("2y", 730), ("5y", 1825), ("7y", 2555)])
+    @override_settings(EVENTS_DATA_RETENTION_ENFORCED=True)
+    def test_events_retention_floor_applied(self, period: str, days: int):
+        self.team.event_retention_period = period
+        context = HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True)
+        sql = self._select("select count() from events", context=context)
+        assert f"toIntervalDay({days})" in sql
+        assert "greater(events.timestamp, minus(now" in sql
+
+    @override_settings(EVENTS_DATA_RETENTION_ENFORCED=False)
+    def test_events_retention_floor_not_applied_when_disabled(self):
+        self.team.event_retention_period = "1y"
+        context = HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True)
+        sql = self._select("select count() from events", context=context)
+        assert "toIntervalDay" not in sql
+
+    @override_settings(EVENTS_DATA_RETENTION_ENFORCED=True)
+    def test_events_retention_floor_only_on_events_table(self):
+        # The floor is keyed to the events table only — a persons query must not get an events.timestamp floor.
+        self.team.event_retention_period = "1y"
+        context = HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True)
+        sql = self._select("select count() from persons", context=context)
+        assert "greater(events.timestamp, minus(now" not in sql
+        assert "toIntervalDay(365)" not in sql
+
+    @override_settings(EVENTS_DATA_RETENTION_ENFORCED=True)
+    def test_events_retention_floor_loads_team_when_not_in_context(self):
+        # Prod path: the context carries only team_id (see query.py), so the window is loaded from the DB by id.
+        self.team.event_retention_period = "2y"
+        self.team.save()
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        sql = self._select("select count() from events", context=context)
+        assert "toIntervalDay(730)" in sql
+
     def test_to_printed_hogql(self):
         expr = parse_select("select 1 + 2, 3 from events")
         repsponse = to_printed_hogql(expr, self.team)
