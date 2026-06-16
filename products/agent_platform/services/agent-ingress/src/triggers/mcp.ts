@@ -52,7 +52,14 @@ import { principalsMatch } from '../enqueue/auth'
 import { enqueueOrResume } from '../enqueue/enqueue'
 import { McpRequestBodySchema, McpStreamQuerySchema } from './mcp.schemas'
 import { getOwnedSession } from './session-access'
-import type { AuthedRouteCtx, CustomAuthRouteCtx, RouteCtx, TriggerDeps, TriggerModule } from './types'
+import {
+    defineRoute,
+    type AuthedRouteCtx,
+    type CustomAuthRouteCtx,
+    type RouteCtx,
+    type TriggerDeps,
+    type TriggerModule,
+} from './types'
 
 interface McpRequest {
     jsonrpc: '2.0'
@@ -317,14 +324,9 @@ async function mcpHandler(ctx: CustomAuthRouteCtx): Promise<void> {
     }
 }
 
-async function mcpStreamHandler(ctx: AuthedRouteCtx): Promise<void> {
+async function mcpStreamHandler(ctx: AuthedRouteCtx<z.infer<typeof McpStreamQuerySchema>>): Promise<void> {
     const { req, res, deps } = ctx
-    const parsed = McpStreamQuerySchema.safeParse(req.query)
-    if (!parsed.success) {
-        res.status(400).json({ error: 'invalid_query', issues: parsed.error.issues })
-        return
-    }
-    const { session_id: sessionId } = parsed.data
+    const { session_id: sessionId } = ctx.parsed
     // Scope the session to the resolved agent — a leaked anonymous session UUID
     // must not be subscribable via another public agent's /mcp/stream. Mismatch
     // reads as not-found.
@@ -592,13 +594,13 @@ export const mcpTrigger: TriggerModule = {
             auth: 'custom',
             handler: mcpHandler,
         },
-        {
+        defineRoute({
             method: 'GET',
             path: '/mcp/stream',
-            querySchema: z.toJSONSchema(McpStreamQuerySchema),
             auth: 'agent_spec',
+            schema: McpStreamQuerySchema,
             handler: mcpStreamHandler,
-        },
+        }),
         {
             method: 'GET',
             path: '/mcp/connect-info',

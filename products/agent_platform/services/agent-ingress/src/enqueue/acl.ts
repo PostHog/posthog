@@ -262,7 +262,10 @@ export async function applyElevationGrant(
         }
         throw new Error(`elevation request ${input.requestId} is ${result.request?.state}, not pending`)
     }
-    return { request: result.request, aclEntry: result.aclEntry! }
+    if (result.decision !== 'grant') {
+        throw new Error(`expected grant decision, got ${result.decision}`)
+    }
+    return { request: result.request, aclEntry: result.aclEntry }
 }
 
 export interface ApplyDeclineInput {

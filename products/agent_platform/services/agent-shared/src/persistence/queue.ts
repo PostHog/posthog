@@ -31,7 +31,8 @@ export interface DecideElevationInput {
  * treat a no-op as a fresh decision.
  */
 export type DecideElevationResult =
-    | { applied: true; decision: 'grant' | 'decline'; request: PendingElevationRequest; aclEntry?: SessionAclEntry }
+    | { applied: true; decision: 'grant'; request: PendingElevationRequest; aclEntry: SessionAclEntry }
+    | { applied: true; decision: 'decline'; request: PendingElevationRequest }
     | { applied: false; reason: 'not_found' | 'not_pending'; request: PendingElevationRequest | null }
 
 /** Shape returned by both `aggregateForApplication` and `aggregateForTeam`. */

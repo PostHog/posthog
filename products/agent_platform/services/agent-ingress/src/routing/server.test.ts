@@ -672,7 +672,7 @@ describe('ingress HTTP server (path mode)', () => {
         await seedApp(revisions, 'm')
         const res = await request(app).get('/agents/m/mcp/stream')
         expect(res.status).toBe(400)
-        expect(res.body.error).toBe('invalid_query')
+        expect(res.body.error).toBe('invalid_body')
     })
 
     it('GET /schemas 404s for an unknown agent', async () => {

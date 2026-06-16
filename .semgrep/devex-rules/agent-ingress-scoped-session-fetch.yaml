@@ -19,7 +19,12 @@ rules:
       languages: [typescript]
       severity: ERROR
       patterns:
-          - pattern: $Q.queue.get($ID)
+          - pattern-either:
+                - pattern: $Q.queue.get($ID)
+                # Catches the destructuring escape hatch:
+                # `const { queue } = deps; queue.get(id)` — the member-access
+                # pattern above misses it, leaving an unscoped fetch.
+                - pattern: queue.get($ID)
       paths:
           include:
               - products/agent_platform/services/agent-ingress/src/triggers/**/*.ts
