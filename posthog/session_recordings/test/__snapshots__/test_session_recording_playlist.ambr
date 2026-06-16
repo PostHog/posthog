@@ -954,53 +954,57 @@
 # ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.24
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id"
+  SELECT COUNT(*) AS "__count"
   FROM "posthog_sessionrecordingviewed"
   WHERE ("posthog_sessionrecordingviewed"."team_id" = 99999
          AND "posthog_sessionrecordingviewed"."user_id" = 99999)
-  ORDER BY "posthog_sessionrecordingviewed"."created_at" DESC
   '''
 # ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.25
   '''
-  SELECT DISTINCT "posthog_comment"."item_id" AS "item_id"
-  FROM "posthog_comment"
-  WHERE (NOT "posthog_comment"."deleted"
-         AND "posthog_comment"."scope" = 'Replay'
-         AND "posthog_comment"."team_id" = 99999
-         AND NOT ("posthog_comment"."item_id" IS NULL))
+  SELECT COUNT(*)
+  FROM
+    (SELECT DISTINCT "posthog_comment"."item_id" AS "item_id"
+     FROM "posthog_comment"
+     WHERE (NOT "posthog_comment"."deleted"
+            AND "posthog_comment"."scope" = 'Replay'
+            AND "posthog_comment"."team_id" = 99999
+            AND NOT ("posthog_comment"."item_id" IS NULL))) subquery
   '''
 # ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.26
   '''
-  SELECT DISTINCT "posthog_sharingconfiguration"."recording_id" AS "recording__session_id"
-  FROM "posthog_sharingconfiguration"
-  WHERE ("posthog_sharingconfiguration"."enabled"
-         AND "posthog_sharingconfiguration"."team_id" = 99999
-         AND NOT ("posthog_sharingconfiguration"."recording_id" IS NULL))
+  SELECT COUNT(*)
+  FROM
+    (SELECT DISTINCT "posthog_sharingconfiguration"."recording_id" AS "recording__session_id"
+     FROM "posthog_sharingconfiguration"
+     WHERE ("posthog_sharingconfiguration"."enabled"
+            AND "posthog_sharingconfiguration"."team_id" = 99999
+            AND NOT ("posthog_sharingconfiguration"."recording_id" IS NULL))) subquery
   '''
 # ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.27
   '''
-  SELECT ("posthog_exportedasset"."export_context" -> 'session_recording_id') AS "export_context__session_recording_id"
-  FROM "posthog_exportedasset"
-  WHERE (("posthog_exportedasset"."expires_after" >= '2025-01-01 12:00:00+00:00'::timestamptz
-          OR "posthog_exportedasset"."expires_after" IS NULL)
-         AND "posthog_exportedasset"."team_id" = 99999
-         AND "posthog_exportedasset"."export_context" ? 'session_recording_id'
-         AND NOT (("posthog_exportedasset"."export_context" -> 'session_recording_id') IS NULL)
-         AND NOT (("posthog_exportedasset"."export_context" -> 'session_recording_id') = '""'::jsonb
-                  AND "posthog_exportedasset"."export_context" IS NOT NULL))
-  ORDER BY "posthog_exportedasset"."created_at" DESC
+  SELECT COUNT(*)
+  FROM
+    (SELECT DISTINCT ("posthog_exportedasset"."export_context" -> 'session_recording_id') AS "export_context__session_recording_id"
+     FROM "posthog_exportedasset"
+     WHERE (("posthog_exportedasset"."expires_after" >= '2025-01-01 12:00:00+00:00'::timestamptz
+             OR "posthog_exportedasset"."expires_after" IS NULL)
+            AND "posthog_exportedasset"."team_id" = 99999
+            AND "posthog_exportedasset"."export_context" ? 'session_recording_id'
+            AND NOT (("posthog_exportedasset"."export_context" -> 'session_recording_id') IS NULL)
+            AND NOT (("posthog_exportedasset"."export_context" -> 'session_recording_id') = '""'::jsonb
+                     AND "posthog_exportedasset"."export_context" IS NOT NULL))) subquery
   '''
 # ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.28
   '''
-  SELECT DISTINCT "ee_single_session_summary"."session_id" AS "session_id",
-                  "ee_single_session_summary"."created_at"
-  FROM "ee_single_session_summary"
-  WHERE "ee_single_session_summary"."team_id" = 99999
-  ORDER BY "ee_single_session_summary"."created_at" DESC
+  SELECT COUNT(*)
+  FROM
+    (SELECT DISTINCT "ee_single_session_summary"."session_id" AS "session_id"
+     FROM "ee_single_session_summary"
+     WHERE "ee_single_session_summary"."team_id" = 99999) subquery
   '''
 # ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.29
@@ -1723,53 +1727,57 @@
 # ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.40
   '''
-  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id"
+  SELECT COUNT(*) AS "__count"
   FROM "posthog_sessionrecordingviewed"
   WHERE ("posthog_sessionrecordingviewed"."team_id" = 99999
          AND "posthog_sessionrecordingviewed"."user_id" = 99999)
-  ORDER BY "posthog_sessionrecordingviewed"."created_at" DESC
   '''
 # ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.41
   '''
-  SELECT DISTINCT "posthog_comment"."item_id" AS "item_id"
-  FROM "posthog_comment"
-  WHERE (NOT "posthog_comment"."deleted"
-         AND "posthog_comment"."scope" = 'Replay'
-         AND "posthog_comment"."team_id" = 99999
-         AND NOT ("posthog_comment"."item_id" IS NULL))
+  SELECT COUNT(*)
+  FROM
+    (SELECT DISTINCT "posthog_comment"."item_id" AS "item_id"
+     FROM "posthog_comment"
+     WHERE (NOT "posthog_comment"."deleted"
+            AND "posthog_comment"."scope" = 'Replay'
+            AND "posthog_comment"."team_id" = 99999
+            AND NOT ("posthog_comment"."item_id" IS NULL))) subquery
   '''
 # ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.42
   '''
-  SELECT DISTINCT "posthog_sharingconfiguration"."recording_id" AS "recording__session_id"
-  FROM "posthog_sharingconfiguration"
-  WHERE ("posthog_sharingconfiguration"."enabled"
-         AND "posthog_sharingconfiguration"."team_id" = 99999
-         AND NOT ("posthog_sharingconfiguration"."recording_id" IS NULL))
+  SELECT COUNT(*)
+  FROM
+    (SELECT DISTINCT "posthog_sharingconfiguration"."recording_id" AS "recording__session_id"
+     FROM "posthog_sharingconfiguration"
+     WHERE ("posthog_sharingconfiguration"."enabled"
+            AND "posthog_sharingconfiguration"."team_id" = 99999
+            AND NOT ("posthog_sharingconfiguration"."recording_id" IS NULL))) subquery
   '''
 # ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.43
   '''
-  SELECT ("posthog_exportedasset"."export_context" -> 'session_recording_id') AS "export_context__session_recording_id"
-  FROM "posthog_exportedasset"
-  WHERE (("posthog_exportedasset"."expires_after" >= '2025-01-01 12:00:00+00:00'::timestamptz
-          OR "posthog_exportedasset"."expires_after" IS NULL)
-         AND "posthog_exportedasset"."team_id" = 99999
-         AND "posthog_exportedasset"."export_context" ? 'session_recording_id'
-         AND NOT (("posthog_exportedasset"."export_context" -> 'session_recording_id') IS NULL)
-         AND NOT (("posthog_exportedasset"."export_context" -> 'session_recording_id') = '""'::jsonb
-                  AND "posthog_exportedasset"."export_context" IS NOT NULL))
-  ORDER BY "posthog_exportedasset"."created_at" DESC
+  SELECT COUNT(*)
+  FROM
+    (SELECT DISTINCT ("posthog_exportedasset"."export_context" -> 'session_recording_id') AS "export_context__session_recording_id"
+     FROM "posthog_exportedasset"
+     WHERE (("posthog_exportedasset"."expires_after" >= '2025-01-01 12:00:00+00:00'::timestamptz
+             OR "posthog_exportedasset"."expires_after" IS NULL)
+            AND "posthog_exportedasset"."team_id" = 99999
+            AND "posthog_exportedasset"."export_context" ? 'session_recording_id'
+            AND NOT (("posthog_exportedasset"."export_context" -> 'session_recording_id') IS NULL)
+            AND NOT (("posthog_exportedasset"."export_context" -> 'session_recording_id') = '""'::jsonb
+                     AND "posthog_exportedasset"."export_context" IS NOT NULL))) subquery
   '''
 # ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.44
   '''
-  SELECT DISTINCT "ee_single_session_summary"."session_id" AS "session_id",
-                  "ee_single_session_summary"."created_at"
-  FROM "ee_single_session_summary"
-  WHERE "ee_single_session_summary"."team_id" = 99999
-  ORDER BY "ee_single_session_summary"."created_at" DESC
+  SELECT COUNT(*)
+  FROM
+    (SELECT DISTINCT "ee_single_session_summary"."session_id" AS "session_id"
+     FROM "ee_single_session_summary"
+     WHERE "ee_single_session_summary"."team_id" = 99999) subquery
   '''
 # ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.5
