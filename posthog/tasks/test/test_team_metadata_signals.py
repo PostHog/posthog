@@ -67,9 +67,12 @@ class TestTeamMetadataInvalidationSignals(BaseTest):
         with patch("posthog.tasks.team_metadata.update_related_teams_metadata_cache_task") as mock_task:
             mock_task.delay.side_effect = Exception("broker down")
             with patch("posthog.tasks.team_metadata.HYPERCACHE_SIGNAL_UPDATE_COUNTER") as mock_counter:
-                with self.captureOnCommitCallbacks(execute=True):
-                    self.organization.name = "Renamed org"
-                    self.organization.save(update_fields=["name"])
+                try:
+                    with self.captureOnCommitCallbacks(execute=True):
+                        self.organization.name = "Renamed org"
+                        self.organization.save(update_fields=["name"])
+                except Exception:
+                    self.fail("enqueue failure should not propagate to the caller")
 
         mock_counter.labels.assert_called_once_with(
             namespace="team_metadata", cache_name="team_metadata", operation="enqueue", result="failure"

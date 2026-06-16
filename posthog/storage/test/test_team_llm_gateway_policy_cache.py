@@ -147,7 +147,10 @@ class TestLLMGatewayPolicySignals(BaseTest):
         mock_delay.side_effect = Exception("broker down")
 
         self.team.llm_gateway_revoked_at = datetime(2026, 5, 20, 12, 0, 0, tzinfo=UTC)
-        self.team.save()
+        try:
+            self.team.save()
+        except Exception:
+            self.fail("enqueue failure should not propagate to the caller")
 
         mock_counter.labels.assert_called_once_with(
             namespace="team_metadata", cache_name="llm_gateway_policy", operation="enqueue", result="failure"
