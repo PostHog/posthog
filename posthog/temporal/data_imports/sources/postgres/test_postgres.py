@@ -233,6 +233,11 @@ class TestPostgresSourceNonRetryableErrors:
         "error_msg",
         [
             'OperationalError: connection failed: connection to server at "10.0.0.1", port 5432 failed: FATAL: MaxClientsInSessionMode: max clients reached',
+            # Newer Supabase/Supavisor session-mode pooler wording for the same client-slot
+            # exhaustion as "MaxClientsInSessionMode: max clients reached". The pooler has
+            # momentarily run out of client slots (pool_size reached); it recovers as connections
+            # free up, so a fresh attempt succeeds — must stay retryable.
+            'OperationalError: connection failed: connection to server at "44.216.29.125", port 5432 failed: FATAL:  (EMAXCONNSESSION) max clients reached in session mode - max clients are limited to pool_size: 15',
             'OperationalError: connection failed: connection to server at "10.0.0.1", port 5432 failed: FATAL: remaining connection slots are reserved for roles with the SUPERUSER attribute',
             'OperationalError: connection failed: connection to server at "10.0.0.1", port 5432 failed: FATAL: too many connections for role "user"',
             # Mid-stream SSL/connection drops during schema discovery — the pooler culled an idle
