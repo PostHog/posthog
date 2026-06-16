@@ -63,6 +63,17 @@ describe('lastAssistantTextPreview', () => {
         expect(preview).toBe('hell…')
     })
 
+    it('does not split an emoji surrogate pair at the truncation boundary', () => {
+        // With max=4, a naive `slice(0, 3)` cuts "👋" (👋) in half and
+        // leaves a lone high surrogate — invalid UTF-8 that crashes JSON
+        // serialization downstream (orjson refuses it). The preview must keep
+        // the emoji whole.
+        const preview = lastAssistantTextPreview([assistant({ text: 'ab👋cd' })], 4)
+        expect(preview).toBe('ab👋…')
+        // No unpaired surrogate survives.
+        expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(preview!)).toBe(false)
+    })
+
     it('skips assistant turns that have no text block (e.g. tool calls only)', () => {
         const c: ConversationMessage[] = [
             assistant({ text: 'visible reply' }),

@@ -30,7 +30,13 @@ export function lastAssistantTextPreview(
             continue
         }
         const collapsed = textBlock.text.replace(/\s+/g, ' ').trim()
-        return collapsed.length > max ? `${collapsed.slice(0, max - 1)}…` : collapsed
+        // Slice by code points, not UTF-16 code units: a raw `.slice()` can cut
+        // an emoji's surrogate pair in half, leaving a lone surrogate that's not
+        // valid UTF-8 and blows up downstream JSON serialization (orjson refuses
+        // it). `Array.from` splits on full code points, so the truncation can
+        // never end mid-character.
+        const chars = Array.from(collapsed)
+        return chars.length > max ? `${chars.slice(0, max - 1).join('')}…` : collapsed
     }
     return null
 }
