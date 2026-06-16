@@ -19,6 +19,7 @@ use crate::v1::sinks::sink::Sink;
 use crate::v1::sinks::types::{BatchSummary, Destination, Outcome, SinkResult};
 use crate::v1::sinks::{Config, SinkName};
 
+use super::constants::*;
 use super::producer::ProduceRecord;
 use super::types::{KafkaResult, KafkaSinkError};
 use super::KafkaProducerTrait;
@@ -107,7 +108,7 @@ fn reject_publishable(
     }
     for (dest_tag, count) in &by_dest {
         counter!(
-            "capture_v1_kafka_publish_total",
+            KAFKA_PUBLISH_TOTAL,
             "mode" => labels.mode,
             "cluster" => labels.sink,
             "outcome" => Outcome::RetriableError.as_tag(),
@@ -186,7 +187,7 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
                     "event serialization failed, dropping event"
                 );
                 counter!(
-                    "capture_v1_kafka_publish_total",
+                    KAFKA_PUBLISH_TOTAL,
                     "mode" => labels.mode,
                     "cluster" => labels.sink,
                     "outcome" => Outcome::FatalError.as_tag(),
@@ -217,74 +218,37 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
 
             let headers: rdkafka::message::OwnedHeaders = captured_headers.into();
 
-            let mut record = ProduceRecord {
+            let record = ProduceRecord {
                 topic,
                 key,
                 payload: &payload_buf,
                 headers,
             };
 
-            let enqueue_retry_max = self.config.kafka.enqueue_retry_max;
-            let enqueue_poll = Duration::from_millis(self.config.kafka.enqueue_poll_ms as u64);
-            let mut hit_queue_full = false;
-
-            for enqueue_attempt in 0..=enqueue_retry_max {
-                if enqueue_attempt > 0 {
-                    tokio::time::sleep(enqueue_poll).await;
+            match self.producer.send(record) {
+                Ok(ack_future) => {
+                    let sent_at = Instant::now();
+                    enqueued_keys.push((uuid, dest_tag, sent_at));
+                    pending.push(Box::pin(async move {
+                        let result = ack_future.await;
+                        let ack_latency = sent_at.elapsed();
+                        (uuid, dest_tag, Utc::now(), ack_latency, result)
+                    }));
                 }
-
-                match self.producer.send(record) {
-                    Ok(ack_future) => {
-                        if hit_queue_full {
-                            counter!(
-                                "capture_v1_kafka_queue_full_retries_total",
-                                "mode" => labels.mode,
-                                "cluster" => labels.sink,
-                                "result" => "recovered",
-                            )
-                            .increment(1);
-                        }
-                        let sent_at = Instant::now();
-                        enqueued_keys.push((uuid, dest_tag, sent_at));
-                        pending.push(Box::pin(async move {
-                            let result = ack_future.await;
-                            let ack_latency = sent_at.elapsed();
-                            (uuid, dest_tag, Utc::now(), ack_latency, result)
-                        }));
-                        break;
-                    }
-                    Err((e, returned_record))
-                        if e.is_queue_full() && enqueue_attempt < enqueue_retry_max =>
-                    {
-                        hit_queue_full = true;
-                        record = returned_record;
-                        continue;
-                    }
-                    Err((e, _)) => {
-                        if hit_queue_full || e.is_queue_full() {
-                            counter!(
-                                "capture_v1_kafka_queue_full_retries_total",
-                                "mode" => labels.mode,
-                                "cluster" => labels.sink,
-                                "result" => "exhausted",
-                            )
-                            .increment(1);
-                        }
-                        let sink_err = KafkaSinkError::Produce(e);
-                        let outcome = sink_err.outcome();
-                        counter!(
-                            "capture_v1_kafka_publish_total",
-                            "mode" => labels.mode,
-                            "cluster" => labels.sink,
-                            "outcome" => outcome.as_tag(),
-                            "path" => labels.path,
-                            "attempt" => labels.attempt,
-                            "destination" => dest_tag,
-                        )
-                        .increment(1);
-                        results.push(Box::new(KafkaResult::err(uuid, sink_err, enqueued_at)));
-                        break;
-                    }
+                Err((e, _)) => {
+                    let sink_err = KafkaSinkError::Produce(e);
+                    let outcome = sink_err.outcome();
+                    counter!(
+                        KAFKA_PUBLISH_TOTAL,
+                        "mode" => labels.mode,
+                        "cluster" => labels.sink,
+                        "outcome" => outcome.as_tag(),
+                        "path" => labels.path,
+                        "attempt" => labels.attempt,
+                        "destination" => dest_tag,
+                    )
+                    .increment(1);
+                    results.push(Box::new(KafkaResult::err(uuid, sink_err, enqueued_at)));
                 }
             }
         }
@@ -322,7 +286,7 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
                     };
 
                     counter!(
-                        "capture_v1_kafka_publish_total",
+                        KAFKA_PUBLISH_TOTAL,
                         "mode" => labels.mode,
                         "cluster" => labels.sink,
                         "outcome" => outcome_tag,
@@ -335,7 +299,7 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
                     // Per-event broker-ack latency (send → ack), isolated from
                     // batch enqueue wall-time.
                     histogram!(
-                        "capture_v1_kafka_ack_duration_seconds",
+                        KAFKA_ACK_DURATION_SECONDS,
                         "mode" => labels.mode,
                         "cluster" => labels.sink,
                         "outcome" => outcome_tag,
@@ -385,7 +349,7 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
         }
         for (dest_tag, count) in &by_dest {
             counter!(
-                "capture_v1_kafka_publish_total",
+                KAFKA_PUBLISH_TOTAL,
                 "mode" => labels.mode,
                 "cluster" => labels.sink,
                 "outcome" => Outcome::Timeout.as_tag(),
@@ -400,7 +364,7 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
             // Record timed-out acks so the latency tail (>= produce_timeout)
             // is visible rather than silently dropped.
             histogram!(
-                "capture_v1_kafka_ack_duration_seconds",
+                KAFKA_ACK_DURATION_SECONDS,
                 "mode" => labels.mode,
                 "cluster" => labels.sink,
                 "outcome" => Outcome::Timeout.as_tag(),
@@ -464,7 +428,7 @@ impl<P: KafkaProducerTrait + 'static> Sink for KafkaSink<P> {
         )
         .await;
         histogram!(
-            "capture_v1_kafka_enqueue_duration_seconds",
+            KAFKA_ENQUEUE_DURATION_SECONDS,
             "mode" => labels.mode,
             "cluster" => labels.sink,
             "path" => labels.path,
@@ -508,7 +472,7 @@ impl<P: KafkaProducerTrait + 'static> Sink for KafkaSink<P> {
         }
         for (tag, count) in &summary.errors {
             counter!(
-                "capture_v1_kafka_produce_errors_total",
+                KAFKA_PRODUCE_ERRORS_TOTAL,
                 "cluster" => labels.sink,
                 "mode" => labels.mode,
                 "error" => *tag

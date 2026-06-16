@@ -497,10 +497,9 @@ reusable `String` buffers (`payload_buf`, `key_buf`) are cleared and
 rewritten each iteration, amortizing allocations to zero after the first
 event.
 
-If `producer.send()` returns `QueueFull`, the sink retries up to
-`enqueue_retry_max` times with `enqueue_poll_ms` pauses. This gives
-rdkafka's background thread time to drain in-flight deliveries. Metrics
-track recovery vs exhaustion via `capture_v1_kafka_queue_full_retries_total`.
+If `producer.send()` returns `QueueFull`, the event is failed immediately
+as a retriable error. Backpressure is handled by librdkafka's internal
+queue and the client-level retry mechanism, not an app-level sleep loop.
 
 After serialization and header construction, `effective_partition_key()`
 (`kafka/sink.rs`) decides whether the partition key should be nulled.
@@ -673,8 +672,6 @@ only needs to specify hosts and topics.
 | `retry_backoff_max_ms` | `1000` | `retry.backoff.max.ms` | Upper bound on exponential retry backoff |
 | `socket_send_buffer_bytes` | `0` | `socket.send.buffer.bytes` | TCP send buffer size; 0 = OS default |
 | `socket_receive_buffer_bytes` | `0` | `socket.receive.buffer.bytes` | TCP receive buffer size; 0 = OS default |
-| `enqueue_retry_max` | `3` | _(application-level)_ | QueueFull backpressure retries |
-| `enqueue_poll_ms` | `33` | _(application-level)_ | Pause between QueueFull retries |
 | `topic_main` | _(required)_ | — | Analytics main topic |
 | `topic_historical` | _(required)_ | — | Historical migration topic |
 | `topic_overflow` | _(required)_ | — | Overflow topic |
@@ -906,7 +903,6 @@ request-level context (`path`, `attempt`).
 | `capture_v1_kafka_publish_total` | counter | `mode`, `cluster`, `outcome`, `path`, `attempt` (capped at "6+"), `destination` | Every event outcome (success, error, timeout, reject) |
 | `capture_v1_kafka_ack_duration_seconds` | histogram | `mode`, `cluster`, `outcome`, `path`, `attempt` (capped at "6+"), `destination` | Per-event broker-ack latency (successful send → ack resolution), including `outcome="timeout"` for acks that miss `produce_timeout` |
 | `capture_v1_kafka_enqueue_duration_seconds` | histogram | `mode`, `cluster`, `path`, `attempt` (capped at "6+") | Per-batch enqueue wall-time (the `enqueue_events` call), isolated from broker-ack latency |
-| `capture_v1_kafka_queue_full_retries_total` | counter | `mode`, `cluster`, `result` | QueueFull retry (`result` = `recovered` or `exhausted`) |
 
 Cardinality note: the `destination` label is bounded at 9 values
 (`Destination::as_tag()` collapses all `Custom(_)` topics to `custom`)
@@ -1204,8 +1200,6 @@ Builder options include:
 | `ack_delay(d)` | Simulate slow acks / timeouts |
 | `not_ready()` | Producer health gate fails |
 | `with_liveness(deadline, poll)` | Custom liveness timing for health tests |
-| `enqueue_retry_max(n)` | QueueFull retry budget |
-| `enqueue_poll_ms(ms)` | QueueFull retry pause |
 
 ### Analytics event serialization tests
 
