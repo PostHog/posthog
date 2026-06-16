@@ -1,28 +1,23 @@
 import { useActions, useValues } from 'kea'
-import { Form, Field as FormField } from 'kea-forms'
-import { type ChangeEvent, useState } from 'react'
+import { Form } from 'kea-forms'
+import { useState } from 'react'
 
 import { getCookie } from 'lib/api'
+import PasswordStrength from 'lib/components/PasswordStrength'
 import SignupReferralSource from 'lib/components/SignupReferralSource'
 import SignupRoleSelect from 'lib/components/SignupRoleSelect'
+import { SocialLoginButtons } from 'lib/components/SocialLoginButton/SocialLoginButton'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { Link } from 'lib/lemon-ui/Link'
-import {
-    KeyIcon,
-    PaperCardTitle,
-    PaperDivider,
-    PaperField,
-    PaperFooterNote,
-    PaperInput,
-    PaperLink,
-    PaperPasswordStrength,
-    PaperPrimaryButton,
-    PaperRegionField,
-    PaperSecondaryButton,
-    PaperSocialIcons,
-} from 'scenes/authentication/shared/paperDesk/PaperDeskControls'
+import { CardTitle } from 'scenes/authentication/shared/paperDesk/CardTitle'
 import { PaperDeskCard, PaperDeskScene } from 'scenes/authentication/shared/paperDesk/PaperDeskScene'
+import { RegionField } from 'scenes/authentication/shared/paperDesk/RegionField'
 import { TurnstileChallenge } from 'scenes/authentication/signup/signupForm/TurnstileChallenge'
 import { userLogic } from 'scenes/userLogic'
+
+import { LoginMethod } from '~/types'
 
 import { signupLogic } from '../../signupForm/signupLogic'
 
@@ -37,7 +32,7 @@ function SignupEmailPanel(): JSX.Element {
     const { isSignupPanelEmailSubmitting, signupPanelEmailManualErrors, pendingInvite, loginUrl } =
         useValues(signupLogic)
     const [showJoinOrg, setShowJoinOrg] = useState(false)
-    const lastLoginMethod = getCookie('ph_last_login_method')
+    const lastLoginMethod = getCookie('ph_last_login_method') as LoginMethod | null
     const accountExists = !!signupPanelEmailManualErrors?.email
 
     if (pendingInvite) {
@@ -45,65 +40,67 @@ function SignupEmailPanel(): JSX.Element {
     }
 
     const footer = (
-        <PaperFooterNote>
-            Already have an account? <PaperLink to={loginUrl}>Log in →</PaperLink>
-        </PaperFooterNote>
+        <p className="mt-5 mb-0 text-sm text-secondary text-center">
+            Already have an account?{' '}
+            <Link
+                to={loginUrl}
+                className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
+            >
+                Log in →
+            </Link>
+        </p>
     )
 
     return (
         <PaperDeskCard footer={footer}>
-            <PaperCardTitle title="Get started" sub="No credit card. No sales call. Just hogs." />
-            <Form
-                logic={signupLogic}
-                formKey="signupPanelEmail"
-                enableFormOnSubmit
-                className="flex flex-col gap-[18px]"
-            >
-                <PaperRegionField />
-                <FormField name="email">
+            <CardTitle title="Get started" sub="No credit card. No sales call. Just hogs." />
+            <Form logic={signupLogic} formKey="signupPanelEmail" enableFormOnSubmit className="flex flex-col gap-4">
+                <RegionField />
+                <LemonField name="email" label="Email">
                     {({ value, onChange, error, id }) => (
-                        <PaperField
-                            label="Email"
-                            helpError={!!error}
-                            help={
-                                accountExists ? (
-                                    <span>
-                                        {error} <PaperLink to={loginUrl}>Log in instead →</PaperLink>
-                                    </span>
-                                ) : (
-                                    error
-                                )
-                            }
-                        >
-                            <PaperInput
-                                id={id}
-                                type="email"
-                                autoFocus
-                                autoComplete="email"
-                                placeholder="you@yourcompany.com"
-                                value={value ?? ''}
-                                onChange={(e: ChangeEvent<HTMLInputElement>) => onChange(e.target.value)}
-                                invalid={!!error}
-                            />
-                        </PaperField>
+                        <LemonInput
+                            id={id}
+                            type="email"
+                            autoFocus
+                            autoComplete="email"
+                            placeholder="you@yourcompany.com"
+                            value={value ?? ''}
+                            onChange={onChange}
+                            status={error ? 'danger' : 'default'}
+                            fullWidth
+                        />
                     )}
-                </FormField>
-                <PaperPrimaryButton loading={isSignupPanelEmailSubmitting} loadingLabel="Checking…">
+                </LemonField>
+                {accountExists && (
+                    <p className="text-xs text-danger -mt-2">
+                        <Link
+                            to={loginUrl}
+                            className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
+                        >
+                            Log in instead →
+                        </Link>
+                    </p>
+                )}
+                <LemonButton type="primary" fullWidth htmlType="submit" loading={isSignupPanelEmailSubmitting}>
                     Continue
-                </PaperPrimaryButton>
+                </LemonButton>
             </Form>
-            <PaperDivider label="or sign up with" />
-            <PaperSocialIcons verb="Sign up" lastUsed={lastLoginMethod} />
+            <SocialLoginButtons
+                topDivider
+                caption="or sign up with"
+                lastUsedProvider={lastLoginMethod ?? undefined}
+                captionLocation="top"
+            />
             <div className="mt-4 text-center">
                 <button
                     type="button"
-                    className="PaperDesk__link PaperDesk__link--muted text-[12.5px]"
+                    className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-secondary text-xs"
                     onClick={() => setShowJoinOrg((v) => !v)}
                 >
                     Trying to join an existing organization?
                 </button>
                 {showJoinOrg && (
-                    <p className="PaperDesk__note mt-3">
+                    <p className="PaperDesk__note mt-3 py-3 px-3.5 text-xs leading-relaxed text-secondary text-left bg-[#fbfbf9] border border-dashed border-[#c5c6bd] rounded">
                         You'll need your invite link. When a teammate invites you, we email you a personal link — that's
                         the only way in to their organization. Didn't get one? Check spam, or ask them to resend it from
                         their members settings.
@@ -121,7 +118,7 @@ function PendingInvitePanel(): JSX.Element {
 
     return (
         <PaperDeskCard>
-            <PaperCardTitle
+            <CardTitle
                 title="You've already been invited"
                 sub={
                     <span>
@@ -133,23 +130,23 @@ function PendingInvitePanel(): JSX.Element {
                 className="mb-5"
             />
             {pendingInviteResent ? (
-                <div className="PaperDesk__success">
-                    <span className="PaperDesk__success-check">✓</span>
+                <div className="flex gap-2 items-start py-2.5 px-3 text-sm text-primary text-left bg-success-highlight border border-success rounded">
+                    <span className="font-bold text-success">✓</span>
                     <span>Sent. Look for an email from {org} — the link inside takes you straight in.</span>
                 </div>
             ) : (
                 <div className="flex flex-col gap-2.5">
-                    <PaperPrimaryButton
-                        htmlType="button"
+                    <LemonButton
+                        type="primary"
+                        fullWidth
                         loading={isPendingInviteResending}
-                        loadingLabel="Resending…"
                         onClick={() => resendPendingInvite(signupPanelEmail.email)}
                     >
                         Resend invite email
-                    </PaperPrimaryButton>
-                    <PaperSecondaryButton onClick={() => dismissPendingInvite()}>
+                    </LemonButton>
+                    <LemonButton fullWidth onClick={() => dismissPendingInvite()}>
                         I'd rather create my own organization
-                    </PaperSecondaryButton>
+                    </LemonButton>
                 </div>
             )}
         </PaperDeskCard>
@@ -160,7 +157,6 @@ function PendingInvitePanel(): JSX.Element {
 function SignupAuthPanel(): JSX.Element {
     const {
         signupPanelEmail,
-        signupPanelAuth,
         isSignupPanelAuthSubmitting,
         validatedPassword,
         passkeySignupEnabled,
@@ -171,14 +167,19 @@ function SignupAuthPanel(): JSX.Element {
     const { registerPasskey, setPanel } = useActions(signupLogic)
 
     const footer = (
-        <PaperFooterNote>
-            <PaperLink onClick={() => setPanel(0)}>← Use a different email</PaperLink>
-        </PaperFooterNote>
+        <p className="mt-5 mb-0 text-sm text-secondary text-center">
+            <Link
+                onClick={() => setPanel(0)}
+                className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
+            >
+                ← Use a different email
+            </Link>
+        </p>
     )
 
     return (
         <PaperDeskCard footer={footer}>
-            <PaperCardTitle
+            <CardTitle
                 title="Secure your account"
                 sub={
                     <span>
@@ -186,54 +187,65 @@ function SignupAuthPanel(): JSX.Element {
                     </span>
                 }
             />
-            {passkeyError && <div className="PaperDesk__error mb-4">{passkeyError}</div>}
+            {passkeyError && (
+                <div className="mb-4 py-2.5 px-3 text-sm leading-normal text-primary text-left bg-danger-highlight border border-danger rounded">
+                    {passkeyError}
+                </div>
+            )}
             {passkeySignupEnabled &&
                 (passkeyRegistered ? (
-                    <div className="PaperDesk__note text-center">Passkey registered. Continue below.</div>
+                    <div className="PaperDesk__note text-center py-3 px-3.5 text-xs leading-relaxed text-secondary bg-[#fbfbf9] border border-dashed border-[#c5c6bd] rounded">
+                        Passkey registered. Continue below.
+                    </div>
                 ) : (
-                    <PaperSecondaryButton
-                        icon={
-                            <span className="PaperDesk__sso-icon">
-                                <KeyIcon size={17} />
-                            </span>
-                        }
-                        onClick={registerPasskey}
-                        disabled={isPasskeyRegistering}
-                    >
+                    <LemonButton fullWidth onClick={registerPasskey} disabled={isPasskeyRegistering}>
                         Sign up with a passkey
-                    </PaperSecondaryButton>
+                    </LemonButton>
                 ))}
-            {!passkeyRegistered && <PaperDivider label="or use a password" />}
-            <Form logic={signupLogic} formKey="signupPanelAuth" enableFormOnSubmit className="flex flex-col gap-[18px]">
+            {!passkeyRegistered && (
+                <div className="my-4 flex gap-3 items-center">
+                    <span className="flex-1 h-px bg-[#e0e1d9]" />
+                    <span className="text-xs text-secondary whitespace-nowrap">or use a password</span>
+                    <span className="flex-1 h-px bg-[#e0e1d9]" />
+                </div>
+            )}
+            <Form logic={signupLogic} formKey="signupPanelAuth" enableFormOnSubmit className="flex flex-col gap-4">
                 {!passkeyRegistered && (
-                    <FormField name="password">
+                    <LemonField
+                        name="password"
+                        label={
+                            <div className="flex items-baseline justify-between w-full">
+                                <span>Password</span>
+                                <PasswordStrength validatedPassword={validatedPassword} />
+                            </div>
+                        }
+                    >
                         {({ value, onChange, error, id }) => (
-                            <PaperField
-                                label="Password"
-                                helpError={!!error}
-                                help={error}
-                                right={<PaperPasswordStrength password={signupPanelAuth.password} />}
-                            >
-                                <PaperInput
-                                    id={id}
-                                    type="password"
-                                    autoFocus
-                                    autoComplete="new-password"
-                                    placeholder="••••••••••"
-                                    value={value ?? ''}
-                                    onChange={(e: ChangeEvent<HTMLInputElement>) => onChange(e.target.value)}
-                                    invalid={!!error}
-                                />
-                            </PaperField>
+                            <LemonInput
+                                id={id}
+                                type="password"
+                                autoFocus
+                                autoComplete="new-password"
+                                placeholder="••••••••••"
+                                value={value ?? ''}
+                                onChange={onChange}
+                                status={error ? 'danger' : 'default'}
+                                fullWidth
+                            />
                         )}
-                    </FormField>
+                    </LemonField>
                 )}
-                <PaperPrimaryButton
+                <LemonButton
+                    type="primary"
+                    fullWidth
+                    htmlType="submit"
                     loading={isSignupPanelAuthSubmitting}
-                    disabled={!passkeyRegistered && !!validatedPassword.feedback}
+                    disabledReason={
+                        !passkeyRegistered && validatedPassword.feedback ? validatedPassword.feedback : undefined
+                    }
                 >
                     Continue
-                </PaperPrimaryButton>
+                </LemonButton>
             </Form>
         </PaperDeskCard>
     )
@@ -253,7 +265,7 @@ function SignupProfilePanel(): JSX.Element {
 
     const footer = (
         <>
-            <p className="PaperDesk__terms">
+            <p className="PaperDesk__terms mt-5 mb-0 text-xs leading-relaxed text-tertiary text-center">
                 By creating an account, you agree to our{' '}
                 <Link to="https://posthog.com/terms" target="_blank">
                     Terms of Service ↗
@@ -264,15 +276,20 @@ function SignupProfilePanel(): JSX.Element {
                 </Link>
                 .
             </p>
-            <PaperFooterNote>
-                <PaperLink onClick={() => setPanel(1)}>← or go back</PaperLink>
-            </PaperFooterNote>
+            <p className="mt-5 mb-0 text-sm text-secondary text-center">
+                <Link
+                    onClick={() => setPanel(1)}
+                    className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
+                >
+                    ← or go back
+                </Link>
+            </p>
         </>
     )
 
     return (
         <PaperDeskCard footer={footer}>
-            <PaperCardTitle
+            <CardTitle
                 title="Tell us about yourself"
                 sub={
                     <span>
@@ -281,7 +298,7 @@ function SignupProfilePanel(): JSX.Element {
                 }
             />
             {signupPanelOnboardingManualErrors?.generic && (
-                <div className="PaperDesk__error mb-4">
+                <div className="mb-4 py-2.5 px-3 text-sm leading-normal text-primary text-left bg-danger-highlight border border-danger rounded">
                     {signupPanelOnboardingManualErrors.generic.detail || 'Could not complete your signup.'}
                 </div>
             )}
@@ -289,36 +306,34 @@ function SignupProfilePanel(): JSX.Element {
                 logic={signupLogic}
                 formKey="signupPanelOnboarding"
                 enableFormOnSubmit
-                className="flex flex-col gap-[18px]"
+                className="flex flex-col gap-4"
             >
-                <FormField name="name">
+                <LemonField name="name" label="Your name">
                     {({ value, onChange, error, id }) => (
-                        <PaperField label="Your name" helpError={!!error} help={error}>
-                            <PaperInput
-                                id={id}
-                                autoFocus
-                                placeholder="Jane Doe"
-                                autoComplete="name"
-                                value={value ?? ''}
-                                onChange={(e: ChangeEvent<HTMLInputElement>) => onChange(e.target.value)}
-                                invalid={!!error}
-                            />
-                        </PaperField>
+                        <LemonInput
+                            id={id}
+                            autoFocus
+                            placeholder="Jane Doe"
+                            autoComplete="name"
+                            value={value ?? ''}
+                            onChange={onChange}
+                            status={error ? 'danger' : 'default'}
+                            fullWidth
+                        />
                     )}
-                </FormField>
-                <FormField name="organization_name">
+                </LemonField>
+                <LemonField name="organization_name" label="Organization name">
                     {({ value, onChange, error, id }) => (
-                        <PaperField label="Organization name" helpError={!!error} help={error}>
-                            <PaperInput
-                                id={id}
-                                placeholder="Hogflix Movies"
-                                value={value ?? ''}
-                                onChange={(e: ChangeEvent<HTMLInputElement>) => onChange(e.target.value)}
-                                invalid={!!error}
-                            />
-                        </PaperField>
+                        <LemonInput
+                            id={id}
+                            placeholder="Hogflix Movies"
+                            value={value ?? ''}
+                            onChange={onChange}
+                            status={error ? 'danger' : 'default'}
+                            fullWidth
+                        />
                     )}
-                </FormField>
+                </LemonField>
                 <SignupRoleSelect />
                 <SignupReferralSource disabled={isSignupPanelOnboardingSubmitting} />
                 {challengeRequired && turnstileSiteKey ? (
@@ -329,9 +344,9 @@ function SignupProfilePanel(): JSX.Element {
                         email={signupPanelEmail.email}
                     />
                 ) : (
-                    <PaperPrimaryButton loading={isSignupPanelOnboardingSubmitting} loadingLabel="Creating account…">
+                    <LemonButton type="primary" fullWidth htmlType="submit" loading={isSignupPanelOnboardingSubmitting}>
                         Create account
-                    </PaperPrimaryButton>
+                    </LemonButton>
                 )}
             </Form>
         </PaperDeskCard>

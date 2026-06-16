@@ -1,63 +1,18 @@
 import './PaperDesk.scss'
 
-import { type ReactNode, useEffect, useState } from 'react'
+import { type ReactNode } from 'react'
 
 import { Logo } from 'lib/brand/Logo'
 
-/** Types the two mono corner notes (// ...), honoring reduced-motion. Presentational only. */
-function Typewriter({ lines }: { lines: string[] }): JSX.Element {
-    const full = lines.join('\n')
-    const reduce = typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
-    const [shown, setShown] = useState(reduce ? full.length : 0)
+import { Typewriter } from './Typewriter'
 
-    useEffect(() => {
-        if (reduce) {
-            setShown(full.length)
-            return
-        }
-        setShown(0)
-        const schedule: number[] = []
-        let acc = 350
-        for (const ch of full) {
-            acc += ch === '\n' ? 380 : 42
-            schedule.push(acc)
-        }
-        const start = performance.now()
-        // Elapsed-time driven so a throttled/background tab catches up in one tick.
-        const id = setInterval(() => {
-            const elapsed = performance.now() - start
-            let k = 0
-            while (k < schedule.length && schedule[k] <= elapsed) {
-                k++
-            }
-            setShown(k)
-            if (k >= schedule.length) {
-                clearInterval(id)
-            }
-        }, 40)
-        return () => clearInterval(id)
-    }, [full, reduce])
-
-    const parts = full.slice(0, shown).split('\n')
-    return (
-        <div className="PaperDesk__notes" aria-hidden>
-            {parts.map((part, idx) => (
-                <div key={idx} className="PaperDesk__notes-line">
-                    {part}
-                    {idx === parts.length - 1 && <span className="PaperDesk__caret" />}
-                </div>
-            ))}
-        </div>
-    )
-}
-
-/** Full-viewport paper-desk stage: dotted parchment + accent glow + mono corner notes + docs link. */
+/** Full-viewport paper-desk stage: dotted parchment + accent glow + mono corner notes. */
 export function PaperDeskScene({ notes, children }: { notes: string[]; children: ReactNode }): JSX.Element {
     return (
-        <div className="PaperDesk">
+        <div className="PaperDesk relative min-h-screen overflow-hidden font-sans text-primary bg-[#eef0e7]">
             <Typewriter lines={notes} />
-            <div className="PaperDesk__content">
-                <div className="PaperDesk__column">{children}</div>
+            <div className="relative z-[3] flex flex-col items-center justify-center min-h-screen py-18 px-10">
+                <div className="PaperDesk__column flex flex-col items-center w-[27rem] max-w-full">{children}</div>
             </div>
         </div>
     )
@@ -76,13 +31,15 @@ export function PaperDeskCard({
     return (
         <>
             {top === undefined ? (
-                <span className="PaperDesk__logo">
+                <span className="PaperDesk__logo block mb-4">
                     <Logo />
                 </span>
             ) : (
                 top
             )}
-            <div className="PaperDesk__card">{children}</div>
+            <div className="w-full pt-8 px-9 pb-8 bg-white border border-[#e0e1d9] rounded-lg shadow-[0_20px_44px_-26px_rgb(40_38_30/35%),0_3px_0_#e0e1d9]">
+                {children}
+            </div>
             {footer}
         </>
     )

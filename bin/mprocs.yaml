@@ -567,7 +567,7 @@ procs:
 
     storybook:
         sandbox: true
-        shell: 'pnpm --filter=@posthog/storybook install && pnpm run storybook'
+        shell: 'pnpm --filter=@posthog/storybook install && NODE_OPTIONS=--max-old-space-size=8192 pnpm run storybook'
         autostart: false
         ready_pattern: 'Storybook *'
         groups:
