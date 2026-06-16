@@ -193,6 +193,7 @@ describe('cohortsSceneLogic', () => {
             it.each([
                 ['detail from the error object', { detail: 'Unknown table `person`' }, 'Unknown table `person`'],
                 ['the error string when there is no detail', {}, 'Internal server error'],
+                ['the default message when detail is undefined', { detail: undefined }, 'Error loading cohorts'],
             ])('tracks %s', async (_, errorObject, expected) => {
                 router.actions.push(urls.cohorts())
                 await expectLogic(logic).toDispatchActions(['loadCohortsSuccess'])

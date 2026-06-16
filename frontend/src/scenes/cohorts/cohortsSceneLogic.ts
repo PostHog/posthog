@@ -113,8 +113,8 @@ export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
                 loadCohorts: () => null,
                 loadCohortsSuccess: () => null,
                 loadCohortsFailure: (_, { error, errorObject }) => {
-                    if (errorObject && typeof errorObject === 'object' && 'detail' in errorObject) {
-                        return (errorObject as { detail?: string }).detail ?? 'Error loading cohorts'
+                    if (errorObject && 'detail' in errorObject) {
+                        return errorObject.detail ?? 'Error loading cohorts'
                     }
                     return error ?? 'Error loading cohorts'
                 },

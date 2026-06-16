@@ -3,7 +3,7 @@ import './Cohorts.scss'
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
-import { LemonDialog, LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { LemonBanner, LemonDialog, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
@@ -305,17 +305,9 @@ export function Cohorts(): JSX.Element {
                 nouns={['cohort', 'cohorts']}
                 emptyState={
                     cohortsLoadError ? (
-                        <div className="flex flex-col items-center gap-2 p-4 text-center">
-                            <div className="text-danger">There was an error loading cohorts: {cohortsLoadError}</div>
-                            <LemonButton
-                                type="primary"
-                                size="small"
-                                onClick={() => loadCohorts()}
-                                disabledReason={cohortsLoading ? 'Loading...' : undefined}
-                            >
-                                Try again
-                            </LemonButton>
-                        </div>
+                        <LemonBanner type="error" action={{ children: 'Try again', onClick: () => loadCohorts() }}>
+                            There was an error loading cohorts: {cohortsLoadError}
+                        </LemonBanner>
                     ) : undefined
                 }
                 data-attr="cohorts-table"
