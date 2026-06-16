@@ -51,6 +51,7 @@ jobs:
                   filters: |
                       hobby:
                         - Dockerfile
+                        - .dockerignore
                         - docker-compose.base.yml
                         - docker-compose.hobby.yml
                         # Hobby-specific scripts
