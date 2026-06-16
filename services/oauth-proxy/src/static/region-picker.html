@@ -44,12 +44,12 @@
             -webkit-font-smoothing: antialiased;
         }
 
-        .container {
+        main {
             max-width: 520px;
             width: 100%;
         }
 
-        .card {
+        main > article {
             border: 1px solid var(--border);
             border-radius: var(--radius);
             overflow: hidden;
@@ -58,14 +58,14 @@
             text-align: center;
         }
 
-        .logo-row {
+        header {
             display: inline-flex;
             align-items: center;
             gap: 10px;
             margin-bottom: 28px;
         }
 
-        .logo-row svg {
+        header svg {
             height: 28px;
             width: auto;
         }
@@ -94,24 +94,25 @@
             color: var(--text-primary);
         }
 
-        .description {
+        h1 + p {
             font-size: 15px;
             line-height: 1.6;
             color: var(--text-secondary);
             margin-bottom: 32px;
         }
 
-        .buttons {
+        nav {
             display: flex;
             gap: 12px;
             justify-content: center;
         }
 
-        .flag-emoji {
+        nav span[aria-hidden="true"] {
             font-size: 18px;
         }
 
-        .cta {
+        nav a,
+        #redirect-go-now {
             position: relative;
             display: inline-flex;
             align-items: center;
@@ -131,45 +132,46 @@
             transition: transform 200ms ease, box-shadow 200ms ease, border-color 200ms ease;
         }
 
-        .cta:hover {
+        nav a:hover,
+        #redirect-go-now:hover {
             border-color: var(--button-border-hover);
             transform: translateY(-0.5px);
             box-shadow: 0 3.5px 0 -1px var(--button-frame);
         }
 
-        .cta:active {
+        nav a:active,
+        #redirect-go-now:active {
             transform: translateY(0.5px);
             box-shadow: 0 2.5px 0 -1px var(--button-frame);
         }
 
-        .cta:focus-visible,
-        .btn-secondary:focus-visible {
+        nav a:focus-visible,
+        button:focus-visible,
+        #redirect-go-now:focus-visible {
             outline: 2px solid var(--brand-blue);
             outline-offset: 2px;
         }
 
-        .cta svg {
-            width: 16px;
-            height: 16px;
-        }
-
-        .hint {
+        noscript p,
+        #hint-default {
             margin-top: 24px;
             font-size: 13px;
             color: var(--text-secondary);
         }
 
-        .hint a {
+        noscript p a,
+        #hint-default a {
             color: var(--text-secondary);
             text-decoration: underline;
             text-underline-offset: 2px;
         }
 
-        .hint a:hover {
+        noscript p a:hover,
+        #hint-default a:hover {
             color: var(--text-primary);
         }
 
-        .redirect-banner {
+        #redirect-banner {
             margin-top: 28px;
             padding: 16px 20px;
             background: var(--bg);
@@ -179,11 +181,11 @@
             line-height: 1.5;
         }
 
-        .redirect-banner .region-name {
+        #redirect-region-name {
             font-weight: 600;
         }
 
-        .progress-bar {
+        #progress-bar {
             width: 100%;
             height: 4px;
             background: var(--border);
@@ -192,7 +194,7 @@
             overflow: hidden;
         }
 
-        .progress-bar-fill {
+        #progress-fill {
             height: 100%;
             background: var(--brand-blue);
             border-radius: 2px;
@@ -200,7 +202,7 @@
             transition: width 100ms linear;
         }
 
-        .redirect-actions {
+        #redirect-banner > div:has(> button) {
             display: flex;
             align-items: center;
             justify-content: center;
@@ -208,7 +210,7 @@
             margin-top: 14px;
         }
 
-        .btn-secondary {
+        button {
             display: inline-flex;
             align-items: center;
             background: transparent;
@@ -217,49 +219,48 @@
             font-size: 0.8125rem;
             font-weight: 500;
             line-height: 1.5rem;
-            text-decoration: none;
             padding: 6px 14px;
             border: 1px solid var(--border);
             border-radius: var(--radius);
             cursor: pointer;
             transition: border-color 200ms ease;
             appearance: none;
-        }
-
-        button.btn-secondary {
             margin: 0;
         }
 
-        .btn-secondary:hover {
+        button:hover {
             border-color: var(--text-secondary);
         }
 
-        .footer {
+        footer {
             text-align: center;
             margin-top: 20px;
             font-size: 13px;
             color: var(--text-secondary);
         }
 
-        .footer a {
+        footer a {
             color: var(--text-secondary);
             text-decoration: underline;
             text-underline-offset: 2px;
         }
 
-        .footer a:hover {
+        footer a:hover {
             color: var(--text-primary);
         }
 
         @media (prefers-reduced-motion: reduce) {
 
-            .cta,
-            .progress-bar-fill {
+            nav a,
+            #redirect-go-now,
+            #progress-fill {
                 transition: none;
             }
 
-            .cta:hover,
-            .cta:active {
+            nav a:hover,
+            nav a:active,
+            #redirect-go-now:hover,
+            #redirect-go-now:active {
                 transform: none;
             }
         }
@@ -267,9 +268,9 @@
 </head>
 
 <body>
-    <main class="container">
-        <div class="card">
-            <header class="logo-row">
+    <main>
+        <article>
+            <header>
                 <svg aria-hidden="true" fill="none" height="30" viewBox="0 0 157 30" xmlns="http://www.w3.org/2000/svg">
                     <clipPath id="a">
                         <path d="m0 0h157v30h-157z" />
@@ -326,46 +327,46 @@
 
             <h1>Log in to PostHog</h1>
 
-            <p class="description">Where is your PostHog project hosted?</p>
+            <p>Where is your PostHog project hosted?</p>
 
-            <nav aria-label="Select PostHog region" class="buttons">
-                <a class="cta" id="btn-us" href="#">
-                    <span aria-hidden="true" class="flag-emoji">&#x1F1FA;&#x1F1F8;</span>
+            <nav aria-label="Select PostHog region">
+                <a id="btn-us" href="#">
+                    <span aria-hidden="true">&#x1F1FA;&#x1F1F8;</span>
                     US Cloud
                 </a>
-                <a class="cta" id="btn-eu" href="#">
-                    <span aria-hidden="true" class="flag-emoji">&#x1F1EA;&#x1F1FA;</span>
+                <a id="btn-eu" href="#">
+                    <span aria-hidden="true">&#x1F1EA;&#x1F1FA;</span>
                     EU Cloud
                 </a>
             </nav>
 
             <noscript>
-                <p class="hint">Enable JavaScript to continue. Your OAuth login parameters are required from this page.
+                <p>Enable JavaScript to continue. Your OAuth login parameters are required from this page.
                 </p>
             </noscript>
 
-            <p class="hint" id="hint-default">
+            <p id="hint-default">
                 Not sure? Check your PostHog URL. <br />
                 It should be either
                 <a href="https://us.posthog.com" rel="noopener noreferrer" target="_blank">us.posthog.com</a> or
                 <a href="https://eu.posthog.com" rel="noopener noreferrer" target="_blank">eu.posthog.com</a>
             </p>
 
-            <div aria-live="polite" class="redirect-banner" hidden id="redirect-banner">
-                <span>You last logged in on <span class="region-name" id="redirect-region-name"></span>. Redirecting
+            <div aria-live="polite" hidden id="redirect-banner">
+                <span>You last logged in on <span id="redirect-region-name"></span>. Redirecting
                     in <span id="redirect-countdown">7</span>s...</span>
                 <div aria-label="Redirect countdown" aria-valuemax="100" aria-valuemin="0" aria-valuenow="0"
-                    class="progress-bar" id="progress-bar" role="progressbar">
-                    <div class="progress-bar-fill" id="progress-fill"></div>
+                    id="progress-bar" role="progressbar">
+                    <div id="progress-fill"></div>
                 </div>
-                <div class="redirect-actions">
-                    <button class="btn-secondary" id="redirect-cancel" type="button">Cancel redirect</button>
-                    <a class="cta" id="redirect-go-now"></a>
+                <div>
+                    <button id="redirect-cancel" type="button">Cancel redirect</button>
+                    <a id="redirect-go-now"></a>
                 </div>
             </div>
-        </div>
+        </article>
 
-        <footer class="footer">
+        <footer>
             &copy; <span id="year"></span> <a href="https://posthog.com">posthog.com</a>
         </footer>
     </main>
