@@ -4,7 +4,7 @@ import { dayjs } from 'lib/dayjs'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { hasRecentAIEvents } from './aiEventsUtils'
+import { hasRecentAIEvents } from './aiEvents'
 
 describe('aiEventsUtils', () => {
     beforeEach(() => {
