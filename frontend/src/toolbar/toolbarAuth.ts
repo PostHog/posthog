@@ -4,7 +4,7 @@ import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { asNonEmptyString } from '~/toolbar/utils'
 
-import { toolbarConfigLogic } from './toolbarConfigLogic'
+import { isBenignFetchError, toolbarConfigLogic } from './toolbarConfigLogic'
 
 type OAuthTokens = { access_token: string; refresh_token: string; expires_in: number }
 
@@ -22,11 +22,27 @@ export async function refreshOAuthTokens(
     refreshPromise = (async () => {
         const startTime = performance.now()
         try {
-            const response = await fetch(`${uiHost}/api/user/toolbar_oauth_refresh/`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ refresh_token: currentRefreshToken, client_id: clientId }),
-            })
+            let response: Response
+            try {
+                response = await fetch(`${uiHost}/api/user/toolbar_oauth_refresh/`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ refresh_token: currentRefreshToken, client_id: clientId }),
+                })
+            } catch (networkError) {
+                // Network-level failure (offline, CORS, ad-blocker, unreachable host).
+                // An end-user network condition, not a PostHog bug — record the benign
+                // telemetry but don't capture it as an exception. Re-throw so the caller
+                // falls back to re-authentication.
+                toolbarPosthogJS.capture('toolbar token refresh', {
+                    status: 'network_error',
+                    duration_ms: Math.round(performance.now() - startTime),
+                })
+                if (!isBenignFetchError(networkError)) {
+                    captureToolbarException(networkError, 'token_refresh_network')
+                }
+                throw networkError
+            }
 
             if (!response.ok) {
                 const err = new Error(`Refresh failed: ${response.status}`)
@@ -91,7 +107,11 @@ export async function withTokenRefresh(
         return await retryRequest(access)
     } catch (e) {
         toolbarLogger.error('auth', 'Token refresh retry failed', { status: response.status })
-        captureToolbarException(e, 'token_refresh_retry')
+        // Benign network failures are already accounted for where they originate
+        // (refreshOAuthTokens / retryRequest); don't double-capture them here.
+        if (!isBenignFetchError(e)) {
+            captureToolbarException(e, 'token_refresh_retry')
+        }
         lemonToast.error('Please re-authenticate to continue using the toolbar.')
         toolbarConfigLogic.actions.tokenExpired()
         return response

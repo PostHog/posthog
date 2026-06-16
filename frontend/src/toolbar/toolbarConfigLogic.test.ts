@@ -8,6 +8,7 @@ import {
     toolbarFetch,
     toolbarUploadMedia,
 } from '~/toolbar/toolbarConfigLogic'
+import * as toolbarPosthogJS from '~/toolbar/toolbarPosthogJS'
 import { cleanToolbarAuthHash, OAUTH_LOCALSTORAGE_KEY, PKCE_STORAGE_KEY, readToolbarAuthHash } from '~/toolbar/utils'
 
 global.fetch = jest.fn(() =>
@@ -1442,6 +1443,61 @@ describe('toolbar toolbarConfigLogic', () => {
             } as any)
             logic.mount()
             expectLogic(logic).toMatchValues({ userIntent: null })
+        })
+    })
+
+    describe('network-level failures are not captured as exceptions', () => {
+        let captureSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            captureSpy = jest.spyOn(toolbarPosthogJS, 'captureToolbarException').mockImplementation(() => {})
+        })
+
+        afterEach(() => {
+            captureSpy.mockRestore()
+        })
+
+        it('reachability check flips to error without capturing an exception when fetch rejects with TypeError', async () => {
+            ;(global.fetch as jest.Mock).mockImplementation(() => Promise.reject(new TypeError('Failed to fetch')))
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
+            logic.mount()
+            await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'error' })
+
+            const uiHostCheckCaptures = captureSpy.mock.calls.filter((c) => c[1] === 'ui_host_check')
+            expect(uiHostCheckCaptures).toHaveLength(0)
+        })
+
+        it('reachability check still captures genuinely unexpected (non-network) failures', async () => {
+            ;(global.fetch as jest.Mock).mockImplementation(() => Promise.reject(new Error('boom')))
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
+            logic.mount()
+            await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'error' })
+
+            const uiHostCheckCaptures = captureSpy.mock.calls.filter((c) => c[1] === 'ui_host_check')
+            expect(uiHostCheckCaptures).toHaveLength(1)
+        })
+
+        it('toolbarFetch returns a synthetic 503 instead of throwing when fetch rejects at the network layer', async () => {
+            const logic = toolbarConfigLogic.build({
+                uiHost: 'https://us.posthog.com',
+                apiURL: 'https://us.posthog.com',
+                accessToken: 'pha_token',
+                refreshToken: 'phr_token',
+                clientId: 'client',
+            } as any)
+            logic.mount()
+            ;(global.fetch as jest.Mock).mockClear()
+            captureSpy.mockClear()
+            ;(global.fetch as jest.Mock).mockImplementation(() => Promise.reject(new TypeError('Failed to fetch')))
+
+            const res = await toolbarFetch('/api/projects/@current/product_tours/')
+            expect(res.status).toBe(503)
+            const body = await res.json()
+            expect(body.detail).toBe('network_error')
+            expect(body.results).toEqual([])
+
+            const fetchCaptures = captureSpy.mock.calls.filter((c) => c[1] === 'toolbar_fetch')
+            expect(fetchCaptures).toHaveLength(0)
         })
     })
 

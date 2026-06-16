@@ -609,6 +609,18 @@ function classifyFetchError(error: unknown): string {
 }
 
 /**
+ * Network-level fetch failures that reflect the end user's environment — offline,
+ * CORS block, ad-blocker, proxy, or an unreachable host — rather than a PostHog bug.
+ * fetch() rejects with a TypeError ("Failed to fetch") for these, and our own
+ * `AbortSignal.timeout` surfaces as a DOMException AbortError. Neither is worth
+ * surfacing as a captured exception in error tracking; we still record the benign
+ * telemetry event so the signal isn't lost entirely.
+ */
+export function isBenignFetchError(error: unknown): boolean {
+    return error instanceof TypeError || (error instanceof DOMException && error.name === 'AbortError')
+}
+
+/**
  * Run a CORS HEAD check against the PostHog app to verify uiHost is reachable.
  * If a pending OAuth code exchange exists, it runs after the check succeeds
  * (or shows the config modal on failure).
@@ -658,14 +670,21 @@ function verifyUiHostReachability(
             }
         })
         .catch((error: unknown) => {
+            // A failed HEAD just means the host isn't reachable from this browser
+            // right now — flip to 'error' so the config modal can surface, but don't
+            // treat an expected network-level failure (CORS, ad-blocker, offline) as a
+            // bug. Only genuinely unexpected failures are captured as exceptions.
             actions.setAuthStatus('error')
-            captureToolbarException(error, 'ui_host_check', {
-                error_type: classifyFetchError(error),
-            })
+            const errorType = classifyFetchError(error)
+            if (!isBenignFetchError(error)) {
+                captureToolbarException(error, 'ui_host_check', {
+                    error_type: errorType,
+                })
+            }
             toolbarPosthogJS.capture('toolbar ui host check', {
                 ...checkBaseProps,
                 status: 'error',
-                error_type: classifyFetchError(error),
+                error_type: errorType,
                 duration_ms: Date.now() - checkStart,
             })
 
@@ -860,20 +879,41 @@ export async function toolbarFetch(
     const startTime = performance.now()
     let didRetry = false
 
-    let response = await fetch(fullUrl, {
-        method,
-        headers: buildHeaders(accessToken),
-        ...(body !== undefined ? { body } : {}),
-    })
-
-    response = await withTokenRefresh(response, async (newAccessToken) => {
-        didRetry = true
-        return await fetch(fullUrl, {
+    let response: Response
+    try {
+        response = await fetch(fullUrl, {
             method,
-            headers: buildHeaders(newAccessToken),
+            headers: buildHeaders(accessToken),
             ...(body !== undefined ? { body } : {}),
         })
-    })
+
+        response = await withTokenRefresh(response, async (newAccessToken) => {
+            didRetry = true
+            return await fetch(fullUrl, {
+                method,
+                headers: buildHeaders(newAccessToken),
+                ...(body !== undefined ? { body } : {}),
+            })
+        })
+    } catch (error) {
+        // fetch() rejects at the network layer (offline, CORS, ad-blocker, unreachable
+        // host). These are end-user network conditions, not PostHog bugs — return a
+        // synthetic 503 so callers (including mount-time loaders) degrade gracefully on
+        // the `results: []` stub instead of throwing an uncaught rejection that pollutes
+        // error tracking. Only unexpected failures are captured as exceptions.
+        if (!isBenignFetchError(error)) {
+            captureToolbarException(error, 'toolbar_fetch', { pathname: combineUrl(url).pathname })
+        }
+        toolbarPosthogJS.capture('toolbar api request', {
+            method,
+            pathname: combineUrl(url).pathname,
+            status: 0,
+            duration_ms: Math.round(performance.now() - startTime),
+            did_token_retry: didRetry,
+            error_type: classifyFetchError(error),
+        })
+        return new Response(JSON.stringify({ results: [], detail: 'network_error' }), { status: 503 })
+    }
 
     const durationMs = Math.round(performance.now() - startTime)
     const { pathname } = combineUrl(url)
