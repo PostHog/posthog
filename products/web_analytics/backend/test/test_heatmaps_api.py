@@ -158,6 +158,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                     "pct_below_fold": 0.0,
                     "median_viewport_height": None,
                 },
+                "has_more": False,
             },
         )
 
@@ -226,6 +227,47 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self._assert_heatmap_single_result_count({"date_from": "2023-03-08", "type": "click"}, 1)
 
         self._assert_heatmap_single_result_count({"date_from": "2023-03-08", "type": "rageclick"}, 2)
+
+    def _create_three_distinct_points(self) -> None:
+        # three distinct coordinates (differ by x) with descending counts 3, 2, 1
+        for _ in range(3):
+            self._create_heatmap_event("s1", "click", "2023-03-08T08:00:00", x=16)
+        for _ in range(2):
+            self._create_heatmap_event("s2", "click", "2023-03-08T08:00:00", x=48)
+        self._create_heatmap_event("s3", "click", "2023-03-08T08:00:00", x=80)
+
+    @parameterized.expand(
+        [
+            ("default_returns_all", None, None, [3, 2, 1], False),
+            ("limit_truncates_hottest_first", 2, None, [3, 2], True),
+            ("limit_equal_to_total", 3, None, [3, 2, 1], False),
+            ("offset_pages_into_cooler_points", 2, 1, [2, 1], False),
+        ]
+    )
+    @freezegun.freeze_time("2025-03-31")
+    def test_limit_and_offset_page_hottest_first(
+        self, _name: str, limit: int | None, offset: int | None, expected_counts: list[int], expected_has_more: bool
+    ) -> None:
+        self._create_three_distinct_points()
+
+        params: dict[str, str | int | None] = {"date_from": "2023-03-08", "type": "click"}
+        if limit is not None:
+            params["limit"] = limit
+        if offset is not None:
+            params["offset"] = offset
+
+        response = self._get_heatmap(params)
+        assert [r["count"] for r in response.data["results"]] == expected_counts
+        assert response.data["has_more"] is expected_has_more
+
+    @freezegun.freeze_time("2025-03-31")
+    def test_scrolldepth_ignores_limit_and_has_no_has_more(self) -> None:
+        for i, y in enumerate([100, 200, 300, 400]):
+            self._create_heatmap_event(f"session_{i}", "scrolldepth", "2023-03-08T08:00:00", y=y, viewport_height=1000)
+
+        response = self._get_heatmap({"date_from": "2023-03-08", "type": "scrolldepth", "limit": 1})
+        assert len(response.data["results"]) > 1
+        assert "has_more" not in response.data
 
     @freezegun.freeze_time("2025-03-31")
     @snapshot_clickhouse_queries

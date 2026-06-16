@@ -30,6 +30,10 @@ import { FilterType } from '~/types'
 
 import type { heatmapDataLogicType } from './heatmapDataLogicType'
 
+// The heatmaps list endpoint defaults to a bounded page (hottest-first) so MCP/API callers don't
+// overflow on busy pages. The rendered overlay needs every point, so opt into the full set here.
+const MAX_HEATMAP_POINTS = 1_000_000
+
 export const HEATMAP_COLOR_PALETTE_OPTIONS: LemonSelectOption<string>[] = [
     { value: 'default', label: 'Default (multicolor)' },
     { value: 'red', label: 'Red (monocolor)' },
@@ -223,6 +227,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                             aggregation,
                             filter_test_accounts,
                             cohort_ids: cohort_ids && cohort_ids.length > 0 ? cohort_ids : undefined,
+                            limit: MAX_HEATMAP_POINTS,
                         },
                         '?'
                     )}`
