@@ -96,8 +96,8 @@ function getNavigationType(): PerformanceNavigationTiming['type'] | null {
         return null
     }
 
-    const navigation = window.performance?.getEntriesByType('navigation')[0]
-    if (!navigation || !('type' in navigation)) {
+    const navigation = window.performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined
+    if (!navigation || !navigation.type) {
         return null
     }
     return navigation.type

@@ -21,8 +21,7 @@ describe('notebookPresence', () => {
                 value: originalGetEntriesByType,
             })
         } else {
-            delete (window.performance as Performance & { getEntriesByType?: Performance['getEntriesByType'] })
-                .getEntriesByType
+            Reflect.deleteProperty(window.performance, 'getEntriesByType')
         }
         sessionStorage.clear()
     })
