@@ -20,11 +20,11 @@ export function ActivityEventsWidgetRowSkeleton(): JSX.Element {
         <div className="flex flex-col gap-1 px-3 py-2">
             <div className="flex items-center gap-2">
                 <LemonSkeleton className="h-4 flex-1" />
-                <div className="flex w-56 shrink-0 items-center gap-2">
+                <div className="flex w-44 shrink-0 items-center gap-2">
                     <LemonSkeleton className="size-5 shrink-0 rounded-full" />
                     <LemonSkeleton className="h-4 flex-1" />
-                    <LemonSkeleton className="h-4 w-16 shrink-0" />
                 </div>
+                <LemonSkeleton className="h-4 w-28 shrink-0" />
             </div>
             <LemonSkeleton className="h-3 w-56" />
         </div>
@@ -44,8 +44,9 @@ export function ActivityEventsWidgetRow({ event }: { event: ActivityEventsWidget
                 <span className="min-w-0 flex-1 truncate text-sm font-medium">
                     <PropertyKeyInfo value={event.event} type={TaxonomicFilterGroupType.Events} disablePopover />
                 </span>
-                {/* Fixed-width column keeps the avatar at a consistent x across rows (as on Activity > Explore). */}
-                <div className="flex w-56 shrink-0 items-center gap-2 text-xs">
+                {/* Fixed person + date columns keep the avatar at a constant x and the name truncation
+                    consistent across rows regardless of the relative-time length (as on Activity > Explore). */}
+                <div className="flex w-44 shrink-0 items-center gap-2 text-xs">
                     {event.person ? (
                         <PersonDisplay
                             person={{
@@ -59,13 +60,11 @@ export function ActivityEventsWidgetRow({ event }: { event: ActivityEventsWidget
                             noLink
                             noPopover
                         />
-                    ) : (
-                        <span className="flex-1" />
-                    )}
-                    <span className="shrink-0 whitespace-nowrap text-muted">
-                        <TZLabel time={event.timestamp} />
-                    </span>
+                    ) : null}
                 </div>
+                <span className="w-28 shrink-0 truncate text-right text-xs text-muted">
+                    <TZLabel time={event.timestamp} />
+                </span>
             </div>
             <div className="flex min-h-4 min-w-0 items-center gap-2 text-xs text-muted">
                 {event.lib ? <span className="shrink-0">{event.lib}</span> : null}
