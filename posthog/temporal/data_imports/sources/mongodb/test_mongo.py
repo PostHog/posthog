@@ -337,6 +337,12 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
                 "Authentication failed., full error: {'ok': 0.0, 'errmsg': 'Authentication failed.', "
                 "'code': 18, 'codeName': 'AuthenticationFailed'}",
             ),
+            # Real pymongo OperationFailure string for bad credentials on MongoDB Atlas (code 8000).
+            (
+                "atlas_bad_auth",
+                "bad auth : authentication failed, full error: {'ok': 0, 'errmsg': 'bad auth : "
+                "authentication failed', 'code': 8000, 'codeName': 'AtlasError'}",
+            ),
             ("dns_failure", "The DNS query name does not exist: example.mongodb.net."),
             ("ssl_failure", "SSL handshake failed: certificate verify failed"),
             # ServerSelectionTimeoutError variants — cluster unreachable for the whole selection
@@ -359,6 +365,18 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
                 "server_type: Unknown, rtt: None, error=AutoReconnect('cluster0.example.mongodb.net:"
                 "27017: connection closed (configured timeouts: socketTimeoutMS: 20000.0ms, "
                 "connectTimeoutMS: 20000.0ms)')>]>",
+            ),
+            # Atlas SQL / Data Federation endpoint (*.query.mongodb.net) — unusable by the standard
+            # driver, so the topology stays Unknown and selection times out. Despite the "connection
+            # closed" text, the host suffix marks it as a wrong-endpoint config error, not a blip.
+            (
+                "atlas_sql_endpoint",
+                "atlas-sql-681905984ce3f87167df11fa-wf3cgp.a.query.mongodb.net:27017: connection closed "
+                "(configured timeouts: socketTimeoutMS: 20000.0ms, connectTimeoutMS: 20000.0ms), Timeout: "
+                "10.0s, Topology Description: <TopologyDescription id: 6a304febea674ebc4c8c051e, "
+                "topology_type: Unknown, servers: [<ServerDescription "
+                "('atlas-sql-681905984ce3f87167df11fa-wf3cgp.a.query.mongodb.net', 27017) "
+                "server_type: Unknown, rtt: None, error=AutoReconnect('...connection closed...')>]>",
             ),
         ]
     )
@@ -390,7 +408,9 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
         [
             ("code_name", "AuthenticationFailed", "password"),
             ("message", "Authentication failed", "password"),
+            ("atlas_bad_auth", "bad auth", "password"),
             ("unreachable_topology", "Topology Description:", "allowlist"),
+            ("atlas_sql_endpoint", "query.mongodb.net", "connection string"),
         ]
     )
     def test_pattern_has_friendly_message(self, _name, pattern, expected_substring):

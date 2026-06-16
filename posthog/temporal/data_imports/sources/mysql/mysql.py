@@ -593,8 +593,13 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
             logger.debug(f"get_rows_to_sync: rows_to_sync_int={rows_to_sync_int}")
             return rows_to_sync_int
         except Exception as e:
+            # This COUNT(*) is a best-effort estimate for progress reporting and partition sizing.
+            # It shares its FROM/WHERE with the real streaming query, so any genuine problem
+            # (missing column, bad incremental field, permissions) resurfaces there and is
+            # classified through the normal retryable/non-retryable path. The MAX_EXECUTION_TIME
+            # hint above also makes timeouts here expected. Capturing it would only flood error
+            # tracking with handled duplicates, so we log at debug and fall back to 0.
             logger.debug(f"get_rows_to_sync: Error: {e}. Using 0 as rows to sync", exc_info=e)
-            capture_exception(e)
             return 0
 
     def fetch_table_stats(
@@ -672,7 +677,30 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                 return None
 
             columns = [row[0] for row in rows]
-            length_sum = " + ".join(f"LENGTH(COALESCE({_IDENTIFIER_QUOTER.quote(col)}, ''))" for col in columns)
+            # Column names come from the DB catalog and can legitimately contain
+            # characters the identifier allowlist rejects (e.g. `:` or spaces in
+            # `Ach:CompanyId`). Row-size estimation is best-effort, so skip any
+            # column we can't safely quote rather than abandoning the whole
+            # estimate. The allowlist stays the hard boundary for user-supplied
+            # identifiers elsewhere.
+            quoted_columns = []
+            skipped_columns = []
+            for col in columns:
+                try:
+                    quoted_columns.append(_IDENTIFIER_QUOTER.quote(col))
+                except InvalidIdentifierError:
+                    skipped_columns.append(col)
+
+            if skipped_columns:
+                logger.debug(
+                    f"fetch_average_row_size: skipping {len(skipped_columns)} unquotable column(s): {skipped_columns}."
+                )
+
+            if not quoted_columns:
+                logger.debug("fetch_average_row_size: No quotable columns found.")
+                return None
+
+            length_sum = " + ".join(f"LENGTH(COALESCE({quoted}, ''))" for quoted in quoted_columns)
             # length_sum and inner_query are built from sanitized identifiers;
             # no user-supplied values are interpolated into the SQL itself.
             size_query = "SELECT AVG(" + length_sum + ") as avg_row_size FROM (" + inner_query + " LIMIT 1000) as t"

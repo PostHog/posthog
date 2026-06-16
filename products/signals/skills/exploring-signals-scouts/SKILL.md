@@ -34,17 +34,18 @@ performing** — entirely through read-only MCP tools. It is the observability c
 the `authoring-signals-scouts` skill (which teaches writing and tuning) and to the
 `inbox-exploration` skill (which covers the inbox reports scouts feed into).
 
-There are five things you can observe about the fleet, each with its own tool:
+There are six things you can observe about the fleet, each with its own tool:
 
-| What you want to know                        | Tool                                     | What it tells you                                                               |
-| -------------------------------------------- | ---------------------------------------- | ------------------------------------------------------------------------------- |
-| Which scouts run, how often, in what posture | `signals-scout-config-list`              | One row per scout: schedule, `enabled`, `emit`, `last_run_at`, `description`    |
-| What the scouts actually did, run by run     | `signals-scout-runs-list` / `-retrieve`  | Per-run status, timing, end-of-run summary, `emitted_count`, deep-link          |
-| What the fleet has learned across runs       | `signals-scout-scratchpad-search`        | Durable per-team memory (baselines, noise, allowlists)                          |
-| What the scouts actually **emitted**         | `execute-sql` over `document_embeddings` | The authoritative per-finding record (weight, severity, confidence) — see below |
-| What the scouts surfaced to the user         | `inbox-reports-list`                     | Findings that cleared the bar and became inbox reports                          |
+| What you want to know                        | Tool                                     | What it tells you                                                                      |
+| -------------------------------------------- | ---------------------------------------- | -------------------------------------------------------------------------------------- |
+| Which scouts run, how often, in what posture | `signals-scout-config-list`              | One row per scout: schedule, `enabled`, `emit`, `last_run_at`, `description`           |
+| What the scouts actually did, run by run     | `signals-scout-runs-list` / `-retrieve`  | Per-run status, timing, end-of-run summary, `emitted_count`, deep-link                 |
+| What the fleet has learned across runs       | `signals-scout-scratchpad-search`        | Durable per-team memory (baselines, noise, allowlists)                                 |
+| What the scouts actually **emitted**         | `execute-sql` over `document_embeddings` | The authoritative per-finding record (weight, severity, confidence) — see below        |
+| Which of a run's findings became reports     | `signals-scout-runs-emission-reports`    | Per-emission link from a run's finding to the inbox report it grouped into (or `null`) |
+| What the scouts surfaced to the user         | `inbox-reports-list`                     | Findings that cleared the bar and became inbox reports                                 |
 
-The orienting sixth is `signals-scout-project-profile-get` — the deterministic snapshot of "what's
+The orienting tool is `signals-scout-project-profile-get` — the deterministic snapshot of "what's
 true about this project" that every scout cold-starts from. When a scout found nothing, this is
 usually why.
 
@@ -207,6 +208,15 @@ reliable run → finding link. See [`references/scout-data-model.md`](references
 for the run-to-finding link and how an emitted finding rides through grouping into the
 `source_product: "signals_scout"` inbox filter.
 
+**To go from a run straight to the _reports_ its findings produced**, call
+`signals-scout-runs-emission-reports` with the run's `run_id` instead of re-deriving the link by
+hand. It returns one row per emission — the `finding_id`, its `source_id`, and the linked inbox
+`report` (`id`, `title`, `status`), or `null` when that finding never grouped into a report (or the
+report was deleted/suppressed). This is the direct answer to "did this run's findings actually
+become inbox reports?" — the run-scoped equivalent of the cross-referencing the signal-to-noise
+health check (below) otherwise does by hand. It's strictly team-scoped (a foreign run UUID returns 404) and
+needs `task:read` on top of `signal_scout:read`, since it exposes report titles.
+
 A run with `status` complete and an empty-handed summary ("surface at baseline, nothing to
 emit") is a **healthy** outcome, not a failure — most runs should close out empty. Treat a stream
 of empty close-outs as the fleet doing its job, not as the fleet being broken.
@@ -320,8 +330,11 @@ below. The full playbook, including how to read each signal and the common failu
   Near-zero over a long window on a live surface can mean the discriminator is too strict (or the
   surface really is quiet); near-100% usually means it's too noisy. Most healthy scouts emit rarely.
 - **Signal-to-noise** — of what it emitted, how much became actionable inbox reports vs. got
-  suppressed? Use each emitting run's `emitted_finding_ids` to tie runs to their `Signal` rows, and
-  cross-check against `inbox-reports-list` report states.
+  suppressed? `signals-scout-runs-emission-reports` gives this per run directly — each emitted
+  finding paired with the report it grouped into (or `null` if it never surfaced) — so across a
+  window the share of emissions with a live, non-suppressed report is the scout's hit rate. (You can
+  still derive it by hand: tie each run's `emitted_finding_ids` to their `Signal` rows and
+  cross-check `inbox-reports-list` states — `signals-scout-runs-emission-reports` is just the shortcut.)
 - **Memory growth** — a healthy scout accumulates `pattern:` / `noise:` / `dedupe:` entries over
   time. A scout with an empty scratchpad after many runs isn't learning.
 
