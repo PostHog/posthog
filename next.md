@@ -1,0 +1,6 @@
+- Ensure what scopes I would need to add to production Wizard
+- Ensure that DWH pipeline I add for GitHub is enabled by default, not just added
+- Test the flow where the user is not admin and can't enabled GitHub
+- Test the case where the team don't use error tracking
+- Don't enable error tracking scout if we enable default error tracking source
+- Check if they have Slack installed
