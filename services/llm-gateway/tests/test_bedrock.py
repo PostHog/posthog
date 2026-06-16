@@ -420,10 +420,12 @@ class TestBedrockCountTokensViaProvider:
         assert "Bedrock region not configured" in response.json()["error"]["message"]
 
     @patch("llm_gateway.api.anthropic.get_settings")
+    @patch("llm_gateway.api.anthropic.count_tokens_with_bedrock_mantle", new_callable=AsyncMock)
     @patch("llm_gateway.api.anthropic.count_tokens_with_bedrock")
-    def test_returns_502_on_boto3_error(
+    def test_returns_502_when_runtime_and_mantle_both_fail(
         self,
         mock_count_tokens: MagicMock,
+        mock_mantle_count_tokens: AsyncMock,
         mock_get_settings: MagicMock,
         authenticated_client: TestClient,
         valid_request_body: dict,
@@ -435,6 +437,7 @@ class TestBedrockCountTokensViaProvider:
         mock_get_settings.return_value = mock_settings
 
         mock_count_tokens.side_effect = Exception("AWS error")
+        mock_mantle_count_tokens.side_effect = Exception("mantle error")
 
         response = authenticated_client.post(
             "/v1/messages/count_tokens",
@@ -444,6 +447,37 @@ class TestBedrockCountTokensViaProvider:
 
         assert response.status_code == 502
         assert "Failed to count tokens via Bedrock" in response.json()["error"]["message"]
+
+    @patch("llm_gateway.api.anthropic.get_settings")
+    @patch("llm_gateway.api.anthropic.count_tokens_with_bedrock_mantle", new_callable=AsyncMock)
+    @patch("llm_gateway.api.anthropic.count_tokens_with_bedrock")
+    def test_falls_back_to_mantle_when_runtime_unsupported(
+        self,
+        mock_count_tokens: MagicMock,
+        mock_mantle_count_tokens: AsyncMock,
+        mock_get_settings: MagicMock,
+        authenticated_client: TestClient,
+        valid_request_body: dict,
+        valid_request_headers: dict[str, str],
+    ) -> None:
+        mock_settings = MagicMock()
+        mock_settings.bedrock_region_name = "us-east-1"
+        mock_settings.request_timeout = 300.0
+        mock_get_settings.return_value = mock_settings
+
+        # Mirrors bedrock-runtime rejecting CountTokens for a CRIS-only model like claude-opus-4-8.
+        mock_count_tokens.side_effect = Exception("The provided model doesn't support counting tokens.")
+        mock_mantle_count_tokens.return_value = 77
+
+        response = authenticated_client.post(
+            "/v1/messages/count_tokens",
+            json=valid_request_body,
+            headers=valid_request_headers,
+        )
+
+        assert response.status_code == 200
+        assert response.json()["input_tokens"] == 77
+        assert mock_mantle_count_tokens.await_count == 1
 
     @patch("llm_gateway.api.anthropic.get_settings")
     @patch("llm_gateway.api.anthropic.count_tokens_with_bedrock")
@@ -585,3 +619,84 @@ class TestModelMapping:
         # which is not a valid product, so returns 400
         assert response.status_code == 400
         assert "Invalid product" in response.json()["detail"]
+
+
+class TestBedrockMantleCountTokens:
+    """Unit tests for the bedrock-mantle count_tokens fallback transport."""
+
+    @pytest.mark.asyncio
+    @patch("llm_gateway.bedrock._sign_bedrock_mantle_request")
+    @patch("llm_gateway.bedrock.httpx.AsyncClient")
+    async def test_builds_request_for_mantle_endpoint(
+        self,
+        mock_async_client_cls: MagicMock,
+        mock_sign: MagicMock,
+    ) -> None:
+        import httpx
+
+        from llm_gateway.bedrock import count_tokens_with_bedrock_mantle
+
+        mock_sign.return_value = {"Authorization": "AWS4-HMAC-SHA256 ...", "anthropic-version": "2023-06-01"}
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=httpx.Response(status_code=200, json={"input_tokens": 99}))
+        mock_async_client_cls.return_value.__aenter__.return_value = mock_client
+
+        request_data = {
+            "messages": [{"role": "user", "content": "Hello"}],
+            "system": "Be brief.",
+            "tools": [{"name": "x", "description": "", "input_schema": {"type": "object"}}],
+        }
+
+        result = await count_tokens_with_bedrock_mantle(
+            request_data,
+            "us.anthropic.claude-opus-4-8",
+            "us-east-1",
+            300.0,
+        )
+
+        assert result == 99
+        # URL targets the regional mantle endpoint and the native count_tokens path.
+        signed_url = mock_sign.call_args.args[0]
+        assert signed_url == "https://bedrock-mantle.us-east-1.api.aws/anthropic/v1/messages/count_tokens"
+        # The signed payload carries the native Anthropic shape with the prefix-stripped model id.
+        import json
+
+        signed_body = json.loads(mock_sign.call_args.args[1])
+        assert signed_body["model"] == "anthropic.claude-opus-4-8"
+        assert signed_body["messages"] == request_data["messages"]
+        assert signed_body["system"] == request_data["system"]
+        assert signed_body["tools"] == request_data["tools"]
+        # The same signed payload bytes are what gets POSTed.
+        assert mock_client.post.call_args.kwargs["content"] == mock_sign.call_args.args[1]
+
+    @pytest.mark.asyncio
+    @patch("llm_gateway.bedrock._sign_bedrock_mantle_request")
+    @patch("llm_gateway.bedrock.httpx.AsyncClient")
+    async def test_raises_http_exception_on_mantle_error(
+        self,
+        mock_async_client_cls: MagicMock,
+        mock_sign: MagicMock,
+    ) -> None:
+        import httpx
+
+        from llm_gateway.bedrock import count_tokens_with_bedrock_mantle
+
+        mock_sign.return_value = {"anthropic-version": "2023-06-01"}
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(
+            return_value=httpx.Response(
+                status_code=400,
+                json={"type": "error", "error": {"type": "invalid_request_error", "message": "bad"}},
+            )
+        )
+        mock_async_client_cls.return_value.__aenter__.return_value = mock_client
+
+        with pytest.raises(HTTPException) as exc_info:
+            await count_tokens_with_bedrock_mantle(
+                {"messages": [{"role": "user", "content": "Hi"}]},
+                "us.anthropic.claude-opus-4-8",
+                "us-east-1",
+                300.0,
+            )
+
+        assert exc_info.value.status_code == 400
