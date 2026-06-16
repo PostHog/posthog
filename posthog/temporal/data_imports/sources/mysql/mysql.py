@@ -610,8 +610,13 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
             logger.debug(f"get_rows_to_sync: rows_to_sync_int={rows_to_sync_int}")
             return rows_to_sync_int
         except Exception as e:
+            # This COUNT(*) is a best-effort estimate for progress reporting and partition sizing.
+            # It shares its FROM/WHERE with the real streaming query, so any genuine problem
+            # (missing column, bad incremental field, permissions) resurfaces there and is
+            # classified through the normal retryable/non-retryable path. The MAX_EXECUTION_TIME
+            # hint above also makes timeouts here expected. Capturing it would only flood error
+            # tracking with handled duplicates, so we log at debug and fall back to 0.
             logger.debug(f"get_rows_to_sync: Error: {e}. Using 0 as rows to sync", exc_info=e)
-            capture_exception(e)
             return 0
 
     def fetch_table_stats(
