@@ -404,7 +404,14 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                                     pk_columns_by_table[display_name] = pk_columns
                         tables_with_pks = set(pk_columns_by_table.keys())
                     except Exception as e:
-                        capture_exception(e)
+                        # Best-effort, like the foreign-key and index lookups: some
+                        # Postgres-wire-compatible engines reject our `pg_catalog` PK query
+                        # (e.g. a DuckDB/DuckLake backend can't bind `ANY(indkey)` →
+                        # "Binder Error: UNNEST not supported here"). Losing the `supports_cdc`
+                        # hint is harmless, so warn rather than capturing it as an exception.
+                        structlog.get_logger().warning(
+                            "Failed to detect primary key columns for Postgres schemas", exc_info=e
+                        )
                         pk_columns_by_table = {}
                         tables_with_pks = set()
 

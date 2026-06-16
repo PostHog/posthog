@@ -1098,6 +1098,70 @@ class TestPostgresSourceGetSchemasDegradesGracefully:
         assert schemas[0].supports_cdc is False
         mock_capture.assert_not_called()
 
+    def test_primary_key_discovery_failure_degrades_without_capturing_exception(self, source):
+        # Some Postgres-wire-compatible engines reject our pg_catalog PK query (e.g. a
+        # DuckDB/DuckLake backend can't bind `ANY(indkey)` and raises the binder error
+        # below). PK discovery is best-effort and already falls back to no-CDC, so the
+        # failure must be logged, not flooded into error tracking as a captured exception.
+        discovered = {
+            "public.users": PostgresDiscoveredSchema(
+                source_catalog=None,
+                source_schema="public",
+                source_table_name="users",
+                columns=[("id", "integer", False)],
+            )
+        }
+
+        tunnel_cm = mock.MagicMock()
+        tunnel_cm.__enter__.return_value = ("localhost", 5432)
+        tunnel_cm.__exit__.return_value = None
+
+        conn_cm = mock.MagicMock()
+        conn_cm.__enter__.return_value = mock.MagicMock()
+        conn_cm.__exit__.return_value = None
+
+        unnest_error = psycopg.errors.InternalError_(
+            "flight execute: rpc error: code = InvalidArgument desc = failed to prepare query: "
+            "Binder Error: UNNEST not supported here"
+        )
+
+        with (
+            mock.patch.object(source, "with_ssh_tunnel", return_value=tunnel_cm),
+            mock.patch(
+                "posthog.temporal.data_imports.sources.postgres.source.get_postgres_schemas",
+                return_value=discovered,
+            ),
+            mock.patch(
+                "posthog.temporal.data_imports.sources.postgres.source.get_postgres_foreign_keys",
+                return_value={},
+            ),
+            mock.patch(
+                "posthog.temporal.data_imports.sources.postgres.source.pg_connection",
+                return_value=conn_cm,
+            ),
+            mock.patch(
+                "posthog.temporal.data_imports.sources.postgres.source.get_primary_key_columns",
+                side_effect=unnest_error,
+            ),
+            mock.patch(
+                "posthog.temporal.data_imports.sources.postgres.source.get_leading_index_columns",
+                return_value={"users": set()},
+            ),
+            mock.patch(
+                "posthog.temporal.data_imports.sources.postgres.source._rls_active_from_conn",
+                return_value={},
+            ),
+            mock.patch("posthog.temporal.data_imports.sources.postgres.source.capture_exception") as mock_capture,
+        ):
+            schemas = source.get_schemas(self._config(), team_id=1)
+
+        assert len(schemas) == 1
+        assert schemas[0].name == "public.users"
+        # PK discovery failed, so CDC must not be advertised — but the listing still succeeds.
+        assert schemas[0].supports_cdc is False
+        # The handled, best-effort failure must not be captured as an exception.
+        mock_capture.assert_not_called()
+
 
 class TestGetSslmode:
     @pytest.mark.parametrize(
