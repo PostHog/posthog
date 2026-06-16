@@ -26,6 +26,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     PRState,
 )
 from products.engineering_analytics.backend.logic import build_workflow_health
+from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.sources import (
     PULL_REQUESTS_SCHEMA,
     WORKFLOW_RUNS_SCHEMA,
@@ -449,8 +450,8 @@ class TestWorkflowHealthWindowCap(BaseTest):
     @parameterized.expand(["2000-01-01", "-500d"])
     def test_rejects_windows_beyond_a_year(self, date_from: str) -> None:
         # The window cap is build_workflow_health's own guard, reached before it reads any data; a
-        # stub handle exposing the team (for timezone) is all it needs, so no source/storage setup.
-        curated = SimpleNamespace(team=self.team)
+        # handle with dummy table names exposes the team (for timezone) and nothing else is touched.
+        curated = CuratedGitHubSource(team=self.team, tables=GitHubTables(pull_requests="pr", workflow_runs="wr"))
         with pytest.raises(ValueError, match="the maximum is 366"):
             build_workflow_health(curated=curated, date_from=date_from)
 
