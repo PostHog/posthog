@@ -43,6 +43,11 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         auth_failed_msg = "MongoDB authentication failed. Please check the username and password for this source."
+        unescaped_credentials_msg = (
+            "The username or password in your MongoDB connection string contains reserved characters "
+            "(such as @, :, /, or %) that must be percent-encoded. URL-encode them with "
+            "urllib.parse.quote_plus and update the connection string for this source."
+        )
         return {
             "The DNS query name does not exist": None,
             # pymongo raises OperationFailure with codeName 'AuthenticationFailed' (code 18) and
@@ -65,6 +70,12 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
             # differently (a bare AutoReconnect / NetworkTimeout with no topology description) and
             # stays retryable.
             "Topology Description:": _MONGO_UNREACHABLE_MESSAGE,
+            # pymongo raises InvalidURI ("Username and password must be escaped according to RFC
+            # 3986, use urllib.parse.quote_plus") — and a ValueError with the same "must be escaped
+            # according to RFC 3986" hint — when the stored connection string has unescaped reserved
+            # characters in the credentials. The string itself is malformed, so every retry parses it
+            # the same way and fails identically; only the user fixing the connection string recovers it.
+            "must be escaped according to RFC 3986": unescaped_credentials_msg,
         }
 
     def get_schemas(

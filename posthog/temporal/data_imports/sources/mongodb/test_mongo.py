@@ -360,6 +360,17 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
                 "27017: connection closed (configured timeouts: socketTimeoutMS: 20000.0ms, "
                 "connectTimeoutMS: 20000.0ms)')>]>",
             ),
+            # pymongo InvalidURI when credentials contain unescaped reserved characters.
+            (
+                "unescaped_credentials_invalid_uri",
+                "Username and password must be escaped according to RFC 3986, use urllib.parse.quote_plus",
+            ),
+            # pymongo's ValueError variant of the same mistake (unescaped char read as part of the port).
+            (
+                "unescaped_credentials_port_hint",
+                "Port contains non-digit characters. Hint: username and password must be escaped "
+                "according to RFC 3986, use urllib.parse.quote_plus",
+            ),
         ]
     )
     def test_known_errors_are_non_retryable(self, _name, error_msg):
@@ -391,6 +402,7 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
             ("code_name", "AuthenticationFailed", "password"),
             ("message", "Authentication failed", "password"),
             ("unreachable_topology", "Topology Description:", "allowlist"),
+            ("unescaped_credentials", "must be escaped according to RFC 3986", "encode"),
         ]
     )
     def test_pattern_has_friendly_message(self, _name, pattern, expected_substring):
