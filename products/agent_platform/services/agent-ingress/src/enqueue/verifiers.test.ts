@@ -31,7 +31,14 @@ const APP: AgentApplication = {
 
 const introspector: PosthogIdentityIntrospector = {
     async introspect(bearer) {
-        return bearer === 'good-token' ? { uuid: 'u1', email: 'u1@test', team: { id: 7 } } : null
+        if (bearer === 'good-token') {
+            return { uuid: 'u1', email: 'u1@test', team: { id: 7 } }
+        }
+        // A valid bearer whose active team is NOT the agent's owning team (7).
+        if (bearer === 'other-team-token') {
+            return { uuid: 'u2', email: 'u2@test', team: { id: 99 } }
+        }
+        return null
     },
 }
 
@@ -77,6 +84,15 @@ describe('buildDefaultVerifiers', () => {
             status: 401,
         })
         expect(await v.verify(req({}), { type: 'posthog', scopes: [] }, APP)).toMatchObject({ ok: false, status: 0 })
+    })
+
+    it('posthog mode: valid bearer from a different team → 403 (no cross-team access)', async () => {
+        const res = await posthogVerifier(introspector).verify(
+            req({ authorization: 'Bearer other-team-token' }),
+            { type: 'posthog', scopes: [] },
+            APP
+        )
+        expect(res).toMatchObject({ ok: false, status: 403, reason: 'wrong_team' })
     })
 
     it('shared_secret: matches resolved encrypted_env secret, 401 on mismatch, 500 when unset', async () => {
