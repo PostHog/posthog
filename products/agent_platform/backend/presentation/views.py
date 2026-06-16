@@ -62,6 +62,7 @@ from posthog.schema import ProductKey
 
 from posthog.api.log_entries import LogEntryRequestSerializer, LogEntrySerializer, fetch_log_entries
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.helpers.encrypted_fields import EncryptedTextField
 from posthog.models.organization import OrganizationMembership
@@ -1486,12 +1487,13 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise JanitorUpstreamError(e) from e
         if existing.get("application_id") != str(application.id):
             raise NotFound("Approval not found")
-        if existing.get("approver_scope", {}).get("allow_agent_approver") is False and not getattr(
-            request.user, "is_authenticated", False
+        # When the spec sets `allow_agent_approver: False`, only a human acting
+        # interactively may decide — not a programmatic Personal API key. A PAT
+        # resolves to a real authenticated User, so `is_authenticated` can't tell
+        # them apart; discriminate on the authenticator that actually succeeded.
+        if existing.get("approver_scope", {}).get("allow_agent_approver") is False and isinstance(
+            request.successful_authenticator, PersonalAPIKeyAuthentication
         ):
-            # PATs / service tokens are rejected unless the spec opts in.
-            # Real PAT-vs-user discrimination would go here; for v0 we rely
-            # on Django auth + the admin check above as a coarse filter.
             raise NotFound("Approval not found")
         try:
             payload = _janitor().decide_approval(

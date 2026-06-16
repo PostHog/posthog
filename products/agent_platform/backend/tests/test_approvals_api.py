@@ -20,6 +20,8 @@ from unittest.mock import patch
 from rest_framework import status
 
 from posthog.models.organization import OrganizationMembership
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from ..models import AgentApplication
 
@@ -134,3 +136,46 @@ class TestApprovalEndpointsAuth(APIBaseTest):
         # `decision` is required → 400.
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
         mock_janitor.return_value.decide_approval.assert_not_called()
+
+    @patch("products.agent_platform.backend.presentation.views._janitor")
+    def test_personal_api_key_cannot_decide_when_agent_approver_disallowed(self, mock_janitor) -> None:
+        # An admin's Personal API key resolves to an authenticated User, so the
+        # old `is_authenticated` check let it through. When the spec sets
+        # `allow_agent_approver: False`, a programmatic PAT must be rejected.
+        self._set_org_level(OrganizationMembership.Level.ADMIN)
+        mock_janitor.return_value.get_approval.return_value = {
+            "id": self.approval_id,
+            "application_id": str(self.application.id),
+            "approver_scope": {"allow_agent_approver": False},
+        }
+        raw_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="agent", user=self.user, secure_value=hash_key_value(raw_key))
+        resp = self.client.post(
+            self.url_decide,
+            {"decision": "approve"},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {raw_key}",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
+        mock_janitor.return_value.decide_approval.assert_not_called()
+
+    @patch("products.agent_platform.backend.presentation.views._janitor")
+    def test_personal_api_key_can_decide_when_agent_approver_allowed(self, mock_janitor) -> None:
+        # The gate only applies when the spec disallows agent approvers.
+        self._set_org_level(OrganizationMembership.Level.ADMIN)
+        mock_janitor.return_value.get_approval.return_value = {
+            "id": self.approval_id,
+            "application_id": str(self.application.id),
+            "approver_scope": {"allow_agent_approver": True},
+        }
+        mock_janitor.return_value.decide_approval.return_value = {"ok": True, "state": "approving"}
+        raw_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="agent", user=self.user, secure_value=hash_key_value(raw_key))
+        resp = self.client.post(
+            self.url_decide,
+            {"decision": "approve"},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {raw_key}",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        mock_janitor.return_value.decide_approval.assert_called_once()
