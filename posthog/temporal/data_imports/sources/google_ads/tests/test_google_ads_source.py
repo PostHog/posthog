@@ -222,6 +222,39 @@ class TestGoogleAdsNonRetryableErrors:
         assert "admin" in friendly.lower()
 
 
+class TestGrpcReceiveLimit:
+    # The largest search page observed aborting syncs in production was ~103 MB; the gRPC
+    # client must accept at least that much for the resource to sync at all.
+    _SDK_DEFAULT = 64 * 1024 * 1024
+    _LARGEST_OBSERVED_PAYLOAD = 103_046_535
+
+    def test_raises_sdk_default_receive_limit(self):
+        from google.ads.googleads import client as google_ads_client_module
+
+        from posthog.temporal.data_imports.sources.google_ads.google_ads import (
+            GRPC_MAX_RECEIVE_MESSAGE_LENGTH,
+            _ensure_grpc_receive_limit,
+        )
+
+        _ensure_grpc_receive_limit()
+
+        options = dict(google_ads_client_module._GRPC_CHANNEL_OPTIONS)
+        assert options["grpc.max_receive_message_length"] == GRPC_MAX_RECEIVE_MESSAGE_LENGTH
+        assert GRPC_MAX_RECEIVE_MESSAGE_LENGTH > self._SDK_DEFAULT
+        assert GRPC_MAX_RECEIVE_MESSAGE_LENGTH > self._LARGEST_OBSERVED_PAYLOAD
+
+    def test_is_idempotent(self):
+        from google.ads.googleads import client as google_ads_client_module
+
+        from posthog.temporal.data_imports.sources.google_ads.google_ads import _ensure_grpc_receive_limit
+
+        _ensure_grpc_receive_limit()
+        _ensure_grpc_receive_limit()
+
+        keys = [key for key, _ in google_ads_client_module._GRPC_CHANNEL_OPTIONS]
+        assert keys.count("grpc.max_receive_message_length") == 1
+
+
 class TestValidateCredentials:
     def test_missing_integration_does_not_exist_returns_reconnect_message(self):
         # `google_ads_client` calls `Integration.objects.get(...)`, which raises the typed

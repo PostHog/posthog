@@ -6,6 +6,7 @@ from django.conf import settings
 from django.db import close_old_connections
 
 import pyarrow as pa
+from google.ads.googleads import client as google_ads_client_module
 from google.ads.googleads.client import GoogleAdsClient
 from google.ads.googleads.errors import GoogleAdsException
 from google.ads.googleads.v23.common import types as ga_common
@@ -37,9 +38,36 @@ from products.data_warehouse.backend.types import IncrementalFieldType
 # `GoogleAdsServiceClient.DEFAULT_ENDPOINT`.
 GOOGLE_ADS_HOST = "googleads.googleapis.com"
 
+# The Google Ads SDK hardcodes `grpc.max_receive_message_length` to 64 MiB. A single
+# `GoogleAdsService.Search` page can carry up to 10,000 rows, and wide resources routinely
+# serialize past 64 MiB — when that happens the gRPC client aborts the call with a
+# RESOURCE_EXHAUSTED "Received message larger than max" before we process any row, failing
+# the whole sync. We can't ask the API for smaller pages (`page_size` is rejected with
+# PAGE_SIZE_NOT_SUPPORTED as of v17), so the only lever is raising the client's receive
+# limit. 512 MiB leaves comfortable headroom over the largest payloads we've observed.
+GRPC_MAX_RECEIVE_MESSAGE_LENGTH = 512 * 1024 * 1024
+_GRPC_MAX_RECEIVE_MESSAGE_LENGTH_KEY = "grpc.max_receive_message_length"
+
+
+def _ensure_grpc_receive_limit() -> None:
+    """Raise the Google Ads gRPC client's inbound message cap in place.
+
+    ``get_service`` reads the SDK's module-level ``_GRPC_CHANNEL_OPTIONS`` each time it builds
+    a channel, so rewriting the entry here makes every channel we subsequently create pick up
+    the higher limit. The update is idempotent and safe to call repeatedly.
+    """
+    options = google_ads_client_module._GRPC_CHANNEL_OPTIONS
+    for index, (key, _value) in enumerate(options):
+        if key == _GRPC_MAX_RECEIVE_MESSAGE_LENGTH_KEY:
+            options[index] = (key, GRPC_MAX_RECEIVE_MESSAGE_LENGTH)
+            return
+    options.append((_GRPC_MAX_RECEIVE_MESSAGE_LENGTH_KEY, GRPC_MAX_RECEIVE_MESSAGE_LENGTH))
+
 
 def google_ads_client(config: GoogleAdsSourceConfigUnion, team_id: int) -> GoogleAdsClient:
     """Initialize a `GoogleAdsClient` with provided config."""
+    _ensure_grpc_receive_limit()
+
     if isinstance(config, GoogleAdsSourceConfig):
         # Temporal activities run in a thread pool where Django DB connections can go
         # stale between uses (Postgres closes the connection server-side). This
