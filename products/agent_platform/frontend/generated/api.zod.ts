@@ -1668,9 +1668,7 @@ export const AgentApplicationsRevisionsBundleUpdateBody = /* @__PURE__ */ zod
             .optional(),
         spec: zod.record(zod.string(), zod.unknown()),
     })
-    .describe(
-        'Body shape for PUT \/revisions\/<id>\/bundle\/ — the full-replace typed\npayload. See docs\/agent-platform\/plans\/typed-bundle-authoring-api.md §3.'
-    )
+    .describe('Body shape for PUT \/revisions\/<id>\/bundle\/ — the full-replace typed\npayload.')
 
 /**
  * Copy every file from `source_revision_id` into this revision.
@@ -1691,8 +1689,7 @@ export const AgentApplicationsRevisionsCloneFromCreateBody = /* @__PURE__ */ zod
  * thing?' is unanswerable until the cron actually fires.
  *
  * Idempotent via `request_id`: repeat clicks with the same id resolve
- * to the same session id rather than firing N times. See
- * `docs/agent-platform/plans/cron-trigger-scheduler.md` §9.
+ * to the same session id rather than firing N times.
  */
 export const AgentApplicationsRevisionsCronFireCreateBody = /* @__PURE__ */ zod.object({
     cron_name: zod.string().describe('`name` of the cron trigger in `spec.triggers[]` to fire.'),
@@ -1922,9 +1919,7 @@ export const AgentApplicationsApprovalsDecideBody = /* @__PURE__ */ zod
                 "Free-form approver note. Surfaces in the session's synthetic tool_result so the model can communicate the reason back to the user."
             ),
     })
-    .describe(
-        'Body shape for POST \/agent_applications\/<id>\/approvals\/<approval_id>\/decide\/.\n\nSee docs\/agent-platform\/plans\/approval-gated-tools.md.'
-    )
+    .describe('Body shape for POST \/agent_applications\/<id>\/approvals\/<approval_id>\/decide\/.')
 
 /**
  * GET / PUT / DELETE one secret by name.

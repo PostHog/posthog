@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,7 @@ class AmazonSQSSource(SimpleSource[AmazonSQSSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.AMAZON_SQS,
+            category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Amazon SQS",
             iconPath="/static/services/amazon_sqs.png",
             fields=cast(list[FieldType], []),

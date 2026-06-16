@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -40,6 +41,7 @@ class RipplingSource(ResumableSource[RipplingSourceConfig, RipplingResumeConfig]
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.RIPPLING,
+            category=DataWarehouseSourceCategory.HR___RECRUITING,
             label="Rippling",
             caption="""Enter your Rippling API token to pull your Rippling workforce data into the PostHog Data warehouse.
 

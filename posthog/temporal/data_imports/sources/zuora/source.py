@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -43,6 +44,7 @@ class ZuoraSource(ResumableSource[ZuoraSourceConfig, ZuoraResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.ZUORA,
+            category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Zuora",
             caption="""Connect your Zuora tenant to pull your subscription billing data into the PostHog Data warehouse.
 
