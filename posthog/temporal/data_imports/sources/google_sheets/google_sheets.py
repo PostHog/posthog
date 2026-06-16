@@ -18,6 +18,15 @@ from posthog.temporal.data_imports.sources.generated_configs import GoogleSheets
 
 from products.data_warehouse.backend.types import IncrementalField, IncrementalFieldType
 
+# (connect, read) timeout for every Sheets API request, in seconds. gspread defaults to no
+# timeout, so a stalled connection blocks the worker thread indefinitely. Because the sync
+# activities are threaded, a blocked thread can't be interrupted cleanly — Temporal eventually
+# hits the activity's `start_to_close_timeout` and raises a `CancelledError` into the thread mid
+# socket-read, which surfaces as a noisy "Cancelled" error. A bounded timeout turns a stall into a
+# fast, retryable `requests.Timeout` instead. The read timeout is the max gap between received
+# bytes (not total download time), so it stays safe for large sheets that stream in steadily.
+_REQUEST_TIMEOUT_SECONDS: tuple[float, float] = (30.0, 120.0)
+
 
 def google_sheets_client() -> gspread.Client:
     credentials = service_account.Credentials.from_service_account_info(
@@ -36,7 +45,9 @@ def google_sheets_client() -> gspread.Client:
     adapter = make_tracked_adapter()
     session.mount("https://", adapter)
     session.mount("http://", adapter)
-    return gspread.authorize(credentials, session=session)
+    client = gspread.authorize(credentials, session=session)
+    client.set_timeout(_REQUEST_TIMEOUT_SECONDS)
+    return client
 
 
 cache: Cache[Any, Any] = TTLCache(maxsize=500, ttl=120)  # 120 seconds
