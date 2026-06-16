@@ -207,6 +207,29 @@ class TestPostgresSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # Raw psycopg message (what the activity-level check sees via str(e)) — no class name.
+            "permission denied for table brand",
+            "permission denied for view posthog_areas",
+            "permission denied for materialized view posthog_notifications",
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            "InsufficientPrivilege: permission denied for table brand",
+        ],
+    )
+    def test_permission_denied_errors_are_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Permission-denied error should be non-retryable: {error_msg}"
+
+    def test_permission_denied_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = "permission denied for table brand"
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "Permission-denied error should surface an actionable message"
+        assert "SELECT" in friendly[0]
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             # A single recovery conflict is retried in-process; on its own it must stay retryable.
             "canceling statement due to conflict with recovery",
             "could not serialize access due to conflict with recovery",
