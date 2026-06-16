@@ -90,7 +90,11 @@ export function ActionsHorizontalBar({
         getTrendsHidden,
     ])
 
-    return data && total > 0 ? (
+    // Render whenever the series carry data points, even if their aggregated
+    // values are negative or sum to <= 0 (e.g. "Property value sum"). Guarding
+    // on `total > 0` wrongly showed the empty state for valid results. `total`
+    // is still computed above for the share-of-total tooltip. See #60163.
+    return data && data[0]?.data?.some((value) => value != null) ? (
         <LineGraph
             data-attr="trend-bar-value-graph"
             type={GraphType.HorizontalBar}
