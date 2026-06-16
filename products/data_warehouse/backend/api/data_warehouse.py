@@ -26,7 +26,6 @@ from posthog.cloud_utils import get_cached_instance_license
 from posthog.helpers.dashboard_templates import create_data_ops_dashboard
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.extensions import get_or_create_team_extension
-from posthog.models.user import User
 from posthog.utils import convert_property_value, flatten
 
 from products.batch_exports.backend.models.batch_export import BatchExportRun
@@ -55,6 +54,23 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     # write actions (see required_scopes below) require editor access.
     scope_object = "warehouse_view"
     serializer_class = _FallbackSerializer
+
+    def _require_organization_admin(self, request: Request, action: str) -> Response | None:
+        if not request.user.is_authenticated:
+            return Response(
+                {"error": f"Only organization admins can {action} the managed warehouse"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        membership = OrganizationMembership.objects.filter(
+            organization_id=self.team.organization_id, user=request.user
+        ).first()
+        if membership is None or membership.level < OrganizationMembership.Level.ADMIN:
+            return Response(
+                {"error": f"Only organization admins can {action} the managed warehouse"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        return None
 
     @action(methods=["GET"], detail=False, required_scopes=["query:read"])
     def property_values(self, request: Request, **kwargs) -> Response:
@@ -823,6 +839,9 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @action(methods=["POST"], detail=False, required_scopes=["warehouse_view:write"])
     def provision(self, request: Request, **kwargs) -> Response:
         """Start provisioning a managed warehouse for this organization (shared by all its teams)."""
+        admin_error = self._require_organization_admin(request, "provision")
+        if admin_error is not None:
+            return admin_error
         return managed_warehouse.provision(self.team.organization_id, request.data.get("database_name"))
 
     @extend_schema(
@@ -841,14 +860,9 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @action(methods=["POST"], detail=False, required_scopes=["warehouse_view:write"])
     def deprovision(self, request: Request, **kwargs) -> Response:
         """Start deprovisioning the organization's managed warehouse. Restricted to organization admins."""
-        membership = OrganizationMembership.objects.filter(
-            organization_id=self.team.organization_id, user=cast(User, request.user)
-        ).first()
-        if membership is None or membership.level < OrganizationMembership.Level.ADMIN:
-            return Response(
-                {"error": "Only organization admins can deprovision the managed warehouse"},
-                status=status.HTTP_403_FORBIDDEN,
-            )
+        admin_error = self._require_organization_admin(request, "deprovision")
+        if admin_error is not None:
+            return admin_error
         return managed_warehouse.deprovision(self.team.organization_id)
 
     @extend_schema(
@@ -908,6 +922,9 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @action(methods=["POST"], detail=False, url_path="reset-password", required_scopes=["warehouse_view:write"])
     def reset_password(self, request: Request, **kwargs) -> Response:
         """Reset the root password for the managed warehouse."""
+        admin_error = self._require_organization_admin(request, "reset the root password for")
+        if admin_error is not None:
+            return admin_error
         return managed_warehouse.reset_password(self.team.organization_id)
 
     @extend_schema(
