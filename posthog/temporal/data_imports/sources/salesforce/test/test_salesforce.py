@@ -11,6 +11,7 @@ from posthog.temporal.data_imports.sources.salesforce.salesforce import (
     SalesforceResumeConfig,
     salesforce_source,
 )
+from posthog.temporal.data_imports.sources.salesforce.source import SalesforceSource
 
 INSTANCE_URL = "https://example.my.salesforce.com"
 QUERY_PATH = "/services/data/v61.0/query"
@@ -319,3 +320,41 @@ class TestSalesforceSourceResumeWiring:
 
         resume_hook({"model_name": "Account"})
         manager.save_state.assert_not_called()
+
+
+class TestSalesforceNonRetryableErrors:
+    def setup_method(self) -> None:
+        self.source = SalesforceSource()
+
+    @parameterized.expand(
+        [
+            # Salesforce session expired — Salesforce returns "invalid_session_id".
+            ("invalid_session_id", "Salesforce API error: invalid_session_id, Session expired or invalid"),
+            # OAuth token endpoint reports the authorizing user was deactivated.
+            ("inactive user", "401 Client Error: Unauthorized: inactive user"),
+            # Refresh token expired/revoked — only reconnecting fixes it.
+            ("expired access/refresh token", "400 Client Error: Bad Request: expired access/refresh token"),
+            # Integration deleted/disconnected — source_for_pipeline -> OAuthMixin.get_oauth_integration
+            # raises `ValueError("Integration not found: <id>")`; match only the volatile-id-free prefix.
+            ("Integration not found", "Integration not found: 157911"),
+        ]
+    )
+    def test_get_non_retryable_errors_pattern_recognised(self, pattern: str, raised_message: str) -> None:
+        non_retryable_errors = self.source.get_non_retryable_errors()
+
+        assert pattern in non_retryable_errors
+        assert pattern in raised_message
+
+    @parameterized.expand(
+        [
+            # Transient transport-level failures must NOT match any non-retryable pattern,
+            # otherwise the schema would be disabled after the first few transient failures.
+            "ConnectionError: HTTPSConnectionPool(host='example.my.salesforce.com', port=443): Max retries exceeded",
+            "TimeoutError: The read operation timed out",
+            "503 Server Error: Service Unavailable for url: https://example.my.salesforce.com",
+        ]
+    )
+    def test_get_non_retryable_errors_does_not_match_transient_failures(self, transient_message: str) -> None:
+        non_retryable_errors = self.source.get_non_retryable_errors()
+
+        assert not any(pattern in transient_message for pattern in non_retryable_errors)

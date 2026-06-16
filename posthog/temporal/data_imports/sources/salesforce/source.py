@@ -30,6 +30,11 @@ class SalesforceSource(ResumableSource[SalesforceSourceConfig, SalesforceResumeC
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "invalid_session_id": "Your Salesforce session has expired. Please reconnect the source.",
+            # Integration row was deleted/disconnected while a scheduled job still references it.
+            # source_for_pipeline -> OAuthMixin.get_oauth_integration raises
+            # `ValueError("Integration not found: <id>")`; the id is volatile, so match only the
+            # stable prefix. Retrying can't recreate the row — the customer has to reconnect.
+            "Integration not found": "The linked Salesforce integration no longer exists. Please reconnect the source.",
             "400 Client Error: Bad Request for url": None,
             "403 Client Error: Forbidden for url": None,
             "inactive organization": None,
