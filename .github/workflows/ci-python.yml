@@ -43,12 +43,14 @@ jobs:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: |
                       python:
+                        # Code quality runs against the whole repo. Any Python file
+                        # can fail that check, even if it lives outside posthog/products.
+                        - '**/*.py'
+                        - '*.py'
                         - 'pyproject.toml'
                         - 'uv.lock'
                         - conftest.py # Root conftest loads for every pytest run
-                        - 'ee/**/*.py'
                         - 'posthog/**/*'
-                        - 'products/**/*.py'
                         # Make sure we run if someone is explicitly change the workflows
                         - .github/workflows/ci-python.yml
                         - .github/workflows/ci-dagster.yml
@@ -64,13 +66,8 @@ jobs:
                         - 'tools/hogli-commands/hogli_commands/**'
                         - 'hogli.yaml'
                         - 'bin/**'
-                        # LLM Gateway service
-                        - 'services/llm-gateway/**/*.py'
-                        # GitHub scripts
-                        - '.github/scripts/**/*.py'
-                        # PR approval agent
+                        # Dev tools with dedicated pytest steps below
                         - 'tools/pr-approval-agent/**'
-                        # query-performance-ai dev tool
                         - 'tools/query-performance-ai/**'
 
     code-quality:

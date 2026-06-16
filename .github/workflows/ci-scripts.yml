@@ -42,6 +42,9 @@ jobs:
             - name: Schema-usage scanner tests (Python)
               run: python -m pytest .github/scripts/test_schema_usage_scan.py -v -c /dev/null -p no:cacheprovider
 
+            - name: CI infra retry tests (Python)
+              run: python -m pytest .github/scripts/test_ci_infra_retry.py -v -c /dev/null -p no:cacheprovider
+
             # Shells out to schema_usage_scan.py via python3 (preinstalled on ubuntu).
             - name: Schema-impact tests (Node)
               run: node --test .github/scripts/schema-impact.test.js
