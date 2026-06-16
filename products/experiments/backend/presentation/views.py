@@ -18,7 +18,7 @@ from django.utils.text import slugify
 
 import posthoganalytics
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
-from rest_framework import viewsets
+from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -252,8 +252,8 @@ class EnterpriseExperimentsViewSet(
         # experiment:write. Other actions fall back to their own scopes.
         if self.action == "archive":
             scopes = ["experiment:write"]
-            raw = request.data.get("disable_feature_flag", False)
-            if raw is True or (isinstance(raw, str) and raw.lower() in ("true", "1")):
+            # Use DRF's own truthy set so this matches how ArchiveExperimentSerializer parses the field.
+            if request.data.get("disable_feature_flag", False) in serializers.BooleanField.TRUE_VALUES:
                 scopes.append("feature_flag:write")
             return scopes
         return None
