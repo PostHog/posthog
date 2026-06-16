@@ -208,6 +208,22 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             "SSLRequiredError": None,
             "SSL/TLS connection is required": None,
             "Could not establish session to SSH gateway": None,
+            # Surfaced by a connection pooler (e.g. PgBouncer) as a psycopg ProtocolViolation when
+            # the pooler has *repeatedly* failed to log in to the backend database within its
+            # server_login_retry window (full message: "server login has been failing, cached
+            # error: <reason> (server_login_retry)"). By the time this is returned the backend is in
+            # a sustained failure state — unreachable, refusing connections, or rejecting the
+            # pooler's credentials — so it is not a one-off transient blip; retrying the whole sync
+            # just hits the same wall. Matches the stable pooler signature; the cached <reason>
+            # ("connect timeout", etc.) and the trailing "(server_login_retry)" suffix vary and are
+            # excluded.
+            "server login has been failing": (
+                "Your database's connection pooler (for example PgBouncer) reported that it has "
+                'repeatedly failed to connect to the backend database ("server login has been '
+                'failing"). This usually means the database is unreachable, refusing connections, or '
+                "the pooler's credentials for the database are wrong. Check that the database is "
+                "running and reachable from your pooler, then re-enable the sync."
+            ),
             # `offset_chunking` retries a Postgres standby recovery conflict ("canceling statement
             # due to conflict with recovery") 30 times in-process with backoff + chunk-size
             # reduction before raising this. The conflict comes from the customer's read replica

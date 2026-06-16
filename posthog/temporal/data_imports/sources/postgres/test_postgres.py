@@ -171,6 +171,18 @@ class TestPostgresSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            "ProtocolViolation: server login has been failing, cached error: connect timeout (server_login_retry)",
+            "server login has been failing, cached error: connection refused (server_login_retry)",
+        ],
+    )
+    def test_pooler_login_failures_are_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Pooler login failure should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             "Cannot build decimal array from values",
             "ValueError: Cannot build decimal array from values",
         ],
