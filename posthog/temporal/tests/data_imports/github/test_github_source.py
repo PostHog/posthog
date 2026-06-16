@@ -939,3 +939,44 @@ class TestGithubSourceNonRetryableErrors:
         # Mirrors the substring match done in external_data_job.update_external_data_job_model.
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert any(pattern in error_message for pattern in non_retryable_errors) == expected_match
+
+    @parameterized.expand(
+        [
+            ("Missing GitHub integration ID",),
+            ("Integration not found",),
+            ("GitHub access token not found",),
+        ]
+    )
+    def test_deleted_integration_errors_are_non_retryable(self, pattern: str) -> None:
+        assert pattern in self.source.get_non_retryable_errors()
+
+    @parameterized.expand(
+        [
+            ("Integration not found: 59986",),
+            ("Integration not found: 165563",),
+        ]
+    )
+    def test_deleted_integration_is_non_retryable(self, error_message: str) -> None:
+        # OAuthMixin.get_oauth_integration raises ValueError("Integration not found: <id>") when the
+        # linked GitHub integration row has been deleted. The id is volatile, so we match on the stable
+        # prefix; retrying can't recover a deleted integration.
+        non_retryable_errors = self.source.get_non_retryable_errors()
+
+        assert any(pattern in error_message for pattern in non_retryable_errors), (
+            f"Expected '{error_message}' to match a non-retryable pattern"
+        )
+
+    @parameterized.expand(
+        [
+            ("HTTPSConnectionPool(host='api.github.com', port=443): Read timed out.",),
+            ("Connection aborted. ConnectionResetError(104, 'Connection reset by peer')",),
+        ]
+    )
+    def test_transient_failures_are_retryable(self, error_message: str) -> None:
+        # Connection/timeout errors are infrastructure noise — they must stay retryable so they
+        # don't get swallowed as terminal config errors.
+        non_retryable_errors = self.source.get_non_retryable_errors()
+
+        assert not any(pattern in error_message for pattern in non_retryable_errors), (
+            f"'{error_message}' must not match a non-retryable pattern"
+        )
