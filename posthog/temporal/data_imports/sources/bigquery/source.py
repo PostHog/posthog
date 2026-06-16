@@ -50,6 +50,15 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # stable `invalid_grant` code rather than `RefreshError`, which can also wrap transient
             # token-endpoint failures that should stay retryable.
             "invalid_grant": "Your BigQuery service account credentials were rejected by Google. The key may have been rotated or revoked, or the service account deleted. Please upload a new Google Cloud JSON key file.",
+            # BigQuery prefixes every IAM/permission failure with "Access Denied:" — e.g.
+            # "Access Denied: Table <id>: Permission bigquery.tables.getData denied on table <id>
+            # (or it may not exist).". The matched string above only covers the REST client's
+            # "PermissionDenied: 403 request failed" wording; the Storage Read API raises a
+            # google.api_core PermissionDenied whose `str()` is "403 Access Denied: ..." instead,
+            # so it slips through and retries forever. These are config/permission problems on the
+            # customer's service account — retrying can't resolve them; the user must grant the
+            # missing permission (or the referenced table/dataset must exist).
+            "Access Denied:": "BigQuery denied access to a table or dataset. Please ensure your service account has read access (the bigquery.tables.getData permission, e.g. the BigQuery Data Viewer role) on every dataset and table you're syncing, then reconnect the source.",
             # Raised from the shared `evolve_pyarrow_schema` in `pipelines/pipeline/utils.py`
             # when an integer column's source type was widened (e.g. `INT64` widened from a
             # narrower numeric type) after the destination table was created with the narrower

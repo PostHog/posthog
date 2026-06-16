@@ -3,7 +3,7 @@ from freezegun import freeze_time
 from unittest import mock
 
 from dateutil import parser
-from google.api_core.exceptions import Forbidden, NotFound
+from google.api_core.exceptions import Forbidden, NotFound, PermissionDenied
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from posthog.temporal.data_imports.sources.bigquery.bigquery import (
@@ -456,3 +456,36 @@ def test_bigquery_build_pipeline_trims_whitespace_in_destination_table():
     assert mock_delete_all.call_args.kwargs["project_id"] == "524098457564"
     assert mock_delete_all.call_args.kwargs["dataset_id"] == "bigquery_aloalo"
     assert mock_delete.call_args.kwargs["table_id"] == expected_table_id
+
+
+@pytest.mark.parametrize(
+    "observed_error",
+    [
+        # Storage Read API permission failure — `str(PermissionDenied)` is "403 Access Denied: ..."
+        str(
+            PermissionDenied(
+                "Access Denied: Table prj:ds.fct__conversions: Permission bigquery.tables.getData "
+                "denied on table prj:ds.fct__conversions (or it may not exist)."
+            )
+        ),
+        # Permission to list tables in a dataset is also denied with the same prefix
+        str(Forbidden("Access Denied: Permission bigquery.tables.list denied on dataset prj:ds.")),
+    ],
+)
+def test_non_retryable_errors_match_permission_denied(observed_error):
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    assert any(key in observed_error for key in non_retryable_errors)
+
+
+@pytest.mark.parametrize(
+    "other_error",
+    [
+        # Transient server / connection errors must stay retryable
+        "503 Service unavailable, please retry",
+        "500 Internal error encountered",
+        "Connection reset by peer",
+    ],
+)
+def test_non_retryable_errors_does_not_match_transient(other_error):
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    assert not any(key in other_error for key in non_retryable_errors)
