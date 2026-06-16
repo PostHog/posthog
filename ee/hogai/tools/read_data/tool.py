@@ -41,7 +41,7 @@ from ee.hogai.chat_agent.sql.mixins import HogQLDatabaseMixin
 from ee.hogai.context.account import AccountContext
 from ee.hogai.context.activity_log.context import ActivityLogContext
 from ee.hogai.context.context import AssistantContextManager
-from ee.hogai.context.dashboard.context import DashboardContext, load_dashboard_insights_from_db
+from ee.hogai.context.dashboard.context import DashboardContext, build_dashboard_insights, fetch_dashboard_for_team
 from ee.hogai.context.error_tracking import ErrorTrackingIssueContext
 from ee.hogai.context.experiment import ExperimentContext
 from ee.hogai.context.feature_flag import FeatureFlagContext
@@ -510,13 +510,15 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
 
     async def _read_dashboard(self, dashboard_id: str, execute: bool) -> tuple[str, ToolMessagesArtifact | None]:
         try:
-            dashboard, insights_data = await load_dashboard_insights_from_db(
-                self._team, dashboard_id, additional_properties=self._get_debug_props(self._config)
-            )
+            dashboard = await fetch_dashboard_for_team(self._team, dashboard_id)
         except (Dashboard.DoesNotExist, ValueError):
             raise MaxToolFatalError(DASHBOARD_NOT_FOUND_PROMPT.format(dashboard_id=dashboard_id))
 
         await self.check_object_access(dashboard, "viewer", action="read")
+
+        insights_data = await build_dashboard_insights(
+            dashboard, additional_properties=self._get_debug_props(self._config)
+        )
 
         dashboard_ctx = DashboardContext(
             team=self._team,

@@ -34,7 +34,8 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from ee.hogai.context.dashboard.context import (
     DashboardContext,
     DashboardInsightContext,
-    load_dashboard_insights_from_db,
+    build_dashboard_insights,
+    fetch_dashboard_for_team,
 )
 from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.context.notebook.prompts import ROOT_NOTEBOOKS_CONTEXT_PROMPT
@@ -378,12 +379,12 @@ class AssistantContextManager(AssistantContextMixin):
         dashboard id injected into ui_context can never surface a dashboard the user can't see.
         """
         try:
-            dashboard, insights_data = await load_dashboard_insights_from_db(
-                self._team, dashboard_id, additional_properties=self._get_debug_props(self._config)
-            )
+            dashboard = await fetch_dashboard_for_team(self._team, dashboard_id)
         except (Dashboard.DoesNotExist, ValueError):
             return [], None, None
 
+        # Access-check the loaded record before the heavier tile/insight load — a client-supplied id
+        # the user can't read should cost a single lookup, not a full tile scan.
         access_control = UserAccessControl(
             user=self._user, team=self._team, organization_id=str(self._team.organization_id)
         )
@@ -391,6 +392,9 @@ class AssistantContextManager(AssistantContextMixin):
         if not has_access:
             return [], None, None
 
+        insights_data = await build_dashboard_insights(
+            dashboard, additional_properties=self._get_debug_props(self._config)
+        )
         return insights_data, dashboard.name, dashboard.description
 
     def _format_markdown_notebook_context(self, notebook: MaxNotebookContext) -> str:

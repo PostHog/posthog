@@ -31,19 +31,26 @@ class DashboardInsightContext(BaseModel, Generic[AnyPydanticModelQuery]):
     layout: dict | None = None
 
 
-async def load_dashboard_insights_from_db(
-    team: Team, dashboard_id: int | str, *, additional_properties: dict | None = None
-) -> tuple[Dashboard, list[DashboardInsightContext]]:
-    """Load a dashboard and its insight queries from the DB, team-scoped.
+async def fetch_dashboard_for_team(team: Team, dashboard_id: int | str) -> Dashboard:
+    """Load a dashboard record by id, team-scoped (without its tiles).
 
-    Shared by the read_data tool and the UI-context builder so a dashboard can be hydrated from
-    just its id — the source of truth — rather than depending on a (possibly still-loading) client
-    snapshot. Raises Dashboard.DoesNotExist / ValueError if the id is unknown for the team; the
-    caller is responsible for any further object-level access check. `additional_properties` is
-    attached to any query-validation exception captured here so the caller keeps its error context.
+    Kept separate from build_dashboard_insights so callers run their object-level access check on
+    the dashboard before doing the heavier tile/insight load. Raises Dashboard.DoesNotExist /
+    ValueError if the id is unknown for the team.
     """
-    dashboard = await Dashboard.objects.select_related("team").aget(id=int(dashboard_id), team=team, deleted=False)
+    return await Dashboard.objects.select_related("team").aget(id=int(dashboard_id), team=team, deleted=False)
 
+
+async def build_dashboard_insights(
+    dashboard: Dashboard, *, additional_properties: dict | None = None
+) -> list[DashboardInsightContext]:
+    """Build DashboardInsightContext models from a dashboard's non-deleted tiles + insight queries.
+
+    Shared by the read_data tool and the UI-context builder so a dashboard can be hydrated from the
+    DB — the source of truth — rather than from a (possibly still-loading) client snapshot. Call
+    only after the caller has confirmed access to the dashboard. `additional_properties` is attached
+    to any query-validation exception captured here so the caller keeps its error context.
+    """
     insights_data: list[DashboardInsightContext] = []
     async for tile in dashboard.tiles.exclude(insight__deleted=True).exclude(deleted=True).select_related("insight"):
         insight = tile.insight
@@ -74,7 +81,7 @@ async def load_dashboard_insights_from_db(
             )
         )
 
-    return dashboard, insights_data
+    return insights_data
 
 
 class DashboardContext:
