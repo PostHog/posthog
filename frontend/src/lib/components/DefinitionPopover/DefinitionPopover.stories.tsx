@@ -1,4 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { screen, within } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
 import { BindLogic } from 'kea'
 import { useRef } from 'react'
 
@@ -311,5 +313,14 @@ export const DataWarehouseColumnMapping: Story = {
     parameters: {
         featureFlags: { [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: 'pill' },
         testOptions: { waitForSelector: '.definition-popover-data-warehouse-schema-form' },
+    },
+    // Open the first column picker so the snapshot captures the filterable
+    // search-input dropdown, not just the closed control.
+    play: async ({ canvasElement }) => {
+        const [firstColumnSelect] = await within(canvasElement).findAllByRole('textbox')
+        await userEvent.click(firstColumnSelect)
+        // Options render into a portal outside canvasElement — wait for one to
+        // confirm the dropdown opened before the snapshot is taken.
+        await screen.findByRole('button', { name: /amount \(integer\)/ })
     },
 }
