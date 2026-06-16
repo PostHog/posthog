@@ -46060,6 +46060,30 @@ export namespace Schemas {
       query: _TracingAttributeBreakdownQueryBody;
     }
 
+    export interface _TracingAttributeEntry {
+      /** Attribute key name. */
+      name: string;
+      /** Property filter type: "span_attribute" or "span_resource_attribute". Use this as the `type` field when filtering. */
+      propertyFilterType: string;
+      /** How the search query matched this row: "key" if the attribute key matched, "value" if a value matched.
+       *
+       * * `key` - key
+       * * `value` - value */
+      matchedOn: MatchedOnEnum;
+      /**
+         * Sample matching value — only set when matchedOn is "value".
+         * @nullable
+         */
+      matchedValue?: string | null;
+    }
+
+    export interface _TracingAttributesResponse {
+      /** Available attribute keys matching the filters. */
+      results: _TracingAttributeEntry[];
+      /** Total attribute keys matched (lower bound when searching values). */
+      count: number;
+    }
+
     export interface _TracingCountBody {
       /** Date range for the count. Defaults to last hour. */
       dateRange?: _TracingDateRange;
@@ -50193,6 +50217,10 @@ export namespace Schemas {
      * @minLength 1
      */
     search?: string;
+    /**
+     * When true, the search query also matches attribute values (not just keys), so a value such as a trace_id finds the key holding it.
+     */
+    search_values?: boolean;
     };
 
     export type EnvironmentsTracingSpansAttributesRetrieveAttributeType = typeof EnvironmentsTracingSpansAttributesRetrieveAttributeType[keyof typeof EnvironmentsTracingSpansAttributesRetrieveAttributeType];
@@ -57103,6 +57131,10 @@ export namespace Schemas {
      * @minLength 1
      */
     search?: string;
+    /**
+     * When true, the search query also matches attribute values (not just keys), so a value such as a trace_id finds the key holding it.
+     */
+    search_values?: boolean;
     };
 
     export type TracingSpansAttributesRetrieveAttributeType = typeof TracingSpansAttributesRetrieveAttributeType[keyof typeof TracingSpansAttributesRetrieveAttributeType];

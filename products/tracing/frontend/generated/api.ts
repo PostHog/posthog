@@ -15,6 +15,7 @@ import type {
     _HasSpansResponseApi,
     _TracingAggregationRequestApi,
     _TracingAttributeBreakdownRequestApi,
+    _TracingAttributesResponseApi,
     _TracingCountRequestApi,
     _TracingCountResponseApi,
     _TracingQueryRequestApi,
@@ -79,8 +80,8 @@ export const tracingSpansAttributesRetrieve = async (
     projectId: string,
     params?: TracingSpansAttributesRetrieveParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getTracingSpansAttributesRetrieveUrl(projectId, params), {
+): Promise<_TracingAttributesResponseApi> => {
+    return apiMutator<_TracingAttributesResponseApi>(getTracingSpansAttributesRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

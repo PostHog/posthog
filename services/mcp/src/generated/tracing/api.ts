@@ -234,6 +234,8 @@ export const tracingSpansAttributesRetrieveQueryLimitMax = 100
 
 export const tracingSpansAttributesRetrieveQueryOffsetMin = 0
 
+export const tracingSpansAttributesRetrieveQuerySearchValuesDefault = false
+
 export const TracingSpansAttributesRetrieveQueryParams = /* @__PURE__ */ zod.object({
     attribute_type: zod
         .enum(['span_attribute', 'span_resource_attribute'])
@@ -253,6 +255,12 @@ export const TracingSpansAttributesRetrieveQueryParams = /* @__PURE__ */ zod.obj
         .optional()
         .describe('Pagination offset (default: 0).'),
     search: zod.string().min(1).optional().describe('Search filter for attribute names.'),
+    search_values: zod
+        .boolean()
+        .default(tracingSpansAttributesRetrieveQuerySearchValuesDefault)
+        .describe(
+            'When true, the search query also matches attribute values (not just keys), so a value such as a trace_id finds the key holding it.'
+        ),
 })
 
 export const TracingSpansCountCreateParams = /* @__PURE__ */ zod.object({
