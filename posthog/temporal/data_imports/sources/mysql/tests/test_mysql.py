@@ -291,6 +291,26 @@ class TestGetRowsToSync:
         # Swallows the error rather than propagating — matches pre-refactor behavior.
         assert impl.get_rows_to_sync(cursor, "SELECT * FROM t", {}, logger) == 0
 
+    @pytest.mark.parametrize(
+        "error",
+        [
+            pymysql.err.OperationalError(1054, "Unknown column 'favoritor_id' in 'where clause'"),
+            pymysql.err.OperationalError(
+                3024, "Query execution was interrupted, maximum statement execution time exceeded"
+            ),
+            RuntimeError("boom"),
+        ],
+    )
+    def test_does_not_capture_handled_probe_failures(self, impl, cursor, logger, error, mocker):
+        # The COUNT(*) probe is best-effort: it falls back to 0 and must not flood error
+        # tracking with handled failures (e.g. a bad incremental field or the MAX_EXECUTION_TIME
+        # timeout). Genuine problems resurface in the real streaming query and are classified there.
+        cursor.execute.side_effect = error
+        capture = mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql.capture_exception")
+
+        assert impl.get_rows_to_sync(cursor, "SELECT * FROM t", {}, logger) == 0
+        capture.assert_not_called()
+
     def test_wraps_inner_query_as_subselect(self, impl, cursor, logger):
         cursor.fetchone.return_value = (5,)
         impl.get_rows_to_sync(cursor, "SELECT x FROM y WHERE a = %(a)s", {"a": 1}, logger)
