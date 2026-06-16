@@ -51,11 +51,13 @@ class TestBuildExploreHint(TestCase):
 
     def test_bot_ready_nudges_mention(self) -> None:
         hint = build_explore_hint(self._integration(REQUIRED_SLACK_SCOPES), utm_tags="utm")
+        assert hint is not None
         assert hint["type"] == "context"
         assert "@PostHog" in hint["elements"][0]["text"]
 
     def test_bot_not_ready_links_docs(self) -> None:
         hint = build_explore_hint(self._integration(frozenset({"chat:write"})), utm_tags="utm")
+        assert hint is not None
         text = hint["elements"][0]["text"]
         assert "docs/slack-app?utm" in text
         assert "Reply in this thread" not in text
