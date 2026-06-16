@@ -15,7 +15,7 @@ from posthog.temporal.data_imports.sources.mysql.mysql import (
     MySQLColumn,
     MySQLImplementation,
     _build_query,
-    _is_bad_plan_timeout,
+    _is_bad_plan_error,
     _release_streaming_cursor,
     _safe_convert_date,
     _safe_convert_datetime,
@@ -635,9 +635,16 @@ class TestStreamingCursorTeardown:
         assert ss_cursor.connection is None
 
 
-class TestIsBadPlanTimeout:
+class TestIsBadPlanError:
     def test_matches_error_2013(self):
-        assert _is_bad_plan_timeout(pymysql.err.OperationalError(2013, "Lost connection to MySQL server during query"))
+        assert _is_bad_plan_error(pymysql.err.OperationalError(2013, "Lost connection to MySQL server during query"))
+
+    def test_matches_error_1038_out_of_sort_memory(self):
+        # Out of sort memory is the same bad plan (filesort over the incremental
+        # field) seen from the other side — the FORCE INDEX fallback resolves it.
+        assert _is_bad_plan_error(
+            pymysql.err.OperationalError(1038, "Out of sort memory, consider increasing server sort buffer size")
+        )
 
     @pytest.mark.parametrize(
         "code,message",
@@ -647,10 +654,10 @@ class TestIsBadPlanTimeout:
         ],
     )
     def test_does_not_match_other_error_codes(self, code, message):
-        assert not _is_bad_plan_timeout(pymysql.err.OperationalError(code, message))
+        assert not _is_bad_plan_error(pymysql.err.OperationalError(code, message))
 
     def test_does_not_match_error_without_args(self):
-        assert not _is_bad_plan_timeout(pymysql.err.OperationalError())
+        assert not _is_bad_plan_error(pymysql.err.OperationalError())
 
 
 class TestBuildQueryForceIndex:
