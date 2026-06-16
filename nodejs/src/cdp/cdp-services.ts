@@ -138,6 +138,7 @@ export type CdpCoreServicesConfig = Pick<
         | 'SES_REGION'
         | 'SES_ENDPOINT'
         | 'CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN'
+        | 'CDP_BING_ADS_DEVELOPER_TOKEN'
         | 'CDP_FETCH_RETRIES'
         | 'CDP_FETCH_BACKOFF_BASE_MS'
         | 'CDP_FETCH_BACKOFF_MAX_MS'
@@ -393,6 +394,7 @@ export function createCdpCoreServices(
         {
             hogCostTimingUpperMs: config.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
             googleAdwordsDeveloperToken: config.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
+            bingAdsDeveloperToken: config.CDP_BING_ADS_DEVELOPER_TOKEN,
             fetchRetries: config.CDP_FETCH_RETRIES,
             fetchBackoffBaseMs: config.CDP_FETCH_BACKOFF_BASE_MS,
             fetchBackoffMaxMs: config.CDP_FETCH_BACKOFF_MAX_MS,

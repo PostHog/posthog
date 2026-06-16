@@ -205,6 +205,7 @@ export class TemplateTester {
             {
                 hogCostTimingUpperMs: config.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
                 googleAdwordsDeveloperToken: config.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
+                bingAdsDeveloperToken: config.CDP_BING_ADS_DEVELOPER_TOKEN,
                 fetchRetries: config.CDP_FETCH_RETRIES,
                 fetchBackoffBaseMs: config.CDP_FETCH_BACKOFF_BASE_MS,
                 fetchBackoffMaxMs: config.CDP_FETCH_BACKOFF_MAX_MS,
@@ -407,6 +408,7 @@ export const createAdDestinationPayload = (
                 gclid: 'google-id',
                 sccid: 'snapchat-id',
                 rdt_cid: 'reddit-id',
+                msclkid: 'microsoft-id',
                 phone: '+1234567890',
                 external_id: '1234567890',
                 first_name: 'Max',

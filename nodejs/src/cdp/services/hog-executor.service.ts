@@ -51,6 +51,7 @@ export type CdpFetchConfig = Pick<
 export interface HogExecutorConfig {
     hogCostTimingUpperMs: number
     googleAdwordsDeveloperToken: string
+    bingAdsDeveloperToken: string
     fetchRetries: number
     fetchBackoffBaseMs: number
     fetchBackoffMaxMs: number
@@ -744,6 +745,10 @@ export class HogExecutorService {
 
         if (params.url.startsWith('https://googleads.googleapis.com/') && !headers['developer-token']) {
             headers['developer-token'] = this.config.googleAdwordsDeveloperToken
+        }
+
+        if (params.url.startsWith('https://campaign.api.bingads.microsoft.com/') && !headers['DeveloperToken']) {
+            headers['DeveloperToken'] = this.config.bingAdsDeveloperToken
         }
 
         const integrationInputs = await this.hogInputsService.loadIntegrationInputs(invocation.hogFunction)

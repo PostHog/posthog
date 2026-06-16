@@ -68,6 +68,7 @@ describe('Hog Executor', () => {
             {
                 hogCostTimingUpperMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
                 googleAdwordsDeveloperToken: hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
+                bingAdsDeveloperToken: hub.CDP_BING_ADS_DEVELOPER_TOKEN,
                 fetchRetries: hub.CDP_FETCH_RETRIES,
                 fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
                 fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
@@ -1453,6 +1454,7 @@ describe('Hog Executor', () => {
             })
 
             executor['config'].googleAdwordsDeveloperToken = 'ADWORDS_TOKEN'
+            executor['config'].bingAdsDeveloperToken = 'BING_TOKEN'
 
             let invocation = await createFetchInvocation({
                 url: 'https://googleads.googleapis.com/1234',
@@ -1481,6 +1483,22 @@ describe('Hog Executor', () => {
             await executor.executeFetch(invocation)
             expect((jest.mocked(fetch).mock.calls[1][1] as any).headers).toMatchInlineSnapshot(`
                 {
+                  "X-Test": "test",
+                }
+            `)
+
+            // Microsoft Advertising gets its developer token injected too
+            invocation = await createFetchInvocation({
+                url: 'https://campaign.api.bingads.microsoft.com/CampaignManagement/v13/OfflineConversions/Apply',
+                method: 'POST',
+                headers: {
+                    'X-Test': 'test',
+                },
+            })
+            await executor.executeFetch(invocation)
+            expect((jest.mocked(fetch).mock.calls[2][1] as any).headers).toMatchInlineSnapshot(`
+                {
+                  "DeveloperToken": "BING_TOKEN",
                   "X-Test": "test",
                 }
             `)
@@ -1946,6 +1964,7 @@ describe('Hog Executor', () => {
                 {
                     hogCostTimingUpperMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
                     googleAdwordsDeveloperToken: hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
+                    bingAdsDeveloperToken: hub.CDP_BING_ADS_DEVELOPER_TOKEN,
                     fetchRetries: hub.CDP_FETCH_RETRIES,
                     fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
                     fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
