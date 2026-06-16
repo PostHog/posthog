@@ -623,6 +623,23 @@ class TestSnowflakeSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            "View definition for 'RECCE.PUBLIC.INT_AMP_EVENTS_EXCLUDE_DEMO_AND_CI' declared 42 column(s), "
+            "but view query produces 43 column(s).",
+            # The real shape from production: the query id, view name, and column counts vary, but the
+            # message template substring is stable.
+            "002057 (42601): 01c51640-0009-abe9-0001-40ae09621046: SQL compilation error: "
+            "View definition for 'RECCE.PUBLIC.INT_AMP_EVENTS_EXCLUDE_DEMO_AND_CI' declared 42 column(s), "
+            "but view query produces 43 column(s).",
+        ],
+    )
+    def test_view_column_mismatch_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"View column-mismatch error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             "250003 (08001): Failed to connect to DB: acme-xy123.snowflakecomputing.com:443. Connection timed out",
             "Operation timed out while waiting for the warehouse to resume",
         ],

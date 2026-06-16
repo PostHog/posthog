@@ -202,6 +202,12 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             # lives in the customer's object, not in our SQL. Retrying can't fix it until they repair
             # the object or reconfigure the synced columns.
             "invalid identifier": "A Snowflake table or view you're syncing references a column that no longer exists (for example a stale view definition, or a column that was dropped or renamed). Please fix the table or view in Snowflake, or reconfigure the columns selected for this table, then resync.",
+            # Snowflake error 002057 (42601): selecting from a view recompiles its stored definition,
+            # which fails when the column count no longer matches the underlying query (e.g. a base
+            # table gained a column but the view wasn't recreated). The view is broken in the
+            # customer's account, so retrying recompiles the same invalid definition and fails
+            # identically until they fix it.
+            "but view query produces": "A Snowflake view failed to compile because its stored definition no longer matches its query — the declared column count differs from what the query produces. Recreate the view in Snowflake so its columns match its underlying query, then resync.",
             # Raised from the shared `evolve_pyarrow_schema` in `pipelines/pipeline/utils.py`
             # when an integer column's source type was widened (e.g. a narrower NUMBER widened
             # to a larger NUMBER/BIGINT) after the destination table was created with the
