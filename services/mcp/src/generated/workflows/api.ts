@@ -141,16 +141,12 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod.object({
                     .describe('Optional description.'),
                 on_error: zod
                     .union([
-                        zod
-                            .enum(['continue', 'abort', 'complete', 'branch'])
-                            .describe(
-                                '* `continue` - continue\n* `abort` - abort\n* `complete` - complete\n* `branch` - branch'
-                            ),
+                        zod.enum(['continue', 'abort']).describe('* `continue` - continue\n* `abort` - abort'),
                         zod.null(),
                     ])
                     .optional()
                     .describe(
-                        'On failure: continue (skip), abort (stop), complete (mark done), branch (follow error edge).\n\n* `continue` - continue\n* `abort` - abort\n* `complete` - complete\n* `branch` - branch'
+                        'On failure: continue (skip the action and proceed) or abort (stop the run).\n\n* `continue` - continue\n* `abort` - abort'
                     ),
                 created_at: zod.number().optional().describe('Created at (epoch ms). Frontend-managed.'),
                 updated_at: zod.number().optional().describe('Updated at (epoch ms). Frontend-managed.'),
@@ -180,12 +176,12 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod.object({
                     .string()
                     .max(hogFlowsCreateBodyActionsItemTypeMax)
                     .describe(
-                        'trigger | function | function_email | function_sms | function_push | delay | conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit.'
+                        'trigger | function | function_email | function_sms | delay | conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit.'
                     ),
                 config: zod
                     .unknown()
                     .describe(
-                        "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, max_wait_duration: <duration>} (same rules as delay). exit: {reason}."
+                        "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, max_wait_duration: <duration>} (same rules as delay). exit: {reason}."
                     ),
                 output_variable: zod
                     .unknown()
@@ -316,16 +312,12 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod.object({
                     .describe('Optional description.'),
                 on_error: zod
                     .union([
-                        zod
-                            .enum(['continue', 'abort', 'complete', 'branch'])
-                            .describe(
-                                '* `continue` - continue\n* `abort` - abort\n* `complete` - complete\n* `branch` - branch'
-                            ),
+                        zod.enum(['continue', 'abort']).describe('* `continue` - continue\n* `abort` - abort'),
                         zod.null(),
                     ])
                     .optional()
                     .describe(
-                        'On failure: continue (skip), abort (stop), complete (mark done), branch (follow error edge).\n\n* `continue` - continue\n* `abort` - abort\n* `complete` - complete\n* `branch` - branch'
+                        'On failure: continue (skip the action and proceed) or abort (stop the run).\n\n* `continue` - continue\n* `abort` - abort'
                     ),
                 created_at: zod.number().optional().describe('Created at (epoch ms). Frontend-managed.'),
                 updated_at: zod.number().optional().describe('Updated at (epoch ms). Frontend-managed.'),
@@ -355,12 +347,12 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod.object({
                     .string()
                     .max(hogFlowsPartialUpdateBodyActionsItemTypeMax)
                     .describe(
-                        'trigger | function | function_email | function_sms | function_push | delay | conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit.'
+                        'trigger | function | function_email | function_sms | delay | conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit.'
                     ),
                 config: zod
                     .unknown()
                     .describe(
-                        "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, max_wait_duration: <duration>} (same rules as delay). exit: {reason}."
+                        "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, max_wait_duration: <duration>} (same rules as delay). exit: {reason}."
                     ),
                 output_variable: zod
                     .unknown()

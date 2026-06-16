@@ -87,6 +87,7 @@ from products.dashboards.backend.widget_access import (
     get_widget_api_scope_error,
     get_widget_product_access_error,
 )
+from products.dashboards.backend.widget_availability import get_widget_feature_enabled
 from products.dashboards.backend.widget_catalog import get_widget_catalog_entries
 from products.dashboards.backend.widget_create import prepare_widget_tile_create
 from products.dashboards.backend.widget_layouts import (
@@ -105,6 +106,7 @@ from products.product_analytics.backend.api.insight import (
     DashboardTileBasicSerializer,
     InsightSerializer,
     InsightViewSet,
+    _get_insight_type,
 )
 from products.product_analytics.backend.models.insight import Insight
 from products.product_analytics.backend.models.insight_variable import InsightVariable
@@ -956,6 +958,19 @@ def _check_dashboard_widget_count_limit(*, dashboard: Dashboard, user: User) -> 
     )
 
 
+def _tile_type_and_widget_type(tile: DashboardTile) -> tuple[str, str | None]:
+    if tile.text_id is not None:
+        return "text", None
+    if tile.button_tile_id is not None:
+        return "button", None
+    if tile.widget_id is not None:
+        widget_type = tile.widget.widget_type if tile.widget is not None else None
+        return "widget", widget_type
+    if tile.insight_id is not None:
+        return "insight", None
+    raise ValueError("Dashboard tile has no related content for analytics")
+
+
 def _report_dashboard_tile_added(
     *,
     user: User,
@@ -987,7 +1002,12 @@ def _report_dashboard_tile_added(
     widget_properties: dict[str, Any] = {
         "widget_type": widget_type,
         "dashboard_id": dashboard.id,
+        "dashboard_widget_count": _count_active_widget_tiles(dashboard),
     }
+    feature_enabled = get_widget_feature_enabled(widget_type, dashboard.team)
+    if feature_enabled is not None:
+        # False means the user lands on the widget's setup/custom view rather than real data.
+        widget_properties["feature_enabled"] = feature_enabled
     if tile is not None:
         widget_properties["tile_id"] = tile.id
         if tile.widget_id is not None:
@@ -996,6 +1016,51 @@ def _report_dashboard_tile_added(
     report_user_action(
         user,
         "dashboard widget added",
+        widget_properties,
+        team=dashboard.team,
+        request=request,
+    )
+
+
+def _report_dashboard_tile_removed(
+    *,
+    user: User,
+    dashboard: Dashboard,
+    tile: DashboardTile,
+    request: Request | None = None,
+) -> None:
+    tile_type, widget_type = _tile_type_and_widget_type(tile)
+    insight_type = _get_insight_type(tile.insight) if tile.insight is not None else None
+    properties: dict[str, Any] = {
+        "tile_type": tile_type,
+        "insight_type": insight_type,
+        "dashboard_id": dashboard.id,
+    }
+    if widget_type is not None:
+        properties["widget_type"] = widget_type
+
+    report_user_action(
+        user,
+        "dashboard tile removed",
+        properties,
+        team=dashboard.team,
+        request=request,
+    )
+
+    if widget_type is None:
+        return
+
+    widget_properties: dict[str, Any] = {
+        "widget_type": widget_type,
+        "dashboard_id": dashboard.id,
+        "tile_id": tile.id,
+    }
+    if tile.widget_id is not None:
+        widget_properties["widget_id"] = str(tile.widget_id)
+
+    report_user_action(
+        user,
+        "dashboard widget removed",
         widget_properties,
         team=dashboard.team,
         request=request,
@@ -1289,6 +1354,13 @@ class DashboardSerializer(DashboardMetadataSerializer):
         if being_undeleted:
             self._undo_delete_related_tiles(instance)
 
+        # Soft-delete transition (false -> true). All channels (web/MCP/API) delete via this PATCH path,
+        # so this is the single place to capture deletes. Snapshot tile counts before _delete_related_tiles
+        # runs below — otherwise get_analytics_metadata()'s item_count would read 0 post-deletion.
+        being_deleted = not instance.deleted and validated_data.get("deleted", False)
+        tile_count_at_deletion = instance.tiles.count() if being_deleted else None
+        item_count_at_deletion = instance.tiles.exclude(insight=None).count() if being_deleted else None
+
         initial_data = dict(self.initial_data)
 
         if validated_data.get("deleted", False):
@@ -1322,7 +1394,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
         user = cast(User, self.context["request"].user)
         tiles = initial_data.pop("tiles", [])
         for tile_data in tiles:
-            tile, created = self._update_tiles(instance, tile_data, user)
+            tile, created = self._update_tiles(instance, tile_data, user, request=self.context.get("request"))
             # Text and button tiles are always added via PATCH (never during initial dashboard
             # creation), so this update() method is the right place to fire the "tile added"
             # event. The `created` flag from update_or_create ensures we only fire on first
@@ -1346,13 +1418,26 @@ class DashboardSerializer(DashboardMetadataSerializer):
             self._deep_duplicate_tiles(instance, existing_tile)
 
         if "request" in self.context:
-            report_user_action(
-                user,
-                "dashboard updated",
-                instance.get_analytics_metadata(),
-                team=instance.team,
-                request=self.context["request"],
-            )
+            if being_deleted:
+                report_user_action(
+                    user,
+                    "dashboard deleted",
+                    {
+                        **instance.get_analytics_metadata(),
+                        "item_count": item_count_at_deletion,  # override post-delete 0 with pre-delete snapshot
+                        "tile_count": tile_count_at_deletion,
+                    },
+                    team=instance.team,
+                    request=self.context["request"],
+                )
+            else:
+                report_user_action(
+                    user,
+                    "dashboard updated",
+                    instance.get_analytics_metadata(),
+                    team=instance.team,
+                    request=self.context["request"],
+                )
 
         self.user_permissions.reset_insights_dashboard_cached_results()
         return instance
@@ -1401,12 +1486,15 @@ class DashboardSerializer(DashboardMetadataSerializer):
         widget_data: dict[str, Any],
         user: User,
         user_access_control: UserAccessControl,
+        dashboard: Dashboard,
+        request: Request | None = None,
     ) -> None:
         DashboardSerializer._check_widget_tile_product_access(widget, user_access_control)
         patch_widget_type = widget_data.get("widget_type")
         if patch_widget_type is not None and str(patch_widget_type) != widget.widget_type:
             raise serializers.ValidationError({"widget": "widget_type cannot be changed."})
 
+        previous_widget_filters = (widget.config or {}).get("widgetFilters")
         if "config" in widget_data:
             widget.config = validate_widget_config(
                 widget.widget_type,
@@ -1420,6 +1508,21 @@ class DashboardSerializer(DashboardMetadataSerializer):
         widget.last_modified_at = now()
         widget.save()
 
+        new_widget_filters = (widget.config or {}).get("widgetFilters")
+        if "config" in widget_data and new_widget_filters != previous_widget_filters:
+            report_user_action(
+                user,
+                "dashboard widget filters updated",
+                {
+                    "widget_type": widget.widget_type,
+                    "dashboard_id": dashboard.id,
+                    "widget_id": str(widget.id),
+                    "filters_count": len(new_widget_filters) if new_widget_filters else 0,
+                },
+                team=dashboard.team,
+                request=request,
+            )
+
     @staticmethod
     def _upsert_tile(instance: Dashboard, tile_data: dict, **extra_defaults: Any) -> tuple[DashboardTile, bool]:
         tile_defaults = DashboardSerializer._extract_display_defaults(tile_data)
@@ -1431,21 +1534,23 @@ class DashboardSerializer(DashboardMetadataSerializer):
         )
 
     @staticmethod
-    def _update_existing_tile_display_fields(instance: Dashboard, tile_data: dict) -> None:
+    def _update_existing_tile_display_fields(instance: Dashboard, tile_data: dict) -> tuple[DashboardTile | None, bool]:
         """Update display fields on an existing tile, or skip silently if the id is unknown.
 
         A display-only payload carries no insight/text/button_tile FK, so it cannot satisfy
         the ``dash_tile_exactly_one_related_object`` CHECK constraint if it falls through to
         an INSERT. ``update_or_create`` here used to 500 whenever the frontend posted a stale
         tile id (cross-dashboard contamination, hard-deleted tiles, races). Never INSERT here.
+
+        Returns the updated tile and whether this payload transitioned it to soft-deleted.
         """
         tile_id = tile_data.get("id")
         if tile_id is None:
-            return
+            return None, False
 
         tile_defaults = DashboardSerializer._extract_display_defaults(tile_data)
         if not tile_defaults:
-            return
+            return None, False
 
         existing = DashboardTile.objects_including_soft_deleted.filter(
             id=tile_id, dashboard=instance, dashboard__team_id=instance.team_id
@@ -1458,30 +1563,25 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 tile_id=tile_id,
                 payload_fields=sorted(tile_defaults.keys()),
             )
-            return
+            return None, False
 
+        became_deleted = bool(tile_defaults.get("deleted")) and not existing.deleted
         for attr, val in tile_defaults.items():
             setattr(existing, attr, val)
         # update_fields scopes the UPDATE to only the columns we changed, so concurrent writes
         # to other columns aren't clobbered by our stale read. save() (vs queryset.update())
         # keeps the post_save signal that sync_dashboard_tile listens to for cache invalidation.
         existing.save(update_fields=list(tile_defaults.keys()))
+        return existing, became_deleted
 
     @staticmethod
     def _tile_added_analytics_fields(tile: DashboardTile) -> tuple[str, str | None]:
-        if tile.text_id is not None:
-            return "text", None
-        if tile.button_tile_id is not None:
-            return "button", None
-        if tile.widget_id is not None:
-            widget_type = tile.widget.widget_type if tile.widget is not None else None
-            return "widget", widget_type
-        if tile.insight_id is not None:
-            return "insight", None
-        raise ValueError("Dashboard tile has no related content for analytics")
+        return _tile_type_and_widget_type(tile)
 
     @staticmethod
-    def _update_tiles(instance: Dashboard, tile_data: dict, user: User) -> tuple[DashboardTile | None, bool]:
+    def _update_tiles(
+        instance: Dashboard, tile_data: dict, user: User, request: Request | None = None
+    ) -> tuple[DashboardTile | None, bool]:
         """Returns the upserted tile and whether it was newly created, or (None, False) for display-only updates."""
         tile_data.pop("is_cached", None)  # read only field
         tile_data.pop("order", None)  # read only field
@@ -1588,6 +1688,8 @@ class DashboardSerializer(DashboardMetadataSerializer):
                         widget_data=widget_data,
                         user=user,
                         user_access_control=user_access_control,
+                        dashboard=instance,
+                        request=request,
                     )
                 except DashboardWidget.DoesNotExist:
                     raise serializers.ValidationError({"widget": "Widget not found in this team."})
@@ -1625,7 +1727,16 @@ class DashboardSerializer(DashboardMetadataSerializer):
             or "transparent_background" in tile_data
         ):
             tile_data.pop("insight", None)  # don't ever update insight tiles here
-            DashboardSerializer._update_existing_tile_display_fields(instance, tile_data)
+            updated_tile, became_deleted = DashboardSerializer._update_existing_tile_display_fields(instance, tile_data)
+            # The dashboard UI soft-deletes tiles through this PATCH path rather than the
+            # delete_tile endpoint, so removal analytics must fire here too.
+            if became_deleted and updated_tile is not None:
+                _report_dashboard_tile_removed(
+                    user=user,
+                    dashboard=instance,
+                    tile=updated_tile,
+                    request=request,
+                )
 
         return None, False
 
@@ -2373,6 +2484,13 @@ class DashboardsViewSet(
                     [remaining_tile for remaining_tile in remaining if remaining_tile.id in changed_ids],
                     ["layouts"],
                 )
+
+        _report_dashboard_tile_removed(
+            user=cast(User, request.user),
+            dashboard=dashboard,
+            tile=tile,
+            request=request,
+        )
 
         return Response(status=status.HTTP_204_NO_CONTENT)
 

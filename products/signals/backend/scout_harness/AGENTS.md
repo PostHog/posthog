@@ -37,6 +37,11 @@ it is exercised via the `run_signals_scout` management command (see `../manageme
   `metadata.seeded_by="signals_scout_harness"` are ever updated. Called both lazily
   (coordinator tick, runner cold-start) and explicitly via the `sync_signals_scout_skills`
   management command.
+- `config_registry.py`
+  `register_missing_configs(team_id)` — auto-creates an enabled, default-schedule
+  `SignalScoutConfig` for any `signals-scout-*` skill lacking one ("author a skill, get a
+  scout"). Called by the coordinator tick; the HTTP surface registers explicitly via the
+  write-scoped config `create` endpoint instead (reads stay side-effect free).
 - `tools/`
   Implementations of the four harness-internal tools the agent calls during a run.
   The effective toolset for a run is the intersection of the skill's `allowed_tools`
@@ -58,7 +63,8 @@ it is exercised via the `run_signals_scout` management command (see `../manageme
     counts off the activity log, cross-cutting orientation across every entity type),
     and per-entity recent inventory (`recent_surveys`, `recent_feature_flags`,
     `recent_experiments`, `recent_alerts`, `recent_hog_functions`, `recent_hog_flows`,
-    `recent_notebooks`, `recent_cohorts`, `recent_actions`, `recent_dashboards`).
+    `recent_notebooks`, `recent_cohorts`, `recent_actions`, `recent_dashboards`,
+    `business_knowledge`).
     Per-entity sections are deliberately light (counts + 5 most-recent items with
     name, status, timestamp); deep drilldowns go via the per-entity MCP list tools.
     See the module docstring at `profile/builders.py` for the authoritative section
@@ -73,9 +79,14 @@ ACTIVITY_SLACK_S`, the activity-level ceiling that gates the workflow's
   DRF serializers for the harness HTTP surface (runs, scratchpad, project profile).
   Annotated for drf-spectacular so the generated MCP tools have informative schemas.
 - `views.py`
-  `SignalScoutRunViewSet`, `SignalScratchpadViewSet`, `SignalProjectProfileViewSet`.
+  `SignalScoutRunViewSet`, `SignalScoutConfigViewSet`, `SignalScratchpadViewSet`,
+  `SignalProjectProfileViewSet`.
   Routed under `environment_signals_scout_*` basenames in `posthog/api/__init__.py`
   and exposed as `signals-scout-*` MCP tools via `products/signals/mcp/tools.yaml`.
+  The config viewset is the no-wait creation path: `create` registers (upserts) a
+  config for an already-authored skill with its schedule/emit posture in one call.
+  `list` is strictly read-only (its MCP tool is annotated `readOnly`) — it never
+  mints config rows.
 
 ## Mental model
 

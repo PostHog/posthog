@@ -33,10 +33,10 @@ tools:
         description: >
             List signal reports for the current project. A signal report is a cluster of related observations (signals)
             that PostHog has aggregated into a single issue or trend. Reports surface in the Inbox. Supports filtering
-            by status (potential, candidate, in_progress, pending_input, ready, failed, suppressed), free-text search
-            across title and summary, source_product (e.g. error_tracking, session_replay), and suggested_reviewers
-            (PostHog user UUIDs). Results are paginated and ordered by '-is_suggested_reviewer,status,-updated_at' by
-            default.
+            by status (potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed), free-text
+            search across title and summary, source_product (e.g. error_tracking, session_replay), and
+            suggested_reviewers (PostHog user UUIDs). Results are paginated and ordered by
+            '-is_suggested_reviewer,status,-updated_at' by default.
         response:
             include:
                 - id
@@ -179,6 +179,22 @@ tools:
             required; `enabled` and `config` are optional and keep their current values if omitted). Prefer
             `inbox-source-configs-partial-update` when you only need to flip `enabled` or tweak `config`. Enabling the
             session_analysis_cluster source requires the organization to have approved AI data processing.
+    signals-scout-config-create:
+        operation: signals_scout_config_create
+        enabled: true
+        scopes:
+            - signal_scout:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Create a scout config
+        description: >
+            Register the config for a freshly authored `signals-scout-*` skill immediately, without waiting for the
+            coordinator to auto-register it — optionally setting its schedule (`run_interval_minutes`, 10–43200),
+            `enabled`, and `emit` (false = dry-run) in the same call. The skill must already exist on the project
+            (author it via the skills store first). Upsert: if a config already exists for the skill, the provided
+            fields are applied to it. Creating an enabled config is activity-logged, since running a scout drives spend.
     signals-scout-config-list:
         operation: signals_scout_config_list
         enabled: true
@@ -192,9 +208,10 @@ tools:
         title: List scout configs
         description: >
             List the per-scout configs for this project — one row per `signals-scout-*` skill, each with its schedule
-            (`run_interval_minutes`), `enabled` flag, and `emit` (dry-run) posture. Use this to see which scouts run,
-            how often, and whether they emit findings to the inbox. Pair with `signals-scout-config-update` to tune
-            them.
+            (`run_interval_minutes`), `enabled` flag, and `emit` (dry-run) posture. A freshly authored scout appears
+            once its config is registered — immediately via `signals-scout-config-create`, or on the coordinator's next
+            tick. Use this to see which scouts run, how often, and whether they emit findings to the inbox. Pair with
+            `signals-scout-config-update` to tune them.
     signals-scout-config-update:
         operation: signals_scout_config_update
         enabled: true
@@ -240,10 +257,13 @@ tools:
             (stuck onboardings), connected integrations, warehouse sources, signal source configs (split
             enabled/disabled), and existing inbox report counts. Singleton per team; the response reflects either the
             newest non-expired cached profile or a freshly-built one. Read this once at the start of a run (right after
-            `llma-skill-get`) to orient on the team in one tool call instead of paginating through
+            `skill-get`) to orient on the team in one tool call instead of paginating through
             `inbox-source-configs-list` / `inbox-reports-list` / `read-data-schema` / `activity-log-list`. Distinct from
             `signals-scout-scratchpad-list`: profile is ground truth from authoritative tables; scratchpad is the
             scout's inferred learnings.
+    signals-scout-runs-emission-reports:
+        operation: signals_scout_runs_emission_reports
+        enabled: false
     signals-scout-runs-emissions-list:
         operation: signals_scout_runs_emissions
         enabled: true

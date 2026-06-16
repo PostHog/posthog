@@ -8,6 +8,7 @@ import requests
 from posthog.temporal.data_imports.sources.plain.plain import (
     PlainRetryableError,
     _datetime_to_plain_iso8601,
+    _fetch_paginated_endpoint,
     _fetch_thread_timeline_entries,
     _fetch_timeline_entries,
     _flatten_datetime,
@@ -340,6 +341,51 @@ class TestTimelineEntryIncrementalFilter:
         assert [e["id"] for e in pages[0]] == ["te_null"]
 
 
+class TestFetchPaginatedEndpointIncrementalFilter:
+    def test_sends_after_filter_when_incremental(self):
+        recorded = []
+
+        def execute(query, variables):
+            recorded.append((query, dict(variables)))
+            return {"data": {"customers": {"edges": [], "pageInfo": {"hasNextPage": False, "endCursor": None}}}}
+
+        list(
+            _fetch_paginated_endpoint(
+                execute,
+                endpoint_name="customers",
+                query="query PaginatedCustomers { customers { edges { node { id } } } }",
+                logger=mock.MagicMock(),
+                updated_at_gte=datetime(2024, 1, 15, 10, 30, 0, tzinfo=UTC),
+            )
+        )
+
+        assert recorded, "expected customers query to be issued"
+        _, variables = recorded[0]
+        # Plain's DatetimeFilter uses `after` (>=), not `gte` — sending `gte` is rejected with a 400.
+        assert variables["filter"] == {"updatedAt": {"after": "2024-01-15T10:30:00Z"}}
+
+    def test_omits_filter_for_full_sync(self):
+        recorded = []
+
+        def execute(query, variables):
+            recorded.append((query, dict(variables)))
+            return {"data": {"customers": {"edges": [], "pageInfo": {"hasNextPage": False, "endCursor": None}}}}
+
+        list(
+            _fetch_paginated_endpoint(
+                execute,
+                endpoint_name="customers",
+                query="query PaginatedCustomers { customers { edges { node { id } } } }",
+                logger=mock.MagicMock(),
+                updated_at_gte=None,
+            )
+        )
+
+        assert recorded
+        _, variables = recorded[0]
+        assert "filter" not in variables
+
+
 class TestFetchTimelineEntriesStreaming:
     def test_sends_updatedat_filter_when_incremental(self):
         recorded = []
@@ -360,7 +406,8 @@ class TestFetchTimelineEntriesStreaming:
 
         assert recorded, "expected threads query to be issued"
         _, variables = recorded[0]
-        assert variables["filter"] == {"updatedAt": {"gte": "2024-01-15T10:30:00Z"}}
+        # Plain's DatetimeFilter uses `after` (>=), not `gte` — sending `gte` is rejected with a 400.
+        assert variables["filter"] == {"updatedAt": {"after": "2024-01-15T10:30:00Z"}}
 
     def test_streams_thread_pages_without_buffering_all_ids(self):
         executed_queries: list[str] = []

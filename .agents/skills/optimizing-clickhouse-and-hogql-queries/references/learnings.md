@@ -28,6 +28,72 @@ Suggested entry format:
 
 ---
 
+## 2026-06-10: A minmax skip index on a mixed-content string column does not rescue unbounded point lookups; UUIDv7 ids carry their own time bound
+
+**Context.** Replay capture diagnostics (`frontend/src/scenes/session-recordings/components/replayCaptureDiagnosticsPanelLogic.ts`): `SELECT properties FROM events WHERE $session_id = {sid} ORDER BY timestamp DESC LIMIT 1` with no timestamp predicate. `$session_id` is a materialized column with `INDEX minmax_$session_id ... TYPE minmax GRANULARITY 1`, and session ids are UUIDv7 (time-ordered), so on paper the skip index should prune almost everything even without a timestamp bound.
+
+**Question.** Does the minmax skip index make the unbounded single-session lookup cheap, or does it still need a timestamp bound?
+
+**Numbers.** Median of 5, Test Cluster, team 2 (history back to 2020), a real high-volume session id, `use_query_condition_cache=0`:
+
+| Variant                     | Duration (ms) | Read rows | Read bytes |
+| --------------------------- | ------------- | --------- | ---------- |
+| no timestamp bound          | 16,485        | 2.44B     | 76.8 GB    |
+| `timestamp >=` 90d          | 4,993         | 452M      | 20.8 GB    |
+| UUIDv7-derived window (~7d) | 503           | 35.7M     | 10.4 GB    |
+
+**Caveats.** The exact pruning loss depends on the team's mix of `$session_id` values; a team with only UUIDv7 ids might see better index behavior. Not measured per-mix.
+
+**Takeaway.** The minmax index did not save the unbounded query: the column also holds the literal string `'null'` (millions of rows/day on team 2) and other non-UUID values, so each granule's `[min, max]` range is wide enough to contain any UUIDv7 and almost nothing is excluded. Minmax on strings only prunes when values correlate tightly with insertion order across the _whole_ column, not just the subset you care about. The structural fix is the same as any single-entity lookup: carry a timestamp bound. When the id is a UUIDv7, the client can derive that bound from the id's embedded 48-bit ms timestamp (plus clock-skew slack and a fallback window for non-parsing ids) — 33x faster and 68x fewer rows than the unbounded form here.
+
+---
+
+## 2026-06-10: Pre-filtering a window-function scan with an IN-subquery doubled the cost; JSON parsing dominates, window sorts are cheap
+
+**Context.** MCP analytics "neighbors before/after" queries (`products/mcp_analytics/frontend/mcpAnalyticsToolDetailLogic.ts`): a CTE scans all 7 days of a team's `mcp_tool_call` events, computes `lagInFrame`/`leadInFrame` over every conversation, then filters to one target tool. Looked like wasted work — most conversations don't contain the target tool.
+
+**Question.** Does adding `AND conv_id IN (SELECT DISTINCT conv_id ... WHERE tool = '<target>')` to shrink the window input make the query faster?
+
+**What we tried.** Original shape vs the IN-subquery pre-filter, on the Test Cluster, team 2, over a ~253k-event `mcp_tool_call` slice, for both a rare tool (~2% of calls) and the dominant tool (~48% of calls). All property access via `JSONExtractString(properties, ...)` (no materialized columns for these on the Test Cluster).
+
+**Numbers.** Median of 5 from `system.query_log`, `use_uncompressed_cache=0, use_query_condition_cache=0`:
+
+| Variant                     | Duration (ms) | Read rows | Read bytes |
+| --------------------------- | ------------- | --------- | ---------- |
+| original, rare tool         | 355           | 322k      | 2.87 GB    |
+| pre-filtered, rare tool     | 607           | 651k      | 5.73 GB    |
+| original, dominant tool     | 387           | 322k      | 2.87 GB    |
+| pre-filtered, dominant tool | 721           | 739k      | 5.74 GB    |
+
+The "optimization" was ~1.8× slower and read ~2× the bytes for both tool shares.
+
+**Caveats.** With materialized columns for the filtered property, the second scan would be much cheaper and the trade-off could flip; not measured.
+
+**Takeaway.** The scan (decompress + JSON-parse `properties`) dominates; the window sort it was meant to shrink is trivial by comparison. An IN-subquery over the same events table is a second full scan, so it roughly doubles the dominant cost for zero win. Don't pre-filter partitions of a window function when the filter requires re-scanning the same table you're windowing over.
+
+Also learned while measuring: ClickHouse 26.x's **query condition cache** makes repeat runs of the same query read only the granules that matched last time (we saw 13.1M rows drop to 816 on run 2). Disable it with `use_query_condition_cache=0` when measuring, and don't credit it for production point-lookups whose predicate changes per request (e.g. per-session lookups) — each new predicate is a cold run. And Metabase caches identical native queries entirely: add a changing comment/nonce per run or your "5 runs" are 1 run.
+
+---
+
+## 2026-06-10: Single-session lookups without a timestamp bound scan boundary granules across the team's whole history
+
+**Context.** MCP analytics session-detail queries (`products/mcp_analytics/backend/logic.py` `_MCP_TOOL_CALLS_SQL`, `intent_generation.py` `_SESSION_INTENTS_SQL`): `WHERE event = 'mcp_tool_call' AND properties.$mcp_session_id = {sid}` with no timestamp predicate.
+
+**Question.** How much does an unbounded single-session point lookup cost vs the same query bounded to 30 days, given `event` is in the sort key after `toDate(timestamp)`?
+
+**Numbers.** Median of 5, Test Cluster, team 2 (history back to 2020, the event itself only present in a recent 5-day slice), `use_query_condition_cache=0`:
+
+| Variant            | Duration (ms) | Read rows | Read bytes |
+| ------------------ | ------------- | --------- | ---------- |
+| no timestamp bound | 647           | 13.1M     | 3.11 GB    |
+| `timestamp >=` 30d | 474           | 1.03M     | 2.90 GB    |
+
+**Caveats.** The snapshot only held 5 days of this event, so both variants read the same event payload bytes; the 12M extra rows are sort-key boundary granules across ~6 years of partitions (index work + narrow columns, few bytes). In production the gap widens structurally: the unbounded query also re-reads the entire ever-growing event history's `properties` on every lookup.
+
+**Takeaway.** Even when the `event` filter looks selective, with `toDate(timestamp)` unconstrained the primary index leaves ~1 boundary granule per (date, part) range, which adds up to millions of rows over years of partitions. Single-entity lookups (session, trace, etc.) should always carry a timestamp bound derived from how far back the entity can realistically be referenced.
+
+---
+
 ## 2026-05-28: Dropping `FROM person FINAL` via `argMax` is worse than the original; materialization is the actual win
 
 **Context.** `posthog/temporal/messaging/backfill_precalculated_person_properties_workflow.py` builds a raw ClickHouse query that does `SELECT id, JSONExtract(properties, '<key>', 'String'), ... FROM person FINAL WHERE team_id = ... AND id BETWEEN ... AND is_deleted = 0 ORDER BY id FORMAT JSONEachRow`. We flagged the `FINAL` as a smell.

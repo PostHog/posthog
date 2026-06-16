@@ -141,6 +141,13 @@ export interface SignalReportStateRequestApi {
     snooze_for?: number
 }
 
+export type ScoutOriginEnumApi = (typeof ScoutOriginEnumApi)[keyof typeof ScoutOriginEnumApi]
+
+export const ScoutOriginEnumApi = {
+    Canonical: 'canonical',
+    Custom: 'custom',
+} as const
+
 /**
  * Per-(team, skill) scout config: schedule, enablement, and emit posture.
  *
@@ -153,6 +160,8 @@ export interface SignalScoutConfigApi {
     readonly skill_name: string
     /** Human-readable summary of what this scout investigates, sourced from the scout skill's `description` metadata. Use it for a quick steer on the scout's focus without loading the full skill body. Empty if the skill is not currently present on the team or carries no description. */
     readonly description: string
+    /** Where this scout came from: `canonical` for a scout PostHog ships and maintains (seeded from `products/signals/skills/`), or `custom` for one a team hand-authored on this project. Use it to badge built-in vs custom scouts instead of a hardcoded name list. Defaults to `custom` if the skill is not currently present on the team. */
+    readonly scout_origin: ScoutOriginEnumApi
     /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. */
     enabled?: boolean
     /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
@@ -172,6 +181,30 @@ export interface SignalScoutConfigApi {
 }
 
 /**
+ * Request body for registering a scout config without waiting for the coordinator tick.
+ *
+ * Upsert keyed on `skill_name`: if the coordinator (or a concurrent caller) already
+ * registered the row, the provided tunables are applied to it instead.
+ */
+export interface SignalScoutConfigCreateApi {
+    /**
+     * The `signals-scout-*` skill to register a config for. The skill must already exist on this project — author it via the skills store first.
+     * @maxLength 200
+     */
+    skill_name: string
+    /** Whether this scout runs on its schedule. Defaults to true. */
+    enabled?: boolean
+    /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true. */
+    emit?: boolean
+    /**
+     * Minutes between runs (10–43200). Defaults to 60 (hourly).
+     * @minimum 10
+     * @maximum 43200
+     */
+    run_interval_minutes?: number
+}
+
+/**
  * Per-(team, skill) scout config: schedule, enablement, and emit posture.
  *
  * One row per `signals-scout-*` skill on the team. The coordinator auto-creates a row
@@ -183,6 +216,8 @@ export interface PatchedSignalScoutConfigApi {
     readonly skill_name?: string
     /** Human-readable summary of what this scout investigates, sourced from the scout skill's `description` metadata. Use it for a quick steer on the scout's focus without loading the full skill body. Empty if the skill is not currently present on the team or carries no description. */
     readonly description?: string
+    /** Where this scout came from: `canonical` for a scout PostHog ships and maintains (seeded from `products/signals/skills/`), or `custom` for one a team hand-authored on this project. Use it to badge built-in vs custom scouts instead of a hardcoded name list. Defaults to `custom` if the skill is not currently present on the team. */
+    readonly scout_origin?: ScoutOriginEnumApi
     /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. */
     enabled?: boolean
     /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
@@ -918,6 +953,38 @@ export interface SignalScoutEmissionApi {
 }
 
 /**
+ * Minimal inbox `SignalReport` projection for the scout reverse lookup — just enough
+ * for the scout UI to render a clickable chip and deep-link into the inbox, which loads
+ * the full report itself.
+ */
+export interface LinkedSignalReportApi {
+    /** UUID of the linked `SignalReport`. */
+    id: string
+    /**
+     * LLM-generated report title, or null if the report hasn't been summarised yet.
+     * @nullable
+     */
+    title: string | null
+    /** Current report status (e.g. `potential`, `ready`, `resolved`). */
+    status: string
+}
+
+/**
+ * One finding the run emitted, paired with the inbox report (if any) its signal grouped into.
+ *
+ * Best-effort reverse of the report -> signals link: `report` is null when the finding hasn't
+ * grouped into a report yet, was de-duplicated away, or its signal was deleted.
+ */
+export interface ScoutEmissionReportLinkApi {
+    /** Stable id the finding was emitted under. */
+    finding_id: string
+    /** Deterministic `run:<run_id>:finding:<finding_id>` join key into the signal store. */
+    source_id: string
+    /** The inbox report this finding linked to, or null if none could be resolved. */
+    report: LinkedSignalReportApi | null
+}
+
+/**
  * One citation attached to a finding. Mirrors `SignalsScoutEvidenceEntry`.
  */
 export interface EvidenceEntryApi {
@@ -1233,7 +1300,7 @@ export type SignalsReportsListParams = {
      */
     source_product?: string
     /**
-     * Comma-separated list of statuses to include. Valid values: potential, candidate, in_progress, pending_input, ready, failed, suppressed. Defaults to all statuses except suppressed.
+     * Comma-separated list of statuses to include. Valid values: potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed. Defaults to all statuses except suppressed.
      */
     status?: string
     /**

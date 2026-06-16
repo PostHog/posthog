@@ -14,23 +14,6 @@ import posthoganalytics
 from opentelemetry import trace
 from pydantic import BaseModel, ConfigDict
 
-from posthog.schema import (
-    DatabaseSchemaDataWarehouseTable,
-    DatabaseSchemaEndpointTable,
-    DatabaseSchemaField,
-    DatabaseSchemaManagedViewTable,
-    DatabaseSchemaPostHogTable,
-    DatabaseSchemaSchema,
-    DatabaseSchemaSource,
-    DatabaseSchemaSystemTable,
-    DatabaseSchemaViewTable,
-    DatabaseSerializedFieldType,
-    HogQLQuery,
-    HogQLQueryModifiers,
-    PersonsOnEventsMode,
-    SessionTableVersion,
-)
-
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
@@ -155,6 +138,7 @@ from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team, WeekStartDay
 from posthog.rbac.user_access_control import NO_ACCESS_LEVEL, UserAccessControl
+from posthog.schema_enums import DatabaseSerializedFieldType, PersonsOnEventsMode, SessionTableVersion
 from posthog.synthetic_user import SyntheticUser
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
@@ -166,8 +150,20 @@ from products.warehouse_sources.backend.models.external_data_schema import Exter
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable, DataWarehouseTableColumns
 
+# posthog.schema (the pydantic models) is runtime-imported inside serialize()/serialize_fields()
+# so it stays off django.setup(), where this module loads via the warehouse/data-modeling models.
 if TYPE_CHECKING:
-    from posthog.schema import DataWarehouseSyncWarning
+    from posthog.schema import (
+        DatabaseSchemaDataWarehouseTable,
+        DatabaseSchemaEndpointTable,
+        DatabaseSchemaField,
+        DatabaseSchemaManagedViewTable,
+        DatabaseSchemaPostHogTable,
+        DatabaseSchemaSystemTable,
+        DatabaseSchemaViewTable,
+        DataWarehouseSyncWarning,
+        HogQLQueryModifiers,
+    )
 
     from posthog.models import User
 
@@ -195,7 +191,7 @@ class HogQLDatabaseSources:
     team: "Team"
     user: Optional["User | SyntheticUser"]
     connection_id: str | None
-    modifiers: HogQLQueryModifiers
+    modifiers: "HogQLQueryModifiers"
     is_managed_viewset_enabled: bool
     is_hogql_access_control_enabled: bool
     direct_connection_metadata: dict[str, Any] | None
@@ -689,6 +685,18 @@ class Database(BaseModel):
         include_only: set[str] | None = None,
         include_hidden_posthog_tables: bool = False,
     ) -> dict[str, DatabaseSchemaTable]:
+        from posthog.schema import (  # noqa: PLC0415
+            DatabaseSchemaDataWarehouseTable,
+            DatabaseSchemaEndpointTable,
+            DatabaseSchemaManagedViewTable,
+            DatabaseSchemaPostHogTable,
+            DatabaseSchemaSchema,
+            DatabaseSchemaSource,
+            DatabaseSchemaSystemTable,
+            DatabaseSchemaViewTable,
+            HogQLQuery,
+        )
+
         from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
         tables: dict[str, DatabaseSchemaTable] = {}
@@ -923,7 +931,7 @@ class Database(BaseModel):
         *,
         team: Optional["Team"] = None,
         user: Optional["User | SyntheticUser"] = None,
-        modifiers: HogQLQueryModifiers | None = None,
+        modifiers: "HogQLQueryModifiers | None" = None,
         timings: HogQLTimings | None = None,
         connection_id: str | None = None,
     ) -> "Database":
@@ -946,7 +954,7 @@ class Database(BaseModel):
         *,
         team: Optional["Team"] = None,
         user: Optional["User | SyntheticUser"] = None,
-        modifiers: HogQLQueryModifiers | None = None,
+        modifiers: "HogQLQueryModifiers | None" = None,
         timings: HogQLTimings | None = None,
         connection_id: str | None = None,
     ) -> HogQLDatabaseSources:
@@ -967,7 +975,10 @@ class Database(BaseModel):
                 raise ValueError("team_id and team must be the same")
 
             if team is None:
-                team = Team.objects.get(pk=team_id)
+                try:
+                    team = Team.objects.get(pk=team_id)
+                except Team.DoesNotExist:
+                    raise QueryError(f"Team with id {team_id} does not exist") from None
 
             # Team is definitely not None at this point, make mypy believe that
             team = cast("Team", team)
@@ -1806,7 +1817,7 @@ def _setup_group_key_fields(database: Database, group_types: list[dict[str, Any]
             )
 
 
-def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timings: HogQLTimings) -> None:
+def _use_virtual_fields(database: Database, modifiers: "HogQLQueryModifiers", timings: HogQLTimings) -> None:
     events_table = database.get_table("events")
     persons_table = database.get_table("persons")
     groups_table = database.get_table("groups")
@@ -2045,7 +2056,9 @@ def serialize_fields(
     table_chain: list[str],
     db_columns: DataWarehouseTableColumns | None = None,
     table_type: Literal["posthog"] | Literal["external"] = "posthog",
-) -> list[DatabaseSchemaField]:
+) -> list["DatabaseSchemaField"]:
+    from posthog.schema import DatabaseSchemaField  # noqa: PLC0415
+
     from posthog.hogql.resolver import resolve_types_from_table
 
     field_output: list[DatabaseSchemaField] = []

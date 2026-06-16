@@ -17,11 +17,9 @@ Also available to Claude Code / Codex via `hogli sync:skill`.
 - **exploring-llm-evaluations** — how to manage and investigate AI observability
   evaluations (both `hog` and `llm_judge` types), run them on specific generations,
   query individual results, and generate AI-powered summaries of pass/fail/N/A patterns.
-- **skills-store** — discover and use shared team skills stored as prompts in PostHog.
-- **working-with-skills** — best-practice playbook for agents managing skills via the
-  `llma-skill-*` MCP tools: decision tree for picking the right write primitive,
-  progressive disclosure discipline, large multi-file workflows, concurrency, and
-  common pitfalls.
+
+Skills for managing skills themselves (`skills-store`, `working-with-skills`) now live in
+the standalone Skills product — see `products/skills/skills/`.
 
 ## Adding a new skill
 

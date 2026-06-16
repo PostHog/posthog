@@ -354,8 +354,8 @@ class TestAutoProjectMiddleware(APIBaseTest):
         feature_flag = FeatureFlag.objects.create(team=self.second_team, created_by=self.user)
 
         with self.assertNumQueries(
-            FuzzyInt(self.base_app_num_queries, self.base_app_num_queries + 9)
-        ):  # +1 from activity logging _get_before_update()
+            FuzzyInt(self.base_app_num_queries, self.base_app_num_queries + 10)
+        ):  # +1 from activity logging _get_before_update(), +1 from passkey credential review check
             response_app = self.client.get(f"/feature_flags/{feature_flag.id}")
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()

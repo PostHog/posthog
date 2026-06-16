@@ -1,5 +1,7 @@
 import pytest
+from unittest import mock
 
+from posthog.temporal.data_imports.sources.generated_configs import GoogleAdsSourceConfig
 from posthog.temporal.data_imports.sources.google_ads.configs import clean_customer_id
 from posthog.temporal.data_imports.sources.google_ads.source import GoogleAdsSource
 
@@ -181,3 +183,19 @@ class TestGoogleAdsNonRetryableErrors:
         friendly = self.non_retryable["access_not_configured"]
         assert friendly is not None
         assert "admin" in friendly.lower()
+
+
+class TestValidateCredentials:
+    def test_missing_integration_returns_friendly_message(self):
+        config = GoogleAdsSourceConfig(customer_id="123-456-7890", google_ads_integration_id=1)
+        # A disconnected/deleted OAuth integration makes the client builder raise
+        # `Integration.DoesNotExist` ("... matching query does not exist"). Surface an
+        # actionable reconnect message instead of the raw ORM error.
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.google_ads.google_ads.google_ads_client",
+            side_effect=Exception("Integration matching query does not exist"),
+        ):
+            ok, message = GoogleAdsSource().validate_credentials(config, team_id=1)
+
+        assert ok is False
+        assert "reconnect your Google Ads account" in (message or "")

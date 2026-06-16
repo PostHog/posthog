@@ -484,20 +484,34 @@ def get_distinct_ids_for_persons(
     )
 
 
-def _fetch_persons_by_uuids_via_personhog(team_id: int, uuids: list[str]) -> list[Person]:
+def _fetch_persons_by_uuids_via_personhog(
+    team_id: int, uuids: list[str], *, distinct_id_limit: int | None = None
+) -> list[Person]:
     valid_persons = _batched_get_persons_by_uuids(team_id, uuids, "get_persons_by_uuids")
 
     person_ids = [p.id for p in valid_persons]
     if not person_ids:
         return []
 
-    distinct_ids_by_person = _batched_get_distinct_ids_for_persons(team_id, person_ids)
+    # Callers needing only id/uuid (e.g. cohort membership) pass distinct_id_limit=0 to skip
+    # the per-person distinct-id fetch, which is otherwise unbounded and pulls thousands of
+    # rows for merge-heavy persons.
+    if distinct_id_limit == 0:
+        return [proto_person_to_model(p, distinct_ids=[]) for p in valid_persons]
+
+    distinct_ids_by_person = _batched_get_distinct_ids_for_persons(
+        team_id, person_ids, limit_per_person=distinct_id_limit
+    )
 
     return [proto_person_to_model(p, distinct_ids=distinct_ids_by_person.get(p.id, [])) for p in valid_persons]
 
 
-def get_persons_by_uuids(team_id: int, uuids: list[str]) -> QuerySet | list[Person]:
-    personhog_fn: Callable[[], QuerySet | list[Person]] = lambda: _fetch_persons_by_uuids_via_personhog(team_id, uuids)
+def get_persons_by_uuids(
+    team_id: int, uuids: list[str], *, distinct_id_limit: int | None = None
+) -> QuerySet | list[Person]:
+    personhog_fn: Callable[[], QuerySet | list[Person]] = lambda: _fetch_persons_by_uuids_via_personhog(
+        team_id, uuids, distinct_id_limit=distinct_id_limit
+    )
     orm_fn: Callable[[], QuerySet | list[Person]] = lambda: Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(
         team_id=team_id, uuid__in=uuids
     )
@@ -603,9 +617,11 @@ def get_person_by_distinct_id(team_id: int, distinct_id: str) -> Optional[Person
     return _personhog_routed(
         "get_person_by_distinct_id",
         lambda: _fetch_person_by_distinct_id_via_personhog(team_id, distinct_id),
-        lambda: Person.objects.db_manager(READ_DB_FOR_PERSONS)
-        .filter(team_id=team_id, persondistinctid__distinct_id=distinct_id)
-        .first(),
+        lambda: (
+            Person.objects.db_manager(READ_DB_FOR_PERSONS)
+            .filter(team_id=team_id, persondistinctid__distinct_id=distinct_id)
+            .first()
+        ),
         team_id=team_id,
     )
 

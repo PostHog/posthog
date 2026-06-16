@@ -530,7 +530,7 @@ class TestModalSandboxAgentServer:
         image = MagicMock()
         image.object_id = "snapshot-123"
 
-        def snapshot_filesystem() -> Any:
+        def snapshot_filesystem(ttl: Any = None) -> Any:
             events.append("snapshot")
             return image
 
@@ -542,7 +542,7 @@ class TestModalSandboxAgentServer:
         assert result == "snapshot-123"
         mock_sandbox._sandbox.exec.assert_called_once_with("true", timeout=30)
         exec_process.wait.assert_called_once_with()
-        mock_sandbox._sandbox.snapshot_filesystem.assert_called_once_with()
+        mock_sandbox._sandbox.snapshot_filesystem.assert_called_once_with(ttl=None)
         assert events == ["wait", "snapshot"]
 
 

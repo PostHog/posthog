@@ -17,6 +17,7 @@ with temporalio.workflow.unsafe.imports_passed_through():
         discover_experiment_metrics,
         update_recalculation_progress,
     )
+    from products.experiments.backend.temporal.recalculation_metrics import increment_workflow_finished
 
 MAX_CONCURRENT_METRICS = 10
 
@@ -72,6 +73,7 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
             temporalio.workflow.logger.info(f"recalc {recalculation_id} had no metrics; completing immediately")
+            increment_workflow_finished("completed")
             return {"total": 0, "succeeded": 0, "failed": 0}
 
         # Start the run: mark in_progress, persist the metric list, and pin the shared data-window end. The start
@@ -134,4 +136,5 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
         temporalio.workflow.logger.info(
             f"recalc {recalculation_id} finished: {succeeded} succeeded, {failed} failed (status={final_status})"
         )
+        increment_workflow_finished(final_status)
         return {"total": len(metrics), "succeeded": succeeded, "failed": failed}

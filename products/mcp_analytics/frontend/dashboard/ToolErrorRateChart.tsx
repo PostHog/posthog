@@ -1,6 +1,5 @@
 import { useCallback, useMemo } from 'react'
 
-import { LemonSkeleton } from '@posthog/lemon-ui'
 import {
     BarChart,
     type BarChartConfig,
@@ -9,12 +8,15 @@ import {
     type TooltipContext,
     ValueLabels,
 } from '@posthog/quill-charts'
+import { Skeleton } from '@posthog/quill-primitives'
 
 import { formatPercentage } from 'lib/utils'
 
 import { type ToolRow } from '../mcpDashboardOverviewLogic'
 import { Card, CardState } from './Card'
 import { ChartTooltip } from './ChartTooltip'
+
+const MAX_TOOLS = 8
 
 // Upper bound for the error-rate track: a bit above the worst tool's rate, rounded up to a clean 10 —
 // so the track ends just past the data (a 30% max gives a 50% track) rather than an empty-looking 100%.
@@ -31,7 +33,10 @@ export function ToolErrorRateChart({
     loading: boolean
     theme: ChartTheme
 }): JSX.Element {
-    const sorted = useMemo(() => [...rows].sort((a, b) => b.error_rate_pct - a.error_rate_pct), [rows])
+    const sorted = useMemo(
+        () => [...rows].sort((a, b) => b.error_rate_pct - a.error_rate_pct).slice(0, MAX_TOOLS),
+        [rows]
+    )
     const labels = useMemo(() => sorted.map((r) => r.tool), [sorted])
     const series = useMemo<Series[]>(
         () => [
@@ -85,13 +90,13 @@ export function ToolErrorRateChart({
                 skeleton={
                     <div className="space-y-2 py-3">
                         {Array.from({ length: 5 }).map((_, i) => (
-                            <LemonSkeleton key={i} className="h-7 w-full" />
+                            <Skeleton key={i} className="h-7 w-full" />
                         ))}
                     </div>
                 }
                 empty={<div className="py-6 text-center text-[12px] text-secondary">No tool calls yet.</div>}
             >
-                <div className="flex flex-col">
+                <div className="flex flex-1 flex-col">
                     <BarChart series={series} labels={labels} config={config} theme={theme} tooltip={renderTooltip}>
                         <ValueLabels
                             valueFormatter={(value) => formatPercentage(value, { compact: true })}
