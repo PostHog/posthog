@@ -29,6 +29,7 @@ from posthog.models.person import Person
 from posthog.models.person.util import get_person_by_uuid
 from posthog.models.property import Property, PropertyGroup
 from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
+from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.schema_enums import ProductKey
 from posthog.settings.base_variables import TEST
 
@@ -444,7 +445,8 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
             start_idx = batch_index * batch_size
             end_idx = start_idx + batch_size
-            return get_person_uuids_by_distinct_ids(team_id, items[start_idx:end_idx])
+            with personhog_caller_tag("cohorts/uuid-batch"):
+                return get_person_uuids_by_distinct_ids(team_id, items[start_idx:end_idx])
 
         batch_iterator = FunctionBatchIterator(create_uuid_batch, batch_size=batch_size, max_items=len(items))
         return self._insert_users_list_with_batching(batch_iterator, insert_in_clickhouse=True, team_id=team_id)
@@ -700,7 +702,8 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         from products.cohorts.backend.models.util import insert_static_cohort
 
         # Cohort membership only needs id/uuid, so skip the unbounded per-person distinct-id fetch.
-        persons = get_persons_by_uuids(team_id, batch, distinct_id_limit=0)
+        with personhog_caller_tag("cohorts/static-insert"):
+            persons = get_persons_by_uuids(team_id, batch, distinct_id_limit=0)
         if not persons:
             return
 
@@ -762,8 +765,9 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         )
 
         try:
-            # Get person by UUID
-            person = get_person_by_uuid(team_id, str(user_uuid))
+            # Only person.id is used (to resolve the row to remove), so skip the distinct-id fetch.
+            with personhog_caller_tag("cohorts/static-remove"):
+                person = get_person_by_uuid(team_id, str(user_uuid), distinct_id_limit=0)
             if person is None:
                 raise Person.DoesNotExist
 
