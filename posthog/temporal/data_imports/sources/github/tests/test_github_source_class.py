@@ -32,26 +32,28 @@ class TestGithubSource:
     def test_non_retryable_errors(self, expected_key):
         assert expected_key in self.source.get_non_retryable_errors()
 
-    def test_get_access_token_missing_integration_id_is_non_retryable(self):
-        # OAuth selected but no account connected (or integration deleted) — the message
-        # raised here must match a get_non_retryable_errors key so the schema stops retrying.
+    @pytest.mark.parametrize(
+        "selection,github_integration_id,personal_access_token,expected_error",
+        [
+            # OAuth selected but no account connected (or integration deleted) — the message
+            # raised here must match a get_non_retryable_errors key so the schema stops retrying.
+            ("oauth", None, "", "Missing GitHub integration ID"),
+            ("pat", None, "", "Missing personal access token"),
+        ],
+    )
+    def test_get_access_token_error_is_non_retryable(
+        self, selection, github_integration_id, personal_access_token, expected_error
+    ):
         config = GithubSourceConfig(
-            auth_method=GithubAuthMethodConfig(github_integration_id=None, selection="oauth", personal_access_token=""),
+            auth_method=GithubAuthMethodConfig(
+                github_integration_id=github_integration_id,
+                selection=selection,
+                personal_access_token=personal_access_token,
+            ),
             repository="owner/repo",
         )
 
-        with pytest.raises(ValueError, match="Missing GitHub integration ID") as exc_info:
-            self.source._get_access_token(config, self.team_id)
-
-        assert any(key in str(exc_info.value) for key in self.source.get_non_retryable_errors())
-
-    def test_get_access_token_missing_pat_is_non_retryable(self):
-        config = GithubSourceConfig(
-            auth_method=GithubAuthMethodConfig(github_integration_id=None, selection="pat", personal_access_token=""),
-            repository="owner/repo",
-        )
-
-        with pytest.raises(ValueError, match="Missing personal access token") as exc_info:
+        with pytest.raises(ValueError, match=expected_error) as exc_info:
             self.source._get_access_token(config, self.team_id)
 
         assert any(key in str(exc_info.value) for key in self.source.get_non_retryable_errors())
@@ -78,3 +80,19 @@ class TestGithubSource:
         with mock.patch.object(self.source, "get_oauth_integration", return_value=integration):
             mock_github_integration.return_value.access_token_expired.return_value = False
             assert self.source._get_access_token(config, self.team_id) == "gho_token"
+
+    @mock.patch("posthog.temporal.data_imports.sources.github.source.GitHubIntegration")
+    def test_get_access_token_missing_oauth_token_is_non_retryable(self, mock_github_integration):
+        config = GithubSourceConfig(
+            auth_method=GithubAuthMethodConfig(github_integration_id=42, selection="oauth", personal_access_token=""),
+            repository="owner/repo",
+        )
+
+        integration = mock.MagicMock()
+        integration.access_token = None
+        with mock.patch.object(self.source, "get_oauth_integration", return_value=integration):
+            mock_github_integration.return_value.access_token_expired.return_value = False
+            with pytest.raises(ValueError, match="GitHub access token not found") as exc_info:
+                self.source._get_access_token(config, self.team_id)
+
+        assert any(key in str(exc_info.value) for key in self.source.get_non_retryable_errors())
