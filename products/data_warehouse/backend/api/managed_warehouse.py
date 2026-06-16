@@ -6,8 +6,8 @@ construction and request/error mapping, warehouse-name validation (shared by pro
 and availability checks), and connection presentation.
 
 A managed warehouse is shared by every team in an organization, so the duckgres org
-identifier is the PostHog `organization_id` and the feature flag is evaluated per
-organization (not per team).
+identifier is the PostHog `organization_id` and the Data ops feature flag is evaluated
+per organization (not per team).
 """
 
 import re
@@ -26,7 +26,7 @@ from posthog.security.outbound_proxy import internal_requests
 
 logger = structlog.get_logger(__name__)
 
-MANAGED_WAREHOUSE_FLAG = "provision-managed-warehouse-beta"
+DATA_WAREHOUSE_SCENE_FLAG = "data-warehouse-scene"
 
 # The Postgres database to connect to is always "ducklake"; the user-chosen warehouse
 # name becomes the SNI subdomain (e.g. my-warehouse.dw.us.postwh.com) and the DNS zone
@@ -81,7 +81,7 @@ def is_enabled(organization_id: UUID | str) -> bool:
     try:
         return bool(
             posthoganalytics.feature_enabled(
-                MANAGED_WAREHOUSE_FLAG,
+                DATA_WAREHOUSE_SCENE_FLAG,
                 org_id,
                 groups={"organization": org_id},
                 group_properties={"organization": {"id": org_id}},

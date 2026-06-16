@@ -14,11 +14,8 @@ export enum DataWarehouseTab {
     MODELING = 'modeling',
 }
 
-// Single source of truth for which tabs the Data ops scene exposes. Each tab is available
-// iff its feature flag is on — crucially Settings (the managed-warehouse UI) is gated by
-// the same `provision-managed-warehouse-beta` flag the backend enforces, so the UI never
-// shows a Settings tab whose API calls would 403. The scene, the URL state, and the
-// default tab all derive from availableTabs / activeTab below.
+// Single source of truth for which tabs the Data ops scene exposes. The scene, the URL
+// state, and the default tab all derive from availableTabs / activeTab below.
 export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
     path(['scenes', 'data-warehouse', 'dataWarehouseSceneLogic']),
     connect(() => ({
@@ -40,7 +37,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             (s) => [s.featureFlags],
             (featureFlags): DataWarehouseTab[] => {
                 const tabs: DataWarehouseTab[] = []
-                if (featureFlags[FEATURE_FLAGS.PROVISION_MANAGED_WAREHOUSE_BETA]) {
+                if (featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_SCENE]) {
                     tabs.push(DataWarehouseTab.SETTINGS)
                 }
                 if (featureFlags[FEATURE_FLAGS.DATA_MODELING_TAB]) {

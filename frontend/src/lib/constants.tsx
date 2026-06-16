@@ -443,7 +443,6 @@ export const FEATURE_FLAGS = {
     PROMOTED_PRODUCT: 'promoted-product', // owner: @pauldambra #team-growth multivariate=control,control_b,intent,intent_plus, experiment for surfacing the team's primary onboarding product directly under Home
     PROMPT_MANAGEMENT: 'prompt-management', // owner: #team-ai-observability
     PROPERTY_ACCESS_CONTROL: 'property-access-control', // owner: @reecejones #team-platform-features
-    PROVISION_MANAGED_WAREHOUSE_BETA: 'provision-managed-warehouse-beta', // owner: @EDsCODE #team-managed-warehouse
     QUICK_START_PULSE_INDICATOR: 'quick-start-pulse-indicator', // owner: @fercgomes #team-growth multivariate=control,test
     RBAC_UI_REDESIGN: 'rbac-ui-redesign', // owner: @reece #team-platform-features
     READ_ONLY_MODE: 'read-only-mode', // owner: @pauldambra, experiment: force users into read-only and steer mutations through Max/MCP
