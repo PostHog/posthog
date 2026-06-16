@@ -48,6 +48,10 @@ from posthog.temporal.data_imports.sources.common.schema import SourceSchema, bu
 from posthog.temporal.data_imports.sources.common.sql import filter_dwh_columns_by_enabled_columns, sql_schema_metadata
 from posthog.temporal.data_imports.sources.common.sql.base import SQLSource
 from posthog.temporal.data_imports.sources.custom.source import MAX_CUSTOM_SOURCES_PER_TEAM, manifest_request_hosts
+from posthog.temporal.data_imports.sources.postgres.cdc.config import (
+    DEFAULT_LAG_CRITICAL_THRESHOLD_MB,
+    DEFAULT_LAG_WARNING_THRESHOLD_MB,
+)
 from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import cdc_pg_connection
 from posthog.temporal.data_imports.sources.postgres.postgres import get_primary_key_columns, source_requires_ssl
 from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
@@ -1691,8 +1695,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             {
                 "cdc_enabled": True,
                 "cdc_auto_drop_slot": payload.get("cdc_auto_drop_slot", True),
-                "cdc_lag_warning_threshold_mb": payload.get("cdc_lag_warning_threshold_mb", 1024),
-                "cdc_lag_critical_threshold_mb": payload.get("cdc_lag_critical_threshold_mb", 10240),
+                "cdc_lag_warning_threshold_mb": payload.get(
+                    "cdc_lag_warning_threshold_mb", DEFAULT_LAG_WARNING_THRESHOLD_MB
+                ),
+                "cdc_lag_critical_threshold_mb": payload.get(
+                    "cdc_lag_critical_threshold_mb", DEFAULT_LAG_CRITICAL_THRESHOLD_MB
+                ),
             }
         )
         job_inputs.update(resource_fields)

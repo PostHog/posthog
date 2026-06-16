@@ -14,7 +14,6 @@ Pick a home with a real boundary first, in this order:
 - `tools/` — dev/CI tooling, not shipped at runtime
 - `services/` — independently deployed
 - `packages/` — a clean, published-style leaf with **no back-edges into app code** (see `packages/quill`)
-- `platform/` — cross-cutting glue/infra (aspirational; coordinate before creating it)
 
 Fall back to `common/` **only** when none of those fit _and_ the code can't yet be a clean leaf because it still imports app modules (`lib/*`, `scenes/*`, etc.). If you do, treat it as tracked debt: say so in the PR and name the intended graduation target. "It follows an existing `common/` precedent" is not, on its own, a reason to add more.
 
