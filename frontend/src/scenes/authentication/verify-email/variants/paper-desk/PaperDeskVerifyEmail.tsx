@@ -61,12 +61,19 @@ function NotSeeingIt(): JSX.Element {
                         ))}
                     </div>
                     <LemonButton
+                        size="large"
+                        center
                         className="mt-3"
                         fullWidth
                         disabledReason={
                             !allChecked ? `Contact support (${checked.filter(Boolean).length}/3 checked)` : undefined
                         }
-                        onClick={() => openSupportForm({ kind: 'bug', target_area: 'login' })}
+                        onClick={() =>
+                            openSupportForm({
+                                kind: 'bug',
+                                target_area: 'login',
+                            })
+                        }
                     >
                         Contact support
                     </LemonButton>
@@ -99,6 +106,8 @@ function VerifyEmail(): JSX.Element {
                             <div className="PaperDesk__progress-fill w-full h-full bg-warning rounded-sm" />
                         </div>
                         <LemonButton
+                            size="large"
+                            center
                             type="primary"
                             fullWidth
                             onClick={() => {
@@ -140,13 +149,26 @@ function VerifyEmail(): JSX.Element {
                         </p>
                         <div className="flex w-full flex-col gap-2.5">
                             {uuid && (
-                                <LemonButton type="primary" fullWidth onClick={() => requestVerificationLink(uuid)}>
+                                <LemonButton
+                                    type="primary"
+                                    size="large"
+                                    center
+                                    fullWidth
+                                    onClick={() => requestVerificationLink(uuid)}
+                                >
                                     Email me a new link
                                 </LemonButton>
                             )}
                             <LemonButton
+                                size="large"
+                                center
                                 fullWidth
-                                onClick={() => openSupportForm({ kind: 'bug', target_area: 'login' })}
+                                onClick={() =>
+                                    openSupportForm({
+                                        kind: 'bug',
+                                        target_area: 'login',
+                                    })
+                                }
                             >
                                 Contact support
                             </LemonButton>
@@ -197,7 +219,7 @@ function VerifyEmail(): JSX.Element {
                         We sent a verification link to
                     </p>
                     {user?.email && (
-                        <span className="mb-4 inline-block py-1 px-2.5 font-mono text-sm font-semibold text-primary bg-[#fbfbf9] border border-[#e0e1d9] rounded">
+                        <span className="mb-4 inline-block py-1 px-2.5 font-mono text-sm font-regular text-primary bg-[#fbfbf9] border border-[#e0e1d9] rounded">
                             {user.email}
                         </span>
                     )}
@@ -205,7 +227,13 @@ function VerifyEmail(): JSX.Element {
                         Click the link inside and you're in. The link is valid for 24 hours.
                     </p>
                     {uuid && (
-                        <LemonButton fullWidth onClick={() => requestVerificationLink(uuid)}>
+                        <LemonButton
+                            type="primary"
+                            size="large"
+                            center
+                            fullWidth
+                            onClick={() => requestVerificationLink(uuid)}
+                        >
                             Resend email
                         </LemonButton>
                     )}

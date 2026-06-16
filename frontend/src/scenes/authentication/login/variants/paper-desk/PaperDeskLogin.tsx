@@ -77,6 +77,8 @@ function Login(): JSX.Element {
                 {isEmailVerificationSent ? (
                     <div className="flex flex-col items-center gap-3">
                         <LemonButton
+                            size="large"
+                            center
                             fullWidth
                             disabled={resendResponseLoading}
                             loading={resendResponseLoading}
@@ -143,11 +145,11 @@ function Login(): JSX.Element {
                         {!precheckResponse.sso_enforcement && (
                             <LemonButton
                                 type="primary"
+                                size="large"
+                                center
                                 fullWidth
                                 htmlType="submit"
                                 loading={isLoginSubmitting || precheckResponseLoading}
-                                center
-                                className="h-12"
                             >
                                 Log in
                             </LemonButton>

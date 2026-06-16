@@ -122,6 +122,8 @@ function InviteNewUser({ invite }: { invite: PrevalidatedInvite }): JSX.Element 
                         <>
                             {passkeySignupEnabled && !passkeyRegistered && (
                                 <LemonButton
+                                    size="large"
+                                    center
                                     fullWidth
                                     onClick={registerPasskey}
                                     disabled={isPasskeyRegistering}
@@ -182,6 +184,8 @@ function InviteNewUser({ invite }: { invite: PrevalidatedInvite }): JSX.Element 
                         ) : (
                             <LemonButton
                                 type="primary"
+                                size="large"
+                                center
                                 fullWidth
                                 htmlType="submit"
                                 loading={isSignupSubmitting || precheckResponseLoading}
@@ -254,6 +258,8 @@ function InviteExistingAccount({ invite }: { invite: PrevalidatedInvite }): JSX.
                 {acceptedInvite ? (
                     <LemonButton
                         type="primary"
+                        size="large"
+                        center
                         fullWidth
                         onClick={() => {
                             window.location.href = '/'
@@ -263,10 +269,19 @@ function InviteExistingAccount({ invite }: { invite: PrevalidatedInvite }): JSX.
                     </LemonButton>
                 ) : (
                     <div className="flex flex-col gap-2.5">
-                        <LemonButton type="primary" fullWidth loading={acceptedInviteLoading} onClick={acceptInvite}>
+                        <LemonButton
+                            type="primary"
+                            size="large"
+                            center
+                            fullWidth
+                            loading={acceptedInviteLoading}
+                            onClick={acceptInvite}
+                        >
                             Accept invite
                         </LemonButton>
                         <LemonButton
+                            size="large"
+                            center
                             fullWidth
                             onClick={() => {
                                 window.location.href = '/'
@@ -320,7 +335,12 @@ function InviteInvalid(): JSX.Element {
                         Invites are personal links that work once. Ask whoever invited you to <b>send a fresh one</b>{' '}
                         from their organization's members settings. It takes them ten seconds.
                     </p>
-                    <LemonButton fullWidth onClick={() => openSupportForm({ kind: 'bug', target_area: 'login' })}>
+                    <LemonButton
+                        size="large"
+                        center
+                        fullWidth
+                        onClick={() => openSupportForm({ kind: 'bug', target_area: 'login' })}
+                    >
                         Contact support
                     </LemonButton>
                 </div>
