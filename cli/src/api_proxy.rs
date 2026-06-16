@@ -6,6 +6,7 @@ use anyhow::{bail, Context, Result};
 
 use crate::error::CapturedError;
 use crate::invocation_context::InvocationContext;
+use crate::utils::homedir::posthog_home_dir_if_available;
 
 const API_CLI_BUNDLE: &str = "posthog-api-cli.mjs";
 const ANALYTICS_HOST: &str = "https://us.i.posthog.com";
@@ -22,7 +23,7 @@ fn canonicalize_file(path: &Path) -> Option<PathBuf> {
 }
 
 fn default_install_dir() -> Option<PathBuf> {
-    Some(dirs::home_dir()?.join(".posthog"))
+    posthog_home_dir_if_available()
 }
 
 fn adjacent_bundle_dir() -> Option<PathBuf> {
@@ -213,9 +214,35 @@ pub fn run(
 
 #[cfg(test)]
 mod tests {
+    use std::ffi::OsString;
     use std::fs;
+    use std::sync::Mutex;
 
     use super::*;
+
+    static POSTHOG_HOME_ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    struct EnvVarGuard {
+        name: &'static str,
+        previous: Option<OsString>,
+    }
+
+    impl EnvVarGuard {
+        fn set(name: &'static str, value: &Path) -> Self {
+            let previous = env::var_os(name);
+            env::set_var(name, value);
+            Self { name, previous }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            match &self.previous {
+                Some(value) => env::set_var(self.name, value),
+                None => env::remove_var(self.name),
+            }
+        }
+    }
 
     #[test]
     fn bundle_candidates_prefer_the_bundle_next_to_the_executable() {
@@ -243,6 +270,15 @@ mod tests {
         let temp_dir = tempfile::tempdir().expect("create temp dir");
 
         assert_eq!(canonicalize_file(temp_dir.path()), None);
+    }
+
+    #[test]
+    fn default_install_dir_honors_posthog_home() {
+        let _lock = POSTHOG_HOME_ENV_LOCK.lock().expect("lock POSTHOG_HOME");
+        let temp_dir = tempfile::tempdir().expect("create temp dir");
+        let _guard = EnvVarGuard::set("POSTHOG_HOME", temp_dir.path());
+
+        assert_eq!(default_install_dir(), Some(temp_dir.path().to_path_buf()));
     }
 
     #[test]
