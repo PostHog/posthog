@@ -231,6 +231,15 @@ describe('trendsChartTransforms', () => {
                 expect(out.movingAverage).toEqual([{ seriesKey: 'a', window: 3 }])
             })
 
+            it('skips hidden results so a toggled-off series has no MA overlay', () => {
+                const out = buildDerivedConfigs([makeResult({ id: 'a' }), makeResult({ id: 'b' })], {
+                    showMovingAverage: true,
+                    movingAverageIntervals: 3,
+                    getHidden: (r) => r.id === 'b',
+                })
+                expect(out.movingAverage).toEqual([{ seriesKey: 'a', window: 3 }])
+            })
+
             it('omits movingAverage when movingAverageIntervals is undefined', () => {
                 expect(buildDerivedConfigs([makeResult()], { showMovingAverage: true }).movingAverage).toBeUndefined()
             })
@@ -326,6 +335,15 @@ describe('trendsChartTransforms', () => {
                     movingAverageIntervals: 3,
                 })
                 expect(out.comparisonOf).toEqual({ '1': '1', '1-ma': '1' })
+            })
+
+            it('omits the MA-of-previous key when the previous result is hidden', () => {
+                const out = buildDerivedConfigs([makeResult({ id: 1, compare: true, compare_label: 'previous' })], {
+                    showMovingAverage: true,
+                    movingAverageIntervals: 3,
+                    getHidden: () => true,
+                })
+                expect(out.comparisonOf).toEqual({ '1': '1' })
             })
 
             it('omits the MA-of-previous key when the result is too short for an MA series', () => {

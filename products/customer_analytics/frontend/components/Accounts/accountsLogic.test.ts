@@ -4,10 +4,11 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import type { AccountsQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import type { UserBasicType } from '~/types'
+import type { UserBasicType, UserType } from '~/types'
 
 import { accountsPartialUpdate, accountsRetrieve } from 'products/customer_analytics/frontend/generated/api'
 import type { AccountApi } from 'products/customer_analytics/frontend/generated/api.schemas'
@@ -136,6 +137,139 @@ describe('accountsLogic', () => {
         expect(logic.values.csmFilter).toEqual([])
         expect(logic.values.accountExecutiveFilter).toEqual([])
         expect(logic.values.accountOwnerFilter).toEqual([])
+    })
+
+    describe('assignedTo filter and "my accounts" shortcut', () => {
+        const CURRENT_USER_ID = 42
+
+        beforeEach(() => {
+            userLogic.actions.loadUserSuccess(buildUser({ id: CURRENT_USER_ID }) as unknown as UserType)
+        })
+
+        it('starts disabled and adds nothing to the query', () => {
+            expect(logic.values.assignedToCurrentUser).toBe(false)
+            expect(logic.values.assignedToFilter).toEqual([])
+            expect((logic.values.hogqlQuery.source as AccountsQuery).assignedToUserIds).toBeUndefined()
+        })
+
+        it('the "My accounts" checkbox resolves to the current user id', () => {
+            logic.actions.setAssignedToCurrentUser(true)
+            expect(logic.values.assignedToFilter).toEqual([CURRENT_USER_ID])
+            expect(logic.values.assignedToCurrentUser).toBe(true)
+            expect((logic.values.hogqlQuery.source as AccountsQuery).assignedToUserIds).toEqual([CURRENT_USER_ID])
+        })
+
+        it('"My accounts" is checked only when the filter is exactly the current user', () => {
+            logic.actions.setAssignedToFilter([CURRENT_USER_ID])
+            expect(logic.values.assignedToCurrentUser).toBe(true)
+            logic.actions.setAssignedToFilter([99])
+            expect(logic.values.assignedToCurrentUser).toBe(false)
+            logic.actions.setAssignedToFilter([CURRENT_USER_ID, 99])
+            expect(logic.values.assignedToCurrentUser).toBe(false)
+        })
+
+        it('toggling the checkbox off clears the filter', () => {
+            logic.actions.setAssignedToCurrentUser(true)
+            logic.actions.setAssignedToCurrentUser(false)
+            expect(logic.values.assignedToFilter).toEqual([])
+            expect((logic.values.hogqlQuery.source as AccountsQuery).assignedToUserIds).toBeUndefined()
+        })
+
+        it('the Assigned to picker accepts explicit ids', () => {
+            logic.actions.setAssignedToFilter([7, 9])
+            expect(logic.values.assignedToFilter).toEqual([7, 9])
+            expect((logic.values.hogqlQuery.source as AccountsQuery).assignedToUserIds).toEqual([7, 9])
+        })
+
+        it('counts toward activeFilterCount', () => {
+            expect(logic.values.activeFilterCount).toBe(0)
+            logic.actions.setAssignedToFilter([7])
+            expect(logic.values.activeFilterCount).toBe(1)
+        })
+
+        it('enabling it clears the unassigned flag', async () => {
+            logic.actions.setAllRolesUnassigned(true)
+            logic.actions.setAssignedToFilter([7])
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.assignedToFilter).toEqual([7])
+            expect(logic.values.allRolesUnassigned).toBe(false)
+        })
+
+        it('enabling it clears the CSM and AE pickers but keeps the owner filter', async () => {
+            logic.actions.setCsmFilter([7])
+            logic.actions.setAccountExecutiveFilter([8])
+            logic.actions.setAccountOwnerFilter([9])
+            logic.actions.setAssignedToFilter([CURRENT_USER_ID])
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.assignedToFilter).toEqual([CURRENT_USER_ID])
+            expect(logic.values.csmFilter).toEqual([])
+            expect(logic.values.accountExecutiveFilter).toEqual([])
+            expect(logic.values.accountOwnerFilter).toEqual([9])
+        })
+
+        it('enabling the unassigned flag clears the assigned-to filter', async () => {
+            logic.actions.setAssignedToFilter([7])
+            logic.actions.setAllRolesUnassigned(true)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.allRolesUnassigned).toBe(true)
+            expect(logic.values.assignedToFilter).toEqual([])
+        })
+
+        it('selecting a CSM clears the assigned-to filter', async () => {
+            logic.actions.setAssignedToFilter([CURRENT_USER_ID])
+            logic.actions.setCsmFilter([7])
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.csmFilter).toEqual([7])
+            expect(logic.values.assignedToFilter).toEqual([])
+        })
+
+        it('selecting an AE clears the assigned-to filter', async () => {
+            logic.actions.setAssignedToFilter([CURRENT_USER_ID])
+            logic.actions.setAccountExecutiveFilter([8])
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.accountExecutiveFilter).toEqual([8])
+            expect(logic.values.assignedToFilter).toEqual([])
+        })
+
+        it('selecting an owner leaves the assigned-to filter intact', async () => {
+            logic.actions.setAssignedToFilter([CURRENT_USER_ID])
+            logic.actions.setAccountOwnerFilter([9])
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.accountOwnerFilter).toEqual([9])
+            expect(logic.values.assignedToFilter).toEqual([CURRENT_USER_ID])
+        })
+
+        it('persists concrete ids in the view hash (shareable, not viewer-relative)', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setAssignedToCurrentUser(true)
+            }).toFinishAllListeners()
+            expect(router.values.hashParams.view).toEqual({ assignedTo: [CURRENT_USER_ID] })
+        })
+
+        it('restores the assigned-to filter from the view hash, independent of the viewer', async () => {
+            // A link shared by user 7 resolves to user 7's accounts for everyone —
+            // the checkbox is unchecked (not the current user) but the filter applies.
+            router.actions.push(urls.customerAnalyticsAccounts(), {}, { view: { assignedTo: [7] } })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.assignedToFilter).toEqual([7])
+            expect(logic.values.assignedToCurrentUser).toBe(false)
+            expect((logic.values.hogqlQuery.source as AccountsQuery).assignedToUserIds).toEqual([7])
+        })
+
+        it('restores a legacy mine=true link as the current user', async () => {
+            router.actions.push(urls.customerAnalyticsAccounts(), {}, { view: { mine: true } })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.assignedToFilter).toEqual([CURRENT_USER_ID])
+            expect(logic.values.assignedToCurrentUser).toBe(true)
+        })
     })
 
     describe('sortOrder', () => {

@@ -1,5 +1,7 @@
 import typing
 
+import pytest
+
 from posthog.temporal.data_imports.sources.common import config
 
 
@@ -148,6 +150,44 @@ def test_nested_to_config_with_nested_dict():
     assert cfg.b.a.c == "something"
 
     assert cfg.d is True
+
+
+@pytest.mark.parametrize("scalar_value", ["oauth", "api_key", None])
+def test_nested_to_config_with_scalar_value_for_nested_key(scalar_value):
+    """Test `config.to_config` when a nested-config field's key holds a scalar.
+
+    Mirrors the auth-method payload shape where the selection field is sent flat
+    (``{"auth_method": "oauth", ...}``) instead of nested. The scalar must not be
+    treated as a nested mapping — doing so previously swallowed a ``TypeError`` and
+    dropped the required field, crashing on instantiation. Parsing should instead
+    fall through to flat resolution and pick up sibling flat fields.
+    """
+
+    @config.config
+    class AuthMethod:
+        selection: str = "api_key"
+        secret_key: str | None = None
+
+    @config.config
+    class Source(config.Config):
+        auth_method: AuthMethod
+        account_id: str | None = None
+
+    config_dict = {
+        "auth_method": scalar_value,
+        "secret_key": "rk_live_x",
+        "account_id": "acct_xxx",
+    }
+
+    cfg = Source.from_dict(config_dict)
+
+    assert isinstance(cfg.auth_method, AuthMethod)
+    assert cfg.auth_method.secret_key == "rk_live_x"
+    assert cfg.account_id == "acct_xxx"
+
+    # validate_dict already accepts this shape, so from_dict must agree and not crash.
+    is_valid, errors = Source.validate_dict(config_dict)
+    assert is_valid, errors
 
 
 def test_nested_to_config_with_flat_dict_default_prefix():
@@ -318,6 +358,70 @@ def test_to_config_union_nested_configs_with_alias():
 
     assert isinstance(a_cfg.inner, A)
     assert a_cfg.inner.a == "test"
+
+
+@pytest.mark.parametrize(
+    "config_dict,expected_selection,expected_integration_id,expected_secret_key,expected_account_id",
+    [
+        # Flat select payload: the option value as a scalar with the option's fields as
+        # siblings. The scalar isn't mapped to `selection`, so it keeps its default and
+        # the siblings are parsed flat.
+        ({"auth_method": "oauth", "integration_id": 123, "account_id": "acct_x"}, "api_key", 123, None, "acct_x"),
+        # Flat payload whose scalar sibling is a string field — it must survive the flat
+        # fallback and land on the nested config (e.g. Stripe's `secret_key`).
+        (
+            {"auth_method": "api_key", "secret_key": "rk_live_x", "account_id": "acct_123"},
+            "api_key",
+            None,
+            "rk_live_x",
+            "acct_123",
+        ),
+        # Nested form keeps working unchanged.
+        (
+            {"auth_method": {"selection": "oauth", "integration_id": 456}, "account_id": "acct_y"},
+            "oauth",
+            456,
+            None,
+            "acct_y",
+        ),
+    ],
+)
+def test_to_config_scalar_under_nested_config_key(
+    config_dict, expected_selection, expected_integration_id, expected_secret_key, expected_account_id
+):
+    """A scalar under a nested-config key must not crash `to_config`.
+
+    A flat select payload (e.g. `auth_method: "oauth"` with the option's fields as
+    siblings, instead of the nested `auth_method: {"selection": "oauth", ...}`) puts a
+    scalar where a nested config dict is expected. `validate_config` already treats this
+    as a flat structure (it guards with `isinstance(..., dict)`), so `to_config` must do
+    the same and fall through to flat parsing instead of recursing into the scalar and
+    raising an unhandled `TypeError`.
+    """
+
+    @config.config
+    class AuthMethod:
+        selection: str = "api_key"
+        integration_id: int | None = config.value(converter=config.str_to_optional_int, default_factory=lambda: None)
+        secret_key: str | None = None
+
+    @config.config
+    class SourceConfig(config.Config):
+        auth_method: AuthMethod
+        account_id: str | None = None
+
+    # Validation accepts both shapes, so construction must not crash — the two functions
+    # have to agree.
+    is_valid, errors = SourceConfig.validate_dict(config_dict)
+    assert is_valid is True
+    assert errors == []
+
+    cfg = SourceConfig.from_dict(config_dict)
+    assert isinstance(cfg.auth_method, AuthMethod)
+    assert cfg.auth_method.selection == expected_selection
+    assert cfg.auth_method.integration_id == expected_integration_id
+    assert cfg.auth_method.secret_key == expected_secret_key
+    assert cfg.account_id == expected_account_id
 
 
 def test_validate_dict():

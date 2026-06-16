@@ -1,5 +1,11 @@
 # posthog-cli
 
+## 0.7.23 — 2026-06-15
+
+### Patch changes
+
+- [8addff91dd](https://github.com/PostHog/posthog/commit/8addff91ddecd46fe135f51403f6bd3c8b36b7b5) Add agentic API tools — Thanks @cvolzer3!
+
 ## 0.7.22 — 2026-06-09
 
 ### Patch changes
