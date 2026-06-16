@@ -9,7 +9,7 @@ Two unrelated responsibilities in one process:
    stuck `waiting` sessions on a configurable interval.
 
 Both are unauthenticated unless `AGENT_INTERNAL_SIGNING_KEY` is set (it must be in
-prod). Read [docs/agent-platform/docs/local-dev.md](../../docs/agent-platform/docs/local-dev.md)
+prod). Read [docs/local-dev.md](../../docs/local-dev.md)
 for the wider dev flow.
 
 ## What lives here
@@ -68,7 +68,7 @@ cover HTTP shape + threshold math but not the cross-service flow.
 ## Pointers
 
 - **Local dev + MCP local + e2e overview** —
-  [docs/agent-platform/docs/local-dev.md](../../docs/agent-platform/docs/local-dev.md).
+  [docs/local-dev.md](../../docs/local-dev.md).
 - **Django proxy client** —
   [products/agent_platform/backend/janitor_client.py](../../products/agent_platform/backend/janitor_client.py).
 - **Test conventions** —

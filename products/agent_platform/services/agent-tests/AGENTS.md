@@ -4,7 +4,7 @@ The single source of truth for whether the platform works. Real
 everywhere except the model layer; one in-process cluster per test
 case.
 
-Read [docs/agent-platform/docs/local-dev.md](../../docs/agent-platform/docs/local-dev.md)
+Read [docs/local-dev.md](../../docs/local-dev.md)
 for the wider dev flow. This file is the test-side contract.
 
 ## The harness

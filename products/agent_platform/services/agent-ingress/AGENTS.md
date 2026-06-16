@@ -4,7 +4,7 @@ Owns every external entry point into a running agent: chat (`/run`,
 `/send`, `/listen`), webhook (`/webhook`), Slack (`/slack/events`),
 MCP (`/mcp`), domain + path routing, auth, identity.
 
-Read [docs/agent-platform/docs/local-dev.md](../../docs/agent-platform/docs/local-dev.md)
+Read [docs/local-dev.md](../../docs/local-dev.md)
 for the wider dev flow before non-trivial changes.
 
 ## What lives here
@@ -77,7 +77,7 @@ without a matching case will regress silently.
 ## Pointers
 
 - **Local dev + MCP local + e2e overview** —
-  [docs/agent-platform/docs/local-dev.md](../../docs/agent-platform/docs/local-dev.md).
+  [docs/local-dev.md](../../docs/local-dev.md).
 - **Test conventions** —
   [services/agent-tests/CLAUDE.md](../agent-tests/CLAUDE.md).
 - **Shared building blocks (queue, identity store, event bus types)** —

@@ -4,7 +4,7 @@ Library, not a deployable service. Everything the three node services
 (ingress, runner, janitor) share lives here: persistence, spec schema,
 sandbox interface, bundle store, runtime types.
 
-Read [docs/agent-platform/docs/local-dev.md](../../docs/agent-platform/docs/local-dev.md)
+Read [docs/local-dev.md](../../docs/local-dev.md)
 for the wider dev flow.
 
 ## What lives here
@@ -126,7 +126,7 @@ cluster.local` would match the suffix and bypass smokescreen
 ## Pointers
 
 - **Local dev + MCP local + e2e overview** —
-  [docs/agent-platform/docs/local-dev.md](../../docs/agent-platform/docs/local-dev.md).
+  [docs/local-dev.md](../../docs/local-dev.md).
 - **Spec consumers** —
   [services/agent-janitor/src/validate-spec.ts](../agent-janitor/src/validate-spec.ts)
   (freeze-time check), [services/agent-runner/src/loop/](../agent-runner/src/loop/)

@@ -5,7 +5,7 @@ drives pi-agent-core's agent loop, dispatches tools, persists
 conversation, publishes lifecycle events.
 
 You will almost always need the broader platform in your head — read
-[docs/agent-platform/docs/local-dev.md](../../docs/agent-platform/docs/local-dev.md)
+[docs/local-dev.md](../../docs/local-dev.md)
 first.
 
 ## What lives here
@@ -76,7 +76,7 @@ replace the e2e case.
 ## Pointers
 
 - **Local dev + MCP local + e2e overview** —
-  [docs/agent-platform/docs/local-dev.md](../../docs/agent-platform/docs/local-dev.md).
+  [docs/local-dev.md](../../docs/local-dev.md).
 - **Shared building blocks** —
   [services/agent-shared/](../agent-shared/) (queue, bundle, spec,
   sandbox, storage).

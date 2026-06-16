@@ -3,7 +3,7 @@
 This product is the **authoring + control-plane half** of the agent
 platform. The runtime is in node services at `products/agent_platform/services/agent-{ingress,runner,janitor}`.
 You will almost always need both sides in your head — read the
-[local-dev guide](../../docs/agent-platform/docs/local-dev.md) before
+[local-dev guide](docs/local-dev.md) before
 making non-trivial changes.
 
 ## What lives here
@@ -65,7 +65,7 @@ pattern.
 ## Pointers
 
 - **Local dev + MCP local + e2e overview** —
-  [docs/agent-platform/docs/local-dev.md](../../docs/agent-platform/docs/local-dev.md).
+  [docs/local-dev.md](docs/local-dev.md).
 - **Janitor HTTP surface** —
   [products/agent_platform/services/agent-janitor/src/server.ts](../../products/agent_platform/services/agent-janitor/src/server.ts).
 - **Spec shape (source of truth)** —

@@ -207,7 +207,7 @@ agent-applications-revisions-freeze revision_id=<rid>
 agent-applications-revisions-promote revision_id=<rid>
 ```
 
-See [`docs/agent-platform/docs/local-dev.md`](../../../../../docs/agent-platform/docs/local-dev.md)
+See [`docs/local-dev.md`](../../../../../docs/local-dev.md)
 §"Local MCP — end-to-end via an MCP client" for the full flow.
 
 Directly via the janitor's REST API:
