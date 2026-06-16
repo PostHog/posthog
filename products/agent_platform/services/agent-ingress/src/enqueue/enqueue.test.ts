@@ -328,6 +328,42 @@ describe('enqueueOrResume', () => {
             })
         })
 
+        it('stamps the trigger kind from the trigger arg when no explicit metadata is supplied', async () => {
+            const queue = new PgSessionQueue(pool)
+            const { app, rev } = makePair()
+            const out = await enqueueOrResume(
+                { queue },
+                {
+                    application: app,
+                    revision: rev,
+                    externalKey: null,
+                    idempotencyKey: 'k-webhook',
+                    trigger: 'webhook',
+                    seed: { role: 'user', content: 'hi', timestamp: 0 },
+                }
+            )
+            const session = await queue.get(out.sessionId)
+            // Every session is attributable to its source for the console badge + filter.
+            expect(session!.trigger_metadata).toEqual({ kind: 'webhook' })
+        })
+
+        it('defaults the stamped trigger kind to chat', async () => {
+            const queue = new PgSessionQueue(pool)
+            const { app, rev } = makePair()
+            const out = await enqueueOrResume(
+                { queue },
+                {
+                    application: app,
+                    revision: rev,
+                    externalKey: null,
+                    idempotencyKey: 'k-default',
+                    seed: { role: 'user', content: 'hi', timestamp: 0 },
+                }
+            )
+            const session = await queue.get(out.sessionId)
+            expect(session!.trigger_metadata).toEqual({ kind: 'chat' })
+        })
+
         it('idempotency_key and external_key compose: idempotency wins on collision', async () => {
             // A request with both keys, where the idempotency_key matches an
             // existing row. The dedupe path returns the original; the

@@ -32,7 +32,7 @@ import {
     shortId,
     type StateFilter,
     stateTone,
-} from './RevisionsBrowser'
+} from './revision-helpers'
 
 export interface RevisionBarProps {
     agent: AgentApplicationFixture

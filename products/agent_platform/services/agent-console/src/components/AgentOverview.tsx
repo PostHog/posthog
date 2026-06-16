@@ -147,7 +147,7 @@ export function AgentOverview({
                             <ul className="space-y-2">
                                 {triggers.map((t, i) => (
                                     <li key={i}>
-                                        <TriggerSummary trigger={t} />
+                                        <TriggerSummary trigger={t} onOpen={onOpenTriggers ?? onOpenConfiguration} />
                                     </li>
                                 ))}
                             </ul>
@@ -291,12 +291,17 @@ function CopyButton({ text }: { text: string }): React.ReactElement {
 
 function TriggerSummary({
     trigger,
+    onOpen,
 }: {
     trigger: { type: string; config?: Record<string, unknown> }
+    /** Opens the configuration triggers section for this agent. When set, the
+     *  whole row is a button — each trigger links into the config, not just the
+     *  card header. */
+    onOpen?: () => void
 }): React.ReactElement {
     const { Icon, summary, detail } = describeTrigger(trigger)
-    return (
-        <div className="flex items-start gap-2 rounded-md border border-border/60 bg-muted/20 px-2.5 py-1.5">
+    const inner = (
+        <>
             <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
             <div className="min-w-0 flex-1">
                 <div className="flex items-baseline gap-2 text-xs">
@@ -307,7 +312,25 @@ function TriggerSummary({
                     <div className="mt-0.5 font-mono text-[0.6875rem] text-muted-foreground">{detail}</div>
                 ) : null}
             </div>
-        </div>
+        </>
+    )
+    if (!onOpen) {
+        return (
+            <div className="flex items-start gap-2 rounded-md border border-border/60 bg-muted/20 px-2.5 py-1.5">
+                {inner}
+            </div>
+        )
+    }
+    return (
+        <button
+            type="button"
+            onClick={onOpen}
+            title={`Edit the ${trigger.type} trigger in config`}
+            className="group flex w-full items-start gap-2 rounded-md border border-border/60 bg-muted/20 px-2.5 py-1.5 text-left transition-colors hover:border-border hover:bg-accent/40"
+        >
+            {inner}
+            <ChevronRightIcon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground/60 transition-all group-hover:translate-x-0.5 group-hover:text-foreground" />
+        </button>
     )
 }
 

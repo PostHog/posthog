@@ -45,9 +45,9 @@ export const LongLabel: Story = {
 }
 
 /**
- * Several pills on one row — the per-section pattern in
- * `<ConfigPanel>`. Confirms the button keeps a tight footprint when
- * stacked next to its peers.
+ * Several pills on one row — the per-section pattern in the agent config
+ * surface. Confirms the button keeps a tight footprint when stacked next
+ * to its peers.
  */
 export const StackedRow: Story = {
     render: () => (

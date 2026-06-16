@@ -92,6 +92,7 @@ export function ConfigurationSegment(): React.ReactElement {
                 onChangeEditingSecret={(key) => pushParams({ editSecret: key })}
                 onMutated={reload}
                 onTryDraft={onTryDraft}
+                onOpenSession={(id) => router.push(`/agents/${agent.slug}/sessions?session=${encodeURIComponent(id)}`)}
             />
         </div>
     )
