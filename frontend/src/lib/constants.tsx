@@ -461,7 +461,6 @@ export const FEATURE_FLAGS = {
     REPLAY_VISION: 'replay-vision', // owner: #team-replay
     REVENUE_ANALYTICS: 'revenue-analytics', // owner: @rafaeelaudibert #team-customer-analytics
     REVENUE_FIELDS_IN_POWER_USERS_TABLE: 'revenue-fields-in-power-users-table', // owner: @arthurdedeus #team-customer-analytics
-    SCENE_ALERTS_LABEL_EXPERIMENT: 'scene-alerts-label-experiment', // owner: @mattp #team-analytics-platform multivariate=control,get-notified,monitor-changes,set-up-alert
     SCENE_MENU_BAR: 'scene-menu-bar', // owner: @adamleithp #team-platform-ux, gates the per-scene MenuBar above SceneTitleSection
     SCHEMA_ENFORCEMENT_REJECT: 'schema-enforcement-reject', // owner: @aspicer, gates the ability to set schema enforcement mode to "reject"
     SCHEMA_MANAGEMENT: 'schema-management', // owner: @aspicer
