@@ -118,6 +118,12 @@ class GithubSource(ResumableSource[GithubSourceConfig, GithubResumeConfig], OAut
             # "Failed to refresh installation token" prefix would also swallow transient 5xx/429
             # refresh failures, which must stay retryable.
             'Failed to refresh installation token: {"message":"Not Found"': "Your GitHub App installation could not be found. It may have been uninstalled or had its access revoked. Please reconnect your GitHub account.",
+            # Deterministic credential/config errors from _get_access_token and OAuthMixin. The linked
+            # GitHub integration was deleted (or never existed for this team), so retrying can't recover —
+            # the customer must reconnect their GitHub account.
+            "Missing GitHub integration ID": "GitHub integration ID is not configured. Please reconnect your GitHub account.",
+            "Integration not found": "The linked GitHub integration no longer exists. Please reconnect your GitHub account.",
+            "GitHub access token not found": "GitHub OAuth access token is missing. Please reconnect your GitHub account.",
         }
 
     def _get_access_token(self, config: GithubSourceConfig, team_id: int) -> str:
