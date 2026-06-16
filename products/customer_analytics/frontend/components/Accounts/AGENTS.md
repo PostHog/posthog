@@ -19,8 +19,8 @@ The scene renders `AccountsTabContent`, which binds one `dataNodeLogic` (key `AC
 ```text
 AccountsTabContent  ── binds dataNodeLogic(ACCOUNTS_HOGQL_DATA_NODE_KEY, accountsLogic.hogqlQuery.source)
 ├── AccountsMaxTools          registers the `open_account` Max contextual tool → accountsLogic.openAccount
-├── AccountsTabFilters        search / tags / "assigned to" / "my accounts" / "unassigned only"
-├── AccountsOverviewTilesButton + AccountsColumnConfigurator
+├── AccountsTabFilters        two rows: (1) search + Refresh; (2) tags / "assigned to" (incl. unassigned-only) /
+│                             "my accounts" on the left, AccountsOverviewTilesButton + AccountsColumnConfigurator on the right
 ├── AccountsOverviewTiles     metric tiles across the filtered set
 └── AccountsHogQLTable        the DataTable; per-column renderers; controlled row expansion
     └── AccountNotebooksExpansion   expanded row: Useful links + LemonTabs(Notes/Users/Usage)
@@ -44,7 +44,7 @@ AccountsTabContent  ── binds dataNodeLogic(ACCOUNTS_HOGQL_DATA_NODE_KEY, acc
 
 ## Data & query model
 
-`accountsLogic.hogqlQuery` builds a `DataTableNode` wrapping an `AccountsQuery` (`select`, plus optional `search`, `tagNames`, `allRolesUnassigned`, `assignedToUserIds`, `filterExpression`, `metrics`, `orderBy`). The backend runner (`accounts_query_runner`) returns **rows as arrays** aligned to `visibleColumnNames`. `assignedToUserIds` is the "assigned to" filter — a list of user ids the runner expands into `csm IN ids OR account_executive IN ids` (the single user-facing role filter; there are no separate per-role CSM/AE/owner filters). The "My accounts" checkbox is a client-side shortcut: `accountsLogic` resolves it to `[currentUserId]` (from `userLogic`) before the query is sent, so the backend only ever receives explicit ids and a shared URL resolves to the same accounts for every viewer. Two cell shapes matter:
+`accountsLogic.hogqlQuery` builds a `DataTableNode` wrapping an `AccountsQuery` (`select`, plus optional `search`, `tagNames`, `allRolesUnassigned`, `assignedToUserIds`, `filterExpression`, `metrics`, `orderBy`). The backend runner (`accounts_query_runner`) returns **rows as arrays** aligned to `visibleColumnNames`. `assignedToUserIds` is the "assigned to" filter — a list of user ids the runner expands into `csm IN ids OR account_executive IN ids` (the single user-facing role filter; there are no separate per-role CSM/AE/owner filters). The `allRolesUnassigned` flag (the "Unassigned only" option, surfaced inside the "Assigned to" picker — mutually exclusive with picking people via the cascade in `accountsLogic` listeners) restricts to accounts with no csm/AE/owner. The "My accounts" checkbox is a client-side shortcut: `accountsLogic` resolves it to `[currentUserId]` (from `userLogic`) before the query is sent, so the backend only ever receives explicit ids and a shared URL resolves to the same accounts for every viewer. Two cell shapes matter:
 
 - **`name` column** (mandatory, `ACCOUNTS_NAME_COLUMN`) — emitted as `tuple(name, external_id, id)`, read as `{ name, external_id, id }`. This is the row's identity: `id` (the account PK) drives expansion/scroll/role updates; `external_id` is the copy-able group key. `getNameCell()` in `AccountsHogQLTable.tsx` is the canonical accessor; never assume a column index.
 - **role columns** (`csm`, `account_executive`, `account_owner`) — emitted as `tuple(id, email)`, rendered with `MemberSelect`. Sorting these uses `tupleElement(col, 2)` (email) so visual order matches.

@@ -93,4 +93,12 @@ describe('AccountsTabFilters', () => {
         expect(screen.getByText('Assigned to 2 people')).toBeInTheDocument()
         expect(screen.queryByText('Assigned to anyone')).not.toBeInTheDocument()
     })
+
+    it('labels the assigned-to picker "Unassigned" when unassigned-only is active', () => {
+        logic.actions.setAllRolesUnassigned(true)
+        renderFilters()
+
+        expect(screen.getByText('Unassigned')).toBeInTheDocument()
+        expect(screen.queryByText('Assigned to anyone')).not.toBeInTheDocument()
+    })
 })
