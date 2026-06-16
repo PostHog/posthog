@@ -51572,6 +51572,10 @@ export namespace Schemas {
      * Natural-language search query. Runs hybrid (semantic + full-text) retrieval over all SAFE, READY knowledge chunks in this project.
      */
     query: string;
+    /**
+     * When true, rerank search results with a listwise LLM pass for better relevance. Defaults to false (RRF order only). Falls back to RRF order on rerank failure.
+     */
+    rerank?: boolean;
     };
 
     export type BusinessKnowledgeSourcesListParams = {
