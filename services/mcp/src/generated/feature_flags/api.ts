@@ -57,7 +57,7 @@ export const FeatureFlagsListQueryParams = /* @__PURE__ */ zod.object({
     active: zod.enum(['STALE', 'false', 'true']).optional(),
     created_by_id: zod.string().optional().describe('The User ID which initially created the feature flag.'),
     evaluation_runtime: zod
-        .enum(['both', 'client', 'server'])
+        .enum(['all', 'client', 'server'])
         .optional()
         .describe('Filter feature flags by their evaluation runtime.'),
     excluded_properties: zod
@@ -390,6 +390,12 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Whether this flag is a remote configuration flag that delivers a payload rather than gating a feature.'
         ),
+    ensure_experience_continuity: zod
+        .boolean()
+        .nullish()
+        .describe(
+            "Whether to persist a user's flag value across the anonymous-to-identified transition (the 'persist across authentication steps' option). Incompatible with device_id bucketing."
+        ),
 })
 
 /**
@@ -719,6 +725,12 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe(
             'Whether this flag is a remote configuration flag that delivers a payload rather than gating a feature.'
+        ),
+    ensure_experience_continuity: zod
+        .boolean()
+        .nullish()
+        .describe(
+            "Whether to persist a user's flag value across the anonymous-to-identified transition (the 'persist across authentication steps' option). Incompatible with device_id bucketing."
         ),
 })
 

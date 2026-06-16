@@ -5,6 +5,17 @@
             "description": "Whether the feature flag is active.",
             "type": "boolean"
         },
+        "ensure_experience_continuity": {
+            "anyOf": [
+                {
+                    "type": "boolean"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Whether to persist the flag's value for a user across the anonymous-to-identified transition (the \"persist across authentication steps\" option in the UI). Keeps a user's evaluated value stable once they log in. Incompatible with `device_id` bucketing."
+        },
         "evaluation_contexts": {
             "description": "Evaluation contexts that control where this flag evaluates at runtime.",
             "items": {
