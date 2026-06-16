@@ -370,6 +370,24 @@ def _resolve_scopes(metadata: CIMDMetadataDocument) -> list[str] | None:
     return filtered
 
 
+def _resolve_optional_scopes(metadata: CIMDMetadataDocument) -> list[str] | None:
+    """Resolve `com.posthog.optional_scopes` — the declinable subset a partner offers on top
+    of its required `scopes`, so a CIMD client gets the same required/optional consent split as
+    any other app. Returns None when the field is absent (leave existing scopes untouched),
+    otherwise the grantable-filtered list. Unlike `scopes`, an empty result is benign (it just
+    means no optional scopes, with no widen-to-default fallback), so a fully non-grantable list
+    resolves to `[]` rather than rejecting the registration.
+    """
+    com_posthog = metadata.get("com.posthog")
+    if not isinstance(com_posthog, dict):
+        return None
+    # Untrusted partner JSON: guard the real type rather than trust the TypedDict.
+    raw_optional: object = com_posthog.get("optional_scopes")
+    if not isinstance(raw_optional, list):
+        return None
+    return filter_to_unprivileged_scopes(raw_optional)
+
+
 def _create_cimd_application(url: str, metadata: CIMDMetadataDocument) -> OAuthApplication:
     """Create a new OAuthApplication from CIMD metadata."""
     client_name = metadata.get("client_name", "CIMD Client")
@@ -382,6 +400,7 @@ def _create_cimd_application(url: str, metadata: CIMDMetadataDocument) -> OAuthA
     logo_uri = metadata.get("logo_uri") or None
     verification = _resolve_verification_token(metadata)
     resolved_scopes = _resolve_scopes(metadata)
+    resolved_optional_scopes = _resolve_optional_scopes(metadata)
 
     app = OAuthApplication(
         name=client_name,
@@ -397,6 +416,7 @@ def _create_cimd_application(url: str, metadata: CIMDMetadataDocument) -> OAuthA
         logo_uri=logo_uri,
         organization=verification.organization if verification else None,
         scopes=resolved_scopes if resolved_scopes is not None else [],
+        optional_scopes=resolved_optional_scopes if resolved_optional_scopes is not None else [],
         user=None,
     )
     app.full_clean()
@@ -447,6 +467,12 @@ def _update_cimd_application(app: OAuthApplication, metadata: CIMDMetadataDocume
     if resolved_scopes is not None:
         app.scopes = resolved_scopes
         update_fields.append("scopes")
+    # Refresh `optional_scopes` from the same metadata so the required/optional split never
+    # drifts: both fields are rewritten together on every fetch.
+    resolved_optional_scopes = _resolve_optional_scopes(metadata)
+    if resolved_optional_scopes is not None:
+        app.optional_scopes = resolved_optional_scopes
+        update_fields.append("optional_scopes")
     old_org_id = app.organization_id
     new_org_id = new_org.id if new_org else None
     if old_org_id != new_org_id:

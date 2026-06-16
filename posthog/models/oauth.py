@@ -137,14 +137,9 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
     def required_scopes(self) -> list[str]:
         # Everything in the explicit ceiling is required and locked at consent; optional_scopes
         # are additive declinable extras. An empty `scopes` is a broad/deferred request
-        # (MCP / `*` / empty) so nothing is required and the user picks freely.
-        #
-        # Self-registered clients (DCR / CIMD) control `scopes` themselves. Locking them would let
-        # a client force its own registered scopes into the grant even when the user was sent an
-        # authorization request for a narrower set, so for those `scopes` stays a pure ceiling and
-        # nothing is locked. Only admin-seeded apps get the required floor.
-        if self.is_dcr_client or self.is_cimd_client:
-            return []
+        # (MCP / `*` / empty) so nothing is required and the user picks freely. Self-registered
+        # (DCR / CIMD) ceilings are already filtered to grantable scopes and shown as locked rows
+        # the user can decline by cancelling, so they carry the same required floor as any other app.
         return list(self.scopes)
 
     # Generation marker for app-wide session revocation. A refresh presenting a token issued
@@ -293,11 +288,6 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
         super().clean()
 
         if self.optional_scopes:
-            if self.is_cimd_client:
-                # CIMD metadata refresh rewrites `scopes` from partner-hosted JSON; with a
-                # split active that would let the partner unilaterally grow the locked,
-                # force-granted required set.
-                raise ValidationError({"optional_scopes": "CIMD applications cannot declare optional scopes."})
             if not self.scopes:
                 raise ValidationError(
                     {"optional_scopes": "Declaring optional scopes requires a non-empty required set in `scopes`."}
