@@ -244,6 +244,13 @@ class TestGetPersonIdRangesPageActivity:
         node = captured["node"]
         assert isinstance(node, ast.SelectQuery)
         assert node.where is None
+        # Pagination must enumerate IDs off the raw ``person`` table with DISTINCT, not the
+        # ``persons`` lazy table -- otherwise ``id > cursor`` is wrapped in an unbounded
+        # ``id IN (...)`` subquery that GROUP BYs the whole ID tail on every page.
+        assert node.distinct is True
+        assert isinstance(node.select_from, ast.JoinExpr)
+        assert isinstance(node.select_from.table, ast.Field)
+        assert node.select_from.table.chain == ["raw_persons"]
 
     @pytest.mark.asyncio
     async def test_where_is_single_expr_with_only_after_person_id(self):
