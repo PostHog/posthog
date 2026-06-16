@@ -175,6 +175,38 @@ describe('LemonCalendarSelect', () => {
         expect(onChange).toHaveBeenLastCalledWith(dayjs('2023-01-10T14:22:00.000Z'))
     })
 
+    test('upcoming selection resolves the day boundary in selectionPeriodTimezone', async () => {
+        // 04:00 UTC on Jan 11 is still 23:00 on Jan 10 in New York, so "today" is Jan 10 there, not Jan 11 UTC.
+        jest.setSystemTime(new Date('2023-01-11 04:00:00'))
+        const { onChange, clickOnDate } = renderLemonCalendarSelect(null, {
+            granularity: 'minute',
+            selectionPeriod: 'upcoming',
+            selectionPeriodTimezone: 'America/New_York',
+        })
+
+        // Jan 10 is today in New York, so it stays selectable (UTC-local would wrongly block it as past).
+        await clickOnDate('10')
+        expect(onChange).toHaveBeenCalledWith(dayjs('2023-01-10T23:00:00.000Z'))
+    })
+
+    test('past selection resolves the day boundary in selectionPeriodTimezone', async () => {
+        // 20:00 UTC on Jan 10 is already 05:00 on Jan 11 in Tokyo, so "today" is Jan 11 there, not Jan 10 UTC.
+        jest.setSystemTime(new Date('2023-01-10 20:00:00'))
+        const { onChange, clickOnDate } = renderLemonCalendarSelect(null, {
+            granularity: 'minute',
+            selectionPeriod: 'past',
+            selectionPeriodTimezone: 'Asia/Tokyo',
+        })
+
+        // Jan 11 is today in Tokyo, so it stays selectable in past mode (UTC-local would wrongly block it as future).
+        await clickOnDate('11')
+        expect(onChange).toHaveBeenCalledWith(dayjs('2023-01-11T05:00:00.000Z'))
+
+        // Jan 12 is genuinely in the future in Tokyo and remains disabled.
+        await clickOnDate('12')
+        expect(onChange).toHaveBeenLastCalledWith(dayjs('2023-01-11T05:00:00.000Z'))
+    })
+
     test('allow only upcoming selection after a limit (one day in the future)', async () => {
         const { onChange, clickOnDate, clickOnTime } = renderLemonCalendarSelect(null, {
             granularity: 'minute',

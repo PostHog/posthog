@@ -3,7 +3,7 @@ import { useRef, useState } from 'react'
 
 import { IconX } from '@posthog/icons'
 
-import { dayjs } from 'lib/dayjs'
+import { dayjs, dayjsNowInTimezone } from 'lib/dayjs'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton, LemonButtonProps, LemonButtonWithSideActionProps, SideAction } from 'lib/lemon-ui/LemonButton'
 import {
@@ -103,7 +103,7 @@ export interface LemonCalendarSelectProps {
     granularity?: LemonCalendarProps['granularity']
     selectionPeriod?: 'past' | 'upcoming'
     selectionPeriodLimit?: dayjs.Dayjs | null
-    /** Timezone the past/upcoming boundary is evaluated in (defaults to browser local). */
+    /** Timezone used to determine which past/future dates are selectable (defaults to browser local). */
     selectionPeriodTimezone?: string
     showTimeToggle?: boolean
     onToggleTime?: (value: boolean) => void
@@ -128,9 +128,7 @@ export function LemonCalendarSelect({
     const [selectValue, setSelectValue] = useState<dayjs.Dayjs | null>(value ? value.startOf(granularity) : null)
 
     // Evaluate "now" as the timezone's wall clock (naive local Dayjs) so it's comparable to picked dates.
-    const now = selectionPeriodTimezone
-        ? dayjs(dayjs().tz(selectionPeriodTimezone).format('YYYY-MM-DDTHH:mm:ss.SSS'))
-        : dayjs()
+    const now = selectionPeriodTimezone ? dayjsNowInTimezone(selectionPeriodTimezone) : dayjs()
     const today = now.startOf('day')
 
     const scrollToTime = (date: dayjs.Dayjs, skipAnimation: boolean): void => {
