@@ -80,6 +80,7 @@ class CohortErrorCode(StrEnum):
     INVALID_REGEX = "invalid_regex"
     INCOMPATIBLE_TYPES = "incompatible_types"
     NO_PROPERTIES = "no_properties"
+    FLAG_CHANGED = "flag_changed"
     UNKNOWN = "unknown"
 
 
@@ -97,6 +98,7 @@ ERROR_CODE_MESSAGES: dict[str, str] = {
     CohortErrorCode.NO_PROPERTIES: "This cohort has no matching criteria defined. Please add at least one.",
     CohortErrorCode.VALIDATION_ERROR: UNEXPECTED_ERROR_MESSAGE,
     CohortErrorCode.INCOMPATIBLE_TYPES: UNEXPECTED_ERROR_MESSAGE,
+    CohortErrorCode.FLAG_CHANGED: "The feature flag changed while this cohort was being calculated. Please run the calculation again.",
     CohortErrorCode.UNKNOWN: UNEXPECTED_ERROR_MESSAGE,
 }
 

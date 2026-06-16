@@ -42,7 +42,6 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "PermissionDenied: 403 request failed": "BigQuery permission denied. Please check that your service account has the necessary permissions.",
-            "NotFound: 404": "BigQuery dataset or table not found. Please verify your project, dataset, and table names.",
             # OAuth2 error code returned by Google's token endpoint when the service account grant
             # is rejected — a rotated/revoked private key ("Invalid JWT Signature") or a deleted
             # service account ("account not found"). Raised as a `RefreshError` while refreshing the
@@ -69,6 +68,13 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # access. The "Access Denied:"/403 keys above only cover BigQuery's own IAM wording, so
             # this lowercase upstream form slips through and retries forever.
             "permission denied for table": 'BigQuery couldn\'t read a federated table because the underlying database denied permission ("permission denied for table"). Please grant the database user behind your BigQuery connection read access to the table, then reconnect the source.',
+            # Raised from schema discovery (`get_columns`) and query jobs when the configured
+            # dataset/table doesn't exist in the location we query — the dataset was deleted or
+            # renamed, or it lives in a different region than the one we run against. The google
+            # exception stringifies as "404 Not found: Dataset ... was not found in location US",
+            # so match the stable phrasing here. Retrying can't recover — the user must fix the
+            # dataset or set the correct region.
+            "was not found in location": "BigQuery couldn't find the configured dataset or table. It may have been deleted or renamed, or it may live in a different region — verify your dataset and table names, and set the dataset region in your source configuration if it isn't in the US.",
             # Raised from the shared `evolve_pyarrow_schema` in `pipelines/pipeline/utils.py`
             # when an integer column's source type was widened (e.g. `INT64` widened from a
             # narrower numeric type) after the destination table was created with the narrower

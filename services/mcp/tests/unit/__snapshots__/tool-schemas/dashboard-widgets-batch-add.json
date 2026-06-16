@@ -6,9 +6,229 @@
             "type": "number"
         },
         "widgets": {
-            "description": "Widget tiles to add atomically. Supported widget_type values: error_tracking_list, session_replay_list. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).",
+            "description": "Widget tiles to add atomically. Supported widget_type values: activity_events_list, error_tracking_list, session_replay_list. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).",
             "items": {
                 "anyOf": [
+                    {
+                        "properties": {
+                            "config": {
+                                "description": "Configuration for the recent events widget.",
+                                "properties": {
+                                    "dateRange": {
+                                        "anyOf": [
+                                            {
+                                                "properties": {
+                                                    "date_from": {
+                                                        "anyOf": [
+                                                            {
+                                                                "enum": [
+                                                                    "-1h",
+                                                                    "-3h",
+                                                                    "-24h",
+                                                                    "-7d",
+                                                                    "-14d",
+                                                                    "-30d",
+                                                                    "-90d"
+                                                                ],
+                                                                "type": "string"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ]
+                                                    }
+                                                },
+                                                "type": "object"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ]
+                                    },
+                                    "filterTestAccounts": {
+                                        "anyOf": [
+                                            {
+                                                "type": "boolean"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ]
+                                    },
+                                    "limit": {
+                                        "default": 25,
+                                        "description": "Maximum number of events to return.",
+                                        "maximum": 50,
+                                        "minimum": 1,
+                                        "type": "number"
+                                    },
+                                    "widgetFilters": {
+                                        "anyOf": [
+                                            {
+                                                "additionalProperties": {
+                                                    "properties": {
+                                                        "filterId": {
+                                                            "minLength": 1,
+                                                            "type": "string"
+                                                        },
+                                                        "operator": {
+                                                            "enum": [
+                                                                "exact",
+                                                                "is_not",
+                                                                "icontains",
+                                                                "not_icontains",
+                                                                "regex",
+                                                                "not_regex",
+                                                                "gt",
+                                                                "gte",
+                                                                "lt",
+                                                                "lte",
+                                                                "is_set",
+                                                                "is_not_set",
+                                                                "is_date_exact",
+                                                                "is_date_before",
+                                                                "is_date_after",
+                                                                "between",
+                                                                "not_between",
+                                                                "min",
+                                                                "max",
+                                                                "in",
+                                                                "not_in",
+                                                                "is_cleaned_path_exact",
+                                                                "flag_evaluates_to",
+                                                                "semver_eq",
+                                                                "semver_neq",
+                                                                "semver_gt",
+                                                                "semver_gte",
+                                                                "semver_lt",
+                                                                "semver_lte",
+                                                                "semver_tilde",
+                                                                "semver_caret",
+                                                                "semver_wildcard",
+                                                                "icontains_multi",
+                                                                "not_icontains_multi"
+                                                            ],
+                                                            "type": "string"
+                                                        },
+                                                        "optionId": {
+                                                            "minLength": 1,
+                                                            "type": "string"
+                                                        },
+                                                        "propertyName": {
+                                                            "minLength": 1,
+                                                            "type": "string"
+                                                        },
+                                                        "value": {
+                                                            "anyOf": [
+                                                                {
+                                                                    "type": "string"
+                                                                },
+                                                                {
+                                                                    "items": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "type": "array"
+                                                                },
+                                                                {
+                                                                    "type": "null"
+                                                                }
+                                                            ]
+                                                        }
+                                                    },
+                                                    "required": ["filterId", "propertyName", "optionId", "operator"],
+                                                    "type": "object"
+                                                },
+                                                "propertyNames": {
+                                                    "type": "string"
+                                                },
+                                                "type": "object"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ]
+                                    }
+                                },
+                                "type": "object"
+                            },
+                            "description": {
+                                "description": "Optional markdown description shown when show_description is enabled.",
+                                "type": "string"
+                            },
+                            "layouts": {
+                                "description": "Optional react-grid-layout positions keyed by breakpoint (sm, xs).",
+                                "properties": {
+                                    "sm": {
+                                        "description": "Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.",
+                                        "properties": {
+                                            "h": {
+                                                "description": "Height in grid rows.",
+                                                "type": "number"
+                                            },
+                                            "w": {
+                                                "description": "Width in grid columns. The desktop grid is 12 columns wide.",
+                                                "type": "number"
+                                            },
+                                            "x": {
+                                                "description": "Column position in the dashboard grid (0-indexed).",
+                                                "type": "number"
+                                            },
+                                            "y": {
+                                                "description": "Row position in the dashboard grid (0-indexed).",
+                                                "type": "number"
+                                            }
+                                        },
+                                        "type": "object"
+                                    },
+                                    "xs": {
+                                        "description": "Layout for the small (mobile) breakpoint. The grid is 1 column wide.",
+                                        "properties": {
+                                            "h": {
+                                                "description": "Height in grid rows.",
+                                                "type": "number"
+                                            },
+                                            "w": {
+                                                "description": "Width in grid columns. The desktop grid is 12 columns wide.",
+                                                "type": "number"
+                                            },
+                                            "x": {
+                                                "description": "Column position in the dashboard grid (0-indexed).",
+                                                "type": "number"
+                                            },
+                                            "y": {
+                                                "description": "Row position in the dashboard grid (0-indexed).",
+                                                "type": "number"
+                                            }
+                                        },
+                                        "type": "object"
+                                    }
+                                },
+                                "type": "object"
+                            },
+                            "name": {
+                                "anyOf": [
+                                    {
+                                        "maxLength": 400,
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "Optional custom display name for the widget tile."
+                            },
+                            "show_description": {
+                                "description": "Whether to show the description on the dashboard tile.",
+                                "type": "boolean"
+                            },
+                            "widget_type": {
+                                "enum": ["activity_events_list"],
+                                "type": "string"
+                            }
+                        },
+                        "required": ["widget_type", "config"],
+                        "type": "object"
+                    },
                     {
                         "properties": {
                             "config": {
