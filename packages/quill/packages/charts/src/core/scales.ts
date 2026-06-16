@@ -51,7 +51,9 @@ export function seriesValueRange(series: Series[]): SeriesValueRange {
         if (s.visibility?.excluded) {
             continue
         }
-        for (const v of s.data) {
+        // A confidence ribbon's lower bound (`fill.lowerData`) is part of the data's visible
+        // extent, so it must widen the axis too — otherwise the band clips at the top series.
+        for (const v of s.fill?.lowerData ? [...s.data, ...s.fill.lowerData] : s.data) {
             if (v == null || !isFinite(v)) {
                 continue
             }
@@ -167,8 +169,16 @@ export function createYScale(
 
     if (scaleType === 'log') {
         if (!isFinite(range.minPositive)) {
+            // No positive values for a log scale (e.g. all-zero data). Fall back to linear, and
+            // bracket a degenerate `min === max` domain so it doesn't collapse to NaN.
+            let logMin = min
+            let logMax = max
+            if (logMin === logMax) {
+                logMin = Math.min(0, logMin)
+                logMax = Math.max(0, logMax, logMin + 1)
+            }
             return scaleLinear()
-                .domain([min, max])
+                .domain([logMin, logMax])
                 .nice(tickCount)
                 .range([dimensions.plotTop + dimensions.plotHeight, dimensions.plotTop])
         }

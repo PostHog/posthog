@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
@@ -88,6 +89,8 @@ class TemporalIOSource(ResumableSource[TemporalIOSourceConfig, TemporalIOResumeC
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.TEMPORAL_IO,
+            category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
+            keywords=["temporal"],
             label="Temporal.io",
             iconPath="/static/services/temporal.png",
             docsUrl="https://posthog.com/docs/cdp/sources/temporal",

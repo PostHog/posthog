@@ -610,6 +610,27 @@ class InsightSerializer(InsightBasicSerializer):
         created_by = validated_data.pop("created_by", request.user)
         dashboards = validated_data.pop("dashboards", None)
 
+        # Validate dashboard access before creating anything: create() runs in autocommit,
+        # so raising mid-way would otherwise leave an orphaned insight (and emit user actions
+        # for tiles that never persist on multi-dashboard requests).
+        target_dashboards: list[Dashboard] = []
+        if dashboards is not None:
+            # Per-dashboard limit (analytics.max_insights_per_dashboard) is enforced
+            # in validate(); see InsightSerializer.validate above.
+            # nosemgrep: idor-lookup-without-team
+            target_dashboards = list(Dashboard.objects.filter(id__in=[d.id for d in dashboards]))
+            for dashboard in target_dashboards:
+                # Mirror the update path: adding a tile is an edit of the dashboard, so a
+                # restricted dashboard the user can't edit must not be writable on create either.
+                if (
+                    self.user_permissions.dashboard(dashboard).effective_privilege_level
+                    != Dashboard.PrivilegeLevel.CAN_EDIT
+                ):
+                    raise PermissionDenied(f"You don't have permission to add insights to dashboard: {dashboard.id}")
+
+                if dashboard.team_id != team_id:
+                    raise serializers.ValidationError("Dashboard not found")
+
         insight = Insight.objects.create(
             team_id=team_id,
             created_by=created_by,
@@ -619,28 +640,21 @@ class InsightSerializer(InsightBasicSerializer):
 
         InsightViewed.objects.create(team_id=team_id, user=request.user, insight=insight, last_viewed_at=now())
 
-        if dashboards is not None:
-            # Per-dashboard limit (analytics.max_insights_per_dashboard) is enforced
-            # in validate(); see InsightSerializer.validate above.
-            # nosemgrep: idor-lookup-without-team
-            for dashboard in Dashboard.objects.filter(id__in=[d.id for d in dashboards]).all():
-                if dashboard.team != insight.team:
-                    raise serializers.ValidationError("Dashboard not found")
-
-                DashboardTile.objects.create(
-                    insight=insight, dashboard=dashboard, team_id=dashboard.team_id, last_refresh=now()
-                )
-                report_user_action(
-                    self.context["request"].user,
-                    "dashboard tile added",
-                    {
-                        "tile_type": "insight",
-                        "insight_type": _get_insight_type(insight),
-                        "dashboard_id": dashboard.id,
-                    },
-                    team=insight.team,
-                    request=self.context["request"],
-                )
+        for dashboard in target_dashboards:
+            DashboardTile.objects.create(
+                insight=insight, dashboard=dashboard, team_id=dashboard.team_id, last_refresh=now()
+            )
+            report_user_action(
+                self.context["request"].user,
+                "dashboard tile added",
+                {
+                    "tile_type": "insight",
+                    "insight_type": _get_insight_type(insight),
+                    "dashboard_id": dashboard.id,
+                },
+                team=insight.team,
+                request=self.context["request"],
+            )
 
         # Manual tag creation since this create method doesn't call super()
         self._attempt_set_tags(tags, insight)

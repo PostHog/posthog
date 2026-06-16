@@ -87,6 +87,7 @@ function buildPipeline(configOverrides: Partial<AiEventSubpipelineConfig> = {}) 
             PERSON_MERGE_SYNC_BATCH_SIZE: 0,
             PERSON_JSONB_SIZE_ESTIMATE_ENABLE: 0,
             PERSON_PROPERTIES_UPDATE_ALL: false,
+            FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: '*',
         },
         outputs: mockOutputs,
         teamManager: {

@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -34,6 +35,7 @@ class MailJetSource(ResumableSource[MailjetSourceConfig, MailjetResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.MAILJET,
+            category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Mailjet",
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your Mailjet API key and secret key to pull your Mailjet data into the PostHog Data warehouse.

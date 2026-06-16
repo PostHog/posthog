@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { Tooltip } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 
@@ -8,10 +8,11 @@ import { Query } from '~/queries/Query/Query'
 import { InsightVizNode, NodeKind, ProductKey, TrendsQuery } from '~/queries/schema/schema-general'
 import { BaseMathType, ChartDisplayType } from '~/types'
 
+import { ScannerTypeBadge } from '../../components/ScannerTypeBadge'
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { QUOTA_STATUS_STYLES, projectQuota } from '../../utils/quotaProjection'
 import { replayScannersLogic } from '../replayScannersLogic'
-import { SCANNER_TYPE_OPTIONS, SCANNER_TYPE_TAG_TYPE, scannerTypeLabel } from '../types'
+import { SCANNER_TYPE_OPTIONS } from '../types'
 import { QuotaMeterBar, QuotaMeterLegendItem } from './QuotaMeterBar'
 import { QuotaStatusLine } from './QuotaStatusLine'
 
@@ -87,9 +88,12 @@ export function VisionMetrics(): JSX.Element {
                         {SCANNER_TYPE_OPTIONS.map(({ value }) => {
                             const { enabled = 0, total = 0 } = scannerStats?.by_type?.[value] ?? {}
                             return (
-                                <LemonTag key={value} type={total > 0 ? SCANNER_TYPE_TAG_TYPE[value] : 'muted'}>
-                                    {scannerTypeLabel(value)} {enabled}/{total}
-                                </LemonTag>
+                                <ScannerTypeBadge
+                                    key={value}
+                                    scannerType={value}
+                                    variant={total > 0 ? 'default' : 'muted'}
+                                    suffix={`${enabled}/${total}`}
+                                />
                             )
                         })}
                     </div>
