@@ -481,18 +481,6 @@ tools:
         param_overrides:
             id:
                 cast: string-int
-    dashboards-sharing-list:
-        operation: dashboards_sharing_list
-        enabled: false
-    dashboards-sharing-passwords-create:
-        operation: dashboards_sharing_passwords_create
-        enabled: false
-    dashboards-sharing-passwords-destroy:
-        operation: dashboards_sharing_passwords_destroy
-        enabled: false
-    dashboards-sharing-refresh-create:
-        operation: dashboards_sharing_refresh_create
-        enabled: false
     dashboards-stream-tiles-retrieve:
         operation: dashboards_stream_tiles_retrieve
         enabled: false

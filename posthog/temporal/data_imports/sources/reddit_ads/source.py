@@ -1,7 +1,9 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
+    ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
@@ -34,15 +36,27 @@ class RedditAdsSource(ResumableSource[RedditAdsSourceConfig, RedditAdsResumeConf
         return ExternalDataSourceType.REDDITADS
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
-        return {"401 Client Error": None, "404 Client Error": None}
+        return {
+            "401 Client Error": None,
+            # Reddit returns 403 when the connected account lacks permission to read the
+            # configured ad account's reports (access revoked or insufficient scope). The
+            # request can never succeed without the user reconnecting, so stop retrying.
+            "403 Client Error": None,
+            "404 Client Error": None,
+            # Raised by OAuthMixin.get_oauth_integration when the connected Reddit Ads
+            # account has been deleted or disconnected. The integration row is gone, so
+            # retrying can never recover it — stop and ask the user to reconnect.
+            "Integration not found": "The connected Reddit Ads account is no longer available — it may have been disconnected. Please reconnect the source's account.",
+        }
 
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.REDDIT_ADS,
+            category=DataWarehouseSourceCategory.ADVERTISING,
             label="Reddit Ads",
             caption="Collect campaign data, ad performance, and advertising metrics from Reddit Ads. Ensure you have granted PostHog access to your Reddit Ads account, learn how to do this in [the documentation](https://posthog.com/docs/cdp/sources/reddit-ads).",
-            releaseStatus="beta",
+            releaseStatus=ReleaseStatus.GA,
             iconPath="/static/services/reddit.png",
             docsUrl="https://posthog.com/docs/cdp/sources/reddit-ads",
             fields=cast(

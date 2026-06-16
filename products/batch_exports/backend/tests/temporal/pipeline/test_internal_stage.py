@@ -639,6 +639,21 @@ async def test_compute_num_partitions_db_error_falls_back_to_static_default():
     assert result == 10
 
 
+async def test_compute_num_partitions_disabled_uses_static_default():
+    with (
+        override_settings(
+            BATCH_EXPORT_DYNAMIC_PARTITIONING_ENABLED=False,
+            BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS=10,
+        ),
+        patch(_FETCHER_PATH, new=AsyncMock(return_value=5_000_000)) as mock_fetch,
+    ):
+        result = await compute_num_partitions(
+            batch_export_id=str(uuid.uuid4()), data_interval_start=_INTERVAL_START, data_interval_end=_INTERVAL_END
+        )
+    assert result == 10
+    mock_fetch.assert_not_called()
+
+
 async def test_compute_num_partitions_without_interval_start_falls_back_to_static_default():
     """An unbounded interval (no start) gives no frequency to match, so we don't risk an estimate."""
     with (

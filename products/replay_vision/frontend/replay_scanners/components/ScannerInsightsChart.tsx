@@ -92,20 +92,19 @@ function buildQuery(
         }
     }
     if (scannerType === 'scorer') {
-        const scoreSeries = (math: PropertyMathType, name: string): TrendsQuery['series'][number] => ({
+        const scoreSeries = (math: PropertyMathType): TrendsQuery['series'][number] => ({
             kind: NodeKind.EventsNode,
             event: RECORDING_OBSERVED_EVENT,
             math,
             math_property: 'scanner_output_score',
-            name,
             properties: [base],
         })
         return {
             kind: NodeKind.TrendsQuery,
             series: [
-                scoreSeries(PropertyMathType.Median, 'p50'),
-                scoreSeries(PropertyMathType.P90, 'p90'),
-                scoreSeries(PropertyMathType.Average, 'avg'),
+                scoreSeries(PropertyMathType.Median),
+                scoreSeries(PropertyMathType.P90),
+                scoreSeries(PropertyMathType.Average),
             ],
             trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
             dateRange,
