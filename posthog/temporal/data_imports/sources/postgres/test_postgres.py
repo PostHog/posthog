@@ -314,6 +314,44 @@ class TestPostgresSourceSetupRecoveryConflictRetry:
 
         assert connect_mock.call_count == 1
 
+    def test_connection_dropped_while_opening_setup_connection_is_retried(self):
+        # A transient drop while opening the setup connection ("server closed the connection
+        # unexpectedly") is the same class of error the read path already recovers from. The setup
+        # connect must retry in-process with bounded backoff instead of failing on the first drop.
+        err = psycopg.OperationalError(
+            'connection failed: connection to server at "3.151.121.165", port 5432 failed: '
+            "server closed the connection unexpectedly"
+        )
+
+        with patch(
+            "posthog.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
+            side_effect=err,
+        ) as connect_mock:
+            with patch("posthog.temporal.data_imports.sources.postgres.postgres.time.sleep"):
+                with pytest.raises(psycopg.OperationalError):
+                    self._call_postgres_source()
+
+        # `_connect_with_dropped_retry` defaults to 5 attempts; before the fix the drop escaped on
+        # the first connect (call_count == 1).
+        assert connect_mock.call_count == 5
+
+    def test_permanent_error_while_opening_setup_connection_is_not_retried(self):
+        # A permanent connect failure (bad password) must not be retried by the dropped-connection
+        # handler — it should propagate on the first attempt.
+        err = psycopg.OperationalError(
+            'connection to server at "10.0.0.1" failed: FATAL: password authentication failed for user "u"'
+        )
+
+        with patch(
+            "posthog.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
+            side_effect=err,
+        ) as connect_mock:
+            with patch("posthog.temporal.data_imports.sources.postgres.postgres.time.sleep"):
+                with pytest.raises(psycopg.OperationalError):
+                    self._call_postgres_source()
+
+        assert connect_mock.call_count == 1
+
 
 class TestIsConnectionDroppedError:
     @pytest.mark.parametrize(
