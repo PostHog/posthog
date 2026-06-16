@@ -16,7 +16,7 @@
 
 import cronParser from 'cron-parser'
 
-import { AgentRevision, BundleStore } from '@posthog/agent-shared'
+import { AgentRevision, AgentSpec, BundleStore, getSecretAllowedHosts } from '@posthog/agent-shared'
 import { hasNativeTool } from '@posthog/agent-tools'
 
 export type ValidationCode =
@@ -28,6 +28,7 @@ export type ValidationCode =
     | 'invalid_cron_timezone'
     | 'duplicate_cron_name'
     | 'unknown_cron_placeholder'
+    | 'secret_no_host_binding'
 
 /**
  * Non-blocking soft signals — surface to the author before freeze, but the
@@ -215,6 +216,8 @@ export async function validateRevisionBundle(rev: AgentRevision, bundle: BundleS
         }
     }
 
+    await checkSecretHostBindings(rev, bundle, errors)
+
     return {
         ok: errors.length === 0,
         revision_id: rev.id,
@@ -223,6 +226,84 @@ export async function validateRevisionBundle(rev: AgentRevision, bundle: BundleS
         warnings,
         resolved_natives: resolvedNatives,
     }
+}
+
+/**
+ * Match `${NAME}` references — same shape `@posthog/http-request` substitutes
+ * at runtime. Mirrors the `SECRET_REF` regex in `http-request.v1.ts` so what
+ * the validator flags at freeze is exactly what the runner would refuse.
+ */
+const SECRET_REF = /\$\{([A-Z][A-Z0-9_]*)\}/g
+
+interface ScanTarget {
+    path: string
+    /** Where the error attaches — `spec.entrypoint` or `spec.skills[i].path`. */
+    pointer: string
+}
+
+/**
+ * Cross-check spec.secrets[] against `${NAME}` references in the agent.md
+ * entrypoint and each declared skill body. A reference to a bare-string
+ * `spec.secrets[]` entry is `secret_no_host_binding` at session start (the
+ * runtime refuses substitution into model-controlled URL/headers/body), so
+ * catch it here instead of letting it surface as a tool error on first call.
+ *
+ * Undeclared references and references to object-form entries are not flagged
+ * — the former is `secret_not_resolved` (a different runtime error not in
+ * this validator's scope), the latter is the supported shape.
+ */
+async function checkSecretHostBindings(
+    rev: AgentRevision,
+    bundle: BundleStore,
+    errors: ValidationError[]
+): Promise<void> {
+    const targets: ScanTarget[] = [{ path: rev.spec.entrypoint || 'agent.md', pointer: 'spec.entrypoint' }]
+    for (const [i, skill] of rev.spec.skills.entries()) {
+        targets.push({ path: skill.path, pointer: `spec.skills[${i}].path` })
+    }
+    // dedupe (pointer, name) so a secret referenced many times in one file
+    // produces one error, not N.
+    const seen = new Set<string>()
+    for (const target of targets) {
+        if (!(await bundle.exists(rev.id, target.path))) {
+            continue
+        }
+        const body = await bundle.readText(rev.id, target.path)
+        for (const name of uniqueSecretRefs(body)) {
+            const binding = getSecretAllowedHosts(rev.spec, name)
+            if (binding !== null) {
+                continue
+            }
+            const key = `${target.pointer}|${name}`
+            if (seen.has(key)) {
+                continue
+            }
+            seen.add(key)
+            errors.push({
+                code: 'secret_no_host_binding',
+                message: secretBindingMessage(name, target.path, rev.spec),
+                pointer: target.pointer,
+            })
+        }
+    }
+}
+
+function uniqueSecretRefs(input: string): string[] {
+    const out = new Set<string>()
+    let match: RegExpExecArray | null
+    SECRET_REF.lastIndex = 0
+    while ((match = SECRET_REF.exec(input)) !== null) {
+        out.add(match[1])
+    }
+    return [...out]
+}
+
+function secretBindingMessage(name: string, path: string, _spec: AgentSpec): string {
+    return (
+        `${path} references \${${name}} but spec.secrets[] declares "${name}" as a bare string; ` +
+        `@posthog/http-request will refuse to substitute it (secret_no_host_binding). ` +
+        `Convert to the object form: { "name": "${name}", "allowed_hosts": ["api.example.com"] }.`
+    )
 }
 
 /**

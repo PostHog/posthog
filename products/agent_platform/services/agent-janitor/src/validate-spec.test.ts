@@ -229,4 +229,91 @@ describe('validateRevisionBundle', () => {
             expect(report.ok).toBe(true)
         })
     })
+
+    describe('secret host binding', () => {
+        it('flags ${NAME} in agent.md when the secret is declared as a bare string', async () => {
+            const bundles = makeBundles()
+            await bundles.write('rev1', 'agent.md', 'Call slack with `Authorization: Bearer ${SLACK_BOT_TOKEN}`.')
+            const report = await validateRevisionBundle(mkRev({ secrets: ['SLACK_BOT_TOKEN'] }), bundles)
+            expect(report.ok).toBe(false)
+            expect(report.errors).toEqual([
+                {
+                    code: 'secret_no_host_binding',
+                    pointer: 'spec.entrypoint',
+                    message: expect.stringContaining('SLACK_BOT_TOKEN'),
+                },
+            ])
+        })
+
+        it('flags ${NAME} in a declared skill body', async () => {
+            const bundles = makeBundles()
+            await bundles.write('rev1', 'agent.md', 'see the skill')
+            await bundles.write('rev1', 'skills/slack/SKILL.md', 'POST with `Bearer ${SLACK_BOT_TOKEN}`.')
+            const report = await validateRevisionBundle(
+                mkRev({
+                    secrets: ['SLACK_BOT_TOKEN'],
+                    skills: [
+                        {
+                            id: 'slack',
+                            path: 'skills/slack/SKILL.md',
+                            description: 'How to call Slack.',
+                        },
+                    ],
+                }),
+                bundles
+            )
+            expect(report.ok).toBe(false)
+            expect(report.errors).toEqual([
+                {
+                    code: 'secret_no_host_binding',
+                    pointer: 'spec.skills[0].path',
+                    message: expect.stringContaining('SLACK_BOT_TOKEN'),
+                },
+            ])
+        })
+
+        it('accepts ${NAME} when the secret is in object form with allowed_hosts', async () => {
+            const bundles = makeBundles()
+            await bundles.write('rev1', 'agent.md', 'Auth: `Bearer ${SLACK_BOT_TOKEN}`.')
+            const report = await validateRevisionBundle(
+                mkRev({ secrets: [{ name: 'SLACK_BOT_TOKEN', allowed_hosts: ['slack.com'] }] }),
+                bundles
+            )
+            expect(report.ok).toBe(true)
+        })
+
+        it('does NOT flag a bare-string secret that is not referenced as ${NAME}', async () => {
+            // Common case: SLACK_SIGNING_SECRET consumed by signature verification,
+            // not template substitution. Bare-string declaration is fine.
+            const bundles = makeBundles()
+            await bundles.write('rev1', 'agent.md', 'no template references here')
+            const report = await validateRevisionBundle(mkRev({ secrets: ['SLACK_SIGNING_SECRET'] }), bundles)
+            expect(report.ok).toBe(true)
+        })
+
+        it('emits one error per (file, secret) even when the reference appears many times', async () => {
+            const bundles = makeBundles()
+            await bundles.write(
+                'rev1',
+                'agent.md',
+                '${SLACK_BOT_TOKEN} ${SLACK_BOT_TOKEN} ${SLACK_BOT_TOKEN} ${INCIDENT_IO_TOKEN}'
+            )
+            const report = await validateRevisionBundle(
+                mkRev({ secrets: ['SLACK_BOT_TOKEN', 'INCIDENT_IO_TOKEN'] }),
+                bundles
+            )
+            expect(report.errors).toHaveLength(2)
+            expect(report.errors.map((e) => e.code)).toEqual(['secret_no_host_binding', 'secret_no_host_binding'])
+        })
+
+        it('does NOT flag undeclared ${NAME} references (different error class)', async () => {
+            // An undeclared reference is `secret_not_resolved` at runtime — a
+            // different failure mode. Outside this validator's scope; the
+            // bare-string-binding check is the only thing being asserted here.
+            const bundles = makeBundles()
+            await bundles.write('rev1', 'agent.md', 'Auth: `Bearer ${NEVER_DECLARED}`.')
+            const report = await validateRevisionBundle(mkRev(), bundles)
+            expect(report.ok).toBe(true)
+        })
+    })
 })
