@@ -84,6 +84,37 @@ describe('funnelChartTransforms', () => {
         })
     })
 
+    describe('compare against previous period', () => {
+        const compareSteps: IndexedFunnelStep[] = [
+            makeStep({ id: 0, seriesIndex: 0, colorIndex: 0, compare: true, compare_label: 'current' }),
+            makeStep({ id: 1, seriesIndex: 1, colorIndex: 0, compare: true, compare_label: 'previous' }),
+        ]
+
+        it('builds a comparisonOf map keyed on the previous-period series so it gets dimmed', () => {
+            const config = buildFunnelLineTimeSeriesConfig({
+                indexedSteps: compareSteps,
+                interval: 'day',
+                timezone: 'UTC',
+                allDays: ['2024-06-10'],
+                showTrendLines: false,
+            })
+
+            expect(config.comparisonOf).toEqual({ '1': '1' })
+        })
+
+        it('omits comparisonOf when no series is a previous-period comparison', () => {
+            const config = buildFunnelLineTimeSeriesConfig({
+                indexedSteps: [makeStep()],
+                interval: 'day',
+                timezone: 'UTC',
+                allDays: ['2024-06-10'],
+                showTrendLines: false,
+            })
+
+            expect(config.comparisonOf).toBeUndefined()
+        })
+    })
+
     describe('buildFunnelLineTimeSeriesConfig', () => {
         it('produces a percentage y-axis tick formatter', () => {
             const config = buildFunnelLineTimeSeriesConfig({
