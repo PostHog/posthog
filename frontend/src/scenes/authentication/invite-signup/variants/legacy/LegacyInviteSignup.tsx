@@ -430,7 +430,7 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
     )
 }
 
-export function LegacyInviteSignup(): JSX.Element {
+function InviteSignup(): JSX.Element {
     const { invite, inviteLoading } = useValues(inviteSignupLogic)
     const { user } = useValues(userLogic)
 
@@ -450,3 +450,5 @@ export function LegacyInviteSignup(): JSX.Element {
         </div>
     )
 }
+
+export { InviteSignup as LegacyInviteSignup }

@@ -31,7 +31,7 @@ import { loginLogic } from '../../loginLogic'
 
 const LAST_LOGIN_METHOD_COOKIE = 'ph_last_login_method'
 
-export function LegacyLogin(): JSX.Element {
+function Login(): JSX.Element {
     const { precheck, resendEmailMFA, clearGeneralError, resetLogin, devLogin, loadDevUsers } = useActions(loginLogic)
     const { openSupportForm } = useActions(supportLogic)
     const {
@@ -311,3 +311,5 @@ export function LegacyLogin(): JSX.Element {
         </AuthShell>
     )
 }
+
+export { Login as LegacyLogin }

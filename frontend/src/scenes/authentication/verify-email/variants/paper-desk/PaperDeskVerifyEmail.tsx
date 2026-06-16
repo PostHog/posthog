@@ -6,7 +6,7 @@ import { verifyEmailLogic } from '../../verifyEmailLogic'
 
 // TODO: build the paper-desk email verification screens; renders under the `auth-flow-variant` flag.
 // Screens to design: check inbox (view "pending"), success (view "success"), expired/invalid link (view "invalid").
-export function PaperDeskVerifyEmail(): JSX.Element {
+function VerifyEmail(): JSX.Element {
     const { view } = useValues(verifyEmailLogic)
 
     let message = 'Check your inbox — paper-desk verification screen coming soon.'
@@ -27,3 +27,5 @@ export function PaperDeskVerifyEmail(): JSX.Element {
         </KeyboardGardenBackground>
     )
 }
+
+export { VerifyEmail as PaperDeskVerifyEmail }

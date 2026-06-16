@@ -14,7 +14,7 @@ import { Region } from '~/types'
 
 import { SignupForm } from '../../signupForm/SignupForm'
 
-export function LegacySignup(): JSX.Element | null {
+function Signup(): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
     const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -116,3 +116,5 @@ export function SignupLeftContainer(): JSX.Element {
         </>
     )
 }
+
+export { Signup as LegacySignup }

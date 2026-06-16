@@ -117,7 +117,7 @@ const GetHelp = (): JSX.Element => {
     )
 }
 
-export function LegacyVerifyEmail(): JSX.Element {
+function VerifyEmail(): JSX.Element {
     const { view } = useValues(verifyEmailLogic)
 
     return (
@@ -182,3 +182,5 @@ export function LegacyVerifyEmail(): JSX.Element {
         </div>
     )
 }
+
+export { VerifyEmail as LegacyVerifyEmail }
