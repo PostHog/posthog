@@ -113,7 +113,9 @@ describe('alertUtils', () => {
             const result = buildHogFunctionPayload('alert-789', 'My alert', notification)
 
             expect(result.inputs?.webhookUrl).toEqual({ value: 'https://discord.com/api/webhooks/123/abc' })
-            expect(result.inputs?.content).toBeDefined()
+            expect(result.inputs?.content).toEqual({
+                value: expect.stringContaining('{event.properties.alert_name}'),
+            })
         })
 
         it('sets correct webhook input values', () => {

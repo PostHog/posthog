@@ -89,27 +89,26 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
             const channelId = parts[0]
             const channelName = parts[1]?.replace('#', '') ?? channelId
 
-            const notification: PendingAlertNotification = {
+            addPendingNotification({
                 type: ALERT_NOTIFICATION_TYPE_SLACK,
                 slackWorkspaceId: firstSlackIntegration.id,
                 slackChannelId: channelId,
                 slackChannelName: channelName,
-            }
-            addPendingNotification(notification)
+            })
             setSlackChannelValue(null)
-        } else if (selectedType === ALERT_NOTIFICATION_TYPE_DISCORD) {
-            if (!webhookUrl) {
-                return
-            }
-            addPendingNotification({ type: ALERT_NOTIFICATION_TYPE_DISCORD, webhookUrl })
-            setWebhookUrl('')
-        } else {
-            if (!webhookUrl) {
-                return
-            }
-            addPendingNotification({ type: ALERT_NOTIFICATION_TYPE_WEBHOOK, webhookUrl })
-            setWebhookUrl('')
+            return
         }
+
+        // Discord and generic webhook are both just a single webhook URL
+        if (!webhookUrl) {
+            return
+        }
+        addPendingNotification(
+            selectedType === ALERT_NOTIFICATION_TYPE_DISCORD
+                ? { type: ALERT_NOTIFICATION_TYPE_DISCORD, webhookUrl }
+                : { type: ALERT_NOTIFICATION_TYPE_WEBHOOK, webhookUrl }
+        )
+        setWebhookUrl('')
     }
 
     const getNotificationLabel = (notification: PendingAlertNotification): string => {
@@ -219,18 +218,14 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
                     </>
                 )}
 
-                {selectedType === ALERT_NOTIFICATION_TYPE_WEBHOOK && (
+                {(selectedType === ALERT_NOTIFICATION_TYPE_WEBHOOK ||
+                    selectedType === ALERT_NOTIFICATION_TYPE_DISCORD) && (
                     <LemonInput
-                        placeholder="https://example.com/webhook"
-                        value={webhookUrl}
-                        onChange={setWebhookUrl}
-                        fullWidth
-                    />
-                )}
-
-                {selectedType === ALERT_NOTIFICATION_TYPE_DISCORD && (
-                    <LemonInput
-                        placeholder="https://discord.com/api/webhooks/..."
+                        placeholder={
+                            selectedType === ALERT_NOTIFICATION_TYPE_DISCORD
+                                ? 'https://discord.com/api/webhooks/...'
+                                : 'https://example.com/webhook'
+                        }
                         value={webhookUrl}
                         onChange={setWebhookUrl}
                         fullWidth
@@ -249,7 +244,9 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
                                   ? 'Select a Slack channel'
                                   : undefined
                             : !webhookUrl
-                              ? 'Enter a webhook URL'
+                              ? selectedType === ALERT_NOTIFICATION_TYPE_DISCORD
+                                  ? 'Enter a Discord webhook URL'
+                                  : 'Enter a webhook URL'
                               : undefined
                     }
                 >
