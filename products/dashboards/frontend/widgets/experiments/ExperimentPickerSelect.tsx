@@ -1,3 +1,5 @@
+import './ExperimentPickerSelect.scss'
+
 import { useActions, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
 
@@ -15,8 +17,8 @@ function ExperimentOptionLabel({ experiment }: { experiment: ExperimentApi }): J
     const creator = experiment.created_by
     const creatorName = creator ? fullName(creator) || creator.email : null
     return (
-        <span className="inline-flex items-center gap-2">
-            <span className="truncate">{experiment.name}</span>
+        <span className="flex w-full items-center justify-between gap-2">
+            <span className="min-w-0 flex-1 truncate">{experiment.name}</span>
             {creator ? (
                 <span className="inline-flex shrink-0 items-center gap-1 text-xs text-muted">
                     <ProfilePicture
@@ -81,6 +83,7 @@ export function ExperimentPickerSelect({
             mode="single"
             size={size}
             fullWidth={fullWidth}
+            popoverClassName="ExperimentPickerSelect__dropdown"
             placeholder="Select an experiment"
             loading={experimentOptionsLoading}
             disabled={disabled}
