@@ -129,7 +129,7 @@ class TestGetMessages:
         # Previously get_messages indexed json["results"] directly, surfacing a misleading
         # KeyError('results'); now raise_for_status lets the real HTTP error through.
         bad = _make_response({"message": "Unauthorized"}, status_code=401)
-        bad.raise_for_status.side_effect = HTTPError("401 Client Error: Unauthorized")
+        bad.raise_for_status.side_effect = HTTPError("401 Client Error: Unauthorized", response=bad)
         mock_session_factory.return_value = _make_session([bad])
 
         with pytest.raises(HTTPError, match="401"):
