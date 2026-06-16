@@ -494,12 +494,20 @@ class SignalReportViewSet(
         # `has_implementation_pr=true|false` filters reports by whether a shipped
         # implementation PR exists. Lets the inbox count PR reports (the "Pull
         # requests" tab) with a cheap `limit=1` count query instead of paging the
-        # whole list and filtering client-side. Absent param leaves the list
-        # unchanged.
+        # whole list and filtering client-side. Absent or empty param leaves the
+        # list unchanged; an unrecognized value is a 400.
         raw = self.request.query_params.get("has_implementation_pr")
-        if raw is None:
+        if raw is None or not raw.strip():
             return queryset
-        wants_pr = raw.strip().lower() in ("1", "true", "yes")
+        value = raw.strip().lower()
+        if value in ("1", "true", "yes"):
+            wants_pr = True
+        elif value in ("0", "false", "no"):
+            wants_pr = False
+        else:
+            raise serializers.ValidationError(
+                {"has_implementation_pr": f"Invalid value: {raw!r}. Allowed: true, false."}
+            )
         pr_exists = self._implementation_pr_exists_subquery()
         return queryset.filter(pr_exists if wants_pr else ~pr_exists)
 

@@ -659,6 +659,24 @@ class TestSignalReportListAPI(APIBaseTest):
         assert body["count"] == 3
         assert len(body["results"]) == 1
 
+    def test_filter_has_implementation_pr_empty_value_is_noop(self):
+        report_with_pr = self._create_report(title="Report with PR")
+        report_without_pr = self._create_report(title="Report without PR")
+        self._create_implementation_task_with_run(report_with_pr, pr_url="https://github.com/org/repo/pull/42")
+
+        response = self.client.get(self._list_url(has_implementation_pr=""))
+        assert response.status_code == status.HTTP_200_OK
+        ids = {r["id"] for r in response.json()["results"]}
+        assert {str(report_with_pr.id), str(report_without_pr.id)} <= ids
+
+    @parameterized.expand([("garbage", "maybe"), ("number", "2")])
+    def test_filter_has_implementation_pr_invalid_value_returns_400(self, _name, raw):
+        response = self.client.get(self._list_url(has_implementation_pr=raw))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        body = response.json()
+        assert body["attr"] == "has_implementation_pr"
+        assert body["code"] == "invalid_input"
+
     # --- source_products ---
 
     def test_source_products_defaults_to_empty_list(self):
