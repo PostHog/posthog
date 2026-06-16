@@ -17,6 +17,13 @@ const mockedCapture = posthog.capture as jest.Mock
 
 beforeEach(() => mockedCapture.mockClear())
 
+// Shared message-builder helpers used across the buildStreamItems suites.
+const userText = (text: string): CompatMessage => ({ role: 'user', content: text })
+const assistant = (text: string): CompatMessage => ({ role: 'assistant', content: text })
+const thinking = (text: string): CompatMessage => ({ role: 'assistant (thinking)', content: text })
+const toolResult = (text: string): CompatMessage =>
+    ({ role: 'assistant (tool result)', content: text, tool_call_id: 'toolu_1' }) as unknown as CompatMessage
+
 describe('hasNonTextContent', () => {
     it.each<[name: string, content: CompatMessage['content'], expected: boolean]>([
         ['returns false for a plain string content', 'Hello there', false],
@@ -121,12 +128,10 @@ describe('unrenderableContentKinds', () => {
 })
 
 describe('buildStreamItems — internal tag detection + grouping', () => {
-    const userText = (text: string): CompatMessage => ({ role: 'user', content: text })
     const userTypedInternal = (text: string): CompatMessage => ({
         role: 'user',
         content: [{ type: 'text', text }] as unknown as CompatMessage['content'],
     })
-    const assistant = (text: string): CompatMessage => ({ role: 'assistant', content: text })
 
     it('returns plain bubbles for a conversation with no internal tags', () => {
         const items = buildStreamItems([userText('Hi there'), assistant('Hello')])
@@ -219,16 +224,6 @@ describe('buildStreamItems — internal tag detection + grouping', () => {
 })
 
 describe('buildStreamItems — internal messages (thinking, tool_result) collapse into the same pill', () => {
-    const userText = (text: string): CompatMessage => ({ role: 'user', content: text })
-    const assistant = (text: string): CompatMessage => ({ role: 'assistant', content: text })
-    const thinking = (text: string): CompatMessage => ({ role: 'assistant (thinking)', content: text })
-    const toolResult = (text: string): CompatMessage =>
-        ({
-            role: 'assistant (tool result)',
-            content: text,
-            tool_call_id: 'toolu_1',
-        }) as unknown as CompatMessage
-
     it('hides an assistant (thinking) bubble inside an internal-group pill', () => {
         const items = buildStreamItems([userText('What is 2+2?'), thinking('Let me work through this'), assistant('4')])
         expect(items.map((i) => i.kind)).toEqual(['bubble', 'internal-group', 'bubble'])
@@ -406,11 +401,6 @@ describe('buildStreamItems — internal messages (thinking, tool_result) collaps
 })
 
 describe('buildStreamItems — intermediate assistant narration collapses, final answer stays', () => {
-    const userText = (text: string): CompatMessage => ({ role: 'user', content: text })
-    const assistant = (text: string): CompatMessage => ({ role: 'assistant', content: text })
-    const thinking = (text: string): CompatMessage => ({ role: 'assistant (thinking)', content: text })
-    const toolResult = (text: string): CompatMessage =>
-        ({ role: 'assistant (tool result)', content: text, tool_call_id: 'toolu_1' }) as unknown as CompatMessage
     const toolRole = (text: string): CompatMessage => ({ role: 'tool', content: text }) as unknown as CompatMessage
     const toolCall = (name: string): CompatMessage =>
         ({
