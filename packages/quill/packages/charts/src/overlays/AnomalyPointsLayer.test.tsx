@@ -74,15 +74,13 @@ describe('AnomalyPointsLayer', () => {
         expect(dot.style.left).toBe('395px')
     })
 
-    it('skips a marker whose label is unknown to the x-scale', () => {
+    it.each([
         // dataIndex 9 is out of the labels array → no x pixel.
-        const { container } = renderInChart(<AnomalyPointsLayer markers={[marker({ dataIndex: 9 })]} />)
-        expect(dots(container)).toHaveLength(0)
-    })
-
-    it('skips a marker whose y value falls outside the plot bounds', () => {
+        ['label unknown to the x-scale', marker({ dataIndex: 9 })],
         // value 500 → yScale(500) = 368 - 1760 = well above plotTop, out of bounds.
-        const { container } = renderInChart(<AnomalyPointsLayer markers={[marker({ value: 500 })]} />)
+        ['y value outside the plot bounds', marker({ value: 500 })],
+    ])('skips a marker with %s', (_label, m) => {
+        const { container } = renderInChart(<AnomalyPointsLayer markers={[m]} />)
         expect(dots(container)).toHaveLength(0)
     })
 
