@@ -712,6 +712,11 @@ class GorgiasSourceConfig(config.Config):
 
 
 @config.config
+class GrafanaSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class GranolaSourceConfig(config.Config):
     api_key: str
 
@@ -1577,6 +1582,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.GOOGLESEARCHCONSOLE: GoogleSearchConsoleSourceConfig,
         ExternalDataSourceType.GOOGLESHEETS: GoogleSheetsSourceConfig,
         ExternalDataSourceType.GORGIAS: GorgiasSourceConfig,
+        ExternalDataSourceType.GRAFANA: GrafanaSourceConfig,
         ExternalDataSourceType.GRANOLA: GranolaSourceConfig,
         ExternalDataSourceType.GREENHOUSE: GreenhouseSourceConfig,
         ExternalDataSourceType.GURU: GuruSourceConfig,
