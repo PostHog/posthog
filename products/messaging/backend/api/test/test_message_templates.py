@@ -431,6 +431,25 @@ class TestMessageTemplatesAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
+    @patch("products.messaging.backend.api.message_templates.render_design_html")
+    def test_design_patch_allows_write_scoped_personal_api_key(self, mock_render):
+        # Regression: the design action must declare hog_flow:write so MCP / personal API key callers
+        # aren't rejected as "action does not support personal API key access".
+        mock_render.return_value = "<html>ok</html>"
+        self.message_template.content = {"email": {"subject": "Hi", "design": self._design_with_text()}}
+        self.message_template.save()
+        api_key = self.create_personal_api_key_with_scopes(["hog_flow:write"])
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/messaging_templates/{self.message_template.id}/design/",
+            data={"operations": [{"op": "update_content", "id": "txt1", "patch": {"values": {"text": "<p>Hi</p>"}}}]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
     def test_design_patch_cannot_touch_other_teams_template(self):
         self.other_team_template.content = {"email": {"subject": "Hi", "design": self._design_with_text()}}
         self.other_team_template.save()

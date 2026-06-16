@@ -279,6 +279,9 @@ class MessageTemplatesViewSet(
 ):
     scope_object = "hog_flow"
     permission_classes = [IsAuthenticated]
+    # `design` is a custom write action; list it so programmatic callers (MCP/personal API key) get
+    # hog_flow:write checked instead of being rejected as an action with no declared scope.
+    scope_object_write_actions = ["create", "update", "partial_update", "patch", "destroy", "design"]
 
     serializer_class = MessageTemplateSerializer
     queryset = MessageTemplate.objects.all()
