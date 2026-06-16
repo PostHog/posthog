@@ -1,4 +1,6 @@
 /* oxlint-disable no-restricted-imports */
+import 'chartjs-adapter-dayjs-3'
+
 import { BoxAndWiskers, BoxPlotController } from '@sgratzl/chartjs-chart-boxplot'
 import { ChartType, DefaultDataPoint, Chart as RawChart, Tooltip, registerables } from 'chart.js'
 import CrosshairPlugin from 'chartjs-plugin-crosshair'

@@ -2242,7 +2242,7 @@ class TestEmailIntegrationCrossTenantStaleVerification(BaseTest):
 
         def _list_resource_tenants(ResourceArn: str) -> dict:
             domain = ResourceArn.split("/")[-1]
-            return {"Tenants": [{"TenantName": t} for t in (tenants_for_domain or {}).get(domain, [])]}
+            return {"ResourceTenants": [{"TenantName": t} for t in (tenants_for_domain or {}).get(domain, [])]}
 
         provider.ses_v2_client.list_resource_tenants.side_effect = _list_resource_tenants
         return provider

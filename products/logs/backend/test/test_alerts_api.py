@@ -722,13 +722,15 @@ class TestLogsAlertAPI(APIBaseTest):
 
     def _sync_destination_templates(self) -> None:
         # Destination creation goes through the full HogFunctionSerializer pipeline,
-        # which looks up a HogFunctionTemplate by template_id. Seed Slack + webhook.
+        # which looks up a HogFunctionTemplate by template_id. Seed Slack + Teams + webhook.
         from posthog.cdp.templates.hog_function_template import sync_template_to_db
+        from posthog.cdp.templates.microsoft_teams.template_microsoft_teams import template as template_microsoft_teams
         from posthog.cdp.templates.slack.template_slack import template as template_slack
 
         from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 
         sync_template_to_db(template_slack)
+        sync_template_to_db(template_microsoft_teams)
         HogFunctionTemplate.objects.get_or_create(
             template_id="template-webhook",
             defaults={
@@ -818,12 +820,39 @@ class TestLogsAlertAPI(APIBaseTest):
                 "logs_alert.errored",
             )
 
+    def test_create_teams_destination_creates_one_hog_function_per_event_kind(self):
+        from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        teams_url = "https://prod-00.westus.logic.azure.com:443/workflows/abc/triggers/manual/paths/invoke?api-version=2016-06-01"
+        response = self.client.post(
+            self._destinations_url(created["id"]),
+            {"type": "teams", "webhook_url": teams_url},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        ids = response.json()["hog_function_ids"]
+        assert len(ids) == 4  # firing + resolved + broken + errored
+
+        hog_functions = HogFunction.objects.filter(id__in=ids)
+        for hf in hog_functions:
+            assert hf.template_id == "template-microsoft-teams"
+            inputs = hf.inputs or {}
+            assert inputs["webhookUrl"]["value"] == teams_url
+            text_value = inputs["text"]["value"]
+            # Adaptive Card markdown: bold label and an inline action link, not Slack-style single asterisks.
+            assert text_value.startswith("**")
+            assert "[View logs](" in text_value or "[View alert](" in text_value
+
     @parameterized.expand(
         [
             ("slack_missing_workspace", {"type": "slack", "slack_channel_id": "C1"}),
             ("slack_missing_channel", {"type": "slack", "slack_workspace_id": 1}),
             ("webhook_missing_url", {"type": "webhook"}),
             ("webhook_invalid_url", {"type": "webhook", "webhook_url": "not-a-url"}),
+            ("teams_missing_url", {"type": "teams"}),
+            ("teams_invalid_url", {"type": "teams", "webhook_url": "not-a-url"}),
         ]
     )
     def test_create_destination_rejects_invalid_payloads(self, _name: str, payload: dict) -> None:

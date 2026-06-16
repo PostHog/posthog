@@ -477,24 +477,6 @@ export interface PatchedTaskApi {
     ci_prompt?: string | null
 }
 
-export interface TaskFileRequestApi {
-    /** Destination folder path in the project tree (e.g. 'Tasks/Bugs'). Defaults to 'Tasks'. */
-    folder?: string
-}
-
-export interface TaskFileResponseApi {
-    /** Identifier of the project-tree entry for this task. */
-    id: string
-    /** Full slash-separated path of the filed task in the project tree. */
-    path: string
-    /** File system entry type. Always 'task'. */
-    type: string
-    /** Identifier of the task this entry points to. */
-    ref: string
-    /** In-app link to the task. */
-    href: string
-}
-
 /**
  * Request body for the presence beacon and beacon-leave endpoints.
  *

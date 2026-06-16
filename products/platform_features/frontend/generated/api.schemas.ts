@@ -295,6 +295,13 @@ export const OrganizationMembershipLevelEnumApi = {
     Number15: 15,
 } as const
 
+export type SearchMatchTypeEnumApi = (typeof SearchMatchTypeEnumApi)[keyof typeof SearchMatchTypeEnumApi]
+
+export const SearchMatchTypeEnumApi = {
+    Exact: 'exact',
+    Similar: 'similar',
+} as const
+
 export interface OrganizationMemberApi {
     readonly id: string
     readonly user: UserBasicApi
@@ -304,6 +311,8 @@ export interface OrganizationMemberApi {
     readonly is_2fa_enabled: boolean
     readonly has_social_auth: boolean
     readonly last_login: string
+    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+    readonly search_match_type: SearchMatchTypeEnumApi | null
 }
 
 export interface PaginatedOrganizationMemberListApi {
@@ -324,6 +333,8 @@ export interface PatchedOrganizationMemberApi {
     readonly is_2fa_enabled?: boolean
     readonly has_social_auth?: boolean
     readonly last_login?: string
+    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+    readonly search_match_type?: SearchMatchTypeEnumApi | null
 }
 
 export interface OrganizationPersonalAPIKeyOwnerApi {
@@ -856,7 +867,7 @@ export type MembersListParams = {
      */
     order?: string
     /**
-     * Fuzzy match against member `first_name`, `last_name`, and `email` using Postgres trigram word similarity. Supports typos and prefix-as-you-type. Capped at 200 characters.
+     * Match against member `first_name`, `last_name`, and `email`. Returns case-insensitive substring matches and fuzzy trigram matches (typos, prefix-as-you-type) together, ordered exact-first; each result's `search_match_type` is `exact` or `similar`. Capped at 200 characters.
      */
     search?: string
 }
@@ -957,6 +968,7 @@ export type ActivityLogListParams = {
      * * `Subscription` - Subscription
      * * `PersonalAPIKey` - PersonalAPIKey
      * * `ProjectSecretAPIKey` - ProjectSecretAPIKey
+     * * `OAuthApplication` - OAuthApplication
      * * `User` - User
      * * `Action` - Action
      * * `AlertConfiguration` - AlertConfiguration
@@ -1035,6 +1047,7 @@ export const ActivityLogListScope = {
     Subscription: 'Subscription',
     PersonalAPIKey: 'PersonalAPIKey',
     ProjectSecretAPIKey: 'ProjectSecretAPIKey',
+    OAuthApplication: 'OAuthApplication',
     User: 'User',
     Action: 'Action',
     AlertConfiguration: 'AlertConfiguration',
@@ -1100,6 +1113,7 @@ export const ActivityLogListScope = {
  * * `Subscription` - Subscription
  * * `PersonalAPIKey` - PersonalAPIKey
  * * `ProjectSecretAPIKey` - ProjectSecretAPIKey
+ * * `OAuthApplication` - OAuthApplication
  * * `User` - User
  * * `Action` - Action
  * * `AlertConfiguration` - AlertConfiguration
@@ -1166,6 +1180,7 @@ export const ActivityLogListScopesItem = {
     Subscription: 'Subscription',
     PersonalAPIKey: 'PersonalAPIKey',
     ProjectSecretAPIKey: 'ProjectSecretAPIKey',
+    OAuthApplication: 'OAuthApplication',
     User: 'User',
     Action: 'Action',
     AlertConfiguration: 'AlertConfiguration',

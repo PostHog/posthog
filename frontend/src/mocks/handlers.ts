@@ -226,6 +226,7 @@ export const defaultMocks: Mocks = {
         '/api/environments/:team_id/session_recording_playlists': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/session_recordings': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/session_recordings': EMPTY_PAGINATED_RESPONSE,
+        '/api/environments/:team_id/session_recordings/:id/capture_diagnostics': { properties: null },
         '/api/projects/:team_id/insights/my_last_viewed': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/insights/my_last_viewed': EMPTY_PAGINATED_RESPONSE,
         'api/projects/:team_id/early_access_feature': EMPTY_PAGINATED_RESPONSE,
@@ -236,6 +237,7 @@ export const defaultMocks: Mocks = {
         '/api/environments/:team_id/default_evaluation_contexts/': {
             default_evaluation_contexts: [],
             available_contexts: [],
+            hidden_contexts: [],
             enabled: false,
         },
         '/api/environments/:team_id/file_system/unfiled/': { count: 0 },

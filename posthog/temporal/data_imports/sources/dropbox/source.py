@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,7 @@ class DropboxSource(SimpleSource[DropboxSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.DROPBOX,
+            category=DataWarehouseSourceCategory.FILE_STORAGE,
             label="Dropbox",
             iconPath="/static/services/dropbox.png",
             fields=cast(list[FieldType], []),

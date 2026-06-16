@@ -53,7 +53,6 @@ async def fetch_error_tracking_issues_activity(input: BackfillErrorTrackingInput
                 orderDirection="DESC",
                 volumeResolution=1,
                 limit=100,
-                useQueryV2=False,
                 withFirstEvent=True,
                 withAggregations=False,
             ),
