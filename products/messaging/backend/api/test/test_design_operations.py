@@ -71,9 +71,23 @@ class TestApplyDesignOperations:
         )
         assert "containerPadding" not in _content_by_id(result, "txt1")["values"]
 
-    def test_update_content_unknown_id_raises(self):
+    @pytest.mark.parametrize(
+        "operation",
+        [
+            {"op": "update_content", "id": "nope", "patch": {"values": {}}},
+            {"op": "update_column", "id": "nope", "patch": {"values": {}}},
+            {"op": "update_row", "id": "nope", "patch": {"values": {}}},
+            {"op": "add_content", "column_id": "nope", "content": {"type": "text"}},
+            {"op": "remove_content", "id": "nope"},
+            {"op": "move_content", "id": "nope", "column_id": "col2"},
+            {"op": "move_content", "id": "txt1", "column_id": "nope"},
+            {"op": "remove_row", "id": "nope"},
+        ],
+        ids=lambda op: f"{op['op']}:{op.get('id') or op.get('column_id')}",
+    )
+    def test_operation_with_unknown_target_raises(self, operation):
         with pytest.raises(serializers.ValidationError):
-            apply_design_operations(_sample_design(), [{"op": "update_content", "id": "nope", "patch": {"values": {}}}])
+            apply_design_operations(_sample_design(), [operation])
 
     def test_update_body_merges_into_values(self):
         result = apply_design_operations(
@@ -124,19 +138,9 @@ class TestApplyDesignOperations:
         assert contents[1]["id"] == "txt1"
         assert result["counters"]["u_content_button"] == 1
 
-    def test_add_content_unknown_column_raises(self):
-        with pytest.raises(serializers.ValidationError):
-            apply_design_operations(
-                _sample_design(), [{"op": "add_content", "column_id": "nope", "content": {"type": "text"}}]
-            )
-
     def test_remove_content(self):
         result = apply_design_operations(_sample_design(), [{"op": "remove_content", "id": "txt1"}])
         assert result["body"]["rows"][0]["columns"][0]["contents"] == []
-
-    def test_remove_content_unknown_raises(self):
-        with pytest.raises(serializers.ValidationError):
-            apply_design_operations(_sample_design(), [{"op": "remove_content", "id": "nope"}])
 
     def test_move_content_between_columns(self):
         result = apply_design_operations(_sample_design(), [{"op": "move_content", "id": "txt1", "column_id": "col2"}])
@@ -170,10 +174,6 @@ class TestApplyDesignOperations:
     def test_remove_row(self):
         result = apply_design_operations(_sample_design(), [{"op": "remove_row", "id": "row1"}])
         assert result["body"]["rows"] == []
-
-    def test_remove_row_unknown_raises(self):
-        with pytest.raises(serializers.ValidationError):
-            apply_design_operations(_sample_design(), [{"op": "remove_row", "id": "nope"}])
 
     def test_does_not_mutate_input(self):
         original = _sample_design()

@@ -1,3 +1,5 @@
+from typing import NoReturn
+
 from rest_framework import serializers
 
 # Structural validation for an Unlayer email design after operations are applied. Hard errors (raised)
@@ -25,7 +27,7 @@ KNOWN_CONTENT_TYPES = frozenset(
 )
 
 
-def _fail(message: str) -> None:
+def _fail(message: str) -> NoReturn:
     raise serializers.ValidationError({"design": message})
 
 
