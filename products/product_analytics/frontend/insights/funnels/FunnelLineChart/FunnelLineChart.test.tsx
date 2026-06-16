@@ -61,7 +61,6 @@ describe('FunnelLineChart', () => {
                 query: buildFunnelsQuery({
                     breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
                 }),
-                featureFlags: HOG_CHARTS_FUNNEL_FLAG,
             })
 
             const tooltip = await chart.hoverTooltip(2)
@@ -80,7 +79,6 @@ describe('FunnelLineChart', () => {
                     breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
                     compareFilter: { compare: true },
                 }),
-                featureFlags: HOG_CHARTS_FUNNEL_FLAG,
             })
 
             const tooltip = await chart.hoverTooltip(2)
