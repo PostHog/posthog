@@ -455,6 +455,66 @@ class TestExternalDataSource(APIBaseTest):
         "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
         return_value=False,
     )
+    def test_bulk_update_schemas_db_failure_does_not_roll_back_other_schemas(self, _mock_workflow_exists):
+        # Each schema is committed in its own transaction. A database error on one schema (e.g. a
+        # dropped connection mid-save) must not roll back the schemas that already saved, and must
+        # be reported instead of 500ing the whole request with nothing applied.
+        from products.data_warehouse.backend.api.external_data_schema import ExternalDataSchemaSerializer
+
+        source = self._create_external_data_source()
+        schemas = [
+            ExternalDataSchema.objects.create(
+                name=f"Table{i}",
+                team_id=self.team.pk,
+                source=source,
+                should_sync=True,
+                sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+            )
+            for i in range(3)
+        ]
+        original_interval = schemas[1].sync_frequency_interval
+
+        original_update = ExternalDataSchemaSerializer.update
+        attempted = 0
+
+        def _failing_update(serializer_self, instance, validated_data):
+            nonlocal attempted
+            attempted += 1
+            if attempted == 2:
+                raise psycopg.OperationalError("the connection is closed")
+            return original_update(serializer_self, instance, validated_data)
+
+        with (
+            patch.object(ExternalDataSchemaSerializer, "update", _failing_update),
+            patch("products.data_warehouse.backend.api.external_data_schema.sync_external_data_job_workflow"),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/bulk_update_schemas",
+                data={"schemas": [{"id": str(s.id), "sync_frequency": "7day"} for s in schemas]},
+                format="json",
+            )
+
+        # Every schema save was attempted despite the second one failing.
+        assert attempted == 3
+        # The failure is surfaced and names only the schema that didn't save.
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        detail = response.json()["detail"]
+        assert "Table1" in detail
+        assert "Table0" not in detail
+        assert "Table2" not in detail
+
+        for schema in schemas:
+            schema.refresh_from_db()
+        # The schemas that saved before and after the failure are committed...
+        assert sync_frequency_interval_to_sync_frequency(schemas[0].sync_frequency_interval) == "7day"
+        assert sync_frequency_interval_to_sync_frequency(schemas[2].sync_frequency_interval) == "7day"
+        # ...and the one that hit the database error keeps its original frequency.
+        assert schemas[1].sync_frequency_interval == original_interval
+
+    @patch(
+        "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
+        return_value=False,
+    )
     def test_bulk_update_schemas_webhook_reconcile_raising_does_not_500(self, _mock_workflow_exists):
         # Webhook reconcile runs as a deferred post-commit hook in the bulk path, AFTER the
         # atomic block. If it raised there it would 500 the request with the rows already
