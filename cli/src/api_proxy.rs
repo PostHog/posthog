@@ -26,21 +26,6 @@ fn default_install_dir() -> Option<PathBuf> {
     posthog_home_dir_if_available()
 }
 
-fn adjacent_bundle_dir() -> Option<PathBuf> {
-    Some(env::current_exe().ok()?.parent()?.to_path_buf())
-}
-
-fn adjacent_bundle_candidates(executable_dir: Option<&Path>) -> Vec<PathBuf> {
-    let Some(bundle_dir) = executable_dir else {
-        return Vec::new();
-    };
-
-    vec![
-        bundle_dir.join("lib").join(API_CLI_BUNDLE),
-        bundle_dir.join(API_CLI_BUNDLE),
-    ]
-}
-
 fn embedded_bundle_path(install_dir: &Path) -> PathBuf {
     install_dir
         .join("api-cli")
@@ -75,17 +60,6 @@ fn legacy_bundle_candidates(install_dir: Option<&Path>, development_dir: &Path) 
     candidates
 }
 
-#[cfg(test)]
-fn bundle_candidates(
-    executable_dir: Option<&Path>,
-    install_dir: Option<&Path>,
-    development_dir: &Path,
-) -> Vec<PathBuf> {
-    let mut candidates = adjacent_bundle_candidates(executable_dir);
-    candidates.extend(legacy_bundle_candidates(install_dir, development_dir));
-    candidates
-}
-
 fn find_script() -> Result<PathBuf> {
     if let Some(path) = env::var_os("POSTHOG_API_CLI_PATH") {
         if path.is_empty() {
@@ -107,14 +81,7 @@ fn find_script() -> Result<PathBuf> {
         return Ok(resolved);
     }
 
-    let executable_dir = adjacent_bundle_dir();
     let install_dir = default_install_dir();
-    for candidate in adjacent_bundle_candidates(executable_dir.as_deref()) {
-        if let Some(resolved) = canonicalize_file(&candidate) {
-            return Ok(resolved);
-        }
-    }
-
     if let Some(resolved) =
         materialize_embedded_script(EMBEDDED_API_CLI_BUNDLE, install_dir.as_deref())
     {
@@ -245,20 +212,17 @@ mod tests {
     }
 
     #[test]
-    fn bundle_candidates_prefer_the_bundle_next_to_the_executable() {
-        let executable_dir = PathBuf::from("node_modules").join(".bin_real");
+    fn legacy_bundle_candidates_include_install_and_development_paths() {
         let install_dir = PathBuf::from("home").join(".posthog");
         let development_dir = PathBuf::from("repo").join("cli");
 
-        let candidates =
-            bundle_candidates(Some(&executable_dir), Some(&install_dir), &development_dir);
+        let candidates = legacy_bundle_candidates(Some(&install_dir), &development_dir);
 
+        assert_eq!(candidates[0], install_dir.join("lib").join(API_CLI_BUNDLE));
         assert_eq!(
-            candidates[0],
-            executable_dir.join("lib").join(API_CLI_BUNDLE)
+            candidates[1],
+            install_dir.join("cli/lib").join(API_CLI_BUNDLE)
         );
-        assert_eq!(candidates[1], executable_dir.join(API_CLI_BUNDLE));
-        assert_eq!(candidates[2], install_dir.join("lib").join(API_CLI_BUNDLE));
         assert_eq!(
             candidates.last(),
             Some(&development_dir.join("lib").join(API_CLI_BUNDLE))
@@ -315,33 +279,27 @@ mod tests {
     }
 
     #[test]
-    fn adjacent_bundle_path_is_usable_without_a_home_install() {
+    fn materialized_embedded_bundle_is_used_before_legacy_install() {
         let temp_dir = tempfile::tempdir().expect("create temp dir");
-        let executable_dir = temp_dir.path().join("node_modules").join(".bin_real");
         let install_dir = temp_dir.path().join("home").join(".posthog");
-        let development_dir = temp_dir.path().join("repo").join("cli");
-        let adjacent_bundle = executable_dir.join("lib").join(API_CLI_BUNDLE);
         let legacy_bundle = install_dir.join("lib").join(API_CLI_BUNDLE);
 
-        fs::create_dir_all(adjacent_bundle.parent().expect("adjacent parent"))
-            .expect("create adjacent lib dir");
         fs::create_dir_all(legacy_bundle.parent().expect("legacy parent"))
             .expect("create legacy lib dir");
-        fs::write(&adjacent_bundle, "adjacent").expect("write adjacent bundle");
         fs::write(&legacy_bundle, "legacy").expect("write legacy bundle");
 
-        let resolved =
-            bundle_candidates(Some(&executable_dir), Some(&install_dir), &development_dir)
-                .into_iter()
-                .find_map(|candidate| canonicalize_file(&candidate));
+        let resolved = materialize_embedded_script(Some(b"embedded bundle"), Some(&install_dir))
+            .expect("materialize embedded bundle");
 
         assert_eq!(
             resolved,
-            Some(
-                adjacent_bundle
-                    .canonicalize()
-                    .expect("canonicalize adjacent bundle")
-            )
+            embedded_bundle_path(&install_dir)
+                .canonicalize()
+                .expect("canonicalize embedded bundle")
+        );
+        assert_eq!(
+            fs::read(resolved).expect("read materialized bundle"),
+            b"embedded bundle"
         );
     }
 }
