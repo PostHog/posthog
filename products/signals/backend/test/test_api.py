@@ -15,7 +15,11 @@ from products.signals.backend.facade.api import (
     emit_signal,
 )
 from products.signals.backend.models import SignalSourceConfig
-from products.signals.backend.temporal.buffer import BufferSignalsWorkflow, _emit_signal_buffered_event
+from products.signals.backend.temporal.buffer import (
+    BufferSignalsWorkflow,
+    _capture_signal_buffered,
+    _emit_signal_buffered_event,
+)
 from products.signals.backend.temporal.emitter import SignalEmitterWorkflow
 from products.signals.backend.temporal.types import EmitSignalInputs
 
@@ -255,14 +259,24 @@ class TestTelemetryPropsFromExtra:
 
 
 class TestSignalBufferedTelemetry:
-    def test_emit_signal_buffered_event(self, team_stub) -> None:
+    @pytest.mark.parametrize(
+        "source_product, source_type, extra",
+        [
+            ("session_replay", "session_problem", SESSION_PROBLEM_EXTRA),
+            ("llm_analytics", "evaluation", EVALUATION_EXTRA),
+            ("zendesk", "ticket", ZENDESK_TICKET_EXTRA),
+            ("github", "issue", GITHUB_ISSUE_EXTRA),
+        ],
+        ids=["session_replay", "llm_analytics", "zendesk", "github"],
+    )
+    def test_emit_signal_buffered_event(self, source_product, source_type, extra, team_stub) -> None:
         signal = EmitSignalInputs(
             team_id=1,
-            source_product="github",
-            source_type="issue",
-            source_id="posthog/posthog#42",
+            source_product=source_product,
+            source_type=source_type,
+            source_id="test-id-1",
             description="A valid signal",
-            extra=GITHUB_ISSUE_EXTRA,
+            extra=extra,
         )
         with patch("products.signals.backend.temporal.buffer.posthoganalytics.capture") as capture:
             _emit_signal_buffered_event(team_stub, signal)
@@ -271,10 +285,45 @@ class TestSignalBufferedTelemetry:
         call = capture.call_args
         assert call.kwargs["event"] == "signal_buffered"
         assert call.kwargs["distinct_id"] == str(team_stub.uuid)
-        # Same property shape as signal_emitted so the funnel joins on source_id: flattened
-        # scalars only (the `labels` list dropped), core source_* keys present.
-        assert call.kwargs["properties"]["source_id"] == "posthog/posthog#42"
-        assert call.kwargs["properties"]["source_product"] == "github"
-        assert call.kwargs["properties"]["number"] == 42
-        assert "labels" not in call.kwargs["properties"]
+        props = call.kwargs["properties"]
+        # Core source_* keys always present and correct, for every signal variant.
+        assert props["source_product"] == source_product
+        assert props["source_type"] == source_type
+        assert props["source_id"] == "test-id-1"
+        # Same flatten guarantee as signal_emitted: only scalars survive (nested lists/dicts dropped).
+        assert all(isinstance(v, (str, int, float, bool)) for v in props.values())
         assert "project" in call.kwargs["groups"]
+
+    @pytest.mark.asyncio
+    async def test_capture_signal_buffered_loads_team_and_emits(self, team_stub) -> None:
+        signal = EmitSignalInputs(
+            team_id=1, source_product="github", source_type="issue", source_id="test-id-1", description="A valid signal"
+        )
+        with (
+            patch("products.signals.backend.temporal.buffer.Team") as MockTeam,
+            patch("products.signals.backend.temporal.buffer.posthoganalytics.capture") as capture,
+        ):
+            MockTeam.objects.select_related.return_value.aget = AsyncMock(return_value=team_stub)
+            await _capture_signal_buffered(signal)
+
+        assert capture.call_count == 1
+        assert capture.call_args.kwargs["event"] == "signal_buffered"
+
+    @pytest.mark.asyncio
+    async def test_capture_signal_buffered_swallows_errors(self) -> None:
+        """A telemetry failure must never break (or retry) signal submission."""
+        signal = EmitSignalInputs(
+            team_id=1, source_product="github", source_type="issue", source_id="test-id-1", description="A valid signal"
+        )
+        with (
+            patch("products.signals.backend.temporal.buffer.Team") as MockTeam,
+            patch("products.signals.backend.temporal.buffer.posthoganalytics.capture") as capture,
+            patch("products.signals.backend.temporal.buffer.posthoganalytics.capture_exception") as capture_exception,
+        ):
+            MockTeam.objects.select_related.return_value.aget = AsyncMock(side_effect=RuntimeError("db down"))
+            # Must return normally, not raise.
+            result = await _capture_signal_buffered(signal)
+
+        assert result is None
+        capture.assert_not_called()
+        capture_exception.assert_called_once()
