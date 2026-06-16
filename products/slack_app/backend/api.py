@@ -5,14 +5,12 @@ import uuid
 import asyncio
 import hashlib
 from dataclasses import dataclass
-from datetime import timedelta
 from typing import Any, Literal
 from urllib.parse import urlparse, urlunparse
 
 from django.conf import settings
 from django.core import signing
 from django.core.cache import cache
-from django.db.utils import DatabaseError
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
@@ -20,7 +18,6 @@ from django.views.decorators.csrf import csrf_exempt
 import requests
 import structlog
 import posthoganalytics
-from slack_sdk.errors import SlackApiError
 from slack_sdk.http_retry.builtin_handlers import RateLimitErrorRetryHandler
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
@@ -35,26 +32,25 @@ from posthog.models.integration import (
     validate_slack_request,
 )
 from posthog.models.organization import OrganizationMembership
+from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 from posthog.temporal.ai.posthog_code_slack_interactivity import (
     PostHogCodeSlackInteractivityInputs,
     PostHogCodeSlackTerminateTaskWorkflow,
 )
-from posthog.temporal.ai.posthog_code_slack_mention import (
-    PostHogCodeSlackMentionWorkflow,
+from posthog.temporal.ai.slack_app import (
+    PostHogCodeSlackMentionCommandWorkflowInputs,
     PostHogCodeSlackMentionWorkflowInputs,
     derive_mention_workflow_id,
 )
-from posthog.temporal.ai.posthog_code_slack_mention_command import (
-    PostHogCodeSlackMentionCommandWorkflow,
-    PostHogCodeSlackMentionCommandWorkflowInputs,
-)
+from posthog.temporal.ai.slack_app.posthog_code_slack_mention import PostHogCodeSlackMentionWorkflow
+from posthog.temporal.ai.slack_app.posthog_code_slack_mention_command import PostHogCodeSlackMentionCommandWorkflow
 from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_instance_region
 
-from products.slack_app.backend.models import SlackChannel, SlackThreadTaskMapping, SlackUserProfileCache
+from products.slack_app.backend.models import SlackChannel, SlackThreadTaskMapping
 from products.slack_app.backend.services.integration_resolver import (
     UserResolutionFailure,
     format_project_candidate_list,
@@ -62,11 +58,25 @@ from products.slack_app.backend.services.integration_resolver import (
     resolve_user_for_workspace,
     user_resolution_failure_reply,
 )
+from products.slack_app.backend.services.slack_messages import resolve_user_mentions_text
+from products.slack_app.backend.services.slack_user_info import (
+    get_cached_bot_user_id,
+    get_slack_user_info,
+    normalize_slack_response,
+    persist_slack_user_info,
+)
 from products.slack_app.backend.slack_link_unfurl import handle_posthog_link_unfurl
 
 logger = structlog.get_logger(__name__)
 
-HANDLED_EVENT_TYPES = ["app_mention", "link_shared", "message", "member_joined_channel"]
+HANDLED_EVENT_TYPES = [
+    "app_mention",
+    "link_shared",
+    "message",
+    "member_joined_channel",
+    "assistant_thread_started",
+    "assistant_thread_context_changed",
+]
 
 # The notifications Slack app (`slack`) install carries every scope the coding-agent flow
 # needs, so both surfaces share one kind.
@@ -98,9 +108,6 @@ POSTHOG_CODE_REQUIRED_SLACK_SCOPES: frozenset[str] = frozenset(
 # this window should re-onboard — most likely the person forgot how it works.
 CHANNEL_ONBOARDING_DEDUPE_TTL_SECONDS = 60 * 10
 CHANNEL_ONBOARDING_DOCS_URL = "https://posthog.com/docs/slack-app"
-# Slack assigns a stable bot user id per install; a few hours is enough to pick
-# up a reinstall while keeping ``auth.test`` traffic negligible.
-SLACK_BOT_USER_ID_CACHE_TTL_SECONDS = 60 * 60 * 6
 
 ROUTE_HANDLED_LOCALLY = "handled_locally"
 ROUTE_PROXIED = "proxied"
@@ -109,7 +116,6 @@ ROUTE_NO_INTEGRATION = "no_integration"
 
 PICKER_TOKEN_SALT = "posthog_code_repo_picker"
 PICKER_TOKEN_MAX_AGE_SECONDS = 900
-SLACK_USER_PROFILE_TTL = timedelta(hours=1)
 
 CHANNEL_APPROVAL_BLOCK_ID_PREFIX = "posthog_code_channel_approval"
 CHANNEL_APPROVAL_ACTION_APPROVE = "posthog_code_channel_approve"
@@ -202,166 +208,6 @@ class RulesCommand:
     project_team_id: int | None = None
 
 
-def _format_slack_user_info_payload(
-    *, email: str | None, display_name: str, real_name: str, is_admin: bool, is_owner: bool
-) -> dict[str, Any]:
-    return {
-        "user": {
-            "is_admin": is_admin,
-            "is_owner": is_owner,
-            "profile": {
-                "email": email,
-                "display_name": display_name,
-                "real_name": real_name,
-            },
-        }
-    }
-
-
-def _normalize_slack_response(payload: Any) -> dict[str, Any]:
-    if isinstance(payload, dict):
-        return payload
-
-    data = getattr(payload, "data", None)
-    if isinstance(data, dict):
-        return data
-
-    return {}
-
-
-def _get_slack_user_info_from_db(integration: Integration, slack_user_id: str) -> dict[str, Any] | None:
-    try:
-        profile = SlackUserProfileCache.objects.filter(
-            integration_id=integration.id, slack_user_id=slack_user_id
-        ).first()
-    except DatabaseError:
-        logger.warning("posthog_code_slack_user_cache_db_unavailable", integration_id=integration.id)
-        return None
-    if not profile or not profile.refreshed_at or timezone.now() - profile.refreshed_at >= SLACK_USER_PROFILE_TTL:
-        return None
-
-    return _format_slack_user_info_payload(
-        email=profile.email,
-        display_name=profile.display_name,
-        real_name=profile.real_name,
-        is_admin=profile.is_admin,
-        is_owner=profile.is_owner,
-    )
-
-
-def _persist_slack_user_info(integration: Integration, slack_user_id: str, user_info: dict[str, Any]) -> None:
-    user = user_info.get("user", {})
-    profile = user.get("profile", {})
-    try:
-        SlackUserProfileCache.objects.update_or_create(
-            integration_id=integration.id,
-            slack_user_id=slack_user_id,
-            defaults={
-                "email": profile.get("email") or None,
-                "display_name": profile.get("display_name") or "",
-                "real_name": profile.get("real_name") or "",
-                "is_admin": bool(user.get("is_admin")),
-                "is_owner": bool(user.get("is_owner")),
-                "refreshed_at": timezone.now(),
-            },
-        )
-    except DatabaseError:
-        logger.warning("posthog_code_slack_user_cache_db_unavailable", integration_id=integration.id)
-
-
-def _get_slack_user_info(slack: SlackIntegration, integration: Integration, slack_user_id: str) -> dict[str, Any]:
-    cached_db = _get_slack_user_info_from_db(integration, slack_user_id)
-    if isinstance(cached_db, dict):
-        return cached_db
-
-    user_info = _normalize_slack_response(slack.client.users_info(user=slack_user_id))
-    if user_info:
-        _persist_slack_user_info(integration, slack_user_id, user_info)
-        return user_info
-    return {}
-
-
-def is_slack_workspace_admin(slack: SlackIntegration, integration: Integration, slack_user_id: str) -> bool:
-    """Whether the Slack user is a workspace admin or owner."""
-    user_info = _get_slack_user_info(slack, integration, slack_user_id)
-    slack_user = user_info.get("user", {}) if isinstance(user_info, dict) else {}
-    return bool(slack_user.get("is_admin") or slack_user.get("is_owner"))
-
-
-def _get_slack_user_id_by_email_from_db(integration: Integration, normalized_email: str) -> str | None:
-    try:
-        profile = SlackUserProfileCache.objects.filter(
-            integration_id=integration.id,
-            email__iexact=normalized_email,
-        ).first()
-    except DatabaseError:
-        logger.warning("posthog_code_slack_user_cache_db_unavailable", integration_id=integration.id)
-        return None
-    if not profile or not profile.refreshed_at or timezone.now() - profile.refreshed_at >= SLACK_USER_PROFILE_TTL:
-        return None
-    return profile.slack_user_id
-
-
-def lookup_slack_user_id_by_email(
-    slack: SlackIntegration,
-    integration: Integration,
-    email: str,
-) -> str | None:
-    """Resolve a Slack user ID from a PostHog user email.
-
-    Uses ``SlackUserProfileCache`` (populated by ``resolve_slack_user`` and prior lookups),
-    then ``users.lookupByEmail``.
-    """
-    normalized_email = email.strip().lower()
-    if not normalized_email:
-        return None
-
-    slack_user_id = _get_slack_user_id_by_email_from_db(integration, normalized_email)
-    if slack_user_id:
-        return slack_user_id
-
-    try:
-        user_info = _normalize_slack_response(slack.client.users_lookupByEmail(email=email))
-    except SlackApiError as exc:
-        error_code = exc.response.get("error") if exc.response else None
-        if error_code != "users_not_found":
-            logger.warning(
-                "slack_user_id_by_email_lookup_failed",
-                integration_id=integration.id,
-                email=email,
-                error=error_code,
-            )
-        return None
-
-    if not user_info.get("ok"):
-        return None
-
-    user = user_info.get("user")
-    if not isinstance(user, dict) or not user.get("id"):
-        return None
-
-    slack_user_id = str(user["id"])
-    _persist_slack_user_info(integration, slack_user_id, user_info)
-    _purge_stale_email_rows(integration, normalized_email, slack_user_id)
-    return slack_user_id
-
-
-def _purge_stale_email_rows(integration: Integration, normalized_email: str, keep_slack_user_id: str) -> None:
-    """Drop rows that share an email with the authoritative Slack user ID we just resolved.
-
-    Without this, an orphan row (same email, older Slack user ID) can outrank the fresh one
-    in ``_get_slack_user_id_by_email_from_db`` and trigger a fresh ``users.lookupByEmail`` call
-    on every request.
-    """
-    try:
-        SlackUserProfileCache.objects.filter(
-            integration_id=integration.id,
-            email__iexact=normalized_email,
-        ).exclude(slack_user_id=keep_slack_user_id).delete()
-    except DatabaseError:
-        logger.warning("posthog_code_slack_user_cache_db_unavailable", integration_id=integration.id)
-
-
 QUOTA_EXHAUSTED_MESSAGE = (
     "Your team has used its monthly PostHog AI credits. "
     "Top up at https://us.posthog.com/organization/billing to continue."
@@ -437,12 +283,12 @@ def resolve_slack_user(
 ) -> SlackUserContext | None:
     """Resolve a Slack user to a PostHog user. Posts an ephemeral error message and returns None on failure (unless post_feedback is False)."""
     try:
-        slack_user_info = _get_slack_user_info(slack, integration, slack_user_id)
+        slack_user_info = get_slack_user_info(slack, integration, slack_user_id)
         slack_email = slack_user_info.get("user", {}).get("profile", {}).get("email")
         if not slack_email:
-            fresh_user_info = _normalize_slack_response(slack.client.users_info(user=slack_user_id))
+            fresh_user_info = normalize_slack_response(slack.client.users_info(user=slack_user_id))
             if fresh_user_info:
-                _persist_slack_user_info(integration, slack_user_id, fresh_user_info)
+                persist_slack_user_info(integration, slack_user_id, fresh_user_info)
                 slack_email = fresh_user_info.get("user", {}).get("profile", {}).get("email")
 
         if not slack_email:
@@ -896,7 +742,7 @@ def _post_repo_picker_message(
     )
 
     if workflow_id:
-        response_data = _normalize_slack_response(response)
+        response_data = normalize_slack_response(response)
         message_ts = response_data.get("ts") if isinstance(response_data.get("ts"), str) else None
         _set_pending_repo_picker(
             integration_id=integration.id,
@@ -1026,18 +872,12 @@ def _collect_thread_messages(
     def resolve_user(uid: str) -> str:
         if uid not in user_cache:
             try:
-                user_info = _get_slack_user_info(slack, integration, uid)
+                user_info = get_slack_user_info(slack, integration, uid)
                 profile = user_info.get("user", {}).get("profile", {})
                 user_cache[uid] = profile.get("display_name") or profile.get("real_name") or "Unknown"
             except Exception:
                 user_cache[uid] = "Unknown"
         return user_cache[uid]
-
-    def replace_user_mentions(text: str) -> str:
-        def replace_mention(match: re.Match) -> str:
-            return f"@{resolve_user(match.group(1))}"
-
-        return re.sub(r"<@([A-Z0-9]+)>", replace_mention, text)
 
     messages = []
     for index, msg in enumerate(raw_messages):
@@ -1057,7 +897,7 @@ def _collect_thread_messages(
         else:
             username = "Unknown"
 
-        text = replace_user_mentions(_extract_message_text(msg))
+        text = resolve_user_mentions_text(slack, integration, _extract_message_text(msg))
         # `ts` lets downstream callers distinguish the initiator message from surrounding thread
         # context, since `app_mention` events surface only the initiator's ts.
         messages.append({"user": username, "text": text, "ts": msg.get("ts") or ""})
@@ -1485,6 +1325,7 @@ def _untagged_thread_followups_enabled(integration: Integration, slack_team_id: 
             UNTAGGED_THREAD_FOLLOWUPS_FLAG,
             f"slack_workspace:{slack_team_id}",
             groups={"organization": str(integration.team.organization_id)},
+            person_properties={"region": get_instance_region() or "unknown"},
             only_evaluate_locally=False,
             send_feature_flag_events=False,
         )
@@ -1540,12 +1381,12 @@ def get_slack_email_for_user(probe_integration: Integration, slack_user_id: str)
     """
     slack_client = SlackIntegration(probe_integration)
     try:
-        user_info = _get_slack_user_info(slack_client, probe_integration, slack_user_id)
+        user_info = get_slack_user_info(slack_client, probe_integration, slack_user_id)
         slack_email = user_info.get("user", {}).get("profile", {}).get("email")
         if not slack_email:
-            fresh = _normalize_slack_response(slack_client.client.users_info(user=slack_user_id))
+            fresh = normalize_slack_response(slack_client.client.users_info(user=slack_user_id))
             if fresh:
-                _persist_slack_user_info(probe_integration, slack_user_id, fresh)
+                persist_slack_user_info(probe_integration, slack_user_id, fresh)
                 slack_email = fresh.get("user", {}).get("profile", {}).get("email")
         return slack_email or None
     except Exception:
@@ -1608,17 +1449,22 @@ def _post_pick_a_project_hint(
     event: dict[str, Any],
 ) -> None:
     """Tell the user that this workspace is connected to multiple PostHog
-    projects, and that they should pick one via `@PostHog project <id>`.
+    projects, and that they should pick one.
+
+    The selection command differs by surface: in a channel the user mentions the app
+    (`@PostHog project <id>`), but in a DM there is no app to mention, so they just reply
+    with `project <id>`.
     """
     slack_user_id = event.get("user")
     channel = event.get("channel")
     thread_ts = event.get("thread_ts") or event.get("ts")
     if not isinstance(slack_user_id, str) or not isinstance(channel, str) or not isinstance(thread_ts, str):
         return
+    pick_command = "`project <id>`" if event.get("channel_type") == "im" else "`@PostHog project <id>`"
     text = (
         "This Slack workspace is connected to multiple PostHog projects:\n"
         f"{format_project_candidate_list(candidates)}\n\n"
-        "Use `@PostHog project <id>` to pick one — that also saves it as your default."
+        f"Use {pick_command} to pick one — that also saves it as your default."
     )
     _post_slack_user_feedback(probe, channel, slack_user_id, thread_ts, text, prefer_thread_message=True)
 
@@ -1676,6 +1522,243 @@ def _start_posthog_code_workflow(
     )
 
 
+_ASSISTANT_FEATURE_FLAG = "slack-app-assistant"
+_ASSISTANT_CONTEXT_TTL_SECONDS = 60 * 60
+_ASSISTANT_SUGGESTED_PROMPTS = [
+    {"title": "Fix a bug", "message": "Open a PR to fix a bug in my connected repo"},
+    {"title": "Investigate an issue", "message": "Investigate why one of my insights is slow"},
+    {"title": "Work an inbox item", "message": "Pick up a signals inbox item that needs a code fix"},
+]
+_ASSISTANT_WELCOME = (
+    "Hi! I'm PostHog, an AI agent. DM me to investigate issues using your PostHog data and "
+    "open PRs in your connected repos to fix them!"
+)
+_ASSISTANT_INSTALL_WELCOME = (
+    "Thanks for adding PostHog! :tada: I'm an AI agent - DM me here or @mention me in a channel "
+    "to investigate issues or open PRs in your connected repos"
+)
+_ASSISTANT_UNAVAILABLE = (
+    "I can only help PostHog org members whose project has a connected repo. Make sure your Slack "
+    "email matches your PostHog account and that a repo is connected, then try again."
+)
+
+
+def _assistant_enabled(team: Team) -> bool:
+    # Evaluated on the workspace's team (a stable key) so the flag is a true kill-switch we can
+    # check before resolving the DMing user — i.e. the feature stays dark when off.
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                _ASSISTANT_FEATURE_FLAG,
+                str(team.uuid),
+                groups={"organization": str(team.organization_id)},
+                person_properties={"region": get_instance_region() or "unknown"},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        logger.warning("assistant_feature_flag_eval_failed", exc_info=True)
+        return False
+
+
+def _assistant_event_fields(event: dict) -> tuple[str, str | None, str | None, str | None]:
+    """(slack_user_id, dm_channel_id, thread_ts, viewed_channel_id) for assistant events.
+
+    For `message` events the fields live at the top level; for `assistant_thread_*` events
+    they live under `assistant_thread` (with the viewed channel under `context`).
+    """
+    if event.get("type") == "message":
+        ts = event.get("thread_ts") or event.get("ts")
+        return (
+            str(event.get("user") or ""),
+            event.get("channel") if isinstance(event.get("channel"), str) else None,
+            ts if isinstance(ts, str) else None,
+            None,
+        )
+    thread = event.get("assistant_thread") or {}
+    ctx = thread.get("context") or {}
+    return (
+        str(thread.get("user_id") or ""),
+        thread.get("channel_id") if isinstance(thread.get("channel_id"), str) else None,
+        thread.get("thread_ts") if isinstance(thread.get("thread_ts"), str) else None,
+        ctx.get("channel_id") if isinstance(ctx.get("channel_id"), str) else None,
+    )
+
+
+def _assistant_context_cache_key(integration_id: int, channel_id: str, thread_ts: str) -> str:
+    return f"slack_assistant_ctx:{integration_id}:{channel_id}:{thread_ts}"
+
+
+def _store_assistant_channel_context(
+    integration_id: int, channel_id: str, thread_ts: str, viewed_channel_id: str | None
+) -> None:
+    if viewed_channel_id:
+        cache.set(
+            _assistant_context_cache_key(integration_id, channel_id, thread_ts),
+            viewed_channel_id,
+            timeout=_ASSISTANT_CONTEXT_TTL_SECONDS,
+        )
+
+
+def _get_assistant_channel_context(integration_id: int, channel_id: str, thread_ts: str) -> str | None:
+    value = cache.get(_assistant_context_cache_key(integration_id, channel_id, thread_ts))
+    return value if isinstance(value, str) else None
+
+
+def _handle_assistant_thread_started(slack: SlackIntegration, channel_id: str, thread_ts: str) -> str:
+    """Greet the user and offer suggested prompts when they open the agent container."""
+    try:
+        slack.client.assistant_threads_setSuggestedPrompts(
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            title="What can I help you ship?",
+            prompts=_ASSISTANT_SUGGESTED_PROMPTS,
+        )
+        slack.client.chat_postMessage(channel=channel_id, thread_ts=thread_ts, text=_ASSISTANT_WELCOME)
+    except Exception:
+        logger.warning("assistant_thread_started_failed", exc_info=True)
+    return ROUTE_HANDLED_LOCALLY
+
+
+def _post_assistant_unavailable(slack: SlackIntegration, channel_id: str, thread_ts: str) -> None:
+    try:
+        slack.client.chat_postMessage(channel=channel_id, thread_ts=thread_ts, text=_ASSISTANT_UNAVAILABLE)
+    except Exception:
+        logger.warning("assistant_unavailable_post_failed", exc_info=True)
+
+
+def send_assistant_install_welcome(integration: Integration) -> None:
+    """DM the installing user the moment the app is added, when the assistant is enabled for their team."""
+    if not _assistant_enabled(integration.team):
+        return
+    slack_user_id = ((integration.config or {}).get("authed_user") or {}).get("id")
+    if not slack_user_id:
+        return
+    try:
+        SlackIntegration(integration).client.chat_postMessage(channel=slack_user_id, text=_ASSISTANT_INSTALL_WELCOME)
+    except Exception:
+        logger.warning("assistant_install_welcome_failed", exc_info=True)
+
+
+# The DM/agent surface needs the base coding-agent scopes plus the assistant container scopes.
+# Kept separate from POSTHOG_CODE_REQUIRED_SLACK_SCOPES so the mention flow isn't gated on im:history.
+_ASSISTANT_REQUIRED_SLACK_SCOPES = POSTHOG_CODE_REQUIRED_SLACK_SCOPES | frozenset({"assistant:write", "im:history"})
+
+
+def _handle_assistant_dm_message(
+    event: dict,
+    integration: Integration,
+    slack_team_id: str,
+    event_id: str | None,
+    channel_id: str,
+    thread_ts: str,
+    *,
+    posthog_user: User,
+) -> str:
+    slack = SlackIntegration(integration)
+    missing = slack.missing_scopes(_ASSISTANT_REQUIRED_SLACK_SCOPES)
+    if missing:
+        _notify_missing_slack_scopes(slack, event, missing)
+        return ROUTE_HANDLED_LOCALLY
+
+    try:
+        slack.client.assistant_threads_setStatus(channel_id=channel_id, thread_ts=thread_ts, status="Working on it…")
+    except Exception:
+        logger.warning("assistant_set_status_failed", exc_info=True)
+
+    # Carry the channel the user was viewing (from assistant_thread_context_changed) so the agent
+    # can ground a "look into this" DM in that channel's context.
+    viewed = _get_assistant_channel_context(integration.id, channel_id, thread_ts)
+    agent_event = {**event, "assistant_viewed_channel_id": viewed} if viewed else event
+    return _start_mention_workflow(agent_event, integration, slack_team_id, event_id, posthog_user=posthog_user)
+
+
+def _route_assistant_event(
+    request: HttpRequest,
+    event: dict,
+    slack_team_id: str,
+    event_id: str | None,
+    *,
+    proxied: bool,
+    incoming_host: str,
+    other_domain: str,
+    can_defer: bool,
+) -> str:
+    """Route DM / agent-container events through the same region + project resolution as mentions."""
+    event_type = event.get("type")
+    slack_user_id, channel_id, thread_ts, ctx_channel = _assistant_event_fields(event)
+
+    # Only first-party human DMs proceed — ignore channel messages, bot echoes, and edits.
+    if event_type == "message" and (
+        event.get("channel_type") != "im"
+        or event.get("bot_id")
+        or event.get("subtype")
+        or not str(event.get("text") or "").strip()
+    ):
+        return ROUTE_HANDLED_LOCALLY
+    if not (slack_user_id and channel_id and thread_ts):
+        return ROUTE_HANDLED_LOCALLY
+
+    result = load_integrations(
+        slack_team_id=slack_team_id,
+        kinds=[SLACK_INTEGRATION_KIND],
+        slack_user_id=slack_user_id,
+        user=None,
+        channel=channel_id,
+        thread_ts=thread_ts,
+    )
+    region_route = _resolve_region_or_terminal_route(
+        request,
+        slack_team_id,
+        candidates_present=bool(result.candidates),
+        kinds=[SLACK_INTEGRATION_KIND],
+        proxied=proxied,
+        other_domain=other_domain,
+        incoming_host=incoming_host,
+        can_defer=can_defer,
+    )
+    if region_route is not None:
+        return region_route
+
+    probe = result.integration if result.integration in result.candidates else result.candidates[0]
+
+    # Kill-switch first: stay fully dark (no user resolution, no Slack reply) when the flag is off.
+    if not _assistant_enabled(probe.team):
+        return ROUTE_HANDLED_LOCALLY
+
+    # Share the mention path's user resolution + access filter, so the DM only ever sees and runs
+    # against projects the resolved PostHog user can actually access (no cross-org metadata leak).
+    resolution = resolve_user_for_workspace(
+        workspace_result=result,
+        slack_team_id=slack_team_id,
+        slack_user_id=slack_user_id,
+        event_id=event_id,
+    )
+    if resolution.user is None:
+        # Flag is on but the Slack user isn't a resolvable org member — tell them why (DMs only).
+        if event_type == "message":
+            _post_assistant_unavailable(SlackIntegration(probe), channel_id, thread_ts)
+        return ROUTE_HANDLED_LOCALLY
+    posthog_user = resolution.user
+
+    if event_type == "assistant_thread_started":
+        return _handle_assistant_thread_started(SlackIntegration(probe), channel_id, thread_ts)
+    if event_type == "assistant_thread_context_changed":
+        _store_assistant_channel_context(probe.id, channel_id, thread_ts, ctx_channel)
+        return ROUTE_HANDLED_LOCALLY
+
+    # message.im — run the agent against the user's accessible default project, else ask them to pick.
+    accessible = resolution.candidates
+    mention_target = resolution.integration or (accessible[0] if len(accessible) == 1 else None)
+    if mention_target is None:
+        _post_pick_a_project_hint(SlackIntegration(accessible[0]), accessible, event)
+        return ROUTE_HANDLED_LOCALLY
+    return _handle_assistant_dm_message(
+        event, mention_target, slack_team_id, event_id, channel_id, thread_ts, posthog_user=posthog_user
+    )
+
+
 def route_posthog_code_event_to_relevant_region(
     request: HttpRequest,
     event: dict,
@@ -1707,6 +1790,23 @@ def route_posthog_code_event_to_relevant_region(
         us_domain=_us_region_domain(),
         eu_domain=_eu_region_domain(),
     )
+
+    # Assistant surface: DMs to the app and agent-container events resolve the DMing user and run
+    # against their project. A ``message`` is a DM iff ``channel_type == "im"`` — channel ``message``
+    # events (untagged thread follow-ups) and ``app_mention`` share the pipeline below instead.
+    if event_type in ("assistant_thread_started", "assistant_thread_context_changed") or (
+        event_type == "message" and event.get("channel_type") == "im"
+    ):
+        return _route_assistant_event(
+            request,
+            event,
+            slack_team_id,
+            event_id,
+            proxied=proxied,
+            incoming_host=incoming_host,
+            other_domain=other_domain,
+            can_defer=can_defer_to_other_region,
+        )
 
     if event_type in ("app_mention", "message"):
         if event_type == "app_mention":
@@ -1752,11 +1852,18 @@ def route_posthog_code_event_to_relevant_region(
             channel=channel_str,
             thread_ts=thread_ts_str,
         )
-        if not workspace_result.candidates:
-            return _route_to_other_region_or_drop(request, slack_team_id, proxied=proxied, other_domain=other_domain)
-
-        if _us_should_handle_instead(slack_team_id, [SLACK_INTEGRATION_KIND], can_defer_to_other_region, incoming_host):
-            return _proxy_event_and_return_route(request, other_domain)
+        region_route = _resolve_region_or_terminal_route(
+            request,
+            slack_team_id,
+            candidates_present=bool(workspace_result.candidates),
+            kinds=[SLACK_INTEGRATION_KIND],
+            proxied=proxied,
+            other_domain=other_domain,
+            incoming_host=incoming_host,
+            can_defer=can_defer_to_other_region,
+        )
+        if region_route is not None:
+            return region_route
 
         # Threads we don't own (and orgs that haven't opted in) are dropped here
         # so the rest of the pipeline only runs for actionable messages.
@@ -1947,6 +2054,30 @@ def _route_to_other_region_or_drop(
     return _proxy_event_and_return_route(request, other_domain)
 
 
+def _resolve_region_or_terminal_route(
+    request: HttpRequest,
+    slack_team_id: str,
+    *,
+    candidates_present: bool,
+    kinds: list[str],
+    proxied: bool,
+    other_domain: str,
+    incoming_host: str,
+    can_defer: bool,
+) -> str | None:
+    """Shared region gate for every coding-agent surface (mentions, channel followups, DMs).
+
+    Returns a terminal route when the event leaves this region — forwarded/dropped because no
+    local integration claims the workspace, or proxied to US under the US-precedence rule — else
+    ``None`` to signal the caller should keep handling the event locally.
+    """
+    if not candidates_present:
+        return _route_to_other_region_or_drop(request, slack_team_id, proxied=proxied, other_domain=other_domain)
+    if _us_should_handle_instead(slack_team_id, kinds, can_defer, incoming_host):
+        return _proxy_event_and_return_route(request, other_domain)
+    return None
+
+
 def _start_command_workflow(
     event: dict,
     integrations: list[Integration],
@@ -2036,7 +2167,7 @@ def _route_member_joined_channel(
     integration = workspace_result.candidates[0]
     slack = SlackIntegration(integration)
 
-    bot_user_id = _get_cached_bot_user_id(slack, integration)
+    bot_user_id = get_cached_bot_user_id(slack, integration)
     if bot_user_id is None or joined_user != bot_user_id:
         # We only care about our own bot joining a channel. Every other join
         # (humans, third-party bots) is ignored silently — Slack fires this
@@ -2058,31 +2189,6 @@ def _route_member_joined_channel(
         _release_channel_onboarding_claim(slack_team_id, channel_id)
 
     return ROUTE_HANDLED_LOCALLY
-
-
-def _bot_user_id_cache_key(integration_id: int) -> str:
-    return f"slack_app:bot_user_id:v1:{integration_id}"
-
-
-def _get_cached_bot_user_id(slack: SlackIntegration, integration: Integration) -> str | None:
-    cache_key = _bot_user_id_cache_key(integration.id)
-    cached = cache.get(cache_key)
-    if isinstance(cached, str) and cached:
-        return cached
-    try:
-        response = slack.client.auth_test()
-        bot_user_id = response.get("user_id")
-    except Exception:
-        logger.warning(
-            "slack_app_bot_user_id_lookup_failed",
-            integration_id=integration.id,
-            exc_info=True,
-        )
-        return None
-    if not isinstance(bot_user_id, str) or not bot_user_id:
-        return None
-    cache.set(cache_key, bot_user_id, timeout=SLACK_BOT_USER_ID_CACHE_TTL_SECONDS)
-    return bot_user_id
 
 
 def _channel_onboarding_cache_key(slack_team_id: str, channel_id: str) -> str:
@@ -3216,8 +3322,9 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
             integration_id=slack_team_id,
         ).exists()
     elif slack_team_id and dismiss_integration_id:
-        # Any reviewer who can see the inbox-item message may dismiss it (team-shared channels),
-        # so this isn't gated on a specific Slack user — only on owning the integration locally.
+        # Routing/region-ownership only — this just claims the workspace's integration locally.
+        # Authorization (report-team match + org-member gate) is enforced in _handle_signals_dismiss_report.
+        # Intended trust boundary for dismiss is org membership (any org member can dismiss the org's reports).
         local = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
             id=dismiss_integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
             kind=SLACK_INTEGRATION_KIND,

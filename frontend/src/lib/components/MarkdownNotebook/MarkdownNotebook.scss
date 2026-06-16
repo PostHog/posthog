@@ -23,6 +23,7 @@
         var(--markdown-notebook-inline-control-width) + var(--markdown-notebook-inline-control-gap)
     );
     --markdown-notebook-canvas-max-width: 56rem;
+    --markdown-notebook-comment-gutter: 19rem;
 
     width: 100%;
     min-height: 100%;
@@ -125,9 +126,9 @@
 .MarkdownNotebook__debug-toolbar {
     position: absolute;
 
-    // Sit in the first surface's top-right corner, matching where component blocks show their delete button.
+    // Sit in the first text surface's top-right corner, matching where component blocks show their delete button.
     top: 0.375rem;
-    right: calc(max(calc((100% - var(--markdown-notebook-canvas-max-width)) / 2), 0px) + 0.5rem);
+    right: 0.5rem;
     z-index: var(--z-raised);
     display: flex;
     justify-content: flex-end;
@@ -194,6 +195,10 @@
     width: 100%;
     max-width: var(--markdown-notebook-canvas-max-width);
     margin: 0 auto;
+}
+
+.MarkdownNotebook--edit .MarkdownNotebook__canvas {
+    padding-bottom: 18rem;
 }
 
 .MarkdownNotebook__canvas:focus {
@@ -271,6 +276,129 @@
     opacity: 1;
 }
 
+.MarkdownNotebook__drag-handle {
+    position: absolute;
+    top: 0.25rem;
+    left: 0;
+    z-index: var(--z-raised);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--markdown-notebook-inline-control-width);
+    height: 1.25rem;
+    color: var(--color-text-secondary);
+    cursor: grab;
+    user-select: none;
+    opacity: 0;
+    transition: opacity 120ms ease;
+}
+
+.MarkdownNotebook__drag-handle svg {
+    width: 1rem;
+    height: 1rem;
+}
+
+.MarkdownNotebook__row:hover .MarkdownNotebook__drag-handle {
+    opacity: 0.5;
+}
+
+.MarkdownNotebook__drag-handle:hover,
+.MarkdownNotebook__drag-handle:focus-visible {
+    opacity: 1;
+}
+
+.MarkdownNotebook__drag-handle:active {
+    cursor: grabbing;
+    opacity: 1;
+}
+
+/* Inside a text card the rows are already offset by the group's margin, so the handle
+   reaches back into the canvas gutter, mirroring the inline insert menu hit area. */
+.MarkdownNotebook__text-group .MarkdownNotebook__drag-handle {
+    left: calc(var(--markdown-notebook-content-offset) * -1 - 1rem);
+}
+
+.MarkdownNotebook__blockquote-group .MarkdownNotebook__drag-handle {
+    left: calc(var(--markdown-notebook-content-offset) * -1 - 1rem - var(--markdown-notebook-quote-indent));
+}
+
+/* Blank rows show the inline + button in the same gutter slot: the handle sits beside it. */
+.MarkdownNotebook__row:has(.MarkdownNotebook__line-insert-menu-hit-area) .MarkdownNotebook__drag-handle {
+    transform: translateX(var(--markdown-notebook-inline-control-width));
+}
+
+/* The block comment button occupies the gutter slot left of the drag handle. */
+.MarkdownNotebook__block-comment-button {
+    position: absolute;
+    top: 0.25rem;
+    left: calc(var(--markdown-notebook-inline-control-width) * -1);
+    z-index: var(--z-raised);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--markdown-notebook-inline-control-width);
+    height: 1.25rem;
+    color: var(--color-text-secondary);
+    cursor: pointer;
+    user-select: none;
+    opacity: 0;
+    transition: opacity 120ms ease;
+}
+
+.MarkdownNotebook__block-comment-button svg {
+    width: 1rem;
+    height: 1rem;
+}
+
+.MarkdownNotebook__row:hover .MarkdownNotebook__block-comment-button {
+    opacity: 0.5;
+}
+
+.MarkdownNotebook__block-comment-button:hover,
+.MarkdownNotebook__block-comment-button:focus-visible {
+    opacity: 1;
+}
+
+.MarkdownNotebook__text-group .MarkdownNotebook__block-comment-button {
+    left: calc(var(--markdown-notebook-content-offset) * -1 - 1rem - var(--markdown-notebook-inline-control-width));
+}
+
+.MarkdownNotebook__blockquote-group .MarkdownNotebook__block-comment-button {
+    left: calc(
+        var(--markdown-notebook-content-offset) * -1 -
+            1rem - var(--markdown-notebook-quote-indent) - var(--markdown-notebook-inline-control-width)
+    );
+}
+
+.MarkdownNotebook__row:has(.MarkdownNotebook__line-insert-menu-hit-area) .MarkdownNotebook__block-comment-button {
+    transform: translateX(var(--markdown-notebook-inline-control-width));
+}
+
+.MarkdownNotebook__row--dragging {
+    opacity: 0.4;
+}
+
+.MarkdownNotebook__drop-indicator {
+    position: absolute;
+    top: -0.125rem;
+    right: 0;
+    left: var(--markdown-notebook-content-offset);
+    z-index: var(--z-raised);
+    height: 0.1875rem;
+    pointer-events: none;
+    background: var(--primary);
+    border-radius: 999px;
+}
+
+.MarkdownNotebook__drop-indicator--after {
+    top: auto;
+    bottom: -0.125rem;
+}
+
+.MarkdownNotebook__text-group .MarkdownNotebook__drop-indicator {
+    left: 0;
+}
+
 .MarkdownNotebook__insert-boundary {
     position: relative;
     width: 100%;
@@ -314,6 +442,7 @@
 }
 
 .MarkdownNotebook__text-group {
+    position: relative;
     box-sizing: border-box;
     width: calc(100% - var(--markdown-notebook-content-offset));
     padding: 1.75rem 1rem;
@@ -325,6 +454,10 @@
     border-top-left-radius: 0;
     border-bottom-left-radius: 0;
     box-shadow: var(--markdown-notebook-text-group-shadow);
+}
+
+.MarkdownNotebook__text-group--with-debug-toolbar > .MarkdownNotebook__row:first-of-type .MarkdownNotebook__text-block {
+    padding-right: 2.25rem;
 }
 
 // The notebook must start flush with the page top like every other scene: collapse the
@@ -857,6 +990,32 @@ h3.MarkdownNotebook__text-block--heading {
 
 .MarkdownNotebook__list-block li::marker {
     color: var(--color-text-secondary);
+}
+
+/* Task items: the checkbox is the bullet */
+.MarkdownNotebook__list-block li.MarkdownNotebook__list-item--task {
+    position: relative;
+    list-style: none;
+}
+
+.MarkdownNotebook__task-checkbox {
+    position: absolute;
+    top: calc(0.125rem + 0.275em);
+    left: -1.375rem;
+    display: inline-flex;
+    user-select: none;
+}
+
+.MarkdownNotebook__task-checkbox input {
+    width: 1em;
+    height: 1em;
+    margin: 0;
+    accent-color: var(--primary);
+    cursor: pointer;
+}
+
+.MarkdownNotebook__task-checkbox input:disabled {
+    cursor: default;
 }
 
 .MarkdownNotebook__list-item-content {
@@ -1576,8 +1735,12 @@ button.MarkdownNotebook__component-title:focus-visible {
 }
 
 .MarkdownNotebook__real-node-content {
+    position: relative;
     display: flex;
-    flex: 1;
+
+    // flex-basis must stay `auto` (not the `0%` from the `flex: 1` shorthand), otherwise it
+    // overrides the inline `height` and the resize drag has no visible effect.
+    flex: 1 1 auto;
     flex-direction: column;
     min-height: 8rem;
     overflow: hidden;
@@ -1585,4 +1748,155 @@ button.MarkdownNotebook__component-title:focus-visible {
 
 .MarkdownNotebook__real-node-content--resizeable {
     resize: vertical;
+}
+
+.MarkdownNotebook__real-node-resize-handle {
+    position: absolute;
+    right: 0.125rem;
+    bottom: 0.125rem;
+    z-index: 1;
+    width: 1.25rem;
+    height: 1.25rem;
+    cursor: ns-resize;
+    background:
+        linear-gradient(135deg, transparent 0 45%, var(--color-border-bold) 45% 50%, transparent 50% 100%),
+        linear-gradient(135deg, transparent 0 62%, var(--color-border-bold) 62% 67%, transparent 67% 100%);
+    border-radius: 0.125rem;
+    opacity: 0.6;
+}
+
+/* Inline ref highlights: text a chat thread is anchored to. */
+.MarkdownNotebook__ref {
+    background: var(--color-bg-fill-highlight-100, rgb(235 145 0 / 15%));
+    border-bottom: 2px solid var(--color-border-warning, rgb(235 145 0 / 60%));
+    border-radius: 2px;
+}
+
+.MarkdownNotebook__ref--active,
+.MarkdownNotebook__ref:hover {
+    background: var(--color-bg-fill-highlight-200, rgb(235 145 0 / 30%));
+}
+
+/* Inline mentions keep their person id in the markdown; the text is the display label. */
+.MarkdownNotebook__mention {
+    padding: 0 0.125rem;
+    font-weight: 500;
+    background: var(--color-bg-fill-highlight-100);
+    border-radius: 0.25rem;
+}
+
+/* Clicking the <ref> highlight flashes the thread it anchors. */
+.MarkdownNotebook__component-shell--comment-flash .MarkdownNotebook__discussion-comment {
+    border-color: var(--color-border-warning, rgb(235 145 0 / 80%));
+    box-shadow: 0 0 0 3px rgb(235 145 0 / 20%);
+    transition:
+        box-shadow 0.2s ease,
+        border-color 0.2s ease;
+}
+
+/* The comment card carries its own chrome (composer, delete) -- the shell toolbar is noise. */
+.MarkdownNotebook__row--margin-comment .MarkdownNotebook__component-toolbar {
+    display: none;
+}
+
+.MarkdownNotebook__row--margin-comment .MarkdownNotebook__component-shell {
+    padding: 0;
+    background: none;
+    border: none;
+    box-shadow: none;
+}
+
+/* With comment threads present and enough room, the canvas reserves a right gutter wide
+   enough for the whole thread column, pushing the text content left. */
+.MarkdownNotebook--comments-margin .MarkdownNotebook__canvas {
+    max-width: calc(var(--markdown-notebook-canvas-max-width) + var(--markdown-notebook-comment-gutter));
+    padding-right: var(--markdown-notebook-comment-gutter);
+}
+
+/* A thread row sits right above the block it refers to and keeps zero height, so the
+   absolutely positioned card naturally aligns with the top of the highlighted content. */
+.MarkdownNotebook--comments-margin .MarkdownNotebook__row--margin-comment {
+    z-index: 1;
+    height: 0;
+
+    .MarkdownNotebook__component-shell {
+        position: absolute;
+        top: 0;
+        left: calc(100% + 1rem);
+        width: calc(var(--markdown-notebook-comment-gutter) - 2rem);
+    }
+}
+
+/* Without a wide-enough container the thread flows inline as a right-aligned card. */
+.MarkdownNotebook--comments-inline .MarkdownNotebook__row--margin-comment .MarkdownNotebook__component-shell {
+    max-width: 24rem;
+    margin-left: auto;
+}
+
+.MarkdownNotebook__discussion-comment {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 0.5rem;
+    font-size: 0.8125rem;
+    background: var(--color-bg-surface-primary);
+    border: 1px solid var(--color-border-primary);
+    border-radius: 0.375rem;
+    box-shadow: 0 1px 2px rgb(0 0 0 / 5%);
+}
+
+.MarkdownNotebook__discussion-comment-replies {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+
+    /* Long threads cap out and scroll, keeping the composer reachable. */
+    max-height: 14rem;
+    overflow-y: auto;
+}
+
+.MarkdownNotebook__discussion-comment-reply {
+    display: flex;
+    gap: 0.5rem;
+    align-items: flex-start;
+}
+
+.MarkdownNotebook__discussion-comment-reply-body {
+    min-width: 0;
+}
+
+.MarkdownNotebook__discussion-comment-reply-meta {
+    display: flex;
+    gap: 0.375rem;
+    align-items: baseline;
+}
+
+.MarkdownNotebook__discussion-comment-reply-author {
+    font-weight: 600;
+}
+
+.MarkdownNotebook__discussion-comment-reply-time {
+    font-size: 0.6875rem;
+    color: var(--color-text-secondary);
+}
+
+.MarkdownNotebook__discussion-comment-reply-text {
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+}
+
+.MarkdownNotebook__discussion-comment-empty {
+    color: var(--color-text-secondary);
+}
+
+.MarkdownNotebook__discussion-comment-composer {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+}
+
+.MarkdownNotebook__discussion-comment-actions {
+    display: flex;
+    gap: 0.375rem;
+    justify-content: flex-end;
 }

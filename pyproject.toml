@@ -80,6 +80,7 @@ dependencies = [
     "langchain-openai~=0.3.35",
     "langchain-anthropic~=0.3.22",
     "langgraph==0.4.10",
+    "langgraph-checkpoint==4.1.1",
     "lxml==6.0.2",
     "lzstring==1.0.4",
     "markdown-it-py~=3.0.0",
@@ -94,6 +95,7 @@ dependencies = [
     "openai==1.109.1",
     "openpyxl==3.1.5",
     "orjson==3.11.9",
+    "ormsgpack~=1.12",
     "pandas~=2.2.2",
     "paramiko~=3.5.0",
     "pillow==12.2.0",
@@ -123,7 +125,6 @@ dependencies = [
     "retry==0.9.2",
     "s3fs==2025.9.0",
     "scikit-learn~=1.7.0",
-    "selenium==4.28.1",
     "semantic-version==2.8.5",
     "simple-salesforce~=1.12.9",
     "slack-sdk==3.42.0",
@@ -146,8 +147,8 @@ dependencies = [
     "click~=8.0",
     "umap-learn~=0.5.0",
     "tbb==2022.3.1; sys_platform == 'linux' and platform_machine == 'x86_64'",
-    "webdriver-manager==4.0.2",
     "whitenoise~=6.10.0",
+    "xgboost==3.2.0",
     "xmlsec==1.3.17",
     "zstd==1.5.7.2",
     "zxcvbn==4.5.0",
@@ -162,6 +163,7 @@ dependencies = [
     "opentelemetry-instrumentation-aiokafka==0.54b1",
     "opentelemetry-instrumentation-aiohttp-client==0.54b1",
     "opentelemetry-instrumentation-asgi==0.54b1",
+    "opentelemetry-instrumentation-celery==0.54b1",
     "opentelemetry-instrumentation-django==0.54b1",
     "opentelemetry-instrumentation-kafka-python==0.54b1",
     "opentelemetry-instrumentation-psycopg==0.54b1",
@@ -249,7 +251,7 @@ dev = [
     "python-dateutil~=2.9.0",
     "requests-mock~=1.12.1",
     "responses==0.23.1",
-    "ruff~=0.14.11",
+    "ruff~=0.15.16",
     "stpyv8==13.1.201.22; sys_platform != 'linux' or (platform_machine != 'aarch64' and platform_machine != 'arm64')",
     "syrupy~=4.9.1",
     "tach~=0.34",
@@ -273,10 +275,14 @@ dev = [
     "testcontainers[mysql]~=4.14",
     # Developer CLI
     "hogli",
+    "libcst>=1.8.6,<2.0.0",
 ]
 sentiment = [
     "optimum[onnxruntime]~=1.25.0",
     "torch~=2.8.0",
+]
+hogql-parser-parity = [
+    "shrinkray==26.4.14.0",
 ]
 
 [tool.uv]
@@ -284,9 +290,6 @@ required-version = ">=0.10.2"
 add-bounds = "major"
 exclude-newer = "7 days"
 exclude-newer-package = { hogql-parser = false, hogql-parser-rs = false, posthoganalytics = false, pixelhog = false, django = false, modal = false }
-constraint-dependencies = [
-    "langgraph-checkpoint<3",
-]
 
 [tool.uv.workspace]
 members = ["tools/hogli"]
@@ -327,6 +330,7 @@ ignore = [
     "UP045",  # ~3064: Optional[X] → X | None (auto-fixable)
     "UP046",  # ~39: generic class → PEP 695 (unsafe)
     "UP047",  # ~37: generic func → PEP 695 (unsafe)
+    "UP042",  # ~28: str+Enum → StrEnum (unsafe: changes str()/format() output)
 ]
 select = [
     "B",
@@ -499,6 +503,13 @@ ignore_imports = [
     "products.**.backend.presentation.** -> products.**.backend.facade.**",
     "products.**.backend.presentation.** -> products.**.backend.presentation.**",
     # TODO: existing violations — fix by routing through facade
+    "products.agent_platform.backend.presentation.serializers -> products.agent_platform.backend.logic.spec_schema",
+    "products.agent_platform.backend.presentation.serializers -> products.agent_platform.backend.models",
+    "products.agent_platform.backend.presentation.views -> products.agent_platform.backend.db",
+    "products.agent_platform.backend.presentation.views -> products.agent_platform.backend.logic.internal_jwt",
+    "products.agent_platform.backend.presentation.views -> products.agent_platform.backend.logic.janitor_client",
+    "products.agent_platform.backend.presentation.views -> products.agent_platform.backend.logic.spec_schema",
+    "products.agent_platform.backend.presentation.views -> products.agent_platform.backend.models",
     "products.mcp_analytics.backend.presentation.views -> products.mcp_analytics.backend.logic",
     "products.mcp_analytics.backend.presentation.views -> products.mcp_analytics.backend.models",
     "products.mcp_analytics.backend.presentation.serializers -> products.mcp_analytics.backend.models",

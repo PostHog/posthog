@@ -652,6 +652,13 @@ export const CreatedViaEnumApi = {
  * * `SapSuccessFactors` - SapSuccessFactors
  * * `OracleEbs` - OracleEbs
  * * `OracleFusion` - OracleFusion
+ * * `AmazonSNS` - AmazonSNS
+ * * `AmazonEventBridge` - AmazonEventBridge
+ * * `AmazonSQS` - AmazonSQS
+ * * `AmazonKinesis` - AmazonKinesis
+ * * `AmazonCloudWatch` - AmazonCloudWatch
+ * * `OpenAIAds` - OpenAIAds
+ * * `Grafana` - Grafana
  * * `Custom` - Custom
  */
 export type ExternalDataSourceTypeEnumApi =
@@ -884,6 +891,13 @@ export const ExternalDataSourceTypeEnumApi = {
     SapSuccessFactors: 'SapSuccessFactors',
     OracleEbs: 'OracleEbs',
     OracleFusion: 'OracleFusion',
+    AmazonSNS: 'AmazonSNS',
+    AmazonEventBridge: 'AmazonEventBridge',
+    AmazonSQS: 'AmazonSQS',
+    AmazonKinesis: 'AmazonKinesis',
+    AmazonCloudWatch: 'AmazonCloudWatch',
+    OpenAIAds: 'OpenAIAds',
+    Grafana: 'Grafana',
     Custom: 'Custom',
 } as const
 
@@ -1210,6 +1224,13 @@ export interface ExternalDataSourceCreateApi {
      * * `SapSuccessFactors` - SapSuccessFactors
      * * `OracleEbs` - OracleEbs
      * * `OracleFusion` - OracleFusion
+     * * `AmazonSNS` - AmazonSNS
+     * * `AmazonEventBridge` - AmazonEventBridge
+     * * `AmazonSQS` - AmazonSQS
+     * * `AmazonKinesis` - AmazonKinesis
+     * * `AmazonCloudWatch` - AmazonCloudWatch
+     * * `OpenAIAds` - OpenAIAds
+     * * `Grafana` - Grafana
      * * `Custom` - Custom */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
@@ -1357,18 +1378,13 @@ export const AuthMethodEnumApi = {
 export interface SourceConnectLinkApi {
     /** The source type the link is for. */
     source_type: string
-    /** 'oauth' = the user authorizes in their browser; 'credentials' = the user enters credentials in the PostHog UI. Either way secrets never pass through the agent.
+    /** What the user will do on the connect page: 'oauth' = authorize an account in their browser; 'credentials' = enter connection details (or pick OAuth where the source offers both). Either way secrets never pass through the agent, and the result is always a stored credential id.
      *
      * * `oauth` - oauth
      * * `credentials` - credentials */
     auth_method: AuthMethodEnumApi
-    /** Full URL to share with the user. They open it in a browser to authorize or enter credentials directly in PostHog — credentials never pass through the agent or the chat. */
+    /** Full URL to share with the user. It opens the source's connection form in PostHog — credentials never pass through the agent or the chat. */
     connect_url: string
-    /**
-     * The payload key to pass to data-warehouse-source-setup: for OAuth sources, the source's integration id key (e.g. 'hubspot_integration_id'); for credential sources, 'credential_id' referencing the credentials the user stored via the connect page.
-     * @nullable
-     */
-    integration_field: string | null
     /** Next steps for the agent to relay to the user. */
     instructions: string
 }
@@ -1629,12 +1645,19 @@ export interface DatabaseSchemaRequestApi {
      * * `SapSuccessFactors` - SapSuccessFactors
      * * `OracleEbs` - OracleEbs
      * * `OracleFusion` - OracleFusion
+     * * `AmazonSNS` - AmazonSNS
+     * * `AmazonEventBridge` - AmazonEventBridge
+     * * `AmazonSQS` - AmazonSQS
+     * * `AmazonKinesis` - AmazonKinesis
+     * * `AmazonCloudWatch` - AmazonCloudWatch
+     * * `OpenAIAds` - OpenAIAds
+     * * `Grafana` - Grafana
      * * `Custom` - Custom */
     source_type: ExternalDataSourceTypeEnumApi
 }
 
 /**
- * Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: for OAuth sources pass the source's integration id key (e.g. {'hubspot_integration_id': 123}); for credential sources pass {'credential_id': <id>} referencing credentials the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults.
+ * Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults.
  */
 export type SourceSetupApiPayload = { [key: string]: unknown }
 
@@ -1867,9 +1890,16 @@ export interface SourceSetupApi {
      * * `SapSuccessFactors` - SapSuccessFactors
      * * `OracleEbs` - OracleEbs
      * * `OracleFusion` - OracleFusion
+     * * `AmazonSNS` - AmazonSNS
+     * * `AmazonEventBridge` - AmazonEventBridge
+     * * `AmazonSQS` - AmazonSQS
+     * * `AmazonKinesis` - AmazonKinesis
+     * * `AmazonCloudWatch` - AmazonCloudWatch
+     * * `OpenAIAds` - OpenAIAds
+     * * `Grafana` - Grafana
      * * `Custom` - Custom */
     source_type: ExternalDataSourceTypeEnumApi
-    /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: for OAuth sources pass the source's integration id key (e.g. {'hubspot_integration_id': 123}); for credential sources pass {'credential_id': <id>} referencing credentials the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
+    /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
     payload?: SourceSetupApiPayload
     /**
      * Table name prefix in HogQL, e.g. 'stripe' produces stripe_charges. Defaults to the source type.
@@ -2143,6 +2173,13 @@ export interface SourceCredentialCreateApi {
      * * `SapSuccessFactors` - SapSuccessFactors
      * * `OracleEbs` - OracleEbs
      * * `OracleFusion` - OracleFusion
+     * * `AmazonSNS` - AmazonSNS
+     * * `AmazonEventBridge` - AmazonEventBridge
+     * * `AmazonSQS` - AmazonSQS
+     * * `AmazonKinesis` - AmazonKinesis
+     * * `AmazonCloudWatch` - AmazonCloudWatch
+     * * `OpenAIAds` - OpenAIAds
+     * * `Grafana` - Grafana
      * * `Custom` - Custom */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */

@@ -4,7 +4,7 @@ import { router } from 'kea-router'
 import posthog, { JsonRecord } from 'posthog-js'
 
 import api from 'lib/api'
-import { describerFor } from 'lib/components/ActivityLog/activityLogLogic'
+import { describerFor, ensureActivityDescribersLoaded } from 'lib/components/ActivityLog/activityLogLogic'
 import { HumanizedActivityLogItem, humanize } from 'lib/components/ActivityLog/humanizeActivity'
 import { showCriticalNotificationToast } from 'lib/components/NotificationsMenu/notificationToasts'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -21,7 +21,7 @@ import { urls } from 'scenes/urls'
 
 import { connectToNotificationsSSE } from '~/layout/navigation-3000/sidepanel/panels/activity/notificationsSSE'
 import { ChangesResponse } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelActivityLogic'
-import { InAppNotification, InsightShortId } from '~/types'
+import { InAppNotification, InsightShortId, SidePanelTab, WebAnalyticsDigestMetadata } from '~/types'
 
 import {
     notificationsList,
@@ -54,6 +54,7 @@ const SOURCE_TYPE_TO_PATH: Record<NotificationEventSourceTypeEnumApi, (id: strin
     survey: (id) => urls.survey(id),
     experiment: (id) => urls.experiment(id),
     error_tracking: (id) => urls.errorTrackingIssue(id),
+    customer_analytics: () => urls.customerAnalyticsAccounts(),
 }
 
 export interface NotificationGroup {
@@ -81,6 +82,21 @@ export function buildNotificationSourcePath(notification: InAppNotification): st
         )
     }
     return notification.source_url || null
+}
+
+export function buildWebAnalyticsDigestMaxPrompt(metadata: WebAnalyticsDigestMetadata | null): string {
+    if (!metadata) {
+        return '!Summarize my web analytics for the last 7 days and tell me what changed and why.'
+    }
+    const metricsLine = metadata.metrics
+        .map((metric) => {
+            const change = metric.change
+                ? ` (${metric.change.direction === 'Up' ? 'up' : 'down'} ${metric.change.percent}%)`
+                : ''
+            return `${metric.label} ${metric.value}${change}`
+        })
+        .join(', ')
+    return `!Here's my web analytics digest for ${metadata.period_label.toLowerCase()} on ${metadata.project_name}: ${metricsLine}. What are the most important changes, and what should I dig into?`
 }
 
 export interface ChangelogFlagPayload {
@@ -126,6 +142,8 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
         markAsRead: (id: string) => ({ id }),
         toggleRead: (id: string) => ({ id }),
         navigateToNotification: (notification: InAppNotification) => ({ notification }),
+        viewWebAnalyticsFromDigest: (notification: InAppNotification) => ({ notification }),
+        askMaxAboutDigest: (notification: InAppNotification) => ({ notification }),
         loadMoreNotifications: true,
         loadMoreNotificationsSuccess: (count: number) => ({ count }),
         loadGroupChildren: (group: NotificationGroup) => ({ group }),
@@ -261,10 +279,13 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                     await breakpoint(1)
 
                     try {
-                        const response = await api.get<ChangesResponse>(
-                            `api/projects/${values.currentProjectId}/my_notifications?` +
-                                toParams({ unread: onlyUnread })
-                        )
+                        const [response] = await Promise.all([
+                            api.get<ChangesResponse>(
+                                `api/projects/${values.currentProjectId}/my_notifications?` +
+                                    toParams({ unread: onlyUnread })
+                            ),
+                            ensureActivityDescribersLoaded(),
+                        ])
 
                         actions.clearErrorCount()
                         return response
@@ -550,6 +571,25 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                         children: 'Stay here',
                     },
                 })
+            },
+            viewWebAnalyticsFromDigest: ({ notification }) => {
+                posthog.capture('web_analytics_digest_notification_clicked', {
+                    cta: 'view_web_analytics',
+                    notification_id: notification.id,
+                    team_id: notification.team_id,
+                })
+                actions.navigateToNotification(notification)
+            },
+            askMaxAboutDigest: ({ notification }) => {
+                posthog.capture('web_analytics_digest_notification_clicked', {
+                    cta: 'ask_max',
+                    notification_id: notification.id,
+                    team_id: notification.team_id,
+                })
+                if (!notification.read) {
+                    actions.markAsRead(notification.id)
+                }
+                actions.openSidePanel(SidePanelTab.Max, buildWebAnalyticsDigestMaxPrompt(notification.metadata))
             },
             markAsRead: async ({ id }) => {
                 try {

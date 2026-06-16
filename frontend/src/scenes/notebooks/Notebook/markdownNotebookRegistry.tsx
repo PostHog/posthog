@@ -32,13 +32,21 @@ import '../Nodes/NotebookNodeZendeskTickets'
 
 import clsx from 'clsx'
 import { BindLogic, useActions, useMountedLogic } from 'kea'
-import { type CSSProperties, useCallback, useEffect, useMemo, useRef } from 'react'
+import {
+    type CSSProperties,
+    type PointerEvent as ReactPointerEvent,
+    useCallback,
+    useEffect,
+    useMemo,
+    useRef,
+} from 'react'
 
-import { IconSparkles } from '@posthog/icons'
+import { IconComment, IconSparkles } from '@posthog/icons'
 import { LemonInput, LemonTextArea } from '@posthog/lemon-ui'
 
 import { createMarkdownNotebookRegistry } from 'lib/components/MarkdownNotebook'
 import { wasNotebookNodeJustInserted } from 'lib/components/MarkdownNotebook/freshlyInserted'
+import { isDiscussionCommentProps } from 'lib/components/MarkdownNotebook/markdown'
 import {
     NotebookComponentBlockNode,
     NotebookComponentDefinition,
@@ -55,6 +63,7 @@ import { notebookNodeLogic } from '../Nodes/notebookNodeLogic'
 import { CreatePostHogWidgetNodeOptions, NotebookNodeAttributes, NotebookNodeType } from '../types'
 import { KNOWN_NODES } from '../utils'
 import { NotebookAIChat, getNotebookAIChatTitle } from './MarkdownNotebookAIChat'
+import { NotebookDiscussionComment, getNotebookDiscussionCommentTitle } from './MarkdownNotebookDiscussionComment'
 import { notebookLogic } from './notebookLogic'
 
 export const MARKDOWN_TAG_TO_NOTEBOOK_NODE_TYPE: Partial<Record<string, NotebookNodeType>> = {
@@ -168,6 +177,28 @@ export const NOTEBOOK_MARKDOWN_REGISTRY: NotebookComponentRegistry = createMarkd
         exclusiveEditPanel: true,
         hideModeActions: true,
         getTitle: getNotebookAIChatTitle,
+    },
+    {
+        // Overrides the default registry's authorial-note definition: the note flavor
+        // (`text`, stored as `<!-- … -->`) renders through CommentBlock before the registry
+        // is consulted, so this ViewComponent only ever sees the discussion flavor
+        // (`ref` + `replies`, Google Docs-style threads anchored to a highlight).
+        tagName: 'Comment',
+        label: 'Comment',
+        category: 'Text',
+        description: 'Inline note, stored as a markdown comment',
+        aliases: ['note', 'annotation', 'todo'],
+        icon: <IconComment />,
+        defaultProps: { text: '' },
+        ViewComponent: NotebookDiscussionComment,
+        EditComponent: NotebookDiscussionComment,
+        exclusiveEditPanel: true,
+        hideModeActions: true,
+        insertCommand: {},
+        getTitle: (node: NotebookComponentBlockNode) =>
+            isDiscussionCommentProps(node.props)
+                ? getNotebookDiscussionCommentTitle(node)
+                : (getUnknownStringProp(node.props.text) ?? 'Comment'),
     },
 ])
 
@@ -290,6 +321,7 @@ export function RealNotebookNodeEdit(props: NotebookComponentRenderProps): JSX.E
 export function RealNotebookNodeComponent({
     node,
     mode,
+    notebookMode,
     updateProps,
     deleteNode,
     forceEditing = false,
@@ -306,6 +338,7 @@ export function RealNotebookNodeComponent({
         <MountedRealNotebookNodeComponent
             node={node}
             mode={mode}
+            notebookMode={notebookMode}
             updateProps={updateProps}
             deleteNode={deleteNode}
             editOnly={editOnly}
@@ -319,6 +352,7 @@ export function RealNotebookNodeComponent({
 export function MountedRealNotebookNodeComponent({
     node,
     mode,
+    notebookMode,
     updateProps,
     editOnly,
     forceEditing,
@@ -374,8 +408,9 @@ export function MountedRealNotebookNodeComponent({
     const Settings = options.Settings
     const showSettings = forceEditing && Settings
     const showContent = !editOnly || !Settings
+    const isNotebookEditable = (notebookMode ?? mode) === 'edit'
     const isResizeable =
-        mode === 'edit' &&
+        isNotebookEditable &&
         (typeof options.resizeable === 'function' ? options.resizeable(attributes) : (options.resizeable ?? true))
     const contentStyle: CSSProperties | undefined =
         isResizeable || attributes.height
@@ -400,6 +435,39 @@ export function MountedRealNotebookNodeComponent({
         window.addEventListener('mouseup', handleResizeEnd)
     }, [isResizeable, updateAttributes])
 
+    const handleResizeHandlePointerDown = useCallback(
+        (event: ReactPointerEvent<HTMLDivElement>): void => {
+            if (!isResizeable || !contentRef.current) {
+                return
+            }
+
+            event.preventDefault()
+            event.stopPropagation()
+
+            const element = contentRef.current
+            const startY = event.clientY
+            const startHeight = element.getBoundingClientRect().height
+            const parsedMinHeight = Number.parseFloat(window.getComputedStyle(element).minHeight)
+            const minHeight = Number.isFinite(parsedMinHeight) ? parsedMinHeight : 0
+
+            const handlePointerMove = (moveEvent: PointerEvent): void => {
+                moveEvent.preventDefault()
+                const nextHeight = Math.max(minHeight, startHeight + moveEvent.clientY - startY)
+                element.style.height = `${Math.round(nextHeight)}px`
+            }
+
+            const handlePointerUp = (): void => {
+                window.removeEventListener('pointermove', handlePointerMove)
+                window.removeEventListener('pointerup', handlePointerUp)
+                updateAttributes({ height: element.clientHeight })
+            }
+
+            window.addEventListener('pointermove', handlePointerMove)
+            window.addEventListener('pointerup', handlePointerUp)
+        },
+        [isResizeable, updateAttributes]
+    )
+
     return (
         <NotebookNodeContext.Provider value={nodeLogic}>
             <BindLogic logic={notebookNodeLogic} props={logicProps}>
@@ -420,6 +488,13 @@ export function MountedRealNotebookNodeComponent({
                             onMouseDown={handleResizeStart}
                         >
                             <Component attributes={attributes} updateAttributes={updateAttributes} />
+                            {isResizeable ? (
+                                <div
+                                    className="MarkdownNotebook__real-node-resize-handle"
+                                    aria-hidden="true"
+                                    onPointerDown={handleResizeHandlePointerDown}
+                                />
+                            ) : null}
                         </div>
                     ) : null}
                 </div>

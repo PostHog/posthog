@@ -56,7 +56,7 @@ export const TracingSpansAggregateCreateBody = /* @__PURE__ */ zod.object({
                         key: zod
                             .string()
                             .describe(
-                                'Attribute key. For type \"span\", use built-in fields (trace_id, span_id, duration, name, kind, status_code). For \"span_attribute\"\/\"span_resource_attribute\", use the attribute key (e.g. \"http.method\").'
+                                'Attribute key. For type \"span\", use built-in fields (trace_id, span_id, duration, name, kind, status_code, is_root_span). For \"span_attribute\"\/\"span_resource_attribute\", use the attribute key (e.g. \"http.method\").'
                             ),
                         type: zod
                             .enum(['span', 'span_attribute', 'span_resource_attribute'])
@@ -99,6 +99,116 @@ export const TracingSpansAggregateCreateBody = /* @__PURE__ */ zod.object({
         .describe('The span aggregation query to execute.'),
 })
 
+export const tracingSpansAttributeBreakdownCreateBodyQueryOneCompareFilterOneCompareDefault = false
+export const tracingSpansAttributeBreakdownCreateBodyQueryOneFilterGroupDefault = []
+
+export const TracingSpansAttributeBreakdownCreateBody = /* @__PURE__ */ zod.object({
+    query: zod
+        .object({
+            breakdownKey: zod
+                .string()
+                .describe(
+                    'Attribute key to group by (e.g. \"server.address\", \"http.response.status_code\"). Discover keys with apm-attributes-list.'
+                ),
+            breakdownType: zod
+                .enum(['span_attribute', 'span_resource_attribute'])
+                .describe(
+                    '\* `span_attribute` - span_attribute\n\* `span_resource_attribute` - span_resource_attribute'
+                )
+                .describe(
+                    'Where the key lives: \"span_attribute\" for span-level attributes, \"span_resource_attribute\" for resource-level attributes.\n\n\* `span_attribute` - span_attribute\n\* `span_resource_attribute` - span_resource_attribute'
+                ),
+            orderBy: zod
+                .enum(['count', 'error_count'])
+                .describe('\* `count` - count\n\* `error_count` - error_count')
+                .optional()
+                .describe(
+                    'Order rows by span count or error count, descending. Defaults to count.\n\n\* `count` - count\n\* `error_count` - error_count'
+                ),
+            dateRange: zod
+                .object({
+                    date_from: zod
+                        .string()
+                        .nullish()
+                        .describe(
+                            'Start of the date range. Accepts ISO 8601 timestamps or relative formats: -1h, -6h, -1d, -7d, etc.'
+                        ),
+                    date_to: zod
+                        .string()
+                        .nullish()
+                        .describe('End of the date range. Same format as date_from. Omit or null for \"now\".'),
+                })
+                .optional()
+                .describe('Date range for the primary window. Defaults to last hour.'),
+            compareFilter: zod
+                .object({
+                    compare: zod
+                        .boolean()
+                        .default(tracingSpansAttributeBreakdownCreateBodyQueryOneCompareFilterOneCompareDefault)
+                        .describe(
+                            'When true, also fetch results for a comparison window and return them under `compare`.'
+                        ),
+                    compare_to: zod
+                        .string()
+                        .nullish()
+                        .describe(
+                            "Relative date offset for the comparison window (e.g. '-1h', '-1d', '-7d'). Defaults to the immediately previous period of equal length."
+                        ),
+                })
+                .optional()
+                .describe(
+                    'Optional comparison-window configuration. When omitted, only the primary window is returned.'
+                ),
+            serviceNames: zod.array(zod.string()).optional().describe('Filter by service names.'),
+            filterGroup: zod
+                .array(
+                    zod.object({
+                        key: zod
+                            .string()
+                            .describe(
+                                'Attribute key. For type \"span\", use built-in fields (trace_id, span_id, duration, name, kind, status_code, is_root_span). For \"span_attribute\"\/\"span_resource_attribute\", use the attribute key (e.g. \"http.method\").'
+                            ),
+                        type: zod
+                            .enum(['span', 'span_attribute', 'span_resource_attribute'])
+                            .describe(
+                                '\* `span` - span\n\* `span_attribute` - span_attribute\n\* `span_resource_attribute` - span_resource_attribute'
+                            )
+                            .describe(
+                                '\"span\" filters built-in span fields. \"span_attribute\" filters span-level attributes. \"span_resource_attribute\" filters resource-level attributes.\n\n\* `span` - span\n\* `span_attribute` - span_attribute\n\* `span_resource_attribute` - span_resource_attribute'
+                            ),
+                        operator: zod
+                            .enum([
+                                'exact',
+                                'is_not',
+                                'icontains',
+                                'not_icontains',
+                                'regex',
+                                'not_regex',
+                                'gt',
+                                'lt',
+                                'is_set',
+                                'is_not_set',
+                            ])
+                            .describe(
+                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                            )
+                            .describe(
+                                'Comparison operator.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                            ),
+                        value: zod
+                            .unknown()
+                            .optional()
+                            .describe(
+                                'Value to compare against. String, number, or array of strings. Omit for is_set\/is_not_set operators.'
+                            ),
+                    })
+                )
+                .default(tracingSpansAttributeBreakdownCreateBodyQueryOneFilterGroupDefault)
+                .describe('Property filters scoping the spans the breakdown runs over (e.g. only error spans).'),
+        })
+        .describe('The attribute breakdown query to execute.'),
+})
+
 export const tracingSpansCountCreateBodyQueryOneFilterGroupDefault = []
 
 export const TracingSpansCountCreateBody = /* @__PURE__ */ zod.object({
@@ -120,14 +230,19 @@ export const TracingSpansCountCreateBody = /* @__PURE__ */ zod.object({
                 .optional()
                 .describe('Date range for the count. Defaults to last hour.'),
             serviceNames: zod.array(zod.string()).optional().describe('Filter by service names.'),
-            statusCodes: zod.array(zod.number()).optional().describe('Filter by HTTP status codes.'),
+            statusCodes: zod
+                .array(zod.number())
+                .optional()
+                .describe(
+                    'Filter by OTel span status codes (0 Unset, 1 OK, 2 Error) — not HTTP status codes. Use [2] to select error spans.'
+                ),
             filterGroup: zod
                 .array(
                     zod.object({
                         key: zod
                             .string()
                             .describe(
-                                'Attribute key. For type \"span\", use built-in fields (trace_id, span_id, duration, name, kind, status_code). For \"span_attribute\"\/\"span_resource_attribute\", use the attribute key (e.g. \"http.method\").'
+                                'Attribute key. For type \"span\", use built-in fields (trace_id, span_id, duration, name, kind, status_code, is_root_span). For \"span_attribute\"\/\"span_resource_attribute\", use the attribute key (e.g. \"http.method\").'
                             ),
                         type: zod
                             .enum(['span', 'span_attribute', 'span_resource_attribute'])
@@ -196,7 +311,12 @@ export const TracingSpansDurationHistogramCreateBody = /* @__PURE__ */ zod.objec
                 .optional()
                 .describe('Date range for the query. Defaults to last hour.'),
             serviceNames: zod.array(zod.string()).optional().describe('Filter by service names.'),
-            statusCodes: zod.array(zod.number()).optional().describe('Filter by HTTP status codes.'),
+            statusCodes: zod
+                .array(zod.number())
+                .optional()
+                .describe(
+                    'Filter by OTel span status codes (0 Unset, 1 OK, 2 Error) — not HTTP status codes. Use [2] to select error spans.'
+                ),
             orderBy: zod
                 .enum(['timestamp', 'duration'])
                 .describe('\* `timestamp` - timestamp\n\* `duration` - duration')
@@ -217,7 +337,7 @@ export const TracingSpansDurationHistogramCreateBody = /* @__PURE__ */ zod.objec
                         key: zod
                             .string()
                             .describe(
-                                'Attribute key. For type \"span\", use built-in fields (trace_id, span_id, duration, name, kind, status_code). For \"span_attribute\"\/\"span_resource_attribute\", use the attribute key (e.g. \"http.method\").'
+                                'Attribute key. For type \"span\", use built-in fields (trace_id, span_id, duration, name, kind, status_code, is_root_span). For \"span_attribute\"\/\"span_resource_attribute\", use the attribute key (e.g. \"http.method\").'
                             ),
                         type: zod
                             .enum(['span', 'span_attribute', 'span_resource_attribute'])
@@ -311,7 +431,12 @@ export const TracingSpansQueryCreateBody = /* @__PURE__ */ zod.object({
                 .optional()
                 .describe('Date range for the query. Defaults to last hour.'),
             serviceNames: zod.array(zod.string()).optional().describe('Filter by service names.'),
-            statusCodes: zod.array(zod.number()).optional().describe('Filter by HTTP status codes.'),
+            statusCodes: zod
+                .array(zod.number())
+                .optional()
+                .describe(
+                    'Filter by OTel span status codes (0 Unset, 1 OK, 2 Error) — not HTTP status codes. Use [2] to select error spans.'
+                ),
             orderBy: zod
                 .enum(['timestamp', 'duration'])
                 .describe('\* `timestamp` - timestamp\n\* `duration` - duration')
@@ -332,7 +457,7 @@ export const TracingSpansQueryCreateBody = /* @__PURE__ */ zod.object({
                         key: zod
                             .string()
                             .describe(
-                                'Attribute key. For type \"span\", use built-in fields (trace_id, span_id, duration, name, kind, status_code). For \"span_attribute\"\/\"span_resource_attribute\", use the attribute key (e.g. \"http.method\").'
+                                'Attribute key. For type \"span\", use built-in fields (trace_id, span_id, duration, name, kind, status_code, is_root_span). For \"span_attribute\"\/\"span_resource_attribute\", use the attribute key (e.g. \"http.method\").'
                             ),
                         type: zod
                             .enum(['span', 'span_attribute', 'span_resource_attribute'])
@@ -426,7 +551,12 @@ export const TracingSpansSparklineCreateBody = /* @__PURE__ */ zod.object({
                 .optional()
                 .describe('Date range for the query. Defaults to last hour.'),
             serviceNames: zod.array(zod.string()).optional().describe('Filter by service names.'),
-            statusCodes: zod.array(zod.number()).optional().describe('Filter by HTTP status codes.'),
+            statusCodes: zod
+                .array(zod.number())
+                .optional()
+                .describe(
+                    'Filter by OTel span status codes (0 Unset, 1 OK, 2 Error) — not HTTP status codes. Use [2] to select error spans.'
+                ),
             orderBy: zod
                 .enum(['timestamp', 'duration'])
                 .describe('\* `timestamp` - timestamp\n\* `duration` - duration')
@@ -447,7 +577,7 @@ export const TracingSpansSparklineCreateBody = /* @__PURE__ */ zod.object({
                         key: zod
                             .string()
                             .describe(
-                                'Attribute key. For type \"span\", use built-in fields (trace_id, span_id, duration, name, kind, status_code). For \"span_attribute\"\/\"span_resource_attribute\", use the attribute key (e.g. \"http.method\").'
+                                'Attribute key. For type \"span\", use built-in fields (trace_id, span_id, duration, name, kind, status_code, is_root_span). For \"span_attribute\"\/\"span_resource_attribute\", use the attribute key (e.g. \"http.method\").'
                             ),
                         type: zod
                             .enum(['span', 'span_attribute', 'span_resource_attribute'])
@@ -598,7 +728,7 @@ export const TracingSpansTreeCreateBody = /* @__PURE__ */ zod.object({
                         key: zod
                             .string()
                             .describe(
-                                'Attribute key. For type \"span\", use built-in fields (trace_id, span_id, duration, name, kind, status_code). For \"span_attribute\"\/\"span_resource_attribute\", use the attribute key (e.g. \"http.method\").'
+                                'Attribute key. For type \"span\", use built-in fields (trace_id, span_id, duration, name, kind, status_code, is_root_span). For \"span_attribute\"\/\"span_resource_attribute\", use the attribute key (e.g. \"http.method\").'
                             ),
                         type: zod
                             .enum(['span', 'span_attribute', 'span_resource_attribute'])

@@ -15,6 +15,7 @@ from django.utils import timezone
 import psycopg
 from parameterized import parameterized
 from rest_framework import status
+from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.schema import (
     SourceFieldFileUploadConfig,
@@ -34,7 +35,7 @@ from posthog.temporal.data_imports.sources.bigquery.bigquery import BigQuerySour
 from posthog.temporal.data_imports.sources.common.base import FieldType, WebhookCreationResult
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.custom.source import MAX_CUSTOM_SOURCES_PER_TEAM
-from posthog.temporal.data_imports.sources.postgres.postgres import PostgresDiscoveredSchema
+from posthog.temporal.data_imports.sources.postgres.postgres import PostgresDiscoveredSchema, SSLRequiredError
 from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
 from posthog.temporal.data_imports.sources.stripe.constants import (
     BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
@@ -7501,8 +7502,8 @@ def _make_postgres_source(
                 "cdc_slot_name": slot_name,
                 "cdc_publication_name": pub_name,
                 "cdc_auto_drop_slot": True,
-                "cdc_lag_warning_threshold_mb": 1024,
-                "cdc_lag_critical_threshold_mb": 10240,
+                "cdc_lag_warning_threshold_mb": 512,
+                "cdc_lag_critical_threshold_mb": 2048,
                 "cdc_consistent_point": "0/12345",
             }
         )
@@ -7612,6 +7613,66 @@ class TestCheckCDCPrerequisitesForSource(APIBaseTest):
         )
         assert response.status_code == 400
         assert "Could not connect to source" in response.json()["message"]
+
+
+class TestCheckCDCPrerequisitesWizard(APIBaseTest):
+    """The detail=False wizard endpoint validates a client-supplied Postgres config before the
+    source exists. Connecting to a user's database is expected to fail on bad creds/host/tunnel,
+    so those connection errors should surface as a 400 without being captured to error tracking."""
+
+    BASE_PAYLOAD = {
+        "source_type": "Postgres",
+        "host": "db.example.com",
+        "port": 5432,
+        "database": "postgres",
+        "user": "postgres",
+        "password": "password",
+        "cdc_management_mode": "posthog",
+        "tables": ["public.users"],
+    }
+
+    def _post(self, **overrides):
+        return self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/check_cdc_prerequisites/",
+            data={**self.BASE_PAYLOAD, **overrides},
+            format="json",
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "operational_error",
+                psycopg.OperationalError(
+                    'connection failed: connection to server at "127.0.0.1", port 46377 failed: '
+                    "server closed the connection unexpectedly"
+                ),
+            ),
+            ("ssh_tunnel_error", BaseSSHTunnelForwarderError("Could not establish session to SSH gateway")),
+            ("ssl_required_error", SSLRequiredError("SSL/TLS is required but not supported by the server")),
+        ]
+    )
+    @patch("products.data_warehouse.backend.api.external_data_source.capture_exception")
+    @patch.object(PostgresSource, "is_database_host_valid", return_value=(True, None))
+    @patch.object(PostgresSource, "ssh_tunnel_is_valid", return_value=(True, None))
+    def test_connection_failure_returns_400_without_capture(
+        self, _name, exc, _mock_ssh, _mock_host, mock_capture
+    ) -> None:
+        with patch.object(PostgresSource, "check_cdc_prerequisites", side_effect=exc):
+            response = self._post()
+        assert response.status_code == 400, response.content
+        assert "Could not connect to Postgres to check prerequisites" in response.json()["message"]
+        # User/upstream connection failures must not pollute error tracking.
+        mock_capture.assert_not_called()
+
+    @patch("products.data_warehouse.backend.api.external_data_source.capture_exception")
+    @patch.object(PostgresSource, "is_database_host_valid", return_value=(True, None))
+    @patch.object(PostgresSource, "ssh_tunnel_is_valid", return_value=(True, None))
+    @patch.object(PostgresSource, "check_cdc_prerequisites", side_effect=ValueError("unexpected bug"))
+    def test_unexpected_error_is_still_captured(self, _mock_prereqs, _mock_ssh, _mock_host, mock_capture) -> None:
+        response = self._post()
+        assert response.status_code == 400, response.content
+        # Genuine bugs (not connection failures) should still be captured.
+        mock_capture.assert_called_once()
 
 
 class TestEnableCDC(APIBaseTest):
@@ -7736,8 +7797,8 @@ class TestEnableCDC(APIBaseTest):
                         payload.get("cdc_publication_name") or f"posthog_pub_{source_model.id.hex[:12]}"
                     ),
                     "cdc_auto_drop_slot": payload.get("cdc_auto_drop_slot", True),
-                    "cdc_lag_warning_threshold_mb": payload.get("cdc_lag_warning_threshold_mb", 1024),
-                    "cdc_lag_critical_threshold_mb": payload.get("cdc_lag_critical_threshold_mb", 10240),
+                    "cdc_lag_warning_threshold_mb": payload.get("cdc_lag_warning_threshold_mb", 512),
+                    "cdc_lag_critical_threshold_mb": payload.get("cdc_lag_critical_threshold_mb", 2048),
                     "cdc_consistent_point": "0/ABCDEF",
                 }
             )
@@ -8280,8 +8341,8 @@ class TestUpdateCDCSettings(APIBaseTest):
         assert ji["cdc_publication_name"] == original_pub
         assert ji["cdc_management_mode"] == original_mode
         # Thresholds preserved at defaults.
-        assert int(ji["cdc_lag_warning_threshold_mb"]) == 1024
-        assert int(ji["cdc_lag_critical_threshold_mb"]) == 10240
+        assert int(ji["cdc_lag_warning_threshold_mb"]) == 512
+        assert int(ji["cdc_lag_critical_threshold_mb"]) == 2048
 
     def test_update_cdc_settings_empty_payload_is_unchanged(self) -> None:
         source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
@@ -8425,23 +8486,25 @@ class TestExternalDataSourceConnectLink(APIBaseTest):
             f"/api/environments/{self.team.pk}/external_data_sources/connect_link?source_type={source_type}"
         )
 
-    def test_connect_link_oauth_source(self):
-        response = self._connect_link("Hubspot")
+    @parameterized.expand(
+        [
+            # OAuth-only sources connect via the same page — the form renders the integration picker.
+            ("oauth_only", "Hubspot", "oauth"),
+            ("credentials_only", "Postgres", "credentials"),
+            # Stripe's OAuth option is nested inside the auth_method select alongside API key —
+            # the page form offers both, so the user chooses how to authenticate.
+            ("mixed_auth", "Stripe", "credentials"),
+        ]
+    )
+    def test_connect_link_always_points_at_the_connect_page(self, _name, source_type, expected_auth_method):
+        response = self._connect_link(source_type)
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        assert data["auth_method"] == "oauth"
-        assert data["integration_field"] == "hubspot_integration_id"
-        assert "/api/integrations/authorize?kind=hubspot" in data["connect_url"]
-        # The post-auth return path lands on the minimal connect page, not the full wizard.
-        assert "data-warehouse%2Fconnect" in data["connect_url"]
-
-    def test_connect_link_credentials_source(self):
-        response = self._connect_link("Postgres")
-        assert response.status_code == status.HTTP_200_OK
-        data = response.json()
-        assert data["auth_method"] == "credentials"
-        assert data["integration_field"] == "credential_id"
-        assert f"/project/{self.team.pk}/data-warehouse/connect?kind=Postgres" in data["connect_url"]
+        assert data["auth_method"] == expected_auth_method
+        assert f"/project/{self.team.pk}/data-warehouse/connect?kind={source_type}" in data["connect_url"]
+        # One discovery path for every source: the page stores a credential, the agent passes its id.
+        assert "data-warehouse-stored-credentials-list" in data["instructions"]
+        assert "credential_id" in data["instructions"]
 
     def test_connect_link_missing_source_type(self):
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/connect_link")
