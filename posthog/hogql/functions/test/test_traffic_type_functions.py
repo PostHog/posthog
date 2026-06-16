@@ -14,6 +14,7 @@ from posthog.hogql.functions.traffic_type import (
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 
+from products.actions.backend.models.action import Action
 from products.web_analytics.backend.hogql_queries.bot_definitions import BOT_DEFINITIONS
 
 
@@ -439,8 +440,37 @@ class TestMacroExpansionGuard(BaseTest):
         printed = self._print("SELECT __preview_getTrafficType(toString(properties.x)) FROM events")
         assert "multiMatchAnyIndex" in printed
 
-    def test_nested_expanded_function_is_rejected(self):
-        # The builders duplicate their argument, so a macro nested inside another macro's
-        # expansion would blow up ~2^depth during resolution. Reject it instead of expanding.
+    def test_nested_duplicating_macro_is_rejected(self):
+        # The bot-lookup builders duplicate their argument, so a duplicating macro nested inside
+        # another's expansion would blow up ~2^depth during resolution. Reject it instead.
         with pytest.raises(QueryError, match="cannot be nested inside another expanded function call"):
             self._print("SELECT __preview_getTrafficType(__preview_getTrafficType(toString(properties.x))) FROM events")
+
+    def test_cross_duplicating_macro_nesting_is_rejected(self):
+        # Nesting two *different* duplicating macros is the same exponential vector.
+        with pytest.raises(QueryError, match="cannot be nested inside another expanded function call"):
+            self._print("SELECT __preview_getTrafficType(__preview_getBotName(toString(properties.x))) FROM events")
+
+    def test_non_duplicating_macro_inside_duplicating_macro_is_allowed(self):
+        # isBot does not duplicate its argument, so reaching it inside a duplicating macro's
+        # expansion is bounded (not exponential) and must still resolve, not raise.
+        printed = self._print("SELECT __preview_getTrafficType(toString(__preview_isBot(properties.x))) FROM events")
+        assert "multiMatchAnyIndex" in printed
+
+    def test_matches_action_with_macro_property_still_resolves(self):
+        # matchesAction expands a user-defined action, whose hogql property filters re-parse
+        # arbitrary user HogQL. A guarded macro referenced there must still expand — the guard
+        # must not fire across matchesAction's (bounded) action expansion.
+        action = Action.objects.create(
+            team=self.team,
+            steps_json=[
+                {
+                    "event": "$pageview",
+                    "properties": [
+                        {"type": "hogql", "key": "__preview_getTrafficType(properties.$user_agent) = 'Bot'"}
+                    ],
+                }
+            ],
+        )
+        printed = self._print(f"SELECT matchesAction({action.pk}) FROM events")
+        assert "multiMatchAnyIndex" in printed

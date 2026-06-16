@@ -256,7 +256,7 @@ class Resolver(CloningVisitor):
         self.cte_counter = 0
         self._scope_table_names: dict[int, dict[str, str]] = {}
         self._scope_table_column_aliases: dict[int, dict[str, list[str]]] = {}
-        # Re-entrancy guard for PostHog-function macros (see _expand_posthog_function_macro).
+        # Re-entrancy guard for argument-duplicating bot-lookup macros (see _expand_duplicating_macro).
         self._inside_posthog_macro_expansion: bool = False
 
     def _get_scope_table_names(self, scope: ast.SelectQueryType) -> dict[str, str]:
@@ -1510,20 +1510,18 @@ class Resolver(CloningVisitor):
         node.type.nullable = left_type.nullable or right_type.nullable
         return node
 
-    def _matches_action_expansion(self, node: ast.Call) -> ast.Expr:
-        events_alias, _ = self._get_events_table_current_scope()
-        if events_alias is None:
-            raise QueryError("matchesAction can only be used with the events table")
-        return matches_action(node=node, args=node.args, context=self.context, events_alias=events_alias)
+    def _expand_duplicating_macro(self, node: ast.Call, builder: Callable[[], ast.Expr]) -> ast.Expr:
+        """Build and resolve a bot-lookup macro whose builder duplicates its argument.
 
-    def _expand_posthog_function_macro(self, node: ast.Call, builder: Callable[[], ast.Expr]) -> ast.Expr:
-        """Build a PostHog-function macro's replacement AST and resolve it.
-
-        Some builders duplicate their argument into multiple positions of the expansion
-        (e.g. the bot-lookup helpers reference the same multiMatchAnyIndex node twice), so a
-        user-written macro nested inside another macro's argument would expand ~2^depth during
-        resolution. The catalog and every legitimate caller use these functions un-nested, so a
-        macro reached while we're already expanding one means user abuse: reject it instead.
+        The bot-lookup helpers reference the same multiMatchAnyIndex node in two positions
+        (`_build_bot_array_lookup`), so each level copies the unvisited argument subtree, and a
+        user-written duplicating macro nested inside another's argument would expand ~2^depth
+        during resolution. The flag is set across the visit so the inner macro is rejected before
+        the blowup compounds; it persists through any non-duplicating macro's plain visit in
+        between, so `getTrafficType(toString(getBotName(...)))` is still caught. Only the
+        duplicating bot-lookup macros set the flag — macros that embed their argument once or
+        expand bounded, user-authored content (matchesAction's action, the survey filters) must
+        not, or they would reject a legitimate macro reached during their expansion.
         """
         if self._inside_posthog_macro_expansion:
             raise QueryError(f"Function '{node.name}' cannot be nested inside another expanded function call.")
@@ -1559,34 +1557,38 @@ class Resolver(CloningVisitor):
             validate_function_args(node.args, func_meta.min_args, func_meta.max_args, node.name)
 
             if node.name == "sparkline":
-                return self._expand_posthog_function_macro(node, lambda: sparkline(node=node, args=node.args))
+                return self.visit(sparkline(node=node, args=node.args))
             if node.name == "recordingButton":
-                return self._expand_posthog_function_macro(node, lambda: recording_button(node=node, args=node.args))
+                return self.visit(recording_button(node=node, args=node.args))
             if node.name == "explainCSPReport":
-                return self._expand_posthog_function_macro(node, lambda: explain_csp_report(node=node, args=node.args))
+                return self.visit(explain_csp_report(node=node, args=node.args))
             if node.name == "matchesAction":
-                return self._expand_posthog_function_macro(node, lambda: self._matches_action_expansion(node))
-            if node.name == "getSurveyResponse":
-                return self._expand_posthog_function_macro(node, lambda: get_survey_response(node=node, args=node.args))
-            if node.name == "uniqueSurveySubmissionsFilter":
-                return self._expand_posthog_function_macro(
-                    node,
-                    lambda: unique_survey_submissions_filter(node=node, args=node.args, team_id=self.context.team_id),
+                events_alias, _ = self._get_events_table_current_scope()
+                if events_alias is None:
+                    raise QueryError("matchesAction can only be used with the events table")
+                return self.visit(
+                    matches_action(node=node, args=node.args, context=self.context, events_alias=events_alias)
                 )
-            if node.name == "__preview_getTrafficType":
-                return self._expand_posthog_function_macro(node, lambda: get_traffic_type(node=node, args=node.args))
-            if node.name == "__preview_getTrafficCategory":
-                return self._expand_posthog_function_macro(
-                    node, lambda: get_traffic_category(node=node, args=node.args)
+            if node.name == "getSurveyResponse":
+                return self.visit(get_survey_response(node=node, args=node.args))
+            if node.name == "uniqueSurveySubmissionsFilter":
+                return self.visit(
+                    unique_survey_submissions_filter(node=node, args=node.args, team_id=self.context.team_id)
                 )
             if node.name == "__preview_isBot":
-                return self._expand_posthog_function_macro(node, lambda: is_bot(node=node, args=node.args))
+                return self.visit(is_bot(node=node, args=node.args))
+            # The bot-lookup builders below duplicate their argument, so they must expand under the
+            # re-entrancy guard to bound nested expansion (see _expand_duplicating_macro).
+            if node.name == "__preview_getTrafficType":
+                return self._expand_duplicating_macro(node, lambda: get_traffic_type(node=node, args=node.args))
+            if node.name == "__preview_getTrafficCategory":
+                return self._expand_duplicating_macro(node, lambda: get_traffic_category(node=node, args=node.args))
             if node.name == "__preview_getBotType":
-                return self._expand_posthog_function_macro(node, lambda: get_bot_type(node=node, args=node.args))
+                return self._expand_duplicating_macro(node, lambda: get_bot_type(node=node, args=node.args))
             if node.name == "__preview_getBotName":
-                return self._expand_posthog_function_macro(node, lambda: get_bot_name(node=node, args=node.args))
+                return self._expand_duplicating_macro(node, lambda: get_bot_name(node=node, args=node.args))
             if node.name == "__preview_getBotOperator":
-                return self._expand_posthog_function_macro(node, lambda: get_bot_operator(node=node, args=node.args))
+                return self._expand_duplicating_macro(node, lambda: get_bot_operator(node=node, args=node.args))
 
         if self._is_higher_order_array_call(node):
             node = self._visit_higher_order_array_call(node)
