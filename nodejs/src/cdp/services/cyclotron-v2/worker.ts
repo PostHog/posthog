@@ -85,6 +85,28 @@ export class CyclotronV2Worker {
         }
     }
 
+    /**
+     * Cheap pre-check that returns true iff any job is currently dequeueable
+     * from this worker's queue. Used by rate-limited subclasses to skip the
+     * token-bucket claim entirely on idle polls, so the limiter stays silent
+     * when there's nothing to send.
+     *
+     * Hits the same partial index as `dequeueJobs` (`idx_cyclotron_jobs_dequeue`,
+     * filtered on `status = 'available'`), so the query is sub-millisecond and
+     * strictly cheaper than the `UPDATE ... SKIP LOCKED` we'd otherwise run.
+     */
+    protected async hasWork(): Promise<boolean> {
+        const result = await this.pool.query(
+            `SELECT 1 FROM cyclotron_jobs
+             WHERE status = 'available'
+               AND queue_name = $1
+               AND scheduled <= NOW()
+             LIMIT 1`,
+            [this.config.queueName]
+        )
+        return result.rowCount !== null && result.rowCount > 0
+    }
+
     protected async dequeueJobs(limit: number = this.batchMaxSize): Promise<RawJobRow[]> {
         const lockId = uuidv7()
         const result = await this.pool.query<RawJobRow>(

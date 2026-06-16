@@ -27,6 +27,17 @@ export class CyclotronV2RateLimitedWorker extends CyclotronV2Worker {
             try {
                 this.lastPollTime = new Date()
 
+                // Cheap pre-check: only claim tokens if there's actual work to
+                // dequeue. Skipping this on idle polls keeps the bucket at
+                // capacity (preserves burst), and keeps the limiter's metrics
+                // silent when there's nothing to send. The SELECT hits the
+                // same partial index as dequeueJobs — strictly cheaper than the
+                // UPDATE ... SKIP LOCKED we'd otherwise have run.
+                if (!(await this.hasWork())) {
+                    await sleep(this.pollDelayMs)
+                    continue
+                }
+
                 const decision = await this.getBatchLimit()
                 // === 0 (not <=) so a future bug returning a negative limit
                 // surfaces as a SQL LIMIT error instead of silently sleeping.

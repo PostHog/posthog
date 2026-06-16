@@ -586,6 +586,26 @@ describe('Cyclotron V2', () => {
                 // The first call rejected — the loop's catch swallowed it and tried again.
                 expect(calls).toBeGreaterThan(1)
             })
+
+            it('skips the limiter entirely when there is no work to dequeue', async () => {
+                // Idle queue → peek returns no rows → worker sleeps without
+                // ever consulting the rate limiter. Keeps the bucket at
+                // capacity and the limiter's metrics silent during idle.
+                let hookCalls = 0
+                const worker = createRateLimitedWorker(() => {
+                    hookCalls += 1
+                    return Promise.resolve({ limit: 5 })
+                })
+
+                await worker.connect(async () => {})
+                // Let the loop poll several times (pollDelayMs is 10ms in tests).
+                await new Promise((resolve) => setTimeout(resolve, 200))
+                await worker.stopConsuming()
+
+                // Many poll cycles ran (~20 at 10ms cadence) but no jobs exist,
+                // so the limiter hook is never invoked.
+                expect(hookCalls).toBe(0)
+            })
         })
 
         it.each([
