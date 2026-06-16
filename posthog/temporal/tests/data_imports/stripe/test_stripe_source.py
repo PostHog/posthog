@@ -1,4 +1,5 @@
 import uuid
+from collections.abc import Mapping
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -656,7 +657,7 @@ def test_stripe_http_client_retries_rate_limits(_name, status_code, num_retries,
     the import activity. Our client opts 429 into the SDK's Retry-After-aware backoff while
     preserving the base behavior for 5xx and leaving non-retryable 4xx alone."""
     client = _tracked_stripe_http_client()
-    response = (b"", status_code, {})
+    response: tuple[bytes, int, Mapping[str, str]] = (b"", status_code, {})
 
     assert (
         client._should_retry(response, None, num_retries=num_retries, max_network_retries=max_network_retries)
