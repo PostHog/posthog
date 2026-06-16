@@ -7,6 +7,7 @@ from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_
 from unittest import mock
 from unittest.mock import MagicMock, patch
 
+from django.core.cache import cache
 from django.db import connection, transaction
 from django.test.utils import CaptureQueriesContext
 
@@ -34,6 +35,7 @@ from posthog.session_recordings.session_recording_playlist_api import (
     _empty_saved_filters_counts,
     precompute_recordings_counts,
 )
+from posthog.session_recordings.synthetic_playlists import ExpiringPlaylistSource
 from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
     OBJECT_STORAGE_BUCKET,
@@ -904,6 +906,13 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
     @snapshot_postgres_queries
     @freeze_time("2025-01-01T12:00:00Z")
     def test_filters_playlist_by_type(self):
+        # Prime the expiring-playlist cache so its cold-start scan (which builds the
+        # warehouse HogQL Database and emits a DataWarehouseSavedQuery lookup) stays
+        # out of this query snapshot. The scan runs once per hour in production; left
+        # to LocMemCache state it fires or not depending on test order, making the
+        # captured query set flaky.
+        cache.set(ExpiringPlaylistSource._get_cache_key(self.team.pk), [], ExpiringPlaylistSource.CACHE_TTL)
+
         # Setup playlists with different types and conditions
         p_filters_explicit = SessionRecordingPlaylist.objects.create(
             team=self.team,

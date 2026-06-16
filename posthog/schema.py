@@ -20582,14 +20582,6 @@ class AccountsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    accountExecutive: list[int] | None = Field(
-        default=None,
-        description=("Match accounts whose account executive is any of these user ids (OR semantics)."),
-    )
-    accountOwner: list[int] | None = Field(
-        default=None,
-        description=("Match accounts whose account owner is any of these user ids (OR semantics)."),
-    )
     allRolesUnassigned: bool | None = None
     assignedToUserIds: list[int] | None = Field(
         default=None,
@@ -20599,10 +20591,6 @@ class AccountsQuery(BaseModel):
             ' current user\'s id) and the shareable "Assigned to" filter — the ids are'
             " explicit so a shared URL resolves identically for every viewer."
         ),
-    )
-    csm: list[int] | None = Field(
-        default=None,
-        description="Match accounts whose CSM is any of these user ids (OR semantics).",
     )
     filterExpression: str | None = Field(
         default=None,

@@ -509,15 +509,9 @@ export namespace Schemas {
     }
 
     export interface AccountsQuery {
-      /** Match accounts whose account executive is any of these user ids (OR semantics). */
-      accountExecutive?: number[] | null;
-      /** Match accounts whose account owner is any of these user ids (OR semantics). */
-      accountOwner?: number[] | null;
       allRolesUnassigned?: boolean | null;
       /** Match accounts where any of these user ids is the CSM or the account executive (OR over both roles). Drives the "My accounts" shortcut (the current user's id) and the shareable "Assigned to" filter — the ids are explicit so a shared URL resolves identically for every viewer. */
       assignedToUserIds?: number[] | null;
-      /** Match accounts whose CSM is any of these user ids (OR semantics). */
-      csm?: number[] | null;
       /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
       filterExpression?: string | null;
       kind?: 'AccountsQuery';
@@ -12558,12 +12552,15 @@ export namespace Schemas {
       columns?: string[];
       /** @maxLength 255 */
       name?: string;
+      /** Column filter state persisted with this view configuration. */
       filters?: unknown;
       /**
          * Ordered list of HogQL expressions describing the table sort. Null preserves the current sort on apply (legacy rows); an empty list explicitly means no sort.
          * @nullable
          */
       order_by?: string[] | null;
+      /** Product-specific view state that does not fit the columnar fields (e.g. Customer analytics overview tiles and column display). */
+      properties?: unknown;
       visibility?: VisibilityEnum;
       /** @nullable */
       readonly created_by: number | null;
@@ -21784,6 +21781,17 @@ export namespace Schemas {
          * @nullable
          */
       ensure_experience_continuity?: boolean | null;
+      /** Where this flag is allowed to evaluate: 'server' (server-side SDKs only), 'client' (client-side SDKs only), or 'all' (both). Defaults to 'all'.
+       *
+       * * `server` - Server
+       * * `client` - Client
+       * * `all` - All */
+      evaluation_runtime?: EvaluationRuntimeEnum | null;
+      /** Identifier used to bucket users into rollout percentages and variants: 'distinct_id' (user ID, the default) or 'device_id'. Using 'device_id' is incompatible with ensure_experience_continuity=True.
+       *
+       * * `distinct_id` - User ID (default)
+       * * `device_id` - Device ID */
+      bucketing_identifier?: BucketingIdentifierEnum | null;
     }
 
     export interface FeatureFlagStatusResponse {
@@ -32900,12 +32908,15 @@ export namespace Schemas {
       columns?: string[];
       /** @maxLength 255 */
       name?: string;
+      /** Column filter state persisted with this view configuration. */
       filters?: unknown;
       /**
          * Ordered list of HogQL expressions describing the table sort. Null preserves the current sort on apply (legacy rows); an empty list explicitly means no sort.
          * @nullable
          */
       order_by?: string[] | null;
+      /** Product-specific view state that does not fit the columnar fields (e.g. Customer analytics overview tiles and column display). */
+      properties?: unknown;
       visibility?: VisibilityEnum;
       /** @nullable */
       readonly created_by?: number | null;
@@ -34244,6 +34255,17 @@ export namespace Schemas {
          * @nullable
          */
       ensure_experience_continuity?: boolean | null;
+      /** Where this flag is allowed to evaluate: 'server' (server-side SDKs only), 'client' (client-side SDKs only), or 'all' (both). Defaults to 'all'.
+       *
+       * * `server` - Server
+       * * `client` - Client
+       * * `all` - All */
+      evaluation_runtime?: EvaluationRuntimeEnum | null;
+      /** Identifier used to bucket users into rollout percentages and variants: 'distinct_id' (user ID, the default) or 'device_id'. Using 'device_id' is incompatible with ensure_experience_continuity=True.
+       *
+       * * `distinct_id` - User ID (default)
+       * * `device_id` - Device ID */
+      bucketing_identifier?: BucketingIdentifierEnum | null;
     }
 
     /**
@@ -59021,6 +59043,10 @@ export namespace Schemas {
     };
 
     export type SignalsReportsListParams = {
+    /**
+     * Filter reports by whether a shipped implementation pull request exists. 'true' keeps only reports with a PR; 'false' keeps only those without. Pair with limit=1 to count PR reports cheaply.
+     */
+    has_implementation_pr?: boolean;
     /**
      * Number of results to return per page.
      */

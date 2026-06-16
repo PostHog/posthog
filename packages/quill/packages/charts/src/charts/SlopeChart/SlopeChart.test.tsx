@@ -1,6 +1,6 @@
-import type { ChartTheme, Series } from '../../core/types'
+import type { ChartTheme, Series, TooltipContext } from '../../core/types'
 import { renderHogChart } from '../../testing'
-import type { SlopeSeriesMeta } from './slope-data'
+import { sortSlopeTooltipRows, type SlopeSeriesMeta } from './slope-data'
 import { SlopeChart } from './SlopeChart'
 
 const THEME: ChartTheme = {
@@ -151,6 +151,19 @@ describe('SlopeChart', () => {
             )
             expect(chart.slopeLegendItems().map((i) => i.secondaryLabel)).toEqual(['↑80', '↓60'])
         })
+
+        it('orders rows biggest-to-smallest by end value', () => {
+            // Input order (A, B, C) differs from descending end values (B 90, C 60, A 30).
+            const series: Series<SlopeSeriesMeta>[] = [
+                { key: 'a', label: 'A', data: [0, 30] },
+                { key: 'b', label: 'B', data: [0, 90] },
+                { key: 'c', label: 'C', data: [0, 60] },
+            ]
+            const { chart } = renderHogChart(
+                <SlopeChart series={series} labels={LABELS} config={{ legend: { show: true } }} theme={THEME} />
+            )
+            expect(chart.slopeLegendItems().map((i) => i.label)).toEqual(['B', 'C', 'A'])
+        })
     })
 
     describe('incompleteEnd', () => {
@@ -212,6 +225,29 @@ describe('SlopeChart', () => {
             const values = chart.slopeValueLabels().map((l) => ({ side: l.side, text: l.text }))
             expect(values).toContainEqual({ side: 'start', text: '10' })
             expect(values).toContainEqual({ side: 'end', text: '40' })
+        })
+    })
+
+    describe('tooltip row sorting', () => {
+        const row = (key: string, value: number): TooltipContext['seriesData'][number] => ({
+            series: { key, label: key.toUpperCase(), data: [] },
+            value,
+            color: '#000',
+        })
+
+        it.each([
+            ['unsorted input', [row('a', 30), row('b', 90), row('c', 60)], [90, 60, 30]],
+            ['already sorted descending', [row('a', 90), row('b', 60), row('c', 30)], [90, 60, 30]],
+            ['already sorted ascending', [row('a', 30), row('b', 60), row('c', 90)], [90, 60, 30]],
+            ['single element', [row('a', 42)], [42]],
+        ] as const)('orders rows biggest-to-smallest by value (%s)', (_label, input, expected) => {
+            expect(sortSlopeTooltipRows([...input]).map((r) => r.value)).toEqual([...expected])
+        })
+
+        it('does not mutate the input array', () => {
+            const input = [row('a', 30), row('b', 90)]
+            sortSlopeTooltipRows(input)
+            expect(input.map((r) => r.value)).toEqual([30, 90])
         })
     })
 

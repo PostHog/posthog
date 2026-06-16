@@ -74,3 +74,5 @@ export function getCurrentOrganizationId(): OrganizationType['id'] {
     }
     return maybeOrgId
 }
+
+export const isUserLoggedIn = (): boolean => !getAppContext()?.anonymous
