@@ -95,6 +95,7 @@ from products.tasks.backend.temporal.constants import (  # noqa: E402
     MAX_CI_REPETITIONS,
     PENDING_MESSAGE_FORWARD_TIMEOUT_SECONDS,
     RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT,
+    resolve_inactivity_timeout,
 )
 
 # Rolling-deploy deprecation bundle (TODO slug: tasks-ci-follow-up-pr-context-cleanup)
@@ -246,14 +247,20 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         # CI_FOLLOW_UP_DELAY. The testing-only `TASKS_INACTIVITY_TIMEOUT_SECONDS`
         # env var bypasses the floor, but only when explicitly set AND short —
         # so a misconfigured large value still respects the CI floor.
+        # Interactive runs get a shorter window; background keeps 2h. CI follow-up is
+        # never scheduled for interactive runs (they don't open PRs), so the floor below
+        # only ever applies to background, where the base resolves to INACTIVITY_TIMEOUT.
+        base_inactivity_timeout = resolve_inactivity_timeout(
+            self._context.mode if self._context is not None else "background"
+        )
         ci_follow_up_floor = CI_FOLLOW_UP_DELAY + timedelta(minutes=1)
         testing_override_active = bool(settings.TASKS_INACTIVITY_TIMEOUT_SECONDS) and (
-            INACTIVITY_TIMEOUT < ci_follow_up_floor
+            base_inactivity_timeout < ci_follow_up_floor
         )
         inactivity_timeout = (
-            max(INACTIVITY_TIMEOUT, ci_follow_up_floor)
+            max(base_inactivity_timeout, ci_follow_up_floor)
             if ci_follow_up_scheduled and not testing_override_active
-            else INACTIVITY_TIMEOUT
+            else base_inactivity_timeout
         )
         possible_events: list[asyncio.Task[TaskEvent]] = [
             asyncio.create_task(self._wait_for_task_external_event()),
@@ -865,6 +872,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 team_id=self.context.team_id,
                 distinct_id=self.context.distinct_id,
                 sandbox_id=sandbox_id,
+                inactivity_timeout_seconds=int(resolve_inactivity_timeout(self.context.mode).total_seconds()),
             )
             await workflow.execute_activity(
                 relay_sandbox_events,

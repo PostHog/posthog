@@ -10,6 +10,7 @@ from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from products.tasks.backend.temporal.constants import INACTIVITY_TIMEOUT, INTERACTIVE_INACTIVITY_TIMEOUT
 from products.tasks.backend.temporal.process_task.activities.get_pr_context import GetPrContextOutput
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.activities.provision_sandbox import (
@@ -186,6 +187,8 @@ def _mock_get_context_configurable(_input) -> TaskProcessingContext:
         create_pr=_ci_context_overrides.get("create_pr", True),
         pr_loop_enabled=_ci_context_overrides.get("pr_loop_enabled", True),
         ci_prompt=_ci_context_overrides.get("ci_prompt"),
+        state=_ci_context_overrides.get("state"),
+        use_modal_resume_snapshots=_ci_context_overrides.get("use_modal_resume_snapshots", True),
     )
 
 
@@ -601,3 +604,43 @@ class TestFollowupGuards:
             f"expected exactly 1 get_pr_context call — loop should stop immediately after "
             f"discovering no PR. Got {_pr_context_overrides.get('_call_count')}"
         )
+
+
+class TestInteractiveInactivityTimeout:
+    @pytest.fixture(autouse=True)
+    def _reset_state(self):
+        _ci_context_overrides.clear()
+        _status_updates.clear()
+        yield
+        _ci_context_overrides.clear()
+        _status_updates.clear()
+
+    @pytest.mark.timeout(60, func_only=True)
+    async def test_interactive_run_times_out_at_short_window(self):
+        # The execution timeout sits between the interactive window (10m) and the 2h
+        # background default. The run completes via inactivity only if it uses the
+        # short interactive window; a 2h timer would be killed by the execution timeout
+        # first, so `result()` returning success proves the short window is in effect.
+        assert INTERACTIVE_INACTIVITY_TIMEOUT < timedelta(hours=1) < INACTIVITY_TIMEOUT
+
+        _ci_context_overrides["state"] = {"mode": "interactive"}
+        # create_resume_snapshot is not registered on this test worker; the interactive
+        # cleanup only snapshots when this is on, so keep it off.
+        _ci_context_overrides["use_modal_resume_snapshots"] = False
+
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            task_queue = f"test-{uuid.uuid4()}"
+            async with _make_worker(env, task_queue):
+                handle = await env.client.start_workflow(
+                    ProcessTaskWorkflow.run,
+                    ProcessTaskInput(run_id="run-1"),
+                    id=f"test-{uuid.uuid4()}",
+                    task_queue=task_queue,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                    execution_timeout=timedelta(hours=1),
+                )
+                result = await handle.result()
+
+        assert result.success is True
+        timeout_updates = [(s, e) for s, e in _status_updates if "timed out" in (e or "")]
+        assert timeout_updates, f"expected an inactivity-timeout completion, got {_status_updates}"

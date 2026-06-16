@@ -26,10 +26,10 @@ from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.services.sandbox import is_public_sandbox_repo
 from products.tasks.backend.temporal.constants import (
-    INACTIVITY_TIMEOUT,
     OUTBOUND_RETRY_BACKOFF,
     PENDING_MESSAGE_FORWARD_TIMEOUT_SECONDS,
     RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT,
+    resolve_inactivity_timeout,
 )
 from products.tasks.backend.temporal.execute_sandbox.activities.reap_orphaned_sandbox import (
     ReapOrphanedSandboxInput,
@@ -328,7 +328,8 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         return SandboxEvent.SIGNAL_RECEIVED
 
     async def _wait_for_inactivity(self) -> SandboxEvent:
-        await workflow.sleep(INACTIVITY_TIMEOUT.total_seconds())
+        timeout = resolve_inactivity_timeout(self._context.mode if self._context is not None else "background")
+        await workflow.sleep(timeout.total_seconds())
         return SandboxEvent.TIMEOUT_REACHED
 
     async def _wait_for_event(self) -> SandboxEvent:
@@ -1110,6 +1111,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 team_id=self.context.team_id,
                 distinct_id=self.context.distinct_id,
                 sandbox_id=sandbox_id,
+                inactivity_timeout_seconds=int(resolve_inactivity_timeout(self.context.mode).total_seconds()),
             ),
             start_to_close_timeout=RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT,
             heartbeat_timeout=timedelta(minutes=2),

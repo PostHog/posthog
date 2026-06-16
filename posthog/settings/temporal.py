@@ -63,6 +63,14 @@ TASKS_USE_MODAL_RESUME_SNAPSHOTS: bool = get_from_env(
 # fast.
 TASKS_INACTIVITY_TIMEOUT_SECONDS: int = get_from_env("TASKS_INACTIVITY_TIMEOUT_SECONDS", 0, type_cast=int)
 
+# Override the inactivity timeout for interactive (PostHog AI) runs (default 10
+# minutes). These are short, user-attended chats, so the sandbox is reclaimed sooner
+# than for background runs. Set low (e.g. 30) for local testing. The generic
+# TASKS_INACTIVITY_TIMEOUT_SECONDS above wins for all modes when set.
+TASKS_INTERACTIVE_INACTIVITY_TIMEOUT_SECONDS: int = get_from_env(
+    "TASKS_INTERACTIVE_INACTIVITY_TIMEOUT_SECONDS", 0, type_cast=int
+)
+
 # Override the delay before the first in-sandbox credential refresh (default 20
 # minutes). Set this low (e.g. 30) for local testing so the refresh loop fires
 # quickly instead of waiting out the GitHub token's lifetime.

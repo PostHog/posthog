@@ -46,6 +46,10 @@ class RelaySandboxEventsInput:
     team_id: int
     distinct_id: str
     sandbox_id: str | None = None
+    # Mode-aware inactivity window (interactive runs are shorter). Optional so workflows
+    # started before this field was added stay deserializable across a rolling deploy;
+    # falls back to INACTIVITY_TIMEOUT when unset.
+    inactivity_timeout_seconds: int | None = None
 
 
 @activity.defn
@@ -106,6 +110,7 @@ async def relay_sandbox_events(input: RelaySandboxEventsInput) -> None:
             sandbox_id=input.sandbox_id,
             background_logs_enabled=background_logs_enabled,
             task_run=task_run,
+            inactivity_timeout_seconds=input.inactivity_timeout_seconds,
         )
     except asyncio.CancelledError:
         logger.info("relay_sandbox_events_cancelled", run_id=input.run_id)
@@ -182,6 +187,7 @@ async def _background_heartbeat(
     last_event_time: list[float] | None = None,
     last_workflow_signal: list[float] | None = None,
     agent_active: list[bool] | None = None,
+    inactivity_timeout_seconds: float | None = None,
 ) -> None:
     """Heartbeat to Temporal periodically, independent of event flow.
 
@@ -189,6 +195,7 @@ async def _background_heartbeat(
     recently and the inline mechanism hasn't signaled recently, preventing
     the inactivity timeout from firing while the agent is actively working.
     """
+    inactivity_window = inactivity_timeout_seconds or INACTIVITY_TIMEOUT.total_seconds()
     while not stop_event.is_set():
         try:
             await asyncio.wait_for(stop_event.wait(), timeout=HEARTBEAT_INTERVAL_SECONDS)
@@ -200,7 +207,7 @@ async def _background_heartbeat(
                 workflow_handle is not None
                 and last_event_time is not None
                 and last_event_time[0] > 0
-                and (now - last_event_time[0]) < INACTIVITY_TIMEOUT.total_seconds()
+                and (now - last_event_time[0]) < inactivity_window
                 and (last_workflow_signal is None or (now - last_workflow_signal[0]) >= HEARTBEAT_INTERVAL_SECONDS)
                 and (agent_active is None or agent_active[0])
             ):
@@ -225,6 +232,7 @@ async def _relay_loop(
     sandbox_id: str | None = None,
     background_logs_enabled: bool = False,
     task_run: TaskRunModel | None = None,
+    inactivity_timeout_seconds: int | None = None,
 ) -> None:
     """Connect to sandbox SSE and relay events to Redis. Reconnects on transient failures."""
     reconnect_count = 0
@@ -250,7 +258,14 @@ async def _relay_loop(
 
     stop_heartbeat = asyncio.Event()
     heartbeat_task = asyncio.create_task(
-        _background_heartbeat(stop_heartbeat, workflow_handle, last_event_time, last_workflow_signal, agent_active)
+        _background_heartbeat(
+            stop_heartbeat,
+            workflow_handle,
+            last_event_time,
+            last_workflow_signal,
+            agent_active,
+            inactivity_timeout_seconds,
+        )
     )
 
     try:

@@ -17,6 +17,25 @@ from django.conf import settings
 # `task_management`, which now owns the loop.
 INACTIVITY_TIMEOUT = timedelta(seconds=settings.TASKS_INACTIVITY_TIMEOUT_SECONDS or 2 * 60 * 60)
 
+# Interactive (PostHog AI) runs are short-lived, user-attended chat — avg ~3 turns,
+# ~half single-turn — so holding the sandbox for the full background timeout is mostly
+# idle waste. Reclaim faster; a returning user resumes from the end-of-run snapshot.
+# Override via TASKS_INTERACTIVE_INACTIVITY_TIMEOUT_SECONDS for local testing.
+INTERACTIVE_INACTIVITY_TIMEOUT = timedelta(seconds=settings.TASKS_INTERACTIVE_INACTIVITY_TIMEOUT_SECONDS or 10 * 60)
+
+
+def resolve_inactivity_timeout(mode: str) -> timedelta:
+    """Inactivity timeout for a run's execution mode.
+
+    Interactive runs reclaim sooner than background ones. The generic
+    TASKS_INACTIVITY_TIMEOUT_SECONDS override forces a fast shutdown for ALL modes
+    (resume-flow tests rely on it), so it wins when set.
+    """
+    if settings.TASKS_INACTIVITY_TIMEOUT_SECONDS:
+        return INACTIVITY_TIMEOUT
+    return INTERACTIVE_INACTIVITY_TIMEOUT if mode == "interactive" else INACTIVITY_TIMEOUT
+
+
 # CI follow-up cadence after the agent has been idle.
 CI_FOLLOW_UP_DELAY = timedelta(minutes=15)
 

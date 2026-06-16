@@ -11,6 +11,7 @@ import httpx
 import httpx_sse
 from parameterized import parameterized
 
+from products.tasks.backend.temporal.constants import INACTIVITY_TIMEOUT, INTERACTIVE_INACTIVITY_TIMEOUT
 from products.tasks.backend.temporal.process_task import workflow as process_task_workflow_module
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.activities.relay_sandbox_events import (
@@ -364,6 +365,56 @@ class TestRelaySandboxEventsErrorHandling:
         redis_stream.mark_complete.assert_awaited_once()
         redis_stream.mark_error.assert_not_awaited()
 
+    async def test_relay_loop_forwards_inactivity_timeout_to_heartbeat(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        redis_stream = SimpleNamespace(
+            write_event=AsyncMock(),
+            mark_complete=AsyncMock(),
+            mark_error=AsyncMock(),
+        )
+        terminal_event = {"type": "notification", "notification": {"method": "_posthog/task_complete"}}
+
+        class SuccessfulEventSource:
+            response = SimpleNamespace(raise_for_status=lambda: None)
+
+            async def __aenter__(self) -> "SuccessfulEventSource":
+                return self
+
+            async def __aexit__(self, *_args: object) -> None:
+                return None
+
+            async def aiter_sse(self):
+                yield SimpleNamespace(data=json.dumps(terminal_event))
+
+        captured: dict = {}
+
+        def capturing_heartbeat(*args: object, **kwargs: object):
+            # Capture synchronously at call time — the relay completes on the terminal
+            # event and cancels the heartbeat task, so its coroutine body may never run.
+            captured["args"] = args
+
+            async def _noop() -> None:
+                return None
+
+            return _noop()
+
+        monkeypatch.setattr(
+            relay_sandbox_events_module.httpx_sse, "aconnect_sse", lambda *a, **k: SuccessfulEventSource()
+        )
+        monkeypatch.setattr(relay_sandbox_events_module, "_background_heartbeat", capturing_heartbeat)
+
+        await _relay_loop(
+            events_url="https://sandbox.example/events",
+            headers={"Authorization": "Bearer token"},
+            params={},
+            redis_stream=cast(TaskRunRedisStream, redis_stream),
+            run_id="run-id",
+            task_id="task-id",
+            inactivity_timeout_seconds=600,
+        )
+
+        # _relay_loop passes inactivity_timeout_seconds as the 6th positional arg.
+        assert captured["args"][5] == 600
+
     async def test_terminal_run_marks_stream_complete_on_late_relay_error(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -593,3 +644,36 @@ class TestRelaySandboxEventsWorkflowOptions:
         assert execute_activity_mock.await_args is not None
         _, kwargs = execute_activity_mock.await_args
         assert kwargs["start_to_close_timeout"] == RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT
+
+    @parameterized.expand(
+        [
+            ("interactive", int(INTERACTIVE_INACTIVITY_TIMEOUT.total_seconds())),
+            ("background", int(INACTIVITY_TIMEOUT.total_seconds())),
+        ]
+    )
+    async def test_relay_input_carries_mode_aware_inactivity_timeout(self, mode: str, expected_seconds: int) -> None:
+        workflow = ProcessTaskWorkflow()
+        workflow._context = TaskProcessingContext(
+            task_id="task-id",
+            run_id="run-id",
+            team_id=1,
+            team_uuid="team-uuid",
+            organization_id="organization-id",
+            github_integration_id=123,
+            repository="posthog/posthog-js",
+            distinct_id="distinct-id",
+            state={"mode": mode},
+        )
+        execute_activity_mock = AsyncMock()
+
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", execute_activity_mock)
+            await workflow._relay_sandbox_events(
+                StartAgentServerOutput(sandbox_url="https://sandbox.example", connect_token="connect-token"),
+                sandbox_id="sandbox-123",
+            )
+
+        assert execute_activity_mock.await_args is not None
+        args, _ = execute_activity_mock.await_args
+        relay_input = args[1]
+        assert relay_input.inactivity_timeout_seconds == expected_seconds
