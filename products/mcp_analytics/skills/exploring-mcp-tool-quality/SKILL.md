@@ -38,8 +38,16 @@ writing queries.
   coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), toString(properties.$mcp_tool_name))
   ```
 
-- **Always read `$mcp_is_error` via `toBool(...)`** and cast
-  `$mcp_duration_ms` via `toFloat(...)`. The properties are strings.
+- **Always count errors with both signals.** Newer events set `$mcp_is_error`; older
+  events carry only an unprefixed `success` boolean. Reading `$mcp_is_error` alone
+  undercounts errors (every legacy call is treated as a success) while keeping them in the
+  denominator. Use:
+
+  ```sql
+  coalesce(toBool(properties.$mcp_is_error), NOT toBool(properties.success))
+  ```
+
+  Cast `$mcp_duration_ms` via `toFloat(...)`. The properties are strings.
 
 Always set a time range — these queries scan `events` otherwise.
 
@@ -53,8 +61,8 @@ posthog:execute-sql
 SELECT
     coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), toString(properties.$mcp_tool_name)) AS tool,
     count() AS total_calls,
-    countIf(toBool(properties.$mcp_is_error)) AS errors,
-    round(countIf(toBool(properties.$mcp_is_error)) * 100.0 / count(), 1) AS error_rate_pct
+    countIf(coalesce(toBool(properties.$mcp_is_error), NOT toBool(properties.success))) AS errors,
+    round(countIf(coalesce(toBool(properties.$mcp_is_error), NOT toBool(properties.success))) * 100.0 / count(), 1) AS error_rate_pct
 FROM events
 WHERE event = 'mcp_tool_call'
     AND coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), toString(properties.$mcp_tool_name)) != ''
@@ -87,7 +95,7 @@ posthog:execute-sql
 SELECT toString(properties.$mcp_error_message) AS error, count() AS n
 FROM events
 WHERE event = 'mcp_tool_call'
-    AND toBool(properties.$mcp_is_error)
+    AND coalesce(toBool(properties.$mcp_is_error), NOT toBool(properties.success))
     AND coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), toString(properties.$mcp_tool_name)) = '<tool>'
     AND timestamp >= now() - INTERVAL 30 DAY
 GROUP BY error ORDER BY n DESC LIMIT 10
@@ -101,8 +109,12 @@ The matrix query already returns `p50_ms` / `p95_ms`.
 
 ## Constructing UI links
 
-- **Dashboard**: `https://app.posthog.com/project/<project_id>/mcp-analytics/dashboard`
-- **Tool quality**: `https://app.posthog.com/project/<project_id>/mcp-analytics/tool-quality`
+Use the project's region-aware host, not a hardcoded `app.posthog.com` — derive it from the
+`generate-app-url` tool (or the Base URL in the active environment, e.g. `us.posthog.com` /
+`eu.posthog.com`):
+
+- **Dashboard**: `<base_url>/project/<project_id>/mcp-analytics/dashboard`
+- **Tool quality**: `<base_url>/project/<project_id>/mcp-analytics/tool-quality`
 
 Always surface a UI link so the user can verify visually.
 
@@ -112,9 +124,10 @@ Always surface a UI link so the user can verify visually.
   floor stops tools with very few calls from topping the list spuriously
 - Exclude errored calls from latency percentiles only when asked — failed calls
   are often the slow ones, and dropping them hides the problem
-- `$mcp_client_name` lets you cut quality by harness (Claude Code vs Cursor vs
-  …); the canonical bucketing `multiIf` is in
-  [models-mcp.md](../../../posthog_ai/skills/querying-posthog-data/references/models-mcp.md)
+- `mcp_session_client_name` lets you cut quality by harness (Claude Code vs Cursor
+  vs …); the canonical bucketing `multiIf` is in
+  [models-mcp.md](../../../posthog_ai/skills/querying-posthog-data/references/models-mcp.md).
+  (The older `$mcp_client_name` is effectively unset on current data — don't filter on it.)
 - If the SQL contradicts the tool-quality screen, trust the screen and flag this
   skill for an update — the frontend bucketing logic is the source of truth
 

@@ -40,11 +40,11 @@ SELECT
     max(timestamp) AS session_end,
     dateDiff('second', min(timestamp), max(timestamp)) AS duration_seconds,
     count() AS tool_calls,
-    countIf(toBool(properties.$mcp_is_error)) AS errors,
-    any(properties.$mcp_client_name) AS client
+    countIf(coalesce(toBool(properties.$mcp_is_error), NOT toBool(properties.success))) AS errors,
+    any(coalesce(nullIf(toString(properties.mcp_session_client_name), ''), toString(properties.$mcp_client_name))) AS client
 FROM events
 WHERE event = 'mcp_tool_call'
-    AND toString(properties.$mcp_session_id) != ''
+    AND isNotNull(properties.$mcp_session_id)
     AND timestamp >= now() - INTERVAL 7 DAY
 GROUP BY session_id
 ORDER BY session_start DESC
@@ -62,7 +62,7 @@ posthog:execute-sql
 SELECT
     timestamp,
     coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), toString(properties.$mcp_tool_name)) AS tool,
-    toBool(properties.$mcp_is_error) AS is_error,
+    coalesce(toBool(properties.$mcp_is_error), NOT toBool(properties.success)) AS is_error,
     toString(properties.$mcp_error_message) AS error_message,
     round(toFloat(properties.$mcp_duration_ms)) AS duration_ms,
     toString(properties.$mcp_intent) AS intent
@@ -92,7 +92,11 @@ values from the tool-call query above.
 
 ## Constructing UI links
 
-- **Sessions list**: `https://app.posthog.com/project/<project_id>/mcp-analytics/sessions`
+Use the project's region-aware host, not a hardcoded `app.posthog.com` — derive it from the
+`generate-app-url` tool (or the Base URL in the active environment, e.g. `us.posthog.com` /
+`eu.posthog.com`):
+
+- **Sessions list**: `<base_url>/project/<project_id>/mcp-analytics/sessions`
 
 ## Tips
 

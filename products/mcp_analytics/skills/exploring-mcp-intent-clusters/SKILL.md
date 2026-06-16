@@ -68,13 +68,21 @@ background. Poll `...-retrieve` until `status` returns to `idle` (done) or
 
 ## Constructing UI links
 
-- **Intent clustering**: `https://app.posthog.com/project/<project_id>/mcp-analytics/intent-clustering`
+Use the project's region-aware host, not a hardcoded `app.posthog.com` — derive it from the
+`generate-app-url` tool (or the Base URL in the active environment, e.g. `us.posthog.com` /
+`eu.posthog.com`):
+
+- **Intent clustering**: `<base_url>/project/<project_id>/mcp-analytics/intent-clustering`
 
 ## Tips
 
 - Clusters are only as good as the `$mcp_intent` coverage — if few calls carry
-  an intent, clusters will be sparse; cross-check intent coverage with a quick
-  `countIf(toString(properties.$mcp_intent) != '')` over `mcp_tool_call`
+  an intent, clusters will be sparse; cross-check coverage with
+  `countIf(isNotNull(properties.$mcp_intent))` (or `JSONHas(properties, '$mcp_intent')`)
+  over `mcp_tool_call`. **Do not use `toString(properties.$mcp_intent) != ''`** — a
+  missing JSON key renders under `toString(...)` as the non-empty literal `'None'`, so
+  that test reports 100% coverage even when no call carries an intent, hiding the real
+  cause of empty clusters
 - A cluster with high `error_rate_pct` plus high `routing_entropy` is the
   strongest "the tools don't serve this goal well" signal — worth a closer look
   at its `sample_intents` and `tool_distribution`
