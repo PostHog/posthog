@@ -5610,6 +5610,10 @@ snapshots:
         hash: v1.k794b7964.4f5921778249386197b5ee6d432e297588c5a66f6e06dde3aac76a1d1d36ae97.2MB3XoQGeD1xMU4gc02WBy23P1XxjP11zwUpTtmbg80
     scenes-app-notebooks-nodes-support-tickets--with-tickets--light:
         hash: v1.k794b7964.236f9dfeedc3837cccd845dbf92ab39c67356756cb9f443903629435d5f33ac9.-VF3NOolmK2FaKcxFz8_SXEffVywLXsTkudBuqXxtig
+    scenes-app-oauth-authorize--broad-free-pick--dark:
+        hash: v1.k794b7964.478bfe16c75a48c2681d56e42fa9e5ac9cc1bc1575ddd6f6796a38efcfca55e8.e0w0ej4UODBCKLMi5IXKoupYWlx_JZCnu23qvAZz0Vw
+    scenes-app-oauth-authorize--broad-free-pick--light:
+        hash: v1.k794b7964.50e0640a01230478bfdafb656f943df772cfe8b667111524d7f5e47fd6e304a6.zzXAlE8Mtyp8YzD-4oE8sf5xwLumG6eOq1UyRmP_Y9g
     scenes-app-oauth-authorize--default-scopes--dark:
         hash: v1.k794b7964.1f8d840aa1faa4a135f30132aeeead4fa35ef7612c9ecd2ba3afe9bada990801.5Su4rsQkK_Bio7pjpt19sN3e_eArf2AVSnfiYT9YHPk
     scenes-app-oauth-authorize--default-scopes--light:
@@ -5619,9 +5623,9 @@ snapshots:
     scenes-app-oauth-authorize--with-required-scopes--light:
         hash: v1.k794b7964.364dc19ecd36a8a0847fce6d3955c72337b688070b08fab091a5a7c6716a0a7c.JCyjT8cMqj7jZN59idypP3lPkn_Bh3z7a6CaC95p-PM
     scenes-app-oauth-authorize--with-scopes--dark:
-        hash: v1.k794b7964.478bfe16c75a48c2681d56e42fa9e5ac9cc1bc1575ddd6f6796a38efcfca55e8.JxATGpntBNoJNL7z3yW4N4n4GTtMOogR3vSpqTM1DwA
+        hash: v1.k794b7964.254b740101837039b928f20c23b0242c6d4ad1616d030dec56041405fad7ea9a.eETjiLKXS_76l4jbU5oubFS-nZhfFHIWjamgUEo6PsE
     scenes-app-oauth-authorize--with-scopes--light:
-        hash: v1.k794b7964.50e0640a01230478bfdafb656f943df772cfe8b667111524d7f5e47fd6e304a6.3Dkw3H7KnhdpuC56dC_guOg2HtC9aiYVy4hquJQvJTM
+        hash: v1.k794b7964.6289eb28f5175c00a8f33489d92edd6510b0bc9ab77e5e16701b3b17a4a4ec3f.DZ94JbggHVaJskfb4pwp6OajY1AaxjsYRjP3oTeVC4Q
     scenes-app-people-cohorts--cohort-edit-dynamic--dark:
         hash: v1.k794b7964.b2c0b065af8c58ca547c691cc880221f64d0ac70a103bf0e47efada7300527f5.xrfnDLtIQxSP-8Ga0knhjf6CHtW0ZfBXqgI2god2ZlE
     scenes-app-people-cohorts--cohort-edit-dynamic--light:
