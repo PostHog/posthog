@@ -68,6 +68,9 @@ class TestLinkedInAdsSource:
             # type-coercion phrase is the stable part we match on.
             'LinkedIn API error (400): {"message":"Key value \'Reed%20Lnkedin\' must be of type \'java.lang.Long\'","status":400}',
             'LinkedIn API error (400): {"message":"Key value \'LI\' must be of type \'java.lang.Long\'","status":400}',
+            # Same root cause via the analytics endpoint, which sends the account as a
+            # `urn:li:sponsoredAccount:<id>` URN — a non-numeric id makes the URN undeserializable.
+            "LinkedIn API error (400): {\"message\":\"Array parameter 'accounts' value 'urn:li:sponsoredAccount:Futuros' is invalid. Reason: Deserializing output 'urn:li:sponsoredAccount:Futuros' failed\",\"status\":400}",
         ],
     )
     def test_non_retryable_errors_match_invalid_account_id(self, observed_error):

@@ -47,6 +47,11 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
             # key value (volatile) followed by this stable type-coercion phrase. The account id is a
             # fixed config value, so retrying can't help — fail fast and tell the user to fix it.
             "must be of type 'java.lang.Long'": "LinkedIn rejected the configured Account ID. It must be the numeric LinkedIn ad account ID (digits only). Please correct the Account ID in your source settings and re-sync.",
+            # Same root cause as above (a non-numeric Account ID) but surfaced by the analytics
+            # endpoint, which sends the account as a `urn:li:sponsoredAccount:<id>` array element. A
+            # non-numeric id makes the URN undeserializable, so LinkedIn returns a 400 naming the
+            # offending value (volatile) after this stable prefix. Retrying can't fix a config value.
+            "Array parameter 'accounts' value": "LinkedIn rejected the configured Account ID. It must be the numeric LinkedIn ad account ID (digits only). Please correct the Account ID in your source settings and re-sync.",
             # LinkedIn returns 404 RESOURCE_NOT_FOUND / "No virtual resource found" when the
             # account-scoped resource can't be resolved — the configured ad account doesn't exist
             # or PostHog no longer has access to it. Retrying can't fix a missing resource, so we
