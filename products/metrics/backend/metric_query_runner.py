@@ -19,7 +19,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client.connection import Workload
 from posthog.models import Team
 
-from products.metrics.backend.facade.contracts import MetricFilter
+from products.metrics.backend.facade.contracts import MetricFilter, MetricGroupBy
 from products.metrics.backend.facade.enums import FilterOp
 
 AttributeScope = Literal["resource", "attribute", "auto"]
@@ -162,11 +162,15 @@ class MetricQueryRunner:
         date_from: dt.datetime,
         date_to: dt.datetime,
         filters: Sequence[MetricFilter] = (),
+        group_by: Sequence[MetricGroupBy] = (),
+        interval: str | None = None,
     ) -> None:
         if aggregation not in _ALLOWED_AGGREGATIONS:
             raise ValueError(f"Unsupported aggregation: {aggregation!r}")
         if date_to <= date_from:
             raise ValueError("date_to must be after date_from")
+        if interval is not None and interval not in {name for name, _, _ in _INTERVAL_LADDER}:
+            raise ValueError(f"Unknown interval: {interval!r}")
 
         self.team = team
         self.metric_name = metric_name
@@ -174,9 +178,12 @@ class MetricQueryRunner:
         self.date_from = date_from
         self.date_to = date_to
         self.filters = tuple(filters)
-        self.interval = _pick_interval(date_from, date_to)
+        self.group_by = tuple(group_by)
+        self.interval = interval or _pick_interval(date_from, date_to)
 
     def run(self) -> list[dict[str, Any]]:
+        """Bucketed rows: `{"time", "value", "labels"}`. `labels` carries one
+        entry per group_by key (always `{}` without group_by)."""
         # `metrics` is only registered under the `posthog.` HogQL namespace
         # (see posthog/hogql/database/database.py).
         query = parse_select(
@@ -203,6 +210,14 @@ class MetricQueryRunner:
             },
         )
         assert isinstance(query, ast.SelectQuery)
+        assert query.group_by is not None
+
+        # Splice the group_by label columns between `time` and `value` —
+        # parse_select placeholders can't express a variable column count.
+        for index, group in enumerate(self.group_by):
+            label_expr = ast.Call(name="toString", args=[attribute_field(group.key, scope=group.scope.value)])
+            query.select.insert(1 + index, ast.Alias(alias=f"group_{index}", expr=label_expr))
+            query.group_by.append(ast.Field(chain=[f"group_{index}"]))
 
         response = execute_hogql_query(
             query_type="MetricQuery",
@@ -211,7 +226,14 @@ class MetricQueryRunner:
             workload=Workload.LOGS,  # metrics share the logs ClickHouse workload pool for now
         )
 
-        return [
-            {"time": row[0].isoformat() if isinstance(row[0], dt.datetime) else row[0], "value": row[1]}
-            for row in response.results
-        ]
+        group_count = len(self.group_by)
+        rows: list[dict[str, Any]] = []
+        for row in response.results:
+            rows.append(
+                {
+                    "time": row[0].isoformat() if isinstance(row[0], dt.datetime) else row[0],
+                    "value": row[1 + group_count],
+                    "labels": {group.key: row[1 + index] for index, group in enumerate(self.group_by)},
+                }
+            )
+        return rows
