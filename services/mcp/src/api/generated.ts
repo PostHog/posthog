@@ -7751,6 +7751,7 @@ export namespace Schemas {
       auto_resume_threads: boolean;
       allow_workspace_participants: boolean;
       ack_reaction?: string;
+      allow_direct_messages: boolean;
       trusted_workspaces: string[] | '*';
     };
     } | {
@@ -30527,6 +30528,7 @@ export namespace Schemas {
       auto_resume_threads: boolean;
       allow_workspace_participants: boolean;
       ack_reaction?: string;
+      allow_direct_messages: boolean;
       trusted_workspaces: string[] | '*';
     };
     } | {

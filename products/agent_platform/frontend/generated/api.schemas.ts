@@ -219,6 +219,7 @@ export type AgentRevisionApiSpecTriggersItem =
               auto_resume_threads: boolean
               allow_workspace_participants: boolean
               ack_reaction?: string
+              allow_direct_messages: boolean
               trusted_workspaces: string[] | '*'
           }
       }
@@ -532,6 +533,7 @@ export type PatchedAgentRevisionApiSpecTriggersItem =
               auto_resume_threads: boolean
               allow_workspace_participants: boolean
               ack_reaction?: string
+              allow_direct_messages: boolean
               trusted_workspaces: string[] | '*'
           }
       }

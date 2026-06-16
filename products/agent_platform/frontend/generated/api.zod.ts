@@ -108,6 +108,7 @@ export const agentApplicationsRevisionsCreateBodyBundleUriDefault = ``
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigMentionOnlyDefault = false
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigAutoResumeThreadsDefault = false
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigAllowWorkspaceParticipantsDefault = false
+export const agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigAllowDirectMessagesDefault = false
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemTwoAuthModesItemTwoScopesDefault = []
 
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemThreeConfigTimezoneDefault = `UTC`
@@ -215,6 +216,11 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                                         agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigAllowWorkspaceParticipantsDefault
                                     ),
                                 ack_reaction: zod.string().optional(),
+                                allow_direct_messages: zod
+                                    .boolean()
+                                    .default(
+                                        agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigAllowDirectMessagesDefault
+                                    ),
                                 trusted_workspaces: zod.union([zod.array(zod.string()).min(1), zod.literal('*')]),
                             }),
                         }),
@@ -593,6 +599,7 @@ export const agentApplicationsRevisionsUpdateBodyBundleUriDefault = ``
 export const agentApplicationsRevisionsUpdateBodySpecTriggersItemOneConfigMentionOnlyDefault = false
 export const agentApplicationsRevisionsUpdateBodySpecTriggersItemOneConfigAutoResumeThreadsDefault = false
 export const agentApplicationsRevisionsUpdateBodySpecTriggersItemOneConfigAllowWorkspaceParticipantsDefault = false
+export const agentApplicationsRevisionsUpdateBodySpecTriggersItemOneConfigAllowDirectMessagesDefault = false
 export const agentApplicationsRevisionsUpdateBodySpecTriggersItemTwoAuthModesItemTwoScopesDefault = []
 
 export const agentApplicationsRevisionsUpdateBodySpecTriggersItemThreeConfigTimezoneDefault = `UTC`
@@ -700,6 +707,11 @@ export const AgentApplicationsRevisionsUpdateBody = /* @__PURE__ */ zod.object({
                                         agentApplicationsRevisionsUpdateBodySpecTriggersItemOneConfigAllowWorkspaceParticipantsDefault
                                     ),
                                 ack_reaction: zod.string().optional(),
+                                allow_direct_messages: zod
+                                    .boolean()
+                                    .default(
+                                        agentApplicationsRevisionsUpdateBodySpecTriggersItemOneConfigAllowDirectMessagesDefault
+                                    ),
                                 trusted_workspaces: zod.union([zod.array(zod.string()).min(1), zod.literal('*')]),
                             }),
                         }),
@@ -1101,6 +1113,7 @@ export const agentApplicationsRevisionsPartialUpdateBodyBundleUriDefault = ``
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigMentionOnlyDefault = false
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigAutoResumeThreadsDefault = false
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigAllowWorkspaceParticipantsDefault = false
+export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigAllowDirectMessagesDefault = false
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemTwoAuthModesItemTwoScopesDefault = []
 
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemThreeConfigTimezoneDefault = `UTC`
@@ -1208,6 +1221,11 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                                         agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigAllowWorkspaceParticipantsDefault
                                     ),
                                 ack_reaction: zod.string().optional(),
+                                allow_direct_messages: zod
+                                    .boolean()
+                                    .default(
+                                        agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigAllowDirectMessagesDefault
+                                    ),
                                 trusted_workspaces: zod.union([zod.array(zod.string()).min(1), zod.literal('*')]),
                             }),
                         }),
