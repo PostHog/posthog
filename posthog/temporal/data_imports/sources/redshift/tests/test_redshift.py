@@ -821,7 +821,7 @@ class TestBuildPipeline:
         assert get_meta.call_args.args[2] == "messages"
         assert response.name == "messages"
 
-    def test_dwh_storage_key_preserves_legacy_delta_path(self, build_pipeline_mocks, mocker):
+    def test_s3_folder_name_preserves_legacy_delta_path(self, build_pipeline_mocks, mocker):
         mocker.patch.object(
             RedshiftImplementation,
             "get_table_metadata",
@@ -836,7 +836,7 @@ class TestBuildPipeline:
         inputs = _make_inputs(
             schema_name="analytics.users",
             schema_metadata={"source_schema": "analytics", "source_table_name": "users"},
-            dwh_storage_key="users",
+            s3_folder_name="users",
         )
 
         response = impl.build_pipeline(_make_config(schema=""), inputs)

@@ -74,7 +74,7 @@ class SourceInputs:
     enabled_columns: Optional[list[str]] = None
     # Multi-schema import context, read by `resolve_source_location`.
     schema_metadata: Optional[dict[str, Any]] = None
-    dwh_storage_key: Optional[str] = None
+    s3_folder_name: Optional[str] = None
 
 
 class PipelineResult(TypedDict):

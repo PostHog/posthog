@@ -7,7 +7,13 @@ import collections
 import dataclasses
 from collections.abc import Callable, Iterator
 from contextlib import _GeneratorContextManager, contextmanager
-from datetime import UTC, date, datetime, timezone
+from datetime import (
+    UTC,
+    date,
+    datetime,
+    time as datetime_time,
+    timezone,
+)
 from typing import TYPE_CHECKING, Any, Literal, LiteralString, Optional, cast
 
 if TYPE_CHECKING:
@@ -20,7 +26,7 @@ import pyarrow as pa
 import structlog
 from psycopg import sql
 from psycopg.adapt import Loader
-from psycopg.types.datetime import TimestampLoader, TimestamptzLoader
+from psycopg.types.datetime import TimeLoader, TimestampLoader, TimestamptzLoader, TimetzLoader
 from structlog.types import FilteringBoundLogger
 
 from posthog.hogql.database.schema.duckdb_table_functions import is_dangerous_table_function
@@ -177,21 +183,6 @@ def _is_connection_dropped_error(error: BaseException) -> bool:
     return False
 
 
-def _is_recovery_conflict_error(error: BaseException) -> bool:
-    """True if `error` is a Postgres standby recovery conflict.
-
-    A read replica cancels an in-flight query when WAL replay needs to remove row
-    versions the query might still read ("canceling statement due to conflict with
-    recovery", SQLSTATE 40001 -> psycopg SerializationFailure). It's transient and
-    expected on replicas — the row-streaming reader already retries it in-process and
-    `get_non_retryable_errors` deliberately keeps the raw message retryable — so
-    best-effort probes should degrade quietly rather than alert on a handled condition.
-    """
-    return isinstance(error, psycopg.errors.SerializationFailure) and "conflict with recovery" in " ".join(
-        str(arg) for arg in error.args
-    )
-
-
 def _connect_with_dropped_retry(
     connect: Callable[[], psycopg.Connection],
     logger: FilteringBoundLogger,
@@ -276,6 +267,41 @@ def _get_sslmode(require_ssl: bool) -> str:
     return "require" if require_ssl else "prefer"
 
 
+# Transaction-mode connection poolers reject the libpq `options` startup parameter outright:
+# Supabase's Supavisor (port 6543) and PgBouncer in transaction mode report "unsupported startup
+# parameter: options", and AWS RDS Proxy reports "RDS Proxy currently doesn't support command-line
+# options". We only send `options` to pin client_encoding=UTF8 for Redshift's legacy UNICODE alias
+# (see FORCE_UTF8_CLIENT_ENCODING), and Redshift never sits behind these poolers — so when a server
+# rejects `options`, dropping it and retrying is safe (UTF8 is the default client encoding for real
+# Postgres). The RDS Proxy text uses a typographic apostrophe, so match the apostrophe-free tail.
+_OPTIONS_STARTUP_PARAM_UNSUPPORTED_SUBSTRINGS = (
+    "unsupported startup parameter: options",
+    "support command-line options",
+)
+
+
+def _is_options_startup_param_unsupported(error: BaseException) -> bool:
+    if not isinstance(error, psycopg.OperationalError):
+        return False
+    message = " ".join(str(arg) for arg in error.args).lower()
+    return any(substring in message for substring in _OPTIONS_STARTUP_PARAM_UNSUPPORTED_SUBSTRINGS)
+
+
+def _connect_with_options_fallback(**connect_kwargs: Any) -> psycopg.Connection:
+    """`psycopg.connect` that retries without the libpq `options` startup parameter when the
+    server rejects it.
+
+    See `_OPTIONS_STARTUP_PARAM_UNSUPPORTED_SUBSTRINGS` for why transaction-mode poolers reject
+    `options` and why dropping it is safe.
+    """
+    try:
+        return psycopg.connect(**connect_kwargs)
+    except psycopg.OperationalError as e:
+        if connect_kwargs.get("options") and _is_options_startup_param_unsupported(e):
+            return psycopg.connect(**{k: v for k, v in connect_kwargs.items() if k != "options"})
+        raise
+
+
 def _connect_to_postgres(
     *,
     host: str,
@@ -296,7 +322,7 @@ def _connect_to_postgres(
     caller_options = kwargs.pop("options", None)
     options = f"{FORCE_UTF8_CLIENT_ENCODING} {caller_options}" if caller_options else FORCE_UTF8_CLIENT_ENCODING
     try:
-        return psycopg.connect(
+        return _connect_with_options_fallback(
             host=host,
             port=port,
             dbname=database,
@@ -692,11 +718,20 @@ def _rls_active_from_conn(
                     result[display_name] = bool(rls_active)
             return result
     except Exception as e:
+        # This runs on a connection shared with earlier best-effort metadata lookups (PK + index
+        # discovery). When one of those fails on a non-Postgres engine — e.g. a Redshift-incompatible
+        # `pg_catalog` query — its exception is caught upstream but the connection's transaction is
+        # left in `INERROR`, so our first statement here fails with `InFailedSqlTransaction` purely as
+        # a downstream symptom. That's an already-handled condition, not a bug in this lookup, so
+        # don't re-capture it (mirrors `_get_partition_settings`).
+        #
         # Postgres-wire-compatible engines (DuckDB/Flight-SQL proxies, etc.) accept our connection
         # but don't implement `row_security_active`. RLS is a Postgres-only concept there, so a
         # missing-function error is an expected "no RLS" answer, not a bug — degrade quietly rather
         # than flooding error tracking. Still capture genuinely unexpected failures.
-        if not _is_unsupported_function_error(e, "row_security_active"):
+        if not isinstance(e, psycopg.errors.InFailedSqlTransaction) and not _is_unsupported_function_error(
+            e, "row_security_active"
+        ):
             capture_exception(e)
         return {}
 
@@ -1100,6 +1135,59 @@ class SafeTimestamptzLoader(TimestamptzLoader):
             return super().load(data)
         except psycopg.DataError:
             return _clamp_out_of_range_timestamp(data, tzinfo=UTC)
+
+
+def _clamp_pg_hour_24(data) -> bytes | None:
+    """Clamp a Postgres '24:00:00' time/timetz value to the max Python time.
+
+    PostgreSQL accepts '24:00:00' as the maximum value for the `time` and
+    `timetz` types (end-of-day midnight), but Python's datetime.time caps the
+    hour at 23. The time portion of an hour-24 value is always exactly
+    '24:00:00', so we return an equivalent buffer with the time clamped to the
+    maximum representable value, preserving any timezone suffix. Returns None
+    for any value that is not an hour-24 time, so callers re-raise as usual.
+    """
+    s = bytes(data).decode("utf-8")
+    if not s.startswith("24:"):
+        return None
+    rest = s[len("24:00:00") :]
+    tz_suffix = ""
+    for i, ch in enumerate(rest):
+        if ch in "+-":
+            tz_suffix = rest[i:]
+            break
+    return ("23:59:59.999999" + tz_suffix).encode("utf-8")
+
+
+def _load_time_clamping_hour_24(super_load: Callable[[Any], datetime_time], data) -> datetime_time:
+    """Run psycopg's default time loader, clamping the '24:00:00' edge case.
+
+    Mirrors SafeDateLoader's clamp-to-max behaviour: a Postgres end-of-day
+    '24:00:00' (which Python's datetime.time cannot represent) is clamped to
+    time.max, while every other value — and any genuine parse error — is
+    delegated to psycopg's default loader.
+    """
+    try:
+        return super_load(data)
+    except psycopg.DataError:
+        clamped = _clamp_pg_hour_24(data)
+        if clamped is None:
+            raise
+        return super_load(clamped)
+
+
+class SafeTimeLoader(TimeLoader):
+    """Load PostgreSQL `time` values, clamping the '24:00:00' edge case."""
+
+    def load(self, data) -> datetime_time:
+        return _load_time_clamping_hour_24(super().load, data)
+
+
+class SafeTimetzLoader(TimetzLoader):
+    """Load PostgreSQL `timetz` values, clamping '24:00:00' while preserving the timezone offset."""
+
+    def load(self, data) -> datetime_time:
+        return _load_time_clamping_hour_24(super().load, data)
 
 
 def _build_query(
@@ -1539,21 +1627,21 @@ def _get_partition_settings(
         logger.debug(f"_get_partition_settings: table does not exist, returning None: {e}")
         return None
     except Exception as e:
-        # Partition sizing is best-effort: on failure we return None and the sync proceeds
-        # unpartitioned. Two handled conditions must not flood error tracking:
-        #   - A read replica can cancel this sizing query with a recovery conflict
-        #     (`SerializationFailure` "conflict with recovery"); it's transient and expected on
-        #     replicas, and the row-streaming reader retries it in-process.
-        #   - An earlier best-effort query in this same transaction (chunk sizing, row count,
-        #     partition detection) can hit that transient condition and leave the transaction in
-        #     `INERROR`, so this query then fails with `InFailedSqlTransaction` purely as a
-        #     downstream symptom.
-        # Both resurface (and are classified through the normal retryable/non-retryable path) via
-        # the real extraction query, so degrade quietly. Genuinely unexpected failures are still
-        # captured.
-        if not _is_recovery_conflict_error(e) and not isinstance(e, psycopg.errors.InFailedSqlTransaction):
-            capture_exception(e)
-        logger.debug(f"_get_partition_settings: returning None due to error: {e}")
+        # Partition sizing is a best-effort optimization: returning None just falls back to
+        # default partition settings and the sync proceeds. This query shares its FROM with the
+        # real extraction query, so any genuine problem (missing table, permissions, upstream
+        # extension state, read-replica recovery conflict, or an earlier best-effort query in this
+        # same transaction having left it `InFailedSqlTransaction`) resurfaces there and is
+        # classified through the normal retryable/non-retryable path. Capturing it here too only
+        # floods error tracking with handled duplicates of user/upstream conditions we already
+        # tolerate, so log at debug and fall back — mirroring `_get_rows_to_sync`.
+        logger.debug(f"_get_partition_settings: returning None due to error: {e}", exc_info=e)
+
+        if "temporary file size exceeds temp_file_limit" in str(e):
+            raise TemporaryFileSizeExceedsLimitException(
+                f"Error: {e}. Please ensure your incremental field has an appropriate index created"
+            )
+
         return None
 
     result = cursor.fetchone()
@@ -1934,7 +2022,7 @@ def postgres_source(
 
         def _open_setup_connection() -> psycopg.Connection:
             try:
-                conn = psycopg.connect(
+                conn = _connect_with_options_fallback(
                     host=host,
                     port=port,
                     dbname=database,
@@ -2192,7 +2280,7 @@ def postgres_source(
 
             def get_connection():
                 try:
-                    connection = psycopg.connect(
+                    connection = _connect_with_options_fallback(
                         host=host,
                         port=port,
                         dbname=database,
@@ -2228,6 +2316,8 @@ def postgres_source(
                 connection.adapters.register_loader("date", SafeDateLoader)
                 connection.adapters.register_loader("timestamp", SafeTimestampLoader)
                 connection.adapters.register_loader("timestamptz", SafeTimestamptzLoader)
+                connection.adapters.register_loader("time", SafeTimeLoader)
+                connection.adapters.register_loader("timetz", SafeTimetzLoader)
                 # Bump statement_timeout for the streaming connection. A server
                 # cursor FETCH inherits the session statement_timeout, and on
                 # wide/partitioned scans the source's default (often 30-60s)

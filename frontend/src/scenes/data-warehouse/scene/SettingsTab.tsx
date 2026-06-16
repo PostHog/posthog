@@ -3,6 +3,8 @@ import { useActions, useValues } from 'kea'
 import { IconCheck, IconX } from '@posthog/icons'
 
 import { CodeSnippet } from 'lib/components/CodeSnippet'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -11,11 +13,14 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
-import { DataWarehouseProvisioningConnection, DataWarehouseProvisioningState } from '~/types'
+import type {
+    WarehouseConnectionApi,
+    WarehouseStatusResponseStateEnumApi,
+} from 'products/data_warehouse/frontend/generated/api.schemas'
 
 import { warehouseProvisioningLogic } from './warehouseProvisioningLogic'
 
-function stateToTagType(state: DataWarehouseProvisioningState): 'success' | 'warning' | 'danger' | 'default' {
+function stateToTagType(state: WarehouseStatusResponseStateEnumApi): 'success' | 'warning' | 'danger' | 'default' {
     switch (state) {
         case 'ready':
             return 'success'
@@ -31,7 +36,7 @@ function stateToTagType(state: DataWarehouseProvisioningState): 'success' | 'war
     }
 }
 
-function ConnectionDetails({ connection }: { connection: DataWarehouseProvisioningConnection }): JSX.Element {
+function ConnectionDetails({ connection }: { connection: WarehouseConnectionApi }): JSX.Element {
     const { host, port, database, username } = connection
     const psqlCmd = `psql "host=${host} port=${port} dbname=${database} user=${username} sslmode=require"`
 
@@ -66,10 +71,14 @@ function ConnectionDetails({ connection }: { connection: DataWarehouseProvisioni
             </div>
             <div>
                 <LemonLabel>Connect with psql</LemonLabel>
-                <CodeSnippet compact thing="psql command">
+                <CodeSnippet compact wrap thing="psql command">
                     {psqlCmd}
                 </CodeSnippet>
             </div>
+            <p className="text-muted text-xs mb-0">
+                The password is shown only once, when you provision the warehouse. If you didn't save it, use "Reset
+                password" below to generate a new one.
+            </p>
         </div>
     )
 }
@@ -86,26 +95,31 @@ export function SettingsTab(): JSX.Element {
         databaseNameChecking,
         isValidDatabaseName,
         canProvision,
+        canRetryProvision,
         retryDatabaseName,
         initialPassword,
         isResettingPassword,
     } = useValues(warehouseProvisioningLogic)
     const { provisionWarehouse, deprovisionWarehouse, setDatabaseName, clearInitialPassword, resetPassword } =
         useActions(warehouseProvisioningLogic)
+    const deprovisionRestrictionReason = useRestrictedArea({
+        scope: RestrictionScope.Organization,
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+    })
 
     const hasWarehouse = warehouseStatus && warehouseStatus.state !== 'deleted'
     const isReady = warehouseStatus?.state === 'ready'
     const isFailed = warehouseStatus?.state === 'failed'
     const showProvisionForm = !hasWarehouse || isFailed
-    const canRetryProvision = !!retryDatabaseName && /^[a-z][a-z0-9_-]{2,62}$/.test(retryDatabaseName)
 
     return (
         <div className="mt-4 space-y-4 max-w-160">
             <div>
-                <h2 className="mb-2">Managed Warehouse</h2>
+                <h2 className="mb-2">Managed warehouse</h2>
                 {!isReady && (
                     <p className="text-muted mb-4">
-                        Provision a dedicated data warehouse with Aurora, S3, and isolated compute for your team.
+                        Provision a dedicated data warehouse with Aurora, S3, and isolated compute for your
+                        organization. It's shared by every project in the organization.
                     </p>
                 )}
             </div>
@@ -134,7 +148,7 @@ export function SettingsTab(): JSX.Element {
                         </LemonBanner>
                     )}
                     <div>
-                        <LemonLabel>Database name</LemonLabel>
+                        <LemonLabel>Warehouse name</LemonLabel>
                         <div className="flex items-center gap-2">
                             <LemonInput
                                 value={databaseName}
@@ -166,15 +180,16 @@ export function SettingsTab(): JSX.Element {
                             )}
                         {databaseName && !isValidDatabaseName && (
                             <p className="text-danger text-xs mt-1">
-                                Must be 3-63 characters, start with a lowercase letter, and contain only lowercase
-                                letters, numbers, hyphens, or underscores.
+                                Must be 3-63 characters: lowercase letters, numbers, and hyphens, starting with a letter
+                                and ending with a letter or number.
                             </p>
                         )}
                         {(!databaseName ||
                             (isValidDatabaseName && (databaseNameChecking || databaseNameAvailable === true))) && (
                             <p className="text-muted text-xs mt-1">
-                                Unique name for your database. This is what you'll use in <code>dbname=</code> when
-                                connecting.
+                                Unique name for your warehouse. It becomes the subdomain of your connection host (e.g.{' '}
+                                <code>my-warehouse.dw.us.postwh.com</code>). You always connect with{' '}
+                                <code>dbname=ducklake</code>.
                             </p>
                         )}
                     </div>
@@ -196,7 +211,7 @@ export function SettingsTab(): JSX.Element {
                                     ? 'Retry managed warehouse provisioning?'
                                     : 'Provision managed warehouse?',
                                 description:
-                                    'This will create dedicated AWS resources (Aurora database, S3 bucket, IAM roles) for your team. This typically takes 5-15 minutes.',
+                                    'This will create dedicated AWS resources (Aurora database, S3 bucket, IAM roles) for your organization, shared by every project in it. This typically takes 5-15 minutes.',
                                 primaryButton: {
                                     children: isFailed ? 'Retry provisioning' : 'Provision',
                                     onClick: () => provisionWarehouse({ databaseName: retryDatabaseName }),
@@ -274,11 +289,12 @@ export function SettingsTab(): JSX.Element {
                                 type="secondary"
                                 status="danger"
                                 loading={isDeprovisioning}
+                                disabledReason={deprovisionRestrictionReason ?? undefined}
                                 onClick={() => {
                                     LemonDialog.open({
                                         title: 'Deprovision managed warehouse?',
                                         description:
-                                            'This will delete all AWS resources (Aurora database, S3 bucket, IAM roles) for your team. This action cannot be undone.',
+                                            'This will delete all AWS resources (Aurora database, S3 bucket, IAM roles) for your organization and every project in it. This action cannot be undone.',
                                         primaryButton: {
                                             children: 'Deprovision',
                                             status: 'danger',

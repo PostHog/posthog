@@ -221,6 +221,27 @@ export interface _TracingCountResponseApi {
     count: number
 }
 
+export interface _TracingTimeseriesQueryBodyApi {
+    /** Date range for the query. Defaults to last hour. */
+    dateRange?: _TracingDateRangeApi
+    /** Filter by service names. */
+    serviceNames?: string[]
+    /** Filter by OTel span status codes (0 Unset, 1 OK, 2 Error) — not HTTP status codes. Use [2] to select error spans. */
+    statusCodes?: number[]
+    /** Property filters for the query. */
+    filterGroup?: _SpanPropertyFilterApi[]
+}
+
+export interface _TracingTimeseriesRequestApi {
+    /** The sparkline / duration-histogram query to execute. */
+    query: _TracingTimeseriesQueryBodyApi
+}
+
+export interface _HasSpansResponseApi {
+    /** Whether the team has ingested any tracing spans yet. Used to gate the onboarding empty state. */
+    hasSpans: boolean
+}
+
 /**
  * * `timestamp` - timestamp
  * * `duration` - duration
@@ -276,6 +297,8 @@ export interface _TracingQueryBodyApi {
     offset?: number
     /** Filter to root spans only. Defaults to true. */
     rootSpans?: boolean
+    /** Return the matching spans themselves, one row per span (root and child), instead of collapsing to traces. Use this to search by a child-span attribute (e.g. code.filepath) without the whole-trace grouping. Distinct from rootSpans. Defaults to false. */
+    flatSpans?: boolean
     /** Number of child spans to prefetch per trace (1-100). */
     prefetchSpans?: number
     /** Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false. */
@@ -285,11 +308,6 @@ export interface _TracingQueryBodyApi {
 export interface _TracingQueryRequestApi {
     /** The tracing spans query to execute. */
     query: _TracingQueryBodyApi
-}
-
-export interface _HasSpansResponseApi {
-    /** Whether the team has ingested any tracing spans yet. Used to gate the onboarding empty state. */
-    hasSpans: boolean
 }
 
 export interface _TracingTraceRequestApi {
