@@ -92,6 +92,7 @@ describe('scannerEditorSceneLogic', () => {
                 breadcrumbs: [
                     expect.objectContaining({ key: 'replay-vision', name: 'Replay vision' }),
                     expect.objectContaining({ key: 'scanner-abc-123', name: 'Scanner' }),
+                    expect.objectContaining({ key: 'scanner-abc-123-edit', name: 'Edit' }),
                 ],
             })
         })

@@ -124,6 +124,13 @@ cares about:
 For each new candidate, do a first read to set its baseline and cadence, then add a
 `watchlist:` entry. Don't add more than a few per run — let coverage grow steadily.
 
+Explore is not only additive — **importance decays.** Every few days (~3), re-pull the ranking
+and reconcile the _existing_ watchlist against it: promote newly-hot items, demote or retire
+ones whose dashboards have gone cold. A large or "mature" watchlist is **not** a reason to skip
+explore — a frozen watchlist tracks last week's priorities, not today's. The refresh cadence and
+the `importance-refresh` memo are in
+[`references/watchlist-and-memory.md`](references/watchlist-and-memory.md).
+
 ### Save memory as you go
 
 Memory is continuous, not a final step. Maintain the watchlist and baselines as you work,

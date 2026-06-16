@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -40,6 +41,8 @@ class HiBobSource(SimpleSource[HiBobSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.HI_BOB,
+            category=DataWarehouseSourceCategory.HR___RECRUITING,
+            keywords=["bob"],
             label="HiBob",
             caption="""Enter your HiBob Service User credentials to pull your Bob HR data into the PostHog Data warehouse.
 

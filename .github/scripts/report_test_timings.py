@@ -89,6 +89,12 @@ class Shard:
     testcase_seconds: float
     overhead_seconds: float
     tests: list[TestCase]
+    # Wall-clock seconds from `<testsuite timestamp>` to the first test's logstart, as
+    # reported by the `posthog-junit-timings` pytest plugin. Captures the shared
+    # pre-first-test overhead (imports, collection, session/package fixture setup) so
+    # the trace exporter can emit it as its own span instead of letting it visually
+    # collapse into the first test. Zero when the plugin didn't run (external shards).
+    setup_seconds: float = 0.0
 
 
 # ---------- artifact directory parsing ----------
@@ -178,6 +184,25 @@ def parse_iso_utc(value: str) -> datetime | None:
     return dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
 
 
+def parse_testsuite_properties(suite_elem: Any) -> dict[str, str]:
+    """Extract `<properties><property name=.. value=../></properties>` from `<testsuite>`.
+
+    Pytest writes these via `record_testsuite_property` /
+    `xml.add_global_property`. Returns an empty dict when no `<properties>` block
+    exists (e.g., external shards without the `posthog-junit-timings` plugin).
+    """
+    properties_elem = suite_elem.find("properties")
+    if properties_elem is None:
+        return {}
+    result: dict[str, str] = {}
+    for prop in properties_elem.findall("property"):
+        name = prop.get("name")
+        value = prop.get("value")
+        if name and value is not None:
+            result[name] = value
+    return result
+
+
 def parse_shard(xml_path: Path, info: ArtifactInfo) -> Shard | None:
     """One Shard per junit XML file. Tolerant of malformed input."""
     try:
@@ -198,8 +223,16 @@ def parse_shard(xml_path: Path, info: ArtifactInfo) -> Shard | None:
     except ValueError:
         wall_seconds = 0.0
 
+    properties = parse_testsuite_properties(suite_elem)
+    try:
+        setup_seconds = max(0.0, float(properties.get("posthog.setup_seconds", "0")))
+    except ValueError:
+        setup_seconds = 0.0
+    # Clamp to wall time so a clock skew or malformed property can't push tests past `end`.
+    setup_seconds = min(setup_seconds, wall_seconds)
+
     tests: list[TestCase] = []
-    cursor = start
+    cursor = start + timedelta(seconds=setup_seconds)
     for tc in suite_elem.iter("testcase"):
         classname = tc.get("classname", "")
         name = tc.get("name", "")
@@ -234,6 +267,7 @@ def parse_shard(xml_path: Path, info: ArtifactInfo) -> Shard | None:
         testcase_seconds=testcase_seconds,
         overhead_seconds=max(0.0, wall_seconds - testcase_seconds),
         tests=tests,
+        setup_seconds=setup_seconds,
     )
 
 
@@ -270,6 +304,7 @@ def filter_shards(shards: list[Shard], min_duration_seconds: float) -> list[Shar
             testcase_seconds=s.testcase_seconds,
             overhead_seconds=s.overhead_seconds,
             tests=[t for t in s.tests if should_emit(t, min_duration_seconds)],
+            setup_seconds=s.setup_seconds,
         )
         for s in shards
     ]
@@ -391,9 +426,18 @@ def _emit_shard_span(tracer: trace.Tracer, shard: Shard) -> bool:
     shard_span.set_attribute("shard.junit_filename", shard.junit_filename)
     shard_span.set_attribute("shard.testcase_seconds", shard.testcase_seconds)
     shard_span.set_attribute("shard.overhead_seconds", shard.overhead_seconds)
+    shard_span.set_attribute("shard.setup_seconds", shard.setup_seconds)
 
     has_error = False
     with trace.use_span(shard_span, end_on_exit=False):
+        # Surface the pre-first-test gap (imports, collection, session/package fixtures)
+        # as its own span — without it, the cursor-based reconstruction would visually
+        # collapse this overhead into the first test's window.
+        if shard.setup_seconds > 0:
+            setup_span = tracer.start_span("setup", start_time=_to_ns(shard.start))
+            setup_span.set_attribute("shard.setup_seconds", shard.setup_seconds)
+            setup_span.end(end_time=_to_ns(shard.start + timedelta(seconds=shard.setup_seconds)))
+
         # Pytest runs serially within a shard (no `-n` flag — confirmed in pytest.ini),
         # so parse-time cumulative durations give non-overlapping per-test windows
         # that stay stable even after threshold filtering.
