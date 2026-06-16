@@ -2267,10 +2267,12 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
         user_access_control = self.user_access_control
         if user_access_control is None:
             return None
-        blocked = user_access_control.blocked_resources
         if queried_resources is None:
-            return blocked or None
-        return sorted(set(blocked) & queried_resources) or None
+            return user_access_control.blocked_resources or None
+        # has_resource_access resolves RESOURCE_INHERITANCE_MAP (same predicate the schema filter uses),
+        # so a deny on a parent (e.g. customer_analytics) still partitions a child-scoped table (account).
+        # Intersecting the raw blocked_resources list would miss inherited denies and leak the cache.
+        return sorted(s for s in queried_resources if not user_access_control.has_resource_access(s)) or None
 
 
 class QueryRunnerWithHogQLContext(AnalyticsQueryRunner[AR]):

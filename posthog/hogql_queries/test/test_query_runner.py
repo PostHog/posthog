@@ -1400,6 +1400,17 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
         assert "notebook" in restricted  # queried and denied
         assert "survey" not in restricted  # denied but not read by the query
 
+    def test_resource_deny_on_parent_partitions_inherited_child_table(self):
+        # system.accounts uses the "account" scope, which inherits from "customer_analytics".
+        # A deny on the parent must still partition a query that reads the child table - otherwise the
+        # schema filter denies it but the cache key doesn't, and a denied user gets a cached result.
+        self._ac(resource="customer_analytics", access_level="none")
+        query = {"kind": "HogQLQuery", "query": "select * from system.accounts"}
+        runner = HogQLQueryRunner(query=query, team=self.team, user=self.user)
+
+        restricted = set(runner.get_cache_payload().get("restricted_resources") or [])
+        assert "account" in restricted  # denied via the inherited parent customer_analytics
+
     def test_object_level_deny_on_queried_resource_partitions_cache(self):
         from products.notebooks.backend.models import Notebook
 
