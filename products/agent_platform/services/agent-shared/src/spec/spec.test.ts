@@ -1,4 +1,4 @@
-import { AgentSpec, AgentSpecSchema, AuthConfigSchema } from './spec'
+import { AgentSpec, AgentSpecSchema, AuthConfigSchema, principalsMatch } from './spec'
 
 describe('AgentSpecSchema', () => {
     it('parses a minimal spec with defaults', () => {
@@ -608,11 +608,59 @@ describe('AgentSpecSchema', () => {
             ).toHaveLength(1)
         })
 
+        it('shared_secret accepts an optional caller_id_header', () => {
+            const [mode] = AuthConfigSchema.parse({
+                modes: [{ type: 'shared_secret', header: 'X', secret_ref: 'K', caller_id_header: 'X-Caller-Id' }],
+            }).modes
+            expect(mode).toMatchObject({ type: 'shared_secret', caller_id_header: 'X-Caller-Id' })
+        })
+
         it('posthog / posthog_internal / jwt parse', () => {
             const parsed = AuthConfigSchema.parse({
                 modes: [{ type: 'posthog' }, { type: 'posthog_internal' }, { type: 'jwt', issuer_secret_ref: 'S' }],
             })
             expect(parsed.modes).toHaveLength(3)
+        })
+    })
+
+    describe('principalsMatch — shared_secret per-caller binding', () => {
+        it('two secret holders with no caller_id match (single-principal default)', () => {
+            expect(
+                principalsMatch({ kind: 'shared_secret', team_id: 7 }, { kind: 'shared_secret', team_id: 7 })
+            ).toBe(true)
+        })
+
+        it('a session bound to a caller_id rejects a different caller', () => {
+            expect(
+                principalsMatch(
+                    { kind: 'shared_secret', team_id: 7, caller_id: 'alice' },
+                    { kind: 'shared_secret', team_id: 7, caller_id: 'bob' }
+                )
+            ).toBe(false)
+        })
+
+        it('a caller can resume their own caller_id-bound session', () => {
+            expect(
+                principalsMatch(
+                    { kind: 'shared_secret', team_id: 7, caller_id: 'alice' },
+                    { kind: 'shared_secret', team_id: 7, caller_id: 'alice' }
+                )
+            ).toBe(true)
+        })
+
+        it('an unbound stored session does not match a caller_id-bearing request', () => {
+            expect(
+                principalsMatch(
+                    { kind: 'shared_secret', team_id: 7 },
+                    { kind: 'shared_secret', team_id: 7, caller_id: 'alice' }
+                )
+            ).toBe(false)
+        })
+
+        it('still isolates across teams', () => {
+            expect(
+                principalsMatch({ kind: 'shared_secret', team_id: 7 }, { kind: 'shared_secret', team_id: 8 })
+            ).toBe(false)
         })
     })
 })

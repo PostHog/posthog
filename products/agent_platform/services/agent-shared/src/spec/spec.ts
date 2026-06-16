@@ -51,11 +51,19 @@ export const AuthModeSchema = z.discriminatedUnion('type', [
         issuer_secret_ref: z.string().min(1),
     }),
     /** Shared secret in a named header. Expected value lives in `encrypted_env`
-     *  under `secret_ref`; the spec never carries the secret itself. */
+     *  under `secret_ref`; the spec never carries the secret itself.
+     *
+     *  `caller_id_header` optionally names a second header that identifies the
+     *  individual caller behind the shared secret. When set, its value is bound
+     *  into the session principal so one caller can't resume or inject into
+     *  another caller's session of the same agent (the shared secret alone
+     *  carries no per-caller identity). Omit it to keep the prior behaviour
+     *  where every secret holder is one principal. */
     z.object({
         type: z.literal('shared_secret'),
         header: z.string().min(1),
         secret_ref: z.string().min(1),
+        caller_id_header: z.string().min(1).optional(),
     }),
     /** PostHog-internal server-to-server token (for Django ↔ ingress). */
     z.object({ type: z.literal('posthog_internal') }),
@@ -689,8 +697,17 @@ export function principalsMatch(stored: SessionPrincipal | null, incoming: Sessi
                 stored.slack_user_id === incoming.slack_user_id
             )
         case 'posthog_internal':
+            return incoming.kind === 'posthog_internal' && stored.team_id === incoming.team_id
         case 'shared_secret':
-            return incoming.kind === stored.kind && stored.team_id === incoming.team_id
+            // `caller_id` is the per-caller discriminator (undefined on both
+            // sides when the agent didn't opt into `caller_id_header`, which
+            // preserves the single-principal behaviour). A session created
+            // with a caller_id can only be resumed by the same caller.
+            return (
+                incoming.kind === 'shared_secret' &&
+                stored.team_id === incoming.team_id &&
+                stored.caller_id === incoming.caller_id
+            )
         case 'service':
             return (
                 incoming.kind === 'service' &&
@@ -787,8 +804,10 @@ export type SessionPrincipal =
       }
     /** Internal / service-to-service caller (PostHog backend → ingress). */
     | { kind: 'posthog_internal'; team_id?: number }
-    /** Shared-secret bearer (webhook-style). */
-    | { kind: 'shared_secret'; team_id?: number }
+    /** Shared-secret bearer (webhook-style). `caller_id` is the value of the
+     *  mode's configured `caller_id_header`, present only when the agent opts
+     *  into per-caller isolation; absent secrets behave as a single principal. */
+    | { kind: 'shared_secret'; team_id?: number; caller_id?: string }
     /** Cron / scheduler / other system principals. */
     | { kind: 'service'; team_id?: number; id?: string }
 

@@ -226,7 +226,15 @@ export function sharedSecretVerifier(resolver: SecretResolver): AuthVerifier {
             if (!secretsMatch(provided, expected)) {
                 return { ok: false, status: 401, reason: 'invalid_secret' }
             }
-            const principal: SessionPrincipal = { kind: 'shared_secret', team_id: application.team_id }
+            // Per-caller identity: when the agent configures `caller_id_header`,
+            // bind its value into the principal so one secret holder can't
+            // resume/inject into another caller's session. Absent header → no
+            // discriminator, preserving the single-principal behaviour.
+            const callerIdRaw = mode.caller_id_header
+                ? req.headers[mode.caller_id_header.toLowerCase()]
+                : undefined
+            const caller_id = typeof callerIdRaw === 'string' && callerIdRaw.length > 0 ? callerIdRaw : undefined
+            const principal: SessionPrincipal = { kind: 'shared_secret', team_id: application.team_id, caller_id }
             return { ok: true, principal, credentials: {} }
         },
     }
