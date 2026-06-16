@@ -16,8 +16,8 @@ import {
 } from './utils'
 
 // Mock dependencies for Group revenue utilities
-jest.mock('lib/utils', () => ({
-    ...jest.requireActual('lib/utils'),
+jest.mock('lib/utils/numbers', () => ({
+    ...jest.requireActual('lib/utils/numbers'),
     percentage: jest.fn((value: number) => `${(value * 100).toFixed(1)}%`),
 }))
 
