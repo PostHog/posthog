@@ -318,6 +318,12 @@ tools:
     org-feature-flags-retrieve:
         operation: org_feature_flags_retrieve
         enabled: false
+    organizations-projects-evaluation-context-suggestions-create:
+        operation: organizations_projects_evaluation_context_suggestions_create
+        enabled: false
+    organizations-projects-evaluation-context-suggestions-destroy:
+        operation: organizations_projects_evaluation_context_suggestions_destroy
+        enabled: false
     scheduled-changes-create:
         operation: scheduled_changes_create
         enabled: true

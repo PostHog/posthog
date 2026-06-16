@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,8 @@ class DisplayVideo360Source(SimpleSource[DisplayVideo360SourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.DISPLAY_VIDEO360,
+            category=DataWarehouseSourceCategory.ADVERTISING,
+            keywords=["dv360"],
             label="Display & Video 360",
             iconPath="/static/services/display_video_360.png",
             fields=cast(list[FieldType], []),

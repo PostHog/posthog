@@ -337,12 +337,26 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
             ),
             ("dns_failure", "The DNS query name does not exist: example.mongodb.net."),
             ("ssl_failure", "SSL handshake failed: certificate verify failed"),
-            # Cluster unreachable for the whole selection timeout — persistent connectivity issue.
+            # ServerSelectionTimeoutError variants — cluster unreachable for the whole selection
+            # timeout. All carry the "Topology Description:" suffix regardless of the per-reason text.
             ("no_servers", "No servers found yet, Timeout: 5.0s, Topology Description: ..."),
             (
                 "no_replica_set_members",
                 "No replica set members found yet, Timeout: 10.0s, Topology Description: "
                 "<TopologyDescription topology_type: ReplicaSetNoPrimary>",
+            ),
+            # Host resolves but every connection attempt is closed for the whole window — the driver
+            # never identifies the server (topology_type: Unknown) and wraps the per-server
+            # AutoReconnect. Persistent connectivity/config problem, not a momentary blip.
+            (
+                "connection_closed_selection_timeout",
+                "cluster0.example.mongodb.net:27017: connection closed (configured timeouts: "
+                "socketTimeoutMS: 20000.0ms, connectTimeoutMS: 20000.0ms), Timeout: 10.0s, "
+                "Topology Description: <TopologyDescription id: abc, topology_type: Unknown, "
+                "servers: [<ServerDescription ('cluster0.example.mongodb.net', 27017) "
+                "server_type: Unknown, rtt: None, error=AutoReconnect('cluster0.example.mongodb.net:"
+                "27017: connection closed (configured timeouts: socketTimeoutMS: 20000.0ms, "
+                "connectTimeoutMS: 20000.0ms)')>]>",
             ),
         ]
     )
@@ -355,6 +369,14 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
         [
             ("connection_reset", "connection closed"),
             ("network_timeout", "NetworkTimeout: timed out reading from socket"),
+            # A mid-sync AutoReconnect carries the "(configured timeouts: ...)" suffix but no
+            # topology description — it's a momentary drop the driver can recover from, so it must
+            # not be caught by the "Topology Description:" server-selection matcher.
+            (
+                "mid_sync_auto_reconnect",
+                "cluster0.example.mongodb.net:27017: connection closed (configured timeouts: "
+                "socketTimeoutMS: 20000.0ms, connectTimeoutMS: 20000.0ms)",
+            ),
         ]
     )
     def test_transient_errors_are_retryable(self, _name, error_msg):
@@ -366,8 +388,7 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
         [
             ("code_name", "AuthenticationFailed", "password"),
             ("message", "Authentication failed", "password"),
-            ("unreachable_no_servers", "No servers found yet", "allowlist"),
-            ("unreachable_no_replica_set", "No replica set members found yet", "allowlist"),
+            ("unreachable_topology", "Topology Description:", "allowlist"),
         ]
     )
     def test_pattern_has_friendly_message(self, _name, pattern, expected_substring):

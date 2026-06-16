@@ -575,6 +575,14 @@ class FakePersonHogClient:
         self.calls.append(_Call("delete_persons_batch_for_team", request, response))
         return response
 
+    # ── Person split ──────────────────────────────────────────────────
+
+    def split_person(
+        self, request: person_pb2.SplitPersonRequest, timeout: float | None = None
+    ) -> person_pb2.SplitPersonResponse:
+        self.calls.append(_Call("split_person", request))
+        return person_pb2.SplitPersonResponse(splits=[])
+
     # ── Assertion helpers ────────────────────────────────────────────
 
     def assert_called(self, method: str, *, times: int | None = None) -> list[_Call]:

@@ -6,6 +6,7 @@ import pyarrow as pa
 from asgiref.sync import async_to_sync
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -110,6 +111,7 @@ class RevenueCatSource(
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.REVENUE_CAT,
+            category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="RevenueCat",
             caption=(
                 "Connect your RevenueCat project using a "
