@@ -94,6 +94,14 @@ class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], O
             # the id is volatile, so match only the stable prefix. Retrying can't recreate the row —
             # the customer has to reconnect.
             "Integration not found": "The linked Bing Ads integration no longer exists. Please reconnect your Bing Ads integration.",
+            # Non-numeric Account ID — the user entered their alphanumeric Account Number instead
+            # of the numeric Account ID. Retrying can't fix a bad config value, so flag it and surface
+            # actionable guidance. The matched phrase is stable and precedes the volatile id in the
+            # raised message (see bing_ads_source.get_rows), keeping false positives at zero.
+            "Bing Ads Account ID must be numeric": (
+                "Bing Ads Account ID must be numeric. You may have entered your alphanumeric Account Number "
+                "instead. Update the Account ID in the source settings and try again."
+            ),
             # Deterministic credential/config errors raised in source_for_pipeline.
             "Bing Ads access token not found": "Bing Ads OAuth access token is missing. Please reconnect your Bing Ads integration.",
             "Bing Ads refresh token not found": "Bing Ads OAuth refresh token is missing. Please reconnect your Bing Ads integration.",
