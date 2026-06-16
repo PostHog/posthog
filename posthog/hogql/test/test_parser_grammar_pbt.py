@@ -527,24 +527,22 @@ def _try_parse(query: str, rule: str, backend: str) -> tuple[bool, ast.AST | Non
     the failure. The whole point of the differential PBT is to surface
     asymmetric crashes; swallowing them here would defeat that.
     """
-    if rule == "expr":
-        parser_fn = parse_expr
-    elif rule == "select":
-        parser_fn = parse_select
-    elif rule == "full_template_string":
-        # The strategy emits "F'<contents>" (the wrapped F-string grammar form), but
-        # `parse_string_template` takes the inside and re-adds the F-quote itself, so
-        # strip the leading "F'" here. Asserted (rather than `removeprefix`) so a future
-        # strategy or jiggle regression that drops the leading "F'" fails loudly instead
-        # of silently producing "F'F'…" inputs that both backends accept (the second F'
-        # becomes FULL_STRING_TEXT content) and that the parity assertion treats as fine.
-        assert query.startswith("F'"), f"fullTemplateString strategy emitted unexpected prefix: {query!r}"
-        query = query[2:]
-        parser_fn = parse_string_template
-    else:
-        raise ValueError(f"unknown rule: {rule!r}")
     try:
-        node = parser_fn(query, backend=backend)  # type: ignore[arg-type]
+        if rule == "expr":
+            node: ast.AST = parse_expr(query, backend=backend)  # type: ignore[arg-type]
+        elif rule == "select":
+            node = parse_select(query, backend=backend)  # type: ignore[arg-type]
+        elif rule == "full_template_string":
+            # The strategy emits "F'<contents>" (the wrapped F-string grammar form), but
+            # `parse_string_template` takes the inside and re-adds the F-quote itself, so
+            # strip the leading "F'" here. Asserted (rather than `removeprefix`) so a future
+            # strategy or jiggle regression that drops the leading "F'" fails loudly instead
+            # of silently producing "F'F'…" inputs that both backends accept (the second F'
+            # becomes FULL_STRING_TEXT content) and that the parity assertion treats as fine.
+            assert query.startswith("F'"), f"fullTemplateString strategy emitted unexpected prefix: {query!r}"
+            node = parse_string_template(query[2:], backend=backend)  # type: ignore[arg-type]
+        else:
+            raise ValueError(f"unknown rule: {rule!r}")
         return True, clear_locations(node)
     except BaseHogQLError:
         return False, None
