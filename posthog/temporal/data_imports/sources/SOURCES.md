@@ -270,6 +270,7 @@ doesn't conflict with concurrent PRs.
 - google_analytics
 - google_cloud_storage
 - google_drive
+- grafana
 - gusto
 - heap
 - helpscout

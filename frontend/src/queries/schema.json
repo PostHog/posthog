@@ -20643,6 +20643,7 @@
                 "AmazonKinesis",
                 "AmazonCloudWatch",
                 "OpenAIAds",
+                "Grafana",
                 "Custom"
             ],
             "type": "string"
