@@ -602,6 +602,63 @@ class TestSignalReportListAPI(APIBaseTest):
             str(report_with_pr.id): "https://github.com/org/repo/pull/42",
         }
 
+    # --- has_implementation_pr filter ---
+
+    def test_filter_has_implementation_pr_true_keeps_only_pr_reports(self):
+        report_with_pr = self._create_report(title="Report with PR")
+        report_without_pr = self._create_report(title="Report without PR")
+        self._create_implementation_task_with_run(report_with_pr, pr_url="https://github.com/org/repo/pull/42")
+
+        response = self.client.get(self._list_url(has_implementation_pr="true"))
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        ids = {r["id"] for r in body["results"]}
+        assert ids == {str(report_with_pr.id)}
+        # `count` is the true total (matches what a limit=1 count query returns).
+        assert body["count"] == 1
+        assert str(report_without_pr.id) not in ids
+
+    def test_filter_has_implementation_pr_false_keeps_only_non_pr_reports(self):
+        report_with_pr = self._create_report(title="Report with PR")
+        report_without_pr = self._create_report(title="Report without PR")
+        self._create_implementation_task_with_run(report_with_pr, pr_url="https://github.com/org/repo/pull/42")
+
+        response = self.client.get(self._list_url(has_implementation_pr="false"))
+        assert response.status_code == status.HTTP_200_OK
+        ids = {r["id"] for r in response.json()["results"]}
+        assert ids == {str(report_without_pr.id)}
+
+    def test_filter_has_implementation_pr_ignores_empty_pr_url(self):
+        report_empty_pr = self._create_report(title="Report with empty PR url")
+        self._create_implementation_task_with_run(report_empty_pr, pr_url="")
+
+        with_pr = self.client.get(self._list_url(has_implementation_pr="true"))
+        assert with_pr.json()["count"] == 0
+        without_pr = self.client.get(self._list_url(has_implementation_pr="false"))
+        assert str(report_empty_pr.id) in {r["id"] for r in without_pr.json()["results"]}
+
+    def test_filter_has_implementation_pr_absent_returns_all(self):
+        report_with_pr = self._create_report(title="Report with PR")
+        report_without_pr = self._create_report(title="Report without PR")
+        self._create_implementation_task_with_run(report_with_pr, pr_url="https://github.com/org/repo/pull/42")
+
+        response = self.client.get(self._list_url())
+        assert response.status_code == status.HTTP_200_OK
+        ids = {r["id"] for r in response.json()["results"]}
+        assert {str(report_with_pr.id), str(report_without_pr.id)} <= ids
+
+    def test_filter_has_implementation_pr_count_via_limit_one(self):
+        for i in range(3):
+            report = self._create_report(title=f"PR report {i}")
+            self._create_implementation_task_with_run(report, pr_url=f"https://github.com/org/repo/pull/{i}")
+        self._create_report(title="No PR report")
+
+        response = self.client.get(self._list_url(has_implementation_pr="true", limit=1))
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["count"] == 3
+        assert len(body["results"]) == 1
+
     # --- source_products ---
 
     def test_source_products_defaults_to_empty_list(self):
