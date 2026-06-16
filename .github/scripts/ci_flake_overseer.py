@@ -28,6 +28,7 @@ MAX_INSIGHTS_PER_QUERY = 3
 
 DEFAULT_POSTHOG_HOST = "https://us.i.posthog.com"
 DECISION_EVENT = "ci_flake_overseer_decision"
+OUTCOME_EVENT = "ci_flake_overseer_rerun_outcome"
 
 
 def compile_patterns(*patterns: str) -> tuple[re.Pattern[str], ...]:
@@ -520,6 +521,32 @@ def inspect_failed_jobs(
     return tuple(decisions)
 
 
+def rerun_eligible_decisions(
+    repo: str,
+    run_id: int,
+    run_attempt: int,
+    insights: InsightsSource,
+    workflow_name: str,
+    max_reruns_per_job: int,
+) -> dict[str, Decision]:
+    # Historical view used for outcome attribution: which jobs of a given attempt the overseer would
+    # have reran (failed and matched a known flake). No cap closure — we want the merit-only verdict.
+    eligible: dict[str, Decision] = {}
+    for job in fetch_jobs(repo, run_id, run_attempt):
+        if job.conclusion not in {"failure", "timed_out"}:
+            continue
+        decision = classify_job(
+            job,
+            lambda job=job: gh_text(repo, f"actions/jobs/{job.id}/logs"),
+            insights,
+            workflow_name,
+            max_reruns_per_job,
+        )
+        if decision.action == "rerun":
+            eligible[job.name] = decision
+    return eligible
+
+
 def rerun_eligible_jobs(repo: str, decisions: tuple[Decision, ...], dry_run: bool) -> set[int]:
     reran_job_ids: set[int] = set()
     for decision in decisions:
@@ -577,6 +604,66 @@ def build_decision_events(
                 }
             )
         events.append({"event": DECISION_EVENT, "distinct_id": repo, "properties": properties})
+    return events
+
+
+def rerun_outcome_label(conclusion: str | None) -> str:
+    if conclusion == "success":
+        return "cleared"
+    if conclusion in {"failure", "timed_out"}:
+        return "still_failing"
+    return "unknown"
+
+
+def report_rerun_outcomes(
+    repo: str,
+    workflow_run: WorkflowRun,
+    insights: InsightsSource,
+    max_reruns_per_job: int,
+    dry_run: bool,
+    enabled: bool,
+) -> list[JsonObject]:
+    # Outcomes only exist once a re-run attempt has completed. Re-derive which jobs the prior attempt
+    # would have reran, then read how they concluded this attempt — the overseer's value/safety signal.
+    if workflow_run.run_attempt <= 1:
+        return []
+    prior_attempt = workflow_run.run_attempt - 1
+    eligible = rerun_eligible_decisions(
+        repo, workflow_run.id, prior_attempt, insights, workflow_run.name, max_reruns_per_job
+    )
+    if not eligible:
+        return []
+    current_conclusions = {
+        job.name: job.conclusion for job in fetch_jobs(repo, workflow_run.id, workflow_run.run_attempt)
+    }
+    events: list[JsonObject] = []
+    for job_name, decision in eligible.items():
+        conclusion = current_conclusions.get(job_name)
+        properties: JsonObject = {
+            "outcome": rerun_outcome_label(conclusion),
+            "current_conclusion": conclusion,
+            "repo": repo,
+            "workflow_name": workflow_run.name,
+            "job_name": job_name,
+            "run_id": workflow_run.id,
+            "run_url": workflow_run.html_url,
+            "head_sha": workflow_run.head_sha,
+            "prior_attempt": prior_attempt,
+            "attempt": workflow_run.run_attempt,
+            "dry_run": dry_run,
+            "enabled": enabled,
+            "$groups": {"workflow_run": str(workflow_run.id)},
+        }
+        if decision.match is not None:
+            properties.update(
+                {
+                    "insight_id": decision.match.insight_id,
+                    "insight_title": decision.match.title,
+                    "insight_confidence": decision.match.confidence,
+                    "matched_query": decision.match.matched_query,
+                }
+            )
+        events.append({"event": OUTCOME_EVENT, "distinct_id": repo, "properties": properties})
     return events
 
 
@@ -737,19 +824,25 @@ def main(argv: list[str]) -> int:
             "::notice title=CI flake overseer disabled::Set CI_FLAKE_OVERSEER_ENABLED=true to enable automatic reruns"
         )
         return 0
-    # `cancelled` runs are usually superseded by a newer commit (cancel-in-progress); reranking their
-    # leftover failures would resurrect an abandoned SHA, so only act on genuine failures and timeouts.
-    if workflow_run.conclusion not in {"failure", "timed_out"}:
-        print(f"::notice title=CI flake overseer skipped::Workflow conclusion is `{workflow_run.conclusion}`")
-        return 0
 
     command = tuple(shlex.split(args.insights_command)) if args.insights_command else default_insights_command()
     insights = CiInsightsSource(command, args.confidence_threshold, args.insights_timeout_seconds)
-    decisions = inspect_failed_jobs(args.repo, workflow_run, insights, args.max_reruns_per_job)
     dry_run = args.dry_run or not args.enabled
-    reran_job_ids = rerun_eligible_jobs(args.repo, decisions, dry_run)
-    write_summary(summary_path, workflow_run, decisions, dry_run, args.max_reruns_per_job)
-    events = build_decision_events(args.repo, workflow_run, decisions, dry_run, args.enabled, reran_job_ids)
+
+    # On a re-run attempt, record whether our prior reruns cleared — the value/safety signal — even when
+    # this attempt succeeded (so we capture the wins), regardless of dry-run mode.
+    events = report_rerun_outcomes(args.repo, workflow_run, insights, args.max_reruns_per_job, dry_run, args.enabled)
+
+    # `cancelled` runs are usually superseded by a newer commit (cancel-in-progress); reranking their
+    # leftover failures would resurrect an abandoned SHA, so only classify genuine failures and timeouts.
+    if workflow_run.conclusion in {"failure", "timed_out"}:
+        decisions = inspect_failed_jobs(args.repo, workflow_run, insights, args.max_reruns_per_job)
+        reran_job_ids = rerun_eligible_jobs(args.repo, decisions, dry_run)
+        write_summary(summary_path, workflow_run, decisions, dry_run, args.max_reruns_per_job)
+        events.extend(build_decision_events(args.repo, workflow_run, decisions, dry_run, args.enabled, reran_job_ids))
+    else:
+        print(f"::notice title=CI flake overseer skipped::Workflow conclusion is `{workflow_run.conclusion}`")
+
     capture_events(args.posthog_api_key, args.posthog_host, events, args.posthog_timeout_seconds)
     return 0
 

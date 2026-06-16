@@ -8,6 +8,7 @@ import ci_flake_overseer
 from ci_flake_overseer import (
     DECISION_EVENT,
     MAX_QUERY_COUNT,
+    OUTCOME_EVENT,
     CiInsightsSource,
     Decision,
     FlakeMatch,
@@ -21,7 +22,9 @@ from ci_flake_overseer import (
     classify_job,
     extract_failure_queries,
     is_test_job_failure,
+    report_rerun_outcomes,
     rerun_eligible_jobs,
+    rerun_outcome_label,
 )
 
 
@@ -348,14 +351,14 @@ def test_rerun_eligible_jobs_skips_api_in_dry_run(monkeypatch: pytest.MonkeyPatc
     assert calls == []
 
 
-def make_workflow_run() -> WorkflowRun:
+def make_workflow_run(run_attempt: int = 1) -> WorkflowRun:
     return WorkflowRun(
         id=999,
         workflow_id=42,
         name="Backend CI",
         conclusion="failure",
         head_sha="abc123",
-        run_attempt=1,
+        run_attempt=run_attempt,
         html_url="https://github.com/PostHog/posthog/actions/runs/999",
     )
 
@@ -433,6 +436,96 @@ def test_capture_events_posts_batch(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert captured["url"] == "https://us.i.posthog.com/batch/"
     assert captured["body"] == {"api_key": "phc_test", "batch": events}
+
+
+@pytest.mark.parametrize(
+    ("conclusion", "expected"),
+    [
+        pytest.param("success", "cleared", id="success-cleared"),
+        pytest.param("failure", "still_failing", id="failure-still-failing"),
+        pytest.param("timed_out", "still_failing", id="timed-out-still-failing"),
+        pytest.param(None, "unknown", id="missing-unknown"),
+        pytest.param("cancelled", "unknown", id="cancelled-unknown"),
+    ],
+)
+def test_rerun_outcome_label(conclusion: str | None, expected: str) -> None:
+    assert rerun_outcome_label(conclusion) == expected
+
+
+def test_report_rerun_outcomes_empty_on_first_attempt() -> None:
+    events = report_rerun_outcomes(
+        "PostHog/posthog",
+        make_workflow_run(run_attempt=1),
+        StaticInsights(known_flake()),
+        1,
+        dry_run=True,
+        enabled=False,
+    )
+
+    assert events == []
+
+
+@pytest.mark.parametrize(
+    ("current_conclusion", "expected_outcome"),
+    [
+        pytest.param("success", "cleared", id="rerun-cleared"),
+        pytest.param("failure", "still_failing", id="rerun-still-failing"),
+        pytest.param("timed_out", "still_failing", id="rerun-timed-out"),
+    ],
+)
+def test_report_rerun_outcomes_attributes_prior_rerun(
+    monkeypatch: pytest.MonkeyPatch, current_conclusion: str, expected_outcome: str
+) -> None:
+    job_name = "Django tests - Temporal (1/1)"
+
+    def fake_fetch_jobs(repo: str, run_id: int, attempt: int) -> tuple[Job, ...]:
+        if attempt == 1:
+            return (make_job(job_name, conclusion="failure"),)
+        return (make_job(job_name, conclusion=current_conclusion),)
+
+    monkeypatch.setattr(ci_flake_overseer, "fetch_jobs", fake_fetch_jobs)
+    monkeypatch.setattr(
+        ci_flake_overseer,
+        "gh_text",
+        lambda repo, path: "FAILED posthog/temporal/tests/test_clickhouse.py::test_acheck_query_found\n",
+    )
+
+    events = report_rerun_outcomes(
+        "PostHog/posthog",
+        make_workflow_run(run_attempt=2),
+        StaticInsights(known_flake()),
+        1,
+        dry_run=True,
+        enabled=False,
+    )
+
+    assert len(events) == 1
+    assert events[0]["event"] == OUTCOME_EVENT
+    props = events[0]["properties"]
+    assert props["outcome"] == expected_outcome
+    assert props["job_name"] == job_name
+    assert props["prior_attempt"] == 1
+    assert props["attempt"] == 2
+    assert props["insight_id"] == "01KNOWNFLAKE"
+
+
+def test_report_rerun_outcomes_ignores_non_eligible_jobs(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_fetch_jobs(repo: str, run_id: int, attempt: int) -> tuple[Job, ...]:
+        return (make_job("Build and deploy", conclusion="failure", failed_step="Compile assets"),)
+
+    monkeypatch.setattr(ci_flake_overseer, "fetch_jobs", fake_fetch_jobs)
+    monkeypatch.setattr(ci_flake_overseer, "gh_text", lambda repo, path: "build failed")
+
+    events = report_rerun_outcomes(
+        "PostHog/posthog",
+        make_workflow_run(run_attempt=2),
+        StaticInsights(known_flake()),
+        1,
+        dry_run=True,
+        enabled=False,
+    )
+
+    assert events == []
 
 
 @pytest.mark.parametrize(

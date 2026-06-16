@@ -35,11 +35,13 @@ env:
 jobs:
     oversee:
         name: Classify failed jobs
-        # Only spin up a runner for runs the overseer can act on; manual dispatch always runs.
+        # Spin up a runner only for actionable runs: failures/timeouts to classify, or any re-run
+        # attempt (run_attempt > 1, including successes) so we can record rerun outcomes. Manual dispatch always runs.
         if: >-
             github.event_name == 'workflow_dispatch' ||
             github.event.workflow_run.conclusion == 'failure' ||
-            github.event.workflow_run.conclusion == 'timed_out'
+            github.event.workflow_run.conclusion == 'timed_out' ||
+            github.event.workflow_run.run_attempt > 1
         runs-on: ubuntu-latest
         timeout-minutes: 10
         env:
