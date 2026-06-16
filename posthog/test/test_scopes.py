@@ -246,6 +246,22 @@ class TestScopesWithinCeiling(SimpleTestCase):
             # Provisioning never grandfathered `*`; an unseeded ceiling must not grant it.
             ("wildcard_rejected_under_empty_ceiling", ["*"], [], False),
             ("unprivileged_allowed_under_empty_ceiling", ["query:read", "insight:write"], [], True),
+            # `@default` sentinel: the unprivileged default plus the other listed scopes.
+            ("default_sentinel_grants_unprivileged", ["query:read", "insight:write"], ["@default"], True),
+            (
+                "default_sentinel_grants_listed_privileged_extra",
+                ["llm_gateway:read", "query:read"],
+                ["@default", "llm_gateway:read"],
+                True,
+            ),
+            (
+                "default_sentinel_rejects_unlisted_privileged",
+                ["llm_gateway:write"],
+                ["@default", "llm_gateway:read"],
+                False,
+            ),
+            ("wildcard_rejected_under_default_sentinel", ["*"], ["@default"], False),
+            ("sentinel_itself_not_grantable", ["@default"], ["@default"], False),
         ]
     )
     def test_resolution(self, _name: str, requested: list[str], app_scopes: list[str], expected: bool) -> None:
@@ -271,6 +287,7 @@ class TestScopesWithinCeiling(SimpleTestCase):
     def test_effective_ceiling(self) -> None:
         assert effective_ceiling([]) == UNPRIVILEGED_SCOPES
         assert effective_ceiling(["query:read", "insight:read"]) == frozenset({"query:read", "insight:read"})
+        assert effective_ceiling(["@default", "llm_gateway:read"]) == UNPRIVILEGED_SCOPES | {"llm_gateway:read"}
 
 
 class TestScopesOutsideCeiling(SimpleTestCase):
@@ -281,6 +298,12 @@ class TestScopesOutsideCeiling(SimpleTestCase):
             ("privileged_rejected_without_ceiling", ["llm_gateway:read"], [], ["llm_gateway:read"]),
             ("wildcard_rejected_under_explicit_ceiling", ["query:read", "*"], ["query:read"], ["*"]),
             ("oidc_never_rejected", ["openid", "insight:write"], ["query:read"], ["insight:write"]),
+            (
+                "default_sentinel_isolates_unlisted_privileged",
+                ["llm_gateway:write", "query:read"],
+                ["@default", "llm_gateway:read"],
+                ["llm_gateway:write"],
+            ),
         ]
     )
     def test_resolution(self, _name: str, requested: list[str], app_scopes: list[str], expected: list[str]) -> None:
@@ -288,7 +311,12 @@ class TestScopesOutsideCeiling(SimpleTestCase):
 
     def test_inverse_of_within_ceiling(self) -> None:
         # The two helpers must never disagree: empty offender list iff within ceiling.
-        cases = [(["query:read", "insight:write"], ["query:read"]), (["query:read"], []), (["*"], [])]
+        cases = [
+            (["query:read", "insight:write"], ["query:read"]),
+            (["query:read"], []),
+            (["*"], []),
+            (["llm_gateway:write", "query:read"], ["@default", "llm_gateway:read"]),
+        ]
         for requested, app_scopes in cases:
             within = scopes_within_ceiling(requested, app_scopes, allow_wildcard_under_empty_ceiling=True)
             outside = scopes_outside_ceiling(requested, app_scopes, allow_wildcard_under_empty_ceiling=True)
@@ -316,6 +344,14 @@ class TestNarrowScopesToCeiling(SimpleTestCase):
                 ["query:read"],
                 ["openid"],
             ),
+            # `@default` ceiling narrows to the unprivileged default plus listed extras,
+            # dropping a hidden scope (`metrics:read`) the default doesn't cover.
+            (
+                "default_sentinel_keeps_unprivileged_and_extras",
+                ["query:read", "llm_gateway:read", "metrics:read"],
+                ["@default", "llm_gateway:read"],
+                ["llm_gateway:read", "query:read"],
+            ),
         ]
     )
     def test_resolution(
@@ -337,6 +373,8 @@ class TestFilterToUnprivilegedScopes(SimpleTestCase):
             ),
             ("empty_in_empty_out", [], []),
             ("all_dropped_yields_empty", ["llm_gateway:read", "garbage"], []),
+            # A self-registering app can't inject the ceiling sentinel to widen itself.
+            ("drops_default_sentinel", ["@default", "insight:read"], ["insight:read"]),
         ]
     )
     def test_resolution(self, _name: str, given: list[str], expected: list[str]) -> None:
