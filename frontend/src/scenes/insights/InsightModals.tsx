@@ -92,8 +92,7 @@ function InsightAlertsModals({ insightLogicProps }: { insightLogicProps: Insight
     const { push } = useActions(router)
 
     const hogqlAlertsEnabled = useFeatureFlag('HOGQL_INSIGHT_ALERTS')
-    const funnelAlertsEnabled = useFeatureFlag('FUNNEL_INSIGHT_ALERTS')
-    const canCreateAlertForInsight = areAlertsSupportedForInsight(query, { hogqlAlertsEnabled, funnelAlertsEnabled })
+    const canCreateAlertForInsight = areAlertsSupportedForInsight(query, { hogqlAlertsEnabled })
 
     return (
         <>
