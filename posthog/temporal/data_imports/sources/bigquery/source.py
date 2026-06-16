@@ -12,6 +12,7 @@ from posthog.schema import (
 )
 
 from posthog.temporal.data_imports.sources.bigquery.bigquery import (
+    BIGQUERY_TOKEN_RESPONSE_ERROR,
     BigQueryImplementation,
     build_destination_table_prefix,
     validate_bigquery_credentials,
@@ -56,6 +57,11 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # type. Delta Lake can't widen an existing column in place, so retrying won't help —
             # the table must be reset and fully re-synced to adopt the new type.
             "Source column type changed": "A column's type changed in your source database (for example an integer column was widened to bigint) and no longer fits the type we stored. We can't widen an existing column in place — please reset and fully re-sync this table to adopt the new type.",
+            # Raised from `BigQueryImplementation.get_columns` when the service-account OAuth
+            # token endpoint returns a non-JSON-object 200 (bad `token_uri`, or an intercepting
+            # proxy). Authentication can't succeed until the key file is fixed, so retrying just
+            # hammers the endpoint and spams error tracking.
+            BIGQUERY_TOKEN_RESPONSE_ERROR: "We couldn't authenticate with BigQuery — Google's OAuth token endpoint returned an unexpected response. Please re-upload your service account key file and verify its token_uri.",
         }
 
     def validate_credentials(

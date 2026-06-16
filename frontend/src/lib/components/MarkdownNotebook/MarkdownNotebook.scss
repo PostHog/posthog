@@ -1737,7 +1737,10 @@ button.MarkdownNotebook__component-title:focus-visible {
 .MarkdownNotebook__real-node-content {
     position: relative;
     display: flex;
-    flex: 1;
+
+    // flex-basis must stay `auto` (not the `0%` from the `flex: 1` shorthand), otherwise it
+    // overrides the inline `height` and the resize drag has no visible effect.
+    flex: 1 1 auto;
     flex-direction: column;
     min-height: 8rem;
     overflow: hidden;
