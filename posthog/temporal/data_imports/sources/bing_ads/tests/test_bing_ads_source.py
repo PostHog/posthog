@@ -259,6 +259,13 @@ class TestBingAdsSource:
                 "Failed to fetch customer ID: OAuthTokenRequestException: invalid_client AADSTS650052: "
                 "The app is trying to access a service that your organization lacks a service principal for.",
             ),
+            # Bing rejects the request as invalid after auth succeeds (e.g. wrong/inaccessible Account ID).
+            # The SDK raises suds.WebFault whose str() embeds a volatile TrackingId — match the stable phrase.
+            (
+                "Invalid client data",
+                "Server raised fault: 'Invalid client data. Check the SOAP fault details for more "
+                "information. TrackingId: 9471598f-2992-4c98-9d96-cbe84a0ddb47.'",
+            ),
             # Integration deleted/disconnected — OAuthMixin.get_oauth_integration raises
             # `ValueError("Integration not found: <id>")`; match only the volatile-id-free prefix.
             ("Integration not found", "Integration not found: 160672"),
@@ -311,6 +318,27 @@ class TestBingAdsSource:
         assert friendly_errors[0] is not None
         assert "AADSTS650052" in friendly_errors[0]
         assert "service principal" in friendly_errors[0]
+
+    def test_invalid_client_data_maps_to_account_guidance(self):
+        # The dominant cause is a wrong/inaccessible Account ID (auth has already succeeded by this point),
+        # so the toast must point at the Account ID rather than telling the user to reconnect OAuth.
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        error_message = (
+            "Server raised fault: 'Invalid client data. Check the SOAP fault details for more "
+            "information. TrackingId: 9471598f-2992-4c98-9d96-cbe84a0ddb47.'"
+        )
+        friendly_errors = [msg for pattern, msg in non_retryable_errors.items() if pattern in error_message]
+
+        assert friendly_errors[0] is not None
+        assert "Account ID" in friendly_errors[0]
+
+    def test_transient_bing_internal_error_fault_stays_retryable(self):
+        # A generic Bing-side fault ("Internal Error") is transient and must keep retrying — it must not
+        # be caught by the "Invalid client data" pattern.
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        transient_message = "Server raised fault: 'Internal Error. TrackingId: abc-123.'"
+
+        assert not any(pattern in transient_message for pattern in non_retryable_errors)
 
     def test_get_resumable_source_manager(self):
         """Test that get_resumable_source_manager returns a manager that round-trips BingAdsResumeConfig."""

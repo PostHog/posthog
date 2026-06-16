@@ -69,6 +69,19 @@ class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], O
             "AuthenticationFailed": auth_friendly,
             "InvalidCredentials": auth_friendly,
             "OAuthTokenExpired": auth_friendly,
+            # Bing rejects the SOAP request as invalid *after* auth succeeds — the configured Account ID
+            # is wrong or the connected Microsoft Advertising user can't access it. The SDK raises this as
+            # `suds.WebFault("Server raised fault: 'Invalid client data. Check the SOAP fault details for
+            # more information. TrackingId: <uuid>.'")`. The fault is deterministic (the same bad request
+            # always reproduces it), so retrying can't recover — the customer has to fix the Account ID or
+            # grant the connected account access. Match the stable phrase only; the TrackingId is volatile.
+            # This does not catch transient Bing faults like "Server raised fault: 'Internal Error'".
+            "Invalid client data": (
+                "Bing Ads rejected the request as invalid. This usually means the configured Account ID is "
+                "incorrect, or the connected Bing Ads account does not have access to it. Please check the "
+                "Account ID in your source settings and that the connected account can access it, then "
+                "reconfigure your Bing Ads source."
+            ),
             # Integration row was deleted/disconnected while a scheduled job still references it.
             # Raised by OAuthMixin.get_oauth_integration as `ValueError("Integration not found: <id>")`;
             # the id is volatile, so match only the stable prefix. Retrying can't recreate the row —
