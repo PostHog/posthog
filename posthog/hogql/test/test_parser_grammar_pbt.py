@@ -46,8 +46,12 @@ from hypothesis import (
 
 from posthog.hogql import ast
 from posthog.hogql.errors import BaseHogQLError
-from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.test._generated_grammar_strategies import expr_strategy, select_strategy
+from posthog.hogql.parser import parse_expr, parse_select, parse_string_template
+from posthog.hogql.test._generated_grammar_strategies import (
+    expr_strategy,
+    fullTemplateString_strategy as full_template_string_strategy,
+    select_strategy,
+)
 from posthog.hogql.test._grammar_token_strategies import _RESERVED_KEYWORDS
 from posthog.hogql.visitor import clear_locations
 
@@ -523,9 +527,22 @@ def _try_parse(query: str, rule: str, backend: str) -> tuple[bool, ast.AST | Non
     the failure. The whole point of the differential PBT is to surface
     asymmetric crashes; swallowing them here would defeat that.
     """
-    parser_fn = parse_expr if rule == "expr" else parse_select
     try:
-        node = parser_fn(query, backend=backend)  # type: ignore[arg-type]
+        if rule == "expr":
+            node: ast.AST = parse_expr(query, backend=backend)  # type: ignore[arg-type]
+        elif rule == "select":
+            node = parse_select(query, backend=backend)  # type: ignore[arg-type]
+        elif rule == "full_template_string":
+            # The strategy emits "F'<contents>" (the wrapped F-string grammar form), but
+            # `parse_string_template` takes the inside and re-adds the F-quote itself, so
+            # strip the leading "F'" here. Asserted (rather than `removeprefix`) so a future
+            # strategy or jiggle regression that drops the leading "F'" fails loudly instead
+            # of silently producing "F'F'…" inputs that both backends accept (the second F'
+            # becomes FULL_STRING_TEXT content) and that the parity assertion treats as fine.
+            assert query.startswith("F'"), f"fullTemplateString strategy emitted unexpected prefix: {query!r}"
+            node = parse_string_template(query[2:], backend=backend)  # type: ignore[arg-type]
+        else:
+            raise ValueError(f"unknown rule: {rule!r}")
         return True, clear_locations(node)
     except BaseHogQLError:
         return False, None
@@ -621,3 +638,26 @@ class TestSelectGrammarPBT:
     @_PBT_SETTINGS
     def test_select_backends_agree_with_jiggle(self, query: str) -> None:
         _assert_backends_agree(query, rule="select")
+
+
+@pytest.mark.timeout(_PBT_TIMEOUT_SECONDS)
+class TestFullTemplateStringGrammarPBT:
+    """``parse_string_template`` differential parity over the full
+    ``fullTemplateString`` grammar surface — auto-generated from .g4.
+
+    Covers the standalone ``parseFullTemplateString`` parser entry point
+    (the ``F'…`` form used by the public ``parse_string_template`` API),
+    which isn't reachable from the ``expr``/``select`` grammar rules.
+    The grammar rule is ``QUOTE_SINGLE_TEMPLATE_FULL stringContentsFull* EOF``
+    — no closing quote; the body lexes through to end-of-input.
+    """
+
+    @given(query=full_template_string_strategy())
+    @_PBT_SETTINGS
+    def test_full_template_string_backends_agree(self, query: str) -> None:
+        _assert_backends_agree(query, rule="full_template_string")
+
+    @given(query=full_template_string_strategy().flatmap(_apply_jiggle))
+    @_PBT_SETTINGS
+    def test_full_template_string_backends_agree_with_jiggle(self, query: str) -> None:
+        _assert_backends_agree(query, rule="full_template_string")

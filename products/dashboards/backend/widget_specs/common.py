@@ -6,7 +6,11 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from posthog.schema import PropertyOperator
 
-from products.dashboards.backend.constants import MAX_WIDGET_RESULT_LIMIT, WIDGET_DATE_FROM_VALUES_ORDERED
+from products.dashboards.backend.constants import (
+    ACTIVITY_EVENTS_MAX_LIMIT,
+    MAX_WIDGET_RESULT_LIMIT,
+    WIDGET_DATE_FROM_VALUES_ORDERED,
+)
 
 WIDGET_DATE_FROM_VALUES = frozenset(WIDGET_DATE_FROM_VALUES_ORDERED)
 
@@ -86,3 +90,4 @@ class WidgetListConfigBase(BaseModel):
 
 
 WidgetLimit = Annotated[int, Field(ge=1, le=MAX_WIDGET_RESULT_LIMIT)]
+ActivityWidgetLimit = Annotated[int, Field(ge=1, le=ACTIVITY_EVENTS_MAX_LIMIT)]
