@@ -22192,6 +22192,17 @@ class TraceSpansQuery(BaseModel):
         description=("Omit the per-span `attributes` map from results to keep payloads compact"),
     )
     filterGroup: PropertyGroupFilter | None = None
+    flatSpans: bool | None = Field(
+        default=None,
+        description=(
+            "Return the matching spans themselves, one row per span (root and child),"
+            " instead of the whole-trace grouping. Streams the matches under `ORDER BY"
+            " … LIMIT` rather than grouping every matching span by trace, so a filter"
+            " on a hot child attribute (e.g. `code.filepath`) stays bounded. Distinct"
+            " from `rootSpans`, which scopes whole-trace selection. The single-trace"
+            " waterfall never sets this."
+        ),
+    )
     kind: Literal["TraceSpansQuery"] = "TraceSpansQuery"
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")

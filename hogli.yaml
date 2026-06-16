@@ -748,6 +748,9 @@ tests:
     test:e2e:
         bin_script: e2e-test-runner
         description: Set up test databases and run Playwright E2E tests
+    test:quarantine:
+        click: hogli_commands.quarantine.cli:quarantine
+        description: Manage .test_quarantine.json — quarantine flaky tests so they stop blocking CI
 quality:
     lint:
         cmd: ./bin/ruff.sh check . && pnpm --filter=@posthog/frontend run lint

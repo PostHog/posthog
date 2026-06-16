@@ -17,6 +17,30 @@ class TestLinkedInAdsSource:
         self.team_id = 123
         self.config = LinkedinAdsSourceConfig(linkedin_ads_integration_id=456, account_id="789")
 
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            'LinkedIn API error (404): {"status":404,"code":"RESOURCE_NOT_FOUND","message":"No virtual resource found"}',
+            "REVOKED_ACCESS_TOKEN",
+            "The token used in the request has expired",
+        ],
+    )
+    def test_non_retryable_errors_match_upstream_failures(self, observed_error):
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable_errors)
+
+    @pytest.mark.parametrize(
+        "other_error",
+        [
+            'LinkedIn API error (retryable, 500): {"message":"Internal Server Error"}',
+            'LinkedIn API error (retryable, 429): {"message":"Too many requests"}',
+            "Connection reset by peer",
+        ],
+    )
+    def test_non_retryable_errors_does_not_match_transient(self, other_error):
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert not any(key in other_error for key in non_retryable_errors)
+
     def test_validate_credentials_missing_account_id(self):
         """Test credential validation with missing account ID."""
         invalid_config = LinkedinAdsSourceConfig(linkedin_ads_integration_id=456, account_id="")
@@ -88,41 +112,6 @@ class TestLinkedInAdsSource:
     def test_non_retryable_errors_does_not_match_unrelated(self, other_error):
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable_errors)
-
-    @pytest.mark.parametrize(
-        "pattern,raised_message",
-        [
-            (
-                "No virtual resource found",
-                'LinkedIn API error (404): {"status":404,"code":"RESOURCE_NOT_FOUND","message":"No virtual resource found"}',
-            ),
-            (
-                "The token used in the request has expired",
-                "LinkedIn API error (401): The token used in the request has expired",
-            ),
-        ],
-    )
-    def test_get_non_retryable_errors_pattern_recognised(self, pattern, raised_message):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-
-        assert pattern in non_retryable_errors
-        assert pattern in raised_message
-
-    @pytest.mark.parametrize(
-        "transient_message",
-        [
-            # Transient transport / 5xx failures must stay retryable — matching any of these would
-            # disable the schema sync after a handful of recoverable blips.
-            "LinkedIn API error (retryable, 500): Internal Server Error",
-            "LinkedIn API error (retryable, 504): Gateway Timeout",
-            "ConnectionError: HTTPSConnectionPool(host='api.linkedin.com', port=443): Max retries exceeded",
-            "ReadTimeout: The read operation timed out",
-        ],
-    )
-    def test_get_non_retryable_errors_does_not_match_transient_failures(self, transient_message):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-
-        assert not any(pattern in transient_message for pattern in non_retryable_errors)
 
     @pytest.mark.parametrize(
         "invalid_account_id",

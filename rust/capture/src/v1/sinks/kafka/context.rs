@@ -9,6 +9,36 @@ use crate::v1::sinks::SinkName;
 
 const BROKER_STATE_UP: &str = "UP";
 
+/// Emit min/avg/max/stddev + p50/p90/p95/p99 gauges for an rdkafka window
+/// stat, tagged by `quantile` and `broker`.
+fn emit_window_stats(
+    metric: &'static str,
+    w: &rdkafka::statistics::Window,
+    sink: &'static str,
+    mode: &'static str,
+    broker: &Arc<str>,
+) {
+    for (quantile, value) in [
+        ("min", w.min),
+        ("avg", w.avg),
+        ("max", w.max),
+        ("stddev", w.stddev),
+        ("p50", w.p50),
+        ("p90", w.p90),
+        ("p95", w.p95),
+        ("p99", w.p99),
+    ] {
+        gauge!(
+            metric,
+            "cluster" => sink,
+            "mode" => mode,
+            "quantile" => quantile,
+            "broker" => Arc::clone(broker),
+        )
+        .set(value as f64);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // KafkaContext
 // ---------------------------------------------------------------------------
@@ -101,15 +131,29 @@ impl rdkafka::ClientContext for KafkaContext {
             } else {
                 0.0
             });
+            // Broker round-trip latency.
             if let Some(rtt) = &bs.rtt {
-                gauge!("capture_v1_kafka_broker_rtt_us",
-                    "cluster" => sink, "mode" => mode,
-                    "quantile" => "p50", "broker" => Arc::clone(&id))
-                .set(rtt.p50 as f64);
-                gauge!("capture_v1_kafka_broker_rtt_us",
-                    "cluster" => sink, "mode" => mode,
-                    "quantile" => "p99", "broker" => Arc::clone(&id))
-                .set(rtt.p99 as f64);
+                emit_window_stats("capture_v1_kafka_broker_rtt_us", rtt, sink, mode, &id);
+            }
+            // Internal queue time (linger + backlog).
+            if let Some(int_latency) = &bs.int_latency {
+                emit_window_stats(
+                    "capture_v1_kafka_broker_int_latency_us",
+                    int_latency,
+                    sink,
+                    mode,
+                    &id,
+                );
+            }
+            // Output buffer time before wire send.
+            if let Some(outbuf_latency) = &bs.outbuf_latency {
+                emit_window_stats(
+                    "capture_v1_kafka_broker_outbuf_latency_us",
+                    outbuf_latency,
+                    sink,
+                    mode,
+                    &id,
+                );
             }
             counter!("capture_v1_kafka_broker_tx_errors_total",
                 "cluster" => sink, "mode" => mode, "broker" => Arc::clone(&id))

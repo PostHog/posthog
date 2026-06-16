@@ -390,6 +390,12 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Whether this flag is a remote configuration flag that delivers a payload rather than gating a feature.'
         ),
+    ensure_experience_continuity: zod
+        .boolean()
+        .nullish()
+        .describe(
+            "Whether to persist a user's flag value across the anonymous-to-identified transition (the 'persist across authentication steps' option). Incompatible with device_id bucketing."
+        ),
 })
 
 /**
@@ -719,6 +725,12 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe(
             'Whether this flag is a remote configuration flag that delivers a payload rather than gating a feature.'
+        ),
+    ensure_experience_continuity: zod
+        .boolean()
+        .nullish()
+        .describe(
+            "Whether to persist a user's flag value across the anonymous-to-identified transition (the 'persist across authentication steps' option). Incompatible with device_id bucketing."
         ),
 })
 
