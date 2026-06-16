@@ -2331,7 +2331,14 @@ def postgres_source(
 
             offset = 0
             try:
-                with get_connection() as connection:
+                # Retry transient connection-dropped errors (e.g. "server closed the
+                # connection unexpectedly") on the initial connect, matching the
+                # offset-chunking bootstrap above. Retrying here is always safe: offset
+                # is still 0 and no rows have been yielded, so the unsafe-resume concern
+                # in the except clause below doesn't apply. Permanent errors (auth,
+                # SSL-required) still surface immediately — _is_connection_dropped_error
+                # only matches transient drops.
+                with _connect_with_dropped_retry(get_connection, logger) as connection:
                     with connection.cursor(name=f"posthog_{team_id}_{schema}.{table_name}") as cursor:
                         query = _build_query(
                             schema,
