@@ -47,6 +47,8 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     PostgreSQLColumn,
     RangeAsStringLoader,
     SafeDateLoader,
+    SafeTimestampLoader,
+    SafeTimestamptzLoader,
     _build_count_query,
     _build_query,
     _connect_with_dropped_retry,
@@ -106,6 +108,58 @@ class TestSafeDateLoader:
     )
     def test_load_dates(self, loader, input_data, expected):
         assert loader.load(input_data) == expected
+
+
+class TestSafeTimestampLoader:
+    @pytest.fixture
+    def loader(self):
+        return SafeTimestampLoader(oid=1114)
+
+    @pytest.mark.parametrize(
+        "input_data,expected",
+        [
+            (b"2024-01-15 10:30:00", datetime(2024, 1, 15, 10, 30, 0)),
+            (b"2024-01-15 10:30:00.123456", datetime(2024, 1, 15, 10, 30, 0, 123456)),
+            (b"0001-01-01 00:00:00", datetime(1, 1, 1, 0, 0, 0)),
+            (b"9999-12-31 23:59:59", datetime(9999, 12, 31, 23, 59, 59)),
+            (b"200082-12-31 18:30:00", datetime.max),
+            (b"20424-11-14 10:30:00", datetime.max),
+            (b"10000-01-01 00:00:00", datetime.max),
+            (b"infinity", datetime.max),
+            (b"-infinity", datetime.min),
+            (b"0044-03-15 00:00:00 BC", datetime.min),
+            (None, None),
+        ],
+    )
+    def test_load_timestamps(self, loader, input_data, expected):
+        assert loader.load(input_data) == expected
+
+    def test_clamped_values_are_naive(self, loader):
+        assert loader.load(b"200082-12-31 18:30:00").tzinfo is None
+
+
+class TestSafeTimestamptzLoader:
+    @pytest.fixture
+    def loader(self):
+        return SafeTimestamptzLoader(oid=1184)
+
+    @pytest.mark.parametrize(
+        "input_data,expected",
+        [
+            (b"2024-01-15 10:30:00+00", datetime(2024, 1, 15, 10, 30, 0, tzinfo=UTC)),
+            (b"200082-12-31 18:30:00+00", datetime.max.replace(tzinfo=UTC)),
+            (b"infinity", datetime.max.replace(tzinfo=UTC)),
+            (b"-infinity", datetime.min.replace(tzinfo=UTC)),
+            (None, None),
+        ],
+    )
+    def test_load_timestamptz(self, loader, input_data, expected):
+        assert loader.load(input_data) == expected
+
+    def test_clamped_values_are_utc_aware(self, loader):
+        # timestamptz columns map to a UTC-aware Arrow type, so clamps must stay aware
+        # to avoid mixing naive and aware datetimes in the same column.
+        assert loader.load(b"200082-12-31 18:30:00+00").tzinfo is UTC
 
 
 class TestPostgresImplementationWiring:
