@@ -12,13 +12,7 @@ from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixi
 
 
 class TestMCPAnalyticsPresentation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
-    def setUp(self) -> None:
-        super().setUp()
-        # Alpha product gated by the mcp-analytics feature flag; enable it for the happy-path tests.
-        patcher = patch("posthoganalytics.feature_enabled", return_value=True)
-        patcher.start()
-        self.addCleanup(patcher.stop)
-
+    # The mcp-analytics feature flag is enabled for the whole test by the mixin's setUp.
     @parameterized.expand(
         [
             ("feedback_create", "post", "feedback/", {"goal": "understand usage", "feedback": "Need clearer results"}),
@@ -283,12 +277,7 @@ class TestMCPAnalyticsPresentation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
 
 
 class TestMCPSessionIntentEndpoint(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
-    def setUp(self) -> None:
-        super().setUp()
-        patcher = patch("posthoganalytics.feature_enabled", return_value=True)
-        patcher.start()
-        self.addCleanup(patcher.stop)
-
+    # The mcp-analytics feature flag is enabled for the whole test by the mixin's setUp.
     def _url(self, session_id: str) -> str:
         return f"/api/environments/{self.team.id}/mcp_analytics/sessions/{session_id}/generate_intent/"
 
@@ -353,10 +342,7 @@ class TestMCPAnalyticsCrossTeamIsolation(_MCPAnalyticsTeamScopedTestMixin, APIBa
 
     def setUp(self) -> None:
         super().setUp()
-        patcher = patch("posthoganalytics.feature_enabled", return_value=True)
-        patcher.start()
-        self.addCleanup(patcher.stop)
-
+        # The mcp-analytics feature flag is enabled for the whole test by the mixin's setUp.
         # A team in a different organization that self.user is NOT a member of.
         self.other_org = Organization.objects.create(name="other-org")
         self.other_team = Team.objects.create(organization=self.other_org, name="other-team")
@@ -428,3 +414,59 @@ class TestMCPAnalyticsCrossTeamIsolation(_MCPAnalyticsTeamScopedTestMixin, APIBa
         # The other team's submission count is untouched by writes to this team.
         assert MCPAnalyticsSubmission.objects.filter(team=self.other_team).count() == 2
         assert MCPAnalyticsSubmission.objects.filter(team=self.team).count() == 1
+
+
+class TestMCPAnalyticsPersonalAPIKeyAccess(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
+    """The submission endpoints are now reachable by programmatic callers (Personal API
+    Keys / OAuth) via the mcp_analytics scope — the previous INTERNAL lock blocked that
+    entirely. Pin the scope mapping: the right scope works, the wrong/missing scope 403s.
+    The default test client uses force_login and skips the scope check, so this must drive
+    a real PAK to exercise the production auth path.
+    """
+
+    def _auth_with_pak(self, scopes: list[str]) -> None:
+        key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {key}")
+
+    def test_read_scope_can_list_submissions(self) -> None:
+        self._auth_with_pak(["mcp_analytics:read"])
+        response = self.client.get(f"/api/environments/{self.team.id}/mcp_analytics/feedback/")
+        assert response.status_code == status.HTTP_200_OK, response.content
+
+    def test_write_scope_can_create_submission(self) -> None:
+        self._auth_with_pak(["mcp_analytics:write"])
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_analytics/feedback/",
+            {"goal": "understand usage", "feedback": "Need clearer results"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+
+    def test_read_scope_cannot_create_submission(self) -> None:
+        self._auth_with_pak(["mcp_analytics:read"])
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_analytics/feedback/",
+            {"goal": "understand usage", "feedback": "Need clearer results"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+
+    @parameterized.expand(
+        [
+            ("list", "get", "feedback/", None),
+            (
+                "create",
+                "post",
+                "feedback/",
+                {"goal": "understand usage", "feedback": "Need clearer results"},
+            ),
+        ]
+    )
+    def test_missing_scope_is_forbidden(
+        self, _name: str, method: str, path: str, payload: dict[str, str] | None
+    ) -> None:
+        self._auth_with_pak(["insight:read"])
+        request = getattr(self.client, method)
+        response = request(f"/api/environments/{self.team.id}/mcp_analytics/{path}", payload, format="json")
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content

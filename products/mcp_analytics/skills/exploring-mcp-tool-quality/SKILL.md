@@ -11,18 +11,22 @@ description: >
 
 # Exploring MCP tool quality
 
-PostHog's own MCP server emits a `mcp_tool_call` event on the shared `events`
-table every time an agent invokes a tool. There is **no dedicated ClickHouse
-table** — every field lives as a `$mcp_*` property on `events`, and every
-tool-quality metric (error rate, latency percentiles, reach) is an aggregation
-over this one event. This is the data behind the MCP analytics dashboard and
-tool-quality screens.
+Any MCP server instrumented with PostHog's MCP analytics SDK emits a
+`mcp_tool_call` event on the shared `events` table every time an agent invokes a
+tool. There is **no dedicated ClickHouse table** — every field lives as a
+`$mcp_*` property on `events`, and every tool-quality metric (error rate, latency
+percentiles, reach) is an aggregation over this one event. This is the data
+behind the MCP analytics dashboard and tool-quality screens.
 
 **HogQL via `posthog:execute-sql` is the primary path.** There are no typed
 tools for tool quality — it is all SQL. The full property schema and the
 canonical query recipes live in the shared MCP data reference:
 [`products/posthog_ai/skills/querying-posthog-data/references/models-mcp.md`](../../../posthog_ai/skills/querying-posthog-data/references/models-mcp.md).
-Read it before writing queries.
+That reference is the single source of truth for the `$mcp_*` schema and the
+effective-tool-name idiom used below — this skill inlines only the headline
+"highest-error tool" query for convenience; pull the matrix, latency, and
+harness recipes from the reference rather than re-deriving them. Read it before
+writing queries.
 
 ## The two rules that matter most
 
