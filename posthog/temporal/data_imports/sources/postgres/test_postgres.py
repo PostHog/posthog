@@ -230,6 +230,22 @@ class TestPostgresSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # Supabase Supavisor pooler wording when the tenant/user is gone (project paused/deleted
+            # or pooler username changed). The id between "tenant/user" and "not found" is volatile.
+            'connection failed: connection to server at "13.238.183.126", port 5432 failed: FATAL:  (ENOTFOUND) tenant/user readonly_user.yvpaylojqoditoupicws not found',
+            'connection failed: connection to server at "44.216.29.125", port 6543 failed: FATAL:  (ENOTFOUND) tenant/user postgres.xysbwpayipjbkimdauqr not found',
+            # The real production message repeats the line (newlines are normalized to spaces upstream).
+            'connection failed: connection to server at "13.200.110.68", port 6543 failed: FATAL:  (ENOTFOUND) tenant/user postgres.yszohtdqidnoqckysyff not found connection to server at "13.200.110.68", port 6543 failed: FATAL:  (ENOTFOUND) tenant/user postgres.yszohtdqidnoqckysyff not found',
+        ],
+    )
+    def test_missing_pooler_tenant_or_user_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Missing pooler tenant/user error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             "Cannot build decimal array from values",
             "ValueError: Cannot build decimal array from values",
         ],
@@ -1119,6 +1135,70 @@ class TestPostgresSourceGetSchemasDegradesGracefully:
         assert schemas[0].supports_cdc is False
         mock_capture.assert_not_called()
 
+    def test_primary_key_discovery_failure_degrades_without_capturing_exception(self, source):
+        # Some Postgres-wire-compatible engines reject our pg_catalog PK query (e.g. a
+        # DuckDB/DuckLake backend can't bind `ANY(indkey)` and raises the binder error
+        # below). PK discovery is best-effort and already falls back to no-CDC, so the
+        # failure must be logged, not flooded into error tracking as a captured exception.
+        discovered = {
+            "public.users": PostgresDiscoveredSchema(
+                source_catalog=None,
+                source_schema="public",
+                source_table_name="users",
+                columns=[("id", "integer", False)],
+            )
+        }
+
+        tunnel_cm = mock.MagicMock()
+        tunnel_cm.__enter__.return_value = ("localhost", 5432)
+        tunnel_cm.__exit__.return_value = None
+
+        conn_cm = mock.MagicMock()
+        conn_cm.__enter__.return_value = mock.MagicMock()
+        conn_cm.__exit__.return_value = None
+
+        unnest_error = psycopg.errors.InternalError_(
+            "flight execute: rpc error: code = InvalidArgument desc = failed to prepare query: "
+            "Binder Error: UNNEST not supported here"
+        )
+
+        with (
+            mock.patch.object(source, "with_ssh_tunnel", return_value=tunnel_cm),
+            mock.patch(
+                "posthog.temporal.data_imports.sources.postgres.source.get_postgres_schemas",
+                return_value=discovered,
+            ),
+            mock.patch(
+                "posthog.temporal.data_imports.sources.postgres.source.get_postgres_foreign_keys",
+                return_value={},
+            ),
+            mock.patch(
+                "posthog.temporal.data_imports.sources.postgres.source.pg_connection",
+                return_value=conn_cm,
+            ),
+            mock.patch(
+                "posthog.temporal.data_imports.sources.postgres.source.get_primary_key_columns",
+                side_effect=unnest_error,
+            ),
+            mock.patch(
+                "posthog.temporal.data_imports.sources.postgres.source.get_leading_index_columns",
+                return_value={"users": set()},
+            ),
+            mock.patch(
+                "posthog.temporal.data_imports.sources.postgres.source._rls_active_from_conn",
+                return_value={},
+            ),
+            mock.patch("posthog.temporal.data_imports.sources.postgres.source.capture_exception") as mock_capture,
+        ):
+            schemas = source.get_schemas(self._config(), team_id=1)
+
+        assert len(schemas) == 1
+        assert schemas[0].name == "public.users"
+        # PK discovery failed, so CDC must not be advertised — but the listing still succeeds.
+        assert schemas[0].supports_cdc is False
+        # The handled, best-effort failure must not be captured as an exception.
+        mock_capture.assert_not_called()
+
 
 class TestGetSslmode:
     @pytest.mark.parametrize(
@@ -1975,6 +2055,31 @@ class TestGetPartitionSettings:
 
         assert result is None
         capture_mock.assert_called_once()
+
+    @pytest.mark.parametrize(
+        "exc",
+        [
+            # Direct read-replica recovery conflict on the sizing query.
+            psycopg.errors.SerializationFailure("canceling statement due to conflict with recovery"),
+            # Downstream symptom: an earlier best-effort query in this transaction hit the transient
+            # condition above and left it in INERROR, so the sizing query fails with this instead.
+            psycopg.errors.InFailedSqlTransaction(
+                "current transaction is aborted, commands ignored until end of transaction block"
+            ),
+        ],
+    )
+    def test_handled_transient_errors_return_none_without_capturing(self, exc):
+        # Both are handled, transient conditions that resurface (and are classified) via the real
+        # extraction query, so partition sizing must degrade to None without flooding error tracking.
+        logger = structlog.get_logger()
+        cursor = mock.MagicMock()
+        cursor.execute.side_effect = exc
+
+        with patch("posthog.temporal.data_imports.sources.postgres.postgres.capture_exception") as capture_mock:
+            result = _get_partition_settings(cast(Any, cursor), "public", "t", logger, is_partitioned=False)
+
+        assert result is None
+        capture_mock.assert_not_called()
 
 
 class TestIsRecoveryConflictError:

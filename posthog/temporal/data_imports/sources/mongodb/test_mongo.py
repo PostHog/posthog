@@ -366,6 +366,18 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
                 "27017: connection closed (configured timeouts: socketTimeoutMS: 20000.0ms, "
                 "connectTimeoutMS: 20000.0ms)')>]>",
             ),
+            # Atlas SQL / Data Federation endpoint (*.query.mongodb.net) — unusable by the standard
+            # driver, so the topology stays Unknown and selection times out. Despite the "connection
+            # closed" text, the host suffix marks it as a wrong-endpoint config error, not a blip.
+            (
+                "atlas_sql_endpoint",
+                "atlas-sql-681905984ce3f87167df11fa-wf3cgp.a.query.mongodb.net:27017: connection closed "
+                "(configured timeouts: socketTimeoutMS: 20000.0ms, connectTimeoutMS: 20000.0ms), Timeout: "
+                "10.0s, Topology Description: <TopologyDescription id: 6a304febea674ebc4c8c051e, "
+                "topology_type: Unknown, servers: [<ServerDescription "
+                "('atlas-sql-681905984ce3f87167df11fa-wf3cgp.a.query.mongodb.net', 27017) "
+                "server_type: Unknown, rtt: None, error=AutoReconnect('...connection closed...')>]>",
+            ),
         ]
     )
     def test_known_errors_are_non_retryable(self, _name, error_msg):
@@ -398,6 +410,7 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
             ("message", "Authentication failed", "password"),
             ("atlas_bad_auth", "bad auth", "password"),
             ("unreachable_topology", "Topology Description:", "allowlist"),
+            ("atlas_sql_endpoint", "query.mongodb.net", "connection string"),
         ]
     )
     def test_pattern_has_friendly_message(self, _name, pattern, expected_substring):

@@ -104,6 +104,7 @@ the row lists both.
 | gocardless        | HTTP                        | requests                                                        | ✅                          |
 | gong              | HTTP                        | requests                                                        | ✅                          |
 | google_ads        | gRPC                        | google-ads (googleads.client)                                   | ✅                          |
+| google_analytics  | HTTP                        | requests (`AuthorizedSession` + `TrackedHTTPAdapter`)           | ✅                          |
 | google_sheets     | HTTP (vendor SDK)           | gspread                                                         | ✅                          |
 | granola           | HTTP                        | requests                                                        | ✅                          |
 | gorgias           | HTTP                        | requests                                                        | ✅                          |
@@ -267,7 +268,6 @@ doesn't conflict with concurrent PRs.
 - firebase
 - freshbooks
 - google_ad_manager
-- google_analytics
 - google_cloud_storage
 - google_drive
 - gusto

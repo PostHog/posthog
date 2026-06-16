@@ -1496,11 +1496,19 @@ def _get_partition_settings(
     except psycopg.errors.QueryCanceled:
         raise
     except Exception as e:
-        # A read replica can cancel this best-effort sizing query with a recovery conflict; it's
-        # transient (the row-streaming reader retries it in-process) and expected on replicas, so
-        # degrade quietly instead of flooding error tracking with a handled condition. Genuinely
-        # unexpected failures are still captured.
-        if not _is_recovery_conflict_error(e):
+        # Partition sizing is best-effort: on failure we return None and the sync proceeds
+        # unpartitioned. Two handled conditions must not flood error tracking:
+        #   - A read replica can cancel this sizing query with a recovery conflict
+        #     (`SerializationFailure` "conflict with recovery"); it's transient and expected on
+        #     replicas, and the row-streaming reader retries it in-process.
+        #   - An earlier best-effort query in this same transaction (chunk sizing, row count,
+        #     partition detection) can hit that transient condition and leave the transaction in
+        #     `INERROR`, so this query then fails with `InFailedSqlTransaction` purely as a
+        #     downstream symptom.
+        # Both resurface (and are classified through the normal retryable/non-retryable path) via
+        # the real extraction query, so degrade quietly. Genuinely unexpected failures are still
+        # captured.
+        if not _is_recovery_conflict_error(e) and not isinstance(e, psycopg.errors.InFailedSqlTransaction):
             capture_exception(e)
         logger.debug(f"_get_partition_settings: returning None due to error: {e}")
         return None
