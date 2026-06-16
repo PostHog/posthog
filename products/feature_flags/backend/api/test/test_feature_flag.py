@@ -2059,12 +2059,17 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         self.client.logout()
 
+        client = redis.get_client()
+        client.delete(f"posthog:remote_config_requests:{self.team.pk}")
+
         response = self.client.get(
             f"/api/projects/{self.team.id}/feature_flags/my-remote-config-flag/remote_config",
             headers={"authorization": f"Bearer {personal_api_key}"},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), '{"test": true}')
+        # Personal-key requests are the app's preview feature, not SDK usage, so they aren't counted.
+        self.assertEqual(client.hgetall(f"posthog:remote_config_requests:{self.team.pk}"), {})
 
     def test_remote_config_with_project_secret_api_key(self):
         self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
@@ -2091,6 +2096,89 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), '{"test": true}')
+
+    @parameterized.expand([("plaintext_payloads", False), ("encrypted_payloads", True)])
+    def test_remote_config_increments_remote_config_bucket_by_one_per_request(
+        self, _name: str, has_encrypted_payloads: bool
+    ):
+        self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="my-remote-config-flag",
+            name="Remote Config Flag",
+            active=True,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "payloads": {"true": '{"test": true}'},
+            },
+            is_remote_configuration=True,
+            has_encrypted_payloads=has_encrypted_payloads,
+        )
+        self.client.logout()
+
+        client = redis.get_client()
+        client.delete(f"posthog:remote_config_requests:{self.team.pk}")
+        client.delete(f"posthog:decide_requests:{self.team.pk}")
+
+        with freeze_time("2022-05-07 12:23:07"):
+            for _ in range(3):
+                response = self.client.get(
+                    f"/api/projects/{self.team.id}/feature_flags/my-remote-config-flag/remote_config",
+                    headers={"authorization": f"Bearer {self.team.secret_api_token}"},
+                )
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Remote config usage is telemetry-only: it accumulates in its own bucket and must
+        # never reach the decide bucket that billing consumes.
+        buckets = client.hgetall(f"posthog:remote_config_requests:{self.team.pk}")
+        self.assertEqual(sum(int(count) for count in buckets.values()), 3)
+        self.assertEqual(client.hgetall(f"posthog:decide_requests:{self.team.pk}"), {})
+
+    def test_remote_config_does_not_count_when_flag_is_not_remote_config(self):
+        self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="not-a-remote-config-flag",
+            name="Regular Flag",
+            active=True,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+            is_remote_configuration=False,
+        )
+        self.client.logout()
+
+        client = redis.get_client()
+        client.delete(f"posthog:remote_config_requests:{self.team.pk}")
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/not-a-remote-config-flag/remote_config",
+            headers={"authorization": f"Bearer {self.team.secret_api_token}"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(client.hgetall(f"posthog:remote_config_requests:{self.team.pk}"), {})
+
+    def test_remote_config_does_not_count_session_authenticated_requests(self):
+        # Only team-secret-token fetches are counted. A session-authenticated GET must not increment
+        # usage, otherwise a logged-in member could be driven to the URL cross-site to inflate the
+        # team's usage telemetry.
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="my-remote-config-flag",
+            name="Remote Config Flag",
+            active=True,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "payloads": {"true": '{"test": true}'},
+            },
+            is_remote_configuration=True,
+        )
+
+        client = redis.get_client()
+        client.delete(f"posthog:remote_config_requests:{self.team.pk}")
+
+        # self.client is still logged in as self.user (session auth), no secret key supplied.
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/my-remote-config-flag/remote_config")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(client.hgetall(f"posthog:remote_config_requests:{self.team.pk}"), {})
 
     def test_remote_config_with_secret_api_key_prevents_cross_team_access(self):
         # Create two teams with different secret keys
