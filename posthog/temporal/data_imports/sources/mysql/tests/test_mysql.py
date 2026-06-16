@@ -804,6 +804,23 @@ class TestMySQLSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            "is blocked because of many connection errors",
+            # MariaDB phrasing (suggests mariadb-admin) — what we actually observed in the wild.
+            "OperationalError: (1129, \"Host '172.31.4.130' is blocked because of many connection "
+            "errors; unblock with 'mariadb-admin flush-hosts'\")",
+            # MySQL phrasing (suggests mysqladmin) — same root cause, different unblock hint.
+            "OperationalError: (1129, \"Host '10.0.1.5' is blocked because of many connection "
+            "errors; unblock with 'mysqladmin flush-hosts'\")",
+        ],
+    )
+    def test_host_blocked_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Host-blocked error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             # A genuine transient connection drop (no SSL signature) must stay retryable.
             "OperationalError: (2013, 'Lost connection to MySQL server during query')",
             "Lost connection to MySQL server during query",
