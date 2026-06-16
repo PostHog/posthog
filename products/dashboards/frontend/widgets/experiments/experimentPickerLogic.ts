@@ -9,7 +9,7 @@ import type { ExperimentApi } from 'products/experiments/frontend/generated/api.
 import type { experimentPickerLogicType } from './experimentPickerLogicType'
 
 /** One page is plenty — search narrows the rest server-side, so we never paginate the dropdown. */
-const EXPERIMENT_OPTIONS_LIMIT = 100
+const EXPERIMENT_OPTIONS_LIMIT = 50
 const SEARCH_DEBOUNCE_MS = 300
 
 export type ExperimentPickerLogicProps = { pickerKey: string }
