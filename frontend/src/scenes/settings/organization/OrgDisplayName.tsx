@@ -38,6 +38,17 @@ export function OrganizationDisplayName(): JSX.Element {
     const logoChanged = logoMediaId !== (currentOrganization?.logo_media_id || null)
     const hasChanges = nameChanged || logoChanged
 
+    const saveDisabledReason = restrictionReason
+        ? restrictionReason
+        : !hasChanges
+          ? 'No changes to save'
+          : !name
+            ? 'You must provide a name'
+            : !currentOrganization
+              ? 'Organization not loaded'
+              : undefined
+    const saving = currentOrganizationLoading || uploading
+
     return (
         <div className="flex gap-6 items-start">
             <LemonFileInput
@@ -86,34 +97,26 @@ export function OrganizationDisplayName(): JSX.Element {
                     data-attr="organization-name-input-settings"
                     placeholder="Organization name"
                 />
-                <LemonButton
-                    type="primary"
-                    onClick={(e) => {
-                        e.preventDefault()
-                        const updates: Record<string, unknown> = {}
-                        if (nameChanged) {
-                            updates.name = name
-                        }
-                        if (logoChanged) {
-                            updates.logo_media_id = logoMediaId
-                        }
-                        updateOrganization(updates)
-                    }}
-                    disabledReason={
-                        restrictionReason
-                            ? restrictionReason
-                            : !hasChanges
-                              ? 'No changes to save'
-                              : !name
-                                ? 'You must provide a name'
-                                : !currentOrganization
-                                  ? 'Organization not loaded'
-                                  : undefined
-                    }
-                    loading={currentOrganizationLoading || uploading}
-                >
-                    Save
-                </LemonButton>
+                <div className="flex items-center gap-2">
+                    <LemonButton
+                        type="primary"
+                        onClick={(e) => {
+                            e.preventDefault()
+                            const updates: Record<string, unknown> = {}
+                            if (nameChanged) {
+                                updates.name = name
+                            }
+                            if (logoChanged) {
+                                updates.logo_media_id = logoMediaId
+                            }
+                            updateOrganization(updates)
+                        }}
+                        disabledReason={saveDisabledReason}
+                        loading={saving}
+                    >
+                        Save
+                    </LemonButton>
+                </div>
             </div>
         </div>
     )

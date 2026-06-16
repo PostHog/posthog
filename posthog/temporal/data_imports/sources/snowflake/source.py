@@ -175,6 +175,11 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "This account has been marked for decommission": "Your Snowflake account has been suspended or trial has ended. Please check your account status.",
+            # Snowflake error 000606 (57P03): the session has no active warehouse, so the first query
+            # needing compute fails. The connector doesn't fail at connect time even when the configured
+            # warehouse is missing/suspended or the role lacks USAGE on it — it just leaves the session
+            # warehouse unset. Retrying can never succeed until the customer fixes the grant or warehouse.
+            "No active warehouse selected in the current session": "No active warehouse is available for this connection. Check that the configured warehouse exists, is running, and that the connecting role has USAGE on it, then resync.",
             "404 Not Found": None,
             "Your free trial has ended": "Your Snowflake account has been suspended or trial has ended. Please check your account status.",
             "Your account is suspended due to lack of payment method": "Your Snowflake account has been suspended or trial has ended. Please check your account status.",
