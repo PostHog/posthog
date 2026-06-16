@@ -18,7 +18,14 @@ import {
     SessionAclEntry,
     SessionUsageTotal,
 } from '../spec/spec'
-import { AggregateStats, LIVE_SESSION_STATES, ListSessionsOpts, SessionQueue } from './queue'
+import {
+    AggregateStats,
+    DecideElevationInput,
+    DecideElevationResult,
+    LIVE_SESSION_STATES,
+    ListSessionsOpts,
+    SessionQueue,
+} from './queue'
 
 const SELECT_COLS = `id, application_id, revision_id, team_id, external_key,
                      idempotency_key, trigger_metadata, state,
@@ -217,6 +224,94 @@ export class PgSessionQueue implements SessionQueue {
              WHERE id = $1`,
             [sessionId, JSON.stringify([req])]
         )
+    }
+
+    async decideElevationRequest(sessionId: string, input: DecideElevationInput): Promise<DecideElevationResult> {
+        // Lock the row and re-read the request state inside the transaction so a
+        // concurrent or replayed decision can't double-apply (e.g. append the
+        // proposed message into pending_inputs twice). Whichever caller wins the
+        // FOR UPDATE lock and finds the request still `pending` performs the
+        // transition; the rest see it already decided and no-op.
+        const client: PoolClient = await this.pool.connect()
+        try {
+            await client.query('BEGIN')
+            const sel = await client.query<{ acl: unknown; pending_elevation_requests: unknown }>(
+                `SELECT acl, pending_elevation_requests FROM agent_session WHERE id = $1 FOR UPDATE`,
+                [sessionId]
+            )
+            if (sel.rowCount === 0) {
+                await client.query('ROLLBACK')
+                return { applied: false, reason: 'not_found', request: null }
+            }
+            const acl: SessionAclEntry[] = Array.isArray(sel.rows[0].acl) ? (sel.rows[0].acl as SessionAclEntry[]) : []
+            const requests: PendingElevationRequest[] = Array.isArray(sel.rows[0].pending_elevation_requests)
+                ? (sel.rows[0].pending_elevation_requests as PendingElevationRequest[])
+                : []
+            const request = requests.find((r) => r.id === input.requestId) ?? null
+            if (!request) {
+                await client.query('ROLLBACK')
+                return { applied: false, reason: 'not_found', request: null }
+            }
+            if (request.state !== 'pending') {
+                await client.query('ROLLBACK')
+                return { applied: false, reason: 'not_pending', request }
+            }
+
+            const now = new Date().toISOString()
+            const decisionState = input.decision === 'grant' ? ('granted' as const) : ('declined' as const)
+            const updated: PendingElevationRequest = {
+                ...request,
+                state: decisionState,
+                decision_at: now,
+                decision_by: input.decidedBy,
+            }
+            const nextRequests = requests.map((r) => (r.id === input.requestId ? updated : r))
+
+            if (input.decision === 'decline') {
+                await client.query(
+                    `UPDATE agent_session SET pending_elevation_requests = $2::jsonb, updated_at = NOW() WHERE id = $1`,
+                    [sessionId, JSON.stringify(nextRequests)]
+                )
+                await client.query('COMMIT')
+                return { applied: true, decision: 'decline', request: updated }
+            }
+
+            const aclEntry: SessionAclEntry = {
+                principal: request.requester,
+                granted_by: input.decidedBy,
+                granted_at: now,
+                expires_at:
+                    input.expiresInMs != null && input.expiresInMs > 0
+                        ? new Date(Date.now() + input.expiresInMs).toISOString()
+                        : null,
+                reason: input.reason ?? null,
+                state: 'active',
+            }
+            // Single statement: land the ACL entry, mark the request granted,
+            // replay the proposed message, and re-queue — all under the lock.
+            await client.query(
+                `UPDATE agent_session
+                 SET acl = $2::jsonb,
+                     pending_elevation_requests = $3::jsonb,
+                     pending_inputs = pending_inputs || $4::jsonb,
+                     state = 'queued',
+                     updated_at = NOW()
+                 WHERE id = $1`,
+                [
+                    sessionId,
+                    JSON.stringify([...acl, aclEntry]),
+                    JSON.stringify(nextRequests),
+                    JSON.stringify([request.proposed_message]),
+                ]
+            )
+            await client.query('COMMIT')
+            return { applied: true, decision: 'grant', request: updated, aclEntry }
+        } catch (err) {
+            await client.query('ROLLBACK')
+            throw err
+        } finally {
+            client.release()
+        }
     }
 
     async get(sessionId: string): Promise<AgentSession | null> {

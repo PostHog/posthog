@@ -235,52 +235,34 @@ export interface ApplyGrantResult {
 /**
  * Apply a grant: add an ACL entry for the requester, mark the request
  * `granted`, replay the proposed message into `pending_inputs`, and re-queue
- * the session so the runner picks it up. Idempotency: re-applying the same
- * granted request short-circuits — caller can safely retry.
+ * the session so the runner picks it up.
+ *
+ * The transition runs atomically under a row lock in `decideElevationRequest`
+ * (re-reading the request state inside the transaction), so a concurrent or
+ * replayed grant can't apply twice — only the first caller lands the ACL entry
+ * and replays the message. A second attempt against an already-decided request
+ * throws (the Slack handler pre-checks `authorizeGrant`, so this stays a
+ * defensive guard).
  */
 export async function applyElevationGrant(
     queue: SessionQueue,
     session: AgentSession,
     input: ApplyGrantInput
 ): Promise<ApplyGrantResult> {
-    const requests = session.pending_elevation_requests ?? []
-    const request = requests.find((r) => r.id === input.requestId)
-    if (!request) {
-        throw new Error(`elevation request ${input.requestId} not found on session ${session.id}`)
-    }
-    if (request.state !== 'pending') {
-        throw new Error(`elevation request ${input.requestId} is ${request.state}, not pending`)
-    }
-
-    const now = new Date().toISOString()
-    const aclEntry: SessionAclEntry = {
-        principal: request.requester,
-        granted_by: input.granter,
-        granted_at: now,
-        expires_at:
-            input.expiresInMs != null && input.expiresInMs > 0
-                ? new Date(Date.now() + input.expiresInMs).toISOString()
-                : null,
-        reason: input.reason ?? null,
-        state: 'active',
-    }
-    const nextAcl = [...(session.acl ?? []), aclEntry]
-    const nextRequests = requests.map((r) =>
-        r.id === input.requestId ? { ...r, state: 'granted' as const, decision_at: now, decision_by: input.granter } : r
-    )
-
-    await queue.update(session.id, {
-        acl: nextAcl,
-        pending_elevation_requests: nextRequests,
+    const result = await queue.decideElevationRequest(session.id, {
+        requestId: input.requestId,
+        decision: 'grant',
+        decidedBy: input.granter,
+        expiresInMs: input.expiresInMs,
+        reason: input.reason,
     })
-    // Replay the requester's would-be message so the runner sees it on the
-    // next turn. Done after the ACL mutation so a crash between leaves the
-    // grant landed (the message will re-deliver next time anyway via the
-    // user's natural retry).
-    await queue.appendPendingInput(session.id, request.proposed_message)
-    await queue.update(session.id, { state: 'queued' })
-
-    return { request: nextRequests.find((r) => r.id === input.requestId)!, aclEntry }
+    if (!result.applied) {
+        if (result.reason === 'not_found') {
+            throw new Error(`elevation request ${input.requestId} not found on session ${session.id}`)
+        }
+        throw new Error(`elevation request ${input.requestId} is ${result.request?.state}, not pending`)
+    }
+    return { request: result.request, aclEntry: result.aclEntry! }
 }
 
 export interface ApplyDeclineInput {
@@ -291,27 +273,25 @@ export interface ApplyDeclineInput {
 
 /**
  * Apply a decline: mark the request `declined`, do not mutate the ACL, do
- * not advance the session. Idempotency mirrors `applyElevationGrant`.
+ * not advance the session. Atomic + idempotent via `decideElevationRequest`,
+ * mirroring `applyElevationGrant`.
  */
 export async function applyElevationDecline(
     queue: SessionQueue,
     session: AgentSession,
     input: ApplyDeclineInput
 ): Promise<PendingElevationRequest> {
-    const requests = session.pending_elevation_requests ?? []
-    const request = requests.find((r) => r.id === input.requestId)
-    if (!request) {
-        throw new Error(`elevation request ${input.requestId} not found on session ${session.id}`)
+    const result = await queue.decideElevationRequest(session.id, {
+        requestId: input.requestId,
+        decision: 'decline',
+        decidedBy: input.decider,
+        reason: input.reason,
+    })
+    if (!result.applied) {
+        if (result.reason === 'not_found') {
+            throw new Error(`elevation request ${input.requestId} not found on session ${session.id}`)
+        }
+        throw new Error(`elevation request ${input.requestId} is ${result.request?.state}, not pending`)
     }
-    if (request.state !== 'pending') {
-        throw new Error(`elevation request ${input.requestId} is ${request.state}, not pending`)
-    }
-    const now = new Date().toISOString()
-    const nextRequests = requests.map((r) =>
-        r.id === input.requestId
-            ? { ...r, state: 'declined' as const, decision_at: now, decision_by: input.decider }
-            : r
-    )
-    await queue.update(session.id, { pending_elevation_requests: nextRequests })
-    return nextRequests.find((r) => r.id === input.requestId)!
+    return result.request
 }

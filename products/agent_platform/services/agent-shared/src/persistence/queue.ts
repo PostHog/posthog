@@ -5,7 +5,34 @@
  * the real test DB so claim semantics, indexes, and constraints are exercised.
  */
 
-import { AgentSession, ConversationMessage, PendingElevationRequest } from '../spec/spec'
+import {
+    AgentSession,
+    ConversationMessage,
+    PendingElevationRequest,
+    SessionAclEntry,
+    SessionPrincipal,
+} from '../spec/spec'
+
+/** Input to the atomic elevation-decision transition (`decideElevationRequest`). */
+export interface DecideElevationInput {
+    requestId: string
+    decision: 'grant' | 'decline'
+    /** The principal making the decision (the session owner clicking grant/decline). */
+    decidedBy: SessionPrincipal
+    /** grant only: expiry on the new ACL entry (ms from now). null/omitted = no expiry. */
+    expiresInMs?: number | null
+    reason?: string | null
+}
+
+/**
+ * Result of `decideElevationRequest`. `applied: true` means THIS call performed
+ * the transition; `applied: false` means it was a no-op (the request was already
+ * decided by a concurrent/replayed call, or doesn't exist) — the caller must not
+ * treat a no-op as a fresh decision.
+ */
+export type DecideElevationResult =
+    | { applied: true; decision: 'grant' | 'decline'; request: PendingElevationRequest; aclEntry?: SessionAclEntry }
+    | { applied: false; reason: 'not_found' | 'not_pending'; request: PendingElevationRequest | null }
 
 /** Shape returned by both `aggregateForApplication` and `aggregateForTeam`. */
 export interface AggregateStats {
@@ -67,6 +94,15 @@ export interface SessionQueue extends SessionInputsStore {
      * is preserved so a future grant can replay it.
      */
     appendPendingElevationRequest(sessionId: string, req: PendingElevationRequest): Promise<void>
+    /**
+     * Atomically decide a pending elevation request under a row lock. Re-reads
+     * the request state inside the transaction (NOT from a caller snapshot) so
+     * a concurrent or replayed decision can't apply twice — only the first
+     * caller transitions the request and (for a grant) replays the proposed
+     * message into `pending_inputs` + re-queues. Returns `applied: false` when
+     * the request was already decided or is missing.
+     */
+    decideElevationRequest(sessionId: string, input: DecideElevationInput): Promise<DecideElevationResult>
     get(sessionId: string): Promise<AgentSession | null>
     /** Find an existing session matching (application_id, external_key). */
     findByExternalKey(applicationId: string, externalKey: string): Promise<AgentSession | null>
