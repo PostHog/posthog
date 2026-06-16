@@ -45,6 +45,7 @@ from products.experiments.backend.models.experiment import (
     holdout_filters_for_flag,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.experiments.backend.result_serialization import strip_step_sessions
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
 from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -70,29 +71,6 @@ DEFAULT_VARIANTS = [
     {"key": "control", "name": "Control Group", "rollout_percentage": 50},
     {"key": "test", "name": "Test Variant", "rollout_percentage": 50},
 ]
-
-
-def _strip_step_sessions(result: Any) -> Any:
-    """Remove the per-session funnel actors payload from a stored experiment metric result.
-
-    `step_sessions` powers the frontend's "view sessions per step" affordance off
-    a separate per-metric query, not this timeseries endpoint. Carrying it through
-    here multiplies the response by sessions × steps × variants and pushes MCP
-    consumers past their context window with no benefit.
-    """
-    if not isinstance(result, Mapping):
-        return result
-    cleaned = {k: v for k, v in result.items() if k != "step_sessions"}
-    baseline = cleaned.get("baseline")
-    if isinstance(baseline, dict):
-        cleaned["baseline"] = {k: v for k, v in baseline.items() if k != "step_sessions"}
-    variants = cleaned.get("variant_results")
-    if isinstance(variants, list):
-        cleaned["variant_results"] = [
-            {k: v for k, v in variant.items() if k != "step_sessions"} if isinstance(variant, dict) else variant
-            for variant in variants
-        ]
-    return cleaned
 
 
 class ExperimentQueryStatus(str, Enum):
@@ -523,16 +501,12 @@ class ExperimentService:
     def _resolved_variant_keys(cls, experiment: Experiment, update_data: dict) -> list[str]:
         """Variant keys the experiment will have after this update.
 
-        Prefer the variants the PATCH sets; otherwise fall back to the experiment's
-        current variants (its parameters first, then the linked flag's multivariate set).
+        Prefer the variants the PATCH sets; otherwise resolve from the linked flag,
+        which is the source of truth for variants.
         """
         update_variants = (update_data.get("parameters") or {}).get("feature_flag_variants")
         if update_variants is None:
-            update_variants = (experiment.parameters or {}).get("feature_flag_variants") or (
-                experiment.feature_flag.filters.get("multivariate", {}).get("variants", [])
-                if experiment.feature_flag
-                else []
-            )
+            update_variants = experiment.feature_flag.variants if experiment.feature_flag else []
         return cls._variant_keys(update_variants)
 
     @staticmethod
@@ -2185,14 +2159,20 @@ class ExperimentService:
 
         parameters = deepcopy(source_experiment.parameters) or {}
 
-        # Reuse variants from an existing flag in the target project.
+        # Variants come from the source experiment's feature flag (the source of truth),
+        # not the stale copy denormalized into parameters.
+        source_variants = source_experiment.feature_flag.variants
+        if source_variants:
+            parameters["feature_flag_variants"] = deepcopy(source_variants)
+
+        # An existing flag in the target project wins — reuse its variants instead.
         # For cross-project clones we always check the target; for same-project
         # clones we only check when the key differs from the source flag.
         should_check_existing = is_cross_project or feature_flag_key != source_experiment.feature_flag.key
         if should_check_existing:
             existing_flag = FeatureFlag.objects.filter(key=feature_flag_key, team_id=target.id).first()
-            if existing_flag and existing_flag.filters.get("multivariate", {}).get("variants"):
-                parameters["feature_flag_variants"] = deepcopy(existing_flag.filters["multivariate"]["variants"])
+            if existing_flag and existing_flag.variants:
+                parameters["feature_flag_variants"] = deepcopy(existing_flag.variants)
 
         self.validate_experiment_parameters(parameters)
         self.validate_experiment_exposure_criteria(source_experiment.exposure_criteria)
@@ -2721,7 +2701,7 @@ class ExperimentService:
                 metric_result = results_by_date[experiment_date]
 
                 if metric_result.status == "completed":
-                    timeseries[date_key] = _strip_step_sessions(metric_result.result)
+                    timeseries[date_key] = strip_step_sessions(metric_result.result)
                     completed_count += 1
                 elif metric_result.status == "failed":
                     if metric_result.error_message:

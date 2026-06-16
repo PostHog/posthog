@@ -279,6 +279,23 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             # (`: "1.5"`) is excluded from the match. Coercing the cursor here would change sync
             # semantics (risk of skipped/duplicated rows), so stop and ask the user to reset.
             "invalid input syntax for type integer": "PostHog tried to resume this table's incremental sync from a non-integer cursor value against an integer incremental field, which your database rejects. This usually means the incremental field's type doesn't match its data. Please reset and fully re-sync this table, or pick a different incremental field.",
+            # Raised (ObjectNotInPrerequisiteState, SQLSTATE 55000) when a selected materialized view
+            # was created `WITH NO DATA` and never refreshed — every SELECT against it fails until the
+            # customer runs `REFRESH MATERIALIZED VIEW`. Deterministic and outside our control, so
+            # retrying just re-reads into the same error. Match the stable message fragment and exclude
+            # the volatile view name.
+            "has not been populated": (
+                "One of the materialized views you selected to sync hasn't been populated yet "
+                '(PostgreSQL reported "has not been populated"). Run REFRESH MATERIALIZED VIEW on it in '
+                "your database so it contains data, then re-enable the sync."
+            ),
+            # Raised by Postgres while reading a view/materialized view whose own definition calls
+            # `jsonb_each()` (or `jsonb_each_text()`) on a jsonb value that isn't an object for some
+            # rows (a JSON array, scalar, or `'null'`). We only ever run `SELECT ... FROM <relation>`;
+            # the function lives in the customer's view definition. The failure is deterministic
+            # against the source data, so retrying re-evaluates the same view and hits the same row.
+            "cannot call jsonb_each on a non-object": "A view you're syncing calls jsonb_each() on a JSON value that isn't an object for at least one row, so Postgres can't evaluate the view and we can't read it. Guard the call in your view definition (for example only call jsonb_each() when jsonb_typeof(col) = 'object'), or remove that view from the sync.",
+            "cannot call jsonb_each_text on a non-object": "A view you're syncing calls jsonb_each_text() on a JSON value that isn't an object for at least one row, so Postgres can't evaluate the view and we can't read it. Guard the call in your view definition (for example only call jsonb_each_text() when jsonb_typeof(col) = 'object'), or remove that view from the sync.",
         }
 
     def reconcile_schema_metadata(

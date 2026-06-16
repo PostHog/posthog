@@ -113,11 +113,12 @@ MESSAGING_TASK_QUEUE = _set_temporal_task_queue("messaging-task-queue")
 ANALYTICS_PLATFORM_TASK_QUEUE = _set_temporal_task_queue("analytics-platform-task-queue")
 SESSION_REPLAY_TASK_QUEUE = _set_temporal_task_queue("session-replay-task-queue")
 REPLAY_VISION_TASK_QUEUE = _set_temporal_task_queue("replay-vision-task-queue")
-# Dedicated queue for the XGBoost-based session surfacing scoring sweep. Workers
-# pulling this queue need libomp + xgboost installed and a sized CPU budget
-# (see posthog/temporal/session_replay/surfacing_scoring_sweep/README.md for
-# `OMP_NUM_THREADS` guidance).
-SURFACING_SCORING_SWEEP_TASK_QUEUE = _set_temporal_task_queue("surfacing-scoring-sweep-task-queue")
+# The XGBoost-based session surfacing scoring sweep runs on the session-replay
+# worker (it's the only OpenMP user there; that worker sets OMP_NUM_THREADS=1).
+# Sharing the queue means start_temporal_worker aggregates its workflow +
+# activities onto the replay worker and warmup() runs on replay-worker boot —
+# no dedicated pod needed (see surfacing_scoring_sweep/README.md).
+SURFACING_SCORING_SWEEP_TASK_QUEUE = SESSION_REPLAY_TASK_QUEUE
 WEEKLY_DIGEST_TASK_QUEUE = _set_temporal_task_queue("weekly-digest-task-queue")
 LLMA_EVALS_TASK_QUEUE = _set_temporal_task_queue("llm-analytics-evals-task-queue")
 LLMA_SENTIMENT_TASK_QUEUE = _set_temporal_task_queue("llm-analytics-sentiment-task-queue")
