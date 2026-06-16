@@ -418,7 +418,7 @@ class Person(models.Model):
 
             outcomes = self._split_distinct_ids_batch(to_split)
             self._publish_split_to_kafka(outcomes)
-            splits_done += len(to_split)
+            splits_done += len(outcomes)
 
             if len(page) < fetch_limit:
                 break
