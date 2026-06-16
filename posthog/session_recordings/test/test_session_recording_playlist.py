@@ -2,6 +2,7 @@ import json
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
+import pytest
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 from unittest import mock
@@ -31,6 +32,8 @@ from posthog.session_recordings.session_recording_playlist_api import (
     PLAYLIST_LIST_MAX_LIMIT,
     _attach_empty_recordings_counts,
     _empty_saved_filters_counts,
+    parse_non_negative_int,
+    parse_positive_int,
     precompute_recordings_counts,
 )
 from posthog.settings import (
@@ -1635,3 +1638,42 @@ class TestPrecomputeRecordingsCounts(APIBaseTest):
         # and by the paginator.)
         results = response.json()["results"]
         assert len(results) <= PLAYLIST_LIST_MAX_LIMIT
+
+    def test_list_with_zero_limit_does_not_loop_pagination(self) -> None:
+        # limit=0 would make the next link point back at the same offset (infinite paging);
+        # it must fall back to the default page size and terminate.
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recording_playlists?limit=0")
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        # Default page size (100) comfortably holds the synthetics, so there's no next page
+        # and certainly no self-referential loop.
+        assert data["next"] is None
+        assert len(data["results"]) == data["count"]
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        ("30", 30),
+        ("0", 0),
+        ("-5", 0),
+        ("abc", 100),
+        (None, 100),
+    ],
+)
+def test_parse_non_negative_int(value: object, expected: int) -> None:
+    assert parse_non_negative_int(value, 100) == expected
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        ("30", 30),
+        ("0", 100),  # limit=0 would loop pagination -> default
+        ("-5", 100),  # non-positive -> default
+        ("abc", 100),
+        (None, 100),
+    ],
+)
+def test_parse_positive_int(value: object, expected: int) -> None:
+    assert parse_positive_int(value, 100) == expected

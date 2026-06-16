@@ -7,7 +7,7 @@ from typing import Any, Optional, cast
 from django.contrib.auth.models import AnonymousUser
 from django.db import IntegrityError, transaction
 from django.db.models import Count, Q, QuerySet, Value
-from django.db.models.functions import Coalesce, Lower
+from django.db.models.functions import Coalesce, Lower, NullIf
 from django.utils.timezone import now
 
 import structlog
@@ -92,12 +92,14 @@ def resolve_playlist_order(req: request.Request) -> str:
 
 
 def playlist_name_sort_expression() -> Coalesce:
-    """DB ordering key for playlist names: case-insensitive and NULL-safe.
+    """DB ordering key for playlist names: case-insensitive, NULL- and empty-safe.
 
     playlist_name_sort_key is its in-memory twin; the two MUST stay equivalent or
-    pagination silently skips/duplicates rows.
+    pagination silently skips/duplicates rows. NullIf mirrors the Python `or`, which
+    treats an empty name as absent and falls through to derived_name — Coalesce alone
+    only falls through on NULL.
     """
-    return Coalesce(Lower("name"), Lower("derived_name"), Value(""))
+    return Coalesce(Lower(NullIf("name", Value(""))), Lower("derived_name"), Value(""))
 
 
 def playlist_name_sort_key(playlist: SessionRecordingPlaylist) -> str:
@@ -110,6 +112,14 @@ def parse_non_negative_int(value: Any, default: int) -> int:
         return max(0, int(value))
     except (TypeError, ValueError):
         return default
+
+
+def parse_positive_int(value: Any, default: int) -> int:
+    """Like parse_non_negative_int but rejects 0. A limit of 0 makes the paginator's
+    next link point back at the same offset — an infinite-paging loop — so non-positive
+    input falls back to the default, matching DRF's LimitOffsetPagination."""
+    parsed = parse_non_negative_int(value, default)
+    return parsed if parsed > 0 else default
 
 
 def create_synthetic_playlist_instance(
@@ -653,7 +663,7 @@ class SessionRecordingPlaylistViewSet(
         synth_count = len(sorted_synthetics)
         total_count = db_count + synth_count
 
-        limit = min(parse_non_negative_int(request.GET.get("limit"), 100), PLAYLIST_LIST_MAX_LIMIT)
+        limit = min(parse_positive_int(request.GET.get("limit"), 100), PLAYLIST_LIST_MAX_LIMIT)
         offset = parse_non_negative_int(request.GET.get("offset"), 0)
 
         span.set_attribute("team_id", self.team.id)
