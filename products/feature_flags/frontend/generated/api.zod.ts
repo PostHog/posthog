@@ -398,7 +398,7 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
         ])
         .optional()
         .describe(
-            "Identifier used to bucket users into rollout percentages and variants: 'distinct_id' (user ID, the default) or 'device_id'. Incompatible with ensure_experience_continuity.\n\n\* `distinct_id` - User ID (default)\n\* `device_id` - Device ID"
+            "Identifier used to bucket users into rollout percentages and variants: 'distinct_id' (user ID, the default) or 'device_id'. Using 'device_id' is incompatible with ensure_experience_continuity=True.\n\n\* `distinct_id` - User ID (default)\n\* `device_id` - Device ID"
         ),
 })
 
@@ -813,7 +813,7 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
         ])
         .optional()
         .describe(
-            "Identifier used to bucket users into rollout percentages and variants: 'distinct_id' (user ID, the default) or 'device_id'. Incompatible with ensure_experience_continuity.\n\n\* `distinct_id` - User ID (default)\n\* `device_id` - Device ID"
+            "Identifier used to bucket users into rollout percentages and variants: 'distinct_id' (user ID, the default) or 'device_id'. Using 'device_id' is incompatible with ensure_experience_continuity=True.\n\n\* `distinct_id` - User ID (default)\n\* `device_id` - Device ID"
         ),
 })
 

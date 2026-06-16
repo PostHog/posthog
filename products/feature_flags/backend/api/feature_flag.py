@@ -656,7 +656,7 @@ class FeatureFlagCreateRequestSchemaSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         help_text="Identifier used to bucket users into rollout percentages and variants: 'distinct_id' "
-        "(user ID, the default) or 'device_id'. Incompatible with ensure_experience_continuity.",
+        "(user ID, the default) or 'device_id'. Using 'device_id' is incompatible with ensure_experience_continuity=True.",
     )
 
 
@@ -702,7 +702,7 @@ class FeatureFlagPartialUpdateRequestSchemaSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         help_text="Identifier used to bucket users into rollout percentages and variants: 'distinct_id' "
-        "(user ID, the default) or 'device_id'. Incompatible with ensure_experience_continuity.",
+        "(user ID, the default) or 'device_id'. Using 'device_id' is incompatible with ensure_experience_continuity=True.",
     )
 
 

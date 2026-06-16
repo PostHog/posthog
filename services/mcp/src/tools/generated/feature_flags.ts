@@ -46,7 +46,7 @@ const CreateFeatureFlagSchema = FeatureFlagsCreateBody.extend({
         'Where this flag is allowed to evaluate — `server` (server-side SDKs only), `client` (client-side SDKs only), or `all` (both). Defaults to `all`.'
     ),
     bucketing_identifier: FeatureFlagsCreateBody.shape['bucketing_identifier'].describe(
-        'Identifier used to bucket users into rollout percentages and variants — `distinct_id` (user ID, the default) or `device_id`. Incompatible with `ensure_experience_continuity`.'
+        'Identifier used to bucket users into rollout percentages and variants — `distinct_id` (user ID, the default) or `device_id`. Using `device_id` is incompatible with `ensure_experience_continuity=true`.'
     ),
 })
 
@@ -625,7 +625,7 @@ const UpdateFeatureFlagSchema = FeatureFlagsPartialUpdateParams.omit({ project_i
             'Where this flag is allowed to evaluate — `server` (server-side SDKs only), `client` (client-side SDKs only), or `all` (both). Defaults to `all`.'
         ),
         bucketing_identifier: FeatureFlagsPartialUpdateBody.shape['bucketing_identifier'].describe(
-            'Identifier used to bucket users into rollout percentages and variants — `distinct_id` (user ID, the default) or `device_id`. Incompatible with `ensure_experience_continuity`.'
+            'Identifier used to bucket users into rollout percentages and variants — `distinct_id` (user ID, the default) or `device_id`. Using `device_id` is incompatible with `ensure_experience_continuity=true`.'
         ),
     })
 

@@ -21784,7 +21784,7 @@ export namespace Schemas {
        * * `client` - Client
        * * `all` - All */
       evaluation_runtime?: EvaluationRuntimeEnum | null;
-      /** Identifier used to bucket users into rollout percentages and variants: 'distinct_id' (user ID, the default) or 'device_id'. Incompatible with ensure_experience_continuity.
+      /** Identifier used to bucket users into rollout percentages and variants: 'distinct_id' (user ID, the default) or 'device_id'. Using 'device_id' is incompatible with ensure_experience_continuity=True.
        *
        * * `distinct_id` - User ID (default)
        * * `device_id` - Device ID */
@@ -34255,7 +34255,7 @@ export namespace Schemas {
        * * `client` - Client
        * * `all` - All */
       evaluation_runtime?: EvaluationRuntimeEnum | null;
-      /** Identifier used to bucket users into rollout percentages and variants: 'distinct_id' (user ID, the default) or 'device_id'. Incompatible with ensure_experience_continuity.
+      /** Identifier used to bucket users into rollout percentages and variants: 'distinct_id' (user ID, the default) or 'device_id'. Using 'device_id' is incompatible with ensure_experience_continuity=True.
        *
        * * `distinct_id` - User ID (default)
        * * `device_id` - Device ID */
