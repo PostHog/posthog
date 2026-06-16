@@ -6,7 +6,7 @@
  * Each test gets its own random prefix so concurrent suites don't collide.
  */
 
-import { DeleteObjectsCommand, ListObjectsV2Command, S3Client } from '@aws-sdk/client-s3'
+import { DeleteObjectsCommand, ListObjectsV2Command, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
 import { randomBytes } from 'node:crypto'
 
 import { S3BundleStore } from './s3-bundle-store'
@@ -124,5 +124,27 @@ describe('S3BundleStore (real S3 / SeaweedFS)', () => {
         const shaB = await store.freeze('b')
 
         expect(shaA).toBe(shaB)
+    })
+
+    it('freeze hash reflects actual bytes, not writer-supplied metadata sha256', async () => {
+        // Honest freeze of known content.
+        await store.write('clean', 'agent.md', 'hello')
+        const cleanSha = await store.freeze('clean')
+
+        // Same bytes, but the object metadata sha256 is tampered to a bogus
+        // value (simulating an in-cluster writer setting metadata independently).
+        await store.write('tampered', 'agent.md', 'hello')
+        await client.send(
+            new PutObjectCommand({
+                Bucket: TEST_S3_BUCKET,
+                Key: `${prefix}/tampered/agent.md`,
+                Body: Buffer.from('hello'),
+                Metadata: { sha256: 'deadbeef'.repeat(8) },
+            })
+        )
+        // list trusts the (now bogus) metadata...
+        expect((await store.list('tampered'))[0].sha256).toBe('deadbeef'.repeat(8))
+        // ...but freeze recomputes from bytes, so it matches the honest hash.
+        expect(await store.freeze('tampered')).toBe(cleanSha)
     })
 })

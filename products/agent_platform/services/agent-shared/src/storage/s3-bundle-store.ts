@@ -132,9 +132,18 @@ export class S3BundleStore implements BundleStore {
     }
 
     async freeze(rev: string, precomputedEntries?: BundleEntry[]): Promise<string> {
-        const entries = precomputedEntries ?? (await this.list(rev))
+        const listed = precomputedEntries ?? (await this.list(rev))
+        // Recompute each file's sha256 from its actual bytes rather than trusting
+        // the writer-supplied object metadata `list` reads. The freeze hash is the
+        // bundle's integrity anchor, so it must reflect content, not a metadata
+        // field an in-cluster writer could set independently. For honestly-written
+        // objects this equals the metadata hash, so the frozen hash is unchanged.
+        const verified = await Promise.all(
+            listed.map(async (e): Promise<BundleEntry> => ({ ...e, sha256: await this.sha256OfObject(rev, e.path) }))
+        )
+        verified.sort((a, b) => a.path.localeCompare(b.path))
         const hash = createHash('sha256')
-        for (const e of entries) {
+        for (const e of verified) {
             hash.update(e.path).update('\0').update(e.sha256).update('\0')
         }
         const sha = hash.digest('hex')
@@ -160,6 +169,12 @@ export class S3BundleStore implements BundleStore {
                 MetadataDirective: 'COPY',
             })
         )
+    }
+
+    /** sha256 hex of an object's actual bytes — used to verify integrity at freeze. */
+    private async sha256OfObject(rev: string, p: string): Promise<string> {
+        const buf = await this.read(rev, p)
+        return createHash('sha256').update(buf).digest('hex')
     }
 
     private async headObject(key: string): Promise<boolean> {
