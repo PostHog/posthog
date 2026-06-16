@@ -91,6 +91,20 @@ describe('buildDefaultVerifiers', () => {
         expect(await v.verify(req({}), mode, APP)).toMatchObject({ ok: false, status: 0 })
     })
 
+    it('shared_secret: binds x-posthog-caller-id into the principal when sent', async () => {
+        const v = sharedSecretVerifier(secretResolver)
+        const mode = { type: 'shared_secret' as const, header: 'X-WH', secret_ref: 'WH' }
+        const res = await v.verify(req({ 'x-wh': 's3cret', 'x-posthog-caller-id': 'alice' }), mode, APP)
+        expect(res).toMatchObject({ ok: true })
+        if (res.ok) {
+            expect(res.principal).toMatchObject({ kind: 'shared_secret', team_id: 7, caller_id: 'alice' })
+        }
+        // No caller-id header → no discriminator (single-principal behaviour).
+        const res2 = await v.verify(req({ 'x-wh': 's3cret' }), mode, APP)
+        expect(res2.ok && res2.principal).toMatchObject({ kind: 'shared_secret', team_id: 7 })
+        expect(res2.ok && (res2.principal as { caller_id?: string }).caller_id).toBeUndefined()
+    })
+
     it('posthog_internal: matches the configured secret, 403 on mismatch, 500 when secret empty', async () => {
         const mode = { type: 'posthog_internal' as const }
         expect(

@@ -204,6 +204,14 @@ function secretsMatch(provided: string, expected: string): boolean {
 }
 
 /**
+ * Conventional header a shared-secret caller may send to identify itself
+ * behind the shared secret. Lower-cased for Express header lookup. Opt-in:
+ * callers that want per-caller session isolation send a stable, unguessable
+ * value; everyone else keeps the single-principal behaviour.
+ */
+export const CALLER_ID_HEADER = 'x-posthog-caller-id'
+
+/**
  * Shared-secret verifier. The header named by the mode carries a secret whose
  * expected value lives in the agent's `encrypted_env` under `mode.secret_ref`.
  * No header → skip; secret unresolvable → fail closed; mismatch → 401.
@@ -226,7 +234,15 @@ export function sharedSecretVerifier(resolver: SecretResolver): AuthVerifier {
             if (!secretsMatch(provided, expected)) {
                 return { ok: false, status: 401, reason: 'invalid_secret' }
             }
-            const principal: SessionPrincipal = { kind: 'shared_secret', team_id: application.team_id }
+            // Per-caller identity: the shared secret carries no per-caller
+            // identity of its own, so a caller can bind its session to an
+            // (unguessable) id via the conventional `x-posthog-caller-id`
+            // header. `principalsMatch` then keeps one caller's session
+            // scoped to that caller. Absent the header → no discriminator,
+            // preserving the single-principal behaviour.
+            const callerIdRaw = req.headers[CALLER_ID_HEADER]
+            const caller_id = typeof callerIdRaw === 'string' && callerIdRaw.length > 0 ? callerIdRaw : undefined
+            const principal: SessionPrincipal = { kind: 'shared_secret', team_id: application.team_id, caller_id }
             return { ok: true, principal, credentials: {} }
         },
     }

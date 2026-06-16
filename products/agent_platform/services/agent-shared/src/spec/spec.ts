@@ -689,8 +689,17 @@ export function principalsMatch(stored: SessionPrincipal | null, incoming: Sessi
                 stored.slack_user_id === incoming.slack_user_id
             )
         case 'posthog_internal':
+            return incoming.kind === 'posthog_internal' && stored.team_id === incoming.team_id
         case 'shared_secret':
-            return incoming.kind === stored.kind && stored.team_id === incoming.team_id
+            // `caller_id` is the per-caller discriminator (undefined on both
+            // sides when the agent didn't opt into `caller_id_header`, which
+            // preserves the single-principal behaviour). A session created
+            // with a caller_id can only be resumed by the same caller.
+            return (
+                incoming.kind === 'shared_secret' &&
+                stored.team_id === incoming.team_id &&
+                stored.caller_id === incoming.caller_id
+            )
         case 'service':
             return (
                 incoming.kind === 'service' &&
@@ -787,8 +796,10 @@ export type SessionPrincipal =
       }
     /** Internal / service-to-service caller (PostHog backend → ingress). */
     | { kind: 'posthog_internal'; team_id?: number }
-    /** Shared-secret bearer (webhook-style). */
-    | { kind: 'shared_secret'; team_id?: number }
+    /** Shared-secret bearer (webhook-style). `caller_id` is the value of the
+     *  conventional `x-posthog-caller-id` header, present only when the caller
+     *  opts into per-caller isolation; absent it behaves as a single principal. */
+    | { kind: 'shared_secret'; team_id?: number; caller_id?: string }
     /** Cron / scheduler / other system principals. */
     | { kind: 'service'; team_id?: number; id?: string }
 
