@@ -648,13 +648,15 @@ _REF_SKILLS = {"finding-experiments", "creating-experiments"}
         ("use the launch, end, or ship_variant tools instead", ["ship_variant"]),
         ("`execute_sql`: query the experiments table", ["execute_sql"]),
         ("use the `execute_sql` tool", ["execute_sql"]),
-        ("load the managing-unicorns skill first", ["managing-unicorns"]),
+        ("load the `managing-unicorns` skill first", ["managing-unicorns"]),
+        ("load the finding-experiment skill first", ["finding-experiment"]),
         ("query it via `does-not-exist-here`", ["does-not-exist-here"]),
         ('fetch the entity via `read_data("experiments", id)`', ["read_data"]),
         ("use the read-data-schema tool to discover events", []),
         ("change the sync type with the `partial-update` tool", []),
         ("browse with the feature-flag tools", []),
         ("this is a per-file tool for editing", []),
+        ("rank by the highest-error tool first", []),
         ("Deep-dive skills are useful here", []),
         ("teams enrolled via the `signals-scout` feature flag", []),
         ("load the finding-experiments skill first", []),
@@ -662,18 +664,20 @@ _REF_SKILLS = {"finding-experiments", "creating-experiments"}
         ('check `get_feature_flag("key", distinct_id)` in the SDK', []),
     ],
     ids=[
-        "renamed-tool",
-        "fictional-snake-case-tool",
+        "renamed-tool-near-miss",
+        "fictional-snake-case-tool-in-backticks",
         "snake-case-in-plural-phrase",
         "wrong-casing",
         "one-report-when-phrase-and-casing-rules-overlap",
-        "nonexistent-skill",
+        "nonexistent-skill-in-backticks",
+        "renamed-skill-near-miss",
         "invocation-of-unknown-tool",
         "call-syntax-fictional-tool",
         "exact-tool-name",
         "suffix-shorthand",
         "plural-family-reference",
-        "allowlisted-prose",
+        "bare-prose-adjective-per-file",
+        "bare-prose-adjective-highest-error",
         "capitalized-prose-no-mid-word-match",
         "entity-noun-after-backticks",
         "existing-skill",
@@ -687,6 +691,13 @@ def test_check_tool_references(text: str, expected_names: list[str]) -> None:
     assert found == expected_names
 
 
-def test_check_tool_references_suggests_real_tool() -> None:
-    (error,) = _check_tool_references("use the launch or ship_variant tools instead", "test", _REF_TOOLS, _REF_SKILLS)
-    assert "did you mean experiment-ship-variant" in error
+@pytest.mark.parametrize(
+    "text,expected_suggestion",
+    [
+        ("use the launch or ship_variant tools instead", "did you mean experiment-ship-variant"),
+        ("search flags with the feature-flags-get-all tool first", "did you mean feature-flag-get-all"),
+    ],
+)
+def test_check_tool_references_suggests_real_tool(text: str, expected_suggestion: str) -> None:
+    (error,) = _check_tool_references(text, "test", _REF_TOOLS, _REF_SKILLS)
+    assert expected_suggestion in error

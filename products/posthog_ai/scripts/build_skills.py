@@ -55,27 +55,14 @@ _MCP_SCHEMA_FILES = (
     "services/mcp/schema/tool-definitions.json",
     "services/mcp/schema/generated-tool-definitions.json",
 )
-# Hyphenated/underscored prose that reads like a tool/skill reference but isn't one.
+# Names that read like a tool/skill reference but aren't one. Bare prose ("a per-file tool")
+# is handled structurally by the near-miss gate below — it only flags a candidate that
+# resembles a real name — so the allowlist only needs entries that survive that gate:
+# names referenced inside backticks (kept strict) and call-syntax SDK/HogQL helpers.
 _REFERENCE_ALLOWLIST = {
-    "per-file",  # "a per-file tool"
-    "follow-up",  # "a follow-up tool"
-    "pre-approved",  # "list of pre-approved tools"
-    "built-in",  # "a built-in tool"
-    "heavily-used",  # "a heavily-used tool"
-    "harness-level",  # "a harness-level tool"
-    "product-specific",  # "a product-specific tool"
-    "time-to-merge",  # "there is no aggregate time-to-merge tool"
-    "web-search",  # LLM web search, not a PostHog MCP tool
-    "comma-separated",
-    "skills-store",  # the Skills store feature ("the skills-store tools")
-    "llma-alerts",  # skills-store skill, not in this repo
+    "skills-store",  # the Skills store feature, referenced as `skills-store`
+    "llma-alerts",  # skills-store skill, referenced in backticks; not in this repo
     "text-embedding-3-small-1536",  # embedding model name
-    "deep-dive",  # "a deep-dive skill"
-    "team-shared",
-    "per-team",
-    "per-session",  # adjective in "per-session tool calls", not a tool name
-    "multi-file",
-    "document-window",  # shorthand for the business-knowledge-document-window-retrieve tool
     # SDK / HogQL functions legitimately shown with call syntax in skills:
     "feature_enabled",
     "get_feature_flag",
@@ -86,8 +73,14 @@ _REFERENCE_ALLOWLIST = {
     "apply_path_cleaning",
     "emit_signal",
 }
+# A bare prose candidate is only treated as a (stale) reference when it is within this many
+# edits of a real name. Real renames/typos sit at distance 1-2 from the intended tool; ordinary
+# hyphenated adjectives ("highest-error", "per-file") are far from every name and so are ignored.
+_NEAR_MISS_MAX_EDITS = 2
 # "use the X tool", "load the `X` skill" — kebab or snake candidate followed by tool/skill.
-_PHRASE_REFERENCE_RE = re.compile(r"(?<![A-Za-z0-9_`-])`?([a-z0-9]+(?:[_-][a-z0-9]+)+)`?\s+(tools?|skills?)\b")
+# Group 1 captures a leading backtick: a backticked name is a literal identifier (kept strict),
+# a bare name is prose (gated by near-miss resemblance to a real name).
+_PHRASE_REFERENCE_RE = re.compile(r"(?<![A-Za-z0-9_`-])(`?)([a-z0-9]+(?:[_-][a-z0-9]+)+)`?\s+(tools?|skills?)\b")
 # "via `X`", "use `X`" — kebab-only (snake here is usually a field/SDK name, not a tool).
 _INVOCATION_REFERENCE_RE = re.compile(
     r"\b(?:via|use|using|call|calling)\s+(?:the\s+)?`([a-z0-9]+(?:-[a-z0-9]+)+)`(?!\s*(?:tools?|skills?)\b)"
@@ -123,9 +116,11 @@ def _load_mcp_tool_names(repo_root: Path) -> set[str] | None:
 ReferenceKind = Literal["tool", "tools", "skill", "skills"]
 
 
-def _find_phrase_references(text: str) -> list[tuple[str, ReferenceKind]]:
-    # kind is guaranteed by the `(tools?|skills?)` alternation
-    return [(m.group(1), cast("ReferenceKind", m.group(2))) for m in _PHRASE_REFERENCE_RE.finditer(text)]
+def _find_phrase_references(text: str) -> list[tuple[bool, str, ReferenceKind]]:
+    # kind is guaranteed by the `(tools?|skills?)` alternation; group 1 is the optional backtick
+    return [
+        (m.group(1) == "`", m.group(2), cast("ReferenceKind", m.group(3))) for m in _PHRASE_REFERENCE_RE.finditer(text)
+    ]
 
 
 def _find_invocation_references(text: str) -> list[str]:
@@ -155,10 +150,28 @@ def _is_valid_reference(name: str, kind: ReferenceKind, tool_names: set[str], sk
     return False
 
 
-def _did_you_mean(name: str, tool_names: set[str]) -> str:
+def _edit_distance(a: str, b: str) -> int:
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i]
+        for j, cb in enumerate(b, 1):
+            cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (ca != cb)))
+        prev = cur
+    return prev[-1]
+
+
+def _reference_suggestions(name: str, registry: set[str]) -> list[str]:
+    """Real names this candidate plausibly meant: exact/suffix matches, else near-misses by edit distance."""
     kebab = name.replace("_", "-")
-    matches = sorted(t for t in tool_names if t == kebab or t.endswith(f"-{kebab}"))
-    return f" — did you mean {' or '.join(matches)}?" if matches else ""
+    suffix = sorted(t for t in registry if t == kebab or t.endswith(f"-{kebab}"))
+    if suffix:
+        return suffix
+    near = sorted((_edit_distance(kebab, known), known) for known in registry)
+    return [known for distance, known in near if distance <= _NEAR_MISS_MAX_EDITS]
+
+
+def _did_you_mean(suggestions: list[str]) -> str:
+    return f" — did you mean {' or '.join(suggestions)}?" if suggestions else ""
 
 
 def _check_tool_references(text: str, source_label: str, tool_names: set[str], skill_names: set[str]) -> list[str]:
@@ -172,17 +185,24 @@ def _check_tool_references(text: str, source_label: str, tool_names: set[str], s
             reported.add(name)
             errors.append(f"{source_label}: '{name}' {reason}")
 
-    for name, kind in _find_phrase_references(text):
-        if not _is_valid_reference(name, kind, tool_names, skill_names):
-            report(name, f"references a nonexistent {kind.rstrip('s')}{_did_you_mean(name, tool_names)}")
+    for backticked, name, kind in _find_phrase_references(text):
+        if _is_valid_reference(name, kind, tool_names, skill_names):
+            continue
+        registry = skill_names if kind in ("skill", "skills") else tool_names
+        suggestions = _reference_suggestions(name, registry)
+        # A backticked name is a literal identifier, so an unknown one is always a mistake; a bare
+        # prose name is only a reference when it resembles a real one (a near-miss), not when it is
+        # an ordinary hyphenated adjective like "highest-error".
+        if backticked or suggestions:
+            report(name, f"references a nonexistent {kind.rstrip('s')}{_did_you_mean(suggestions)}")
     # "via `X`" names one concrete thing but not whether it's a tool or skill: check tools with
     # singular kind (a family prefix like `feature-flag` is not invocable), plus exact skill names.
     for name in _find_invocation_references(text):
         if not _is_valid_reference(name, "tool", tool_names, skill_names) and name not in skill_names:
-            report(name, f"references a nonexistent tool{_did_you_mean(name, tool_names)}")
+            report(name, f"references a nonexistent tool{_did_you_mean(_reference_suggestions(name, tool_names))}")
     for name in _find_call_references(text):
         if not _is_valid_reference(name, "tool", tool_names, skill_names):
-            report(name, f"references a nonexistent tool{_did_you_mean(name, tool_names)}")
+            report(name, f"references a nonexistent tool{_did_you_mean(_reference_suggestions(name, tool_names))}")
     for name in _find_backticked_snake_case(text):
         if name not in tool_names and name.replace("_", "-") in tool_names:
             report(name, f"has wrong casing — the tool is named {name.replace('_', '-')}")
