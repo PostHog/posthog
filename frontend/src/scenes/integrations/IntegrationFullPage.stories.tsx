@@ -1,7 +1,9 @@
 import { Meta, StoryObj } from '@storybook/react'
 
 import { useStorybookMocks } from '~/mocks/browser'
+import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { mockIntegration } from '~/test/mocks'
+import { Realm } from '~/types'
 
 import { Slack } from './definitions'
 import { IntegrationFullPage } from './IntegrationFullPage'
@@ -15,6 +17,12 @@ const meta: Meta<StoryArgs> = {
         useStorybookMocks({
             get: {
                 '/api/projects/:id/integrations': { results: connected ? [mockIntegration] : [] },
+                // slack_service.available drives whether the "Add to Slack" connect button shows
+                '/_preflight': {
+                    ...preflightJson,
+                    realm: Realm.Cloud,
+                    slack_service: { available: true, client_id: 'test-client-id' },
+                },
             },
         })
 
