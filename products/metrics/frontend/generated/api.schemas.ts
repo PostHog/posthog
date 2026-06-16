@@ -132,12 +132,46 @@ export const MetricQueryIntervalEnumApi = {
     Week: 'week',
 } as const
 
-export interface _MetricQueryBodyApi {
+export interface _MetricClauseApi {
     /**
-     * Exact metric name to query (e.g. 'http.server.duration').
+     * Clause name a formula refers to (e.g. 'a').
+     * @maxLength 64
+     */
+    name: string
+    /**
+     * Exact metric name this clause queries.
      * @maxLength 255
      */
     metricName: string
+    /** Aggregation applied per time bucket; same semantics as the top-level aggregation.
+     *
+     * * `sum` - sum
+     * * `avg` - avg
+     * * `count` - count
+     * * `p95` - p95
+     * * `rate` - rate
+     * * `increase` - increase
+     * * `histogram_quantile` - histogram_quantile */
+    aggregation?: AggregationEnumApi
+    /**
+     * Quantile in (0, 1) for 'histogram_quantile'.
+     * @minimum 0
+     * @maximum 1
+     * @nullable
+     */
+    quantile?: number | null
+    /** Label predicates ANDed together for this clause. */
+    filters?: _MetricFilterApi[]
+    /** Labels to split this clause into separate series by. */
+    groupBy?: _MetricGroupByApi[]
+}
+
+export interface _MetricQueryBodyApi {
+    /**
+     * Exact metric name to query (e.g. 'http.server.duration'). Single-clause shorthand — mutually exclusive with 'clauses'.
+     * @maxLength 255
+     */
+    metricName?: string
     /** Aggregation applied per time bucket. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'.
      *
      * * `sum` - sum
@@ -170,6 +204,14 @@ export interface _MetricQueryBodyApi {
      * * `day` - day
      * * `week` - week */
     interval?: MetricQueryIntervalEnumApi | null
+    /** Full multi-clause form: each clause is an independent metric selection sharing the request's time grid. Mutually exclusive with 'metricName'. */
+    clauses?: _MetricClauseApi[]
+    /**
+     * Arithmetic over clause names evaluated server-side per grid point, e.g. '(a - b) / a'. Supports + - * / and parentheses; division by zero yields 0. When set, only the formula result series are returned.
+     * @maxLength 512
+     * @nullable
+     */
+    formula?: string | null
     /** Lower bound (inclusive) for the query range. ISO 8601. */
     dateFrom: string
     /** Upper bound (exclusive) for the query range. Defaults to now if omitted. */
