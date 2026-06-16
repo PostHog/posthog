@@ -4,10 +4,8 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
 
 import { LemonInputSelect, type LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect'
-import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { fullName } from 'lib/utils'
-import { urls } from 'scenes/urls'
 
 import type { ExperimentApi } from 'products/experiments/frontend/generated/api.schemas'
 
@@ -91,16 +89,9 @@ export function ExperimentPickerSelect({
             value={value != null ? [String(value)] : []}
             options={options}
             emptyStateComponent={
-                search ? (
-                    <p className="text-secondary italic p-1">No experiments matching "{search}"</p>
-                ) : (
-                    <div className="flex flex-col gap-1 p-1 text-secondary">
-                        <span>No experiments yet.</span>
-                        <Link to={urls.experiment('new')} target="_blank">
-                            Create an experiment
-                        </Link>
-                    </div>
-                )
+                <p className="text-secondary italic p-1">
+                    {search ? `No experiments matching "${search}"` : 'No experiments yet'}
+                </p>
             }
             onFocus={() => ensureOptionsLoaded()}
             onInputChange={(text) => setSearch(text)}
