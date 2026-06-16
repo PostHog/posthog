@@ -46,8 +46,6 @@ def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricS
         raise ValueError("explicit intervals are not supported yet")
 
     clause = request.clauses[0]
-    if clause.filters:
-        raise ValueError("filters are not supported yet")
     if clause.group_by:
         raise ValueError("group_by is not supported yet")
 
@@ -64,6 +62,7 @@ def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricS
         aggregation=runner_aggregation,
         date_from=request.date_from,
         date_to=request.date_to,
+        filters=clause.filters,
     )
     points = tuple(MetricPoint(time=row["time"], value=row["value"]) for row in runner.run())
     return [MetricSeries(labels={}, points=points, metric_name=clause.metric_name, clause=clause.name)]
