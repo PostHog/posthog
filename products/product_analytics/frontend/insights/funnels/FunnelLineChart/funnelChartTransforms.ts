@@ -60,6 +60,7 @@ export function buildFunnelLineSeries(
         buildMeta: (step) => ({
             days: step.days,
             breakdown_value: step.breakdown_value,
+            compare_label: (step.compare_label ?? undefined) as SeriesDatum['compare_label'],
             order: step.order,
             label: step.label,
         }),
