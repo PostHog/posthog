@@ -148,6 +148,8 @@ class TestPostgresSourceNonRetryableErrors:
             # "Tenant or user not found connection to server" / "FATAL: Tenant or user not found"
             # patterns don't substring-match this, so it needs its own key.
             'connection failed: connection to server at "52.45.94.125", port 6543 failed: FATAL:  (ENOTFOUND) tenant/user postgres.hksbxxtlcfeyyalgveif not found',
+            "ProtocolViolation: server login has been failing, cached error: connect timeout (server_login_retry)",
+            "server login has been failing, cached error: connection refused (server_login_retry)",
         ],
     )
     def test_permanent_connection_errors_are_non_retryable(self, source, error_msg):
@@ -167,18 +169,6 @@ class TestPostgresSourceNonRetryableErrors:
         assert "Tenant or user not found connection to server" not in error_msg
         assert "FATAL: Tenant or user not found" not in error_msg
         assert any(pattern in error_msg for pattern in non_retryable.keys())
-
-    @pytest.mark.parametrize(
-        "error_msg",
-        [
-            "ProtocolViolation: server login has been failing, cached error: connect timeout (server_login_retry)",
-            "server login has been failing, cached error: connection refused (server_login_retry)",
-        ],
-    )
-    def test_pooler_login_failures_are_non_retryable(self, source, error_msg):
-        non_retryable = source.get_non_retryable_errors()
-        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
-        assert is_non_retryable, f"Pooler login failure should be non-retryable: {error_msg}"
 
     @pytest.mark.parametrize(
         "error_msg",
