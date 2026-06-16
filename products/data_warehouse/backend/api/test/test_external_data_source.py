@@ -15,6 +15,7 @@ from django.utils import timezone
 import psycopg
 from parameterized import parameterized
 from rest_framework import status
+from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.schema import (
     SourceFieldFileUploadConfig,
@@ -34,7 +35,7 @@ from posthog.temporal.data_imports.sources.bigquery.bigquery import BigQuerySour
 from posthog.temporal.data_imports.sources.common.base import FieldType, WebhookCreationResult
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.custom.source import MAX_CUSTOM_SOURCES_PER_TEAM
-from posthog.temporal.data_imports.sources.postgres.postgres import PostgresDiscoveredSchema
+from posthog.temporal.data_imports.sources.postgres.postgres import PostgresDiscoveredSchema, SSLRequiredError
 from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
 from posthog.temporal.data_imports.sources.stripe.constants import (
     BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
@@ -7637,21 +7638,27 @@ class TestCheckCDCPrerequisitesWizard(APIBaseTest):
             format="json",
         )
 
+    @parameterized.expand(
+        [
+            (
+                "operational_error",
+                psycopg.OperationalError(
+                    'connection failed: connection to server at "127.0.0.1", port 46377 failed: '
+                    "server closed the connection unexpectedly"
+                ),
+            ),
+            ("ssh_tunnel_error", BaseSSHTunnelForwarderError("Could not establish session to SSH gateway")),
+            ("ssl_required_error", SSLRequiredError("SSL/TLS is required but not supported by the server")),
+        ]
+    )
     @patch("products.data_warehouse.backend.api.external_data_source.capture_exception")
     @patch.object(PostgresSource, "is_database_host_valid", return_value=(True, None))
     @patch.object(PostgresSource, "ssh_tunnel_is_valid", return_value=(True, None))
-    @patch.object(
-        PostgresSource,
-        "check_cdc_prerequisites",
-        side_effect=psycopg.OperationalError(
-            'connection failed: connection to server at "127.0.0.1", port 46377 failed: '
-            "server closed the connection unexpectedly"
-        ),
-    )
     def test_connection_failure_returns_400_without_capture(
-        self, _mock_prereqs, _mock_ssh, _mock_host, mock_capture
+        self, _name, exc, _mock_ssh, _mock_host, mock_capture
     ) -> None:
-        response = self._post()
+        with patch.object(PostgresSource, "check_cdc_prerequisites", side_effect=exc):
+            response = self._post()
         assert response.status_code == 400, response.content
         assert "Could not connect to Postgres to check prerequisites" in response.json()["message"]
         # User/upstream connection failures must not pollute error tracking.
