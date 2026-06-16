@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -36,6 +37,7 @@ class SquareSource(ResumableSource[SquareSourceConfig, SquareResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.SQUARE,
+            category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Square",
             caption="""Enter a Square access token to pull your Square data into the PostHog Data warehouse.
 

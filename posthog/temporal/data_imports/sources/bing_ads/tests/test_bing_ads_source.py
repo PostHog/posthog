@@ -253,12 +253,22 @@ class TestBingAdsSource:
                 "InvalidCredentials",
                 "Failed to fetch customer ID: WebFault: ... InvalidCredentials ...",
             ),
+            # Generic SOAP fault returned by GetUser when the connected account's credentials/identity
+            # can't be used. GetUser takes no request params, so this is never our bug — stop retrying.
+            (
+                "Invalid client data",
+                "Failed to fetch customer ID: WebFault: Server raised fault: 'Invalid client data. "
+                "Check the SOAP fault details for more information. TrackingId: abc-123.'",
+            ),
             # Specific Azure AD code — tenant missing service principal for the Microsoft Advertising API.
             (
                 "AADSTS650052",
                 "Failed to fetch customer ID: OAuthTokenRequestException: invalid_client AADSTS650052: "
                 "The app is trying to access a service that your organization lacks a service principal for.",
             ),
+            # Integration deleted/disconnected — OAuthMixin.get_oauth_integration raises
+            # `ValueError("Integration not found: <id>")`; match only the volatile-id-free prefix.
+            ("Integration not found", "Integration not found: 160672"),
             # Deterministic credential/config errors raised in source_for_pipeline.
             ("Bing Ads access token not found", "Bing Ads access token not found for job abc"),
             ("Bing Ads refresh token not found", "Bing Ads refresh token not found for job abc"),
