@@ -1,8 +1,9 @@
 import json
 import datetime as dt
-from typing import Any
+from typing import Any, cast
 
 import pytest
+from freezegun import freeze_time
 from unittest import mock
 
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -825,11 +826,15 @@ class TestNonRetryableErrors:
         assert _is_permanent_auth_error(_mock_response(400, body)) is expected
 
 
+@freeze_time("2026-06-16")
 class TestTimeRangeClamping:
     """Meta rejects insights time ranges starting beyond ~37 months (error 3018).
 
     The `since` we build must stay inside Meta's supported window, even when it is
     derived from an aged incremental cursor.
+
+    The date is frozen so the ``today`` captured in the test and the
+    ``dt.date.today()`` read inside ``get_rows`` always agree (no midnight race).
     """
 
     def _capture_time_range(self, monkeypatch, **source_kwargs: Any) -> dict | None:
@@ -857,40 +862,34 @@ class TestTimeRangeClamping:
             resumable_source_manager=_build_manager(),
             **source_kwargs,
         )
-        list(response.items())
+        list(cast(Any, response.items()))
         return captured["time_range"]
 
-    def test_aged_incremental_cursor_is_clamped_to_supported_window(self, monkeypatch) -> None:
+    @pytest.mark.parametrize(
+        "days_ago,should_clamp",
+        [
+            # A dormant account's stored cursor has aged past Meta's 37-month limit.
+            (META_ADS_MAX_HISTORY_DAYS + 200, True),
+            # A recent cursor sits comfortably inside the supported window.
+            (5, False),
+        ],
+    )
+    def test_incremental_cursor_clamping(self, monkeypatch, days_ago: int, should_clamp: bool) -> None:
         today = dt.date.today()
-        # A dormant account's stored cursor has aged past Meta's 37-month limit.
-        aged_cursor = today - dt.timedelta(days=META_ADS_MAX_HISTORY_DAYS + 200)
+        cursor = today - dt.timedelta(days=days_ago)
 
         time_range = self._capture_time_range(
             monkeypatch,
             should_use_incremental_field=True,
             incremental_field="date_start",
             incremental_field_type=IncrementalFieldType.Date,
-            db_incremental_field_last_value=aged_cursor,
+            db_incremental_field_last_value=cursor,
         )
 
         assert time_range is not None
-        assert time_range["since"] == _earliest_supported_since(today).strftime("%Y-%m-%d")
+        expected_since = _earliest_supported_since(today) if should_clamp else cursor
+        assert time_range["since"] == expected_since.strftime("%Y-%m-%d")
         assert time_range["until"] == today.strftime("%Y-%m-%d")
-
-    def test_recent_incremental_cursor_is_left_untouched(self, monkeypatch) -> None:
-        today = dt.date.today()
-        recent_cursor = today - dt.timedelta(days=5)
-
-        time_range = self._capture_time_range(
-            monkeypatch,
-            should_use_incremental_field=True,
-            incremental_field="date_start",
-            incremental_field_type=IncrementalFieldType.Date,
-            db_incremental_field_last_value=recent_cursor,
-        )
-
-        assert time_range is not None
-        assert time_range["since"] == recent_cursor.strftime("%Y-%m-%d")
 
     def test_stats_lookback_is_clamped_to_supported_window(self, monkeypatch) -> None:
         today = dt.date.today()
