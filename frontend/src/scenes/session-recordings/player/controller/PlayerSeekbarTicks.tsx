@@ -12,7 +12,7 @@ import { RichContentPreview } from 'lib/lemon-ui/LemonRichContent/LemonRichConte
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { autoCaptureEventToDescription } from 'lib/utils/events'
-import { getPrimaryPropertyForEvent } from 'lib/utils/primaryEventProperty'
+import { getPrimaryPropertyForEvent } from 'lib/utils/events'
 import {
     InspectorListItem,
     InspectorListItemComment,
