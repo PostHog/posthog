@@ -77,6 +77,10 @@ OVERRIDE_TIMESTAMP_TEAM_IDS: dict[int, int] = dict(
 )
 
 CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST: str | None = os.getenv("CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST", None)
+# Used in internal stage to cap Arrow record batch size
+BATCH_EXPORTS_CLICKHOUSE_MAX_INSERT_BLOCK_SIZE_BYTES: int = get_from_env(
+    "BATCH_EXPORTS_CLICKHOUSE_MAX_INSERT_BLOCK_SIZE_BYTES", 64 * 1024 * 1024, type_cast=int
+)
 
 BATCH_EXPORT_OBJECT_STORAGE_ENDPOINT: str = os.getenv(
     "BATCH_EXPORT_OBJECT_STORAGE_ENDPOINT", "http://objectstorage:19000"
