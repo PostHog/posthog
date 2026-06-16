@@ -839,7 +839,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 filterTestAccounts,
                 shouldStripQueryParams,
                 includeHostPath: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_INCLUDE_HOST] && includeHostPath,
-                useWebAnalyticsPrecompute,
+                // Gate the persisted opt-in on the flag so killing the flag can never send a stale `true`
+                // to the backend for a team that had it enabled — belt-and-suspenders, not a backend guard.
+                useWebAnalyticsPrecompute:
+                    useWebAnalyticsPrecompute && !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PRECOMPUTE_TOGGLE],
             }),
         ],
         filters: [

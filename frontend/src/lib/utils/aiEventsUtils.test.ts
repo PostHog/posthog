@@ -69,7 +69,7 @@ describe('aiEventsUtils', () => {
         })
 
         it('falls back to ClickHouse when EventDefinition is stale', async () => {
-            const staleDate = dayjs().subtract(60, 'day').toISOString()
+            const staleDate = dayjs().subtract(120, 'day').toISOString()
 
             useMocks({
                 get: {

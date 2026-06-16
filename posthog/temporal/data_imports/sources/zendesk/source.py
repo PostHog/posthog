@@ -2,6 +2,7 @@ import re
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
@@ -76,6 +77,7 @@ class ZendeskSource(SimpleSource[ZendeskSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.ZENDESK,
+            category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             caption="Enter your Zendesk API key to automatically pull your Zendesk support data into the PostHog Data warehouse.",
             iconPath="/static/services/zendesk.png",
             iconClassName="rounded dark:bg-white p-[2px]",

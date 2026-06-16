@@ -29,13 +29,14 @@ import { SidePanelTab } from '~/types'
 
 import { AiFirstMaxInstance } from './components/AiFirstMaxInstance'
 import { AnimatedBackButton } from './components/AnimatedBackButton'
+import { MaxNotConfigured } from './components/MaxNotConfigured'
 import { SidebarQuestionInput } from './components/SidebarQuestionInput'
 import { SidebarQuestionInputWithSuggestions } from './components/SidebarQuestionInputWithSuggestions'
 import { ThreadAutoScroller } from './components/ThreadAutoScroller'
 import { ConversationHistory } from './ConversationHistory'
 import { HistoryPreview } from './HistoryPreview'
 import { Intro } from './Intro'
-import { MaxLogicProps, maxLogic } from './maxLogic'
+import { MaxLogicProps, SIDE_PANEL_PANEL_ID, maxLogic } from './maxLogic'
 import { MaxThreadLogicProps, maxThreadLogic } from './maxThreadLogic'
 import { Thread } from './Thread'
 
@@ -47,8 +48,8 @@ export const scene: SceneExport = {
 export function Max({ tabId }: { tabId?: string }): JSX.Element {
     const { sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
     const { closeSidePanel } = useActions(sidePanelLogic)
-    const { conversationId: tabConversationId } = useValues(maxLogic({ tabId: tabId || '' }))
-    const { conversationId: sidepanelConversationId } = useValues(maxLogic({ sidePanel: true }))
+    const { conversationId: tabConversationId } = useValues(maxLogic({ panelId: tabId }))
+    const { conversationId: sidepanelConversationId } = useValues(maxLogic({ panelId: SIDE_PANEL_PANEL_ID }))
     if (sidePanelOpen && selectedTab === SidePanelTab.Max && sidepanelConversationId === tabConversationId) {
         return (
             <SceneContent className="px-4 py-4 min-h-[calc(100vh-var(--scene-layout-header-height)-120px)]">
@@ -79,11 +80,11 @@ export interface MaxInstanceProps {
 }
 
 export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }: MaxInstanceProps): JSX.Element {
-    // `sidePanel` here is presentational (side panel chrome/layout) and is independent of which
-    // logic instance we bind: a tabId identifies a scene tab (or a Storybook instance rendered with
-    // side panel chrome), and only the real side panel — which has no tabId — uses the sidePanel
-    // logic identity. Folding the presentational flag into the key would hijack tabbed instances.
-    const logicProps: MaxLogicProps = tabId ? { tabId } : { sidePanel: true }
+    // `sidePanel` here is presentational (side panel chrome/layout) and is independent of the logic
+    // identity we bind: a tabId identifies a scene tab (or a Storybook instance rendered with side
+    // panel chrome), while the real side panel — which has no tabId — binds the side panel panelId.
+    // Folding the presentational flag into the key would hijack tabbed instances.
+    const logicProps: MaxLogicProps = { panelId: tabId ?? SIDE_PANEL_PANEL_ID }
     const {
         threadVisible,
         conversationHistoryVisible,
@@ -95,6 +96,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
     } = useValues(maxLogic(logicProps))
     const { startNewConversation, goBack } = useActions(maxLogic(logicProps))
     const { openSidePanelMax } = useActions(maxGlobalLogic)
+    const { isMaxAvailable } = useValues(maxGlobalLogic)
 
     const threadProps: MaxThreadLogicProps = {
         ...logicProps,
@@ -104,7 +106,9 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
 
     const { closeSidePanel } = useActions(sidePanelLogic)
 
-    const content = (
+    const content = !isMaxAvailable ? (
+        <MaxNotConfigured />
+    ) : (
         <BindLogic logic={maxLogic} props={logicProps}>
             <BindLogic logic={maxThreadLogic} props={threadProps}>
                 {conversationHistoryVisible ? (

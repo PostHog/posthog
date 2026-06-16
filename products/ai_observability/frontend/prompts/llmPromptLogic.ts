@@ -59,7 +59,6 @@ export interface PromptLogicProps {
     promptName: string | 'new'
     mode?: PromptMode
     selectedVersion?: number | null
-    tabId?: string
 }
 
 export interface PromptFormValues {
@@ -149,10 +148,7 @@ function isNameFieldValidationError(error: unknown): error is { attr: 'name'; de
 export const llmPromptLogic = kea<llmPromptLogicType>([
     path(['scenes', 'ai-observability', 'llmPromptLogic']),
     props({ promptName: 'new' } as PromptLogicProps),
-    key(
-        ({ promptName, selectedVersion, tabId }) =>
-            `prompt-${promptName}:${selectedVersion ?? 'latest'}::${tabId ?? 'default'}`
-    ),
+    key(({ promptName, selectedVersion }) => `prompt-${promptName}:${selectedVersion ?? 'latest'}`),
     connect(() => ({
         actions: [teamLogic, ['addProductIntent']],
     })),

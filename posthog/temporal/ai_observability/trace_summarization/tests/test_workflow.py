@@ -301,7 +301,7 @@ class TestSampleItemsInWindowActivity:
     async def test_sample_skips_when_cohort_filter_references_soft_deleted_cohort(self, mock_team):
         from asgiref.sync import sync_to_async
 
-        from posthog.models.cohort import Cohort
+        from products.cohorts.backend.models.cohort import Cohort
 
         cohort = await sync_to_async(Cohort.objects.create)(team=mock_team, name="Stale", deleted=True)
         inputs = BatchSummarizationInputs(
@@ -326,7 +326,7 @@ class TestSampleItemsInWindowActivity:
     async def test_sample_runs_when_cohort_filter_resolves(self, mock_team):
         from asgiref.sync import sync_to_async
 
-        from posthog.models.cohort import Cohort
+        from products.cohorts.backend.models.cohort import Cohort
 
         cohort = await sync_to_async(Cohort.objects.create)(team=mock_team, name="VIPs")
         inputs = BatchSummarizationInputs(

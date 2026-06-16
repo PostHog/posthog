@@ -1,5 +1,6 @@
 import { RESOURCE_URI_META_KEY } from '@modelcontextprotocol/ext-apps/server'
 
+import { estimateTokens } from '@/lib/estimate-tokens'
 import { formatResponse } from '@/lib/response'
 import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, POSTHOG_META_KEY } from '@/tools/types'
 import type { AnalyticsMetadata, WithAnalytics } from '@/ui-apps/types'
@@ -64,6 +65,17 @@ export function isToolCallPayload(value: unknown): value is ToolResultPayload {
 /** Stamp a payload as exec-built so `isToolCallPayload` recognizes it. */
 export function markExecPayload(payload: ToolResultPayload): ToolResultPayload {
     return { ...payload, [EXEC_BUILT_PAYLOAD]: true }
+}
+
+/**
+ * Estimate output tokens from the text actually returned to the client — the
+ * serialized TOON/JSON/formatted string, not the raw handler object. TOON is
+ * materially smaller than JSON for tabular results, so measuring the raw object
+ * would over-count. `structuredContent` is deliberately excluded: it duplicates
+ * the text for UI tools, so counting it would double-bill those calls.
+ */
+export function estimateResponseTokens(response: ToolResultPayload): number {
+    return estimateTokens(response.content.map((part) => part.text).join(''))
 }
 
 /**

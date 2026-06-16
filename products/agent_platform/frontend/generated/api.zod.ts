@@ -11,31 +11,37 @@ import * as zod from 'zod'
 
 /**
  * Agent applications — the deployable unit of the platform.
-
-URLs:
-    GET    /api/projects/<team>/agent_applications/             list
-    POST   /api/projects/<team>/agent_applications/             create
-    GET    /api/projects/<team>/agent_applications/<id|slug>/   retrieve
-    PATCH  /api/projects/<team>/agent_applications/<id|slug>/   update
-    DELETE /api/projects/<team>/agent_applications/<id|slug>/   archive
-    POST   /api/projects/<team>/agent_applications/<id|slug>/set_env/        bulk replace env
-    GET    /api/projects/<team>/agent_applications/<id|slug>/env_keys/        list set keys
-    GET    /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  is one key set?
-    PUT    /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  set one key
-    DELETE /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  clear one key
+ *
+ * URLs:
+ *     GET    /api/projects/<team>/agent_applications/             list
+ *     POST   /api/projects/<team>/agent_applications/             create
+ *     GET    /api/projects/<team>/agent_applications/<id|slug>/   retrieve
+ *     PATCH  /api/projects/<team>/agent_applications/<id|slug>/   update
+ *     DELETE /api/projects/<team>/agent_applications/<id|slug>/   archive
+ *     POST   /api/projects/<team>/agent_applications/<id|slug>/set_env/        bulk replace env
+ *     GET    /api/projects/<team>/agent_applications/<id|slug>/env_keys/        list set keys
+ *     GET    /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  is one key set?
+ *     PUT    /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  set one key
+ *     DELETE /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  clear one key
  */
 export const agentApplicationsCreateBodyNameMax = 255
 
 export const agentApplicationsCreateBodySlugMax = 63
 
 export const agentApplicationsCreateBodySlugRegExp = new RegExp('^[-a-zA-Z0-9_]+$')
-export const agentApplicationsCreateBodyArchivedDefault = false
 
 export const AgentApplicationsCreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(agentApplicationsCreateBodyNameMax),
-    slug: zod.string().max(agentApplicationsCreateBodySlugMax).regex(agentApplicationsCreateBodySlugRegExp),
+    slug: zod
+        .string()
+        .max(agentApplicationsCreateBodySlugMax)
+        .regex(agentApplicationsCreateBodySlugRegExp)
+        .optional()
+        .describe(
+            'Globally-unique URL identifier. Server-minted as an opaque random slug on create; only allowlisted first-party teams may set it explicitly. Slugs live in one global namespace (domain-mode ingress routing carries no team).'
+        ),
     description: zod.string().optional(),
-    archived: zod.boolean().default(agentApplicationsCreateBodyArchivedDefault),
+    archived: zod.boolean().optional(),
 })
 
 /**
@@ -73,30 +79,30 @@ export const AgentMemoryUpdateFileBody = /* @__PURE__ */ zod
 
 /**
  * Revisions of an agent. Created in `draft`, promoted through
-`ready → live` once the bundle has been uploaded + frozen.
-
-URLs (nested under an application):
-
-    Model CRUD:
-        GET   .../revisions/                       list
-        POST  .../revisions/                       create draft
-        GET   .../revisions/<id>/                  retrieve
-        PATCH .../revisions/<id>/                  update spec (draft only)
-
-    Lifecycle:
-        POST  .../revisions/<id>/promote/          ready → live
-        POST  .../revisions/<id>/archive/          → archived
-        POST  .../revisions/<id>/freeze/           draft → ready (stamps sha256)
-        POST  .../revisions/<id>/clone_from/       copy bundle from another rev
-        POST  .../revisions/new_draft/             create draft + clone_from atomically
-
-    Bundle authoring (proxied to the janitor):
-        GET    .../revisions/<id>/manifest/        list paths + sha256
-        GET    .../revisions/<id>/file/?path=…     read one file
-        PUT    .../revisions/<id>/file/?path=…     write one file (draft)
-        DELETE .../revisions/<id>/file/?path=…     delete one file (draft)
-        GET    .../revisions/<id>/bundle/          bulk pull all files
-        PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
+ * `ready → live` once the bundle has been uploaded + frozen.
+ *
+ * URLs (nested under an application):
+ *
+ *     Model CRUD:
+ *         GET   .../revisions/                       list
+ *         POST  .../revisions/                       create draft
+ *         GET   .../revisions/<id>/                  retrieve
+ *         PATCH .../revisions/<id>/                  update spec (draft only)
+ *
+ *     Lifecycle:
+ *         POST  .../revisions/<id>/promote/          ready → live
+ *         POST  .../revisions/<id>/archive/          → archived
+ *         POST  .../revisions/<id>/freeze/           draft → ready (stamps sha256)
+ *         POST  .../revisions/<id>/clone_from/       copy bundle from another rev
+ *         POST  .../revisions/new_draft/             create draft + clone_from atomically
+ *
+ *     Bundle authoring (proxied to the janitor):
+ *         GET    .../revisions/<id>/manifest/        list paths + sha256
+ *         GET    .../revisions/<id>/file/?path=…     read one file
+ *         PUT    .../revisions/<id>/file/?path=…     write one file (draft)
+ *         DELETE .../revisions/<id>/file/?path=…     delete one file (draft)
+ *         GET    .../revisions/<id>/bundle/          bulk pull all files
+ *         PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
  */
 export const agentApplicationsRevisionsCreateBodyBundleUriDefault = ``
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigMentionOnlyDefault = false
@@ -581,7 +587,7 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
 
 /**
  * Spec edits are only allowed while state='draft'. Once promoted to
-ready/live the spec is frozen — change requires a new revision.
+ * ready/live the spec is frozen — change requires a new revision.
  */
 export const agentApplicationsRevisionsUpdateBodyBundleUriDefault = ``
 export const agentApplicationsRevisionsUpdateBodySpecTriggersItemOneConfigMentionOnlyDefault = false
@@ -1066,30 +1072,30 @@ export const AgentApplicationsRevisionsUpdateBody = /* @__PURE__ */ zod.object({
 
 /**
  * Revisions of an agent. Created in `draft`, promoted through
-`ready → live` once the bundle has been uploaded + frozen.
-
-URLs (nested under an application):
-
-    Model CRUD:
-        GET   .../revisions/                       list
-        POST  .../revisions/                       create draft
-        GET   .../revisions/<id>/                  retrieve
-        PATCH .../revisions/<id>/                  update spec (draft only)
-
-    Lifecycle:
-        POST  .../revisions/<id>/promote/          ready → live
-        POST  .../revisions/<id>/archive/          → archived
-        POST  .../revisions/<id>/freeze/           draft → ready (stamps sha256)
-        POST  .../revisions/<id>/clone_from/       copy bundle from another rev
-        POST  .../revisions/new_draft/             create draft + clone_from atomically
-
-    Bundle authoring (proxied to the janitor):
-        GET    .../revisions/<id>/manifest/        list paths + sha256
-        GET    .../revisions/<id>/file/?path=…     read one file
-        PUT    .../revisions/<id>/file/?path=…     write one file (draft)
-        DELETE .../revisions/<id>/file/?path=…     delete one file (draft)
-        GET    .../revisions/<id>/bundle/          bulk pull all files
-        PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
+ * `ready → live` once the bundle has been uploaded + frozen.
+ *
+ * URLs (nested under an application):
+ *
+ *     Model CRUD:
+ *         GET   .../revisions/                       list
+ *         POST  .../revisions/                       create draft
+ *         GET   .../revisions/<id>/                  retrieve
+ *         PATCH .../revisions/<id>/                  update spec (draft only)
+ *
+ *     Lifecycle:
+ *         POST  .../revisions/<id>/promote/          ready → live
+ *         POST  .../revisions/<id>/archive/          → archived
+ *         POST  .../revisions/<id>/freeze/           draft → ready (stamps sha256)
+ *         POST  .../revisions/<id>/clone_from/       copy bundle from another rev
+ *         POST  .../revisions/new_draft/             create draft + clone_from atomically
+ *
+ *     Bundle authoring (proxied to the janitor):
+ *         GET    .../revisions/<id>/manifest/        list paths + sha256
+ *         GET    .../revisions/<id>/file/?path=…     read one file
+ *         PUT    .../revisions/<id>/file/?path=…     write one file (draft)
+ *         DELETE .../revisions/<id>/file/?path=…     delete one file (draft)
+ *         GET    .../revisions/<id>/bundle/          bulk pull all files
+ *         PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
  */
 export const agentApplicationsRevisionsPartialUpdateBodyBundleUriDefault = ``
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigMentionOnlyDefault = false
@@ -1592,30 +1598,30 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
 
 /**
  * Revisions of an agent. Created in `draft`, promoted through
-`ready → live` once the bundle has been uploaded + frozen.
-
-URLs (nested under an application):
-
-    Model CRUD:
-        GET   .../revisions/                       list
-        POST  .../revisions/                       create draft
-        GET   .../revisions/<id>/                  retrieve
-        PATCH .../revisions/<id>/                  update spec (draft only)
-
-    Lifecycle:
-        POST  .../revisions/<id>/promote/          ready → live
-        POST  .../revisions/<id>/archive/          → archived
-        POST  .../revisions/<id>/freeze/           draft → ready (stamps sha256)
-        POST  .../revisions/<id>/clone_from/       copy bundle from another rev
-        POST  .../revisions/new_draft/             create draft + clone_from atomically
-
-    Bundle authoring (proxied to the janitor):
-        GET    .../revisions/<id>/manifest/        list paths + sha256
-        GET    .../revisions/<id>/file/?path=…     read one file
-        PUT    .../revisions/<id>/file/?path=…     write one file (draft)
-        DELETE .../revisions/<id>/file/?path=…     delete one file (draft)
-        GET    .../revisions/<id>/bundle/          bulk pull all files
-        PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
+ * `ready → live` once the bundle has been uploaded + frozen.
+ *
+ * URLs (nested under an application):
+ *
+ *     Model CRUD:
+ *         GET   .../revisions/                       list
+ *         POST  .../revisions/                       create draft
+ *         GET   .../revisions/<id>/                  retrieve
+ *         PATCH .../revisions/<id>/                  update spec (draft only)
+ *
+ *     Lifecycle:
+ *         POST  .../revisions/<id>/promote/          ready → live
+ *         POST  .../revisions/<id>/archive/          → archived
+ *         POST  .../revisions/<id>/freeze/           draft → ready (stamps sha256)
+ *         POST  .../revisions/<id>/clone_from/       copy bundle from another rev
+ *         POST  .../revisions/new_draft/             create draft + clone_from atomically
+ *
+ *     Bundle authoring (proxied to the janitor):
+ *         GET    .../revisions/<id>/manifest/        list paths + sha256
+ *         GET    .../revisions/<id>/file/?path=…     read one file
+ *         PUT    .../revisions/<id>/file/?path=…     write one file (draft)
+ *         DELETE .../revisions/<id>/file/?path=…     delete one file (draft)
+ *         GET    .../revisions/<id>/bundle/          bulk pull all files
+ *         PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
  */
 export const AgentApplicationsRevisionsAgentMdUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -1625,8 +1631,8 @@ export const AgentApplicationsRevisionsAgentMdUpdateBody = /* @__PURE__ */ zod
 
 /**
  * Full-replace the typed bundle. Anything not in the payload is
-deleted. Tool sources are AST-checked + esbuild-compiled by the
-janitor before any S3 writes.
+ * deleted. Tool sources are AST-checked + esbuild-compiled by the
+ * janitor before any S3 writes.
  */
 export const AgentApplicationsRevisionsBundleUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -1662,9 +1668,7 @@ export const AgentApplicationsRevisionsBundleUpdateBody = /* @__PURE__ */ zod
             .optional(),
         spec: zod.record(zod.string(), zod.unknown()),
     })
-    .describe(
-        'Body shape for PUT \/revisions\/<id>\/bundle\/ — the full-replace typed\npayload. See docs\/agent-platform\/plans\/typed-bundle-authoring-api.md §3.'
-    )
+    .describe('Body shape for PUT \/revisions\/<id>\/bundle\/ — the full-replace typed\npayload.')
 
 /**
  * Copy every file from `source_revision_id` into this revision.
@@ -1679,14 +1683,13 @@ export const AgentApplicationsRevisionsCloneFromCreateBody = /* @__PURE__ */ zod
 
 /**
  * Fire one cron job out-of-band — the same execution path the
-scheduler walks, but on demand. Authoring UX: the user iterates on
-a cron prompt by clicking 'Fire now' rather than waiting for the
-next scheduled firing. Without this, 'did my prompt do the right
-thing?' is unanswerable until the cron actually fires.
-
-Idempotent via `request_id`: repeat clicks with the same id resolve
-to the same session id rather than firing N times. See
-`docs/agent-platform/plans/cron-trigger-scheduler.md` §9.
+ * scheduler walks, but on demand. Authoring UX: the user iterates on
+ * a cron prompt by clicking 'Fire now' rather than waiting for the
+ * next scheduled firing. Without this, 'did my prompt do the right
+ * thing?' is unanswerable until the cron actually fires.
+ *
+ * Idempotent via `request_id`: repeat clicks with the same id resolve
+ * to the same session id rather than firing N times.
  */
 export const AgentApplicationsRevisionsCronFireCreateBody = /* @__PURE__ */ zod.object({
     cron_name: zod.string().describe('`name` of the cron trigger in `spec.triggers[]` to fire.'),
@@ -1700,30 +1703,30 @@ export const AgentApplicationsRevisionsCronFireCreateBody = /* @__PURE__ */ zod.
 
 /**
  * Revisions of an agent. Created in `draft`, promoted through
-`ready → live` once the bundle has been uploaded + frozen.
-
-URLs (nested under an application):
-
-    Model CRUD:
-        GET   .../revisions/                       list
-        POST  .../revisions/                       create draft
-        GET   .../revisions/<id>/                  retrieve
-        PATCH .../revisions/<id>/                  update spec (draft only)
-
-    Lifecycle:
-        POST  .../revisions/<id>/promote/          ready → live
-        POST  .../revisions/<id>/archive/          → archived
-        POST  .../revisions/<id>/freeze/           draft → ready (stamps sha256)
-        POST  .../revisions/<id>/clone_from/       copy bundle from another rev
-        POST  .../revisions/new_draft/             create draft + clone_from atomically
-
-    Bundle authoring (proxied to the janitor):
-        GET    .../revisions/<id>/manifest/        list paths + sha256
-        GET    .../revisions/<id>/file/?path=…     read one file
-        PUT    .../revisions/<id>/file/?path=…     write one file (draft)
-        DELETE .../revisions/<id>/file/?path=…     delete one file (draft)
-        GET    .../revisions/<id>/bundle/          bulk pull all files
-        PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
+ * `ready → live` once the bundle has been uploaded + frozen.
+ *
+ * URLs (nested under an application):
+ *
+ *     Model CRUD:
+ *         GET   .../revisions/                       list
+ *         POST  .../revisions/                       create draft
+ *         GET   .../revisions/<id>/                  retrieve
+ *         PATCH .../revisions/<id>/                  update spec (draft only)
+ *
+ *     Lifecycle:
+ *         POST  .../revisions/<id>/promote/          ready → live
+ *         POST  .../revisions/<id>/archive/          → archived
+ *         POST  .../revisions/<id>/freeze/           draft → ready (stamps sha256)
+ *         POST  .../revisions/<id>/clone_from/       copy bundle from another rev
+ *         POST  .../revisions/new_draft/             create draft + clone_from atomically
+ *
+ *     Bundle authoring (proxied to the janitor):
+ *         GET    .../revisions/<id>/manifest/        list paths + sha256
+ *         GET    .../revisions/<id>/file/?path=…     read one file
+ *         PUT    .../revisions/<id>/file/?path=…     write one file (draft)
+ *         DELETE .../revisions/<id>/file/?path=…     delete one file (draft)
+ *         GET    .../revisions/<id>/bundle/          bulk pull all files
+ *         PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
  */
 export const AgentApplicationsRevisionsSkillsUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -1738,30 +1741,30 @@ export const AgentApplicationsRevisionsSkillsUpdateBody = /* @__PURE__ */ zod
 
 /**
  * Revisions of an agent. Created in `draft`, promoted through
-`ready → live` once the bundle has been uploaded + frozen.
-
-URLs (nested under an application):
-
-    Model CRUD:
-        GET   .../revisions/                       list
-        POST  .../revisions/                       create draft
-        GET   .../revisions/<id>/                  retrieve
-        PATCH .../revisions/<id>/                  update spec (draft only)
-
-    Lifecycle:
-        POST  .../revisions/<id>/promote/          ready → live
-        POST  .../revisions/<id>/archive/          → archived
-        POST  .../revisions/<id>/freeze/           draft → ready (stamps sha256)
-        POST  .../revisions/<id>/clone_from/       copy bundle from another rev
-        POST  .../revisions/new_draft/             create draft + clone_from atomically
-
-    Bundle authoring (proxied to the janitor):
-        GET    .../revisions/<id>/manifest/        list paths + sha256
-        GET    .../revisions/<id>/file/?path=…     read one file
-        PUT    .../revisions/<id>/file/?path=…     write one file (draft)
-        DELETE .../revisions/<id>/file/?path=…     delete one file (draft)
-        GET    .../revisions/<id>/bundle/          bulk pull all files
-        PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
+ * `ready → live` once the bundle has been uploaded + frozen.
+ *
+ * URLs (nested under an application):
+ *
+ *     Model CRUD:
+ *         GET   .../revisions/                       list
+ *         POST  .../revisions/                       create draft
+ *         GET   .../revisions/<id>/                  retrieve
+ *         PATCH .../revisions/<id>/                  update spec (draft only)
+ *
+ *     Lifecycle:
+ *         POST  .../revisions/<id>/promote/          ready → live
+ *         POST  .../revisions/<id>/archive/          → archived
+ *         POST  .../revisions/<id>/freeze/           draft → ready (stamps sha256)
+ *         POST  .../revisions/<id>/clone_from/       copy bundle from another rev
+ *         POST  .../revisions/new_draft/             create draft + clone_from atomically
+ *
+ *     Bundle authoring (proxied to the janitor):
+ *         GET    .../revisions/<id>/manifest/        list paths + sha256
+ *         GET    .../revisions/<id>/file/?path=…     read one file
+ *         PUT    .../revisions/<id>/file/?path=…     write one file (draft)
+ *         DELETE .../revisions/<id>/file/?path=…     delete one file (draft)
+ *         GET    .../revisions/<id>/bundle/          bulk pull all files
+ *         PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
  */
 export const AgentApplicationsRevisionsSpecUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -1773,30 +1776,30 @@ export const AgentApplicationsRevisionsSpecUpdateBody = /* @__PURE__ */ zod
 
 /**
  * Revisions of an agent. Created in `draft`, promoted through
-`ready → live` once the bundle has been uploaded + frozen.
-
-URLs (nested under an application):
-
-    Model CRUD:
-        GET   .../revisions/                       list
-        POST  .../revisions/                       create draft
-        GET   .../revisions/<id>/                  retrieve
-        PATCH .../revisions/<id>/                  update spec (draft only)
-
-    Lifecycle:
-        POST  .../revisions/<id>/promote/          ready → live
-        POST  .../revisions/<id>/archive/          → archived
-        POST  .../revisions/<id>/freeze/           draft → ready (stamps sha256)
-        POST  .../revisions/<id>/clone_from/       copy bundle from another rev
-        POST  .../revisions/new_draft/             create draft + clone_from atomically
-
-    Bundle authoring (proxied to the janitor):
-        GET    .../revisions/<id>/manifest/        list paths + sha256
-        GET    .../revisions/<id>/file/?path=…     read one file
-        PUT    .../revisions/<id>/file/?path=…     write one file (draft)
-        DELETE .../revisions/<id>/file/?path=…     delete one file (draft)
-        GET    .../revisions/<id>/bundle/          bulk pull all files
-        PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
+ * `ready → live` once the bundle has been uploaded + frozen.
+ *
+ * URLs (nested under an application):
+ *
+ *     Model CRUD:
+ *         GET   .../revisions/                       list
+ *         POST  .../revisions/                       create draft
+ *         GET   .../revisions/<id>/                  retrieve
+ *         PATCH .../revisions/<id>/                  update spec (draft only)
+ *
+ *     Lifecycle:
+ *         POST  .../revisions/<id>/promote/          ready → live
+ *         POST  .../revisions/<id>/archive/          → archived
+ *         POST  .../revisions/<id>/freeze/           draft → ready (stamps sha256)
+ *         POST  .../revisions/<id>/clone_from/       copy bundle from another rev
+ *         POST  .../revisions/new_draft/             create draft + clone_from atomically
+ *
+ *     Bundle authoring (proxied to the janitor):
+ *         GET    .../revisions/<id>/manifest/        list paths + sha256
+ *         GET    .../revisions/<id>/file/?path=…     read one file
+ *         PUT    .../revisions/<id>/file/?path=…     write one file (draft)
+ *         DELETE .../revisions/<id>/file/?path=…     delete one file (draft)
+ *         GET    .../revisions/<id>/bundle/          bulk pull all files
+ *         PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
  */
 export const AgentApplicationsRevisionsToolsUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -1808,8 +1811,8 @@ export const AgentApplicationsRevisionsToolsUpdateBody = /* @__PURE__ */ zod
 
 /**
  * Create a fresh draft revision under `application_id` and seed it
-from `source_revision_id`. Saves the MCP one round-trip vs the
-explicit create + clone_from sequence.
+ * from `source_revision_id`. Saves the MCP one round-trip vs the
+ * explicit create + clone_from sequence.
  */
 export const AgentApplicationsRevisionsNewDraftCreateBody = /* @__PURE__ */ zod
     .object({
@@ -1822,54 +1825,59 @@ export const AgentApplicationsRevisionsNewDraftCreateBody = /* @__PURE__ */ zod
 
 /**
  * Agent applications — the deployable unit of the platform.
-
-URLs:
-    GET    /api/projects/<team>/agent_applications/             list
-    POST   /api/projects/<team>/agent_applications/             create
-    GET    /api/projects/<team>/agent_applications/<id|slug>/   retrieve
-    PATCH  /api/projects/<team>/agent_applications/<id|slug>/   update
-    DELETE /api/projects/<team>/agent_applications/<id|slug>/   archive
-    POST   /api/projects/<team>/agent_applications/<id|slug>/set_env/        bulk replace env
-    GET    /api/projects/<team>/agent_applications/<id|slug>/env_keys/        list set keys
-    GET    /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  is one key set?
-    PUT    /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  set one key
-    DELETE /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  clear one key
+ *
+ * URLs:
+ *     GET    /api/projects/<team>/agent_applications/             list
+ *     POST   /api/projects/<team>/agent_applications/             create
+ *     GET    /api/projects/<team>/agent_applications/<id|slug>/   retrieve
+ *     PATCH  /api/projects/<team>/agent_applications/<id|slug>/   update
+ *     DELETE /api/projects/<team>/agent_applications/<id|slug>/   archive
+ *     POST   /api/projects/<team>/agent_applications/<id|slug>/set_env/        bulk replace env
+ *     GET    /api/projects/<team>/agent_applications/<id|slug>/env_keys/        list set keys
+ *     GET    /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  is one key set?
+ *     PUT    /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  set one key
+ *     DELETE /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  clear one key
  */
 export const agentApplicationsUpdateBodyNameMax = 255
 
 export const agentApplicationsUpdateBodySlugMax = 63
 
 export const agentApplicationsUpdateBodySlugRegExp = new RegExp('^[-a-zA-Z0-9_]+$')
-export const agentApplicationsUpdateBodyArchivedDefault = false
 
 export const AgentApplicationsUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(agentApplicationsUpdateBodyNameMax),
-    slug: zod.string().max(agentApplicationsUpdateBodySlugMax).regex(agentApplicationsUpdateBodySlugRegExp),
+    slug: zod
+        .string()
+        .max(agentApplicationsUpdateBodySlugMax)
+        .regex(agentApplicationsUpdateBodySlugRegExp)
+        .optional()
+        .describe(
+            'Globally-unique URL identifier. Server-minted as an opaque random slug on create; only allowlisted first-party teams may set it explicitly. Slugs live in one global namespace (domain-mode ingress routing carries no team).'
+        ),
     description: zod.string().optional(),
-    archived: zod.boolean().default(agentApplicationsUpdateBodyArchivedDefault),
+    archived: zod.boolean().optional(),
 })
 
 /**
  * Agent applications — the deployable unit of the platform.
-
-URLs:
-    GET    /api/projects/<team>/agent_applications/             list
-    POST   /api/projects/<team>/agent_applications/             create
-    GET    /api/projects/<team>/agent_applications/<id|slug>/   retrieve
-    PATCH  /api/projects/<team>/agent_applications/<id|slug>/   update
-    DELETE /api/projects/<team>/agent_applications/<id|slug>/   archive
-    POST   /api/projects/<team>/agent_applications/<id|slug>/set_env/        bulk replace env
-    GET    /api/projects/<team>/agent_applications/<id|slug>/env_keys/        list set keys
-    GET    /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  is one key set?
-    PUT    /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  set one key
-    DELETE /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  clear one key
+ *
+ * URLs:
+ *     GET    /api/projects/<team>/agent_applications/             list
+ *     POST   /api/projects/<team>/agent_applications/             create
+ *     GET    /api/projects/<team>/agent_applications/<id|slug>/   retrieve
+ *     PATCH  /api/projects/<team>/agent_applications/<id|slug>/   update
+ *     DELETE /api/projects/<team>/agent_applications/<id|slug>/   archive
+ *     POST   /api/projects/<team>/agent_applications/<id|slug>/set_env/        bulk replace env
+ *     GET    /api/projects/<team>/agent_applications/<id|slug>/env_keys/        list set keys
+ *     GET    /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  is one key set?
+ *     PUT    /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  set one key
+ *     DELETE /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  clear one key
  */
 export const agentApplicationsPartialUpdateBodyNameMax = 255
 
 export const agentApplicationsPartialUpdateBodySlugMax = 63
 
 export const agentApplicationsPartialUpdateBodySlugRegExp = new RegExp('^[-a-zA-Z0-9_]+$')
-export const agentApplicationsPartialUpdateBodyArchivedDefault = false
 
 export const AgentApplicationsPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(agentApplicationsPartialUpdateBodyNameMax).optional(),
@@ -1877,15 +1885,18 @@ export const AgentApplicationsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .string()
         .max(agentApplicationsPartialUpdateBodySlugMax)
         .regex(agentApplicationsPartialUpdateBodySlugRegExp)
-        .optional(),
+        .optional()
+        .describe(
+            'Globally-unique URL identifier. Server-minted as an opaque random slug on create; only allowlisted first-party teams may set it explicitly. Slugs live in one global namespace (domain-mode ingress routing carries no team).'
+        ),
     description: zod.string().optional(),
-    archived: zod.boolean().default(agentApplicationsPartialUpdateBodyArchivedDefault),
+    archived: zod.boolean().optional(),
 })
 
 /**
  * Approve or reject a queued tool-approval request. Team-admin only
-(plan §6.1). The runtime side runs the tool platform-side on approve
-and wakes the session with a synthetic tool_result either way.
+ * (plan §6.1). The runtime side runs the tool platform-side on approve
+ * and wakes the session with a synthetic tool_result either way.
  */
 export const AgentApplicationsApprovalsDecideBody = /* @__PURE__ */ zod
     .object({
@@ -1908,20 +1919,18 @@ export const AgentApplicationsApprovalsDecideBody = /* @__PURE__ */ zod
                 "Free-form approver note. Surfaces in the session's synthetic tool_result so the model can communicate the reason back to the user."
             ),
     })
-    .describe(
-        'Body shape for POST \/agent_applications\/<id>\/approvals\/<approval_id>\/decide\/.\n\nSee docs\/agent-platform\/plans\/approval-gated-tools.md.'
-    )
+    .describe('Body shape for POST \/agent_applications\/<id>\/approvals\/<approval_id>\/decide\/.')
 
 /**
  * GET / PUT / DELETE one secret by name.
-
-- `GET`    → `{ key, is_set }` (never returns the value).
-- `PUT`    → upserts `{ value }` into the env block.
-- `DELETE` → removes the key. No-op when it wasn't set.
-
-Per-method scope: GET is treated as a write action so the
-single action name maps to one consistent scope; reading whether
-a secret is set is restricted to writers in any case.
+ *
+ * - `GET`    → `{ key, is_set }` (never returns the value).
+ * - `PUT`    → upserts `{ value }` into the env block.
+ * - `DELETE` → removes the key. No-op when it wasn't set.
+ *
+ * Per-method scope: GET is treated as a write action so the
+ * single action name maps to one consistent scope; reading whether
+ * a secret is set is restricted to writers in any case.
  */
 export const AgentApplicationsEnvKeysSetBody = /* @__PURE__ */ zod
     .object({
@@ -1933,11 +1942,11 @@ export const AgentApplicationsEnvKeysSetBody = /* @__PURE__ */ zod
 
 /**
  * Replace the agent's encrypted env block.
-
-The body is `{ "env": { "<KEY>": "<value>", ... } }`. The encrypted
-text gets stored on AgentApplication.encrypted_env; the worker
-decrypts it at session start via the same Fernet schedule (see
-agent-shared/src/runtime/encryption.ts).
+ *
+ * The body is `{ "env": { "<KEY>": "<value>", ... } }`. The encrypted
+ * text gets stored on AgentApplication.encrypted_env; the worker
+ * decrypts it at session start via the same Fernet schedule (see
+ * agent-shared/src/runtime/encryption.ts).
  */
 export const AgentApplicationsSetEnvCreateBody = /* @__PURE__ */ zod
     .object({

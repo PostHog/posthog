@@ -40,6 +40,7 @@ docker run --rm \
     -e AGENT_MEMORY_S3_SECRET_ACCESS_KEY='smoke' \
     -e ENCRYPTION_SALT_KEYS='00beef0000beef0000beef0000beef00' \
     -e INTERNAL_SECRET='smoke-test-internal-secret' \
+    -e AGENT_INTERNAL_SIGNING_KEY='smoke-test-signing-key' \
     -e KAFKA_HOSTS='127.0.0.1:1' \
     -e REDIS_URL='redis://127.0.0.1:1' \
     -e SANDBOX_BACKEND='modal' \
@@ -52,7 +53,7 @@ docker run --rm \
     -e NODE_ENV='production' \
     --entrypoint sh \
     "$IMAGE_REF" \
-    -c "timeout 5 node services/agents/dist/${ENTRYPOINT}.mjs; exit 0" 2>&1 | tee "$LOG" || true
+    -c "timeout 5 node products/agent_platform/services/agents/dist/${ENTRYPOINT}.mjs; exit 0" 2>&1 | tee "$LOG" || true
 
 # Bundle-load failures: build is busted. Fail loud.
 if grep -qE 'Cannot find (module|package)|SyntaxError|ReferenceError|TypeError: .* is not a function' "$LOG"; then

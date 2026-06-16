@@ -11,13 +11,11 @@ from enum import StrEnum
 from typing import Any, Optional, TypedDict, cast
 
 from django.conf import settings
-from django.contrib.postgres.search import TrigramSimilarity, TrigramWordSimilarity
-from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import URLValidator
 from django.db import IntegrityError, transaction
 from django.db.models import CharField, Count, DateTimeField, F, FilteredRelation, Prefetch, Q, QuerySet, Value
-from django.db.models.functions import Cast, Coalesce
+from django.db.models.functions import Cast
 from django.http import StreamingHttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
@@ -29,7 +27,6 @@ from asgiref.sync import sync_to_async
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from opentelemetry import trace
-from pydantic import BaseModel
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
@@ -43,28 +40,18 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.openapi_parameters import make_filters_override_param, make_variables_override_param
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.services.query import process_query_model
-from posthog.api.shared import UserBasicSerializer
+from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action
 from posthog.clickhouse.client.async_task_chain import task_chain_context
 from posthog.constants import GENERATED_DASHBOARD_PREFIX
-from posthog.event_usage import get_request_analytics_properties, report_user_action
+from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers import create_dashboard_from_template
 from posthog.helpers.dashboard_templates import create_from_template, dashboard_template_from_creation_payload
-from posthog.helpers.trigram_search import (
-    DESCRIPTION_SCORE_WEIGHT,
-    MAX_SEARCH_LENGTH,
-    MIN_DESCRIPTION_TRIGRAM_SIMILARITY,
-    MIN_NAME_TRIGRAM_SIMILARITY,
-    normalize_search_term,
-)
-from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models.activity_logging.activity_log import ActivityScope, Detail, changes_between, log_activity
+from posthog.helpers.trigram_search import DESCRIPTION_FIELD, MAX_SEARCH_LENGTH, NAME_FIELD, apply_trigram_search
 from posthog.models.file_system.file_system import create_or_update_file, delete_file
 from posthog.models.quick_filter import QuickFilter
-from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -80,7 +67,6 @@ from posthog.utils import filters_override_requested_by_client, str_to_bool, var
 
 from products.ai_observability.backend.dashboard_templates import get_ai_observability_default_template
 from products.alerts.backend.models.alert import AlertConfiguration
-from products.dashboards.backend.api.dashboard_ai import generate_refresh_analysis
 from products.dashboards.backend.api.dashboard_template_json_schema_parser import (
     DashboardTemplateCreationJSONSchemaParser,
 )
@@ -88,6 +74,8 @@ from products.dashboards.backend.api.widget_openapi_serializers import (
     WIDGET_BATCH_ADD_OPENAPI_HELP,
     AddDashboardWidgetRequestOpenApi,
     DashboardWidgetConfigField,
+    PatchedDashboardOpenApiSerializer,
+    WidgetCatalogResponseSerializer,
 )
 from products.dashboards.backend.constants import DASHBOARD_GRID_COLUMN_COUNT, MAX_WIDGETS_BATCH_SIZE
 from products.dashboards.backend.feature_flags import dashboard_widgets_enabled
@@ -99,12 +87,14 @@ from products.dashboards.backend.widget_access import (
     get_widget_api_scope_error,
     get_widget_product_access_error,
 )
+from products.dashboards.backend.widget_availability import get_widget_feature_enabled
 from products.dashboards.backend.widget_catalog import get_widget_catalog_entries
 from products.dashboards.backend.widget_create import prepare_widget_tile_create
 from products.dashboards.backend.widget_layouts import (
     collect_dashboard_sm_layouts_for_dashboard,
     stack_widget_layout_at_bottom,
 )
+from products.dashboards.backend.widget_query_throttle import get_dashboard_widget_query_throttle_error
 from products.dashboards.backend.widget_registry import (
     EXPECTED_WIDGET_TYPES,
     SESSION_REPLAY_LIST_WIDGET_TYPE,
@@ -116,8 +106,8 @@ from products.product_analytics.backend.api.insight import (
     DashboardTileBasicSerializer,
     InsightSerializer,
     InsightViewSet,
+    _get_insight_type,
 )
-from products.product_analytics.backend.api.insight_suggestions import summarize_insight_result
 from products.product_analytics.backend.models.insight import Insight
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 
@@ -166,7 +156,7 @@ RUN_WIDGETS_QUERY_CONCURRENCY = 4
 WIDGET_TYPE_API_HELP = (
     "Widget type identifier. Supported values: "
     + ", ".join(sorted(EXPECTED_WIDGET_TYPES))
-    + ". Use dashboard-widget-catalog-list for config_schema_hints per type."
+    + ". Use dashboard-widget-catalog-list for per-type config_schema documentation."
 )
 
 
@@ -203,7 +193,13 @@ def _run_widget_query(
         },
     ) as slo:
         try:
-            result = work_item["query_fn"](team, work_item["config"], user=work_item["user"])
+            query_fn = work_item["query_fn"]
+            result = query_fn(
+                team,
+                work_item["config"],
+                user=work_item["user"],
+                include_total_count=False,
+            )
             return {
                 "tile_id": tile_id,
                 "widget_type": widget_type,
@@ -510,7 +506,7 @@ class DashboardWidgetCoreRequestSerializer(serializers.Serializer):
         required=False,
         help_text=(
             "Widget-specific configuration. Shape depends on widget_type; "
-            "see dashboard-widget-catalog-list for config_schema_hints. "
+            "see dashboard-widget-catalog-list for per-type config_schema documentation. "
             f"Supported types: {', '.join(sorted(EXPECTED_WIDGET_TYPES))}."
         ),
     )
@@ -532,7 +528,7 @@ class AddDashboardWidgetRequestSerializer(DashboardWidgetCoreRequestSerializer):
     config = DashboardWidgetConfigField(
         help_text=(
             "Widget-specific configuration. Shape depends on widget_type; "
-            "see dashboard-widget-catalog-list for config_schema_hints. "
+            "see dashboard-widget-catalog-list for per-type config_schema documentation. "
             f"Supported types: {', '.join(sorted(EXPECTED_WIDGET_TYPES))}."
         ),
     )
@@ -580,29 +576,6 @@ class AddDashboardWidgetsBatchRequestOpenApiSerializer(serializers.Serializer):
     )
 
 
-class WidgetCatalogEntrySerializer(serializers.Serializer):
-    widget_type = serializers.CharField(help_text="Stable widget type identifier used in API requests.")
-    group_id = serializers.CharField(help_text="Product area key for grouping related widget variants.")
-    group_label = serializers.CharField(help_text="Human-readable product area label.")
-    label = serializers.CharField(help_text="Widget variant label within the product area.")  # type: ignore[assignment]
-    description = serializers.CharField(help_text="Short description of what the widget shows.")
-    config_schema_hints = serializers.JSONField(
-        help_text="JSON schema hints for config fields (types, choices, bounds). Not a strict validator.",
-    )
-    required_product_access = serializers.CharField(
-        required=False,
-        allow_null=True,
-        help_text="Product access resource required to view or run this widget, if any.",
-    )
-
-
-class WidgetCatalogResponseSerializer(serializers.Serializer):
-    results = WidgetCatalogEntrySerializer(
-        many=True,
-        help_text="Registered dashboard widget types available when dashboard-widgets is enabled.",
-    )
-
-
 class CanEditDashboard(BasePermission):
     message = "You don't have edit permissions for this dashboard."
 
@@ -610,29 +583,6 @@ class CanEditDashboard(BasePermission):
         if request.method in SAFE_METHODS:
             return True
         return view.user_permissions.dashboard(dashboard).can_edit
-
-
-class ClientResultItemSerializer(serializers.Serializer):
-    insight_name = serializers.CharField(required=True)
-
-    # `data` shadows Serializer.data so we declare it via get_fields to avoid the mypy conflict
-    def get_fields(self):
-        fields = super().get_fields()
-        fields["data"] = serializers.JSONField(required=True)
-        return fields
-
-    def validate_data(self, value):
-        if not value:
-            raise serializers.ValidationError("Data cannot be empty.")
-        return value
-
-
-class DashboardSnapshotSerializer(serializers.Serializer):
-    client_results = serializers.DictField(
-        child=ClientResultItemSerializer(),
-        required=False,
-        allow_null=True,
-    )
 
 
 class TextSerializer(serializers.ModelSerializer):
@@ -833,7 +783,12 @@ class DashboardWidgetRunResultSerializer(serializers.Serializer):
     )
     result = serializers.JSONField(
         allow_null=True,
-        help_text="Live widget query result payload.",
+        help_text=(
+            "Live widget query result payload. List widgets return results (array), limit (configured page size), "
+            "hasMore (boolean), totalCount (matching rows for current filters), totalCountCapped (true when totalCount "
+            "hit the widget max and more may exist), and optional offset/nextOffset. error_tracking_list results are "
+            "issue summaries; session_replay_list results are recording metadata."
+        ),
     )
     error = serializers.CharField(
         allow_null=True,
@@ -856,6 +811,7 @@ class AddDashboardWidgetsBatchResponseSerializer(serializers.Serializer):
 
 
 class DashboardBasicSerializer(
+    SearchMatchTypeSerializerMixin,
     TaggedItemSerializerMixin,
     serializers.ModelSerializer,
     UserPermissionsSerializerMixin,
@@ -890,6 +846,7 @@ class DashboardBasicSerializer(
             "access_control_version",
             "last_refresh",
             "team_id",
+            "search_match_type",
         ]
         read_only_fields = fields
         extra_kwargs = {
@@ -1001,6 +958,19 @@ def _check_dashboard_widget_count_limit(*, dashboard: Dashboard, user: User) -> 
     )
 
 
+def _tile_type_and_widget_type(tile: DashboardTile) -> tuple[str, str | None]:
+    if tile.text_id is not None:
+        return "text", None
+    if tile.button_tile_id is not None:
+        return "button", None
+    if tile.widget_id is not None:
+        widget_type = tile.widget.widget_type if tile.widget is not None else None
+        return "widget", widget_type
+    if tile.insight_id is not None:
+        return "insight", None
+    raise ValueError("Dashboard tile has no related content for analytics")
+
+
 def _report_dashboard_tile_added(
     *,
     user: User,
@@ -1032,7 +1002,12 @@ def _report_dashboard_tile_added(
     widget_properties: dict[str, Any] = {
         "widget_type": widget_type,
         "dashboard_id": dashboard.id,
+        "dashboard_widget_count": _count_active_widget_tiles(dashboard),
     }
+    feature_enabled = get_widget_feature_enabled(widget_type, dashboard.team)
+    if feature_enabled is not None:
+        # False means the user lands on the widget's setup/custom view rather than real data.
+        widget_properties["feature_enabled"] = feature_enabled
     if tile is not None:
         widget_properties["tile_id"] = tile.id
         if tile.widget_id is not None:
@@ -1041,6 +1016,51 @@ def _report_dashboard_tile_added(
     report_user_action(
         user,
         "dashboard widget added",
+        widget_properties,
+        team=dashboard.team,
+        request=request,
+    )
+
+
+def _report_dashboard_tile_removed(
+    *,
+    user: User,
+    dashboard: Dashboard,
+    tile: DashboardTile,
+    request: Request | None = None,
+) -> None:
+    tile_type, widget_type = _tile_type_and_widget_type(tile)
+    insight_type = _get_insight_type(tile.insight) if tile.insight is not None else None
+    properties: dict[str, Any] = {
+        "tile_type": tile_type,
+        "insight_type": insight_type,
+        "dashboard_id": dashboard.id,
+    }
+    if widget_type is not None:
+        properties["widget_type"] = widget_type
+
+    report_user_action(
+        user,
+        "dashboard tile removed",
+        properties,
+        team=dashboard.team,
+        request=request,
+    )
+
+    if widget_type is None:
+        return
+
+    widget_properties: dict[str, Any] = {
+        "widget_type": widget_type,
+        "dashboard_id": dashboard.id,
+        "tile_id": tile.id,
+    }
+    if tile.widget_id is not None:
+        widget_properties["widget_id"] = str(tile.widget_id)
+
+    report_user_action(
+        user,
+        "dashboard widget removed",
         widget_properties,
         team=dashboard.team,
         request=request,
@@ -1334,6 +1354,13 @@ class DashboardSerializer(DashboardMetadataSerializer):
         if being_undeleted:
             self._undo_delete_related_tiles(instance)
 
+        # Soft-delete transition (false -> true). All channels (web/MCP/API) delete via this PATCH path,
+        # so this is the single place to capture deletes. Snapshot tile counts before _delete_related_tiles
+        # runs below — otherwise get_analytics_metadata()'s item_count would read 0 post-deletion.
+        being_deleted = not instance.deleted and validated_data.get("deleted", False)
+        tile_count_at_deletion = instance.tiles.count() if being_deleted else None
+        item_count_at_deletion = instance.tiles.exclude(insight=None).count() if being_deleted else None
+
         initial_data = dict(self.initial_data)
 
         if validated_data.get("deleted", False):
@@ -1367,7 +1394,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
         user = cast(User, self.context["request"].user)
         tiles = initial_data.pop("tiles", [])
         for tile_data in tiles:
-            tile, created = self._update_tiles(instance, tile_data, user)
+            tile, created = self._update_tiles(instance, tile_data, user, request=self.context.get("request"))
             # Text and button tiles are always added via PATCH (never during initial dashboard
             # creation), so this update() method is the right place to fire the "tile added"
             # event. The `created` flag from update_or_create ensures we only fire on first
@@ -1391,13 +1418,26 @@ class DashboardSerializer(DashboardMetadataSerializer):
             self._deep_duplicate_tiles(instance, existing_tile)
 
         if "request" in self.context:
-            report_user_action(
-                user,
-                "dashboard updated",
-                instance.get_analytics_metadata(),
-                team=instance.team,
-                request=self.context["request"],
-            )
+            if being_deleted:
+                report_user_action(
+                    user,
+                    "dashboard deleted",
+                    {
+                        **instance.get_analytics_metadata(),
+                        "item_count": item_count_at_deletion,  # override post-delete 0 with pre-delete snapshot
+                        "tile_count": tile_count_at_deletion,
+                    },
+                    team=instance.team,
+                    request=self.context["request"],
+                )
+            else:
+                report_user_action(
+                    user,
+                    "dashboard updated",
+                    instance.get_analytics_metadata(),
+                    team=instance.team,
+                    request=self.context["request"],
+                )
 
         self.user_permissions.reset_insights_dashboard_cached_results()
         return instance
@@ -1446,14 +1486,20 @@ class DashboardSerializer(DashboardMetadataSerializer):
         widget_data: dict[str, Any],
         user: User,
         user_access_control: UserAccessControl,
+        dashboard: Dashboard,
+        request: Request | None = None,
     ) -> None:
         DashboardSerializer._check_widget_tile_product_access(widget, user_access_control)
         patch_widget_type = widget_data.get("widget_type")
         if patch_widget_type is not None and str(patch_widget_type) != widget.widget_type:
             raise serializers.ValidationError({"widget": "widget_type cannot be changed."})
 
+        previous_widget_filters = (widget.config or {}).get("widgetFilters")
         if "config" in widget_data:
-            widget.config = validate_widget_config(widget.widget_type, widget_data["config"])
+            widget.config = validate_widget_config(
+                widget.widget_type,
+                widget_data["config"],
+            )
         if "name" in widget_data:
             widget.name = widget_data["name"] or None
         if "description" in widget_data:
@@ -1461,6 +1507,21 @@ class DashboardSerializer(DashboardMetadataSerializer):
         widget.last_modified_by = user
         widget.last_modified_at = now()
         widget.save()
+
+        new_widget_filters = (widget.config or {}).get("widgetFilters")
+        if "config" in widget_data and new_widget_filters != previous_widget_filters:
+            report_user_action(
+                user,
+                "dashboard widget filters updated",
+                {
+                    "widget_type": widget.widget_type,
+                    "dashboard_id": dashboard.id,
+                    "widget_id": str(widget.id),
+                    "filters_count": len(new_widget_filters) if new_widget_filters else 0,
+                },
+                team=dashboard.team,
+                request=request,
+            )
 
     @staticmethod
     def _upsert_tile(instance: Dashboard, tile_data: dict, **extra_defaults: Any) -> tuple[DashboardTile, bool]:
@@ -1473,21 +1534,23 @@ class DashboardSerializer(DashboardMetadataSerializer):
         )
 
     @staticmethod
-    def _update_existing_tile_display_fields(instance: Dashboard, tile_data: dict) -> None:
+    def _update_existing_tile_display_fields(instance: Dashboard, tile_data: dict) -> tuple[DashboardTile | None, bool]:
         """Update display fields on an existing tile, or skip silently if the id is unknown.
 
         A display-only payload carries no insight/text/button_tile FK, so it cannot satisfy
         the ``dash_tile_exactly_one_related_object`` CHECK constraint if it falls through to
         an INSERT. ``update_or_create`` here used to 500 whenever the frontend posted a stale
         tile id (cross-dashboard contamination, hard-deleted tiles, races). Never INSERT here.
+
+        Returns the updated tile and whether this payload transitioned it to soft-deleted.
         """
         tile_id = tile_data.get("id")
         if tile_id is None:
-            return
+            return None, False
 
         tile_defaults = DashboardSerializer._extract_display_defaults(tile_data)
         if not tile_defaults:
-            return
+            return None, False
 
         existing = DashboardTile.objects_including_soft_deleted.filter(
             id=tile_id, dashboard=instance, dashboard__team_id=instance.team_id
@@ -1500,30 +1563,25 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 tile_id=tile_id,
                 payload_fields=sorted(tile_defaults.keys()),
             )
-            return
+            return None, False
 
+        became_deleted = bool(tile_defaults.get("deleted")) and not existing.deleted
         for attr, val in tile_defaults.items():
             setattr(existing, attr, val)
         # update_fields scopes the UPDATE to only the columns we changed, so concurrent writes
         # to other columns aren't clobbered by our stale read. save() (vs queryset.update())
         # keeps the post_save signal that sync_dashboard_tile listens to for cache invalidation.
         existing.save(update_fields=list(tile_defaults.keys()))
+        return existing, became_deleted
 
     @staticmethod
     def _tile_added_analytics_fields(tile: DashboardTile) -> tuple[str, str | None]:
-        if tile.text_id is not None:
-            return "text", None
-        if tile.button_tile_id is not None:
-            return "button", None
-        if tile.widget_id is not None:
-            widget_type = tile.widget.widget_type if tile.widget is not None else None
-            return "widget", widget_type
-        if tile.insight_id is not None:
-            return "insight", None
-        raise ValueError("Dashboard tile has no related content for analytics")
+        return _tile_type_and_widget_type(tile)
 
     @staticmethod
-    def _update_tiles(instance: Dashboard, tile_data: dict, user: User) -> tuple[DashboardTile | None, bool]:
+    def _update_tiles(
+        instance: Dashboard, tile_data: dict, user: User, request: Request | None = None
+    ) -> tuple[DashboardTile | None, bool]:
         """Returns the upserted tile and whether it was newly created, or (None, False) for display-only updates."""
         tile_data.pop("is_cached", None)  # read only field
         tile_data.pop("order", None)  # read only field
@@ -1630,6 +1688,8 @@ class DashboardSerializer(DashboardMetadataSerializer):
                         widget_data=widget_data,
                         user=user,
                         user_access_control=user_access_control,
+                        dashboard=instance,
+                        request=request,
                     )
                 except DashboardWidget.DoesNotExist:
                     raise serializers.ValidationError({"widget": "Widget not found in this team."})
@@ -1667,7 +1727,16 @@ class DashboardSerializer(DashboardMetadataSerializer):
             or "transparent_background" in tile_data
         ):
             tile_data.pop("insight", None)  # don't ever update insight tiles here
-            DashboardSerializer._update_existing_tile_display_fields(instance, tile_data)
+            updated_tile, became_deleted = DashboardSerializer._update_existing_tile_display_fields(instance, tile_data)
+            # The dashboard UI soft-deletes tiles through this PATCH path rather than the
+            # delete_tile endpoint, so removal analytics must fire here too.
+            if became_deleted and updated_tile is not None:
+                _report_dashboard_tile_removed(
+                    user=user,
+                    dashboard=instance,
+                    tile=updated_tile,
+                    request=request,
+                )
 
         return None, False
 
@@ -1822,15 +1891,17 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
                 description=(
-                    "Optional. Fuzzy match against dashboard `name` and `description` using Postgres trigram "
-                    "word similarity (handles typos, transpositions, and prefix-as-you-type). `name` matches "
-                    "rank above `description` matches. Results are ordered by relevance, then pinned status, "
-                    "then name. When omitted, dashboards are ordered by pinned status then alphabetical name. "
-                    "Capped at 200 characters; longer queries return a 400 error."
+                    "Optional. Match against dashboard `name`, `description`, and tag names. Returns "
+                    "case-insensitive substring matches and fuzzy trigram matches (typos, transpositions, "
+                    "prefix-as-you-type) together, ordered exact-first, then pinned status, then name; each "
+                    "result's `search_match_type` is `exact` or `similar`. When omitted, dashboards are ordered "
+                    "by pinned status then alphabetical name. Capped at 200 characters; longer queries return a "
+                    "400 error."
                 ),
             ),
         ],
     ),
+    partial_update=extend_schema(request=PatchedDashboardOpenApiSerializer),
 )
 class DashboardsViewSet(
     TeamAndOrgViewSetMixin,
@@ -1892,39 +1963,13 @@ class DashboardsViewSet(
     @staticmethod
     @tracer.start_as_current_span("DashboardViewSet._apply_search")
     def _apply_search(queryset: QuerySet, search: str) -> QuerySet:
-        search = normalize_search_term(search)
-        span = trace.get_current_span()
-        span.set_attribute("dashboard.search.length", len(search))
-        if not search:
-            return queryset
-
-        # Word similarity (`<%`) drives match/no-match — it's index-accelerated and handles
-        # prefix-as-you-type and substring matches. Full-string similarity is added as a
-        # tiebreak so an exact name match outranks rows that merely *contain* the search word.
-        # `Dashboard.name` is nullable; coalesce each component to 0.0 so a NULL-name row
-        # matched only on description doesn't end up with a NULL `_search_score` (which
-        # Postgres orders NULLS FIRST in DESC, putting unnamed rows wrongly at the top).
-        zero = Value(0.0)
-        name_word_score = Coalesce(TrigramWordSimilarity(search, "name"), zero)
-        name_full_score = Coalesce(TrigramSimilarity("name", search), zero)
-        description_word_score = Coalesce(TrigramWordSimilarity(search, "description"), zero)
-
-        return (
-            queryset.annotate(
-                _name_word=name_word_score,
-                _name_full=name_full_score,
-                _description_word=description_word_score,
-            )
-            .filter(
-                Q(_name_word__gt=MIN_NAME_TRIGRAM_SIMILARITY)
-                | Q(_description_word__gt=MIN_DESCRIPTION_TRIGRAM_SIMILARITY)
-            )
-            .annotate(
-                _name_match_score=F("_name_word") + F("_name_full"),
-                _description_match_score=F("_description_word"),
-            )
-            .annotate(_search_score=F("_name_match_score") + F("_description_match_score") * DESCRIPTION_SCORE_WEIGHT)
-            .order_by("-_search_score", "-pinned", "name")
+        return apply_trigram_search(
+            queryset,
+            search,
+            span_prefix="dashboard.search",
+            fields=(NAME_FIELD, DESCRIPTION_FIELD),
+            include_tag_search=True,
+            tiebreakers=("-pinned", "name"),
         )
 
     @tracer.start_as_current_span("DashboardViewSet.dangerously_get_queryset")
@@ -2007,54 +2052,6 @@ class DashboardsViewSet(
 
         return queryset
 
-    def _get_cached_results_for_analysis(self, dashboard: Dashboard, request: Request) -> dict[int, Any]:
-        """
-        Fetch currently cached results for all insight tiles on the dashboard.
-        Uses CACHE_ONLY_NEVER_CALCULATE to ensure we get the 'before' state without triggering recalc.
-        Returns dict mapping tile_id to summarized result data.
-        """
-        results = {}
-        tiles = dashboard.tiles.filter(insight__isnull=False).select_related("insight")
-        analytics_props = get_request_analytics_properties(request)
-
-        for tile in tiles:
-            insight = tile.insight
-            if not insight or not insight.query:
-                continue
-
-            try:
-                query = InsightVizNode.model_validate(insight.query)
-            except Exception:
-                logger.warning("dashboard_refresh_analysis_query_validation_failed", tile_id=tile.id)
-                continue
-
-            try:
-                result_ctx = process_query_model(
-                    self.team,
-                    query,
-                    execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
-                    user=request.user if request.user.is_authenticated else None,
-                    analytics_props=analytics_props,
-                )
-
-                result_data = None
-                if isinstance(result_ctx, BaseModel):
-                    result_dict = result_ctx.model_dump()
-                    result_data = result_dict.get("results") or result_dict.get("result")
-                elif isinstance(result_ctx, dict):
-                    result_data = result_ctx.get("results") or result_ctx.get("result")
-
-                if result_data:
-                    results[tile.id] = {
-                        "insight_name": insight.name or insight.derived_name,
-                        "data": summarize_insight_result(result_data),
-                    }
-            except Exception:
-                logger.warning("dashboard_refresh_analysis_query_processing_failed", tile_id=tile.id)
-                continue
-
-        return results
-
     @extend_schema(parameters=[VARIABLES_OVERRIDE_PARAM, FILTERS_OVERRIDE_PARAM])
     @monitor(feature=Feature.DASHBOARD, endpoint="dashboard", method="GET")
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -2067,77 +2064,6 @@ class DashboardsViewSet(
 
         response = Response(data)
         return response
-
-    def _validate_ai_feature_access(self) -> None:
-        """Validate that AI data processing is approved by the organization.
-
-        Mirrors `InsightsViewSet._validate_ai_feature_access`. The dashboard refresh
-        flow is `snapshot` -> `analyze_refresh_result`; both touch the same data the
-        OpenAI call ultimately sees, so both gate on this check.
-        """
-        if not self.organization.is_ai_data_processing_approved:
-            raise exceptions.PermissionDenied("AI data processing must be approved by your organization")
-
-    @action(methods=["POST"], detail=True)
-    def snapshot(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """
-        Snapshot the current dashboard state (from cache) for AI analysis.
-        Returns a cache_key representing the 'before' state, to be used with analyze_refresh_result.
-        """
-        self._validate_ai_feature_access()
-        dashboard = self.get_object()
-
-        input_serializer = DashboardSnapshotSerializer(data=request.data)
-        input_serializer.is_valid(raise_exception=True)
-        client_results = input_serializer.validated_data.get("client_results")
-
-        if client_results:
-            before_results = {
-                int(tile_id): {
-                    "insight_name": item["insight_name"],
-                    "data": summarize_insight_result(item["data"]),
-                }
-                for tile_id, item in client_results.items()
-            }
-        else:
-            before_results = self._get_cached_results_for_analysis(dashboard, request)
-
-        cache_key = f"dashboard_refresh_before_{dashboard.id}_{request.user.id}_{now().timestamp()}"
-        cache.set(cache_key, before_results, timeout=1800)  # 30 minutes
-        return Response({"cache_key": cache_key})
-
-    @action(methods=["POST"], detail=True)
-    def analyze_refresh_result(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """
-        Generate AI analysis comparing before/after dashboard refresh.
-        Expects cache_key in request body pointing to the stored 'before' state.
-        """
-        self._validate_ai_feature_access()
-
-        dashboard = self.get_object()
-        cache_key = request.data.get("cache_key")
-
-        if not cache_key:
-            return Response({"error": "cache_key is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Get 'before' state from cache
-        before_results = cache.get(cache_key)
-        if before_results is None:
-            return Response(
-                {"error": "Analysis context expired or not found. Please refresh the dashboard again."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # Get 'after' state (should be fresh in cache now)
-        after_results = self._get_cached_results_for_analysis(dashboard, request)
-
-        # Generate AI analysis
-        analysis = generate_refresh_analysis(before_results, after_results, dashboard)
-
-        if not analysis:
-            return Response({"result": "No significant changes detected in the dashboard data."})
-
-        return Response({"result": analysis})
 
     # ******************************************
     # /projects/:id/dashboard/:id/stream_tiles
@@ -2194,7 +2120,7 @@ class DashboardsViewSet(
         )
 
         # Async generator that handles progressive tile serialization and streaming
-        async def async_tile_stream_generator() -> AsyncGenerator[bytes, None]:
+        async def async_tile_stream_generator() -> AsyncGenerator[bytes]:
             renderer = SafeJSONRenderer()
 
             try:
@@ -2559,6 +2485,13 @@ class DashboardsViewSet(
                     ["layouts"],
                 )
 
+        _report_dashboard_tile_removed(
+            user=cast(User, request.user),
+            dashboard=dashboard,
+            tile=tile,
+            request=request,
+        )
+
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(
@@ -2712,14 +2645,24 @@ class DashboardsViewSet(
                 }
                 continue
 
+            widget_throttle_error = get_dashboard_widget_query_throttle_error(request, self)
+            if widget_throttle_error:
+                results_by_id[tile_id] = {
+                    "tile_id": tile_id,
+                    "widget_type": widget.widget_type,
+                    "result": None,
+                    "error": widget_throttle_error,
+                }
+                continue
+
             if widget.widget_type == SESSION_REPLAY_LIST_WIDGET_TYPE:
-                throttle_error = get_replay_listing_throttle_error(request, self)
-                if throttle_error:
+                replay_throttle_error = get_replay_listing_throttle_error(request, self)
+                if replay_throttle_error:
                     results_by_id[tile_id] = {
                         "tile_id": tile_id,
                         "widget_type": widget.widget_type,
                         "result": None,
-                        "error": throttle_error,
+                        "error": replay_throttle_error,
                     }
                     continue
 
@@ -2757,7 +2700,7 @@ class DashboardsViewSet(
     @extend_schema(responses={200: WidgetCatalogResponseSerializer})
     @action(methods=["GET"], detail=False, required_scopes=["dashboard:read"])
     def widget_catalog(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """List registered dashboard widget types and config hints for agents."""
+        """List registered dashboard widget types and per-type config_schema documentation for agents."""
         return Response({"results": get_widget_catalog_entries()})
 
     @extend_schema(
@@ -3008,59 +2951,3 @@ class LegacyDashboardsViewSet(DashboardsViewSet):
 
 class LegacyInsightViewSet(InsightViewSet):
     param_derived_from_user_current_team = "project_id"
-
-
-@mutable_receiver(model_activity_signal, sender=DashboardWidget)
-def handle_dashboard_widget_change(
-    sender: Any,
-    scope: str,
-    before_update: DashboardWidget | None,
-    after_update: DashboardWidget | None,
-    activity: str,
-    user: User | None,
-    was_impersonated: bool = False,
-    **kwargs: Any,
-) -> None:
-    instance = after_update or before_update
-    if instance is None:
-        return
-    organization_id = Team.objects.values_list("organization_id", flat=True).filter(pk=instance.team_id).first()
-    log_activity(
-        organization_id=organization_id,
-        team_id=instance.team_id,
-        user=user,
-        was_impersonated=was_impersonated,
-        item_id=instance.id,
-        scope=scope,
-        activity=activity,
-        detail=Detail(
-            changes=changes_between(cast(ActivityScope, scope), previous=before_update, current=after_update),
-            name=instance.name or instance.widget_type,
-        ),
-    )
-
-
-@mutable_receiver(model_activity_signal, sender=Dashboard)
-def handle_dashboard_change(
-    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
-):
-    if before_update and after_update:
-        before_deleted = getattr(before_update, "deleted", None)
-        after_deleted = getattr(after_update, "deleted", None)
-        if before_deleted is not None and after_deleted is not None and before_deleted != after_deleted:
-            activity = "restored" if after_deleted is False else "deleted"
-
-    log_activity(
-        organization_id=after_update.team.organization_id,
-        team_id=after_update.team_id,
-        user=user,
-        was_impersonated=was_impersonated,
-        item_id=after_update.id,
-        scope=scope,
-        activity=activity,
-        detail=Detail(
-            changes=changes_between(scope, previous=before_update, current=after_update),
-            name=after_update.name,
-            type="dashboard",
-        ),
-    )

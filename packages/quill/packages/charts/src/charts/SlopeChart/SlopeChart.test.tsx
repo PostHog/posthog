@@ -1,0 +1,162 @@
+import type { ChartTheme, Series } from '../../core/types'
+import { renderHogChart } from '../../testing'
+import type { SlopeSeriesMeta } from './slope-data'
+import { SlopeChart } from './SlopeChart'
+
+const THEME: ChartTheme = {
+    colors: ['#1f77b4', '#ff7f0e', '#2ca02c'],
+    backgroundColor: '#ffffff',
+    gridColor: '#eeeeee',
+    crosshairColor: '#888888',
+}
+
+const LABELS = ['Before', 'After']
+
+const SERIES: Series<SlopeSeriesMeta>[] = [
+    { key: 'a', label: 'A', data: [10, 90] },
+    { key: 'b', label: 'B', data: [80, 20] },
+]
+
+describe('SlopeChart', () => {
+    it('renders the two columns and hides the value axis by default', () => {
+        const { chart } = renderHogChart(<SlopeChart series={SERIES} labels={LABELS} theme={THEME} />)
+        expect(chart.seriesCount).toBe(2)
+        expect(chart.xTicks()).toEqual(['Before', 'After'])
+        expect(chart.yTicks()).toHaveLength(0)
+    })
+
+    it('renders empty state without crashing', () => {
+        const { chart } = renderHogChart(<SlopeChart series={[]} labels={LABELS} theme={THEME} />)
+        expect(chart.seriesCount).toBe(0)
+        expect(chart.slopeValueLabels()).toHaveLength(0)
+    })
+
+    it('skips excluded series everywhere', () => {
+        const series: Series<SlopeSeriesMeta>[] = [
+            ...SERIES,
+            { key: 'c', label: 'C', data: [5, 9], visibility: { excluded: true } },
+        ]
+        const { chart } = renderHogChart(
+            <SlopeChart series={series} labels={LABELS} config={{ legend: { show: true } }} theme={THEME} />
+        )
+        expect(chart.seriesCount).toBe(2)
+        expect(chart.slopeSeriesLabels()).not.toContain('C')
+        expect(chart.slopeLegendItems().map((i) => i.label)).not.toContain('C')
+    })
+
+    describe('value labels', () => {
+        it('shows both start and end value labels for every series by default', () => {
+            const { chart } = renderHogChart(<SlopeChart series={SERIES} labels={LABELS} theme={THEME} />)
+            const labels = chart.slopeValueLabels()
+            expect(
+                labels
+                    .filter((l) => l.side === 'start')
+                    .map((l) => l.text)
+                    .sort()
+            ).toEqual(['10', '80'])
+            expect(
+                labels
+                    .filter((l) => l.side === 'end')
+                    .map((l) => l.text)
+                    .sort()
+            ).toEqual(['20', '90'])
+        })
+
+        it.each([
+            ['showStartLabels: false', { showStartLabels: true } as const, { showStartLabel: false }, 'start'],
+            ['showEndLabels: false', { showEndLabels: true } as const, { showEndLabel: false }, 'end'],
+        ])('honors per-series %s via meta', (_label, config, metaOverride, side) => {
+            const series: Series<SlopeSeriesMeta>[] = [
+                { key: 'a', label: 'A', data: [10, 90], meta: metaOverride },
+                { key: 'b', label: 'B', data: [80, 20] },
+            ]
+            const { chart } = renderHogChart(
+                <SlopeChart series={series} labels={LABELS} theme={THEME} config={config} />
+            )
+            const sideTexts = chart.slopeValueLabels().filter((l) => l.side === side)
+            // The toggled series (`a`) is missing from that column, the other (`b`) remains.
+            const aValue = side === 'start' ? '10' : '90'
+            expect(sideTexts.map((l) => l.text)).not.toContain(aValue)
+            expect(sideTexts).toHaveLength(1)
+        })
+
+        it('drops all value labels for a series with visibility.valueLabel false', () => {
+            const series: Series<SlopeSeriesMeta>[] = [
+                { key: 'a', label: 'A', data: [10, 90], visibility: { valueLabel: false } },
+                { key: 'b', label: 'B', data: [80, 20] },
+            ]
+            const { chart } = renderHogChart(<SlopeChart series={series} labels={LABELS} theme={THEME} />)
+            const texts = chart.slopeValueLabels().map((l) => l.text)
+            expect(texts).toEqual(expect.arrayContaining(['80', '20']))
+            expect(texts).not.toContain('10')
+            expect(texts).not.toContain('90')
+        })
+
+        it('formats values with a custom valueFormatter', () => {
+            const { chart } = renderHogChart(
+                <SlopeChart series={SERIES} labels={LABELS} config={{ valueFormatter: (v) => `${v}%` }} theme={THEME} />
+            )
+            expect(chart.slopeValueLabels().every((l) => l.text.endsWith('%'))).toBe(true)
+        })
+    })
+
+    describe('series labels', () => {
+        it('renders a name label per series by default', () => {
+            const { chart } = renderHogChart(<SlopeChart series={SERIES} labels={LABELS} theme={THEME} />)
+            expect(chart.slopeSeriesLabels().sort()).toEqual(['A', 'B'])
+        })
+
+        it('hides all name labels when showSeriesLabels is false', () => {
+            const { chart } = renderHogChart(
+                <SlopeChart series={SERIES} labels={LABELS} config={{ showSeriesLabels: false }} theme={THEME} />
+            )
+            expect(chart.slopeSeriesLabels()).toHaveLength(0)
+        })
+
+        it('keeps the highest-change name and drops a colliding low-change one', () => {
+            // Both end at 100 (same y, same column); the steeper line must win the collision.
+            const series: Series<SlopeSeriesMeta>[] = [
+                { key: 'big', label: 'Big', data: [0, 100] },
+                { key: 'sml', label: 'Small', data: [98, 100] },
+            ]
+            const { chart } = renderHogChart(<SlopeChart series={series} labels={LABELS} theme={THEME} />)
+            expect(chart.slopeSeriesLabels()).toEqual(['Big'])
+        })
+    })
+
+    describe('legend', () => {
+        it('is hidden unless enabled', () => {
+            const { chart } = renderHogChart(<SlopeChart series={SERIES} labels={LABELS} theme={THEME} />)
+            expect(chart.slopeLegendItems()).toHaveLength(0)
+        })
+
+        it('shows the label and signed change for each series', () => {
+            const { chart } = renderHogChart(
+                <SlopeChart series={SERIES} labels={LABELS} config={{ legend: { show: true } }} theme={THEME} />
+            )
+            expect(chart.slopeLegendItems()).toEqual([
+                { label: 'A', secondaryLabel: '+80' },
+                { label: 'B', secondaryLabel: '-60' },
+            ])
+        })
+
+        it('formats the change with a custom deltaFormatter', () => {
+            const { chart } = renderHogChart(
+                <SlopeChart
+                    series={SERIES}
+                    labels={LABELS}
+                    config={{ legend: { show: true }, deltaFormatter: (d) => `${d > 0 ? '↑' : '↓'}${Math.abs(d)}` }}
+                    theme={THEME}
+                />
+            )
+            expect(chart.slopeLegendItems().map((i) => i.secondaryLabel)).toEqual(['↑80', '↓60'])
+        })
+    })
+
+    it('forwards dataAttr to the chart wrapper', () => {
+        const { chart } = renderHogChart(
+            <SlopeChart series={SERIES} labels={LABELS} theme={THEME} dataAttr="slope-instance" />
+        )
+        expect(chart.element.getAttribute('data-attr')).toBe('slope-instance')
+    })
+})

@@ -83,8 +83,31 @@ BATCH_EXPORT_OBJECT_STORAGE_ENDPOINT: str = os.getenv(
 )
 BATCH_EXPORT_OBJECT_STORAGE_REGION: str = os.getenv("BATCH_EXPORT_OBJECT_STORAGE_REGION", "us-east-1")
 BATCH_EXPORT_INTERNAL_STAGING_BUCKET: str = os.getenv("BATCH_EXPORT_INTERNAL_STAGING_BUCKET", "posthog")
-# The number of partitions controls how many files ClickHouse writes to concurrently
+# The number of partitions controls how many files ClickHouse writes to concurrently. Used as the fallback
+# when we have no size estimate to drive a dynamic partition count (e.g. the first ever run of an export).
 BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS: int = get_from_env("BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS", 10, type_cast=int)
+# Kill switch for dynamic partition sizing: when disabled, every run uses the static
+# BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS value.
+BATCH_EXPORT_DYNAMIC_PARTITIONING_ENABLED: bool = get_from_env(
+    "BATCH_EXPORT_DYNAMIC_PARTITIONING_ENABLED", True, type_cast=str_to_bool
+)
+# When a previous run's row count is known, the staging partition count is chosen to target roughly this many
+# rows per staging Arrow file (file size ≈ rows × per-team row width), clamped to [MIN, MAX]. Set MIN == MAX to
+# pin the partition count back to a fixed value.
+BATCH_EXPORT_CLICKHOUSE_S3_TARGET_ROWS_PER_PARTITION: int = get_from_env(
+    "BATCH_EXPORT_CLICKHOUSE_S3_TARGET_ROWS_PER_PARTITION", 250_000, type_cast=int
+)
+BATCH_EXPORT_CLICKHOUSE_S3_MIN_PARTITIONS: int = get_from_env(
+    "BATCH_EXPORT_CLICKHOUSE_S3_MIN_PARTITIONS", 1, type_cast=int
+)
+BATCH_EXPORT_CLICKHOUSE_S3_MAX_PARTITIONS: int = get_from_env(
+    "BATCH_EXPORT_CLICKHOUSE_S3_MAX_PARTITIONS", 50, type_cast=int
+)
+# Caps how many staging files the producer streams from S3 concurrently. This decouples read concurrency
+# from the number of files written (which scales with export size)
+BATCH_EXPORT_PRODUCER_MAX_CONCURRENT_FILE_READS: int = get_from_env(
+    "BATCH_EXPORT_PRODUCER_MAX_CONCURRENT_FILE_READS", 5, type_cast=int
+)
 BATCH_EXPORT_TRANSFORMER_MAX_WORKERS: int = get_from_env("BATCH_EXPORT_TRANSFORMER_MAX_WORKERS", 2, type_cast=int)
 
 BATCH_EXPORTS_ENABLE_BILLING_CHECK: bool = get_from_env(

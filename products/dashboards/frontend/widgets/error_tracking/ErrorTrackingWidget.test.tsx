@@ -52,11 +52,12 @@ describe('ErrorTrackingWidget', () => {
                 tileId={1}
                 config={{ limit: 10 }}
                 loading={false}
-                result={{ results: [issue], hasMore: true, limit: 10 }}
+                result={{ results: [issue], hasMore: false, limit: 10, totalCount: 1, totalCountCapped: false }}
             />
         )
 
         expect(screen.getByText('Issue list')).toBeInTheDocument()
+        expect(screen.getByText('1 of 1 issue')).toBeInTheDocument()
     })
 
     it('renders a celebratory empty state when there are no issues', () => {

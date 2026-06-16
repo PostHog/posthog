@@ -147,7 +147,7 @@ tools:
             (app, revision)), and this proxy mints + attaches the token after authenticating the Django caller. Path
             `rest` is one of `run` (start a new session), `send` (append to an existing one), `cancel` (kill it),
             `listen` (SSE tail). `revision_id` query param is required and must be a non-live revision of this
-            application. See docs/agent-platform/plans/draft-preview-auth.md.
+            application.
     agent-applications-preview-proxy-get:
         operation: agent_applications_preview_proxy_get
         enabled: false

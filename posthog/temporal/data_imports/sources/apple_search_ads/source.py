@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,7 @@ class AppleSearchAdsSource(SimpleSource[AppleSearchAdsSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.APPLE_SEARCH_ADS,
+            category=DataWarehouseSourceCategory.ADVERTISING,
             label="Apple Search Ads",
             iconPath="/static/services/apple_search_ads.png",
             fields=cast(list[FieldType], []),

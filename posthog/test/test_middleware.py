@@ -26,13 +26,13 @@ from social_core.exceptions import AuthCanceled, AuthFailed, AuthMissingParamete
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.middleware import per_request_logging_context_middleware
-from posthog.models import Cohort
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.settings import SITE_URL
 
 from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.models.insight import Insight
@@ -354,8 +354,8 @@ class TestAutoProjectMiddleware(APIBaseTest):
         feature_flag = FeatureFlag.objects.create(team=self.second_team, created_by=self.user)
 
         with self.assertNumQueries(
-            FuzzyInt(self.base_app_num_queries, self.base_app_num_queries + 9)
-        ):  # +1 from activity logging _get_before_update()
+            FuzzyInt(self.base_app_num_queries, self.base_app_num_queries + 10)
+        ):  # +1 from activity logging _get_before_update(), +1 from passkey credential review check
             response_app = self.client.get(f"/feature_flags/{feature_flag.id}")
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()
@@ -789,6 +789,11 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
                 "external_data_schemas_incremental_fields",
                 "external_data_schemas/00000000-0000-0000-0000-000000000000/incremental_fields/",
                 {},
+            ),
+            (
+                "exports",
+                "exports/",
+                {"export_format": "video/mp4", "export_context": {"session_recording_id": "test-session"}},
             ),
         ]
     )

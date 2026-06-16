@@ -18,6 +18,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'access_control', objectName: 'Access control', objectPlural: 'access controls' },
     { key: 'account', objectName: 'Account', objectPlural: 'accounts' },
     { key: 'activity_log', objectName: 'Activity log', objectPlural: 'activity logs' },
+    { key: 'agents', objectName: 'Agent', objectPlural: 'agents' },
     { key: 'alert', objectName: 'Alert', objectPlural: 'alerts' },
     { key: 'annotation', objectName: 'Annotation', objectPlural: 'annotations' },
     { key: 'approvals', objectName: 'Approvals', objectPlural: 'approvals' },
@@ -122,6 +123,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'survey', objectName: 'Survey', objectPlural: 'surveys' },
     { key: 'ticket', objectName: 'Ticket', objectPlural: 'tickets' },
     { key: 'tracing', objectName: 'Tracing', objectPlural: 'tracing' },
+    { key: 'field_note', objectName: 'Field note', objectPlural: 'field notes' },
     { key: 'uploaded_media', objectName: 'Uploaded media', objectPlural: 'uploaded media' },
     { key: 'usage_metric', objectName: 'Usage metric', objectPlural: 'usage metrics' },
     {
@@ -191,10 +193,8 @@ export const API_KEY_SCOPE_PRESETS: {
     {
         value: 'mcp_server',
         label: 'MCP Server',
-        scopes: API_SCOPES.filter(({ key }) => !key.includes('llm_gateway')).map(({ key }) =>
-            ['feature_flag', 'insight', 'dashboard', 'survey', 'experiment', 'event_definition'].includes(key)
-                ? `${key}:write`
-                : `${key}:read`
+        scopes: API_SCOPES.filter(({ key }) => !key.includes('llm_gateway') && !key.includes('file_system')).map(
+            ({ key }) => `${key}:write`
         ),
         access_type: 'all',
     },

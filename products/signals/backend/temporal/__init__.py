@@ -22,6 +22,7 @@ from products.signals.backend.temporal.buffer import (
 )
 from products.signals.backend.temporal.custom_agent import CustomSignalAgentWorkflow, run_custom_signal_agent_activity
 from products.signals.backend.temporal.deletion import SignalReportDeletionWorkflow
+from products.signals.backend.temporal.drop_telemetry import capture_signal_dropped_activity
 from products.signals.backend.temporal.emit_eval_signal import EmitEvalSignalWorkflow, emit_eval_signal_activity
 from products.signals.backend.temporal.emitter import SignalEmitterWorkflow
 from products.signals.backend.temporal.grouping import (
@@ -96,6 +97,7 @@ ACTIVITIES = [
     fetch_enabled_signals_scout_runs_activity,
     stamp_dispatched_signals_scout_runs_activity,
     assign_and_emit_signal_activity,
+    capture_signal_dropped_activity,
     delete_report_activity,
     emit_eval_signal_activity,
     fetch_report_contexts_activity,

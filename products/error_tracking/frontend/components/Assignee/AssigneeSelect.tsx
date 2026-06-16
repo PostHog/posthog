@@ -13,10 +13,13 @@ export const AssigneeSelect = ({
     assignee,
     onChange,
     children,
+    fullWidth = false,
 }: {
     assignee: ErrorTrackingIssue['assignee']
     onChange: (assignee: ErrorTrackingIssue['assignee']) => void
     children: (assignee: Assignee, isOpen: boolean) => JSX.Element
+    /** When true, the trigger fills its container (e.g. a grid column). Default is content width for filter bars. */
+    fullWidth?: boolean
 }): JSX.Element => {
     const { setSearch, ensureAssigneeTypesLoaded } = useActions(assigneeSelectLogic)
     const [showPopover, setShowPopover] = useState(false)
@@ -39,7 +42,7 @@ export const AssigneeSelect = ({
             onVisibilityChange={(visible) => setShowPopover(visible)}
             overlay={<AssigneeDropdown assignee={assignee} onChange={_onChange} />}
         >
-            <div>
+            <div className={fullWidth ? 'w-full' : 'w-fit'}>
                 <AssigneeResolver assignee={assignee}>
                     {({ assignee: resolvedAssignee }) => children(resolvedAssignee, showPopover)}
                 </AssigneeResolver>

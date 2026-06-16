@@ -92,7 +92,7 @@ export const getAgentApplicationsListUrl = (projectId: string, params?: AgentApp
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -105,18 +105,18 @@ export const getAgentApplicationsListUrl = (projectId: string, params?: AgentApp
 
 /**
  * Agent applications — the deployable unit of the platform.
-
-URLs:
-    GET    /api/projects/<team>/agent_applications/             list
-    POST   /api/projects/<team>/agent_applications/             create
-    GET    /api/projects/<team>/agent_applications/<id|slug>/   retrieve
-    PATCH  /api/projects/<team>/agent_applications/<id|slug>/   update
-    DELETE /api/projects/<team>/agent_applications/<id|slug>/   archive
-    POST   /api/projects/<team>/agent_applications/<id|slug>/set_env/        bulk replace env
-    GET    /api/projects/<team>/agent_applications/<id|slug>/env_keys/        list set keys
-    GET    /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  is one key set?
-    PUT    /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  set one key
-    DELETE /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  clear one key
+ *
+ * URLs:
+ *     GET    /api/projects/<team>/agent_applications/             list
+ *     POST   /api/projects/<team>/agent_applications/             create
+ *     GET    /api/projects/<team>/agent_applications/<id|slug>/   retrieve
+ *     PATCH  /api/projects/<team>/agent_applications/<id|slug>/   update
+ *     DELETE /api/projects/<team>/agent_applications/<id|slug>/   archive
+ *     POST   /api/projects/<team>/agent_applications/<id|slug>/set_env/        bulk replace env
+ *     GET    /api/projects/<team>/agent_applications/<id|slug>/env_keys/        list set keys
+ *     GET    /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  is one key set?
+ *     PUT    /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  set one key
+ *     DELETE /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  clear one key
  */
 export const agentApplicationsList = async (
     projectId: string,
@@ -135,18 +135,18 @@ export const getAgentApplicationsCreateUrl = (projectId: string) => {
 
 /**
  * Agent applications — the deployable unit of the platform.
-
-URLs:
-    GET    /api/projects/<team>/agent_applications/             list
-    POST   /api/projects/<team>/agent_applications/             create
-    GET    /api/projects/<team>/agent_applications/<id|slug>/   retrieve
-    PATCH  /api/projects/<team>/agent_applications/<id|slug>/   update
-    DELETE /api/projects/<team>/agent_applications/<id|slug>/   archive
-    POST   /api/projects/<team>/agent_applications/<id|slug>/set_env/        bulk replace env
-    GET    /api/projects/<team>/agent_applications/<id|slug>/env_keys/        list set keys
-    GET    /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  is one key set?
-    PUT    /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  set one key
-    DELETE /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  clear one key
+ *
+ * URLs:
+ *     GET    /api/projects/<team>/agent_applications/             list
+ *     POST   /api/projects/<team>/agent_applications/             create
+ *     GET    /api/projects/<team>/agent_applications/<id|slug>/   retrieve
+ *     PATCH  /api/projects/<team>/agent_applications/<id|slug>/   update
+ *     DELETE /api/projects/<team>/agent_applications/<id|slug>/   archive
+ *     POST   /api/projects/<team>/agent_applications/<id|slug>/set_env/        bulk replace env
+ *     GET    /api/projects/<team>/agent_applications/<id|slug>/env_keys/        list set keys
+ *     GET    /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  is one key set?
+ *     PUT    /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  set one key
+ *     DELETE /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  clear one key
  */
 export const agentApplicationsCreate = async (
     projectId: string,
@@ -170,7 +170,7 @@ export const getAgentMemoryListFilesUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -226,7 +226,7 @@ export const getAgentMemoryGetFileUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -261,7 +261,7 @@ export const getAgentMemoryUpdateFileUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -299,7 +299,7 @@ export const getAgentMemoryDeleteFileUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -330,7 +330,7 @@ export const getAgentMemorySearchUrl = (projectId: string, applicationId: string
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -384,7 +384,7 @@ export const getAgentMemoryReadTableUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -438,7 +438,7 @@ export const getAgentApplicationsRevisionsListUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -451,30 +451,30 @@ export const getAgentApplicationsRevisionsListUrl = (
 
 /**
  * Revisions of an agent. Created in `draft`, promoted through
-`ready → live` once the bundle has been uploaded + frozen.
-
-URLs (nested under an application):
-
-    Model CRUD:
-        GET   .../revisions/                       list
-        POST  .../revisions/                       create draft
-        GET   .../revisions/<id>/                  retrieve
-        PATCH .../revisions/<id>/                  update spec (draft only)
-
-    Lifecycle:
-        POST  .../revisions/<id>/promote/          ready → live
-        POST  .../revisions/<id>/archive/          → archived
-        POST  .../revisions/<id>/freeze/           draft → ready (stamps sha256)
-        POST  .../revisions/<id>/clone_from/       copy bundle from another rev
-        POST  .../revisions/new_draft/             create draft + clone_from atomically
-
-    Bundle authoring (proxied to the janitor):
-        GET    .../revisions/<id>/manifest/        list paths + sha256
-        GET    .../revisions/<id>/file/?path=…     read one file
-        PUT    .../revisions/<id>/file/?path=…     write one file (draft)
-        DELETE .../revisions/<id>/file/?path=…     delete one file (draft)
-        GET    .../revisions/<id>/bundle/          bulk pull all files
-        PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
+ * `ready → live` once the bundle has been uploaded + frozen.
+ *
+ * URLs (nested under an application):
+ *
+ *     Model CRUD:
+ *         GET   .../revisions/                       list
+ *         POST  .../revisions/                       create draft
+ *         GET   .../revisions/<id>/                  retrieve
+ *         PATCH .../revisions/<id>/                  update spec (draft only)
+ *
+ *     Lifecycle:
+ *         POST  .../revisions/<id>/promote/          ready → live
+ *         POST  .../revisions/<id>/archive/          → archived
+ *         POST  .../revisions/<id>/freeze/           draft → ready (stamps sha256)
+ *         POST  .../revisions/<id>/clone_from/       copy bundle from another rev
+ *         POST  .../revisions/new_draft/             create draft + clone_from atomically
+ *
+ *     Bundle authoring (proxied to the janitor):
+ *         GET    .../revisions/<id>/manifest/        list paths + sha256
+ *         GET    .../revisions/<id>/file/?path=…     read one file
+ *         PUT    .../revisions/<id>/file/?path=…     write one file (draft)
+ *         DELETE .../revisions/<id>/file/?path=…     delete one file (draft)
+ *         GET    .../revisions/<id>/bundle/          bulk pull all files
+ *         PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
  */
 export const agentApplicationsRevisionsList = async (
     projectId: string,
@@ -497,30 +497,30 @@ export const getAgentApplicationsRevisionsCreateUrl = (projectId: string, applic
 
 /**
  * Revisions of an agent. Created in `draft`, promoted through
-`ready → live` once the bundle has been uploaded + frozen.
-
-URLs (nested under an application):
-
-    Model CRUD:
-        GET   .../revisions/                       list
-        POST  .../revisions/                       create draft
-        GET   .../revisions/<id>/                  retrieve
-        PATCH .../revisions/<id>/                  update spec (draft only)
-
-    Lifecycle:
-        POST  .../revisions/<id>/promote/          ready → live
-        POST  .../revisions/<id>/archive/          → archived
-        POST  .../revisions/<id>/freeze/           draft → ready (stamps sha256)
-        POST  .../revisions/<id>/clone_from/       copy bundle from another rev
-        POST  .../revisions/new_draft/             create draft + clone_from atomically
-
-    Bundle authoring (proxied to the janitor):
-        GET    .../revisions/<id>/manifest/        list paths + sha256
-        GET    .../revisions/<id>/file/?path=…     read one file
-        PUT    .../revisions/<id>/file/?path=…     write one file (draft)
-        DELETE .../revisions/<id>/file/?path=…     delete one file (draft)
-        GET    .../revisions/<id>/bundle/          bulk pull all files
-        PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
+ * `ready → live` once the bundle has been uploaded + frozen.
+ *
+ * URLs (nested under an application):
+ *
+ *     Model CRUD:
+ *         GET   .../revisions/                       list
+ *         POST  .../revisions/                       create draft
+ *         GET   .../revisions/<id>/                  retrieve
+ *         PATCH .../revisions/<id>/                  update spec (draft only)
+ *
+ *     Lifecycle:
+ *         POST  .../revisions/<id>/promote/          ready → live
+ *         POST  .../revisions/<id>/archive/          → archived
+ *         POST  .../revisions/<id>/freeze/           draft → ready (stamps sha256)
+ *         POST  .../revisions/<id>/clone_from/       copy bundle from another rev
+ *         POST  .../revisions/new_draft/             create draft + clone_from atomically
+ *
+ *     Bundle authoring (proxied to the janitor):
+ *         GET    .../revisions/<id>/manifest/        list paths + sha256
+ *         GET    .../revisions/<id>/file/?path=…     read one file
+ *         PUT    .../revisions/<id>/file/?path=…     write one file (draft)
+ *         DELETE .../revisions/<id>/file/?path=…     delete one file (draft)
+ *         GET    .../revisions/<id>/bundle/          bulk pull all files
+ *         PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
  */
 export const agentApplicationsRevisionsCreate = async (
     projectId: string,
@@ -542,30 +542,30 @@ export const getAgentApplicationsRevisionsRetrieveUrl = (projectId: string, appl
 
 /**
  * Revisions of an agent. Created in `draft`, promoted through
-`ready → live` once the bundle has been uploaded + frozen.
-
-URLs (nested under an application):
-
-    Model CRUD:
-        GET   .../revisions/                       list
-        POST  .../revisions/                       create draft
-        GET   .../revisions/<id>/                  retrieve
-        PATCH .../revisions/<id>/                  update spec (draft only)
-
-    Lifecycle:
-        POST  .../revisions/<id>/promote/          ready → live
-        POST  .../revisions/<id>/archive/          → archived
-        POST  .../revisions/<id>/freeze/           draft → ready (stamps sha256)
-        POST  .../revisions/<id>/clone_from/       copy bundle from another rev
-        POST  .../revisions/new_draft/             create draft + clone_from atomically
-
-    Bundle authoring (proxied to the janitor):
-        GET    .../revisions/<id>/manifest/        list paths + sha256
-        GET    .../revisions/<id>/file/?path=…     read one file
-        PUT    .../revisions/<id>/file/?path=…     write one file (draft)
-        DELETE .../revisions/<id>/file/?path=…     delete one file (draft)
-        GET    .../revisions/<id>/bundle/          bulk pull all files
-        PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
+ * `ready → live` once the bundle has been uploaded + frozen.
+ *
+ * URLs (nested under an application):
+ *
+ *     Model CRUD:
+ *         GET   .../revisions/                       list
+ *         POST  .../revisions/                       create draft
+ *         GET   .../revisions/<id>/                  retrieve
+ *         PATCH .../revisions/<id>/                  update spec (draft only)
+ *
+ *     Lifecycle:
+ *         POST  .../revisions/<id>/promote/          ready → live
+ *         POST  .../revisions/<id>/archive/          → archived
+ *         POST  .../revisions/<id>/freeze/           draft → ready (stamps sha256)
+ *         POST  .../revisions/<id>/clone_from/       copy bundle from another rev
+ *         POST  .../revisions/new_draft/             create draft + clone_from atomically
+ *
+ *     Bundle authoring (proxied to the janitor):
+ *         GET    .../revisions/<id>/manifest/        list paths + sha256
+ *         GET    .../revisions/<id>/file/?path=…     read one file
+ *         PUT    .../revisions/<id>/file/?path=…     write one file (draft)
+ *         DELETE .../revisions/<id>/file/?path=…     delete one file (draft)
+ *         GET    .../revisions/<id>/bundle/          bulk pull all files
+ *         PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
  */
 export const agentApplicationsRevisionsRetrieve = async (
     projectId: string,
@@ -585,7 +585,7 @@ export const getAgentApplicationsRevisionsUpdateUrl = (projectId: string, applic
 
 /**
  * Spec edits are only allowed while state='draft'. Once promoted to
-ready/live the spec is frozen — change requires a new revision.
+ * ready/live the spec is frozen — change requires a new revision.
  */
 export const agentApplicationsRevisionsUpdate = async (
     projectId: string,
@@ -608,30 +608,30 @@ export const getAgentApplicationsRevisionsPartialUpdateUrl = (projectId: string,
 
 /**
  * Revisions of an agent. Created in `draft`, promoted through
-`ready → live` once the bundle has been uploaded + frozen.
-
-URLs (nested under an application):
-
-    Model CRUD:
-        GET   .../revisions/                       list
-        POST  .../revisions/                       create draft
-        GET   .../revisions/<id>/                  retrieve
-        PATCH .../revisions/<id>/                  update spec (draft only)
-
-    Lifecycle:
-        POST  .../revisions/<id>/promote/          ready → live
-        POST  .../revisions/<id>/archive/          → archived
-        POST  .../revisions/<id>/freeze/           draft → ready (stamps sha256)
-        POST  .../revisions/<id>/clone_from/       copy bundle from another rev
-        POST  .../revisions/new_draft/             create draft + clone_from atomically
-
-    Bundle authoring (proxied to the janitor):
-        GET    .../revisions/<id>/manifest/        list paths + sha256
-        GET    .../revisions/<id>/file/?path=…     read one file
-        PUT    .../revisions/<id>/file/?path=…     write one file (draft)
-        DELETE .../revisions/<id>/file/?path=…     delete one file (draft)
-        GET    .../revisions/<id>/bundle/          bulk pull all files
-        PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
+ * `ready → live` once the bundle has been uploaded + frozen.
+ *
+ * URLs (nested under an application):
+ *
+ *     Model CRUD:
+ *         GET   .../revisions/                       list
+ *         POST  .../revisions/                       create draft
+ *         GET   .../revisions/<id>/                  retrieve
+ *         PATCH .../revisions/<id>/                  update spec (draft only)
+ *
+ *     Lifecycle:
+ *         POST  .../revisions/<id>/promote/          ready → live
+ *         POST  .../revisions/<id>/archive/          → archived
+ *         POST  .../revisions/<id>/freeze/           draft → ready (stamps sha256)
+ *         POST  .../revisions/<id>/clone_from/       copy bundle from another rev
+ *         POST  .../revisions/new_draft/             create draft + clone_from atomically
+ *
+ *     Bundle authoring (proxied to the janitor):
+ *         GET    .../revisions/<id>/manifest/        list paths + sha256
+ *         GET    .../revisions/<id>/file/?path=…     read one file
+ *         PUT    .../revisions/<id>/file/?path=…     write one file (draft)
+ *         DELETE .../revisions/<id>/file/?path=…     delete one file (draft)
+ *         GET    .../revisions/<id>/bundle/          bulk pull all files
+ *         PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
  */
 export const agentApplicationsRevisionsPartialUpdate = async (
     projectId: string,
@@ -654,30 +654,30 @@ export const getAgentApplicationsRevisionsDestroyUrl = (projectId: string, appli
 
 /**
  * Revisions of an agent. Created in `draft`, promoted through
-`ready → live` once the bundle has been uploaded + frozen.
-
-URLs (nested under an application):
-
-    Model CRUD:
-        GET   .../revisions/                       list
-        POST  .../revisions/                       create draft
-        GET   .../revisions/<id>/                  retrieve
-        PATCH .../revisions/<id>/                  update spec (draft only)
-
-    Lifecycle:
-        POST  .../revisions/<id>/promote/          ready → live
-        POST  .../revisions/<id>/archive/          → archived
-        POST  .../revisions/<id>/freeze/           draft → ready (stamps sha256)
-        POST  .../revisions/<id>/clone_from/       copy bundle from another rev
-        POST  .../revisions/new_draft/             create draft + clone_from atomically
-
-    Bundle authoring (proxied to the janitor):
-        GET    .../revisions/<id>/manifest/        list paths + sha256
-        GET    .../revisions/<id>/file/?path=…     read one file
-        PUT    .../revisions/<id>/file/?path=…     write one file (draft)
-        DELETE .../revisions/<id>/file/?path=…     delete one file (draft)
-        GET    .../revisions/<id>/bundle/          bulk pull all files
-        PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
+ * `ready → live` once the bundle has been uploaded + frozen.
+ *
+ * URLs (nested under an application):
+ *
+ *     Model CRUD:
+ *         GET   .../revisions/                       list
+ *         POST  .../revisions/                       create draft
+ *         GET   .../revisions/<id>/                  retrieve
+ *         PATCH .../revisions/<id>/                  update spec (draft only)
+ *
+ *     Lifecycle:
+ *         POST  .../revisions/<id>/promote/          ready → live
+ *         POST  .../revisions/<id>/archive/          → archived
+ *         POST  .../revisions/<id>/freeze/           draft → ready (stamps sha256)
+ *         POST  .../revisions/<id>/clone_from/       copy bundle from another rev
+ *         POST  .../revisions/new_draft/             create draft + clone_from atomically
+ *
+ *     Bundle authoring (proxied to the janitor):
+ *         GET    .../revisions/<id>/manifest/        list paths + sha256
+ *         GET    .../revisions/<id>/file/?path=…     read one file
+ *         PUT    .../revisions/<id>/file/?path=…     write one file (draft)
+ *         DELETE .../revisions/<id>/file/?path=…     delete one file (draft)
+ *         GET    .../revisions/<id>/bundle/          bulk pull all files
+ *         PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
  */
 export const agentApplicationsRevisionsDestroy = async (
     projectId: string,
@@ -697,30 +697,30 @@ export const getAgentApplicationsRevisionsAgentMdUpdateUrl = (projectId: string,
 
 /**
  * Revisions of an agent. Created in `draft`, promoted through
-`ready → live` once the bundle has been uploaded + frozen.
-
-URLs (nested under an application):
-
-    Model CRUD:
-        GET   .../revisions/                       list
-        POST  .../revisions/                       create draft
-        GET   .../revisions/<id>/                  retrieve
-        PATCH .../revisions/<id>/                  update spec (draft only)
-
-    Lifecycle:
-        POST  .../revisions/<id>/promote/          ready → live
-        POST  .../revisions/<id>/archive/          → archived
-        POST  .../revisions/<id>/freeze/           draft → ready (stamps sha256)
-        POST  .../revisions/<id>/clone_from/       copy bundle from another rev
-        POST  .../revisions/new_draft/             create draft + clone_from atomically
-
-    Bundle authoring (proxied to the janitor):
-        GET    .../revisions/<id>/manifest/        list paths + sha256
-        GET    .../revisions/<id>/file/?path=…     read one file
-        PUT    .../revisions/<id>/file/?path=…     write one file (draft)
-        DELETE .../revisions/<id>/file/?path=…     delete one file (draft)
-        GET    .../revisions/<id>/bundle/          bulk pull all files
-        PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
+ * `ready → live` once the bundle has been uploaded + frozen.
+ *
+ * URLs (nested under an application):
+ *
+ *     Model CRUD:
+ *         GET   .../revisions/                       list
+ *         POST  .../revisions/                       create draft
+ *         GET   .../revisions/<id>/                  retrieve
+ *         PATCH .../revisions/<id>/                  update spec (draft only)
+ *
+ *     Lifecycle:
+ *         POST  .../revisions/<id>/promote/          ready → live
+ *         POST  .../revisions/<id>/archive/          → archived
+ *         POST  .../revisions/<id>/freeze/           draft → ready (stamps sha256)
+ *         POST  .../revisions/<id>/clone_from/       copy bundle from another rev
+ *         POST  .../revisions/new_draft/             create draft + clone_from atomically
+ *
+ *     Bundle authoring (proxied to the janitor):
+ *         GET    .../revisions/<id>/manifest/        list paths + sha256
+ *         GET    .../revisions/<id>/file/?path=…     read one file
+ *         PUT    .../revisions/<id>/file/?path=…     write one file (draft)
+ *         DELETE .../revisions/<id>/file/?path=…     delete one file (draft)
+ *         GET    .../revisions/<id>/bundle/          bulk pull all files
+ *         PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
  */
 export const agentApplicationsRevisionsAgentMdUpdate = async (
     projectId: string,
@@ -743,8 +743,8 @@ export const getAgentApplicationsRevisionsArchiveCreateUrl = (projectId: string,
 
 /**
  * Mark a revision archived. If it was the live one, clear the
-application's live_revision pointer (the app effectively has no
-deployable version until another revision is promoted).
+ * application's live_revision pointer (the app effectively has no
+ * deployable version until another revision is promoted).
  */
 export const agentApplicationsRevisionsArchiveCreate = async (
     projectId: string,
@@ -787,8 +787,8 @@ export const getAgentApplicationsRevisionsBundleUpdateUrl = (projectId: string, 
 
 /**
  * Full-replace the typed bundle. Anything not in the payload is
-deleted. Tool sources are AST-checked + esbuild-compiled by the
-janitor before any S3 writes.
+ * deleted. Tool sources are AST-checked + esbuild-compiled by the
+ * janitor before any S3 writes.
  */
 export const agentApplicationsRevisionsBundleUpdate = async (
     projectId: string,
@@ -841,14 +841,13 @@ export const getAgentApplicationsRevisionsCronFireCreateUrl = (
 
 /**
  * Fire one cron job out-of-band — the same execution path the
-scheduler walks, but on demand. Authoring UX: the user iterates on
-a cron prompt by clicking 'Fire now' rather than waiting for the
-next scheduled firing. Without this, 'did my prompt do the right
-thing?' is unanswerable until the cron actually fires.
-
-Idempotent via `request_id`: repeat clicks with the same id resolve
-to the same session id rather than firing N times. See
-`docs/agent-platform/plans/cron-trigger-scheduler.md` §9.
+ * scheduler walks, but on demand. Authoring UX: the user iterates on
+ * a cron prompt by clicking 'Fire now' rather than waiting for the
+ * next scheduled firing. Without this, 'did my prompt do the right
+ * thing?' is unanswerable until the cron actually fires.
+ *
+ * Idempotent via `request_id`: repeat clicks with the same id resolve
+ * to the same session id rather than firing N times.
  */
 export const agentApplicationsRevisionsCronFireCreate = async (
     projectId: string,
@@ -874,17 +873,17 @@ export const getAgentApplicationsRevisionsFreezeCreateUrl = (projectId: string, 
 
 /**
  * Freeze the bundle: draft → ready, stamps sha256 on the row.
-
-Django is a thin proxy here: resolve template refs into the
-bundle, ask the janitor to seal it (the janitor returns the sha
-+ the spec it derived from the typed resources), then stamp the
-row. No `transaction.atomic()` — the janitor's freeze is idempotent
-(on retry it re-reads the existing `.frozen` marker + re-derives
-spec), so a partial failure here is recoverable by re-calling
-freeze, not by transactional rollback. Holding an atomic block
-across the janitor HTTP call previously deadlocked the
-agent_revision row against the janitor's spec write — that's
-moved off the janitor side as part of the same fix.
+ *
+ * Django is a thin proxy here: resolve template refs into the
+ * bundle, ask the janitor to seal it (the janitor returns the sha
+ * + the spec it derived from the typed resources), then stamp the
+ * row. No `transaction.atomic()` — the janitor's freeze is idempotent
+ * (on retry it re-reads the existing `.frozen` marker + re-derives
+ * spec), so a partial failure here is recoverable by re-calling
+ * freeze, not by transactional rollback. Holding an atomic block
+ * across the janitor HTTP call previously deadlocked the
+ * agent_revision row against the janitor's spec write — that's
+ * moved off the janitor side as part of the same fix.
  */
 export const agentApplicationsRevisionsFreezeCreate = async (
     projectId: string,
@@ -954,30 +953,30 @@ export const getAgentApplicationsRevisionsSkillsUpdateUrl = (
 
 /**
  * Revisions of an agent. Created in `draft`, promoted through
-`ready → live` once the bundle has been uploaded + frozen.
-
-URLs (nested under an application):
-
-    Model CRUD:
-        GET   .../revisions/                       list
-        POST  .../revisions/                       create draft
-        GET   .../revisions/<id>/                  retrieve
-        PATCH .../revisions/<id>/                  update spec (draft only)
-
-    Lifecycle:
-        POST  .../revisions/<id>/promote/          ready → live
-        POST  .../revisions/<id>/archive/          → archived
-        POST  .../revisions/<id>/freeze/           draft → ready (stamps sha256)
-        POST  .../revisions/<id>/clone_from/       copy bundle from another rev
-        POST  .../revisions/new_draft/             create draft + clone_from atomically
-
-    Bundle authoring (proxied to the janitor):
-        GET    .../revisions/<id>/manifest/        list paths + sha256
-        GET    .../revisions/<id>/file/?path=…     read one file
-        PUT    .../revisions/<id>/file/?path=…     write one file (draft)
-        DELETE .../revisions/<id>/file/?path=…     delete one file (draft)
-        GET    .../revisions/<id>/bundle/          bulk pull all files
-        PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
+ * `ready → live` once the bundle has been uploaded + frozen.
+ *
+ * URLs (nested under an application):
+ *
+ *     Model CRUD:
+ *         GET   .../revisions/                       list
+ *         POST  .../revisions/                       create draft
+ *         GET   .../revisions/<id>/                  retrieve
+ *         PATCH .../revisions/<id>/                  update spec (draft only)
+ *
+ *     Lifecycle:
+ *         POST  .../revisions/<id>/promote/          ready → live
+ *         POST  .../revisions/<id>/archive/          → archived
+ *         POST  .../revisions/<id>/freeze/           draft → ready (stamps sha256)
+ *         POST  .../revisions/<id>/clone_from/       copy bundle from another rev
+ *         POST  .../revisions/new_draft/             create draft + clone_from atomically
+ *
+ *     Bundle authoring (proxied to the janitor):
+ *         GET    .../revisions/<id>/manifest/        list paths + sha256
+ *         GET    .../revisions/<id>/file/?path=…     read one file
+ *         PUT    .../revisions/<id>/file/?path=…     write one file (draft)
+ *         DELETE .../revisions/<id>/file/?path=…     delete one file (draft)
+ *         GET    .../revisions/<id>/bundle/          bulk pull all files
+ *         PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
  */
 export const agentApplicationsRevisionsSkillsUpdate = async (
     projectId: string,
@@ -1009,30 +1008,30 @@ export const getAgentApplicationsRevisionsSkillsDestroyUrl = (
 
 /**
  * Revisions of an agent. Created in `draft`, promoted through
-`ready → live` once the bundle has been uploaded + frozen.
-
-URLs (nested under an application):
-
-    Model CRUD:
-        GET   .../revisions/                       list
-        POST  .../revisions/                       create draft
-        GET   .../revisions/<id>/                  retrieve
-        PATCH .../revisions/<id>/                  update spec (draft only)
-
-    Lifecycle:
-        POST  .../revisions/<id>/promote/          ready → live
-        POST  .../revisions/<id>/archive/          → archived
-        POST  .../revisions/<id>/freeze/           draft → ready (stamps sha256)
-        POST  .../revisions/<id>/clone_from/       copy bundle from another rev
-        POST  .../revisions/new_draft/             create draft + clone_from atomically
-
-    Bundle authoring (proxied to the janitor):
-        GET    .../revisions/<id>/manifest/        list paths + sha256
-        GET    .../revisions/<id>/file/?path=…     read one file
-        PUT    .../revisions/<id>/file/?path=…     write one file (draft)
-        DELETE .../revisions/<id>/file/?path=…     delete one file (draft)
-        GET    .../revisions/<id>/bundle/          bulk pull all files
-        PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
+ * `ready → live` once the bundle has been uploaded + frozen.
+ *
+ * URLs (nested under an application):
+ *
+ *     Model CRUD:
+ *         GET   .../revisions/                       list
+ *         POST  .../revisions/                       create draft
+ *         GET   .../revisions/<id>/                  retrieve
+ *         PATCH .../revisions/<id>/                  update spec (draft only)
+ *
+ *     Lifecycle:
+ *         POST  .../revisions/<id>/promote/          ready → live
+ *         POST  .../revisions/<id>/archive/          → archived
+ *         POST  .../revisions/<id>/freeze/           draft → ready (stamps sha256)
+ *         POST  .../revisions/<id>/clone_from/       copy bundle from another rev
+ *         POST  .../revisions/new_draft/             create draft + clone_from atomically
+ *
+ *     Bundle authoring (proxied to the janitor):
+ *         GET    .../revisions/<id>/manifest/        list paths + sha256
+ *         GET    .../revisions/<id>/file/?path=…     read one file
+ *         PUT    .../revisions/<id>/file/?path=…     write one file (draft)
+ *         DELETE .../revisions/<id>/file/?path=…     delete one file (draft)
+ *         GET    .../revisions/<id>/bundle/          bulk pull all files
+ *         PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
  */
 export const agentApplicationsRevisionsSkillsDestroy = async (
     projectId: string,
@@ -1053,12 +1052,12 @@ export const getAgentApplicationsRevisionsSlackManifestUrl = (projectId: string,
 
 /**
  * Build a Slack app manifest for this revision's slack trigger.
-
-Deterministic: the OAuth scopes and bot event subscriptions are derived
-from the slack trigger config (`mention_only` / `auto_resume_threads` /
-`ack_reaction`) and the agent's Slack tools, so the manifest already
-subscribes to exactly the events the config needs. 400 if the revision
-has no slack trigger.
+ *
+ * Deterministic: the OAuth scopes and bot event subscriptions are derived
+ * from the slack trigger config (`mention_only` / `auto_resume_threads` /
+ * `ack_reaction`) and the agent's Slack tools, so the manifest already
+ * subscribes to exactly the events the config needs. 400 if the revision
+ * has no slack trigger.
  */
 export const agentApplicationsRevisionsSlackManifest = async (
     projectId: string,
@@ -1081,30 +1080,30 @@ export const getAgentApplicationsRevisionsSpecUpdateUrl = (projectId: string, ap
 
 /**
  * Revisions of an agent. Created in `draft`, promoted through
-`ready → live` once the bundle has been uploaded + frozen.
-
-URLs (nested under an application):
-
-    Model CRUD:
-        GET   .../revisions/                       list
-        POST  .../revisions/                       create draft
-        GET   .../revisions/<id>/                  retrieve
-        PATCH .../revisions/<id>/                  update spec (draft only)
-
-    Lifecycle:
-        POST  .../revisions/<id>/promote/          ready → live
-        POST  .../revisions/<id>/archive/          → archived
-        POST  .../revisions/<id>/freeze/           draft → ready (stamps sha256)
-        POST  .../revisions/<id>/clone_from/       copy bundle from another rev
-        POST  .../revisions/new_draft/             create draft + clone_from atomically
-
-    Bundle authoring (proxied to the janitor):
-        GET    .../revisions/<id>/manifest/        list paths + sha256
-        GET    .../revisions/<id>/file/?path=…     read one file
-        PUT    .../revisions/<id>/file/?path=…     write one file (draft)
-        DELETE .../revisions/<id>/file/?path=…     delete one file (draft)
-        GET    .../revisions/<id>/bundle/          bulk pull all files
-        PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
+ * `ready → live` once the bundle has been uploaded + frozen.
+ *
+ * URLs (nested under an application):
+ *
+ *     Model CRUD:
+ *         GET   .../revisions/                       list
+ *         POST  .../revisions/                       create draft
+ *         GET   .../revisions/<id>/                  retrieve
+ *         PATCH .../revisions/<id>/                  update spec (draft only)
+ *
+ *     Lifecycle:
+ *         POST  .../revisions/<id>/promote/          ready → live
+ *         POST  .../revisions/<id>/archive/          → archived
+ *         POST  .../revisions/<id>/freeze/           draft → ready (stamps sha256)
+ *         POST  .../revisions/<id>/clone_from/       copy bundle from another rev
+ *         POST  .../revisions/new_draft/             create draft + clone_from atomically
+ *
+ *     Bundle authoring (proxied to the janitor):
+ *         GET    .../revisions/<id>/manifest/        list paths + sha256
+ *         GET    .../revisions/<id>/file/?path=…     read one file
+ *         PUT    .../revisions/<id>/file/?path=…     write one file (draft)
+ *         DELETE .../revisions/<id>/file/?path=…     delete one file (draft)
+ *         GET    .../revisions/<id>/bundle/          bulk pull all files
+ *         PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
  */
 export const agentApplicationsRevisionsSpecUpdate = async (
     projectId: string,
@@ -1127,12 +1126,12 @@ export const getAgentApplicationsRevisionsSystemPromptUrl = (projectId: string, 
 
 /**
  * Return the fully-assembled system prompt for this revision.
-
-Authoring tools call this to preview what the model will actually
-see at session start — the platform framework preamble plus the
-bundle's `agent.md` plus the skills index. Useful for debugging
-author-vs-framework precedence conflicts and verifying
-`spec.framework_prompt.omit` overrides took effect.
+ *
+ * Authoring tools call this to preview what the model will actually
+ * see at session start — the platform framework preamble plus the
+ * bundle's `agent.md` plus the skills index. Useful for debugging
+ * author-vs-framework precedence conflicts and verifying
+ * `spec.framework_prompt.omit` overrides took effect.
  */
 export const agentApplicationsRevisionsSystemPrompt = async (
     projectId: string,
@@ -1160,30 +1159,30 @@ export const getAgentApplicationsRevisionsToolsUpdateUrl = (
 
 /**
  * Revisions of an agent. Created in `draft`, promoted through
-`ready → live` once the bundle has been uploaded + frozen.
-
-URLs (nested under an application):
-
-    Model CRUD:
-        GET   .../revisions/                       list
-        POST  .../revisions/                       create draft
-        GET   .../revisions/<id>/                  retrieve
-        PATCH .../revisions/<id>/                  update spec (draft only)
-
-    Lifecycle:
-        POST  .../revisions/<id>/promote/          ready → live
-        POST  .../revisions/<id>/archive/          → archived
-        POST  .../revisions/<id>/freeze/           draft → ready (stamps sha256)
-        POST  .../revisions/<id>/clone_from/       copy bundle from another rev
-        POST  .../revisions/new_draft/             create draft + clone_from atomically
-
-    Bundle authoring (proxied to the janitor):
-        GET    .../revisions/<id>/manifest/        list paths + sha256
-        GET    .../revisions/<id>/file/?path=…     read one file
-        PUT    .../revisions/<id>/file/?path=…     write one file (draft)
-        DELETE .../revisions/<id>/file/?path=…     delete one file (draft)
-        GET    .../revisions/<id>/bundle/          bulk pull all files
-        PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
+ * `ready → live` once the bundle has been uploaded + frozen.
+ *
+ * URLs (nested under an application):
+ *
+ *     Model CRUD:
+ *         GET   .../revisions/                       list
+ *         POST  .../revisions/                       create draft
+ *         GET   .../revisions/<id>/                  retrieve
+ *         PATCH .../revisions/<id>/                  update spec (draft only)
+ *
+ *     Lifecycle:
+ *         POST  .../revisions/<id>/promote/          ready → live
+ *         POST  .../revisions/<id>/archive/          → archived
+ *         POST  .../revisions/<id>/freeze/           draft → ready (stamps sha256)
+ *         POST  .../revisions/<id>/clone_from/       copy bundle from another rev
+ *         POST  .../revisions/new_draft/             create draft + clone_from atomically
+ *
+ *     Bundle authoring (proxied to the janitor):
+ *         GET    .../revisions/<id>/manifest/        list paths + sha256
+ *         GET    .../revisions/<id>/file/?path=…     read one file
+ *         PUT    .../revisions/<id>/file/?path=…     write one file (draft)
+ *         DELETE .../revisions/<id>/file/?path=…     delete one file (draft)
+ *         GET    .../revisions/<id>/bundle/          bulk pull all files
+ *         PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
  */
 export const agentApplicationsRevisionsToolsUpdate = async (
     projectId: string,
@@ -1215,30 +1214,30 @@ export const getAgentApplicationsRevisionsToolsDestroyUrl = (
 
 /**
  * Revisions of an agent. Created in `draft`, promoted through
-`ready → live` once the bundle has been uploaded + frozen.
-
-URLs (nested under an application):
-
-    Model CRUD:
-        GET   .../revisions/                       list
-        POST  .../revisions/                       create draft
-        GET   .../revisions/<id>/                  retrieve
-        PATCH .../revisions/<id>/                  update spec (draft only)
-
-    Lifecycle:
-        POST  .../revisions/<id>/promote/          ready → live
-        POST  .../revisions/<id>/archive/          → archived
-        POST  .../revisions/<id>/freeze/           draft → ready (stamps sha256)
-        POST  .../revisions/<id>/clone_from/       copy bundle from another rev
-        POST  .../revisions/new_draft/             create draft + clone_from atomically
-
-    Bundle authoring (proxied to the janitor):
-        GET    .../revisions/<id>/manifest/        list paths + sha256
-        GET    .../revisions/<id>/file/?path=…     read one file
-        PUT    .../revisions/<id>/file/?path=…     write one file (draft)
-        DELETE .../revisions/<id>/file/?path=…     delete one file (draft)
-        GET    .../revisions/<id>/bundle/          bulk pull all files
-        PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
+ * `ready → live` once the bundle has been uploaded + frozen.
+ *
+ * URLs (nested under an application):
+ *
+ *     Model CRUD:
+ *         GET   .../revisions/                       list
+ *         POST  .../revisions/                       create draft
+ *         GET   .../revisions/<id>/                  retrieve
+ *         PATCH .../revisions/<id>/                  update spec (draft only)
+ *
+ *     Lifecycle:
+ *         POST  .../revisions/<id>/promote/          ready → live
+ *         POST  .../revisions/<id>/archive/          → archived
+ *         POST  .../revisions/<id>/freeze/           draft → ready (stamps sha256)
+ *         POST  .../revisions/<id>/clone_from/       copy bundle from another rev
+ *         POST  .../revisions/new_draft/             create draft + clone_from atomically
+ *
+ *     Bundle authoring (proxied to the janitor):
+ *         GET    .../revisions/<id>/manifest/        list paths + sha256
+ *         GET    .../revisions/<id>/file/?path=…     read one file
+ *         PUT    .../revisions/<id>/file/?path=…     write one file (draft)
+ *         DELETE .../revisions/<id>/file/?path=…     delete one file (draft)
+ *         GET    .../revisions/<id>/bundle/          bulk pull all files
+ *         PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
  */
 export const agentApplicationsRevisionsToolsDestroy = async (
     projectId: string,
@@ -1263,10 +1262,10 @@ export const getAgentApplicationsRevisionsValidateCreateUrl = (
 
 /**
  * Pre-flight checks before freeze + promote: entrypoint file exists,
-every native tool id is registered, every custom tool has its
-compiled.js + schema.json, every skill path exists, every declared
-secret has a value set in the application's env block. Returns
-`{ ok, errors: [...] }`. Works on any revision state.
+ * every native tool id is registered, every custom tool has its
+ * compiled.js + schema.json, every skill path exists, every declared
+ * secret has a value set in the application's env block. Returns
+ * `{ ok, errors: [...] }`. Works on any revision state.
  */
 export const agentApplicationsRevisionsValidateCreate = async (
     projectId: string,
@@ -1289,8 +1288,8 @@ export const getAgentApplicationsRevisionsNewDraftCreateUrl = (projectId: string
 
 /**
  * Create a fresh draft revision under `application_id` and seed it
-from `source_revision_id`. Saves the MCP one round-trip vs the
-explicit create + clone_from sequence.
+ * from `source_revision_id`. Saves the MCP one round-trip vs the
+ * explicit create + clone_from sequence.
  */
 export const agentApplicationsRevisionsNewDraftCreate = async (
     projectId: string,
@@ -1312,18 +1311,18 @@ export const getAgentApplicationsRetrieveUrl = (projectId: string, id: string) =
 
 /**
  * Agent applications — the deployable unit of the platform.
-
-URLs:
-    GET    /api/projects/<team>/agent_applications/             list
-    POST   /api/projects/<team>/agent_applications/             create
-    GET    /api/projects/<team>/agent_applications/<id|slug>/   retrieve
-    PATCH  /api/projects/<team>/agent_applications/<id|slug>/   update
-    DELETE /api/projects/<team>/agent_applications/<id|slug>/   archive
-    POST   /api/projects/<team>/agent_applications/<id|slug>/set_env/        bulk replace env
-    GET    /api/projects/<team>/agent_applications/<id|slug>/env_keys/        list set keys
-    GET    /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  is one key set?
-    PUT    /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  set one key
-    DELETE /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  clear one key
+ *
+ * URLs:
+ *     GET    /api/projects/<team>/agent_applications/             list
+ *     POST   /api/projects/<team>/agent_applications/             create
+ *     GET    /api/projects/<team>/agent_applications/<id|slug>/   retrieve
+ *     PATCH  /api/projects/<team>/agent_applications/<id|slug>/   update
+ *     DELETE /api/projects/<team>/agent_applications/<id|slug>/   archive
+ *     POST   /api/projects/<team>/agent_applications/<id|slug>/set_env/        bulk replace env
+ *     GET    /api/projects/<team>/agent_applications/<id|slug>/env_keys/        list set keys
+ *     GET    /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  is one key set?
+ *     PUT    /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  set one key
+ *     DELETE /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  clear one key
  */
 export const agentApplicationsRetrieve = async (
     projectId: string,
@@ -1342,18 +1341,18 @@ export const getAgentApplicationsUpdateUrl = (projectId: string, id: string) => 
 
 /**
  * Agent applications — the deployable unit of the platform.
-
-URLs:
-    GET    /api/projects/<team>/agent_applications/             list
-    POST   /api/projects/<team>/agent_applications/             create
-    GET    /api/projects/<team>/agent_applications/<id|slug>/   retrieve
-    PATCH  /api/projects/<team>/agent_applications/<id|slug>/   update
-    DELETE /api/projects/<team>/agent_applications/<id|slug>/   archive
-    POST   /api/projects/<team>/agent_applications/<id|slug>/set_env/        bulk replace env
-    GET    /api/projects/<team>/agent_applications/<id|slug>/env_keys/        list set keys
-    GET    /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  is one key set?
-    PUT    /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  set one key
-    DELETE /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  clear one key
+ *
+ * URLs:
+ *     GET    /api/projects/<team>/agent_applications/             list
+ *     POST   /api/projects/<team>/agent_applications/             create
+ *     GET    /api/projects/<team>/agent_applications/<id|slug>/   retrieve
+ *     PATCH  /api/projects/<team>/agent_applications/<id|slug>/   update
+ *     DELETE /api/projects/<team>/agent_applications/<id|slug>/   archive
+ *     POST   /api/projects/<team>/agent_applications/<id|slug>/set_env/        bulk replace env
+ *     GET    /api/projects/<team>/agent_applications/<id|slug>/env_keys/        list set keys
+ *     GET    /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  is one key set?
+ *     PUT    /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  set one key
+ *     DELETE /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  clear one key
  */
 export const agentApplicationsUpdate = async (
     projectId: string,
@@ -1375,18 +1374,18 @@ export const getAgentApplicationsPartialUpdateUrl = (projectId: string, id: stri
 
 /**
  * Agent applications — the deployable unit of the platform.
-
-URLs:
-    GET    /api/projects/<team>/agent_applications/             list
-    POST   /api/projects/<team>/agent_applications/             create
-    GET    /api/projects/<team>/agent_applications/<id|slug>/   retrieve
-    PATCH  /api/projects/<team>/agent_applications/<id|slug>/   update
-    DELETE /api/projects/<team>/agent_applications/<id|slug>/   archive
-    POST   /api/projects/<team>/agent_applications/<id|slug>/set_env/        bulk replace env
-    GET    /api/projects/<team>/agent_applications/<id|slug>/env_keys/        list set keys
-    GET    /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  is one key set?
-    PUT    /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  set one key
-    DELETE /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  clear one key
+ *
+ * URLs:
+ *     GET    /api/projects/<team>/agent_applications/             list
+ *     POST   /api/projects/<team>/agent_applications/             create
+ *     GET    /api/projects/<team>/agent_applications/<id|slug>/   retrieve
+ *     PATCH  /api/projects/<team>/agent_applications/<id|slug>/   update
+ *     DELETE /api/projects/<team>/agent_applications/<id|slug>/   archive
+ *     POST   /api/projects/<team>/agent_applications/<id|slug>/set_env/        bulk replace env
+ *     GET    /api/projects/<team>/agent_applications/<id|slug>/env_keys/        list set keys
+ *     GET    /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  is one key set?
+ *     PUT    /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  set one key
+ *     DELETE /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  clear one key
  */
 export const agentApplicationsPartialUpdate = async (
     projectId: string,
@@ -1408,18 +1407,18 @@ export const getAgentApplicationsDestroyUrl = (projectId: string, id: string) =>
 
 /**
  * Agent applications — the deployable unit of the platform.
-
-URLs:
-    GET    /api/projects/<team>/agent_applications/             list
-    POST   /api/projects/<team>/agent_applications/             create
-    GET    /api/projects/<team>/agent_applications/<id|slug>/   retrieve
-    PATCH  /api/projects/<team>/agent_applications/<id|slug>/   update
-    DELETE /api/projects/<team>/agent_applications/<id|slug>/   archive
-    POST   /api/projects/<team>/agent_applications/<id|slug>/set_env/        bulk replace env
-    GET    /api/projects/<team>/agent_applications/<id|slug>/env_keys/        list set keys
-    GET    /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  is one key set?
-    PUT    /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  set one key
-    DELETE /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  clear one key
+ *
+ * URLs:
+ *     GET    /api/projects/<team>/agent_applications/             list
+ *     POST   /api/projects/<team>/agent_applications/             create
+ *     GET    /api/projects/<team>/agent_applications/<id|slug>/   retrieve
+ *     PATCH  /api/projects/<team>/agent_applications/<id|slug>/   update
+ *     DELETE /api/projects/<team>/agent_applications/<id|slug>/   archive
+ *     POST   /api/projects/<team>/agent_applications/<id|slug>/set_env/        bulk replace env
+ *     GET    /api/projects/<team>/agent_applications/<id|slug>/env_keys/        list set keys
+ *     GET    /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  is one key set?
+ *     PUT    /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  set one key
+ *     DELETE /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  clear one key
  */
 export const agentApplicationsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getAgentApplicationsDestroyUrl(projectId, id), {
@@ -1437,7 +1436,7 @@ export const getAgentApplicationsApprovalsListUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -1450,8 +1449,8 @@ export const getAgentApplicationsApprovalsListUrl = (
 
 /**
  * List approval-gated tool requests for this application. Team-admin
-only (per plan §6.1). Default returns all states — pass `?state=queued`
-for the inbox view.
+ * only (per plan §6.1). Default returns all states — pass `?state=queued`
+ * for the inbox view.
  */
 export const agentApplicationsApprovalsList = async (
     projectId: string,
@@ -1474,7 +1473,7 @@ export const getAgentApplicationsApprovalsRetrieveUrl = (projectId: string, id: 
 
 /**
  * Single approval request — full proposed args, assistant snapshot,
-decision metadata, dispatch outcome. Team-admin only (plan §6.1).
+ * decision metadata, dispatch outcome. Team-admin only (plan §6.1).
  */
 export const agentApplicationsApprovalsRetrieve = async (
     projectId: string,
@@ -1494,8 +1493,8 @@ export const getAgentApplicationsApprovalsDecideUrl = (projectId: string, id: st
 
 /**
  * Approve or reject a queued tool-approval request. Team-admin only
-(plan §6.1). The runtime side runs the tool platform-side on approve
-and wakes the session with a synthetic tool_result either way.
+ * (plan §6.1). The runtime side runs the tool platform-side on approve
+ * and wakes the session with a synthetic tool_result either way.
  */
 export const agentApplicationsApprovalsDecide = async (
     projectId: string,
@@ -1521,10 +1520,10 @@ export const getAgentApplicationsEnvKeysListUrl = (projectId: string, id: string
 
 /**
  * List the names of secrets currently set on the application.
-
-Returns names only — values stay server-side under
-`EncryptedTextField`. Use this to drive the "set / unset" badge
-next to a declared secret in the editor UI.
+ *
+ * Returns names only — values stay server-side under
+ * `EncryptedTextField`. Use this to drive the "set / unset" badge
+ * next to a declared secret in the editor UI.
  */
 export const agentApplicationsEnvKeysList = async (
     projectId: string,
@@ -1543,14 +1542,14 @@ export const getAgentApplicationsEnvKeysGetUrl = (projectId: string, id: string,
 
 /**
  * GET / PUT / DELETE one secret by name.
-
-- `GET`    → `{ key, is_set }` (never returns the value).
-- `PUT`    → upserts `{ value }` into the env block.
-- `DELETE` → removes the key. No-op when it wasn't set.
-
-Per-method scope: GET is treated as a write action so the
-single action name maps to one consistent scope; reading whether
-a secret is set is restricted to writers in any case.
+ *
+ * - `GET`    → `{ key, is_set }` (never returns the value).
+ * - `PUT`    → upserts `{ value }` into the env block.
+ * - `DELETE` → removes the key. No-op when it wasn't set.
+ *
+ * Per-method scope: GET is treated as a write action so the
+ * single action name maps to one consistent scope; reading whether
+ * a secret is set is restricted to writers in any case.
  */
 export const agentApplicationsEnvKeysGet = async (
     projectId: string,
@@ -1570,14 +1569,14 @@ export const getAgentApplicationsEnvKeysSetUrl = (projectId: string, id: string,
 
 /**
  * GET / PUT / DELETE one secret by name.
-
-- `GET`    → `{ key, is_set }` (never returns the value).
-- `PUT`    → upserts `{ value }` into the env block.
-- `DELETE` → removes the key. No-op when it wasn't set.
-
-Per-method scope: GET is treated as a write action so the
-single action name maps to one consistent scope; reading whether
-a secret is set is restricted to writers in any case.
+ *
+ * - `GET`    → `{ key, is_set }` (never returns the value).
+ * - `PUT`    → upserts `{ value }` into the env block.
+ * - `DELETE` → removes the key. No-op when it wasn't set.
+ *
+ * Per-method scope: GET is treated as a write action so the
+ * single action name maps to one consistent scope; reading whether
+ * a secret is set is restricted to writers in any case.
  */
 export const agentApplicationsEnvKeysSet = async (
     projectId: string,
@@ -1600,14 +1599,14 @@ export const getAgentApplicationsEnvKeysClearUrl = (projectId: string, id: strin
 
 /**
  * GET / PUT / DELETE one secret by name.
-
-- `GET`    → `{ key, is_set }` (never returns the value).
-- `PUT`    → upserts `{ value }` into the env block.
-- `DELETE` → removes the key. No-op when it wasn't set.
-
-Per-method scope: GET is treated as a write action so the
-single action name maps to one consistent scope; reading whether
-a secret is set is restricted to writers in any case.
+ *
+ * - `GET`    → `{ key, is_set }` (never returns the value).
+ * - `PUT`    → upserts `{ value }` into the env block.
+ * - `DELETE` → removes the key. No-op when it wasn't set.
+ *
+ * Per-method scope: GET is treated as a write action so the
+ * single action name maps to one consistent scope; reading whether
+ * a secret is set is restricted to writers in any case.
  */
 export const agentApplicationsEnvKeysClear = async (
     projectId: string,
@@ -1631,7 +1630,7 @@ export const getAgentApplicationsPreviewProxyGetUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -1668,7 +1667,7 @@ export const getAgentApplicationsPreviewProxyUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -1681,14 +1680,13 @@ export const getAgentApplicationsPreviewProxyUrl = (
 
 /**
  * Authoring-side proxy for invoking a *draft* (or any non-live) revision.
-
-Closes the anonymous-draft-invoke gap: the public ingress URL refuses
-non-live invokes that don't carry the `x-agent-preview-secret` header;
-this proxy attaches it after authenticating the Django caller. See
-docs/agent-platform/plans/draft-preview-auth.md.
-
-URL: `/api/projects/<team>/agent_applications/<app>/preview-proxy/<rest>`
-Auth: standard PAT / session — `agents:read` scope.
+ *
+ * Closes the anonymous-draft-invoke gap: the public ingress URL refuses
+ * non-live invokes that don't carry the `x-agent-preview-secret` header;
+ * this proxy attaches it after authenticating the Django caller.
+ *
+ * URL: `/api/projects/<team>/agent_applications/<app>/preview-proxy/<rest>`
+ * Auth: standard PAT / session — `agents:read` scope.
  */
 export const agentApplicationsPreviewProxy = async (
     projectId: string,
@@ -1712,7 +1710,7 @@ export const getAgentApplicationsPreviewTokenUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -1725,17 +1723,17 @@ export const getAgentApplicationsPreviewTokenUrl = (
 
 /**
  * Mint a short-lived JWT for talking to a non-live revision
-directly via the public ingress URL. The caller attaches it as
-the `x-agent-preview-token` header (or `?preview_token=` query
-param for `EventSource`). See `_mint_preview_jwt` for the
-payload + claim binding.
-
-The response also includes `endpoints`, `auth`, and
-`preview_proxy` blocks so the caller can wire a preview
-invocation without grepping the agent-ingress source for which
-path each trigger exposes or which header name carries the
-token. This is the "self-describing" half of preview-mode —
-every piece of info you need to hit ingress is in one response.
+ * directly via the public ingress URL. The caller attaches it as
+ * the `x-agent-preview-token` header (or `?preview_token=` query
+ * param for `EventSource`). See `_mint_preview_jwt` for the
+ * payload + claim binding.
+ *
+ * The response also includes `endpoints`, `auth`, and
+ * `preview_proxy` blocks so the caller can wire a preview
+ * invocation without grepping the agent-ingress source for which
+ * path each trigger exposes or which header name carries the
+ * token. This is the "self-describing" half of preview-mode —
+ * every piece of info you need to hit ingress is in one response.
  */
 export const agentApplicationsPreviewToken = async (
     projectId: string,
@@ -1761,7 +1759,7 @@ export const getAgentApplicationsSessionsListUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -1774,10 +1772,10 @@ export const getAgentApplicationsSessionsListUrl = (
 
 /**
  * List sessions for this application, newest first. Strips the
-conversation transcript from each summary, but includes a `preview`
-(last assistant text, ~120 chars) and `usage_total` (token + cost
-aggregate). Use `agent-applications-sessions-retrieve` for the full
-transcript of a single session.
+ * conversation transcript from each summary, but includes a `preview`
+ * (last assistant text, ~120 chars) and `usage_total` (token + cost
+ * aggregate). Use `agent-applications-sessions-retrieve` for the full
+ * transcript of a single session.
  */
 export const agentApplicationsSessionsList = async (
     projectId: string,
@@ -1804,7 +1802,7 @@ export const getAgentApplicationsSessionsRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -1817,9 +1815,9 @@ export const getAgentApplicationsSessionsRetrieveUrl = (
 
 /**
  * Fetch one session's state — full conversation by default, or just
-the trailing N messages with `?last_n=`. Always returns a
-`usage_total` block aggregated over the entire session, regardless of
-trim. The runner-side queue DB is the source of truth.
+ * the trailing N messages with `?last_n=`. Always returns a
+ * `usage_total` block aggregated over the entire session, regardless of
+ * trim. The runner-side queue DB is the source of truth.
  */
 export const agentApplicationsSessionsRetrieve = async (
     projectId: string,
@@ -1847,7 +1845,7 @@ export const getAgentApplicationsSessionLogsUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -1860,9 +1858,9 @@ export const getAgentApplicationsSessionLogsUrl = (
 
 /**
  * Read the runner's structured event log for one session from
-ClickHouse. Filters (limit / after / before / level / search)
-match the shared `LogEntryMixin` helper used by hog_function +
-hog_flow.
+ * ClickHouse. Filters (limit / after / before / level / search)
+ * match the shared `LogEntryMixin` helper used by hog_function +
+ * hog_flow.
  */
 export const agentApplicationsSessionLogs = async (
     projectId: string,
@@ -1886,11 +1884,11 @@ export const getAgentApplicationsSetEnvCreateUrl = (projectId: string, id: strin
 
 /**
  * Replace the agent's encrypted env block.
-
-The body is `{ "env": { "<KEY>": "<value>", ... } }`. The encrypted
-text gets stored on AgentApplication.encrypted_env; the worker
-decrypts it at session start via the same Fernet schedule (see
-agent-shared/src/runtime/encryption.ts).
+ *
+ * The body is `{ "env": { "<KEY>": "<value>", ... } }`. The encrypted
+ * text gets stored on AgentApplication.encrypted_env; the worker
+ * decrypts it at session start via the same Fernet schedule (see
+ * agent-shared/src/runtime/encryption.ts).
  */
 export const agentApplicationsSetEnvCreate = async (
     projectId: string,
@@ -1911,7 +1909,7 @@ export const getAgentApplicationsStatsUrl = (projectId: string, id: string, para
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -1942,7 +1940,7 @@ export const getAgentFleetApprovalsListUrl = (projectId: string, params?: AgentF
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -1972,7 +1970,7 @@ export const getAgentFleetLiveSessionsUrl = (projectId: string, params?: AgentFl
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -2002,7 +2000,7 @@ export const getAgentFleetStatsUrl = (projectId: string, params?: AgentFleetStat
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 

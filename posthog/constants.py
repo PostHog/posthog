@@ -49,6 +49,7 @@ class AvailableFeature(StrEnum):
     SESSION_REPLAY_DATA_RETENTION = "session_replay_data_retention"
     AUDIT_LOGS = "audit_logs"
     APPROVALS = "approvals"
+    XAA_AUTHENTICATION = "xaa_authentication"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"

@@ -2,12 +2,10 @@ name: Build and deploy agent platform container images
 
 # Builds and pushes container images for the agent platform:
 #
-#   - posthog-agents (ingress / runner / janitor / migrations — one image,
-#     four bundled entrypoints; the deploy manifest picks the CMD)
+#   - posthog-agents (ingress / runner / janitor — one image,
+#     three bundled entrypoints; the deploy manifest picks the CMD)
 #   - posthog-agent-console (Next.js standalone)
 #   - posthog-agent-sandbox-host (Alpine sidecar — no build step)
-#
-# See docs/agent-platform/plans/container-builds.md for the full plan.
 
 on:
     workflow_dispatch:
@@ -16,6 +14,8 @@ on:
     push:
         branches:
             - 'master'
+            # Kept while the agent platform integrates on `ass` and deploys from
+            # it for testing. Drop at the master cutover (then deploy is master-only).
             - 'ass'
 
 concurrency:
@@ -49,10 +49,13 @@ jobs:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: |
                       agent_files:
+                        - 'products/agent_platform/services/**'
+                        - 'products/agent_platform/packages/**'
+                        # Transitional: in-flight branches still have these at the
+                        # old paths. Drop once they've rebased onto the move.
                         - 'services/agent-ingress/**'
                         - 'services/agent-runner/**'
                         - 'services/agent-janitor/**'
-                        - 'services/agent-migrations/**'
                         - 'services/agent-shared/**'
                         - 'services/agent-tools/**'
                         - 'services/agent-console/**'
@@ -71,7 +74,7 @@ jobs:
             (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.changes.outputs.agent_files == 'true') ||
             github.event_name == 'merge_group' ||
             github.event_name == 'workflow_dispatch' ||
-            (github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/ass') && needs.changes.outputs.agent_files == 'true')
+            (github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/ass') && needs.changes.outputs.agent_files == 'true' && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true')
         runs-on: depot-ubuntu-latest
         timeout-minutes: 30
         permissions:
@@ -84,12 +87,12 @@ jobs:
             matrix:
                 include:
                     - image: posthog-agents
-                      dockerfile: services/agents/Dockerfile
+                      dockerfile: products/agent_platform/services/agents/Dockerfile
                       context: .
                       depot_project: 6gmww256q5
                       push_to_ecr: 'true'
                     - image: posthog-agent-console
-                      dockerfile: services/agent-console/Dockerfile
+                      dockerfile: products/agent_platform/services/agent-console/Dockerfile
                       context: .
                       depot_project: 5gr3vfft7g
                       push_to_ecr: 'true'
@@ -103,8 +106,8 @@ jobs:
                     # ECR repo to provision). Reuses the posthog-agents
                     # depot project for cache locality.
                     - image: posthog-agent-sandbox-host
-                      dockerfile: services/agent-sandbox-host/Dockerfile
-                      context: services/agent-sandbox-host
+                      dockerfile: products/agent_platform/services/agent-sandbox-host/Dockerfile
+                      context: products/agent_platform/services/agent-sandbox-host
                       depot_project: 6gmww256q5
                       push_to_ecr: 'false'
 
@@ -139,7 +142,7 @@ jobs:
                   context: ${{ matrix.context }}
                   buildx-fallback: false
                   project: ${{ matrix.depot_project }}
-                  push: true
+                  push: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' || vars.CD_DEPLOY_ENABLED == 'true' }}
                   file: ${{ matrix.dockerfile }}
                   tags: ${{ steps.docker-meta.outputs.tags }}
                   labels: ${{ steps.docker-meta.outputs.labels }}
@@ -212,10 +215,11 @@ jobs:
 
                   case "$IMAGE_NAME" in
                       posthog-agents)
-                          # Four entrypoints baked into the same image; each
+                          # Three entrypoints baked into the same image; each
                           # has its own .mjs and config schema, so each gets
-                          # its own smoke pass.
-                          for entrypoint in ingress runner janitor migrate; do
+                          # its own smoke pass. (Schema is Django-owned now —
+                          # no migrate entrypoint; see products/agent_platform/services/agents/scripts/build.ts.)
+                          for entrypoint in ingress runner janitor; do
                               echo "::group::Smoke test ${entrypoint}"
                               .github/scripts/smoke-test-agent-bundle.sh "$IMAGE_REF" "$entrypoint"
                               echo "::endgroup::"
@@ -233,7 +237,7 @@ jobs:
                           # missing-tool. Catches "image works in isolation"
                           # regressions before either sandbox pool sees them.
                           echo "::group::Smoke test agent-sandbox-host"
-                          services/agent-sandbox-host/scripts/smoke-test-image.sh "$IMAGE_REF"
+                          products/agent_platform/services/agent-sandbox-host/scripts/smoke-test-image.sh "$IMAGE_REF"
                           echo "::endgroup::"
                           ;;
                       *)
@@ -260,7 +264,7 @@ jobs:
     deploy:
         name: Deploy ${{ matrix.image }}
         needs: build
-        if: (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/ass') && github.event_name == 'push'
+        if: github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/ass') && github.event_name == 'push'
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         # One dispatch per image, not per Helm release. The charts side keys

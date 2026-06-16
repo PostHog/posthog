@@ -7,6 +7,10 @@ The system is designed to be process-manager agnostic - mprocs is just one outpu
 from __future__ import annotations
 
 import os
+import re
+import sys
+import shlex
+import shutil
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -188,6 +192,9 @@ class MprocsGenerator(ConfigGenerator):
             if name == "temporal-worker":
                 proc_config = self._add_uv_groups(proc_config, resolved)
 
+            # Wrap Python/Node service commands in the dev sandbox when opted in
+            proc_config = self._add_sandbox_wrapper(proc_config, name)
+
             # Add logging wrapper if enabled
             if source_config and source_config.log_to_files:
                 proc_config = self._add_logging(proc_config, name)
@@ -218,8 +225,22 @@ class MprocsGenerator(ConfigGenerator):
         orange = r"\033[38;2;245;78;0m"  # #F54E00
         blue = r"\033[38;2;29;74;255m"  # #1D4AFF
         gray = r"\033[38;5;245m"
+        green = r"\033[32m"
         bold = r"\033[1m"
         reset = r"\033[0m"
+
+        # Reflect the *effective* dependency-sandbox state: opted in via
+        # POSTHOG_DEV_SANDBOX=1 AND on macOS with sandbox-exec (the wrapper no-ops
+        # elsewhere). Mirrors the gate in _add_sandbox_wrapper, so the banner can't
+        # claim isolation the platform won't deliver.
+        sandbox_opted_in = os.getenv("POSTHOG_DEV_SANDBOX") == "1"
+        sandbox_supported = sys.platform == "darwin" and shutil.which("sandbox-exec") is not None
+        if sandbox_opted_in and sandbox_supported:
+            sandbox_status = f"{green}on{reset}"
+        elif sandbox_opted_in:
+            sandbox_status = f"{gray}off — POSTHOG_DEV_SANDBOX set but unsupported on this platform{reset}"
+        else:
+            sandbox_status = f"{gray}off{reset} {gray}(set POSTHOG_DEV_SANDBOX=1 in .env.local){reset}"
 
         news_url = "https://raw.githubusercontent.com/posthog/posthog/master/devenv/news.txt"
         news_local = "devenv/news.txt"
@@ -248,6 +269,7 @@ if [ -n "${{_POSTHOG_OP_RESOLVED:-}}" ]; then
 else
     printf '  {bold}Secrets:{reset}   {gray}local .env files{reset}\\n'
 fi
+printf '  {bold}Sandbox:{reset}   {sandbox_status}\\n'
 echo ''
 printf '  {bold}Log in with:{reset} test@posthog.com - {blue}12345678{reset}\\n'
 printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to your workflow.{reset}\\n'
@@ -361,6 +383,79 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
             prefix += " && uv run --group sentiment bin/download-sentiment-model"
 
         proc_config["shell"] = f"{prefix} && {original_shell}"
+        return proc_config
+
+    # Trusted infra-wait scripts that need the docker daemon socket. They run
+    # OUTSIDE the sandbox (the socket is denied inside it — reaching the daemon is
+    # a full escape via `docker run -v $HOME:/host`). They contain no dependency
+    # code, so running them unsandboxed doesn't widen the untrusted attack surface.
+    _SANDBOX_DOCKER_GATES = ("bin/wait-for-docker", "bin/wait-for-postgres-tables")
+
+    def _add_sandbox_wrapper(self, proc_config: dict[str, Any], name: str = "") -> dict[str, Any]:
+        """Wrap a service command in bin/dev-sandbox (macOS Seatbelt) when opted in.
+
+        Opt in globally with POSTHOG_DEV_SANDBOX=1 (e.g. in .env.local). A proc is
+        wrapped only if it declares ``sandbox: true`` in the registry — an explicit,
+        reviewable per-proc boundary rather than one inferred from the cosmetic
+        ``groups.tech`` field (which is optional, so a forgotten annotation silently
+        dropped a service out of the sandbox). Rust/Docker/migration procs simply
+        omit the flag. The sandbox restricts reads to the repo + toolchain caches so
+        a malicious dependency can't read credentials (~/.ssh, ~/.aws, ...) and denies
+        the docker/agent sockets so it can't escape via a container mount.
+
+        POSTHOG_DEV_SANDBOX_EXCLUDE (comma-separated proc names) opts individual
+        procs back out. Use sparingly — it exists for procs whose feature set
+        requires the docker socket the profile denies, e.g. temporal-worker running
+        PostHog Code tasks with SANDBOX_PROVIDER=docker. Excluded procs run fully
+        unsandboxed, so the dependency-isolation guarantee no longer covers them.
+
+        The docker-gate preamble (bin/wait-for-docker) is peeled out to run
+        unsandboxed, since it needs the very socket the sandbox denies; the actual
+        server (which reaches infra over TCP) is what gets sandboxed. bin/dev-sandbox
+        is a no-op passthrough on non-macOS, so the generated config stays portable.
+        """
+        # `sandbox` is a registry-only selector; pop it so it never leaks into the
+        # emitted proc config (which phrocs/mprocs would otherwise see).
+        should_sandbox = bool(proc_config.pop("sandbox", False))
+        excluded = {p.strip() for p in os.getenv("POSTHOG_DEV_SANDBOX_EXCLUDE", "").split(",") if p.strip()}
+        if os.getenv("POSTHOG_DEV_SANDBOX") != "1" or not should_sandbox or (name and name in excluded):
+            return proc_config
+
+        shell = proc_config.get("shell", "")
+        if not shell:
+            return proc_config
+
+        # Split into docker-gate segments (run unsandboxed) and the rest (sandboxed).
+        # Collapse `\`-newline continuations first; splitting on && is safe here
+        # because the generated commands keep branching inside if/;-blocks, not &&.
+        #
+        # Gates are matched anywhere in the chain and hoisted to the front, not kept
+        # in place: _add_startup_message and _add_uv_groups prepend echo/uv-sync
+        # preambles, so a gate is never the leading segment (a leading-run scan would
+        # wrongly sandbox it). Hoisting reorders segments, which is safe because the
+        # only gates (wait-for-docker, wait-for-postgres-tables) just block until
+        # infra is ready and are order-independent w.r.t. install/echo/server steps.
+        # A future order-sensitive gate would need interleaving instead of hoisting.
+        normalized = re.sub(r"\\\n\s*", " ", shell)
+        gates: list[str] = []
+        rest: list[str] = []
+        for segment in normalized.split("&&"):
+            stripped = segment.strip()
+            if not stripped:
+                continue
+            first_token = stripped.split(maxsplit=1)[0]
+            (gates if first_token in self._SANDBOX_DOCKER_GATES else rest).append(stripped)
+
+        rest_cmd = " && ".join(rest)
+        if not rest_cmd:
+            # Command is only gate scripts (trusted, need the docker socket) — there
+            # is nothing to sandbox, so run them as-is. Avoids `bin/dev-sandbox ''`,
+            # which the wrapper rejects (its ${1:?} fires on an empty argument).
+            proc_config["shell"] = " && ".join(gates)
+        elif not gates:
+            proc_config["shell"] = f"bin/dev-sandbox {shlex.quote(rest_cmd)}"
+        else:
+            proc_config["shell"] = f"{' && '.join(gates)} && bin/dev-sandbox {shlex.quote(rest_cmd)}"
         return proc_config
 
     def _add_logging(self, proc_config: dict[str, Any], process_name: str) -> dict[str, Any]:

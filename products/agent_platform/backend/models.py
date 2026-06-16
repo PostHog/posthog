@@ -52,7 +52,9 @@ USAGE_TOTAL_DEFAULT = {
 
 
 class AgentApplication(ProductTeamModel, UUIDModel):
-    """One agent. Identified by (team, slug). Holds team secrets."""
+    """One agent. Slug is a single global namespace (server-minted on create,
+    globally unique) so domain-mode ingress routing — `<slug>.agents.<suffix>`,
+    which carries no team — resolves without knowing the team up front."""
 
     name = models.CharField(max_length=255)
     # SlugField adds Django's validate_slug ([a-zA-Z0-9_-]) so node-side writers
@@ -84,7 +86,7 @@ class AgentApplication(ProductTeamModel, UUIDModel):
         db_table = "agent_application"
         constraints = [
             models.UniqueConstraint(
-                fields=["team_id", "slug"],
+                fields=["slug"],
                 condition=Q(archived=False),
                 name="agent_application_unique_active_slug",
             ),

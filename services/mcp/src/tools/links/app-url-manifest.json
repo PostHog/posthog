@@ -1,0 +1,1437 @@
+{
+    "accountConnected": {
+        "template": "/account-connected/{kind}",
+        "params": ["kind"],
+        "scope": "project"
+    },
+    "accountSocialConnected": {
+        "template": "/account/social-connected",
+        "params": [],
+        "scope": "global"
+    },
+    "action": {
+        "template": "/data-management/actions/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "actions": {
+        "template": "/data-management/actions",
+        "params": [],
+        "scope": "project"
+    },
+    "activity": {
+        "template": "/activity/{tab}",
+        "params": ["tab"],
+        "scope": "project"
+    },
+    "advancedActivityLogs": {
+        "template": "/activity-logs",
+        "params": [],
+        "scope": "project"
+    },
+    "agenticAccountMismatch": {
+        "template": "/agentic/account-mismatch",
+        "params": [],
+        "scope": "project"
+    },
+    "agenticAuthorize": {
+        "template": "/agentic/authorize",
+        "params": [],
+        "scope": "project"
+    },
+    "ai": {
+        "template": "/ai",
+        "params": [],
+        "scope": "project"
+    },
+    "aiHistory": {
+        "template": "/ai/history",
+        "params": [],
+        "scope": "project"
+    },
+    "aiObservabilityCluster": {
+        "template": "/ai-observability/clusters/{runId}/{clusterId}",
+        "params": ["runId", "clusterId"],
+        "scope": "project"
+    },
+    "aiObservabilityClusters": {
+        "template": "/ai-observability/clusters",
+        "params": [],
+        "scope": "project"
+    },
+    "aiObservabilityDashboard": {
+        "template": "/ai-observability/dashboard",
+        "params": [],
+        "scope": "project"
+    },
+    "aiObservabilityDataset": {
+        "template": "/ai-evals/datasets/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "aiObservabilityDatasets": {
+        "template": "/ai-evals/datasets",
+        "params": [],
+        "scope": "project"
+    },
+    "aiObservabilityErrors": {
+        "template": "/ai-observability/errors",
+        "params": [],
+        "scope": "project"
+    },
+    "aiObservabilityEvaluation": {
+        "template": "/ai-evals/evaluations/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "aiObservabilityEvaluationTemplates": {
+        "template": "/ai-evals/evaluations/templates",
+        "params": [],
+        "scope": "project"
+    },
+    "aiObservabilityEvaluations": {
+        "template": "/ai-evals/evaluations",
+        "params": [],
+        "scope": "project"
+    },
+    "aiObservabilityGenerations": {
+        "template": "/ai-observability/generations",
+        "params": [],
+        "scope": "project"
+    },
+    "aiObservabilityOfflineEvaluationExperiment": {
+        "template": "/ai-evals/evaluations/offline/experiments/{experimentId}",
+        "params": ["experimentId"],
+        "scope": "project"
+    },
+    "aiObservabilityOfflineEvaluations": {
+        "template": "/ai-evals/evaluations/offline/experiments",
+        "params": [],
+        "scope": "project"
+    },
+    "aiObservabilityPlayground": {
+        "template": "/ai-observability/playground",
+        "params": [],
+        "scope": "project"
+    },
+    "aiObservabilityPrompt": {
+        "template": "/prompt-management/prompts/{name}",
+        "params": ["name"],
+        "scope": "project"
+    },
+    "aiObservabilityPrompts": {
+        "template": "/prompt-management/prompts",
+        "params": [],
+        "scope": "project"
+    },
+    "aiObservabilityReviews": {
+        "template": "/ai-observability/reviews",
+        "params": [],
+        "scope": "project"
+    },
+    "aiObservabilitySentiment": {
+        "template": "/ai-observability/sentiment",
+        "params": [],
+        "scope": "project"
+    },
+    "aiObservabilitySession": {
+        "template": "/ai-observability/sessions/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "aiObservabilitySessions": {
+        "template": "/ai-observability/sessions",
+        "params": [],
+        "scope": "project"
+    },
+    "aiObservabilitySkill": {
+        "template": "/prompt-management/skills/{name}",
+        "params": ["name"],
+        "scope": "project"
+    },
+    "aiObservabilitySkills": {
+        "template": "/prompt-management/skills",
+        "params": [],
+        "scope": "project"
+    },
+    "aiObservabilityTag": {
+        "template": "/ai-evals/taggers/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "aiObservabilityTags": {
+        "template": "/ai-evals/taggers",
+        "params": [],
+        "scope": "project"
+    },
+    "aiObservabilityTools": {
+        "template": "/ai-observability/tools",
+        "params": [],
+        "scope": "project"
+    },
+    "aiObservabilityTrace": {
+        "template": "/ai-observability/traces/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "aiObservabilityTraces": {
+        "template": "/ai-observability/traces",
+        "params": [],
+        "scope": "project"
+    },
+    "aiObservabilityUsers": {
+        "template": "/ai-observability/users",
+        "params": [],
+        "scope": "project"
+    },
+    "alert": {
+        "template": "/insights",
+        "params": [],
+        "scope": "project"
+    },
+    "alerts": {
+        "template": "/insights",
+        "params": [],
+        "scope": "project"
+    },
+    "annotation": {
+        "template": "/data-management/annotations/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "annotations": {
+        "template": "/data-management/annotations",
+        "params": [],
+        "scope": "project"
+    },
+    "approval": {
+        "template": "/approvals/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "approvals": {
+        "template": "/settings/environment-approvals",
+        "params": [],
+        "scope": "project"
+    },
+    "asyncMigrations": {
+        "template": "/instance/async_migrations",
+        "params": [],
+        "scope": "global"
+    },
+    "asyncMigrationsFuture": {
+        "template": "/instance/async_migrations/future",
+        "params": [],
+        "scope": "global"
+    },
+    "asyncMigrationsSettings": {
+        "template": "/instance/async_migrations/settings",
+        "params": [],
+        "scope": "global"
+    },
+    "batchExport": {
+        "template": "/pipeline/batch-exports/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "batchExportNew": {
+        "template": "/pipeline/batch-exports/new/{service}",
+        "params": ["service"],
+        "scope": "project"
+    },
+    "billingAuthorizationStatus": {
+        "template": "/billing/authorization_status",
+        "params": [],
+        "scope": "project"
+    },
+    "businessKnowledge": {
+        "template": "/business-knowledge",
+        "params": [],
+        "scope": "project"
+    },
+    "canvas": {
+        "template": "/canvas",
+        "params": [],
+        "scope": "project"
+    },
+    "cliAuthorize": {
+        "template": "/cli/authorize",
+        "params": [],
+        "scope": "global"
+    },
+    "cliLive": {
+        "template": "/cli/live",
+        "params": [],
+        "scope": "global"
+    },
+    "cohort": {
+        "template": "/cohorts/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "cohortCalculationHistory": {
+        "template": "/cohorts/{id}/calculation-history",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "cohorts": {
+        "template": "/cohorts",
+        "params": [],
+        "scope": "project"
+    },
+    "comment": {
+        "template": "/data-management/comments/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "comments": {
+        "template": "/data-management/comments",
+        "params": [],
+        "scope": "project"
+    },
+    "coreEvents": {
+        "template": "/data-management/core-events",
+        "params": [],
+        "scope": "project"
+    },
+    "coupons": {
+        "template": "/coupons/{campaign}",
+        "params": ["campaign"],
+        "scope": "project"
+    },
+    "createAction": {
+        "template": "/data-management/actions/new",
+        "params": [],
+        "scope": "project"
+    },
+    "credentialReview": {
+        "template": "/account/credential-review",
+        "params": [],
+        "scope": "global"
+    },
+    "customCss": {
+        "template": "/themes/custom-css",
+        "params": [],
+        "scope": "project"
+    },
+    "customerAnalytics": {
+        "template": "/customer_analytics",
+        "params": [],
+        "scope": "project"
+    },
+    "customerAnalyticsAccounts": {
+        "template": "/customer_analytics/accounts",
+        "params": [],
+        "scope": "project"
+    },
+    "customerAnalyticsConfiguration": {
+        "template": "/customer_analytics/configuration",
+        "params": [],
+        "scope": "project"
+    },
+    "customerAnalyticsDashboard": {
+        "template": "/customer_analytics/dashboard",
+        "params": [],
+        "scope": "project"
+    },
+    "customerAnalyticsJourneys": {
+        "template": "/customer_analytics/journeys",
+        "params": [],
+        "scope": "project"
+    },
+    "customerJourneyBuilder": {
+        "template": "/customer_analytics/journeys/new",
+        "params": [],
+        "scope": "project"
+    },
+    "customerJourneyEdit": {
+        "template": "/customer_analytics/journeys/{id}/edit",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "customerJourneyTemplates": {
+        "template": "/customer_analytics/journeys/templates",
+        "params": [],
+        "scope": "project"
+    },
+    "dashboard": {
+        "template": "/dashboard/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "dashboardButtonTile": {
+        "template": "/dashboard/{id}/button-tiles/{buttonTileId}",
+        "params": ["id", "buttonTileId"],
+        "scope": "project"
+    },
+    "dashboardSharing": {
+        "template": "/dashboard/{id}/sharing",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "dashboardSubscription": {
+        "template": "/dashboard/{id}/subscriptions/{subscriptionId}",
+        "params": ["id", "subscriptionId"],
+        "scope": "project"
+    },
+    "dashboardSubscriptions": {
+        "template": "/dashboard/{id}/subscriptions",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "dashboardTemplateCopyToProject": {
+        "template": "/dashboard/templates/{templateId}/copy-to-project",
+        "params": ["templateId"],
+        "scope": "project"
+    },
+    "dashboardTextTile": {
+        "template": "/dashboard/{id}/text-tiles/{textTileId}",
+        "params": ["id", "textTileId"],
+        "scope": "project"
+    },
+    "dashboards": {
+        "template": "/dashboard",
+        "params": [],
+        "scope": "project"
+    },
+    "dataManagementHistory": {
+        "template": "/data-management/history",
+        "params": [],
+        "scope": "project"
+    },
+    "dataOps": {
+        "template": "/data-ops",
+        "params": [],
+        "scope": "project"
+    },
+    "dataPipelinesNew": {
+        "template": "/pipeline/new/",
+        "params": [],
+        "scope": "project"
+    },
+    "dataWarehouseManagedViewsets": {
+        "template": "/data-management/managed-viewsets",
+        "params": [],
+        "scope": "project"
+    },
+    "dataWarehouseSource": {
+        "template": "/data-management/sources/{id}/schemas",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "dataWarehouseSourceNew": {
+        "template": "/data-warehouse/new-source",
+        "params": [],
+        "scope": "project"
+    },
+    "dataWarehouseSourceSchema": {
+        "template": "/data-management/sources/{sourceId}/schemas/{schemaId}",
+        "params": ["sourceId", "schemaId"],
+        "scope": "project"
+    },
+    "database": {
+        "template": "/data-management/database",
+        "params": [],
+        "scope": "project"
+    },
+    "deadLetterQueue": {
+        "template": "/instance/dead_letter_queue",
+        "params": [],
+        "scope": "global"
+    },
+    "debugHog": {
+        "template": "/debug/hog",
+        "params": [],
+        "scope": "project"
+    },
+    "debugQuery": {
+        "template": "/debug",
+        "params": [],
+        "scope": "project"
+    },
+    "destinations": {
+        "template": "/data-management/destinations",
+        "params": [],
+        "scope": "project"
+    },
+    "duplicateAction": {
+        "template": "/data-management/actions/new/",
+        "params": [],
+        "scope": "project"
+    },
+    "earlyAccessFeature": {
+        "template": "/early_access_features/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "earlyAccessFeatures": {
+        "template": "/early_access_features",
+        "params": [],
+        "scope": "project"
+    },
+    "emailMFAVerify": {
+        "template": "/login/verify",
+        "params": [],
+        "scope": "global"
+    },
+    "embedded": {
+        "template": "/embedded/{token}",
+        "params": ["token"],
+        "scope": "global"
+    },
+    "endpoint": {
+        "template": "/endpoints/{name}",
+        "params": ["name"],
+        "scope": "project"
+    },
+    "endpoints": {
+        "template": "/endpoints",
+        "params": [],
+        "scope": "project"
+    },
+    "endpointsUsage": {
+        "template": "/endpoints",
+        "params": [],
+        "scope": "project"
+    },
+    "errorTracking": {
+        "template": "/error_tracking",
+        "params": [],
+        "scope": "project"
+    },
+    "errorTrackingAlert": {
+        "template": "/error_tracking/alerts/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "errorTrackingAlertNew": {
+        "template": "/error_tracking/alerts/new/{templateId}",
+        "params": ["templateId"],
+        "scope": "project"
+    },
+    "errorTrackingConfiguration": {
+        "template": "/error_tracking",
+        "params": [],
+        "scope": "project"
+    },
+    "errorTrackingIssue": {
+        "template": "/error_tracking/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "errorTrackingIssueFingerprints": {
+        "template": "/error_tracking/{id}/fingerprints",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "event": {
+        "template": "/events/{id}/{timestamp}",
+        "params": ["id", "timestamp"],
+        "scope": "project"
+    },
+    "eventDefinition": {
+        "template": "/data-management/events/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "eventDefinitionEdit": {
+        "template": "/data-management/events/{id}/edit",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "eventDefinitions": {
+        "template": "/data-management/events",
+        "params": [],
+        "scope": "project"
+    },
+    "eventFiltering": {
+        "template": "/data-management/event-filtering",
+        "params": [],
+        "scope": "project"
+    },
+    "experiment": {
+        "template": "/experiments/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "experiments": {
+        "template": "/experiments",
+        "params": [],
+        "scope": "project"
+    },
+    "experimentsSharedMetric": {
+        "template": "/experiments/shared-metrics/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "experimentsSharedMetrics": {
+        "template": "/experiments/shared-metrics",
+        "params": [],
+        "scope": "project"
+    },
+    "exports": {
+        "template": "/exports",
+        "params": [],
+        "scope": "project"
+    },
+    "featureFlag": {
+        "template": "/feature_flags/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "featureFlagNew": {
+        "template": "/feature_flags/new",
+        "params": [],
+        "scope": "project"
+    },
+    "featureFlagTemplates": {
+        "template": "/feature_flags/templates",
+        "params": [],
+        "scope": "project"
+    },
+    "featureFlags": {
+        "template": "/feature_flags",
+        "params": [],
+        "scope": "project"
+    },
+    "flappyHog": {
+        "template": "/games/flappyhog",
+        "params": [],
+        "scope": "project"
+    },
+    "game368hedgehogs": {
+        "template": "/games/368hedgehogs",
+        "params": [],
+        "scope": "project"
+    },
+    "group": {
+        "template": "/groups/{groupTypeIndex}/{groupKey}",
+        "params": ["groupTypeIndex", "groupKey"],
+        "scope": "project"
+    },
+    "groups": {
+        "template": "/groups/{groupTypeIndex}",
+        "params": ["groupTypeIndex"],
+        "scope": "project"
+    },
+    "groupsNew": {
+        "template": "/groups/{groupTypeIndex}/new",
+        "params": ["groupTypeIndex"],
+        "scope": "project"
+    },
+    "health": {
+        "template": "/health",
+        "params": [],
+        "scope": "project"
+    },
+    "healthAlerts": {
+        "template": "/health/alerts",
+        "params": [],
+        "scope": "project"
+    },
+    "healthCategory": {
+        "template": "/health/{category}",
+        "params": ["category"],
+        "scope": "project"
+    },
+    "heatmap": {
+        "template": "/heatmaps/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "heatmapNew": {
+        "template": "/heatmaps/new",
+        "params": [],
+        "scope": "project"
+    },
+    "heatmapRecording": {
+        "template": "/heatmaps/recording",
+        "params": [],
+        "scope": "project"
+    },
+    "heatmaps": {
+        "template": "/heatmaps",
+        "params": [],
+        "scope": "project"
+    },
+    "hogFunction": {
+        "template": "/functions/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "hogFunctionNew": {
+        "template": "/functions/new/{templateId}",
+        "params": ["templateId"],
+        "scope": "project"
+    },
+    "inbox": {
+        "template": "/inbox",
+        "params": [],
+        "scope": "project"
+    },
+    "ingestionWarnings": {
+        "template": "/data-management/ingestion-warnings",
+        "params": [],
+        "scope": "project"
+    },
+    "insightAlert": {
+        "template": "/insights/{insightShortId}/alerts",
+        "params": ["insightShortId"],
+        "scope": "project"
+    },
+    "insightAlerts": {
+        "template": "/insights/{insightShortId}/alerts",
+        "params": ["insightShortId"],
+        "scope": "project"
+    },
+    "insightEdit": {
+        "template": "/insights/{id}/edit",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "insightNew": {
+        "template": "/insights/new",
+        "params": [],
+        "scope": "project"
+    },
+    "insightNewHogQL": {
+        "template": "/insights/new",
+        "params": [],
+        "scope": "project"
+    },
+    "insightQuickStart": {
+        "template": "/insights/quick-start",
+        "params": [],
+        "scope": "project"
+    },
+    "insightSharing": {
+        "template": "/insights/{id}/sharing",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "insightSubcription": {
+        "template": "/insights/{id}/subscriptions/{subscriptionId}",
+        "params": ["id", "subscriptionId"],
+        "scope": "project"
+    },
+    "insightSubcriptions": {
+        "template": "/insights/{id}/subscriptions",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "insightView": {
+        "template": "/insights/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "insights": {
+        "template": "/insights",
+        "params": [],
+        "scope": "project"
+    },
+    "instanceKafkaInspector": {
+        "template": "/instance/kafka_inspector",
+        "params": [],
+        "scope": "global"
+    },
+    "instanceMetrics": {
+        "template": "/instance/metrics",
+        "params": [],
+        "scope": "global"
+    },
+    "instanceSettings": {
+        "template": "/instance/settings",
+        "params": [],
+        "scope": "global"
+    },
+    "instanceStaffUsers": {
+        "template": "/instance/staff_users",
+        "params": [],
+        "scope": "global"
+    },
+    "instanceStatus": {
+        "template": "/instance/status",
+        "params": [],
+        "scope": "global"
+    },
+    "integrationsRedirect": {
+        "template": "/integrations/{kind}/callback",
+        "params": ["kind"],
+        "scope": "project"
+    },
+    "inviteSignup": {
+        "template": "/signup/{id}",
+        "params": ["id"],
+        "scope": "global"
+    },
+    "legacyPlugin": {
+        "template": "/pipeline/plugins/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "legalDocumentNew": {
+        "template": "/legal/new/{type}",
+        "params": ["type"],
+        "scope": "project"
+    },
+    "legalDocuments": {
+        "template": "/legal",
+        "params": [],
+        "scope": "project"
+    },
+    "link": {
+        "template": "/link/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "links": {
+        "template": "/links",
+        "params": [],
+        "scope": "project"
+    },
+    "liveDebugger": {
+        "template": "/live-debugger",
+        "params": [],
+        "scope": "project"
+    },
+    "login": {
+        "template": "/login",
+        "params": [],
+        "scope": "global"
+    },
+    "login2FA": {
+        "template": "/login/2fa",
+        "params": [],
+        "scope": "global"
+    },
+    "login2FASetup": {
+        "template": "/login/2fa_setup",
+        "params": [],
+        "scope": "global"
+    },
+    "logs": {
+        "template": "/logs",
+        "params": [],
+        "scope": "project"
+    },
+    "logsAlertDetail": {
+        "template": "/logs/alerts/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "logsAlertNotificationDetail": {
+        "template": "/logs/alerts/{alertId}/notifications/{hogFunctionId}",
+        "params": ["alertId", "hogFunctionId"],
+        "scope": "project"
+    },
+    "logsSamplingDetail": {
+        "template": "/logs/drop-rules/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "logsSamplingNew": {
+        "template": "/logs/drop-rules/new",
+        "params": [],
+        "scope": "project"
+    },
+    "managedMigration": {
+        "template": "/managed_migrations",
+        "params": [],
+        "scope": "project"
+    },
+    "managedMigrationNew": {
+        "template": "/managed_migrations/new",
+        "params": [],
+        "scope": "project"
+    },
+    "marketingAnalyticsApp": {
+        "template": "/marketing",
+        "params": [],
+        "scope": "project"
+    },
+    "materializedColumns": {
+        "template": "/data-management/materialized-columns",
+        "params": [],
+        "scope": "project"
+    },
+    "mcpAnalyticsDashboard": {
+        "template": "/mcp-analytics/dashboard",
+        "params": [],
+        "scope": "project"
+    },
+    "mcpAnalyticsIntentClustering": {
+        "template": "/mcp-analytics/intent-clustering",
+        "params": [],
+        "scope": "project"
+    },
+    "mcpAnalyticsSessions": {
+        "template": "/mcp-analytics/sessions",
+        "params": [],
+        "scope": "project"
+    },
+    "mcpAnalyticsTool": {
+        "template": "/mcp-analytics/tool-quality/{toolName}",
+        "params": ["toolName"],
+        "scope": "project"
+    },
+    "mcpAnalyticsToolQuality": {
+        "template": "/mcp-analytics/tool-quality",
+        "params": [],
+        "scope": "project"
+    },
+    "metrics": {
+        "template": "/metrics",
+        "params": [],
+        "scope": "project"
+    },
+    "models": {
+        "template": "/models",
+        "params": [],
+        "scope": "project"
+    },
+    "moveToPostHogCloud": {
+        "template": "/move-to-cloud",
+        "params": [],
+        "scope": "project"
+    },
+    "nodeDetail": {
+        "template": "/models/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "notebook": {
+        "template": "/notebooks/{shortId}",
+        "params": ["shortId"],
+        "scope": "project"
+    },
+    "notebooks": {
+        "template": "/notebooks",
+        "params": [],
+        "scope": "project"
+    },
+    "oauthAuthorize": {
+        "template": "/oauth/authorize",
+        "params": [],
+        "scope": "global"
+    },
+    "onboarding": {
+        "template": "/onboarding",
+        "params": [],
+        "scope": "project"
+    },
+    "organizationBilling": {
+        "template": "/organization/billing",
+        "params": [],
+        "scope": "global"
+    },
+    "organizationBillingSection": {
+        "template": "/organization/billing/overview",
+        "params": [],
+        "scope": "global"
+    },
+    "organizationCreateFirst": {
+        "template": "/create-organization",
+        "params": [],
+        "scope": "global"
+    },
+    "organizationCreationConfirm": {
+        "template": "/organization/confirm-creation",
+        "params": [],
+        "scope": "global"
+    },
+    "organizationDeactivated": {
+        "template": "/organization-deactivated",
+        "params": [],
+        "scope": "project"
+    },
+    "organizationPendingDeletion": {
+        "template": "/organization-pending-deletion",
+        "params": [],
+        "scope": "project"
+    },
+    "passwordReset": {
+        "template": "/reset",
+        "params": [],
+        "scope": "project"
+    },
+    "passwordResetComplete": {
+        "template": "/reset/{userUuid}/{token}",
+        "params": ["userUuid", "token"],
+        "scope": "project"
+    },
+    "personByDistinctId": {
+        "template": "/person/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "personByUUID": {
+        "template": "/persons/{uuid}",
+        "params": ["uuid"],
+        "scope": "project"
+    },
+    "persons": {
+        "template": "/persons",
+        "params": [],
+        "scope": "project"
+    },
+    "pipelineStatus": {
+        "template": "/health/pipeline-status",
+        "params": [],
+        "scope": "project"
+    },
+    "preflight": {
+        "template": "/preflight",
+        "params": [],
+        "scope": "global"
+    },
+    "productTour": {
+        "template": "/product_tours/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "productTours": {
+        "template": "/product_tours",
+        "params": [],
+        "scope": "project"
+    },
+    "projectCreateFirst": {
+        "template": "/organization/create-project",
+        "params": [],
+        "scope": "global"
+    },
+    "projectHomepage": {
+        "template": "/home",
+        "params": [],
+        "scope": "project"
+    },
+    "propertyDefinition": {
+        "template": "/data-management/properties/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "propertyDefinitionEdit": {
+        "template": "/data-management/properties/{id}/edit",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "propertyDefinitions": {
+        "template": "/data-management/properties",
+        "params": [],
+        "scope": "project"
+    },
+    "queryPerformance": {
+        "template": "/instance/query_performance",
+        "params": [],
+        "scope": "global"
+    },
+    "replay": {
+        "template": "/replay/home",
+        "params": [],
+        "scope": "project"
+    },
+    "replayFilePlayback": {
+        "template": "/replay/file-playback",
+        "params": [],
+        "scope": "project"
+    },
+    "replayKiosk": {
+        "template": "/replay/kiosk",
+        "params": [],
+        "scope": "project"
+    },
+    "replayPlaylist": {
+        "template": "/replay/playlists/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "replaySettings": {
+        "template": "/replay/settings",
+        "params": [],
+        "scope": "project"
+    },
+    "replaySingle": {
+        "template": "/replay/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "replayVision": {
+        "template": "/replay-vision",
+        "params": [],
+        "scope": "project"
+    },
+    "replayVisionObservation": {
+        "template": "/replay-vision/observations/{observationId}",
+        "params": ["observationId"],
+        "scope": "project"
+    },
+    "replayVisionScannerConfigure": {
+        "template": "/replay-vision/{id}/configure",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "replayVisionScannerTriggers": {
+        "template": "/replay-vision/{id}/triggers",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "replayVisionTemplates": {
+        "template": "/replay-vision/templates",
+        "params": [],
+        "scope": "project"
+    },
+    "resourceTransfer": {
+        "template": "/resource-transfer/{resourceKind}/{resourceId}",
+        "params": ["resourceKind", "resourceId"],
+        "scope": "project"
+    },
+    "revenueAnalytics": {
+        "template": "/revenue_analytics",
+        "params": [],
+        "scope": "project"
+    },
+    "revenueSettings": {
+        "template": "/data-management/revenue",
+        "params": [],
+        "scope": "project"
+    },
+    "savedInsights": {
+        "template": "/insights",
+        "params": [],
+        "scope": "project"
+    },
+    "schemaManagement": {
+        "template": "/data-management/schema",
+        "params": [],
+        "scope": "project"
+    },
+    "sdkHealth": {
+        "template": "/health/sdk-health",
+        "params": [],
+        "scope": "project"
+    },
+    "sessionAttributionExplorer": {
+        "template": "/web/session-attribution-explorer",
+        "params": [],
+        "scope": "project"
+    },
+    "sessionProfile": {
+        "template": "/sessions/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "sessionSummaries": {
+        "template": "/session-summaries",
+        "params": [],
+        "scope": "project"
+    },
+    "sessionSummary": {
+        "template": "/session-summaries/{sessionGroupId}",
+        "params": ["sessionGroupId"],
+        "scope": "project"
+    },
+    "settings": {
+        "template": "/settings/project",
+        "params": [],
+        "scope": "project"
+    },
+    "shared": {
+        "template": "/shared/{token}",
+        "params": ["token"],
+        "scope": "global"
+    },
+    "sharedDashboard": {
+        "template": "/shared_dashboard/{shareToken}",
+        "params": ["shareToken"],
+        "scope": "project"
+    },
+    "signup": {
+        "template": "/signup",
+        "params": [],
+        "scope": "global"
+    },
+    "site": {
+        "template": "/site/{url}",
+        "params": ["url"],
+        "scope": "project"
+    },
+    "slackTaskContext": {
+        "template": "/slack-task-context",
+        "params": [],
+        "scope": "project"
+    },
+    "sources": {
+        "template": "/data-management/sources",
+        "params": [],
+        "scope": "project"
+    },
+    "sqlEditor": {
+        "template": "/sql",
+        "params": [],
+        "scope": "project"
+    },
+    "startups": {
+        "template": "/startups",
+        "params": [],
+        "scope": "project"
+    },
+    "stripeConfirmInstall": {
+        "template": "/integrations/stripe/confirm-install",
+        "params": [],
+        "scope": "project"
+    },
+    "subscription": {
+        "template": "/subscriptions/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "subscriptionEdit": {
+        "template": "/subscriptions/{id}/edit",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "subscriptionNew": {
+        "template": "/subscriptions/new",
+        "params": [],
+        "scope": "project"
+    },
+    "subscriptions": {
+        "template": "/subscriptions",
+        "params": [],
+        "scope": "project"
+    },
+    "supportDashboard": {
+        "template": "/support",
+        "params": [],
+        "scope": "project"
+    },
+    "supportSettings": {
+        "template": "/support/settings",
+        "params": [],
+        "scope": "project"
+    },
+    "supportTicketDetail": {
+        "template": "/support/tickets/{ticketId}",
+        "params": ["ticketId"],
+        "scope": "project"
+    },
+    "supportTickets": {
+        "template": "/support/tickets",
+        "params": [],
+        "scope": "project"
+    },
+    "survey": {
+        "template": "/surveys/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "surveyFormBuilder": {
+        "template": "/surveys/form/new",
+        "params": [],
+        "scope": "project"
+    },
+    "surveyWizard": {
+        "template": "/surveys/guided/new",
+        "params": [],
+        "scope": "project"
+    },
+    "surveys": {
+        "template": "/surveys",
+        "params": [],
+        "scope": "project"
+    },
+    "taskDetail": {
+        "template": "/tasks/{taskId}",
+        "params": ["taskId"],
+        "scope": "project"
+    },
+    "taskTracker": {
+        "template": "/tasks",
+        "params": [],
+        "scope": "project"
+    },
+    "toolbarLaunch": {
+        "template": "/toolbar",
+        "params": [],
+        "scope": "project"
+    },
+    "tracing": {
+        "template": "/tracing",
+        "params": [],
+        "scope": "project"
+    },
+    "transformations": {
+        "template": "/data-management/transformations",
+        "params": [],
+        "scope": "project"
+    },
+    "twoFactorReset": {
+        "template": "/reset_2fa/{userUuid}/{token}",
+        "params": ["userUuid", "token"],
+        "scope": "project"
+    },
+    "unsubscribe": {
+        "template": "/unsubscribe",
+        "params": [],
+        "scope": "project"
+    },
+    "userInterview": {
+        "template": "/user_research/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "userInterviewResponse": {
+        "template": "/user_research/{topicId}/response/{responseId}",
+        "params": ["topicId", "responseId"],
+        "scope": "project"
+    },
+    "userInterviews": {
+        "template": "/user_research",
+        "params": [],
+        "scope": "project"
+    },
+    "variable": {
+        "template": "/data-management/variables/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "variableEdit": {
+        "template": "/data-management/variables/{id}/edit",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "variables": {
+        "template": "/data-management/variables",
+        "params": [],
+        "scope": "project"
+    },
+    "vercelConnect": {
+        "template": "/connect/vercel/link",
+        "params": [],
+        "scope": "project"
+    },
+    "vercelLinkError": {
+        "template": "/integrations/vercel/link-error",
+        "params": [],
+        "scope": "project"
+    },
+    "verifyEmail": {
+        "template": "/verify_email",
+        "params": [],
+        "scope": "project"
+    },
+    "visualReviewRepoRuns": {
+        "template": "/visual_review/repos/{repoId}/runs",
+        "params": ["repoId"],
+        "scope": "project"
+    },
+    "visualReviewRun": {
+        "template": "/visual_review/runs/{runId}",
+        "params": ["runId"],
+        "scope": "project"
+    },
+    "visualReviewRuns": {
+        "template": "/visual_review",
+        "params": [],
+        "scope": "project"
+    },
+    "visualReviewSettings": {
+        "template": "/visual_review/settings",
+        "params": [],
+        "scope": "project"
+    },
+    "visualReviewSnapshotHistory": {
+        "template": "/visual_review/repos/{repoId}/{runType}/snapshots/{identifier}",
+        "params": ["repoId", "runType", "identifier"],
+        "scope": "project"
+    },
+    "visualReviewSnapshotOverview": {
+        "template": "/visual_review/repos/{repoId}/snapshots",
+        "params": ["repoId"],
+        "scope": "project"
+    },
+    "webAnalytics": {
+        "template": "/web",
+        "params": [],
+        "scope": "project"
+    },
+    "webAnalyticsBotAnalytics": {
+        "template": "/web/bots",
+        "params": [],
+        "scope": "project"
+    },
+    "webAnalyticsHealth": {
+        "template": "/web/health",
+        "params": [],
+        "scope": "project"
+    },
+    "webAnalyticsLive": {
+        "template": "/web/live",
+        "params": [],
+        "scope": "project"
+    },
+    "webAnalyticsMarketing": {
+        "template": "/web/marketing",
+        "params": [],
+        "scope": "project"
+    },
+    "webAnalyticsPageReports": {
+        "template": "/web/page-reports",
+        "params": [],
+        "scope": "project"
+    },
+    "webAnalyticsWebVitals": {
+        "template": "/web/web-vitals",
+        "params": [],
+        "scope": "project"
+    },
+    "webScripts": {
+        "template": "/web-scripts",
+        "params": [],
+        "scope": "project"
+    },
+    "webScriptsNew": {
+        "template": "/web-scripts/new",
+        "params": [],
+        "scope": "project"
+    },
+    "wizard": {
+        "template": "/wizard",
+        "params": [],
+        "scope": "project"
+    },
+    "workflow": {
+        "template": "/workflows/{id}/{tab}",
+        "params": ["id", "tab"],
+        "scope": "project"
+    },
+    "workflowNew": {
+        "template": "/workflows/new/workflow",
+        "params": [],
+        "scope": "project"
+    },
+    "workflows": {
+        "template": "/workflows",
+        "params": [],
+        "scope": "project"
+    },
+    "workflowsLibraryMessage": {
+        "template": "/workflows/library/messages/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "workflowsLibraryTemplate": {
+        "template": "/workflows/library/templates/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "workflowsLibraryTemplateFromMessage": {
+        "template": "/workflows/library/templates/new",
+        "params": [],
+        "scope": "project"
+    },
+    "workflowsLibraryTemplateNew": {
+        "template": "/workflows/library/templates/new",
+        "params": [],
+        "scope": "project"
+    }
+}

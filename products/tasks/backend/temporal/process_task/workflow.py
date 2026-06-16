@@ -204,10 +204,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
     async def _wait_for_task_external_event(self):
         await workflow.wait_condition(
-            lambda: self._task_completed
-            or self._heartbeat_received
-            or self._pending_followup is not None
-            or len(self._pending_followups) > 0
+            lambda: (
+                self._task_completed
+                or self._heartbeat_received
+                or self._pending_followup is not None
+                or len(self._pending_followups) > 0
+            )
         )
         return TaskEvent.SIGNAL_RECEIVED
 

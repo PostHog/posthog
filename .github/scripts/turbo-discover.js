@@ -12,6 +12,7 @@
 // Products under SMALL_THRESHOLD duration get grouped into one matrix entry
 // to avoid spinning up a full Docker stack for a handful of tests.
 // Durations come from .test_durations (maintained by pytest-split).
+// DEDICATED_BUCKET_PRODUCTS opt out of grouping and always run alone.
 //
 // Input:  LEGACY_CHANGED env var ("true"/"false")
 //         SCHEMA_CHANGED env var ("true"/"false") — when set and LEGACY_CHANGED
@@ -40,6 +41,10 @@ const PRODUCT_SAFETY_FACTOR = 1.3
 // Tests under these paths need special infrastructure (Temporal server, etc.)
 // and are handled by Django CI's dedicated segments — exclude from duration estimates
 const EXCLUDED_PATH_SEGMENTS = ['/temporal/']
+// Products that always get their own matrix entry instead of being packed with
+// others — isolates a flaky/hang-prone product so it can't cancel bucket-mates
+// at the job timeout. Trade-off: a dedicated runner.
+const DEDICATED_BUCKET_PRODUCTS = new Set(['batch-exports'])
 
 // --- Django shard auto-sizing (Amdahl's law) ---
 // wall_clock = overhead + (total_from_durations_file / shards)
@@ -296,6 +301,13 @@ function buildMatrix(products, durations) {
                     pytest_args: `-- --splits ${shards} --group ${i} --splitting-algorithm duration_based_chunks`,
                 })
             }
+        } else if (DEDICATED_BUCKET_PRODUCTS.has(product)) {
+            console.error(`  ${product}: ${(raw / 60).toFixed(1)} min raw → dedicated bucket (never packed)`)
+            matrix.push({
+                group: product,
+                filters: `--filter=@posthog/products-${product}`,
+                pytest_args: '',
+            })
         } else {
             packable.push(product)
         }
@@ -405,6 +417,26 @@ if (legacyChanged) {
             runLegacy = true
         }
     }
+}
+
+// Kill switch: products named in the SKIP_PRODUCT_TESTS repo variable (comma-
+// separated) are dropped from the matrix without a code change — use it to stop
+// running, and blocking on, a product whose tests are temporarily too flaky.
+const skipProducts = new Set((process.env.SKIP_PRODUCT_TESTS || '').split(',').map((p) => p.trim()).filter(Boolean))
+if (skipProducts.size > 0) {
+    // Warn loudly on a name that matches no real product (checked against the
+    // full product list, not just the affected ones) — catches the dash/
+    // underscore mixup where the dir is batch_exports but the product is
+    // batch-exports, which would otherwise silently skip nothing.
+    const allProductSet = new Set(allProducts)
+    for (const name of skipProducts) {
+        if (!allProductSet.has(name)) {
+            console.error(`::warning::SKIP_PRODUCT_TESTS: unknown product '${name}' — use the dashed name (e.g. 'batch-exports'), not the directory form`)
+        }
+    }
+    const before = products.length
+    products = products.filter((p) => !skipProducts.has(p))
+    console.error(`SKIP_PRODUCT_TESTS=${[...skipProducts].join(',')} — dropped ${before - products.length} product(s)`)
 }
 
 console.error(`Products to test: ${JSON.stringify(products)}`)

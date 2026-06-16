@@ -11,6 +11,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     PaginatedSessionRecordingListApi,
     PaginatedSessionRecordingPlaylistListApi,
+    PaginatedSingleSessionSummaryMinimalListApi,
     PatchedSessionRecordingApi,
     PatchedSessionRecordingPlaylistApi,
     SessionRecordingApi,
@@ -18,6 +19,8 @@ import type {
     SessionRecordingPlaylistsListParams,
     SessionRecordingsListParams,
     SessionSummariesApi,
+    SingleSessionSummariesListParams,
+    SingleSessionSummaryApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -37,26 +40,6 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-export const getCreateSessionSummariesIndividuallyUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/session_summaries/create_session_summaries_individually/`
-}
-
-/**
- * Generate AI individual summary for each session, without grouping.
- */
-export const createSessionSummariesIndividually = async (
-    projectId: string,
-    sessionSummariesApi: SessionSummariesApi,
-    options?: RequestInit
-): Promise<SessionSummariesApi> => {
-    return apiMutator<SessionSummariesApi>(getCreateSessionSummariesIndividuallyUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(sessionSummariesApi),
-    })
-}
-
 export const getSessionRecordingPlaylistsListUrl = (
     projectId: string,
     params?: SessionRecordingPlaylistsListParams
@@ -65,7 +48,7 @@ export const getSessionRecordingPlaylistsListUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -242,7 +225,7 @@ export const getSessionRecordingsListUrl = (projectId: string, params?: SessionR
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -323,5 +306,76 @@ export const sessionRecordingsDestroy = async (projectId: string, id: string, op
     return apiMutator<void>(getSessionRecordingsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getCreateSessionSummariesIndividuallyUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/session_summaries/create_session_summaries_individually/`
+}
+
+/**
+ * Generate AI individual summary for each session, without grouping.
+ */
+export const createSessionSummariesIndividually = async (
+    projectId: string,
+    sessionSummariesApi: SessionSummariesApi,
+    options?: RequestInit
+): Promise<SessionSummariesApi> => {
+    return apiMutator<SessionSummariesApi>(getCreateSessionSummariesIndividuallyUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sessionSummariesApi),
+    })
+}
+
+export const getSingleSessionSummariesListUrl = (projectId: string, params?: SingleSessionSummariesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/single_session_summaries/?${stringifiedParams}`
+        : `/api/projects/${projectId}/single_session_summaries/`
+}
+
+/**
+ * List stored AI-generated session summaries for the team, one row per session (latest summary kept). Use to discover which sessions have been summarized and to filter for sessions with specific problems — `has_exceptions=true`, `outcome=failure`, or a custom `session_ids` narrowing. Returns lightweight rows without the full summary JSON; use the retrieve endpoint for the per-segment / per-action detail.
+ */
+export const singleSessionSummariesList = async (
+    projectId: string,
+    params?: SingleSessionSummariesListParams,
+    options?: RequestInit
+): Promise<PaginatedSingleSessionSummaryMinimalListApi> => {
+    return apiMutator<PaginatedSingleSessionSummaryMinimalListApi>(
+        getSingleSessionSummariesListUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getSingleSessionSummariesRetrieveUrl = (projectId: string, sessionId: string) => {
+    return `/api/projects/${projectId}/single_session_summaries/${sessionId}/`
+}
+
+/**
+ * Get the latest stored AI summary for a single session by `session_id`. Returns the full `summary` JSON (segments with named timeline, per-action `abandonment` / `confusion` / `exception` flags, segment outcomes, headline `session_outcome`, optional `sentiment`), the `exception_event_ids` array, the `extra_summary_context` (e.g. `focus_area`) used at generation time, and the `run_metadata` (LLM model used, whether visual confirmation was applied). 404 if no summary has been generated for this session yet — to trigger generation, use the existing `session-recording-summarize` flow rather than this endpoint.
+ */
+export const singleSessionSummariesRetrieve = async (
+    projectId: string,
+    sessionId: string,
+    options?: RequestInit
+): Promise<SingleSessionSummaryApi> => {
+    return apiMutator<SingleSessionSummaryApi>(getSingleSessionSummariesRetrieveUrl(projectId, sessionId), {
+        ...options,
+        method: 'GET',
     })
 }
