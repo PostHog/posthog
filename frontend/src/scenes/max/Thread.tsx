@@ -50,7 +50,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { copyToClipboard } from '~/lib/utils/copyToClipboard'
-import { stripMarkdown } from '~/lib/utils/stripMarkdown'
+import { stripMarkdown } from '~/lib/utils/markdown'
 import { Query } from '~/queries/Query/Query'
 import {
     AssistantForm,
