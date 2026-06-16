@@ -70,7 +70,6 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     _is_options_startup_param_unsupported,
     _is_partitioned_table,
     _is_read_replica,
-    _is_recovery_conflict_error,
     _is_unsupported_function_error,
     _normalize_function_names,
     _rls_active_from_conn,
@@ -2275,17 +2274,20 @@ class TestGetPartitionSettings:
         assert result is None
         capture_mock.assert_not_called()
 
-    def test_unexpected_error_is_still_captured(self):
-        # A genuinely unexpected failure on the sizing query must still surface to error tracking.
+    @pytest.mark.django_db
+    def test_failing_sizing_query_falls_back_to_none_without_capturing(self):
         logger = structlog.get_logger()
-        cursor = mock.MagicMock()
-        cursor.execute.side_effect = Exception("some unexpected failure")
 
-        with patch("posthog.temporal.data_imports.sources.postgres.postgres.capture_exception") as capture_mock:
-            result = _get_partition_settings(cast(Any, cursor), "public", "t", logger, is_partitioned=False)
+        # The sizing query runs against a table that doesn't exist — stands in for an
+        # upstream/source-side failure (e.g. a misbehaving extension index on the source DB)
+        # that is already tolerated by falling back to default partition settings.
+        with django_connection.cursor() as dj_cursor:
+            with patch("posthog.temporal.data_imports.sources.postgres.postgres.capture_exception") as mock_capture:
+                result = _get_partition_settings(cast(Any, dj_cursor), "public", "does_not_exist_ps_table", logger)
 
+        # Best-effort sizing falls back to None and never reports the handled failure.
         assert result is None
-        capture_mock.assert_called_once()
+        mock_capture.assert_not_called()
 
     @pytest.mark.parametrize(
         "exc",
@@ -2312,22 +2314,18 @@ class TestGetPartitionSettings:
         assert result is None
         capture_mock.assert_not_called()
 
+    def test_temp_file_limit_error_still_raises(self):
+        logger = structlog.get_logger()
 
-class TestIsRecoveryConflictError:
-    @pytest.mark.parametrize(
-        "error,expected",
-        [
-            (psycopg.errors.SerializationFailure("canceling statement due to conflict with recovery"), True),
-            (psycopg.errors.SerializationFailure("could not serialize access due to conflict with recovery"), True),
-            # A non-recovery serialization failure (true 40001 write conflict) is not ours to swallow.
-            (psycopg.errors.SerializationFailure("could not serialize access due to concurrent update"), False),
-            # Right message, wrong type -> not a recovery conflict we recognise here.
-            (psycopg.errors.QueryCanceled("canceling statement due to conflict with recovery"), False),
-            (Exception("canceling statement due to conflict with recovery"), False),
-        ],
-    )
-    def test_recognises_recovery_conflict(self, error, expected):
-        assert _is_recovery_conflict_error(error) is expected
+        cursor = mock.MagicMock()
+        cursor.execute.side_effect = Exception("temporary file size exceeds temp_file_limit (1048576kB)")
+
+        with patch("posthog.temporal.data_imports.sources.postgres.postgres.capture_exception") as mock_capture:
+            with pytest.raises(TemporaryFileSizeExceedsLimitException):
+                _get_partition_settings(cast(Any, cursor), "public", "users", logger)
+
+        # The temp-file signal is actionable, so it propagates rather than being swallowed.
+        mock_capture.assert_not_called()
 
 
 class TestPostgreSQLColumnToArrowField:
