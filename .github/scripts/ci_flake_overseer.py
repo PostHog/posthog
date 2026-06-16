@@ -498,6 +498,10 @@ def classify_job(
     return Decision(action="rerun", reason="matched high-confidence known flaky signature", job=job, match=match)
 
 
+def job_log_getter(repo: str, job: Job) -> Callable[[], str]:
+    return lambda: gh_text(repo, f"actions/jobs/{job.id}/logs")
+
+
 def inspect_failed_jobs(
     repo: str,
     workflow_run: WorkflowRun,
@@ -511,7 +515,7 @@ def inspect_failed_jobs(
         decisions.append(
             classify_job(
                 job,
-                lambda job=job: gh_text(repo, f"actions/jobs/{job.id}/logs"),
+                job_log_getter(repo, job),
                 insights,
                 workflow_run.name,
                 max_reruns_per_job,
@@ -537,7 +541,7 @@ def rerun_eligible_decisions(
             continue
         decision = classify_job(
             job,
-            lambda job=job: gh_text(repo, f"actions/jobs/{job.id}/logs"),
+            job_log_getter(repo, job),
             insights,
             workflow_name,
             max_reruns_per_job,
@@ -565,6 +569,31 @@ def rerun_eligible_jobs(repo: str, decisions: tuple[Decision, ...], dry_run: boo
     return reran_job_ids
 
 
+def base_event_properties(repo: str, workflow_run: WorkflowRun, dry_run: bool, enabled: bool) -> JsonObject:
+    return {
+        "repo": repo,
+        "workflow_name": workflow_run.name,
+        "run_id": workflow_run.id,
+        "run_url": workflow_run.html_url,
+        "head_sha": workflow_run.head_sha,
+        "dry_run": dry_run,
+        "enabled": enabled,
+        # Reuse the project's existing workflow_run group so events roll up per CI run.
+        "$groups": {"workflow_run": str(workflow_run.id)},
+    }
+
+
+def match_properties(match: FlakeMatch | None) -> JsonObject:
+    if match is None:
+        return {}
+    return {
+        "insight_id": match.insight_id,
+        "insight_title": match.title,
+        "insight_confidence": match.confidence,
+        "matched_query": match.matched_query,
+    }
+
+
 def build_decision_events(
     repo: str,
     workflow_run: WorkflowRun,
@@ -576,33 +605,19 @@ def build_decision_events(
     events: list[JsonObject] = []
     for decision in decisions:
         job = decision.job
-        properties: JsonObject = {
-            "action": decision.action,
-            "reason": decision.reason,
-            "repo": repo,
-            "workflow_name": workflow_run.name,
-            "job_name": job.name,
-            "job_id": job.id,
-            "job_url": job.html_url,
-            "run_id": workflow_run.id,
-            "run_url": workflow_run.html_url,
-            "run_attempt": job.run_attempt,
-            "head_sha": workflow_run.head_sha,
-            "dry_run": dry_run,
-            "enabled": enabled,
-            "reran": job.id in reran_job_ids,
-            # Reuse the project's existing workflow_run group so reruns roll up per CI run.
-            "$groups": {"workflow_run": str(workflow_run.id)},
-        }
-        if decision.match is not None:
-            properties.update(
-                {
-                    "insight_id": decision.match.insight_id,
-                    "insight_title": decision.match.title,
-                    "insight_confidence": decision.match.confidence,
-                    "matched_query": decision.match.matched_query,
-                }
-            )
+        properties = base_event_properties(repo, workflow_run, dry_run, enabled)
+        properties.update(
+            {
+                "action": decision.action,
+                "reason": decision.reason,
+                "job_name": job.name,
+                "job_id": job.id,
+                "job_url": job.html_url,
+                "run_attempt": job.run_attempt,
+                "reran": job.id in reran_job_ids,
+            }
+        )
+        properties.update(match_properties(decision.match))
         events.append({"event": DECISION_EVENT, "distinct_id": repo, "properties": properties})
     return events
 
@@ -639,30 +654,17 @@ def report_rerun_outcomes(
     events: list[JsonObject] = []
     for job_name, decision in eligible.items():
         conclusion = current_conclusions.get(job_name)
-        properties: JsonObject = {
-            "outcome": rerun_outcome_label(conclusion),
-            "current_conclusion": conclusion,
-            "repo": repo,
-            "workflow_name": workflow_run.name,
-            "job_name": job_name,
-            "run_id": workflow_run.id,
-            "run_url": workflow_run.html_url,
-            "head_sha": workflow_run.head_sha,
-            "prior_attempt": prior_attempt,
-            "attempt": workflow_run.run_attempt,
-            "dry_run": dry_run,
-            "enabled": enabled,
-            "$groups": {"workflow_run": str(workflow_run.id)},
-        }
-        if decision.match is not None:
-            properties.update(
-                {
-                    "insight_id": decision.match.insight_id,
-                    "insight_title": decision.match.title,
-                    "insight_confidence": decision.match.confidence,
-                    "matched_query": decision.match.matched_query,
-                }
-            )
+        properties = base_event_properties(repo, workflow_run, dry_run, enabled)
+        properties.update(
+            {
+                "outcome": rerun_outcome_label(conclusion),
+                "current_conclusion": conclusion,
+                "job_name": job_name,
+                "prior_attempt": prior_attempt,
+                "attempt": workflow_run.run_attempt,
+            }
+        )
+        properties.update(match_properties(decision.match))
         events.append({"event": OUTCOME_EVENT, "distinct_id": repo, "properties": properties})
     return events
 
