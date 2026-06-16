@@ -274,6 +274,7 @@ dev = [
     "testcontainers[mysql]~=4.14",
     # Developer CLI
     "hogli",
+    "libcst>=1.8.6,<2.0.0",
 ]
 sentiment = [
     "optimum[onnxruntime]~=1.25.0",
