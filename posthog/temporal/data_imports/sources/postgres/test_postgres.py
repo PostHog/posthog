@@ -261,6 +261,8 @@ class TestPostgresSourceNonRetryableErrors:
             # "Tenant or user not found connection to server" / "FATAL: Tenant or user not found"
             # patterns don't substring-match this, so it needs its own key.
             'connection failed: connection to server at "52.45.94.125", port 6543 failed: FATAL:  (ENOTFOUND) tenant/user postgres.hksbxxtlcfeyyalgveif not found',
+            "ProtocolViolation: server login has been failing, cached error: connect timeout (server_login_retry)",
+            "server login has been failing, cached error: connection refused (server_login_retry)",
         ],
     )
     def test_permanent_connection_errors_are_non_retryable(self, source, error_msg):
