@@ -2,6 +2,7 @@ from django.conf import settings
 
 import requests
 import structlog
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.temporal.data_imports.sources.common.http import make_tracked_session
 
@@ -22,6 +23,18 @@ def _error_message_from_response(res: requests.Response) -> str:
         return res.text
 
 
+# HubSpot rate-limits its OAuth token endpoint and returns 429 ("You have reached your rate
+# limit.") when refreshes arrive too fast; 5xx also occur transiently. These clear on their own.
+# The token refresh is a POST, which the shared session's urllib3 retry policy deliberately skips
+# (it only auto-retries GET/HEAD/OPTIONS), so back off and retry locally instead of surfacing a
+# transient throttle as a hard failure. If the backoff is exhausted the error stays a
+# HubspotRetryableError, so it remains retryable at the calling fetch/activity level.
+@retry(
+    retry=retry_if_exception_type((HubspotRetryableError, requests.ReadTimeout, requests.ConnectionError)),
+    stop=stop_after_attempt(5),
+    wait=wait_exponential_jitter(initial=1, max=30),
+    reraise=True,
+)
 def hubspot_refresh_access_token(refresh_token: str, source_id: str | None = None) -> str:
     res = make_tracked_session().post(
         "https://api.hubapi.com/oauth/v1/token",
@@ -35,9 +48,8 @@ def hubspot_refresh_access_token(refresh_token: str, source_id: str | None = Non
 
     if res.status_code != 200:
         err_message = _error_message_from_response(res)
-        # A 429 (rate limit) or 5xx from the OAuth token endpoint is transient. Surface it as a
-        # retryable error so the calling fetch loop backs off and retries instead of failing the
-        # whole sync on a momentary rate limit.
+        # A 429 (rate limit) or 5xx from the OAuth token endpoint is transient — back off and retry.
+        # Genuine auth failures (e.g. a 400 bad refresh token) fall through and fail fast.
         if res.status_code == 429 or res.status_code >= 500:
             raise HubspotRetryableError(err_message)
         raise Exception(err_message)
