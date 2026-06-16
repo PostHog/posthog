@@ -99,7 +99,7 @@ class TestModelLoading:
     def test_load_booster_raises_when_s3_returns_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # If S3 returns None (object missing), we must raise loudly so the
         # operator sees the misconfig instead of getting silent NaN scores.
-        monkeypatch.setenv("SESSION_INTERESTINGNESS_MODEL_S3_URI", "s3://bucket/missing.ubj")
+        monkeypatch.setenv("SESSION_SURFACING_MODEL_S3_URI", "s3://bucket/missing.ubj")
         monkeypatch.setattr(
             "posthog.temporal.session_replay.surfacing_scoring_sweep.scorer.object_storage.read_bytes",
             lambda key, *, bucket=None: None,
@@ -108,7 +108,7 @@ class TestModelLoading:
             _load_booster()
 
     def test_load_booster_raises_when_no_env_set(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.delenv("SESSION_INTERESTINGNESS_MODEL_S3_URI", raising=False)
+        monkeypatch.delenv("SESSION_SURFACING_MODEL_S3_URI", raising=False)
         with pytest.raises(scorer_mod.ModelNotConfiguredError):
             _load_booster()
 
@@ -120,7 +120,7 @@ class TestModelLoading:
         booster.save_model(str(src))
         payload = src.read_bytes()
 
-        monkeypatch.setenv("SESSION_INTERESTINGNESS_MODEL_S3_URI", "s3://my-bucket/path/to/model.ubj")
+        monkeypatch.setenv("SESSION_SURFACING_MODEL_S3_URI", "s3://my-bucket/path/to/model.ubj")
         with mock.patch(
             "posthog.temporal.session_replay.surfacing_scoring_sweep.scorer.object_storage.read_bytes",
             return_value=payload,
@@ -132,8 +132,8 @@ class TestModelLoading:
 
     @pytest.mark.parametrize("uri", ["model.ubj", "s3://only-bucket", "s3:///key-only", "http://wrong/scheme"])
     def test_load_booster_rejects_malformed_s3_uri(self, monkeypatch: pytest.MonkeyPatch, uri: str) -> None:
-        monkeypatch.setenv("SESSION_INTERESTINGNESS_MODEL_S3_URI", uri)
-        with pytest.raises(ValueError, match="SESSION_INTERESTINGNESS_MODEL_S3_URI"):
+        monkeypatch.setenv("SESSION_SURFACING_MODEL_S3_URI", uri)
+        with pytest.raises(ValueError, match="SESSION_SURFACING_MODEL_S3_URI"):
             _load_booster()
 
 

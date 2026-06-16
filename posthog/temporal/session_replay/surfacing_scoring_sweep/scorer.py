@@ -31,7 +31,7 @@ from posthog.temporal.session_replay.surfacing_scoring_sweep.features import fea
 logger = structlog.get_logger(__name__)
 
 
-_MODEL_S3_URI_ENV_VAR = "SESSION_INTERESTINGNESS_MODEL_S3_URI"
+_MODEL_S3_URI_ENV_VAR = "SESSION_SURFACING_MODEL_S3_URI"
 
 _BOOSTER: xgb.Booster | None = None
 # Cached tuple of `_BOOSTER.feature_names` to avoid the C++ → Python attribute
@@ -43,7 +43,7 @@ _BOOSTER_LOCK = threading.Lock()
 
 
 class ModelNotConfiguredError(RuntimeError):
-    """`SESSION_INTERESTINGNESS_MODEL_S3_URI` is not set."""
+    """`SESSION_SURFACING_MODEL_S3_URI` is not set."""
 
 
 def _fetch_from_s3(uri: str) -> str:
