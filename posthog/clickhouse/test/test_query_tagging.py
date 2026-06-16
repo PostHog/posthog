@@ -699,24 +699,13 @@ class TestAddFallbackQueryTags(BaseTest):
 
     # --- query-structure fallback: wrapper / drill-down queries inherit the wrapped product ---
 
-    def test_query_structure_resolves_retention_actors_drilldown(self):
-        # "Open as new insight" from a retention actors modal posts a DataTableNode wrapping an
-        # ActorsQuery → InsightActorsQuery → RetentionQuery. Every outer kind maps to None, so the
-        # product is inherited from the wrapped RetentionQuery via the query-structure walk.
-        query = {
-            "kind": "DataTableNode",
-            "source": {
-                "kind": "ActorsQuery",
-                "source": {"kind": "InsightActorsQuery", "source": {"kind": "RetentionQuery"}},
-            },
-        }
-        tags = QueryTags(query_type="ActorsQuery", query=query)
-        add_fallback_query_tags(tags)
-        assert tags.product == Product.PRODUCT_ANALYTICS
-
-    @parameterized.expand([("TrendsQuery",), ("FunnelsQuery",), ("StickinessQuery",), ("LifecycleQuery",)])
-    def test_query_structure_resolves_other_actors_drilldowns(self, inner_kind):
-        # Same "open as new insight" shape for the other product-analytics insight types.
+    @parameterized.expand(
+        [("RetentionQuery",), ("TrendsQuery",), ("FunnelsQuery",), ("StickinessQuery",), ("LifecycleQuery",)]
+    )
+    def test_query_structure_resolves_actors_drilldowns(self, inner_kind):
+        # "Open as new insight" from an actors modal posts a DataTableNode wrapping an
+        # ActorsQuery → InsightActorsQuery → <insight>. Every outer kind maps to None, so the
+        # product is inherited from the wrapped insight via the query-structure walk.
         query = {
             "kind": "DataTableNode",
             "source": {"kind": "ActorsQuery", "source": {"kind": "InsightActorsQuery", "source": {"kind": inner_kind}}},
