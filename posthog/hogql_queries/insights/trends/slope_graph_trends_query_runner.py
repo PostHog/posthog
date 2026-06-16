@@ -86,9 +86,19 @@ class SlopeGraphTrendsQueryRunner(TrendsQueryRunner):
             user=self.user,
         ).calculate()
 
+        # Whether the last bucket is the current, still-accumulating period — computed once here so
+        # the insight and the MCP both forward it rather than each re-deriving it on the frontend.
+        incomplete_end = self._last_bucket_is_current()
         for result in response.results or []:
             _keep_first_and_last_bucket(result)
+            result["incomplete_end"] = incomplete_end
         return response
+
+    def _last_bucket_is_current(self) -> bool:
+        last_start = self.query_date_range.align_with_interval(self.query_date_range.date_to())
+        next_start = last_start + self.query_date_range.interval_relativedelta()
+        now = self.query_date_range.now_with_timezone
+        return last_start <= now < next_start
 
     def _end_buckets_filter(self) -> HogQLPropertyFilter:
         """Restrict the scan to the first and last interval bucket, aligned to the runner's own

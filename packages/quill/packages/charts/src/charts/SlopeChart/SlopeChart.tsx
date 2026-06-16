@@ -118,6 +118,11 @@ function SlopeChartInner<Meta = SlopeSeriesMeta>({
         [showEndLabels]
     )
 
+    // A slope plots only its two ends, so reduce any-length labels to [first, last] to match — this
+    // lets a caller hand over a full time-series (data + labels) and have the chart slope it, so the
+    // first/last reduction lives here once rather than in every caller.
+    const slopeLabels = useMemo(() => (labels.length > 2 ? [labels[0], labels[labels.length - 1]] : labels), [labels])
+
     // Reserve left/right gutters for the value/name labels, which sit in the margins beyond the plot.
     const { margins, nameOffsetX } = useMemo(() => {
         const startWidth = maxLabelWidth(series.filter(showsStart).map((s) => valueFormatter(slopeStart(s))))
@@ -132,8 +137,9 @@ function SlopeChartInner<Meta = SlopeSeriesMeta>({
 
         // The x-axis labels sit centred under the two points, so half of the first/last label
         // overhangs the side gutter — reserve room for it too, else a wide label (e.g. a date) clips.
-        const firstAxisHalf = labels.length > 0 ? measureLabelWidth(labels[0], AXIS_LABEL_FONT) / 2 : 0
-        const lastAxisHalf = labels.length > 1 ? measureLabelWidth(labels[labels.length - 1], AXIS_LABEL_FONT) / 2 : 0
+        const firstAxisHalf = slopeLabels.length > 0 ? measureLabelWidth(slopeLabels[0], AXIS_LABEL_FONT) / 2 : 0
+        const lastAxisHalf =
+            slopeLabels.length > 1 ? measureLabelWidth(slopeLabels[slopeLabels.length - 1], AXIS_LABEL_FONT) / 2 : 0
 
         const left = Math.max(startWidth > 0 ? startWidth + VALUE_GAP + EDGE_PAD : EDGE_PAD, firstAxisHalf + EDGE_PAD)
         const endGutter = endWidth > 0 ? VALUE_GAP + endWidth : 0
@@ -148,7 +154,7 @@ function SlopeChartInner<Meta = SlopeSeriesMeta>({
 
         const base: Partial<ChartMargins> = { left, right }
         return { margins: { ...base, ...config?.margins }, nameOffsetX: offset }
-    }, [series, labels, showsStart, showsEnd, showSeriesLabels, valueFormatter, config?.margins])
+    }, [series, slopeLabels, showsStart, showsEnd, showSeriesLabels, valueFormatter, config?.margins])
 
     // When the last point is the current incomplete period, dash only the *second half* of the
     // connector so it reads as "the end is provisional", not the whole comparison.
@@ -191,7 +197,7 @@ function SlopeChartInner<Meta = SlopeSeriesMeta>({
         >
             <LineChart<Meta>
                 series={slopeSeries}
-                labels={labels}
+                labels={slopeLabels}
                 config={lineConfig}
                 theme={theme}
                 tooltip={tooltip}

@@ -20,8 +20,6 @@ const meta: Meta = {
             },
         },
         viewMode: 'story',
-        // After the fixture's last bucket (2022-03-15) so every bucket is complete and the
-        // connectors render solid; the IncompletePeriod story moves "now" into the range.
         mockDate: '2022-04-01',
         featureFlags: [FEATURE_FLAGS.SLOPE_GRAPH_INSIGHT],
     },
@@ -57,13 +55,14 @@ export const TrendsSlopeGraphWithLegend: Story = createInsightStory(
     true
 )
 TrendsSlopeGraphWithLegend.parameters = { testOptions: { waitForSelector: '[data-attr=trends-slope-graph] canvas' } }
-// "now" sits inside the fixture's range, so the last bucket is the current incomplete period and
-// the connector to the end point is dashed — the same affordance the line chart uses.
-export const TrendsSlopeGraphIncompletePeriod: Story = createInsightStory(
-    require('../../../mocks/fixtures/api/projects/team_id/insights/trendsSlopeGraph.json')
-)
+// The backend flags the last bucket as the current incomplete period (`incomplete_end`), so the
+// second half of the connector to the end point is dashed — the same affordance the line chart uses.
+const slopeInsight = require('../../../mocks/fixtures/api/projects/team_id/insights/trendsSlopeGraph.json')
+export const TrendsSlopeGraphIncompletePeriod: Story = createInsightStory({
+    ...slopeInsight,
+    result: slopeInsight.result.map((series: Record<string, unknown>) => ({ ...series, incomplete_end: true })),
+})
 TrendsSlopeGraphIncompletePeriod.parameters = {
-    mockDate: '2022-03-13',
     testOptions: { waitForSelector: '[data-attr=trends-slope-graph] canvas' },
 }
 /* eslint-enable @typescript-eslint/no-var-requires */

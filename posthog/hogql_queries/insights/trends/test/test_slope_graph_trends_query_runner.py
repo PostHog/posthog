@@ -68,6 +68,8 @@ class TestSlopeGraphTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # Only the first and last day count — the middle days are never queried.
         assert result["data"][0] == 2
         assert result["data"][1] == 3
+        # The range ends well before "now" (2024-06-15), so the last bucket is complete.
+        assert result["incomplete_end"] is False
 
     @snapshot_clickhouse_queries
     def test_groups_by_month_returning_first_and_last_month(self):
@@ -121,6 +123,7 @@ class TestSlopeGraphTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         result = response.results[0]
         # The last bucket is the current, still-accumulating month — kept as-is (the frontend dashes it).
         assert result["days"] == ["2024-04-01", "2024-06-01"]
+        assert result["incomplete_end"] is True
         assert response.resolved_date_range is not None
         assert response.resolved_date_range.date_to.strftime("%Y-%m-%d") == "2024-06-15"
 

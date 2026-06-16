@@ -99,6 +99,7 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
         label: getSeriesLabel(item, i),
         data: item.data ?? [],
         days: item.days,
+        incompleteEnd: !!item.incomplete_end,
     }))
     const yAxisLabel = results.length === 1 && results[0] ? getSeriesLabel(results[0], 0) : undefined
 
@@ -111,20 +112,19 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
     // Build only the active mode's chart model — toggling shouldn't recompute the hidden one.
     const renderChart = (): ReactElement => {
         if (effectiveMode === 'slope') {
+            // Hand quill the full series and labels — it reduces to the first and last point itself,
+            // so the slope shaping lives once in quill, not here. The backend's incomplete_end flag is
+            // forwarded so the provisional end dashes exactly as it does in the insight.
             const slopeSeries = trendResults
-                .map((item, index) => {
-                    if (item.data.length < 2) {
-                        return null
-                    }
-                    return {
-                        key: String(item.id),
-                        label: item.label,
-                        color: colorAt(index),
-                        data: [item.data[0]!, item.data[item.data.length - 1]!],
-                    }
-                })
-                .filter((s): s is NonNullable<typeof s> => s !== null)
-            const slopeLabels = [formatDate(labels[0]!), formatDate(labels[labels.length - 1]!)]
+                .filter((item) => item.data.length >= 2)
+                .map((item) => ({
+                    key: String(item.id),
+                    label: item.label,
+                    color: colorAt(item.id),
+                    data: item.data,
+                    meta: item.incompleteEnd ? { incompleteEnd: true } : undefined,
+                }))
+            const slopeLabels = labels.map((label) => formatDate(String(label)))
             return (
                 <SlopeChart
                     series={slopeSeries}

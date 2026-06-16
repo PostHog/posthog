@@ -30,26 +30,17 @@ export function TrendsSlopeChart({ context }: TrendsSlopeChartProps): JSX.Elemen
     const theme = useMemo(() => buildTheme(), [isDarkModeOn])
     const { insightProps } = useValues(insightLogic)
 
-    const {
-        indexedResults,
-        currentPeriodResult,
-        getTrendsColor,
-        getTrendsHidden,
-        trendsFilter,
-        incompletenessOffsetFromEnd,
-        interval,
-        showLegend,
-    } = useValues(trendsDataLogic(insightProps))
+    const { indexedResults, currentPeriodResult, getTrendsColor, getTrendsHidden, trendsFilter, interval, showLegend } =
+        useValues(trendsDataLogic(insightProps))
     const { timezone } = useValues(insightVizDataLogic(insightProps))
     const { baseCurrency } = useValues(teamLogic)
 
     // The backend returns each series as its two points (first and last interval bucket) with two
     // matching labels, so we just map to quill series: resolve the theme colour, drop legend-hidden
-    // series, and flag the incomplete end (which dashes the connector). A single-bucket range comes
-    // back as one point and is dropped — there's no slope to draw.
+    // series, and forward the backend's `incomplete_end` flag (which dashes the connector). A
+    // single-bucket range comes back as one point and is dropped — there's no slope to draw.
     const labels = currentPeriodResult?.labels ?? []
     const series = useMemo<Series<SlopeSeriesMeta>[]>(() => {
-        const lastBucketInProgress = incompletenessOffsetFromEnd !== undefined && incompletenessOffsetFromEnd < 0
         return (indexedResults ?? [])
             .filter((result: IndexedTrendResult) => !getTrendsHidden(result) && (result.data?.length ?? 0) >= 2)
             .map((result: IndexedTrendResult) => ({
@@ -57,9 +48,9 @@ export function TrendsSlopeChart({ context }: TrendsSlopeChartProps): JSX.Elemen
                 label: result.label ?? '',
                 color: getTrendsColor(result),
                 data: result.data,
-                meta: lastBucketInProgress ? { incompleteEnd: true } : undefined,
+                meta: result.incomplete_end ? { incompleteEnd: true } : undefined,
             }))
-    }, [indexedResults, getTrendsColor, getTrendsHidden, incompletenessOffsetFromEnd])
+    }, [indexedResults, getTrendsColor, getTrendsHidden])
 
     const config = useMemo<SlopeChartConfig>(
         () => ({

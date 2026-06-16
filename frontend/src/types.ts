@@ -3287,6 +3287,9 @@ export interface TrendResult {
      * formula index for formula results (uniform across a formula's breakdown rows).
      * Unlike `action.order`, this is always populated — formula results carry `action: null`. */
     order?: number
+    /** Slope graph only: whether the last bucket is the current, still-accumulating period. Set by
+     * SlopeGraphTrendsQueryRunner so the insight and MCP dash the provisional end identically. */
+    incomplete_end?: boolean
 }
 
 interface Person {

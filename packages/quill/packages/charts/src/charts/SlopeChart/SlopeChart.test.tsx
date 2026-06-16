@@ -175,7 +175,10 @@ describe('SlopeChart', () => {
             [
                 'one series with incompleteEnd',
                 [{ key: 'a', label: 'A', data: [10, 90], meta: { incompleteEnd: true } }] as Series<SlopeSeriesMeta>[],
-                [{ side: 'start', text: '10' }, { side: 'end', text: '90' }],
+                [
+                    { side: 'start', text: '10' },
+                    { side: 'end', text: '90' },
+                ],
             ],
             [
                 'multiple series, one with incompleteEnd',
@@ -196,6 +199,19 @@ describe('SlopeChart', () => {
             for (const e of expected) {
                 expect(labels).toContainEqual(e)
             }
+        })
+    })
+
+    describe('full-series reduction', () => {
+        it('slopes a >2-point series to its first and last point and labels', () => {
+            const series: Series<SlopeSeriesMeta>[] = [{ key: 'a', label: 'A', data: [10, 20, 30, 40] }]
+            const labels = ['Jan', 'Feb', 'Mar', 'Apr']
+            const { chart } = renderHogChart(<SlopeChart series={series} labels={labels} theme={THEME} />)
+            // Only the two ends are shown — interior points and labels are dropped.
+            expect(chart.xTicks()).toEqual(['Jan', 'Apr'])
+            const values = chart.slopeValueLabels().map((l) => ({ side: l.side, text: l.text }))
+            expect(values).toContainEqual({ side: 'start', text: '10' })
+            expect(values).toContainEqual({ side: 'end', text: '40' })
         })
     })
 
