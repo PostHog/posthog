@@ -152,7 +152,6 @@ class TestBotDefinitionUDFs:
             assert f"CREATE OR REPLACE FUNCTION {name} AS (ua)" in joined
 
     def test_no_udf_uses_dictget(self):
-        # multiMatch, not the dict's dictGet (much cheaper per row).
         for sql in BOT_DEFINITION_UDFS_SQL:
             assert "dictGet" not in sql, f"UDF must not use dictGet: {sql[:80]}"
 
@@ -174,13 +173,10 @@ class TestBotDefinitionUDFs:
         bot_name_sql = next(s for s in BOT_DEFINITION_UDFS_SQL if "webAnalyticsGetBotName" in s)
         assert f"arrayElement({expected}, multiMatchAnyIndex(" in bot_name_sql
 
-    def test_isbot_equivalent_to_traffic_type_not_regular(self):
-        # webAnalyticsIsLikelyBot is multiMatchAny (any pattern matches). That equals the dict's
-        # "traffic_type != 'Regular'" only if every defined bot is non-Regular — assert it holds.
+    def test_every_bot_is_non_regular(self):
+        # isLikelyBot is multiMatchAny (any pattern matches), correct only if no bot is "Regular".
         for pattern, bot in BOT_DEFINITIONS.items():
-            assert bot.traffic_type != "Regular", (
-                f"{pattern} has Regular traffic_type; webAnalyticsIsLikelyBot would diverge"
-            )
+            assert bot.traffic_type != "Regular", f"{pattern} has Regular traffic_type"
 
     def test_drop_statements_cover_every_udf(self):
         assert len(DROP_BOT_DEFINITION_UDFS_SQL) == len(BOT_DEFINITION_UDF_NAMES)

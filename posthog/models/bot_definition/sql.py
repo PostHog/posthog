@@ -132,7 +132,7 @@ LAYOUT(REGEXP_TREE())
 
 
 # Namespaced (`webAnalytics*`) to avoid clashes in ClickHouse's global function catalog; the HogQL
-# layer exposes them unprefixed. multiMatch-based, not the dict's dictGet.
+# layer exposes them unprefixed.
 _BOT_UDF_PATTERNS = _format_array([*BOT_DEFINITIONS.keys(), "^$"])
 
 
