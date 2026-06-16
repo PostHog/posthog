@@ -396,9 +396,7 @@ def _is_bigquery_resource_exceeded(error: BadRequest) -> bool:
     crash.
     """
     reasons = {err.get("reason") for err in (getattr(error, "errors", None) or [])}
-    if "resourcesExceeded" in reasons:
-        return True
-    return "Resources exceeded during query execution" in str(error)
+    return "resourcesExceeded" in reasons or "Resources exceeded during query execution" in str(error)
 
 
 def _has_duplicate_primary_keys(table: bigquery.Table, client: bigquery.Client, primary_keys: list[str] | None) -> bool:
