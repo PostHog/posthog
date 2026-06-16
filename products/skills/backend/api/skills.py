@@ -3,9 +3,11 @@ from uuid import UUID
 
 from django.db import IntegrityError
 from django.db.models import Q, QuerySet
+from django.http import HttpResponse
 
 import structlog
 import posthoganalytics
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -30,6 +32,8 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
 from products.ai_observability.backend.api.metrics import llma_track_latency
 
+from ..marketplace.adapters import load_skill_export
+from ..marketplace.packaging import build_skill_zip
 from ..models.skills import LLMSkill, LLMSkillFile
 from .skill_serializers import (
     LLMSkillCreateSerializer,
@@ -470,6 +474,25 @@ class LLMSkillViewSet(
                 "has_more": has_more,
             }
         )
+
+    @extend_schema(
+        parameters=[LLMSkillFetchQuerySerializer],
+        responses={(200, "application/zip"): OpenApiTypes.BINARY},
+    )
+    @action(methods=["GET"], detail=False, url_path=r"name/(?P<skill_name>[^/]+)/export")
+    @llma_track_latency("llma_skills_export")
+    @monitor(feature=None, endpoint="llma_skills_export", method="GET")
+    def export(self, request: Request, skill_name: str = "", **kwargs) -> Response | HttpResponse:
+        version_params = self._get_requested_version_params(request)
+        version = cast(int | None, version_params.get("version"))
+        skill = get_skill_by_name_from_db(self.team, skill_name, version)
+        if skill is None:
+            return self._skill_not_found_response(skill_name)
+
+        zip_bytes = build_skill_zip(load_skill_export(skill))
+        response = HttpResponse(zip_bytes, content_type="application/zip")
+        response["Content-Disposition"] = f'attachment; filename="{skill.name}.zip"'
+        return response
 
     @extend_schema(request=None, responses={204: None})
     @action(

@@ -149,6 +149,8 @@ OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset({"metrics", "w
 PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIScopeActions]] = [
     ("endpoint", "read"),
     ("llm_gateway", "read"),
+    # Read-only marketplace credential for serving the team's skills to Claude Code via git.
+    ("llm_skill", "read"),
 ]
 
 # Server-side scope assignment string-set constants (see RFC: server-side scope
