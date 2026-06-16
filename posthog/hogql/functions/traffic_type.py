@@ -117,10 +117,16 @@ def is_bot(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
 
     index_call = ast.Call(name="multiMatchAnyIndex", args=[safe_user_agent, patterns_array])
 
-    return ast.CompareOperation(
-        op=ast.CompareOperationOp.NotEq,
-        left=index_call,
-        right=ast.Constant(value=0),
+    # Cast to Bool so results render as true/false (not 0/1) in insights breakdowns.
+    return ast.Call(
+        name="toBool",
+        args=[
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.NotEq,
+                left=index_call,
+                right=ast.Constant(value=0),
+            )
+        ],
     )
 
 
