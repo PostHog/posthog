@@ -55902,7 +55902,7 @@ export namespace Schemas {
 
 
     export const FeatureFlagsListEvaluationRuntime = {
-      Both: 'both',
+      All: 'all',
       Client: 'client',
       Server: 'server',
     } as const;

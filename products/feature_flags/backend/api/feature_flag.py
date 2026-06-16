@@ -2546,7 +2546,7 @@ class FeatureFlagViewSet(
                 OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
                 required=False,
-                enum=["server", "client", "both"],
+                enum=[choice[0] for choice in FeatureFlag.EVALUATION_RUNTIME_CHOICES],
                 description="Filter feature flags by their evaluation runtime.",
             ),
             OpenApiParameter(

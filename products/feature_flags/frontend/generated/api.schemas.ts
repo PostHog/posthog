@@ -1412,7 +1412,7 @@ export type FeatureFlagsListEvaluationRuntime =
     (typeof FeatureFlagsListEvaluationRuntime)[keyof typeof FeatureFlagsListEvaluationRuntime]
 
 export const FeatureFlagsListEvaluationRuntime = {
-    Both: 'both',
+    All: 'all',
     Client: 'client',
     Server: 'server',
 } as const
