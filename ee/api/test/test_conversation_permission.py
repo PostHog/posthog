@@ -1,14 +1,29 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.test import override_settings
+
 from rest_framework import status
 
 from products.posthog_ai.backend.models.assistant import Conversation
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.services.agent_command import CommandResult
+from products.tasks.backend.services.connection_token import reset_sandbox_jwt_key_cache
+from products.tasks.backend.tests.test_api import TEST_RSA_PRIVATE_KEY
 
 
+# The permission reply mints a real connection JWT, so a signing key must be configured; the
+# downstream send_permission_response HTTP call is mocked, so any valid key works.
+@override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
 class TestConversationPermission(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        reset_sandbox_jwt_key_cache()
+
+    def tearDown(self) -> None:
+        reset_sandbox_jwt_key_cache()
+        super().tearDown()
+
     def _create_run(self) -> TaskRun:
         task = Task.objects.create(
             team=self.team,

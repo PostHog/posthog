@@ -3,6 +3,8 @@ from contextlib import contextmanager
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.test import override_settings
+
 from rest_framework import exceptions
 
 from posthog.exceptions import Conflict
@@ -17,6 +19,8 @@ from products.posthog_ai.backend.models.assistant import Conversation
 from products.posthog_ai.backend.system_prompt import PromptService
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.services.agent_command import CommandResult
+from products.tasks.backend.services.connection_token import reset_sandbox_jwt_key_cache
+from products.tasks.backend.tests.test_api import TEST_RSA_PRIVATE_KEY
 
 ROUTING = "products.posthog_ai.backend.message_routing"
 
@@ -330,14 +334,22 @@ class TestHandleSandboxMessage(APIBaseTest):
         assert new_run.state["resume_from_run_id"] != str(run.id)
 
 
+# cancel() mints a real connection JWT, so a signing key must be configured; the downstream
+# send_cancel HTTP call is mocked, so any valid key works.
+@override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
 class TestHandleSandboxCancel(APIBaseTest):
     def setUp(self):
         super().setUp()
+        reset_sandbox_jwt_key_cache()
         self.conversation = Conversation.objects.create(
             user=self.user,
             team=self.team,
             agent_runtime=Conversation.AgentRuntime.SANDBOX,
         )
+
+    def tearDown(self):
+        reset_sandbox_jwt_key_cache()
+        super().tearDown()
 
     def _service(self) -> MessageRoutingService:
         return MessageRoutingService(self.conversation, self.user)
@@ -419,14 +431,22 @@ class TestLockConversationForFollowup(APIBaseTest):
             self.assertEqual(locked.id, conversation.id)
 
 
+# prewarm_release() mints a real connection JWT, so a signing key must be configured; the
+# downstream send_cancel HTTP call is mocked, so any valid key works.
+@override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
 class TestSandboxPrewarm(APIBaseTest):
     def setUp(self):
         super().setUp()
+        reset_sandbox_jwt_key_cache()
         self.conversation = Conversation.objects.create(
             user=self.user,
             team=self.team,
             agent_runtime=Conversation.AgentRuntime.SANDBOX,
         )
+
+    def tearDown(self):
+        reset_sandbox_jwt_key_cache()
+        super().tearDown()
 
     def _service(self) -> MessageRoutingService:
         return MessageRoutingService(self.conversation, self.user)

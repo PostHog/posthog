@@ -2839,6 +2839,25 @@ describe('maxThreadLogic', () => {
         })
     })
 
+    describe('stopGeneration button state (LangGraph cancel race)', () => {
+        it('clears all loading flags after a successful cancel so the stop button returns to send', async () => {
+            jest.spyOn(api.conversations, 'cancel').mockResolvedValue(undefined)
+
+            // An in-progress conversation drives conversationLoading -> true
+            logic.actions.setConversation(MOCK_IN_PROGRESS_CONVERSATION)
+            await expectLogic(logic).toMatchValues({ conversationLoading: true })
+
+            await expectLogic(logic, () => {
+                logic.actions.stopGeneration()
+            }).toDispatchActions(['stopGeneration', 'setConversation', 'setCancelLoading'])
+
+            expect(logic.values.conversationLoading).toBe(false)
+            expect(logic.values.streamingActive).toBe(false)
+            expect(logic.values.threadLoading).toBe(false)
+            expect(logic.values.cancelLoading).toBe(false)
+        })
+    })
+
     describe('multiQuestionFormPending selector', () => {
         it('returns true when thread ends with AssistantMessage containing create_form tool call', async () => {
             // With NodeInterrupt(None), no ToolCall message is created - the thread ends with the AssistantMessage
@@ -3239,6 +3258,143 @@ describe('maxThreadLogic', () => {
 
             expect(sandboxCreateSpy).not.toHaveBeenCalled()
             expect(maxLogicInstance.values.activeStreamingThreads).toEqual(0)
+        })
+    })
+
+    describe('sandbox streamingActive teardown', () => {
+        const sandboxRunResponse = {
+            task_id: 'task-1',
+            run_id: 'run-1',
+            trace_id: 'trace-1',
+            run_status: 'queued' as const,
+            just_created_run: true,
+        }
+
+        beforeEach(() => {
+            ;(globalThis as any).EventSource = class {
+                onopen: ((event: Event) => void) | null = null
+                onmessage: ((event: MessageEvent<string>) => void) | null = null
+                addEventListener(): void {}
+                close(): void {}
+            }
+            jest.spyOn(api.conversations, 'sandboxCreate').mockResolvedValue(sandboxRunResponse)
+        })
+
+        afterEach(() => {
+            delete (globalThis as any).EventSource
+        })
+
+        async function startSandboxTurn(): Promise<ReturnType<typeof sandboxStreamLogic.build>> {
+            await expectLogic(logic, () => {
+                logic.actions.streamConversation(
+                    { agent_mode: null, is_sandbox: true, content: 'hello', conversation: MOCK_CONVERSATION_ID },
+                    0
+                )
+            }).toDispatchActions(['openSandboxSse'])
+            expect(logic.values.streamingActive).toBe(true)
+            return sandboxStreamLogic({ conversationId: MOCK_CONVERSATION_ID })
+        }
+
+        it('tears down streamingActive on markTurnComplete', async () => {
+            const sandboxStreamInstance = await startSandboxTurn()
+
+            await expectLogic(logic, () => {
+                sandboxStreamInstance.actions.markTurnComplete()
+            }).toDispatchActions(['completeThreadGeneration'])
+
+            expect(logic.values.streamingActive).toBe(false)
+            expect(logic.values.threadLoading).toBe(false)
+        })
+
+        it('tears down streamingActive on handleTerminalStatus', async () => {
+            const sandboxStreamInstance = await startSandboxTurn()
+
+            await expectLogic(logic, () => {
+                sandboxStreamInstance.actions.handleTerminalStatus({ status: 'completed' })
+            }).toDispatchActions(['endStreaming'])
+
+            expect(logic.values.streamingActive).toBe(false)
+            expect(logic.values.threadLoading).toBe(false)
+        })
+
+        it('tears down streamingActive on handleStreamError', async () => {
+            const sandboxStreamInstance = await startSandboxTurn()
+
+            await expectLogic(logic, () => {
+                sandboxStreamInstance.actions.handleStreamError({
+                    errorTitle: 'Error',
+                    errorMessage: 'boom',
+                    retryable: false,
+                })
+            }).toDispatchActions(['endStreaming'])
+
+            expect(logic.values.streamingActive).toBe(false)
+            expect(logic.values.threadLoading).toBe(false)
+        })
+
+        it('markTurnComplete drains the sandbox queue (consumeQueuedMessage + askMax)', async () => {
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.POSTHOG_AI_QUEUE_MESSAGES_SYSTEM]: true,
+            })
+            jest.spyOn(api.conversations.queue, 'delete').mockResolvedValue({ messages: [], max_queue_messages: 2 })
+
+            const sandboxStreamInstance = await startSandboxTurn()
+            // completeThreadGeneration's queue-drain only runs with a non-null conversation.
+            // The id matches the mounted conversationId, so the setConversation listener won't clear the queue.
+            logic.actions.setConversation(MOCK_CONVERSATION)
+            logic.actions.setIsSandboxMode(true)
+            const queueMessage = { id: 'queue-1', content: 'Next message', created_at: new Date().toISOString() }
+            logic.actions.setQueuedMessages([queueMessage])
+
+            // markTurnComplete tears down streaming and then the queue-drain starts the next turn,
+            // so we assert the drain actions fired (not the final streamingActive, which the new
+            // turn flips back on).
+            await expectLogic(logic, () => {
+                sandboxStreamInstance.actions.markTurnComplete()
+            }).toDispatchActions(['completeThreadGeneration', 'consumeQueuedMessage', 'askMax'])
+
+            featureFlagLogic.unmount()
+        })
+
+        it('handleStreamError does NOT drain the sandbox queue (no consumeQueuedMessage, no askMax)', async () => {
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.POSTHOG_AI_QUEUE_MESSAGES_SYSTEM]: true,
+            })
+
+            const sandboxStreamInstance = await startSandboxTurn()
+            logic.actions.setIsSandboxMode(true)
+            const queueMessage = { id: 'queue-1', content: 'Next message', created_at: new Date().toISOString() }
+            logic.actions.setQueuedMessages([queueMessage])
+
+            await expectLogic(logic, () => {
+                sandboxStreamInstance.actions.handleStreamError({
+                    errorTitle: 'Error',
+                    errorMessage: 'boom',
+                    retryable: false,
+                })
+            })
+                .toDispatchActions(['endStreaming'])
+                .toNotHaveDispatchedActions(['completeThreadGeneration', 'consumeQueuedMessage', 'askMax'])
+
+            expect(logic.values.streamingActive).toBe(false)
+            // The failed turn must not auto-start the queued message
+            expect(logic.values.queuedMessages).toEqual([queueMessage])
+
+            featureFlagLogic.unmount()
+        })
+
+        it('history-replay terminal events do not fire teardown while streamingActive is false', async () => {
+            // No live turn: streamingActive is false (no streamConversation was dispatched)
+            expect(logic.values.streamingActive).toBe(false)
+            const sandboxStreamInstance = sandboxStreamLogic({ conversationId: MOCK_CONVERSATION_ID })
+
+            await expectLogic(logic, () => {
+                sandboxStreamInstance.actions.handleTerminalStatus({ status: 'completed', replayedFromHistory: true })
+            }).toNotHaveDispatchedActions(['endStreaming', 'completeThreadGeneration', 'askMax'])
+
+            expect(logic.values.streamingActive).toBe(false)
         })
     })
 })

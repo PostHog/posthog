@@ -224,6 +224,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         ) => ({ streamData, generationAttempt, addToThread }),
         stopGeneration: true,
         completeThreadGeneration: true,
+        // Narrow teardown: flips only streamingActive -> false. Used by the sandbox error/terminal
+        // listeners where completeThreadGeneration's queue-drain (auto-starting the next message)
+        // would be wrong after a failure.
+        endStreaming: true,
         addMessage: (message: ThreadMessage) => ({ message }),
         replaceMessage: (index: number, message: ThreadMessage) => ({
             index,
@@ -353,6 +357,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 reconnectToStream: () => true,
                 streamConversation: () => true,
                 completeThreadGeneration: () => false,
+                endStreaming: () => false,
             },
         ],
 
@@ -939,19 +944,37 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
     // lock taken in streamConversation can only be released when that instance signals the turn
     // ended — on turn completion, a terminal run status, or a stream error. Its action types are
     // per-instance (the key is in the path), so they're resolved from props at build time.
-    listeners(({ props, cache }) => {
+    listeners(({ props, cache, actions, values }) => {
         const sandboxStreamActionTypes = sandboxStreamLogic({ conversationId: props.conversationId }).actionTypes
+        // Normal turn completion: full turn-end, including the sandbox queue-drain that starts the
+        // next queued message (completeThreadGeneration's intended next-turn behavior).
+        const completeSandboxTurn = (): void => {
+            cache.sandboxStreamRelease?.()
+            if (values.streamingActive) {
+                actions.completeThreadGeneration()
+            }
+        }
+        // Error / terminal status: just stop streaming. Must NOT run completeThreadGeneration's
+        // queue-drain — auto-starting the next queued message after a failure is wrong. The
+        // streamingActive guard also keeps history-replay terminal events (replayedFromHistory,
+        // dispatched during bootstrapRun with no live turn) from firing teardown.
+        const endSandboxStream = (): void => {
+            cache.sandboxStreamRelease?.()
+            if (values.streamingActive) {
+                actions.endStreaming()
+            }
+        }
         return {
-            [sandboxStreamActionTypes.markTurnComplete]: () => cache.sandboxStreamRelease?.(),
+            [sandboxStreamActionTypes.markTurnComplete]: completeSandboxTurn,
             // handleTerminalStatus fires for every task_run_state frame, including the initial
-            // non-terminal queued/in_progress ones — only release the streaming lock on an actually
-            // terminal status, mirroring sandboxStreamLogic's own guard.
+            // non-terminal queued/in_progress ones — only tear down on an actually terminal
+            // status, mirroring sandboxStreamLogic's own guard.
             [sandboxStreamActionTypes.handleTerminalStatus]: ({ status }: { status: string }) => {
                 if (isTerminalRunStatus(status)) {
-                    cache.sandboxStreamRelease?.()
+                    endSandboxStream()
                 }
             },
-            [sandboxStreamActionTypes.handleStreamError]: () => cache.sandboxStreamRelease?.(),
+            [sandboxStreamActionTypes.handleStreamError]: endSandboxStream,
         }
     }),
     listeners(({ actions, values, cache, props }) => ({
@@ -1331,6 +1354,15 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 cache.generationController?.abort()
                 actions.clearQueuedMessages()
                 actions.resetThread()
+                // Optimistically clear the loading flags so the composer button returns to "send"
+                // immediately, instead of racing the fire-and-forget loadConversation refetch below
+                // (whose success handler is gated on streamingActive). The refetch still reconciles
+                // the true server status moments later.
+                if (values.conversation) {
+                    const canceledConversation = { ...values.conversation, status: ConversationStatus.Idle }
+                    actions.setConversation(canceledConversation)
+                    actions.updateGlobalConversationCache(canceledConversation)
+                }
             } catch (e: any) {
                 posthog.captureException(e)
                 lemonToast.error(e?.data?.detail || 'Failed to cancel the generation.')

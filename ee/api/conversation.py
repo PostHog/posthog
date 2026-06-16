@@ -56,6 +56,7 @@ from products.posthog_ai.backend.context_wrapper import ALLOWED_TYPES as ALLOWED
 from products.posthog_ai.backend.message_routing import MessageRoutingService
 from products.posthog_ai.backend.models.assistant import Conversation
 from products.tasks.backend.services.agent_command import send_permission_response
+from products.tasks.backend.services.connection_token import create_sandbox_connection_token
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 from ee.hogai.api.serializers import ConversationMinimalSerializer, ConversationSerializer
@@ -842,14 +843,23 @@ class ConversationViewSet(
         trace_id = serializer.validated_data.get("traceId")
         trace_id = str(trace_id) if trace_id else None
 
+        user = cast(User, request.user)
+        # The sandbox agent-server authenticates `/command` against the RS256 connection
+        # JWT — without it the reply is rejected with 401 (the Docker provider has no Modal
+        # connect token to fall back on). Mirror the Temporal activity command paths.
+        auth_token: str | None = None
+        if user.id:
+            distinct_id = user.distinct_id or f"user_{user.id}"
+            auth_token = create_sandbox_connection_token(task_run, user_id=user.id, distinct_id=distinct_id)
+
         result = send_permission_response(
             task_run,
             request_id=request_id,
             option_id=option_id,
             custom_input=custom_input,
+            auth_token=auth_token,
         )
 
-        user = cast(User, request.user)
         if user.distinct_id:
             # `success` distinguishes a reply that actually reached the sandbox from one that
             # failed to forward (the endpoint returns 502 below) — without it a 502 would still

@@ -189,7 +189,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
     const displayQueuedMessages = useMemo(() => [...queuedMessages].reverse(), [queuedMessages])
     const hasQuestion = question.trim().length > 0
     const isQueueingSubmission = queueingEnabled && threadLoading && hasQuestion
-    const showStopButton = threadLoading && !isQueueingSubmission
+    const showStopButton = threadLoading && !isQueueingSubmission && !cancelLoading
 
     // Update autocomplete visibility when question changes
     useEffect(() => {
