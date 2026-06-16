@@ -2,6 +2,7 @@ import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { ExperimentsHog } from 'lib/components/hedgehogs'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
 import { StatusTag } from 'scenes/experiments/ExperimentView/StatusTag'
 import { NotebookCompactTable } from 'scenes/experiments/notebook/NotebookCompactTable'
@@ -33,10 +34,19 @@ export type ExperimentResultsWidgetResult = {
     metrics: ExperimentResultsWidgetMetricEntry[]
     needsConfiguration?: boolean
     experimentNotFound?: boolean
+    hasExperiments?: boolean
     totalMetricsCount?: number
 }
 
-function ExperimentResultsWidgetMessage({ title, message }: { title: string; message: string }): JSX.Element {
+function ExperimentResultsWidgetMessage({
+    title,
+    message,
+    cta,
+}: {
+    title: string
+    message: string
+    cta?: JSX.Element
+}): JSX.Element {
     return (
         <WidgetCardContent>
             <WidgetCardBodyMessage>
@@ -47,6 +57,7 @@ function ExperimentResultsWidgetMessage({ title, message }: { title: string; mes
                     <ExperimentsHog className="size-20 shrink-0" />
                     <p className="m-0 text-base font-semibold text-primary">{title}</p>
                     <p className="m-0 text-sm text-muted">{message}</p>
+                    {cta}
                 </div>
             </WidgetCardBodyMessage>
         </WidgetCardContent>
@@ -105,6 +116,20 @@ export function ExperimentResultsWidget({
     }
 
     if (!payload || payload.needsConfiguration) {
+        // No experiments in the project yet — mirror the list widget's "create one" CTA.
+        if (onUpdateConfig && payload && payload.hasExperiments === false) {
+            return (
+                <ExperimentResultsWidgetMessage
+                    title="No experiments yet"
+                    message="Run A/B tests to measure the impact of changes on your product."
+                    cta={
+                        <LemonButton type="primary" size="small" to={urls.experiment('new')} targetBlank>
+                            New experiment
+                        </LemonButton>
+                    }
+                />
+            )
+        }
         return (
             <ExperimentResultsWidgetMessage
                 title="No experiment selected"

@@ -177,7 +177,19 @@ class TestExperimentResultsWidget(APIBaseTest):
     def test_returns_needs_configuration_when_no_experiment_selected(self) -> None:
         result = run_experiment_results_widget(self.team, {}, user=self.user)
 
-        assert result == {"experiment": None, "metrics": [], "needsConfiguration": True}
+        assert result == {
+            "experiment": None,
+            "metrics": [],
+            "needsConfiguration": True,
+            "hasExperiments": False,
+        }
+
+    def test_needs_configuration_reports_existing_experiments(self) -> None:
+        self._create_experiment(name="Some experiment")
+        result = run_experiment_results_widget(self.team, {}, user=self.user)
+
+        assert result["needsConfiguration"] is True
+        assert result["hasExperiments"] is True
 
     def test_returns_not_found_for_missing_experiment(self) -> None:
         result = run_experiment_results_widget(self.team, {"experimentId": 999999}, user=self.user)

@@ -119,7 +119,8 @@ def run_experiment_results_widget(
     experiment_id = typed_config.get("experimentId")
 
     if experiment_id is None:
-        return {"experiment": None, "metrics": [], "needsConfiguration": True}
+        has_experiments = Experiment.objects.filter(team=team, deleted=False).exists()
+        return {"experiment": None, "metrics": [], "needsConfiguration": True, "hasExperiments": has_experiments}
 
     experiment = (
         Experiment.objects.filter(id=experiment_id, team=team, deleted=False).select_related("feature_flag").first()
