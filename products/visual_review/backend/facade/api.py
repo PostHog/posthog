@@ -313,6 +313,7 @@ def list_runs(
     pr_number: int | None = None,
     commit_sha: str | None = None,
     branch: str | None = None,
+    search: str | None = None,
 ) -> list[contracts.Run]:
     runs = logic.list_runs_for_team(
         team_id,
@@ -321,6 +322,7 @@ def list_runs(
         pr_number=pr_number,
         commit_sha=commit_sha,
         branch=branch,
+        search=search,
     )
     return [_to_run(r) for r in runs]
 

@@ -266,6 +266,16 @@ REVIEW_STATE_FILTERS: dict[str, Q] = {
 }
 
 
+def _run_search_filter(search: str) -> Q:
+    """Free-text filter over the run fields a reviewer can see in the list:
+    branch, commit SHA, run type, and PR number (when the term is numeric)."""
+    term = search.strip()
+    q = Q(branch__icontains=term) | Q(commit_sha__icontains=term) | Q(run_type__icontains=term)
+    if term.isdigit():
+        q |= Q(pr_number=int(term))
+    return q
+
+
 def list_runs_for_team(
     team_id: int,
     review_state: str | None = None,
@@ -273,6 +283,7 @@ def list_runs_for_team(
     pr_number: int | None = None,
     commit_sha: str | None = None,
     branch: str | None = None,
+    search: str | None = None,
 ) -> db_models.QuerySet[Run]:
     qs = Run.objects.filter(team_id=team_id).select_related("repo").order_by("-created_at")
     if repo_id is not None:
@@ -285,6 +296,8 @@ def list_runs_for_team(
         qs = qs.filter(commit_sha=commit_sha)
     if branch:
         qs = qs.filter(branch=branch)
+    if search and search.strip():
+        qs = qs.filter(_run_search_filter(search))
     return qs
 
 

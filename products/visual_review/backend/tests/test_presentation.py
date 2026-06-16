@@ -503,3 +503,76 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
         response = self.client.get(self._history_url("Components-Button--default v2.0"))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 0)
+
+
+class TestRepoRunsSearch(VisualReviewTeamScopedTestMixin, APIBaseTest):
+    databases = PRODUCT_DATABASES
+
+    def setUp(self):
+        super().setUp()
+        self.vr_project = api.create_repo(team_id=self.team.id, repo_external_id=88888, repo_full_name="org/searchtest")
+        # Two completed runs with no changes — both land in the "clean" review state.
+        self.run_login = Run.objects.create(
+            repo_id=self.vr_project.id,
+            team_id=self.team.id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc1234deadbeefcafef00d",
+            branch="feature/login",
+            pr_number=101,
+            status=RunStatus.COMPLETED,
+        )
+        self.run_logout = Run.objects.create(
+            repo_id=self.vr_project.id,
+            team_id=self.team.id,
+            run_type=RunType.PLAYWRIGHT,
+            commit_sha="fed9876feedface00112233",
+            branch="fix/logout",
+            pr_number=202,
+            status=RunStatus.COMPLETED,
+        )
+
+    def _runs_url(self, **params: str) -> str:
+        base = f"/api/projects/{self.team.id}/visual_review/repos/{self.vr_project.id}/runs/"
+        if not params:
+            return base
+        query = "&".join(f"{key}={value}" for key, value in params.items())
+        return f"{base}?{query}"
+
+    def _branches(self, response_json: dict) -> set[str]:
+        return {run["branch"] for run in response_json["results"]}
+
+    @parameterized.expand(
+        [
+            ("branch_substring", "login", {"feature/login"}),
+            ("branch_other", "logout", {"fix/logout"}),
+            ("commit_sha_prefix", "abc1234", {"feature/login"}),
+            ("run_type", "playwright", {"fix/logout"}),
+            ("pr_number", "101", {"feature/login"}),
+            ("case_insensitive", "FEATURE", {"feature/login"}),
+            ("no_match", "nonexistent", set()),
+        ]
+    )
+    def test_search_filters_runs(self, _name: str, search: str, expected_branches: set[str]):
+        response = self.client.get(self._runs_url(search=search))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(self._branches(response.json()), expected_branches)
+
+    def test_blank_search_returns_all_runs(self):
+        response = self.client.get(self._runs_url(search=""))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(self._branches(response.json()), {"feature/login", "fix/logout"})
+
+    def test_search_composes_with_review_state(self):
+        """Search narrows within whichever review state is active, not the whole repo."""
+        both = self.client.get(self._runs_url(review_state="clean"))
+        self.assertEqual(self._branches(both.json()), {"feature/login", "fix/logout"})
+
+        scoped = self.client.get(self._runs_url(review_state="clean", search="login"))
+        self.assertEqual(scoped.status_code, status.HTTP_200_OK)
+        self.assertEqual(self._branches(scoped.json()), {"feature/login"})
+
+        # A run that exists but is not in the requested state is excluded even on a match.
+        other_state = self.client.get(self._runs_url(review_state="processing", search="login"))
+        self.assertEqual(self._branches(other_state.json()), set())
