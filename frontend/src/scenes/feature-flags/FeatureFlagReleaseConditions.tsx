@@ -47,9 +47,16 @@ import { featureFlagLogic } from './featureFlagLogic'
 import {
     FeatureFlagReleaseConditionsLogicProps,
     featureFlagReleaseConditionsLogic,
+    isDistinctIdFilter,
 } from './featureFlagReleaseConditionsLogic'
 
-function PropertyValueComponent({ property }: { property: AnyPropertyFilter }): JSX.Element {
+function PropertyValueComponent({
+    property,
+    getDistinctIdName,
+}: {
+    property: AnyPropertyFilter
+    getDistinctIdName: (distinctId: string) => string
+}): JSX.Element {
     if (property.type === PropertyFilterType.Cohort) {
         return (
             <LemonButton type="secondary" size="xsmall" to={urls.cohort(property.value)} sideIcon={<IconOpenInNew />}>
@@ -62,12 +69,13 @@ function PropertyValueComponent({ property }: { property: AnyPropertyFilter }): 
         return <></>
     }
     const propertyValues = Array.isArray(property.value) ? property.value : [property.value]
+    const isDistinctId = isDistinctIdFilter(property)
 
     return (
         <>
             {propertyValues.map((val, idx) => (
                 <LemonSnack key={idx}>
-                    {String(val)}
+                    {isDistinctId ? getDistinctIdName(String(val)) : String(val)}
                     <span>
                         {isPropertyFilterWithOperator(property) &&
                         ['is_date_before', 'is_date_after'].includes(property.operator) &&
@@ -124,6 +132,7 @@ export function FeatureFlagReleaseConditions({
         aggregationTargetName,
         properties,
         filterGroups,
+        getDistinctIdName,
     } = useValues(releaseConditionsLogic)
 
     const {
@@ -342,7 +351,7 @@ export function FeatureFlagReleaseConditions({
                                         <span>{allOperatorsToHumanName(property.operator)} </span>
                                     ) : null}
 
-                                    <PropertyValueComponent property={property} />
+                                    <PropertyValueComponent property={property} getDistinctIdName={getDistinctIdName} />
                                 </div>
                             ))}
                         </>

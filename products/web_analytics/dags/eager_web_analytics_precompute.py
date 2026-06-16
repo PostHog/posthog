@@ -78,6 +78,11 @@ from products.analytics_platform.backend.models.preaggregation_job import Preagg
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import is_precompute_enabled_for_team
 from products.web_analytics.dags.web_preaggregated_utils import check_for_concurrent_runs
 
+# Pre-warm the HogQL bytecode VM at code-location load, while /code is on sys.path: the query path
+# imports common.hogvm lazily, and the Dagster grpc process can't resolve it on first query, so
+# caching it here keeps that lazy import a hit.
+import common.hogvm.python.execute  # noqa: F401
+
 logger = structlog.get_logger(__name__)
 
 

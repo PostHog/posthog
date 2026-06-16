@@ -15,6 +15,7 @@ from posthog.api.email_verification import email_verification_token_generator
 from posthog.models import Organization, Team, User
 from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
 from posthog.models.instance_setting import set_instance_setting
+from posthog.models.messaging import MessagingRecord
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_invite import OrganizationInvite
 from posthog.tasks.email import (
@@ -27,6 +28,7 @@ from posthog.tasks.email import (
     send_discussions_mentioned,
     send_email_change_emails,
     send_email_verification,
+    send_external_data_failure_digest,
     send_fatal_plugin_error,
     send_hog_function_disabled,
     send_hog_functions_daily_digest,
@@ -554,6 +556,190 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         self.user.save()
         send_batch_export_run_failure(batch_export_run.id, failure_rate=1.0)
         assert len(mocked_email_messages) == 0
+
+    def test_send_external_data_failure_digest(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        with freeze_time("2024-05-15 10:00:00"):
+            sent = send_external_data_failure_digest(
+                self.team.pk,
+                [
+                    {
+                        "schema_name": "Invoice",
+                        "source_type": "Stripe",
+                        "source_id": "abc",
+                        "source_prefix": "",
+                        "source_url": "https://app.posthog.com/project/1/data-management/sources/managed-abc/syncs",
+                        "error": "Invalid API key",
+                        "paused": True,
+                        "url": "https://app.posthog.com/project/1/data-management/sources/managed-abc/syncs?schema=Invoice",
+                    },
+                    {
+                        "schema_name": "Charge",
+                        "source_type": "Stripe",
+                        "source_id": "abc",
+                        "source_prefix": "",
+                        "source_url": "https://app.posthog.com/project/1/data-management/sources/managed-abc/syncs",
+                        "error": "transient error",
+                        "paused": False,
+                        "url": "https://app.posthog.com/project/1/data-management/sources/managed-abc/syncs?schema=Charge",
+                    },
+                ],
+            )
+
+        assert sent is True
+        assert len(mocked_email_messages) == 1
+        assert mocked_email_messages[0].send.call_count == 1
+        assert mocked_email_messages[0].html_body
+        assert (
+            MockEmailMessage.call_args.kwargs["campaign_key"]
+            == f"external_data_failure_digest_{self.team.pk}_2024-05-15"
+        )
+        assert "failing" in MockEmailMessage.call_args.kwargs["subject"]
+
+    def test_send_external_data_failure_digest_day_rolls_over_at_boundary_hour(
+        self, MockEmailMessage: MagicMock
+    ) -> None:
+        mock_email_messages(MockEmailMessage)
+
+        with freeze_time("2024-05-15 09:59:00"):
+            send_external_data_failure_digest(
+                self.team.pk,
+                [
+                    {
+                        "schema_name": "Charge",
+                        "source_type": "Stripe",
+                        "source_id": "abc",
+                        "source_prefix": "",
+                        "source_url": "https://app.posthog.com/project/1/data-management/sources/managed-abc/syncs",
+                        "error": "boom",
+                        "paused": False,
+                        "url": "https://app.posthog.com/project/1/data-management/sources/managed-abc/syncs?schema=Charge",
+                    }
+                ],
+            )
+
+        assert (
+            MockEmailMessage.call_args.kwargs["campaign_key"]
+            == f"external_data_failure_digest_{self.team.pk}_2024-05-14"
+        )
+
+    @parameterized.expand([(True, 1), (False, 0)])
+    def test_send_external_data_failure_digest_respects_rollout_flag(
+        self, MockEmailMessage: MagicMock, flag_enabled: bool, expected_emails: int
+    ) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        items = [
+            {
+                "schema_name": "Charge",
+                "source_type": "Stripe",
+                "source_id": "abc",
+                "source_prefix": "",
+                "source_url": "https://app.posthog.com/project/1/data-management/sources/managed-abc/syncs",
+                "error": "boom",
+                "paused": False,
+                "url": "https://app.posthog.com/project/1/data-management/sources/managed-abc/syncs?schema=Charge",
+            }
+        ]
+        with (
+            self.settings(TEST=False),
+            patch("posthog.tasks.email.posthoganalytics.feature_enabled", return_value=flag_enabled) as mock_flag,
+        ):
+            sent = send_external_data_failure_digest(self.team.pk, items)
+
+        assert sent is flag_enabled
+        assert len(mocked_email_messages) == expected_emails
+        assert mock_flag.call_args.kwargs["key"] == "external-data-failure-digest-email"
+        assert mock_flag.call_args.kwargs["groups"]["project"] == str(self.team.pk)
+
+    def test_send_external_data_failure_digest_skips_when_already_sent_today(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        with freeze_time("2024-05-15 10:00:00"):
+            record, _ = MessagingRecord.objects.get_or_create(
+                raw_email="someone@posthog.com",
+                campaign_key=f"external_data_failure_digest_{self.team.pk}_2024-05-15",
+            )
+            record.sent_at = timezone.now()
+            record.save()
+
+            sent = send_external_data_failure_digest(
+                self.team.pk,
+                [
+                    {
+                        "schema_name": "Charge",
+                        "source_type": "Stripe",
+                        "source_id": "abc",
+                        "source_prefix": "",
+                        "source_url": "https://app.posthog.com/project/1/data-management/sources/managed-abc/syncs",
+                        "error": "boom",
+                        "paused": False,
+                        "url": "https://app.posthog.com/project/1/data-management/sources/managed-abc/syncs?schema=Charge",
+                    }
+                ],
+            )
+
+        assert sent is False
+        assert len(mocked_email_messages) == 0
+
+    def test_send_external_data_failure_digest_all_paused_subject(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        send_external_data_failure_digest(
+            self.team.pk,
+            [
+                {
+                    "schema_name": "Invoice",
+                    "source_type": "Stripe",
+                    "source_id": "abc",
+                    "source_prefix": "",
+                    "source_url": "https://app.posthog.com/project/1/data-management/sources/managed-abc/syncs",
+                    "error": "Invalid API key",
+                    "paused": True,
+                    "url": "https://app.posthog.com/project/1/data-management/sources/managed-abc/syncs?schema=Invoice",
+                }
+            ],
+        )
+
+        assert len(mocked_email_messages) == 1
+        assert "paused" in MockEmailMessage.call_args.kwargs["subject"]
+
+    def test_send_external_data_failure_digest_with_settings(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        user2 = self._create_user("test2@posthog.com")
+        self.user.partial_notification_settings = {"plugin_disabled": False}
+        self.user.save()
+
+        items = [
+            {
+                "schema_name": "Charge",
+                "source_type": "Stripe",
+                "source_id": "abc",
+                "source_prefix": "",
+                "source_url": "https://app.posthog.com/project/1/data-management/sources/managed-abc/syncs",
+                "error": "boom",
+                "paused": False,
+                "url": "https://app.posthog.com/project/1/data-management/sources/managed-abc/syncs?schema=Charge",
+            }
+        ]
+        with freeze_time("2024-05-15 10:00:00"):
+            send_external_data_failure_digest(self.team.pk, items)
+
+        assert mocked_email_messages[0].to == [
+            {"recipient": "test2@posthog.com", "raw_email": "test2@posthog.com", "distinct_id": str(user2.distinct_id)}
+        ]
+
+        self.user.partial_notification_settings = {"plugin_disabled": True}
+        self.user.save()
+
+        with freeze_time("2024-05-15 18:00:00"):
+            send_external_data_failure_digest(self.team.pk, items)
+        assert len(mocked_email_messages) == 1
+
+        with freeze_time("2024-05-16 10:00:00"):
+            send_external_data_failure_digest(self.team.pk, items)
+        assert len(mocked_email_messages[1].to) == 2
 
     def test_should_send_pipeline_error_notification(self, MockEmailMessage: MagicMock) -> None:
         # Default threshold is 1% (0.01) - notify when failure rate exceeds that
