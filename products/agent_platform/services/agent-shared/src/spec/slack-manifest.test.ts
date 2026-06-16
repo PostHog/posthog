@@ -67,6 +67,30 @@ describe('buildSlackManifest', () => {
         expect(manifest.settings.event_subscriptions.bot_events).toContain('message.channels')
     })
 
+    it('allow_direct_messages=true → message.im/.mpim events, im/mpim history scopes, Messages tab', () => {
+        const { manifest, notes } = build({
+            triggers: [slackTrigger({ mention_only: true, allow_direct_messages: true })],
+        })
+        expect(manifest.settings.event_subscriptions.bot_events).toContain('message.im')
+        expect(manifest.settings.event_subscriptions.bot_events).toContain('message.mpim')
+        expect(manifest.oauth_config.scopes.bot).toContain('im:history')
+        expect(manifest.oauth_config.scopes.bot).toContain('mpim:history')
+        expect(manifest.features.app_home).toEqual({
+            messages_tab_enabled: true,
+            messages_tab_read_only_enabled: false,
+        })
+        expect(notes.some((n) => n.toLowerCase().includes('direct messages enabled'))).toBe(true)
+    })
+
+    it('allow_direct_messages default false → no DM events, scopes, or app_home (back-compat)', () => {
+        const { manifest } = build({ triggers: [slackTrigger({ mention_only: true })] })
+        expect(manifest.settings.event_subscriptions.bot_events).not.toContain('message.im')
+        expect(manifest.settings.event_subscriptions.bot_events).not.toContain('message.mpim')
+        expect(manifest.oauth_config.scopes.bot).not.toContain('im:history')
+        expect(manifest.oauth_config.scopes.bot).not.toContain('mpim:history')
+        expect(manifest.features.app_home).toBeUndefined()
+    })
+
     it('ack_reaction adds reactions:write', () => {
         const { manifest } = build({ triggers: [slackTrigger({ mention_only: true, ack_reaction: 'eyes' })] })
         expect(manifest.oauth_config.scopes.bot).toContain('reactions:write')

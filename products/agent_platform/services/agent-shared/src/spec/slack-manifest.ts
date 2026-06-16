@@ -20,7 +20,12 @@ import type { ToolRef, Trigger } from './spec'
  *  "create from manifest" accepts JSON as well as YAML. */
 export interface SlackAppManifest {
     display_information: { name: string; description?: string }
-    features: { bot_user: { display_name: string; always_online: boolean } }
+    features: {
+        bot_user: { display_name: string; always_online: boolean }
+        /** Only emitted when DMs are enabled — Slack hides the Messages tab
+         *  (and so the ability to DM the bot) unless this opts in. */
+        app_home?: { messages_tab_enabled: boolean; messages_tab_read_only_enabled: boolean }
+    }
     oauth_config: { scopes: { bot: string[] } }
     settings: {
         event_subscriptions: { request_url: string; bot_events: string[] }
@@ -79,10 +84,14 @@ export function buildSlackManifest(input: BuildSlackManifestInput): BuildSlackMa
     // mirrors the ingress gate exactly.
     const mentionOnly = config.mention_only ?? false
     const autoResumeThreads = config.auto_resume_threads ?? false
+    const allowDms = config.allow_direct_messages ?? false
     const needsMessageEvents = mentionOnly === false || autoResumeThreads === true
     const botEvents = ['app_mention']
     if (needsMessageEvents) {
         botEvents.push('message.channels', 'message.groups')
+    }
+    if (allowDms) {
+        botEvents.push('message.im', 'message.mpim')
     }
 
     // Bot OAuth scopes. Union the Slack scopes declared by the agent's Slack
@@ -103,6 +112,11 @@ export function buildSlackManifest(input: BuildSlackManifestInput): BuildSlackMa
         scopes.add('channels:history')
         scopes.add('groups:history')
     }
+    if (allowDms) {
+        // Required to receive message.im / message.mpim events.
+        scopes.add('im:history')
+        scopes.add('mpim:history')
+    }
 
     // Interactivity is only used by approval-gated tools (the elevation buttons).
     const hasApprovalGatedTool = input.tools.some(
@@ -119,6 +133,9 @@ export function buildSlackManifest(input: BuildSlackManifestInput): BuildSlackMa
         'Invite the bot to each channel it should listen in — Slack only delivers channel ' +
             'message events to channels the bot has joined.'
     )
+    if (allowDms) {
+        notes.push("Direct messages enabled — users can DM the bot from the app's Messages tab.")
+    }
 
     const manifest: SlackAppManifest = {
         display_information: {
@@ -127,6 +144,9 @@ export function buildSlackManifest(input: BuildSlackManifestInput): BuildSlackMa
         },
         features: {
             bot_user: { display_name: truncate(input.displayName, 35), always_online: true },
+            // Without the Messages tab enabled, users literally can't open a DM
+            // with the bot — so this rides along with allow_direct_messages.
+            ...(allowDms ? { app_home: { messages_tab_enabled: true, messages_tab_read_only_enabled: false } } : {}),
         },
         oauth_config: { scopes: { bot: [...scopes].sort() } },
         settings: {
