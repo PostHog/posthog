@@ -19,7 +19,10 @@ import {
     agentsWithArchived,
     fleetLiveSessions,
     fleetStats,
+    fleetApprovals,
     getAgentStatsFixture,
+    getApprovalFixture,
+    listApprovalsForAgentFixture,
     listLogsForSessionFixture,
     listSessionsForAgentFixture,
     weeklyDigest,
@@ -28,6 +31,7 @@ import {
 } from '@posthog/agent-chat/fixtures'
 import type {
     AgentApplicationFixture,
+    AgentApprovalRequestFixture,
     AgentRevisionFixture,
     AgentStats,
     FleetStats,
@@ -101,6 +105,24 @@ export function getFleetStatsStore(): FleetStats {
 
 export function listLiveSessionsStore(): ChatSession[] {
     return fleetLiveSessions
+}
+
+export function listFleetApprovalsStore(): AgentApprovalRequestFixture[] {
+    return fleetApprovals
+}
+
+export function listAgentApprovalsStore(slug: string): AgentApprovalRequestFixture[] {
+    const agent = getAgentBySlugStore(slug)
+    return agent ? listApprovalsForAgentFixture(agent.id) : []
+}
+
+export function getApprovalStore(slug: string, id: string): AgentApprovalRequestFixture | null {
+    const agent = getAgentBySlugStore(slug)
+    if (!agent) {
+        return null
+    }
+    const approval = getApprovalFixture(id)
+    return approval && approval.application_id === agent.id ? approval : null
 }
 
 function baseBundleForApplication(applicationId: string): typeof weeklyDigestBundle {

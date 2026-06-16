@@ -1,7 +1,7 @@
 'use client'
 
-import { useSearchParams } from 'next/navigation'
-import { useMemo } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { useCallback, useMemo } from 'react'
 
 import { useSetDockPage } from '@/components/dock-context'
 import { useSessionTeamId } from '@/components/session-context'
@@ -13,14 +13,30 @@ const POLL_MS = 10_000
 
 export function ApprovalsClient(): React.ReactElement {
     const teamId = useSessionTeamId()!
+    const router = useRouter()
+    const searchParams = useSearchParams()
     // Deep link from a gated tool call: `/approvals?request=<id>` opens that
     // approval's detail directly (the link the agent surfaces to the approver).
-    const requestId = useSearchParams()?.get('request') ?? null
+    const selectedId = searchParams?.get('request') ?? null
 
     useSetDockPage({ kind: 'agent-list' })
 
     const approvals = useResource(() => listFleetApprovals(teamId).catch(toApiError), [teamId], { pollMs: POLL_MS })
     const agents = useResource(() => listAgents(teamId).catch(() => []), [teamId])
+
+    const select = useCallback(
+        (id: string | null) => {
+            const params = new URLSearchParams(searchParams?.toString() ?? '')
+            if (id) {
+                params.set('request', id)
+            } else {
+                params.delete('request')
+            }
+            const qs = params.toString()
+            router.push(`/approvals${qs ? `?${qs}` : ''}`, { scroll: false })
+        },
+        [router, searchParams]
+    )
 
     const errorMessage = useMemo(() => {
         const e = approvals.error
@@ -40,7 +56,8 @@ export function ApprovalsClient(): React.ReactElement {
             loading={approvals.loading}
             error={errorMessage}
             onReload={approvals.reload}
-            initialSelectedId={requestId}
+            selectedId={selectedId}
+            onSelect={select}
         />
     )
 }
