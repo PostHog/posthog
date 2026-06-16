@@ -93,7 +93,7 @@ def _count_distinct_nodes(node: Any) -> int:
 
 
 def _stock_deepcopy(node: Any) -> Any:
-    # Temporarily drop the fast path so copy.deepcopy falls back to the stdlib implementation.
+    # Temporarily drop the fast path so copy.deepcopy falls back to stdlib. Mutates AST globally (restored in finally), so single-threaded test use only.
     impl = AST.__dict__["__deepcopy__"]
     del AST.__deepcopy__
     try:
