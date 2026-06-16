@@ -374,17 +374,19 @@ def test_only(categories: dict[str, int]) -> bool:
 
 # ── Deny / allow detection ───────────────────────────────────────
 
-# Data warehouse import sources. Every SaaS connector under here performs an
-# auth/OAuth/credential handshake, so connector code and PR titles legitimately
+# Path prefixes exempt from the `auth` deny category. Code under these trees
+# performs auth/OAuth/credential handshakes as part of its normal job — e.g.
+# every data warehouse import connector — so the code and PR titles legitimately
 # mention auth, oauth, token, login, etc. without touching the auth *system*.
-# The `auth` deny is exempted for this tree (see detect_deny_categories) so it
-# doesn't force T2-never on essentially every source PR. Other deny categories
-# (crypto/secrets, migrations, …) still apply.
-DATA_WAREHOUSE_SOURCE_PREFIX = "posthog/temporal/data_imports/sources/"
+# Without this, the `auth` deny would force T2-never on essentially every such
+# PR. Other deny categories (crypto/secrets, migrations, …) still apply. Add new
+# exempt trees here rather than special-casing in detect_deny_categories.
+AUTH_EXEMPT_PATH_PREFIXES = ("posthog/temporal/data_imports/sources/",)
 
 
-def _is_data_warehouse_source(path: str) -> bool:
-    return path.lower().startswith(DATA_WAREHOUSE_SOURCE_PREFIX)
+def _is_auth_exempt_path(path: str) -> bool:
+    low = path.lower()
+    return any(low.startswith(prefix) for prefix in AUTH_EXEMPT_PATH_PREFIXES)
 
 
 def detect_deny_categories(files: list[str], subject: str, ignored_files: set[str] | None = None) -> list[str]:
@@ -393,13 +395,13 @@ def detect_deny_categories(files: list[str], subject: str, ignored_files: set[st
     paths_lower = [f.lower() for f in files if f.lower() not in ignored_files_lower]
     subject_lower = subject.lower()
 
-    # Auth exemption for data warehouse sources: drop source paths from auth
-    # path-matching, and — when sources are involved — only let the PR title
-    # trip `auth` if a non-source file is also touched. PRs that don't touch
-    # the sources tree are evaluated exactly as before.
-    auth_paths = [p for p in paths_lower if not _is_data_warehouse_source(p)]
-    has_dwh_source = len(auth_paths) != len(paths_lower)
-    auth_title_eligible = (not has_dwh_source) or bool(auth_paths)
+    # Auth exemption for AUTH_EXEMPT_PATH_PREFIXES: drop exempt paths from auth
+    # path-matching, and — when any exempt path is in the change set — only let
+    # the PR title trip `auth` if a non-exempt file is also touched. PRs that
+    # touch no exempt paths are evaluated exactly as before.
+    auth_paths = [p for p in paths_lower if not _is_auth_exempt_path(p)]
+    has_exempt_path = len(auth_paths) != len(paths_lower)
+    auth_title_eligible = (not has_exempt_path) or bool(auth_paths)
 
     for category, scopes in DENY_PATTERNS.items():
         category_paths = auth_paths if category == "auth" else paths_lower

@@ -228,20 +228,27 @@ def test_dwh_source_still_denies_non_auth_categories() -> None:
     assert "crypto_secrets" in result
 
 
-def test_dwh_source_mixed_with_real_auth_file_still_denies() -> None:
-    # A non-source auth file present means the auth gate must still fire.
-    files = [
-        "posthog/temporal/data_imports/sources/stripe/source.py",
-        "posthog/api/authentication.py",
-    ]
-    assert "auth" in detect_deny_categories(files, "fix: stripe auth and login flow")
-
-
-def test_dwh_source_mixed_title_only_auth_still_denies() -> None:
-    # Source file + an unrelated non-source file with an auth-y title: the
-    # title remains eligible because a non-source file is in the change set.
-    files = [
-        "posthog/temporal/data_imports/sources/stripe/source.py",
-        "posthog/api/foo.py",
-    ]
-    assert "auth" in detect_deny_categories(files, "fix: oauth login redirect")
+@pytest.mark.parametrize(
+    "files, subject",
+    [
+        pytest.param(
+            [
+                "posthog/temporal/data_imports/sources/stripe/source.py",
+                "posthog/api/authentication.py",
+            ],
+            "fix: stripe auth and login flow",
+            id="dwh-source-mixed-real-auth-file",
+        ),
+        pytest.param(
+            [
+                "posthog/temporal/data_imports/sources/stripe/source.py",
+                "posthog/api/foo.py",
+            ],
+            "fix: oauth login redirect",
+            id="dwh-source-mixed-unrelated-file-auth-title",
+        ),
+    ],
+)
+def test_dwh_source_mixed_still_denies(files: list[str], subject: str) -> None:
+    # Auth gate must still fire when any non-source file is in the change set.
+    assert "auth" in detect_deny_categories(files, subject)
