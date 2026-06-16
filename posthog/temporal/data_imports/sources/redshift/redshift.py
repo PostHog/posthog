@@ -20,6 +20,7 @@ import pyarrow as pa
 import structlog
 from psycopg import sql
 from psycopg.adapt import Loader
+from psycopg.pq import TransactionStatus
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
@@ -222,6 +223,9 @@ def _explain_query(cursor: psycopg.Cursor, query: sql.Composed, logger: Filterin
     logger.debug(f"Running EXPLAIN on {query.as_string()}")
 
     try:
+        # Debug-only, best-effort: Redshift can't EXPLAIN queries against leader-node-only system
+        # views such as `svv_table_info` (they fail with `UndefinedColumn: column "t" does not
+        # exist in t`), so swallow failures rather than reporting an expected, non-actionable error.
         query_with_explain = sql.SQL("EXPLAIN {}").format(query)
         cursor.execute(query_with_explain)
         rows = cursor.fetchall()
@@ -231,8 +235,16 @@ def _explain_query(cursor: psycopg.Cursor, query: sql.Composed, logger: Filterin
                 explain_result += f"\n{col}"
         logger.debug(f"EXPLAIN result: {explain_result}")
     except Exception as e:
-        capture_exception(e)
         logger.debug(f"EXPLAIN raised an exception: {e}")
+        # A failed EXPLAIN aborts the surrounding transaction, and Redshift has no savepoints to
+        # scope it. Roll back the aborted transaction so the caller's real query — which runs on
+        # the same connection right after this probe — isn't killed by `InFailedSqlTransaction`.
+        # Every caller runs read-only discovery queries, so there is no pending work to lose.
+        try:
+            if cursor.connection.info.transaction_status == TransactionStatus.INERROR:
+                cursor.connection.rollback()
+        except Exception:
+            pass
 
 
 class RedshiftColumn(Column):
@@ -851,6 +863,13 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
             result = cursor.fetchone()
         except psycopg.errors.QueryCanceled:
             raise
+        except psycopg.errors.InsufficientPrivilege as e:
+            # Some Redshift roles aren't granted access to the `svv_table_info` system view. That's
+            # a customer permission-config issue, not an actionable bug — table stats are optional
+            # (we fall back to no partitioning), so skip gracefully without reporting the expected,
+            # non-actionable error to error tracking. Mirrors `_explain_query`/`get_row_counts`.
+            logger.debug(f"fetch_table_stats: no access to svv_table_info, returning None: {e}")
+            return None
         except Exception as e:
             capture_exception(e)
             logger.debug(f"fetch_table_stats: returning None due to error: {e}")
@@ -882,6 +901,10 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         already bound — no separate `inner_query_args` is interpolated
         here, mirroring how the rest of the Redshift driver builds
         queries.
+
+        Best-effort only: Redshift rejects the `pg_column_size(t)` whole-row reference, so this
+        currently returns None on every table and the caller falls back to the default chunk size.
+        Failures are swallowed rather than reported — see the except block below.
         """
         try:
             query = sql.SQL("""
@@ -903,8 +926,13 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         except psycopg.errors.QueryCanceled:
             raise
         except Exception as e:
+            # Best-effort sampling: any failure falls back to the default chunk size, so it must not
+            # be reported to error tracking. Redshift has no portable whole-row size — `pg_column_size(t)`
+            # (like Postgres' `octet_length(t::text)`) relies on a composite whole-row reference that
+            # Redshift rejects with `UndefinedColumn: column "t" does not exist in t`, so this fails on
+            # every table. Mirrors the sibling Postgres `_get_table_chunk_size` and `_explain_query` here,
+            # both of which treat this as expected, non-actionable noise.
             logger.debug(f"fetch_average_row_size: Error: {e}", exc_info=e)
-            capture_exception(e)
             return None
 
     # ------------------------------------------------------------------
@@ -940,6 +968,11 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         enabled_columns = inputs.enabled_columns
 
         with self.connect(config) as connection:
+            # Autocommit so each best-effort discovery probe runs in its own transaction. A probe
+            # that fails — a permission error, an EXPLAIN the cluster rejects, a cancelled COUNT(*) —
+            # otherwise leaves the shared transaction aborted (INERROR), and every probe after it
+            # raises `InFailedSqlTransaction` until a rollback. Mirrors the postgres source.
+            connection.autocommit = True
             with connection.cursor() as cursor:
                 logger.debug("Getting table types...")
                 full_table = self.get_table_metadata(cursor, schema, table_name, logger)

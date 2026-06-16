@@ -961,6 +961,25 @@ class TestExports(APIBaseTest):
 
         self.assertEqual(data["expires_after"], expected_expiry)
 
+    @parameterized.expand(["video/mp4", "video/webm", "image/gif"])
+    @patch("products.exports.backend.api.exports.async_connect", new_callable=AsyncMock)
+    def test_video_export_is_fire_and_forget(self, export_format, mock_async_connect) -> None:
+        mock_client = AsyncMock()
+        mock_async_connect.return_value = mock_client
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {
+                "export_format": export_format,
+                "export_context": {"session_recording_id": "session_abc"},
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertFalse(response.json()["has_content"])
+        mock_client.start_workflow.assert_awaited_once()
+        mock_client.execute_workflow.assert_not_awaited()
+
     @patch("products.exports.backend.api.exports.async_to_sync")
     @patch("products.exports.backend.api.exports.async_connect")
     def test_video_export_monthly_limit(self, mock_async_connect, mock_async_to_sync) -> None:
