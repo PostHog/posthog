@@ -59,6 +59,44 @@ def test_basic_to_config_converters():
     assert cfg.c is False
 
 
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        (None, None),
+        ("", None),
+        ("   ", None),
+        ("5432", 5432),
+        (5432, 5432),
+        # Numeric JSON values arrive as int/float, not str, and must not crash on `.strip()`.
+        (5432.0, 5432),
+        (158.220123243, 158),
+    ],
+)
+def test_str_to_optional_int(value, expected):
+    """`str_to_optional_int` must handle numeric (int/float) inputs, not only strings."""
+    assert config.str_to_optional_int(value) == expected
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        (None, None),
+        ("5432", 5432),
+        (5432.0, 5432),
+    ],
+)
+def test_optional_int_converter_handles_numeric_via_from_dict(value, expected):
+    """A NUMBER field fed through `Config.from_dict` must not crash and must coerce correctly."""
+
+    @config.config
+    class TestConfig(config.Config):
+        port: int | None = config.value(converter=config.str_to_optional_int, default_factory=lambda: None)
+
+    cfg = TestConfig.from_dict({"port": value})
+
+    assert cfg.port == expected
+
+
 def test_nested_to_config_with_flat_dict():
     """Test `config.to_config` with a nested set of classes.
 

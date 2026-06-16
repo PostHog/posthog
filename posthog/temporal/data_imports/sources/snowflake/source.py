@@ -193,6 +193,12 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             "Duo Security authentication is denied": "Snowflake rejected the login because multi-factor authentication (Duo Security) is enforced for this user. Automated syncs can't answer an MFA prompt — connect with a service user that uses key-pair authentication or is exempt from MFA.",
             "invalid credentials": "Snowflake authentication failed. Please check your username, password, and account details.",
             "authentication failed": "Snowflake authentication failed. Please check your username, password, and account details.",
+            # Snowflake error 000904 (42000): the table or view we select from references a column
+            # that no longer exists — typically a stale view definition or a column dropped/renamed
+            # in the source schema. We only run `SELECT ... FROM IDENTIFIER(%s)`, so the bad identifier
+            # lives in the customer's object, not in our SQL. Retrying can't fix it until they repair
+            # the object or reconfigure the synced columns.
+            "invalid identifier": "A Snowflake table or view you're syncing references a column that no longer exists (for example a stale view definition, or a column that was dropped or renamed). Please fix the table or view in Snowflake, or reconfigure the columns selected for this table, then resync.",
             # Raised from the shared `evolve_pyarrow_schema` in `pipelines/pipeline/utils.py`
             # when an integer column's source type was widened (e.g. a narrower NUMBER widened
             # to a larger NUMBER/BIGINT) after the destination table was created with the
