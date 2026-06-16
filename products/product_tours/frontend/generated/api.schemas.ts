@@ -119,6 +119,13 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
+export type SearchMatchTypeEnumApi = (typeof SearchMatchTypeEnumApi)[keyof typeof SearchMatchTypeEnumApi]
+
+export const SearchMatchTypeEnumApi = {
+    Exact: 'exact',
+    Similar: 'similar',
+} as const
+
 /**
  * Return the targeting flag filters, excluding the base exclusion properties.
  * @nullable
@@ -152,6 +159,8 @@ export interface ProductTourApi {
     readonly created_by: UserBasicApi
     readonly updated_at: string
     archived?: boolean
+    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+    readonly search_match_type: SearchMatchTypeEnumApi | null
 }
 
 export interface PaginatedProductTourListApi {

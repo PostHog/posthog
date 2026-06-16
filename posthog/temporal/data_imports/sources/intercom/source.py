@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -44,6 +45,7 @@ class IntercomSource(SimpleSource[IntercomSourceConfig], OAuthMixin):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.INTERCOM,
+            category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             caption="Select an existing Intercom workspace to link to PostHog or create a new connection",
             iconPath="/static/services/intercom.png",
             docsUrl="https://posthog.com/docs/cdp/sources/intercom",
@@ -59,7 +61,7 @@ class IntercomSource(SimpleSource[IntercomSourceConfig], OAuthMixin):
                 ],
             ),
             featureFlag="dwh_intercom",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )
 
     def get_schemas(

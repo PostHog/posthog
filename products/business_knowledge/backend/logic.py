@@ -4,6 +4,7 @@ Business logic for business_knowledge.
 All ORM access, chunking, quota enforcement, and search queries.
 """
 
+import re
 import uuid
 import datetime
 from collections import defaultdict
@@ -13,6 +14,7 @@ from operator import or_
 from urllib.parse import urlsplit
 from uuid import UUID
 
+from django.conf import settings
 from django.contrib.postgres.search import SearchQuery, SearchRank, SearchVector
 from django.db import (
     connection as db_connection,
@@ -23,12 +25,18 @@ from django.db.models.functions import Substr
 from django.utils import timezone
 
 import structlog
+import posthoganalytics
+from langchain_core.messages import HumanMessage, SystemMessage
 
 from posthog.api.embedding_worker import generate_embedding
 from posthog.helpers.full_text_search import process_query
+from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import with_team_scope
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.security.url_validation import is_url_allowed
+
+from ee.hogai.llm import MaxChatAnthropic
 
 from . import crawl, discover, file_parse, html_parse, url_fetch
 from .constants import (
@@ -37,6 +45,8 @@ from .constants import (
     BK_EMBEDDING_DOCUMENT_TYPE,
     BK_EMBEDDING_MODEL,
     BK_EMBEDDING_PRODUCT,
+    BK_RERANK_MODEL,
+    BK_RERANK_SNIPPET_CHARS,
     BK_RRF_K,
     BK_RRF_SCORE_FLOOR,
     BK_SEMANTIC_DISTANCE_CUTOFF,
@@ -48,6 +58,7 @@ from .constants import (
     CRAWL_HARD_MAX_DEPTH,
     DEFAULT_CRAWL_MAX_DEPTH,
     DEFAULT_MAX_PAGES,
+    EMBEDDING_STABLE_TS_MAX_AGE,
     EMBEDDING_TTL_REFRESH_WINDOW,
     MAX_CHUNKS_PER_TEAM,
     MAX_SOURCES_PER_TEAM,
@@ -292,6 +303,43 @@ def _unsafe_documents_subquery() -> Exists:
     )
 
 
+def _pending_embedding_documents_subquery() -> Exists:
+    """
+    Live docs that are still on their way into the semantic index: either
+    awaiting safety classification (with retries left — docs past the attempt
+    cap stay excluded forever, so they're not "pending"), or already SAFE with
+    chunks but not yet produced to the embedding pipeline. Mirrors the
+    eligibility rules of `_embeddable_documents_qs` so the API never reports
+    "pending" for a doc the coordinator will never pick up.
+    """
+    has_chunks = Exists(KnowledgeChunk.objects.filter(document_id=OuterRef("pk")))
+    return Exists(
+        KnowledgeDocument.objects.filter(source_id=OuterRef("pk"), tombstoned_at__isnull=True).filter(
+            Q(safety_verdict=SafetyVerdict.UNKNOWN, classification_attempts__lt=CLASSIFY_MAX_ATTEMPTS)
+            | (Q(safety_verdict=SafetyVerdict.SAFE, embeddings_emitted_at__isnull=True) & Q(has_chunks))
+        )
+    )
+
+
+def has_pending_embeddings(source_id: UUID) -> bool:
+    """Standalone DB check — same logic as the annotation subquery."""
+    return (
+        KnowledgeDocument.objects.filter(
+            source_id=source_id,
+            tombstoned_at__isnull=True,
+        )
+        .filter(
+            Q(safety_verdict=SafetyVerdict.UNKNOWN, classification_attempts__lt=CLASSIFY_MAX_ATTEMPTS)
+            | Q(
+                safety_verdict=SafetyVerdict.SAFE,
+                embeddings_emitted_at__isnull=True,
+                chunks__isnull=False,
+            )
+        )
+        .exists()
+    )
+
+
 @with_team_scope(canonical=True)
 def list_for_team(team_id: int) -> list[KnowledgeSource]:
     # Annotate counts in one round-trip so the serializer doesn't N+1.
@@ -301,6 +349,8 @@ def list_for_team(team_id: int) -> list[KnowledgeSource]:
             _document_count=Count("documents", distinct=True),
             _chunk_count=Count("chunks", distinct=True),
             _has_unsafe_documents=_unsafe_documents_subquery(),
+            _has_pending_embeddings=_pending_embedding_documents_subquery(),
+            _ai_processing_approved=F("team__organization__is_ai_data_processing_approved"),
         )
         .order_by("-created_at")
     )
@@ -313,6 +363,8 @@ def get_for_team(source_id: UUID, team_id: int) -> KnowledgeSource | None:
             _document_count=Count("documents", distinct=True),
             _chunk_count=Count("chunks", distinct=True),
             _has_unsafe_documents=_unsafe_documents_subquery(),
+            _has_pending_embeddings=_pending_embedding_documents_subquery(),
+            _ai_processing_approved=F("team__organization__is_ai_data_processing_approved"),
         ).get(id=source_id, team_id=team_id)
     except KnowledgeSource.DoesNotExist:
         return None
@@ -718,7 +770,7 @@ def _fetch_and_parse(url: str, *, etag: str | None) -> tuple[url_fetch.FetchResu
     if not url_fetch.is_html_content_type(result.content_type):
         raise UrlFetchFailedError("Unsupported content type.")
 
-    title, text = html_parse.parse_html(result.body, result.final_url)
+    title, text = html_parse.parse_html(result.body, result.final_url, content_type=result.content_type)
     if not text.strip():
         raise EmptyContentError("Could not extract any text from the URL.")
     if len(text.encode("utf-8")) > MAX_TEXT_SIZE_BYTES:
@@ -1262,10 +1314,11 @@ def _ingest_crawl_source(*, source: KnowledgeSource, team_id: int) -> KnowledgeS
         return _mark_error(str(exc))
 
     try:
-        candidate_urls = discover.discover(source.crawl_mode, normalized, config)
+        discovery = discover.discover(source.crawl_mode, normalized, config)
     except discover.DiscoverError as exc:
         return _mark_error(str(exc))
 
+    candidate_urls = discovery.urls
     if not candidate_urls:
         return _mark_error("Crawl discovered no URLs. Check the entry URL and globs.")
 
@@ -1280,7 +1333,7 @@ def _ingest_crawl_source(*, source: KnowledgeSource, team_id: int) -> KnowledgeS
     if not safe_urls:
         return _mark_error("Crawl discovered no safe URLs to fetch.")
 
-    outcomes = crawl.fetch_many(safe_urls)
+    outcomes = crawl.fetch_many(safe_urls, prefetched=discovery.prefetched)
     ok_outcomes = [o for o in outcomes if o.status == "ok"]
 
     if not ok_outcomes:
@@ -1347,7 +1400,8 @@ def _refresh_crawl_source(*, source: KnowledgeSource, team_id: int) -> Knowledge
         config = _resolve_crawl_config(source.crawl_config)
         normalized = _validate_url(source.source_url)
         try:
-            discovered = discover.discover(source.crawl_mode, normalized, config)
+            discovery = discover.discover(source.crawl_mode, normalized, config)
+            discovered = discovery.urls
         except discover.DiscoverError as exc:
             raise UrlFetchFailedError(str(exc)) from exc
     except (InvalidUrlError, UrlFetchFailedError) as exc:
@@ -1390,7 +1444,7 @@ def _refresh_crawl_source(*, source: KnowledgeSource, team_id: int) -> Knowledge
         existing = existing_by_url.get(u)
         return existing.etag if existing and existing.etag else None
 
-    outcomes = crawl.fetch_many(safe_urls, etag_for=_etag_for)
+    outcomes = crawl.fetch_many(safe_urls, etag_for=_etag_for, prefetched=discovery.prefetched)
     # `discovered_set` is built by normalizing the raw discovered URLs (lowercased
     # scheme+host, no fragment) so keys match `existing_by_url` (which uses the
     # normalized stable_id). We do NOT use `safe_urls` here — that would tombstone
@@ -1490,6 +1544,25 @@ def _refresh_crawl_source(*, source: KnowledgeSource, team_id: int) -> Knowledge
 def has_ready_sources(team_id: int) -> bool:
     """True when the team has at least one READY source (READY implies chunks exist)."""
     return KnowledgeSource.objects.filter(team_id=team_id, status=SourceStatus.READY).exists()
+
+
+def has_feature_flag(team: Team) -> bool:
+    """The `product-business-knowledge` flag check, org-keyed. Canonical home for the
+    check — `ee/hogai/utils/feature_flags.py` delegates here."""
+    if settings.DEBUG:
+        return True
+    return posthoganalytics.feature_enabled(
+        "product-business-knowledge",
+        str(team.organization_id),
+        groups={"organization": str(team.organization_id)},
+        group_properties={"organization": {"id": str(team.organization_id)}},
+        send_feature_flag_events=False,
+    )
+
+
+def is_available_for_team(team: Team) -> bool:
+    """Feature flag + ready sources — the full "should agents use BK?" predicate."""
+    return has_feature_flag(team) and has_ready_sources(team.id)
 
 
 _SEARCH_LIMIT_CAP = 20
@@ -1784,6 +1857,115 @@ def search_knowledge_for_team(
     return search_knowledge(team.id, query, limit=limit, use_semantic=embedding is not None, query_embedding=embedding)
 
 
+_RERANK_CHUNK_ID_PATTERN = re.compile(
+    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+    re.IGNORECASE,
+)
+_RERANK_SYSTEM_PROMPT = """You rerank knowledge-base search results for relevance to a user query.
+Return ONLY chunk_id UUIDs in order from most to least relevant, one UUID per line.
+Do not include any other text."""
+
+
+def _resolve_active_org_user(team: Team) -> User:
+    membership = (
+        OrganizationMembership.objects.select_related("user")
+        .filter(organization=team.organization, user__is_active=True)
+        .order_by("id")
+        .first()
+    )
+    if not membership:
+        raise RuntimeError(f"No active users in organization '{team.organization.name}' (team {team.id})")
+    return membership.user
+
+
+def _build_rerank_user_prompt(query: str, results: list[KnowledgeSearchResult]) -> str:
+    lines = [f"Query: {query}", "", "Candidates:"]
+    for index, result in enumerate(results, start=1):
+        snippet = result.content[:BK_RERANK_SNIPPET_CHARS]
+        lines.append(
+            f"{index}. chunk_id={result.chunk_id} document={result.document_title!r} heading={result.heading_path!r}"
+        )
+        lines.append(f"   {snippet}")
+    lines.extend(["", "Most relevant chunk_ids first, one per line:"])
+    return "\n".join(lines)
+
+
+def _parse_reranked_chunk_ids(response_text: str, valid_ids: set[UUID]) -> list[UUID] | None:
+    parsed: list[UUID] = []
+    seen: set[UUID] = set()
+    for match in _RERANK_CHUNK_ID_PATTERN.finditer(response_text):
+        chunk_id = UUID(match.group())
+        if chunk_id not in valid_ids or chunk_id in seen:
+            continue
+        parsed.append(chunk_id)
+        seen.add(chunk_id)
+    if not parsed:
+        return None
+    return parsed
+
+
+def rerank_chunks(
+    team: Team,
+    query: str,
+    results: list[KnowledgeSearchResult],
+    *,
+    top_k: int,
+) -> list[KnowledgeSearchResult]:
+    """
+    Listwise LLM rerank over BK search candidates. On any model/parse failure,
+    returns the input order (RRF order from ``search_knowledge``) trimmed to
+    ``top_k``.
+    """
+    if not results:
+        return []
+
+    top_k = max(1, top_k)
+    original_order = results
+    if len(results) == 1:
+        return original_order[:top_k]
+
+    if not team.organization.is_ai_data_processing_approved:
+        return original_order[:top_k]
+
+    valid_ids = {result.chunk_id for result in results}
+    id_to_result = {result.chunk_id: result for result in results}
+
+    try:
+        user = _resolve_active_org_user(team)
+        llm = MaxChatAnthropic(
+            model=BK_RERANK_MODEL,
+            streaming=False,
+            user=user,
+            team=team,
+            max_tokens=1024,
+            billable=False,
+            inject_context=False,
+        )
+        response = llm.invoke(
+            [
+                SystemMessage(content=_RERANK_SYSTEM_PROMPT),
+                HumanMessage(content=_build_rerank_user_prompt(query, results)),
+            ]
+        )
+        content = response.content
+        if isinstance(content, list):
+            content = "".join(str(item) for item in content)
+        ranked_ids = _parse_reranked_chunk_ids(str(content), valid_ids)
+        if ranked_ids is None:
+            return original_order[:top_k]
+
+        ranked_set = set(ranked_ids)
+        for result in original_order:
+            if result.chunk_id not in ranked_set:
+                ranked_ids.append(result.chunk_id)
+
+        reranked = [id_to_result[chunk_id] for chunk_id in ranked_ids]
+        return reranked[:top_k]
+    except Exception:
+        logger.warning("bk_rerank_failed", team_id=team.id, exc_info=True)
+        return original_order[:top_k]
+
+
 # ---------------------------------------------------------------------------
 # Drill-down: wider context window for a single document
 # ---------------------------------------------------------------------------
@@ -2028,12 +2210,13 @@ class DocumentToEmbed:
 
     team_id: int
     document_id: UUID
-    # The embedding row `timestamp`. The first-emission path passes the
-    # document's stable `created_at` so a re-emit of the same chunk_id collapses
-    # onto one ClickHouse sort key / partition instead of duplicating under a
-    # later `toDate(timestamp)`. The TTL-refresh path instead passes `now()` so
-    # the re-emit resets the 3-month TTL clock (the table TTLs on `timestamp`);
-    # the extra row is correctness-safe via the read-path re-join.
+    # The embedding row `timestamp`. Young docs use the stable `created_at` so
+    # a re-emit of the same chunk_id collapses onto one ClickHouse sort key /
+    # partition instead of duplicating under a later `toDate(timestamp)`.
+    # Old docs (created_at older than EMBEDDING_STABLE_TS_MAX_AGE) and the
+    # TTL-refresh path use `now()` so the row survives until the refresh cron
+    # fires, instead of expiring under `TTL timestamp + 3 MONTH` first. The
+    # extra row is correctness-safe via the read-path re-join.
     timestamp: datetime.datetime
     chunks: list[ChunkToEmbed]
 
@@ -2106,7 +2289,18 @@ def list_documents_pending_embedding(*, limit: int = PENDING_EMBEDDING_SCAN_CAP)
     backfills every existing SAFE doc across all teams, so the cap is what lets
     the hourly coordinator drain that over many passes. Cross-team — coordinator
     only.
+
+    Timestamp strategy: young docs use the stable ``created_at`` so a re-emit
+    collapses onto one ClickHouse sort key. Old docs (``created_at`` older than
+    ``EMBEDDING_STABLE_TS_MAX_AGE``) use ``now()``: a stable timestamp is only
+    safe if the row survives until the TTL-refresh cron re-emits the doc at
+    ``emitted_at + EMBEDDING_TTL_REFRESH_WINDOW`` — beyond the max age the row
+    would expire first (in the worst case it lands already expired,
+    reconciliation re-nulls it, and the next pass re-emits with ``created_at``
+    again: a token-burning loop while the doc silently serves FTS-only forever).
     """
+    now = timezone.now()
+    ttl_cutoff = now - EMBEDDING_STABLE_TS_MAX_AGE
     rows = list(
         _embeddable_documents_qs()
         .filter(embeddings_emitted_at__isnull=True)
@@ -2117,7 +2311,7 @@ def list_documents_pending_embedding(*, limit: int = PENDING_EMBEDDING_SCAN_CAP)
         DocumentToEmbed(
             team_id=team_id,
             document_id=document_id,
-            timestamp=created_at,
+            timestamp=now if created_at < ttl_cutoff else created_at,
             chunks=chunks_by_doc.get(document_id, []),
         )
         for team_id, document_id, created_at in rows

@@ -1,6 +1,6 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
-import { editor } from 'monaco-editor'
+import type { editor } from 'monaco-editor'
 
 import { lemonToast } from '@posthog/lemon-ui'
 

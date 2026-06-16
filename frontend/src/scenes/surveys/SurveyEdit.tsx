@@ -1319,6 +1319,9 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                               survey={survey}
                                                               hasBranchingLogic={hasBranchingLogic}
                                                               deleteBranchingLogic={deleteBranchingLogic}
+                                                              onTranslationsChange={(translations) =>
+                                                                  setSurveyValue('translations', translations)
+                                                              }
                                                               hasRatingButtons={survey.questions.some(
                                                                   (question) =>
                                                                       question.type === SurveyQuestionType.Rating

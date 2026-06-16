@@ -61,9 +61,16 @@ from posthog.api.services.query import process_query_model
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemViewSetMixin, cleanup_orphan_tags, set_tags_on_object
 from posthog.api.utils import action
+from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
-from posthog.clickhouse.query_tagging import Feature, Product, get_query_tag_value, tag_queries
+from posthog.clickhouse.query_tagging import (
+    Feature,
+    Product,
+    get_query_tag_value,
+    is_api_key_access_method,
+    tag_queries,
+)
 from posthog.ducklake.common import get_duckgres_server_for_organization
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import get_request_analytics_properties, report_user_action
@@ -78,10 +85,15 @@ from posthog.models.activity_logging.activity_log import (
     changes_between,
     log_activity,
 )
-from posthog.permissions import APIScopePermission, TeamMemberAccessPermission
+from posthog.permissions import (
+    APIScopePermission,
+    TeamMemberAccessPermission,
+    is_authenticated_via_project_secret_api_key,
+)
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import access_level_satisfied_for_resource
 from posthog.schema_migrations.upgrade import upgrade
+from posthog.synthetic_user import SyntheticUser
 from posthog.types import InsightQueryNode
 
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
@@ -113,7 +125,7 @@ from products.endpoints.backend.metrics import (
     ENDPOINT_EXECUTION_TOTAL,
     ENDPOINT_HOGQL_RESULT_ROWS,
     ENDPOINT_MATERIALIZATION_EVENT_TOTAL,
-    ENDPOINT_MATERIALIZED_AGE_SECONDS,
+    ENDPOINT_MATERIALIZED_FRESHNESS_RATIO,
     ENDPOINT_VALIDATION_ERROR_TOTAL,
     query_kind_label,
 )
@@ -121,6 +133,8 @@ from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.endpoints.backend.openapi import generate_openapi_spec
 from products.endpoints.backend.rate_limit import (
     EndpointBurstThrottle,
+    EndpointProjectSecretApiKeyTeamBurstThrottle,
+    EndpointProjectSecretApiKeyTeamSustainedThrottle,
     EndpointSustainedThrottle,
     clear_endpoint_materialization_cache,
 )
@@ -415,6 +429,8 @@ class EndpointViewSet(
     LogEntryMixin,
     viewsets.ModelViewSet,
 ):
+    authentication_classes = [ProjectSecretAPIKeyAuthentication]
+    psak_allowed_actions = ["run"]
     # NOTE: Do we need to override the scopes for the "create"
     scope_object = "endpoint"
     # Read endpoint execution logs from the `log_entries` table keyed by this source.
@@ -449,7 +465,12 @@ class EndpointViewSet(
         return serializers.Serializer  # We use Pydantic models instead; this fallback satisfies drf-spectacular
 
     def get_throttles(self):
-        return [EndpointBurstThrottle(), EndpointSustainedThrottle()]
+        return [
+            EndpointBurstThrottle(),
+            EndpointSustainedThrottle(),
+            EndpointProjectSecretApiKeyTeamBurstThrottle(),
+            EndpointProjectSecretApiKeyTeamSustainedThrottle(),
+        ]
 
     def dangerously_get_permissions(self):
         # `run` is the public-facing execution API. It still requires authentication, the
@@ -479,6 +500,11 @@ class EndpointViewSet(
         defaults so a restrictive project default doesn't break the public execution API. Creators
         and org admins always pass (specific_access_level_for_object returns the highest level).
         """
+        # PSAK scopes are project-wide within their resource type and deliberately ignore
+        # object-level access controls — the key's team binding and `endpoint:read` scope are
+        # the whole authorization story (see posthog/scopes.py).
+        if is_authenticated_via_project_secret_api_key(self.request):
+            return
         specific_level = self.user_access_control.specific_access_level_for_object(endpoint)
         if specific_level is not None and not access_level_satisfied_for_resource("endpoint", specific_level, "viewer"):
             raise PermissionDenied("You do not have access to this endpoint.")
@@ -1610,7 +1636,7 @@ class EndpointViewSet(
             execution_mode=execution_mode,
             query_id=client_query_id,
             user=cast(User, request.user),
-            is_query_service=(get_query_tag_value("access_method") == "personal_api_key"),
+            is_query_service=is_api_key_access_method(get_query_tag_value("access_method")),
             cache_age_seconds=cache_age_seconds,
             analytics_props=get_request_analytics_properties(request),
         )
@@ -1899,9 +1925,11 @@ class EndpointViewSet(
                     trigger_saved_query_schedule(saved_query)
                     raise
 
-            if saved_query.last_run_at:
+            # Freshness relative to the configured target: >1.0 means behind SLA.
+            # Absolute age is meaningless across endpoints with different frequencies.
+            if saved_query.last_run_at and version and version.data_freshness_seconds:
                 age_seconds = max((timezone.now() - saved_query.last_run_at).total_seconds(), 0.0)
-                ENDPOINT_MATERIALIZED_AGE_SECONDS.observe(age_seconds)
+                ENDPOINT_MATERIALIZED_FRESHNESS_RATIO.observe(age_seconds / version.data_freshness_seconds)
 
             return result
         except Exception as e:
@@ -2097,24 +2125,24 @@ class EndpointViewSet(
         return DashboardFilter(date_from=date_from, date_to=date_to, properties=properties)
 
     def _should_use_ducklake(self, endpoint: Endpoint, version: EndpointVersion | None) -> bool:
-        if version is None:
-            return False
-        if version.query.get("kind") != "HogQLQuery":
+        if version is None or version.query.get("kind") != "HogQLQuery":
             return False
 
-        user_email = getattr(self.request.user, "email", "") if self.request else ""
         ff_result = posthoganalytics.feature_enabled(
             "endpoints-ducklake-execution",
-            user_email,
-            person_properties={"email": str(user_email)},
+            str(self.team.uuid),
+            groups={
+                "organization": str(self.team.organization_id),
+                "project": str(self.team.id),
+            },
+            group_properties={
+                "organization": {"id": str(self.team.organization_id)},
+                "project": {"id": str(self.team.id)},
+            },
             only_evaluate_locally=True,
             send_feature_flag_events=False,
         )
-        logger.info(
-            "Ducklake FF evaluation",
-            endpoint_name=endpoint.name,
-            ff_result=ff_result,
-        )
+        logger.info("Ducklake FF evaluation", endpoint_name=endpoint.name, ff_result=ff_result)
         if not ff_result:
             return False
 
@@ -2333,9 +2361,8 @@ class EndpointViewSet(
         try:
             data = self._parse_run_request(request)
 
-            # Track endpoint execution for deprecation monitoring
             report_user_action(
-                user=cast(User, request.user),
+                user=cast("User | SyntheticUser", request.user),
                 event="endpoint executed",
                 properties={
                     "endpoint_id": str(endpoint.id),
@@ -2345,6 +2372,9 @@ class EndpointViewSet(
                     "has_limit": data.limit is not None,
                     "has_offset": data.offset is not None,
                     "refresh_mode": data.refresh.value if data.refresh else None,
+                    "auth_method": "project_secret_api_key"
+                    if is_authenticated_via_project_secret_api_key(request)
+                    else "user",
                 },
                 team=self.team,
                 request=request,
@@ -2441,7 +2471,7 @@ class EndpointViewSet(
                     )
             execution_status = "success"
         except (ExposedHogQLError, ExposedCHQueryError) as e:
-            execution_status = "error"
+            execution_status = "user_error"
             error_label = getattr(e, "code_name", None) or type(e).__name__
             logger.exception(
                 "Endpoint execution failed",
@@ -2450,7 +2480,7 @@ class EndpointViewSet(
             )
             raise ValidationError("Query execution failed.", getattr(e, "code_name", None))
         except HogVMException:
-            execution_status = "error"
+            execution_status = "user_error"
             error_label = "HogVMException"
             logger.exception(
                 "Endpoint execution failed (HogVM)",
@@ -2458,7 +2488,7 @@ class EndpointViewSet(
             )
             raise ValidationError("Query execution failed: HogQL virtual machine error")
         except ResolutionError:
-            execution_status = "error"
+            execution_status = "user_error"
             error_label = "ResolutionError"
             logger.exception(
                 "Endpoint resolution failed",
@@ -2466,7 +2496,7 @@ class EndpointViewSet(
             )
             raise ValidationError("Query resolution failed: unable to resolve table or field references.")
         except ConcurrencyLimitExceeded:
-            ENDPOINT_CONCURRENCY_REJECTED_TOTAL.inc()
+            ENDPOINT_CONCURRENCY_REJECTED_TOTAL.labels(team_id=str(self.team_id)).inc()
             raise Throttled(detail="Too many concurrent requests. Please try again later.")
         except Exception as e:
             execution_status = "error"
@@ -2481,7 +2511,7 @@ class EndpointViewSet(
                 ENDPOINT_EXECUTION_TOTAL.labels(
                     execution_type=execution_type, query_kind=query_kind_metric, status=execution_status
                 ).inc()
-            if execution_status == "error":
+            if execution_status in ("error", "user_error"):
                 log_endpoint_execution(
                     team_id=self.team_id,
                     endpoint_id=str(endpoint.id),
@@ -2527,7 +2557,7 @@ class EndpointViewSet(
             ),
         )
 
-        if get_query_tag_value("access_method") == "personal_api_key":
+        if is_api_key_access_method(get_query_tag_value("access_method")):
             now = timezone.now()
             throttle = timedelta(minutes=30)
             if endpoint.last_executed_at is None or (now - endpoint.last_executed_at > throttle):

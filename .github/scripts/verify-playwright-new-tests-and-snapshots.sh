@@ -38,7 +38,20 @@ rm -f "$RESULTS_FILE"
 # noise. If a file is moved AND substantively edited in the same PR, the verifier
 # won't catch it — but that's a rare pattern, and the alternative (re-verifying every
 # moved test) blocks routine reorganizations.
-changed_test_files=$(git diff --name-only --diff-filter=AM "$BASE_SHA..HEAD" -- 'playwright/**/*.spec.ts' 'products/*/frontend/e2e/**/*.spec.ts')
+#
+# Diff from the merge-base, not the raw base tip. A two-dot "$BASE_SHA..HEAD" diff
+# compares the two trees directly, so a PR branched off an older master inherits every
+# spec file changed on master since the branch point — re-running dozens of unrelated
+# tests serially blows past the job timeout. The merge-base is the branch point, so the
+# diff yields only the PR's own changes. (Equivalent to three-dot "$BASE_SHA...HEAD",
+# but computed explicitly so a too-shallow fetch degrades to a warning instead of a
+# hard `git diff` failure under `set -e`.)
+merge_base=$(git merge-base "$BASE_SHA" HEAD 2>/dev/null || true)
+if [ -z "$merge_base" ]; then
+    echo "Warning: no merge-base for $BASE_SHA and HEAD (shallow fetch too shallow?) — comparing against $BASE_SHA directly"
+    merge_base="$BASE_SHA"
+fi
+changed_test_files=$(git diff --name-only --diff-filter=AM "$merge_base..HEAD" -- 'playwright/**/*.spec.ts' 'products/*/frontend/e2e/**/*.spec.ts')
 
 if [ -z "$changed_test_files" ]; then
     echo "No changed Playwright test files found — skipping flake verification"

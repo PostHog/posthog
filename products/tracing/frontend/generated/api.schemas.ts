@@ -73,7 +73,7 @@ export const _SpanPropertyFilterOperatorEnumApi = {
 } as const
 
 export interface _SpanPropertyFilterApi {
-    /** Attribute key. For type "span", use built-in fields (trace_id, span_id, duration, name, kind, status_code). For "span_attribute"/"span_resource_attribute", use the attribute key (e.g. "http.method"). */
+    /** Attribute key. For type "span", use built-in fields (trace_id, span_id, duration, name, kind, status_code, is_root_span). For "span_attribute"/"span_resource_attribute", use the attribute key (e.g. "http.method"). */
     key: string
     /** "span" filters built-in span fields. "span_attribute" filters span-level attributes. "span_resource_attribute" filters resource-level attributes.
      *
@@ -114,12 +114,63 @@ export interface _TracingAggregationRequestApi {
     query: _TracingAggregationQueryBodyApi
 }
 
+/**
+ * * `span_attribute` - span_attribute
+ * * `span_resource_attribute` - span_resource_attribute
+ */
+export type BreakdownTypeEnumApi = (typeof BreakdownTypeEnumApi)[keyof typeof BreakdownTypeEnumApi]
+
+export const BreakdownTypeEnumApi = {
+    SpanAttribute: 'span_attribute',
+    SpanResourceAttribute: 'span_resource_attribute',
+} as const
+
+/**
+ * * `count` - count
+ * * `error_count` - error_count
+ */
+export type _TracingAttributeBreakdownQueryBodyOrderByEnumApi =
+    (typeof _TracingAttributeBreakdownQueryBodyOrderByEnumApi)[keyof typeof _TracingAttributeBreakdownQueryBodyOrderByEnumApi]
+
+export const _TracingAttributeBreakdownQueryBodyOrderByEnumApi = {
+    Count: 'count',
+    ErrorCount: 'error_count',
+} as const
+
+export interface _TracingAttributeBreakdownQueryBodyApi {
+    /** Attribute key to group by (e.g. "server.address", "http.response.status_code"). Discover keys with apm-attributes-list. */
+    breakdownKey: string
+    /** Where the key lives: "span_attribute" for span-level attributes, "span_resource_attribute" for resource-level attributes.
+     *
+     * * `span_attribute` - span_attribute
+     * * `span_resource_attribute` - span_resource_attribute */
+    breakdownType: BreakdownTypeEnumApi
+    /** Order rows by span count or error count, descending. Defaults to count.
+     *
+     * * `count` - count
+     * * `error_count` - error_count */
+    orderBy?: _TracingAttributeBreakdownQueryBodyOrderByEnumApi
+    /** Date range for the primary window. Defaults to last hour. */
+    dateRange?: _TracingDateRangeApi
+    /** Optional comparison-window configuration. When omitted, only the primary window is returned. */
+    compareFilter?: _CompareFilterApi
+    /** Filter by service names. */
+    serviceNames?: string[]
+    /** Property filters scoping the spans the breakdown runs over (e.g. only error spans). */
+    filterGroup?: _SpanPropertyFilterApi[]
+}
+
+export interface _TracingAttributeBreakdownRequestApi {
+    /** The attribute breakdown query to execute. */
+    query: _TracingAttributeBreakdownQueryBodyApi
+}
+
 export interface _TracingCountBodyApi {
     /** Date range for the count. Defaults to last hour. */
     dateRange?: _TracingDateRangeApi
     /** Filter by service names. */
     serviceNames?: string[]
-    /** Filter by HTTP status codes. */
+    /** Filter by OTel span status codes (0 Unset, 1 OK, 2 Error) — not HTTP status codes. Use [2] to select error spans. */
     statusCodes?: number[]
     /** Property filters for the count. */
     filterGroup?: _SpanPropertyFilterApi[]
@@ -133,6 +184,27 @@ export interface _TracingCountRequestApi {
 export interface _TracingCountResponseApi {
     /** Number of spans matching the filters. */
     count: number
+}
+
+export interface _TracingTimeseriesQueryBodyApi {
+    /** Date range for the query. Defaults to last hour. */
+    dateRange?: _TracingDateRangeApi
+    /** Filter by service names. */
+    serviceNames?: string[]
+    /** Filter by OTel span status codes (0 Unset, 1 OK, 2 Error) — not HTTP status codes. Use [2] to select error spans. */
+    statusCodes?: number[]
+    /** Property filters for the query. */
+    filterGroup?: _SpanPropertyFilterApi[]
+}
+
+export interface _TracingTimeseriesRequestApi {
+    /** The sparkline / duration-histogram query to execute. */
+    query: _TracingTimeseriesQueryBodyApi
+}
+
+export interface _HasSpansResponseApi {
+    /** Whether the team has ingested any tracing spans yet. Used to gate the onboarding empty state. */
+    hasSpans: boolean
 }
 
 /**
@@ -163,7 +235,7 @@ export interface _TracingQueryBodyApi {
     dateRange?: _TracingDateRangeApi
     /** Filter by service names. */
     serviceNames?: string[]
-    /** Filter by HTTP status codes. */
+    /** Filter by OTel span status codes (0 Unset, 1 OK, 2 Error) — not HTTP status codes. Use [2] to select error spans. */
     statusCodes?: number[]
     /** Column to order by. Defaults to timestamp. Ordering by timestamp paginates via the keyset cursor ('after'); ordering by duration paginates via 'offset'.
      *
@@ -190,9 +262,11 @@ export interface _TracingQueryBodyApi {
     offset?: number
     /** Filter to root spans only. Defaults to true. */
     rootSpans?: boolean
+    /** Return the matching spans themselves, one row per span (root and child), instead of collapsing to traces. Use this to search by a child-span attribute (e.g. code.filepath) without the whole-trace grouping. Distinct from rootSpans. Defaults to false. */
+    flatSpans?: boolean
     /** Number of child spans to prefetch per trace (1-100). */
     prefetchSpans?: number
-    /** Omit the per-span attributes map from results to keep payloads compact. Defaults to false. */
+    /** Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false. */
     excludeAttributes?: boolean
 }
 
@@ -201,15 +275,10 @@ export interface _TracingQueryRequestApi {
     query: _TracingQueryBodyApi
 }
 
-export interface _HasSpansResponseApi {
-    /** Whether the team has ingested any tracing spans yet. Used to gate the onboarding empty state. */
-    hasSpans: boolean
-}
-
 export interface _TracingTraceRequestApi {
     /** Date range for the query. Defaults to last 24 hours. */
     dateRange?: _TracingDateRangeApi
-    /** Omit the per-span attributes map from results to keep payloads compact. Defaults to false. */
+    /** Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false. */
     excludeAttributes?: boolean
 }
 
