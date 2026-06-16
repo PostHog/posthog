@@ -14,7 +14,7 @@
 import { Response } from 'express'
 import { z } from 'zod'
 
-import { buildClientToolResultMarker } from '@posthog/agent-shared'
+import { AgentSession, buildClientToolResultMarker } from '@posthog/agent-shared'
 
 import { buildElevationResponse, principalDisplay, recordElevationRequest, requireAclAccess } from '../enqueue/acl'
 import { enqueueOrResume } from '../enqueue/enqueue'
@@ -25,7 +25,7 @@ import {
     ChatRunBodySchema,
     ChatSendBodySchema,
 } from './chat.schemas'
-import type { AuthedRouteCtx, TriggerModule } from './types'
+import type { AuthedRouteCtx, RouteCtx, TriggerModule } from './types'
 
 /**
  * Turn a zod error into the structured 400 body. Same shape as the janitor's
@@ -33,6 +33,22 @@ import type { AuthedRouteCtx, TriggerModule } from './types'
  */
 function badRequest(res: Response, err: z.ZodError): void {
     res.status(400).json({ error: 'invalid_body', issues: err.issues })
+}
+
+/**
+ * Fetch a session by client-supplied id, but only if it belongs to the agent
+ * this request resolved to. A mismatch reads as "not found" — a session id is
+ * a bare UUID, and for public agents every principal is `{kind:'anonymous'}`,
+ * so `principalsMatch` alone would let a leaked id be driven through *any*
+ * public agent's endpoint (cross-tenant). Binding to `resolved.application.id`
+ * closes that, and doesn't reveal the session exists under another agent.
+ */
+async function sessionForResolvedApp(ctx: RouteCtx, sessionId: string): Promise<AgentSession | null> {
+    const session = await ctx.deps.queue.get(sessionId)
+    if (!session || session.application_id !== ctx.resolved.application.id) {
+        return null
+    }
+    return session
 }
 
 async function runHandler(ctx: AuthedRouteCtx): Promise<void> {
@@ -85,7 +101,7 @@ async function sendHandler(ctx: AuthedRouteCtx): Promise<void> {
         return
     }
     const { session_id: sessionId, message, client_tool_result } = parsed.data
-    const existing = await deps.queue.get(sessionId)
+    const existing = await sessionForResolvedApp(ctx, sessionId)
     if (!existing) {
         res.status(404).json({ error: 'session_not_found' })
         return
@@ -167,7 +183,7 @@ async function cancelHandler(ctx: AuthedRouteCtx): Promise<void> {
         return
     }
     const { session_id: sessionId } = parsed.data
-    const existing = await deps.queue.get(sessionId)
+    const existing = await sessionForResolvedApp(ctx, sessionId)
     if (!existing) {
         res.status(404).json({ error: 'session_not_found' })
         return
@@ -193,7 +209,7 @@ async function listenHandler(ctx: AuthedRouteCtx): Promise<void> {
         return
     }
     const { session_id: sessionId } = parsed.data
-    const existing = await deps.queue.get(sessionId)
+    const existing = await sessionForResolvedApp(ctx, sessionId)
     if (!existing) {
         res.status(404).json({ error: 'session_not_found' })
         return
@@ -223,7 +239,7 @@ async function clientToolResultHandler(ctx: AuthedRouteCtx): Promise<void> {
         return
     }
     const { session_id: sessionId, call_id, result, error } = parsed.data
-    const existing = await deps.queue.get(sessionId)
+    const existing = await sessionForResolvedApp(ctx, sessionId)
     if (!existing) {
         res.status(404).json({ error: 'no_session' })
         return
