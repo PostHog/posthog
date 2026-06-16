@@ -798,59 +798,65 @@ export default function FeatureFlagSchedule(): JSX.Element {
                             </div>
                         </div>
                     )}
-                    {scheduledChangeOperation === ScheduledChangeOperationType.UpdateVariants && (
-                        <div className="rounded border p-3">
-                            <FeatureFlagVariantsForm
-                                variants={displayVariants}
-                                payloads={displayPayloads}
-                                onAddVariant={() => {
-                                    const newVariants = [
-                                        ...displayVariants,
-                                        { key: '', name: '', rollout_percentage: 0 },
-                                    ]
-                                    setSchedulePayload(null, null, null, newVariants, displayPayloads)
-                                }}
-                                onRemoveVariant={(index) => {
-                                    const newVariants = displayVariants.filter((_, i) => i !== index)
-                                    const newPayloads = { ...displayPayloads }
-                                    delete newPayloads[index]
-                                    setSchedulePayload(null, null, null, newVariants, newPayloads)
-                                }}
-                                onDistributeEqually={() => {
-                                    const equalPercentage = Math.floor(100 / displayVariants.length)
-                                    const remainder = 100 - equalPercentage * displayVariants.length
-                                    const distributedVariants = displayVariants.map((variant, index) => ({
-                                        ...variant,
-                                        rollout_percentage: equalPercentage + (index === 0 ? remainder : 0),
-                                    }))
-                                    setSchedulePayload(null, null, null, distributedVariants, displayPayloads)
-                                }}
-                                onVariantChange={(index, field, value) => {
-                                    const newVariants = [...displayVariants]
-                                    newVariants[index] = { ...newVariants[index], [field]: value }
-                                    setSchedulePayload(null, null, null, newVariants, displayPayloads)
-                                }}
-                                onPayloadChange={(index, value) => {
-                                    const newPayloads = { ...displayPayloads }
-                                    if (value === undefined) {
+                    {scheduledChangeOperation === ScheduledChangeOperationType.UpdateVariants &&
+                        !!featureFlag.filters.multivariate && (
+                            <div className="rounded border p-3">
+                                <FeatureFlagVariantsForm
+                                    variants={displayVariants}
+                                    payloads={displayPayloads}
+                                    onAddVariant={() => {
+                                        const newVariants = [
+                                            ...displayVariants,
+                                            { key: '', name: '', rollout_percentage: 0 },
+                                        ]
+                                        setSchedulePayload(null, null, null, newVariants, displayPayloads)
+                                    }}
+                                    onRemoveVariant={(index) => {
+                                        const newVariants = displayVariants.filter((_, i) => i !== index)
+                                        const newPayloads = { ...displayPayloads }
                                         delete newPayloads[index]
-                                    } else {
-                                        newPayloads[index] = value
-                                    }
-                                    setSchedulePayload(null, null, null, displayVariants, newPayloads)
-                                }}
-                                variantErrors={variantErrors}
-                            />
-                        </div>
-                    )}
+                                        setSchedulePayload(null, null, null, newVariants, newPayloads)
+                                    }}
+                                    onDistributeEqually={() => {
+                                        if (displayVariants.length === 0) {
+                                            return
+                                        }
+                                        const equalPercentage = Math.floor(100 / displayVariants.length)
+                                        const remainder = 100 - equalPercentage * displayVariants.length
+                                        const distributedVariants = displayVariants.map((variant, index) => ({
+                                            ...variant,
+                                            rollout_percentage: equalPercentage + (index === 0 ? remainder : 0),
+                                        }))
+                                        setSchedulePayload(null, null, null, distributedVariants, displayPayloads)
+                                    }}
+                                    onVariantChange={(index, field, value) => {
+                                        const newVariants = [...displayVariants]
+                                        newVariants[index] = { ...newVariants[index], [field]: value }
+                                        setSchedulePayload(null, null, null, newVariants, displayPayloads)
+                                    }}
+                                    onPayloadChange={(index, value) => {
+                                        const newPayloads = { ...displayPayloads }
+                                        if (value === undefined) {
+                                            delete newPayloads[index]
+                                        } else {
+                                            newPayloads[index] = value
+                                        }
+                                        setSchedulePayload(null, null, null, displayVariants, newPayloads)
+                                    }}
+                                    variantErrors={variantErrors}
+                                />
+                            </div>
+                        )}
 
                     {/* Warning for recurring variant updates */}
-                    {isRecurring && scheduledChangeOperation === ScheduledChangeOperationType.UpdateVariants && (
-                        <LemonBanner type="warning">
-                            This will reset variants to the configuration above on each recurrence. Any manual changes
-                            made between runs will be overwritten.
-                        </LemonBanner>
-                    )}
+                    {isRecurring &&
+                        scheduledChangeOperation === ScheduledChangeOperationType.UpdateVariants &&
+                        !!featureFlag.filters.multivariate && (
+                            <LemonBanner type="warning">
+                                This will reset variants to the configuration above on each recurrence. Any manual
+                                changes made between runs will be overwritten.
+                            </LemonBanner>
+                        )}
 
                     {/* Hint when creating a single recurring schedule with no other active schedules */}
                     {isRecurring && !schedulePreset && activeSchedules.length === 0 && (
