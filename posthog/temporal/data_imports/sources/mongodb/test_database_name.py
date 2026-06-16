@@ -4,6 +4,7 @@ from unittest.mock import patch
 from posthog.temporal.data_imports.sources.generated_configs import MongoDBSourceConfig
 from posthog.temporal.data_imports.sources.mongodb.mongo import DATABASE_NAME_REQUIRED_ERROR, _parse_connection_string
 from posthog.temporal.data_imports.sources.mongodb.source import (
+    _DNS_RESOLUTION_FAILURE_MARKERS,
     _MONGO_HOST_UNRESOLVED_MESSAGE,
     _MONGO_UNREACHABLE_MESSAGE,
     MongoDBSource,
@@ -52,13 +53,14 @@ class TestMongoValidateCredentialsDatabaseName:
 
 
 class TestMongoValidateCredentialsServerSelection:
+    @pytest.mark.parametrize("marker", _DNS_RESOLUTION_FAILURE_MARKERS)
     @patch("posthog.temporal.data_imports.sources.mongodb.source.get_collection_names")
-    def test_dns_resolution_failure_returns_unresolved_message(self, mock_get_collections):
+    def test_dns_resolution_failure_returns_unresolved_message(self, mock_get_collections, marker):
         from pymongo.errors import ServerSelectionTimeoutError
 
         # The verbose topology-description message pymongo raises when the host doesn't resolve.
         mock_get_collections.side_effect = ServerSelectionTimeoutError(
-            "cluster0.qwi73.mongodb.net:27017: [Errno -5] No address associated with hostname "
+            f"cluster0.qwi73.mongodb.net:27017: [Errno -5] {marker} "
             "(configured timeouts: socketTimeoutMS: 20000.0ms), Topology Description: <TopologyDescription ...>"
         )
         config = MongoDBSourceConfig.from_dict({"connection_string": _SRV_WITH_DB})
