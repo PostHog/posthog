@@ -125,6 +125,16 @@ class TestHyperCacheGetFromCache(HyperCacheTestBase):
         assert result == {"default": "data"}
         assert source == "db"
 
+    def test_get_from_cache_corrupt_s3_payload_falls_back_to_db(self):
+        """A malformed S3 blob (json.JSONDecodeError, a ValueError subclass) must degrade to a cache miss."""
+        self.hypercache.clear_cache(self.team_id, kinds=["redis"])
+
+        with patch.object(object_storage, "read", return_value="{not valid json"):
+            result, source = self.hypercache.get_from_cache_with_source(self.team_id)
+
+        assert result == {"default": "data"}
+        assert source == "db"
+
     def test_get_from_cache_with_source_empty(self):
         """Test getting data with source information - Empty result"""
 
