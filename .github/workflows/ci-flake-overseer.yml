@@ -46,6 +46,8 @@ jobs:
             GH_TOKEN: ${{ github.token }}
             GITHUB_TOKEN: ${{ github.token }}
             MENDRAL_TOKEN: ${{ secrets.MENDRAL_TOKEN }}
+            # Emits one ci_flake_overseer_decision event per classified job to the DevEx project.
+            POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
             # Coerce the dispatch boolean to a string ('true'/'false') first, otherwise a literal
             # `false` collapses the `&&` and the explicit dispatch choice is silently dropped.
             CI_FLAKE_OVERSEER_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && (inputs.dry_run && 'true' || 'false') || vars.CI_FLAKE_OVERSEER_DRY_RUN || 'false' }}

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 
 import ci_flake_overseer
 from ci_flake_overseer import (
+    DECISION_EVENT,
     MAX_QUERY_COUNT,
     CiInsightsSource,
     Decision,
@@ -12,6 +15,9 @@ from ci_flake_overseer import (
     Job,
     JsonObject,
     Step,
+    WorkflowRun,
+    build_decision_events,
+    capture_events,
     classify_job,
     extract_failure_queries,
     is_test_job_failure,
@@ -340,6 +346,93 @@ def test_rerun_eligible_jobs_skips_api_in_dry_run(monkeypatch: pytest.MonkeyPatc
     rerun_eligible_jobs("PostHog/posthog", (make_rerun_decision(),), dry_run=True)
 
     assert calls == []
+
+
+def make_workflow_run() -> WorkflowRun:
+    return WorkflowRun(
+        id=999,
+        workflow_id=42,
+        name="Backend CI",
+        conclusion="failure",
+        head_sha="abc123",
+        run_attempt=1,
+        html_url="https://github.com/PostHog/posthog/actions/runs/999",
+    )
+
+
+def test_build_decision_events_one_event_per_decision() -> None:
+    decisions = (
+        make_rerun_decision(),
+        Decision(action="skip unknown", reason="no signature", job=make_job("Django tests - Core (1/1)")),
+    )
+
+    events = build_decision_events(
+        "PostHog/posthog", make_workflow_run(), decisions, dry_run=True, enabled=False, reran_job_ids=set()
+    )
+
+    assert [event["event"] for event in events] == [DECISION_EVENT, DECISION_EVENT]
+    assert all(event["distinct_id"] == "PostHog/posthog" for event in events)
+    first = events[0]["properties"]
+    assert first["action"] == "rerun"
+    assert first["workflow_name"] == "Backend CI"
+    assert first["dry_run"] is True
+    assert first["reran"] is False
+    assert first["insight_id"] == "01KNOWNFLAKE"
+    assert first["$groups"] == {"workflow_run": "999"}
+
+
+def test_build_decision_events_marks_reran_jobs() -> None:
+    [event] = build_decision_events(
+        "PostHog/posthog",
+        make_workflow_run(),
+        (make_rerun_decision(),),
+        dry_run=False,
+        enabled=True,
+        reran_job_ids={123},
+    )
+
+    assert event["properties"]["reran"] is True
+    assert event["properties"]["enabled"] is True
+
+
+def _raise_if_called(*args: object, **kwargs: object) -> None:
+    raise AssertionError("telemetry should not POST")
+
+
+def test_capture_events_noop_without_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ci_flake_overseer.urllib.request, "urlopen", _raise_if_called)
+
+    capture_events("", "https://us.i.posthog.com", [{"event": DECISION_EVENT}])
+
+
+def test_capture_events_noop_without_events(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ci_flake_overseer.urllib.request, "urlopen", _raise_if_called)
+
+    capture_events("phc_test", "https://us.i.posthog.com", [])
+
+
+def test_capture_events_posts_batch(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    class FakeResponse:
+        def __enter__(self) -> FakeResponse:
+            return self
+
+        def __exit__(self, *args: object) -> bool:
+            return False
+
+    def fake_urlopen(request: object, timeout: object = None) -> FakeResponse:
+        captured["url"] = request.full_url  # type: ignore[attr-defined]
+        captured["body"] = json.loads(request.data.decode())  # type: ignore[attr-defined]
+        return FakeResponse()
+
+    monkeypatch.setattr(ci_flake_overseer.urllib.request, "urlopen", fake_urlopen)
+    events = [{"event": DECISION_EVENT, "distinct_id": "PostHog/posthog", "properties": {}}]
+
+    capture_events("phc_test", "https://us.i.posthog.com/", events)
+
+    assert captured["url"] == "https://us.i.posthog.com/batch/"
+    assert captured["body"] == {"api_key": "phc_test", "batch": events}
 
 
 @pytest.mark.parametrize(

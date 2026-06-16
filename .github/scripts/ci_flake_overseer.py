@@ -10,6 +10,8 @@ import json
 import shlex
 import argparse
 import subprocess
+import urllib.error
+import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -23,6 +25,9 @@ ACTIVE_INSIGHT_STATUSES = {"proposed", "in_progress", "in_review"}
 DEFAULT_ALLOWED_WORKFLOWS = ("Backend CI", "Dagster CI", "E2E CI Playwright")
 MAX_QUERY_COUNT = 8
 MAX_INSIGHTS_PER_QUERY = 3
+
+DEFAULT_POSTHOG_HOST = "https://us.i.posthog.com"
+DECISION_EVENT = "ci_flake_overseer_decision"
 
 
 def compile_patterns(*patterns: str) -> tuple[re.Pattern[str], ...]:
@@ -515,7 +520,8 @@ def inspect_failed_jobs(
     return tuple(decisions)
 
 
-def rerun_eligible_jobs(repo: str, decisions: tuple[Decision, ...], dry_run: bool) -> None:
+def rerun_eligible_jobs(repo: str, decisions: tuple[Decision, ...], dry_run: bool) -> set[int]:
+    reran_job_ids: set[int] = set()
     for decision in decisions:
         print(format_annotation(decision))
         if decision.action != "rerun":
@@ -525,9 +531,70 @@ def rerun_eligible_jobs(repo: str, decisions: tuple[Decision, ...], dry_run: boo
             continue
         try:
             gh_post(repo, f"actions/jobs/{decision.job.id}/rerun")
+            reran_job_ids.add(decision.job.id)
             print(f"reran job {decision.job.id} ({decision.job.name})")
         except ExternalCommandError as exc:
             print(f"::warning title=CI flake overseer rerun failed::{escape_annotation(f'{decision.job.name}: {exc}')}")
+    return reran_job_ids
+
+
+def build_decision_events(
+    repo: str,
+    workflow_run: WorkflowRun,
+    decisions: tuple[Decision, ...],
+    dry_run: bool,
+    enabled: bool,
+    reran_job_ids: set[int],
+) -> list[JsonObject]:
+    events: list[JsonObject] = []
+    for decision in decisions:
+        job = decision.job
+        properties: JsonObject = {
+            "action": decision.action,
+            "reason": decision.reason,
+            "repo": repo,
+            "workflow_name": workflow_run.name,
+            "job_name": job.name,
+            "job_id": job.id,
+            "job_url": job.html_url,
+            "run_id": workflow_run.id,
+            "run_url": workflow_run.html_url,
+            "run_attempt": job.run_attempt,
+            "head_sha": workflow_run.head_sha,
+            "dry_run": dry_run,
+            "enabled": enabled,
+            "reran": job.id in reran_job_ids,
+            # Reuse the project's existing workflow_run group so reruns roll up per CI run.
+            "$groups": {"workflow_run": str(workflow_run.id)},
+        }
+        if decision.match is not None:
+            properties.update(
+                {
+                    "insight_id": decision.match.insight_id,
+                    "insight_title": decision.match.title,
+                    "insight_confidence": decision.match.confidence,
+                    "matched_query": decision.match.matched_query,
+                }
+            )
+        events.append({"event": DECISION_EVENT, "distinct_id": repo, "properties": properties})
+    return events
+
+
+def capture_events(api_key: str, host: str, events: list[JsonObject], timeout_seconds: int = 10) -> None:
+    if not api_key or not events:
+        return
+    payload = json.dumps({"api_key": api_key, "batch": events}).encode()
+    request = urllib.request.Request(
+        f"{host.rstrip('/')}/batch/",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout_seconds):
+            pass
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        print(f"::warning title=CI flake overseer telemetry failed::{escape_annotation(str(exc))}")
 
 
 def format_annotation(decision: Decision) -> str:
@@ -644,6 +711,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--insights-timeout-seconds", type=int, default=20)
     parser.add_argument("--allowed-workflows", default=os.environ.get("CI_FLAKE_OVERSEER_WORKFLOWS"))
     parser.add_argument("--summary-path", default=os.environ.get("GITHUB_STEP_SUMMARY"))
+    # Reuses the DevEx project token already wired into other CI workflows (report_test_timings.py,
+    # monitor-github-rate-limit.js); telemetry is a no-op when the secret is absent.
+    parser.add_argument("--posthog-api-key", default=os.environ.get("POSTHOG_DEVEX_PROJECT_API_TOKEN", ""))
+    parser.add_argument("--posthog-host", default=os.environ.get("POSTHOG_DEVEX_PROJECT_HOST") or DEFAULT_POSTHOG_HOST)
+    parser.add_argument("--posthog-timeout-seconds", type=int, default=10)
     return parser.parse_args(argv)
 
 
@@ -674,8 +746,10 @@ def main(argv: list[str]) -> int:
     insights = CiInsightsSource(command, args.confidence_threshold, args.insights_timeout_seconds)
     decisions = inspect_failed_jobs(args.repo, workflow_run, insights, args.max_reruns_per_job)
     dry_run = args.dry_run or not args.enabled
-    rerun_eligible_jobs(args.repo, decisions, dry_run)
+    reran_job_ids = rerun_eligible_jobs(args.repo, decisions, dry_run)
     write_summary(summary_path, workflow_run, decisions, dry_run, args.max_reruns_per_job)
+    events = build_decision_events(args.repo, workflow_run, decisions, dry_run, args.enabled, reran_job_ids)
+    capture_events(args.posthog_api_key, args.posthog_host, events, args.posthog_timeout_seconds)
     return 0
 
 
