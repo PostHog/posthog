@@ -18,7 +18,7 @@ export function VariantTimeseriesChart({
     const colors = useChartColors()
     const { getTooltip, showTooltip, hideTooltip, positionTooltip } = useInsightTooltip()
 
-    const { canvasRef } = useChart({
+    const { canvasRef } = useChart<'line'>({
         getConfig: () => {
             if (!data) {
                 return null
