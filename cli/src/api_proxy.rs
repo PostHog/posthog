@@ -1,6 +1,6 @@
-use std::env;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::{env, fs};
 
 use anyhow::{bail, Context, Result};
 
@@ -9,6 +9,8 @@ use crate::invocation_context::InvocationContext;
 
 const API_CLI_BUNDLE: &str = "posthog-api-cli.mjs";
 const ANALYTICS_HOST: &str = "https://us.i.posthog.com";
+
+include!(concat!(env!("OUT_DIR"), "/api_cli_bundle.rs"));
 
 fn canonicalize_file(path: &Path) -> Option<PathBuf> {
     let resolved = path.canonicalize().ok()?;
@@ -27,19 +29,37 @@ fn adjacent_bundle_dir() -> Option<PathBuf> {
     Some(env::current_exe().ok()?.parent()?.to_path_buf())
 }
 
-fn bundle_candidates(
-    executable_dir: Option<&Path>,
-    install_dir: Option<&Path>,
-    development_dir: &Path,
-) -> Vec<PathBuf> {
-    let mut candidates = Vec::new();
+fn adjacent_bundle_candidates(executable_dir: Option<&Path>) -> Vec<PathBuf> {
+    let Some(bundle_dir) = executable_dir else {
+        return Vec::new();
+    };
 
-    if let Some(bundle_dir) = executable_dir {
-        candidates.extend([
-            bundle_dir.join("lib").join(API_CLI_BUNDLE),
-            bundle_dir.join(API_CLI_BUNDLE),
-        ]);
-    }
+    vec![
+        bundle_dir.join("lib").join(API_CLI_BUNDLE),
+        bundle_dir.join(API_CLI_BUNDLE),
+    ]
+}
+
+fn embedded_bundle_path(install_dir: &Path) -> PathBuf {
+    install_dir
+        .join("api-cli")
+        .join(env!("CARGO_PKG_VERSION"))
+        .join(API_CLI_BUNDLE)
+}
+
+fn materialize_embedded_script(
+    bundle: Option<&[u8]>,
+    install_dir: Option<&Path>,
+) -> Option<PathBuf> {
+    let bundle = bundle?;
+    let path = embedded_bundle_path(install_dir?);
+    fs::create_dir_all(path.parent()?).ok()?;
+    fs::write(&path, bundle).ok()?;
+    canonicalize_file(&path)
+}
+
+fn legacy_bundle_candidates(install_dir: Option<&Path>, development_dir: &Path) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
 
     if let Some(install_dir) = install_dir {
         candidates.extend([
@@ -51,6 +71,17 @@ fn bundle_candidates(
     }
 
     candidates.push(development_dir.join("lib").join(API_CLI_BUNDLE));
+    candidates
+}
+
+#[cfg(test)]
+fn bundle_candidates(
+    executable_dir: Option<&Path>,
+    install_dir: Option<&Path>,
+    development_dir: &Path,
+) -> Vec<PathBuf> {
+    let mut candidates = adjacent_bundle_candidates(executable_dir);
+    candidates.extend(legacy_bundle_candidates(install_dir, development_dir));
     candidates
 }
 
@@ -77,8 +108,19 @@ fn find_script() -> Result<PathBuf> {
 
     let executable_dir = adjacent_bundle_dir();
     let install_dir = default_install_dir();
-    for candidate in bundle_candidates(
-        executable_dir.as_deref(),
+    for candidate in adjacent_bundle_candidates(executable_dir.as_deref()) {
+        if let Some(resolved) = canonicalize_file(&candidate) {
+            return Ok(resolved);
+        }
+    }
+
+    if let Some(resolved) =
+        materialize_embedded_script(EMBEDDED_API_CLI_BUNDLE, install_dir.as_deref())
+    {
+        return Ok(resolved);
+    }
+
+    for candidate in legacy_bundle_candidates(
         install_dir.as_deref(),
         Path::new(env!("CARGO_MANIFEST_DIR")),
     ) {
@@ -201,6 +243,39 @@ mod tests {
         let temp_dir = tempfile::tempdir().expect("create temp dir");
 
         assert_eq!(canonicalize_file(temp_dir.path()), None);
+    }
+
+    #[test]
+    fn embedded_bundle_is_materialized_into_a_versioned_install_dir() {
+        let temp_dir = tempfile::tempdir().expect("create temp dir");
+
+        let resolved = materialize_embedded_script(Some(b"embedded bundle"), Some(temp_dir.path()))
+            .expect("materialize embedded bundle");
+
+        assert_eq!(
+            resolved,
+            temp_dir
+                .path()
+                .join("api-cli")
+                .join(env!("CARGO_PKG_VERSION"))
+                .join(API_CLI_BUNDLE)
+                .canonicalize()
+                .expect("canonicalize materialized bundle")
+        );
+        assert_eq!(
+            fs::read(resolved).expect("read materialized bundle"),
+            b"embedded bundle"
+        );
+    }
+
+    #[test]
+    fn embedded_bundle_is_ignored_when_it_was_not_built() {
+        let temp_dir = tempfile::tempdir().expect("create temp dir");
+
+        assert_eq!(
+            materialize_embedded_script(None, Some(temp_dir.path())),
+            None
+        );
     }
 
     #[test]
