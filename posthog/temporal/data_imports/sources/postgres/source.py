@@ -254,6 +254,15 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             # an existing column in place, so retrying won't help — the table must be reset and
             # fully re-synced to adopt the new type.
             "Source column type changed": "A column's type changed in your source database (for example an integer column was widened to bigint) and no longer fits the type we stored. We can't widen an existing column in place — please reset and fully re-sync this table to adopt the new type.",
+            # Raised by the source Postgres when the incremental query compares an integer column
+            # against a non-integer cursor value, e.g. `WHERE "id" > '1.5'`. `_build_query` renders
+            # the stored `incremental_field_last_value` as a SQL literal, so a fractional/non-integer
+            # cursor produces `InvalidTextRepresentation: invalid input syntax for type integer`.
+            # This is deterministic — every retry re-runs the identical failing query — and signals a
+            # type mismatch between the incremental field and its data. The volatile offending value
+            # (`: "1.5"`) is excluded from the match. Coercing the cursor here would change sync
+            # semantics (risk of skipped/duplicated rows), so stop and ask the user to reset.
+            "invalid input syntax for type integer": "PostHog tried to resume this table's incremental sync from a non-integer cursor value against an integer incremental field, which your database rejects. This usually means the incremental field's type doesn't match its data. Please reset and fully re-sync this table, or pick a different incremental field.",
         }
 
     def reconcile_schema_metadata(

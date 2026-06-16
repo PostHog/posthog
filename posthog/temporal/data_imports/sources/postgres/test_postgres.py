@@ -254,6 +254,18 @@ class TestPostgresSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            'invalid input syntax for type integer: "1.5"',
+            'InvalidTextRepresentation: invalid input syntax for type integer: "1.5"',
+        ],
+    )
+    def test_non_integer_incremental_cursor_errors_are_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Non-integer incremental cursor error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             "Hit 30 successive SerializationFailure errors. Aborting.",
             "Exception: Hit 30 successive SerializationFailure errors. Aborting.",
         ],
