@@ -87,6 +87,13 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
         return {
             "missing or invalid refresh token": "Your HubSpot connection is invalid or expired. Please reconnect it.",
             "missing or unknown hub id": None,
+            # HubSpot's CRM API returns 401/403 when the OAuth grant can't read the requested object
+            # (token revoked, or the connected app is missing a scope like `crm.objects.companies.read`).
+            # `fetch_data` already refreshes the access token once on a 401; if the retried request is
+            # still rejected, the credentials genuinely lack access and retrying can't recover. Match the
+            # stable host, not the per-object URL path (companies/deals/contacts/...), which varies.
+            "401 Client Error: Unauthorized for url: https://api.hubapi.com": "Your HubSpot credentials are no longer authorized. Please reconnect your HubSpot account and ensure it has the required permissions, then try again.",
+            "403 Client Error: Forbidden for url: https://api.hubapi.com": "Your HubSpot credentials do not have permission to access this data. Please reconnect your HubSpot account and ensure it has the required permissions, then try again.",
             # Raised by source_for_pipeline when the source config carries no refresh token at all
             # (integration never connected or lost its token). Retrying cannot recover.
             "Hubspot refresh token not found": "Your HubSpot connection is missing its refresh token. Please reconnect it.",
