@@ -170,7 +170,7 @@ function ReminderModal(): JSX.Element {
                         <LemonInputSelect
                             mode="single"
                             value={[value]}
-                            onChange={([newTimezone]) => onChange(newTimezone)}
+                            onChange={(newTimezones) => newTimezones[0] && onChange(newTimezones[0])}
                             options={timezoneOptions}
                             placeholder="Select a time zone"
                             disabled={!isScheduleEditable}
