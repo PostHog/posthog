@@ -5,7 +5,7 @@ from unittest import mock
 
 from suds import WebFault
 
-from posthog.temporal.data_imports.sources.bing_ads.client import BingAdsClient
+from posthog.temporal.data_imports.sources.bing_ads.client import BingAdsClient, extract_webfault_detail
 from posthog.temporal.data_imports.sources.bing_ads.source import BingAdsSource
 
 
@@ -21,6 +21,46 @@ def _make_webfault(faultstring: str, detail: object | None) -> WebFault:
 def _ad_api_fault_detail(error_code: str, message: str, code: int = 105) -> object:
     error = types.SimpleNamespace(Code=code, ErrorCode=error_code, Message=message)
     return types.SimpleNamespace(AdApiFaultDetail=types.SimpleNamespace(Errors=types.SimpleNamespace(AdApiError=error)))
+
+
+def _operation_fault_detail(*errors: tuple[object, str]) -> object:
+    """Build an ``ApiFaultDetail.OperationErrors.OperationError[]`` detail.
+
+    OperationError carries ``Code``/``Message`` (no ``ErrorCode``); pass a single error or many.
+    """
+    operation_errors = [types.SimpleNamespace(Code=code, Message=message) for code, message in errors]
+    payload = operation_errors[0] if len(operation_errors) == 1 else operation_errors
+    return types.SimpleNamespace(
+        ApiFaultDetail=types.SimpleNamespace(OperationErrors=types.SimpleNamespace(OperationError=payload))
+    )
+
+
+@pytest.mark.parametrize(
+    "detail,expected",
+    [
+        # No detail at all -> empty string, nothing to surface.
+        (None, ""),
+        # AdApiFaultDetail single error: ErrorCode wins over numeric Code.
+        (
+            _ad_api_fault_detail("InvalidCredentials", "The user is not authenticated."),
+            "InvalidCredentials: The user is not authenticated.",
+        ),
+        # ApiFaultDetail single OperationError: falls back to numeric Code when no ErrorCode.
+        (
+            _operation_fault_detail((114, "Campaign service operation failed.")),
+            "114: Campaign service operation failed.",
+        ),
+        # ApiFaultDetail with multiple OperationErrors are all surfaced, joined by "; ".
+        (
+            _operation_fault_detail((114, "First failure."), (116, "Second failure.")),
+            "114: First failure.; 116: Second failure.",
+        ),
+    ],
+)
+def test_extract_webfault_detail(detail, expected):
+    """extract_webfault_detail must parse both AdApiFaultDetail and ApiFaultDetail shapes."""
+    fault = types.SimpleNamespace(detail=detail)
+    assert extract_webfault_detail(fault) == expected
 
 
 class TestBingAdsClient:
