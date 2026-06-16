@@ -3,7 +3,7 @@ from unittest import mock
 
 import requests
 
-from posthog.schema import ReleaseStatus
+from posthog.schema import ReleaseStatus, SourceFieldOauthConfig
 
 from posthog.temporal.data_imports.sources.generated_configs import GoogleAnalyticsSourceConfig
 from posthog.temporal.data_imports.sources.google_analytics.google_analytics import GoogleAnalyticsResumeConfig
@@ -35,6 +35,7 @@ def test_get_source_config_fields():
 def test_get_source_config_oauth_field_declares_required_scope():
     cfg = GoogleAnalyticsSource().get_source_config
     oauth_field = next(field for field in cfg.fields if field.name == "google_analytics_integration_id")
+    assert isinstance(oauth_field, SourceFieldOauthConfig)
     assert oauth_field.kind == "google-analytics"
     assert oauth_field.requiredScopes == "https://www.googleapis.com/auth/analytics.readonly"
 

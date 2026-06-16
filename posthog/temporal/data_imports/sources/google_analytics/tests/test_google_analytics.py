@@ -1,4 +1,6 @@
 import datetime as dt
+from collections.abc import Iterable
+from typing import Any, cast
 
 import pytest
 from unittest import mock
@@ -379,7 +381,7 @@ def test_source_yields_rows_and_advances_chunks(monkeypatch):
         db_incremental_field_last_value=dt.date(2026, 4, 25),
     )
 
-    batches = list(response.items())
+    batches = list(cast(Iterable[Any], response.items()))
 
     # Window: last value 2026-04-25 minus 2-day lookback → 2026-04-23 .. yesterday (2026-04-29); one chunk.
     assert requests_made == [("2026-04-23", "2026-04-29", 0)]
@@ -423,7 +425,7 @@ def test_source_paginates_within_chunk_and_saves_offsets(monkeypatch):
         db_incremental_field_last_value=dt.date(2026, 4, 25),
     )
 
-    batches = list(response.items())
+    batches = list(cast(Iterable[Any], response.items()))
 
     assert len(batches) == 2
     # Mid-chunk state saves the in-progress chunk with the next offset; the final
@@ -455,7 +457,7 @@ def test_source_resumes_from_saved_state(monkeypatch):
         resumable_source_manager=manager,
     )
 
-    list(response.items())
+    list(cast(Iterable[Any], response.items()))
 
     # Chunking restarts at the saved chunk start, with the saved offset applied
     # only to that first chunk.
@@ -486,7 +488,7 @@ def test_source_resume_past_end_date_yields_nothing(monkeypatch):
         db_incremental_field_last_value=dt.date(2026, 4, 25),
     )
 
-    assert list(response.items()) == []
+    assert list(cast(Iterable[Any], response.items())) == []
     fake_run_report.assert_not_called()
 
 
