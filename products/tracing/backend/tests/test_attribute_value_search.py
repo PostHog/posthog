@@ -2,6 +2,8 @@ import datetime as dt
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
+from parameterized import parameterized
+
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.traces.spans import TRACE_ATTRIBUTES_DISTRIBUTED_TABLE_SQL
 from posthog.clickhouse.traces.trace_attributes import TRACE_ATTRIBUTES_TABLE_SQL
@@ -56,10 +58,18 @@ class TestTracingAttributeValueSearch(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(res.status_code, 200, res.content)
         return res.json()["results"]
 
-    def test_search_values_off_by_default(self):
-        # Without search_values, a value-only term matches nothing (no key contains it).
-        results = self._attributes({"attribute_type": "span_attribute", "search": TRACE_ID_VALUE})
-        self.assertEqual(results, [])
+    @parameterized.expand(
+        [
+            # Value-only term, but value search disabled → no value matches surface.
+            ("off_by_default", {"attribute_type": "span_attribute", "search": TRACE_ID_VALUE}),
+            # search_values on, but term under the 4-char minimum → value search skipped.
+            ("short_search", {"attribute_type": "span_attribute", "search": "abc", "search_values": "true"}),
+        ]
+    )
+    def test_no_value_matches(self, _name, params):
+        results = self._attributes(params)
+        for entry in results:
+            self.assertNotEqual(entry.get("matchedOn"), "value")
 
     def test_search_values_finds_match_on_value(self):
         results = self._attributes(
@@ -93,12 +103,6 @@ class TestTracingAttributeValueSearch(ClickhouseTestMixin, APIBaseTest):
         first_value_idx = next((i for i, m in enumerate(match_kinds) if m == "value"), None)
         if first_value_idx is not None:
             self.assertNotIn("key", match_kinds[first_value_idx:], "key matches must appear before value matches")
-
-    def test_search_values_skipped_for_short_search(self):
-        # "abc" (3 chars) is a substring of the value but value search is gated to >= 4 chars.
-        results = self._attributes({"attribute_type": "span_attribute", "search": "abc", "search_values": "true"})
-        for entry in results:
-            self.assertNotEqual(entry.get("matchedOn"), "value")
 
     def test_key_search_is_case_insensitive(self):
         # Keys are stored lowercase; an upper-case search term must still match them (ILIKE).
