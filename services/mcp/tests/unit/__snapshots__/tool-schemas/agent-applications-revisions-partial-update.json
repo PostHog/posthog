@@ -378,6 +378,10 @@
                                             "ack_reaction": {
                                                 "type": "string"
                                             },
+                                            "allow_direct_messages": {
+                                                "default": false,
+                                                "type": "boolean"
+                                            },
                                             "allow_workspace_participants": {
                                                 "default": false,
                                                 "type": "boolean"
