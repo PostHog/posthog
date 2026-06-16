@@ -14,6 +14,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 
+import { isMarkdownNotebookContent } from './Notebook/markdownNotebookV2'
 import { Notebook } from './Notebook/Notebook'
 import { NotebookLoadingState } from './Notebook/NotebookLoadingState'
 import { notebookLogic } from './Notebook/notebookLogic'
@@ -21,6 +22,7 @@ import {
     NotebookCollabStatus,
     NotebookExpandButton,
     NotebookKernelInfoButton,
+    NotebookPresence,
     NotebookSyncInfo,
     NotebookTableOfContentsButton,
 } from './Notebook/NotebookMeta'
@@ -46,9 +48,10 @@ export const scene: SceneExport<NotebookSceneLogicProps> = {
 export function NotebookScene(): JSX.Element {
     const { notebookId, loading } = useValues(notebookSceneLogic)
     const { createNotebook } = useActions(notebookSceneLogic)
-    const { notebook, conflictWarningVisible, accessDeniedToNotebook } = useValues(
+    const { notebook, content, conflictWarningVisible, accessDeniedToNotebook } = useValues(
         notebookLogic({ shortId: notebookId, target: NotebookTarget.Scene })
     )
+    const isMarkdownNotebook = isMarkdownNotebookContent(content)
     const { selectNotebook, closeSidePanel } = useActions(notebookPanelLogic)
     const { selectedNotebook, visibility } = useValues(notebookPanelLogic)
 
@@ -127,29 +130,38 @@ export function NotebookScene(): JSX.Element {
                 <div className="flex gap-2 items-center">
                     <NotebookCollabStatus shortId={notebookId} />
                     <NotebookSyncInfo shortId={notebookId} />
+                    <NotebookPresence shortId={notebookId} />
 
                     <NotebookMenu shortId={notebookId} />
 
-                    <LemonButton
-                        type="secondary"
-                        icon={<IconInfo />}
-                        size="small"
-                        onClick={() => {
-                            if (selectedNotebook === LOCAL_NOTEBOOK_TEMPLATES[0].short_id && visibility === 'visible') {
-                                closeSidePanel()
-                            } else {
-                                selectNotebook(LOCAL_NOTEBOOK_TEMPLATES[0].short_id)
-                            }
-                        }}
-                    >
-                        {selectedNotebook === LOCAL_NOTEBOOK_TEMPLATES[0].short_id && visibility === 'visible'
-                            ? 'Close '
-                            : ''}
-                        Guide
-                    </LemonButton>
-                    <NotebookTableOfContentsButton type="secondary" size="small" />
+                    {!isMarkdownNotebook ? (
+                        <>
+                            <LemonButton
+                                type="secondary"
+                                icon={<IconInfo />}
+                                size="small"
+                                onClick={() => {
+                                    if (
+                                        selectedNotebook === LOCAL_NOTEBOOK_TEMPLATES[0].short_id &&
+                                        visibility === 'visible'
+                                    ) {
+                                        closeSidePanel()
+                                    } else {
+                                        selectNotebook(LOCAL_NOTEBOOK_TEMPLATES[0].short_id)
+                                    }
+                                }}
+                            >
+                                {selectedNotebook === LOCAL_NOTEBOOK_TEMPLATES[0].short_id && visibility === 'visible'
+                                    ? 'Close '
+                                    : ''}
+                                Guide
+                            </LemonButton>
+                            <NotebookTableOfContentsButton type="secondary" size="small" />
+                        </>
+                    ) : null}
                     <NotebookKernelInfoButton type="secondary" size="small" />
-                    <NotebookExpandButton type="secondary" size="small" inPanel={false} />
+                    {/* Markdown notebooks have no width toggle — they always fill the content width. */}
+                    {!isMarkdownNotebook && <NotebookExpandButton type="secondary" size="small" inPanel={false} />}
                     <LemonButton
                         type="secondary"
                         size="small"

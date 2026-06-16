@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -32,6 +33,7 @@ class ShortcutSource(SimpleSource[ShortcutSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.SHORTCUT,
+            category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Shortcut",
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your Shortcut API token to sync your Shortcut data into the PostHog Data warehouse.

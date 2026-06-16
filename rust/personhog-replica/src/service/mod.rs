@@ -6,7 +6,7 @@ mod types;
 #[cfg(test)]
 mod tests;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use personhog_proto::personhog::replica::v1::person_hog_replica_server::PersonHogReplica;
@@ -37,9 +37,9 @@ use personhog_proto::personhog::types::v1::{
     InsertCohortMembersResponse, ListCohortMemberIdsRequest, ListCohortMemberIdsResponse,
     ListGroupsRequest, ListGroupsResponse, PersonDistinctIds, PersonWithDistinctIds,
     PersonWithTeamDistinctId, PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse,
-    PersonsResponse, TeamDistinctId, UpdateGroupRequest, UpdateGroupResponse,
-    UpdateGroupTypeMappingRequest, UpdateGroupTypeMappingResponse, UpsertHashKeyOverridesRequest,
-    UpsertHashKeyOverridesResponse,
+    PersonsResponse, SplitPersonRequest, SplitPersonResponse, SplitResult as ProtoSplitResult,
+    TeamDistinctId, UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
+    UpdateGroupTypeMappingResponse, UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
@@ -50,6 +50,9 @@ const MAX_BATCH_LOOKUP_SIZE: usize = 250;
 const MAX_BATCH_DELETE_SIZE: i64 = 50_000;
 const MAX_LIST_COHORT_MEMBER_IDS_LIMIT: i32 = 10_000;
 const MAX_LIST_GROUPS_LIMIT: i32 = 1_000;
+// Splits run in a single all-or-nothing transaction holding row locks, so the
+// cap bounds both lock-hold time and payload size — same order as batch lookups.
+const MAX_SPLIT_BATCH_SIZE: usize = 250;
 
 use consistency::{reject_strong_consistency, to_storage_consistency};
 use error::log_and_convert_error;
@@ -1210,6 +1213,63 @@ impl PersonHogReplica for PersonHogReplicaService {
 
         Ok(Response::new(DeleteGroupTypeMappingsBatchForTeamResponse {
             deleted_count,
+        }))
+    }
+
+    // ============================================================
+    // Person split
+    // ============================================================
+
+    async fn split_person(
+        &self,
+        request: Request<SplitPersonRequest>,
+    ) -> Result<Response<SplitPersonResponse>, Status> {
+        let req = request.into_inner();
+
+        if req.distinct_ids_to_split.is_empty() {
+            return Ok(Response::new(SplitPersonResponse { splits: vec![] }));
+        }
+
+        if req.distinct_ids_to_split.len() > MAX_SPLIT_BATCH_SIZE {
+            return Err(Status::invalid_argument(format!(
+                "Maximum {MAX_SPLIT_BATCH_SIZE} distinct_ids per split_person request"
+            )));
+        }
+
+        let unique_dids: HashSet<&str> = req
+            .distinct_ids_to_split
+            .iter()
+            .map(|s| s.as_str())
+            .collect();
+        if unique_dids.len() != req.distinct_ids_to_split.len() {
+            return Err(Status::invalid_argument(
+                "Duplicate distinct_ids in split_person request",
+            ));
+        }
+
+        let results = self
+            .storage
+            .split_person(req.team_id, req.person_id, &req.distinct_ids_to_split)
+            .await
+            .map_err(|e| match &e {
+                storage::StorageError::NotFound(msg) => Status::not_found(msg.clone()),
+                storage::StorageError::FailedPrecondition(msg) => {
+                    Status::failed_precondition(msg.clone())
+                }
+                _ => log_and_convert_error(e, "split_person"),
+            })?;
+
+        Ok(Response::new(SplitPersonResponse {
+            splits: results
+                .into_iter()
+                .map(|r| ProtoSplitResult {
+                    distinct_id: r.distinct_id,
+                    new_person_uuid: r.new_person_uuid.to_string(),
+                    new_person_version: r.new_person_version,
+                    pdi_version: r.pdi_version,
+                    new_person_created_at_ms: r.new_person_created_at.timestamp_millis(),
+                })
+                .collect(),
         }))
     }
 }

@@ -129,7 +129,3 @@ HEATMAP_BROWSERLESS_BLOCK_ADS = get_from_env("HEATMAP_BROWSERLESS_BLOCK_ADS", Fa
 HEATMAP_BROWSERLESS_BLOCK_CONSENT_MODALS = get_from_env(
     "HEATMAP_BROWSERLESS_BLOCK_CONSENT_MODALS", True, type_cast=str_to_bool
 )
-# Pass --no-sandbox to the local heatmap Chromium. Defaults True (required where the container
-# can't create the unprivileged user namespace the Chromium sandbox needs). Set False to keep the
-# sandbox once the runtime allows it (seccomp profile permitting userns clone, non-root user).
-HEATMAP_CHROMIUM_NO_SANDBOX = get_from_env("HEATMAP_CHROMIUM_NO_SANDBOX", True, type_cast=str_to_bool)

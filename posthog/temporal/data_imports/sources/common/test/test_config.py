@@ -1,5 +1,7 @@
 import typing
 
+import pytest
+
 from posthog.temporal.data_imports.sources.common import config
 
 
@@ -318,6 +320,58 @@ def test_to_config_union_nested_configs_with_alias():
 
     assert isinstance(a_cfg.inner, A)
     assert a_cfg.inner.a == "test"
+
+
+@pytest.mark.parametrize(
+    "config_dict,expected_selection,expected_integration_id,expected_account_id",
+    [
+        # Flat select payload: the option value as a scalar with the option's fields as
+        # siblings. The scalar isn't mapped to `selection`, so it keeps its default and
+        # the siblings are parsed flat.
+        ({"auth_method": "oauth", "integration_id": 123, "account_id": "acct_x"}, "api_key", 123, "acct_x"),
+        # Nested form keeps working unchanged.
+        (
+            {"auth_method": {"selection": "oauth", "integration_id": 456}, "account_id": "acct_y"},
+            "oauth",
+            456,
+            "acct_y",
+        ),
+    ],
+)
+def test_to_config_scalar_under_nested_config_key(
+    config_dict, expected_selection, expected_integration_id, expected_account_id
+):
+    """A scalar under a nested-config key must not crash `to_config`.
+
+    A flat select payload (e.g. `auth_method: "oauth"` with the option's fields as
+    siblings, instead of the nested `auth_method: {"selection": "oauth", ...}`) puts a
+    scalar where a nested config dict is expected. `validate_config` already treats this
+    as a flat structure (it guards with `isinstance(..., dict)`), so `to_config` must do
+    the same and fall through to flat parsing instead of recursing into the scalar and
+    raising an unhandled `TypeError`.
+    """
+
+    @config.config
+    class AuthMethod:
+        selection: str = "api_key"
+        integration_id: int | None = config.value(converter=config.str_to_optional_int, default_factory=lambda: None)
+
+    @config.config
+    class SourceConfig(config.Config):
+        auth_method: AuthMethod
+        account_id: str | None = None
+
+    # Validation accepts both shapes, so construction must not crash — the two functions
+    # have to agree.
+    is_valid, errors = SourceConfig.validate_dict(config_dict)
+    assert is_valid is True
+    assert errors == []
+
+    cfg = SourceConfig.from_dict(config_dict)
+    assert isinstance(cfg.auth_method, AuthMethod)
+    assert cfg.auth_method.selection == expected_selection
+    assert cfg.auth_method.integration_id == expected_integration_id
+    assert cfg.account_id == expected_account_id
 
 
 def test_validate_dict():

@@ -1011,7 +1011,7 @@ def oauth_token(request: Request) -> Response:
         )
 
 
-def _lock_application(application_id: int) -> OAuthApplication | None:
+def _lock_application(application_id: uuid.UUID) -> OAuthApplication | None:
     """Row-lock the OAuthApplication so direct-mint serializes with revoke_application_sessions.
 
     The revoke updates this row first and holds the lock for its whole transaction before

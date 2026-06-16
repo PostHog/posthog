@@ -9,6 +9,7 @@ if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
@@ -91,6 +92,8 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.POSTGRES,
+            category=DataWarehouseSourceCategory.DATABASES,
+            keywords=["postgresql"],
             caption="Enter your Postgres credentials to automatically pull your Postgres data into the PostHog Data warehouse",
             iconPath="/static/services/postgres.png",
             docsUrl="https://posthog.com/docs/cdp/sources/postgres",
@@ -110,7 +113,13 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                         label="Host",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
-                        placeholder="localhost",
+                        placeholder="db.example.com",
+                        caption=(
+                            "Must be reachable from the public internet. Add PostHog's egress IP addresses to your "
+                            "firewall allowlist (see the docs above) and use a public host — `localhost` and private "
+                            "IPs (10.x, 172.16–31.x, 192.168.x) can't be reached. For a database that can't be "
+                            "exposed publicly, enable the SSH tunnel below."
+                        ),
                         secret=False,
                     ),
                     SourceFieldInputConfig(
@@ -165,6 +174,17 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             "is not permitted to log in": None,
             "Tenant or user not found connection to server": None,
             "FATAL: Tenant or user not found": None,
+            # Newer Supabase/Supavisor poolers report a missing tenant/user with a different
+            # wording than the two lines above ("FATAL: (ENOTFOUND) tenant/user <user> not found").
+            # It means the pooler can't resolve the project ref or pooler username — the project is
+            # paused/deleted or the credentials are wrong — so it's permanent until the customer
+            # fixes their config. Match the stable fragment and exclude the volatile username/host.
+            "(ENOTFOUND) tenant/user": (
+                "Your database connection pooler couldn't find the tenant or user "
+                '("tenant/user not found"). This usually means the database project is paused or '
+                "deleted, or the pooler username/host is wrong. Check that your database is active "
+                "and the connection details are correct, then re-enable the sync."
+            ),
             "error received from server in SCRAM exchange: Wrong password": None,
             "could not translate host name": None,
             "timeout expired connection to server at": None,
@@ -395,8 +415,14 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                     # Row-level security check powers the advisory warning in the table picker.
                     rls_active_by_table = _rls_active_from_conn(conn, config.schema, names)
             except Exception as e:
-                # Connection-level failure: neither lookup is usable.
-                capture_exception(e)
+                # Connection-level failure for the best-effort PK/index/RLS metadata lookup. The
+                # schema listing already succeeded above (`db_schemas`), so degrade quietly — log a
+                # warning and drop the optional metadata, consistent with the foreign-key and index
+                # lookups in this function. Don't `capture_exception` here: this connection is opened
+                # separately from schema discovery and is prone to transient drops (e.g. an SSH-tunnel
+                # hiccup raising "server closed the connection unexpectedly"), which would otherwise
+                # flood error tracking despite the listing still succeeding.
+                structlog.get_logger().warning("Failed to fetch PK/index/RLS metadata for Postgres schemas", exc_info=e)
                 pk_columns_by_table = {}
                 indexed_columns_by_table = None
                 tables_with_pks = set()

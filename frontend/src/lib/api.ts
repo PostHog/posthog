@@ -746,10 +746,6 @@ export class ApiRequest {
         return this.metrics(projectId).addPathComponent('has_metrics')
     }
 
-    public metricsQuery(projectId?: ProjectType['id']): ApiRequest {
-        return this.metrics(projectId).addPathComponent('query')
-    }
-
     public metricsValues(projectId?: ProjectType['id']): ApiRequest {
         return this.metrics(projectId).addPathComponent('values')
     }
@@ -2624,6 +2620,7 @@ const api = {
                     ActivityScope.PRODUCT_TOUR,
                     ActivityScope.TICKET,
                     ActivityScope.COHORT,
+                    ActivityScope.OAUTH_APPLICATION,
                 ].includes(scopes[0]) ||
                 scopes.length > 1
             ) {
@@ -2819,20 +2816,6 @@ const api = {
                 .metricsHasMetrics()
                 .get()
                 .then((response) => Boolean(response.hasMetrics))
-        },
-        async query({
-            query,
-            signal,
-        }: {
-            query: {
-                metricName: string
-                aggregation: 'sum' | 'avg' | 'count' | 'p95'
-                dateFrom: string
-                dateTo?: string
-            }
-            signal?: AbortSignal
-        }): Promise<{ results: { time: string; value: number }[] }> {
-            return new ApiRequest().metricsQuery().create({ signal, data: { query } })
         },
         async values({
             search,

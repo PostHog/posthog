@@ -16,6 +16,7 @@ from products.posthog_ai.scripts.build_skills import (
     SkillBuilder,
     SkillDiscoverer,
     SkillRenderer,
+    _check_tool_references,
     parse_frontmatter,
     validate_frontmatter,
 )
@@ -626,3 +627,66 @@ def test_init_skill_rejects_missing_product(tmp_path: Path) -> None:
     builder = SkillBuilder(repo_root=tmp_path, products_dir=tmp_path / "products", output_dir=tmp_path / "output")
     with pytest.raises(FileNotFoundError, match="does not exist"):
         builder.init_skill("nonexistent_product", "some-skill")
+
+
+_REF_TOOLS = {
+    "execute-sql",
+    "experiment-ship-variant",
+    "feature-flag-get-all",
+    "external-data-schemas-partial-update",
+    "read-data-schema",
+    "signals-scout-runs-list",
+}
+_REF_SKILLS = {"finding-experiments", "creating-experiments"}
+
+
+@pytest.mark.parametrize(
+    "text,expected_names",
+    [
+        ("search flags with the feature-flags-get-all tool first", ["feature-flags-get-all"]),
+        ("Use the `experiment_results_summary` tool", ["experiment_results_summary"]),
+        ("use the launch, end, or ship_variant tools instead", ["ship_variant"]),
+        ("`execute_sql`: query the experiments table", ["execute_sql"]),
+        ("use the `execute_sql` tool", ["execute_sql"]),
+        ("load the managing-unicorns skill first", ["managing-unicorns"]),
+        ("query it via `does-not-exist-here`", ["does-not-exist-here"]),
+        ('fetch the entity via `read_data("experiments", id)`', ["read_data"]),
+        ("use the read-data-schema tool to discover events", []),
+        ("change the sync type with the `partial-update` tool", []),
+        ("browse with the feature-flag tools", []),
+        ("this is a per-file tool for editing", []),
+        ("Deep-dive skills are useful here", []),
+        ("teams enrolled via the `signals-scout` feature flag", []),
+        ("load the finding-experiments skill first", []),
+        ("resolve the reference via `creating-experiments`", []),
+        ('check `get_feature_flag("key", distinct_id)` in the SDK', []),
+    ],
+    ids=[
+        "renamed-tool",
+        "fictional-snake-case-tool",
+        "snake-case-in-plural-phrase",
+        "wrong-casing",
+        "one-report-when-phrase-and-casing-rules-overlap",
+        "nonexistent-skill",
+        "invocation-of-unknown-tool",
+        "call-syntax-fictional-tool",
+        "exact-tool-name",
+        "suffix-shorthand",
+        "plural-family-reference",
+        "allowlisted-prose",
+        "capitalized-prose-no-mid-word-match",
+        "entity-noun-after-backticks",
+        "existing-skill",
+        "skill-name-in-invocation-context",
+        "allowlisted-sdk-call",
+    ],
+)
+def test_check_tool_references(text: str, expected_names: list[str]) -> None:
+    errors = _check_tool_references(text, "test", _REF_TOOLS, _REF_SKILLS)
+    found = [err.split("'")[1] for err in errors]
+    assert found == expected_names
+
+
+def test_check_tool_references_suggests_real_tool() -> None:
+    (error,) = _check_tool_references("use the launch or ship_variant tools instead", "test", _REF_TOOLS, _REF_SKILLS)
+    assert "did you mean experiment-ship-variant" in error

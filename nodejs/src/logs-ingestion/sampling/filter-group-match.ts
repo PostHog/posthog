@@ -80,14 +80,16 @@ function lookupRecordValue(filter: PropertyFilterLeaf, record: LogRecord): strin
         // would silently miss real data.
         return record.service_name ?? record.resource_attributes?.['service.name']
     }
-    if (key === 'severity_text' || key === 'level') {
+    if (key === 'severity_text' || key === 'level' || key === 'severity_level') {
         // First-class column wins. Otherwise fall back to attribute storage,
         // trying the SDK convention (`level` — Winston/Pino/Bunyan/log4j2) first
         // and the OTel-style `severity_text` second. The fallback chain does not
         // depend on which key the filter used, so `level: info` and
         // `severity_text: info` always resolve to the same value for the same
         // record (otherwise we'd silently disagree when only one of the two
-        // attribute names is populated).
+        // attribute names is populated). `severity_level` is the logs UI / HogQL
+        // alias and the key the drop-rule builder writes; without this branch it
+        // falls through to the `type: 'log'` body fallback and never matches.
         return record.severity_text ?? record.attributes?.['level'] ?? record.attributes?.['severity_text']
     }
     if (key === 'message' || filter.type === PROPERTY_FILTER_TYPE_LOG) {
