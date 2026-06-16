@@ -157,7 +157,7 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                     }),
                 ])
                 .describe(
-                    'Per-insight-kind alert config, discriminated by ``type`` — keeps the OpenAPI (and the\ngenerated frontend types and MCP tool schemas) in sync with every kind alerts support.\n\n``FunnelsAlertConfig`` is deliberately absent until the funnel-alert backend lands; the\nfunnel frontend on this branch is flag-gated and inert.'
+                    'Per-insight-kind alert config, discriminated by ``type`` — keeps the OpenAPI (and the\ngenerated frontend types and MCP tool schemas) in sync with every kind alerts support.'
                 ),
             zod.null(),
         ])
@@ -1433,7 +1433,7 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                     }),
                 ])
                 .describe(
-                    'Per-insight-kind alert config, discriminated by ``type`` — keeps the OpenAPI (and the\ngenerated frontend types and MCP tool schemas) in sync with every kind alerts support.\n\n``FunnelsAlertConfig`` is deliberately absent until the funnel-alert backend lands; the\nfunnel frontend on this branch is flag-gated and inert.'
+                    'Per-insight-kind alert config, discriminated by ``type`` — keeps the OpenAPI (and the\ngenerated frontend types and MCP tool schemas) in sync with every kind alerts support.'
                 ),
             zod.null(),
         ])

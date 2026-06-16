@@ -8563,9 +8563,6 @@ export namespace Schemas {
     /**
      * Per-insight-kind alert config, discriminated by ``type`` — keeps the OpenAPI (and the
      * generated frontend types and MCP tool schemas) in sync with every kind alerts support.
-     *
-     * ``FunnelsAlertConfig`` is deliberately absent until the funnel-alert backend lands; the
-     * funnel frontend on this branch is flag-gated and inert.
      */
     export type AlertConfigUnion = TrendsAlertConfig | HogQLAlertConfig;
 
