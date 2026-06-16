@@ -34,6 +34,7 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import request from 'supertest'
 
+import { type AuthProvider, publicVerifier, readBearer } from '@posthog/agent-ingress'
 import { posthogAiGatewayModel } from '@posthog/agent-runner'
 
 import { buildCluster, closeSharedPool, Cluster } from '../harness'
@@ -142,12 +143,39 @@ const maybeDescribe = (SKIP ? describe.skip : describe.each(matrix.map((p) => [p
     fn: (label: string, real: ProviderSpec) => void
 ) => void
 
+// `@posthog/*` data tools act as the connected PostHog user — they need a
+// `posthog` principal (carrying the caller's team) or they fail closed with
+// `posthog_user_context_required`. Give the suite a posthog verifier alongside
+// the public one, so no-bearer cases are unaffected but the tool tests can
+// authenticate as a real user by sending a bearer. The harness already fakes
+// `runHogql` (echoes the query), so a principal is all that's missing.
+const POSTHOG_USER_TEAM = 1
+const posthogAuthProvider: AuthProvider = {
+    verifiers: [
+        publicVerifier,
+        {
+            modeType: 'posthog',
+            async verify(req) {
+                const bearer = readBearer(req)
+                if (!bearer) {
+                    return { ok: false, status: 0, reason: 'skip' }
+                }
+                return {
+                    ok: true,
+                    principal: { kind: 'posthog', user_id: 'real-user', team_id: POSTHOG_USER_TEAM },
+                    credentials: { posthog_api: { kind: 'posthog_bearer', token: bearer } },
+                }
+            },
+        },
+    ],
+}
+
 maybeDescribe('real inference (via pi-ai): real e2e [%s]', (_label, real: ProviderSpec) => {
     let c: Cluster
 
     beforeEach(async () => {
         process.env.AGENT_TEST_API_KEY = real.apiKey
-        c = await buildCluster({ model: real.model })
+        c = await buildCluster({ model: real.model, authProvider: posthogAuthProvider })
     })
 
     afterEach(async () => {
@@ -179,13 +207,21 @@ maybeDescribe('real inference (via pi-ai): real e2e [%s]', (_label, real: Provid
     it('dispatches a native tool (@posthog/query) end-to-end', async () => {
         await c.deployAgent({
             slug: 'real-tool',
-            spec: { tools: [{ kind: 'native', id: '@posthog/query' }] },
+            spec: {
+                auth: { modes: [{ type: 'posthog' }] },
+                tools: [{ kind: 'native', id: '@posthog/query' }],
+            },
             files: {
                 'agent.md':
                     "You must call @posthog/query with query='select 1 as x' exactly once, then summarize the result in a brief sentence.",
             },
         })
-        const res = await request(c.ingress).post('/agents/real-tool/run').send({ message: 'run it' })
+        // @posthog/query acts as the connected user — authenticate the run so
+        // the session carries a posthog principal (else the tool fails closed).
+        const res = await request(c.ingress)
+            .post('/agents/real-tool/run')
+            .set('authorization', 'Bearer real-user-token')
+            .send({ message: 'run it' })
         await c.drain({ iterations: 100 })
         const session = await c.queue.get(res.body.session_id)
         expect(session!.state).toBe('completed')
@@ -193,10 +229,15 @@ maybeDescribe('real inference (via pi-ai): real e2e [%s]', (_label, real: Provid
         // name (so pi-ai can round-trip it to Anthropic on subsequent turns).
         // toolResult.toolName carries the original `@posthog/query` id — that's
         // what consumers / tests should assert on.
-        const sawToolCall = session!.conversation.some(
+        const queryResult = session!.conversation.find(
             (m) => m.role === 'toolResult' && (m as { toolName?: string }).toolName === '@posthog/query'
-        )
-        expect(sawToolCall).toBe(true)
+        ) as { content?: Array<{ text?: string }> } | undefined
+        expect(queryResult).not.toBeUndefined()
+        // Assert the tool actually ran (the faux backend echoes the query),
+        // not just that it was called — an errored result also carries the
+        // toolName, which previously masked a missing-principal failure.
+        const queryText = (queryResult!.content ?? []).map((b) => b.text ?? '').join(' ')
+        expect(queryText).toContain('select 1')
     }, 90_000)
 
     it('dispatches a custom (sandboxed) tool end-to-end', async () => {
@@ -279,6 +320,7 @@ maybeDescribe('real inference (via pi-ai): real e2e [%s]', (_label, real: Provid
         const { application } = await c.deployAgent({
             slug: 'real-gated',
             spec: {
+                auth: { modes: [{ type: 'posthog' }] },
                 tools: [
                     {
                         kind: 'native',
@@ -297,7 +339,10 @@ maybeDescribe('real inference (via pi-ai): real e2e [%s]', (_label, real: Provid
             },
         })
 
-        const run = await request(c.ingress).post('/agents/real-gated/run').send({ message: 'run the query' })
+        const run = await request(c.ingress)
+            .post('/agents/real-gated/run')
+            .set('authorization', 'Bearer real-user-token')
+            .send({ message: 'run the query' })
         const sid = run.body.session_id
 
         await c.drain({ iterations: 100 })
