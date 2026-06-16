@@ -42,13 +42,10 @@ describe('@posthog/web-fetch', () => {
         expect(out.body.length).toBe(100)
     })
 
-    it('rejects non-http(s) schemes before fetching', async () => {
+    it.each([['file:///etc/passwd'], ['gopher://x']])('rejects non-http(s) scheme %s before fetching', async (url) => {
         const fetch = vi.fn()
         const http = { fetch } as unknown as HttpFetcher
-        await expect(webFetchV1.run({ url: 'file:///etc/passwd' }, makeCtx({ http }))).rejects.toThrow(
-            /unsupported_url_scheme/
-        )
-        await expect(webFetchV1.run({ url: 'gopher://x' }, makeCtx({ http }))).rejects.toThrow(/unsupported_url_scheme/)
+        await expect(webFetchV1.run({ url }, makeCtx({ http }))).rejects.toThrow(/unsupported_url_scheme/)
         expect(fetch).not.toHaveBeenCalled()
     })
 })

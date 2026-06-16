@@ -92,12 +92,45 @@ maybeDescribe('Postgres impls (real PG)', () => {
         await store.setRevisionState(rev.id, 'live')
         await store.setLiveRevision(app.id, rev.id)
         expect((await store.getApplication(app.id))!.live_revision_id).toBe(rev.id)
-
-        // Tenant-scoped read: resolves for the owning app, null for another.
-        expect((await store.getRevisionForApplication(rev.id, app.id))!.id).toBe(rev.id)
-        const otherApp = await store.createApplication({ team_id: 2, slug: 'echo2', name: 'Echo2', description: '' })
-        expect(await store.getRevisionForApplication(rev.id, otherApp.id)).toBeNull()
     })
+
+    it.each<[string, (ownerAppId: string, otherAppId: string) => string, 'resolves' | 'null']>([
+        ['the owning application id', (ownerAppId, _otherAppId) => ownerAppId, 'resolves'],
+        ['a different application id', (_ownerAppId, otherAppId) => otherAppId, 'null'],
+    ])(
+        'PgRevisionStore.getRevisionForApplication with %s → %s (tenant-scoped read)',
+        async (_label, pickAppId, expected) => {
+            if (!reachable) {
+                return
+            }
+            const store = new PgRevisionStore(pool)
+            const ownerApp = await store.createApplication({
+                team_id: 1,
+                slug: 'owner',
+                name: 'Owner',
+                description: '',
+            })
+            const otherApp = await store.createApplication({
+                team_id: 2,
+                slug: 'other',
+                name: 'Other',
+                description: '',
+            })
+            const rev = await store.createRevision({
+                application_id: ownerApp.id,
+                parent_revision_id: null,
+                created_by_id: null,
+                bundle_uri: 's3://x/',
+                spec: AgentSpecSchema.parse({ model: 'mock-echo' }),
+            })
+            const result = await store.getRevisionForApplication(rev.id, pickAppId(ownerApp.id, otherApp.id))
+            if (expected === 'resolves') {
+                expect(result?.id).toBe(rev.id)
+            } else {
+                expect(result).toBeNull()
+            }
+        }
+    )
 
     it('PgRevisionStore rejects spec updates on non-draft revisions', async () => {
         if (!reachable) {

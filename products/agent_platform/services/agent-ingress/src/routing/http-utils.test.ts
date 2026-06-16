@@ -211,12 +211,11 @@ describe('requestLogger', () => {
 })
 
 describe('redactUrl', () => {
-    it('returns the url unchanged when there is no query string', () => {
-        expect(redactUrl('/listen')).toBe('/listen')
-    })
-
-    it('returns the url unchanged when no sensitive params are present', () => {
-        expect(redactUrl('/listen?session_id=s1')).toBe('/listen?session_id=s1')
+    it.each([
+        ['no query string', '/listen', '/listen'],
+        ['no sensitive params', '/listen?session_id=s1', '/listen?session_id=s1'],
+    ])('returns the url unchanged when %s', (_label, input, expected) => {
+        expect(redactUrl(input)).toBe(expected)
     })
 
     it('masks token and preview_token values, preserving other params', () => {

@@ -176,16 +176,21 @@ describe('ModalSandboxPool: client-init failure recovery', () => {
         expect(sandbox.providerSandboxId).toBe('sb-unit-test-handle')
         expect(clientCtor).toHaveBeenCalledTimes(2)
     })
+})
 
-    it('resolveEgressOpts default-denies, allowlists when CIDRs are given', () => {
-        // No allowlist → block all outbound (the secure default).
-        expect(resolveEgressOpts()).toEqual({ blockNetwork: true })
-        expect(resolveEgressOpts([])).toEqual({ blockNetwork: true })
-        // Allowlist → pass it through, and DON'T also set blockNetwork (Modal
-        // rejects the two together).
-        expect(resolveEgressOpts(['10.0.0.0/8', '192.168.0.0/16'])).toEqual({
-            outboundCidrAllowlist: ['10.0.0.0/8', '192.168.0.0/16'],
-        })
+describe('ModalSandboxPool: egress policy', () => {
+    it.each<[string, string[] | undefined, Record<string, unknown>]>([
+        ['undefined → block', undefined, { blockNetwork: true }],
+        ['empty array → block', [], { blockNetwork: true }],
+        [
+            'non-empty CIDR list → allowlist (must not also set blockNetwork)',
+            ['10.0.0.0/8', '192.168.0.0/16'],
+            { outboundCidrAllowlist: ['10.0.0.0/8', '192.168.0.0/16'] },
+        ],
+    ])('resolveEgressOpts(%s)', (_label, input, expected) => {
+        // Modal rejects `blockNetwork` and `outboundCidrAllowlist` together,
+        // so the allowlist arm intentionally omits `blockNetwork`.
+        expect(resolveEgressOpts(input)).toEqual(expected)
     })
 
     async function captureCreateOpts(poolOpts: { outboundCidrAllowlist?: string[] }): Promise<Record<string, unknown>> {

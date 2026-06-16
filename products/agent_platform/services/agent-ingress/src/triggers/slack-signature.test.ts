@@ -28,13 +28,15 @@ describe('verifySlackSignature', () => {
         expect(verifySlackSignature(signedReq({ ts }), SECRET)).toBe(false)
     })
 
-    it('rejects a non-numeric timestamp (NaN must not skip the staleness check)', () => {
-        // A correctly-signed request whose timestamp is non-numeric: parseInt
-        // yields NaN, and `Math.abs(now - NaN) > 300` is false, which previously
-        // skipped the staleness window entirely.
-        expect(verifySlackSignature(signedReq({ ts: 'not-a-number' }), SECRET)).toBe(false)
-        expect(verifySlackSignature(signedReq({ ts: '' }), SECRET)).toBe(false)
-    })
+    it.each([['not-a-number'], ['']])(
+        'rejects a non-numeric timestamp %j (NaN must not skip the staleness check)',
+        (ts) => {
+            // A correctly-signed request whose timestamp is non-numeric: parseInt
+            // yields NaN, and `Math.abs(now - NaN) > 300` is false, which previously
+            // skipped the staleness window entirely.
+            expect(verifySlackSignature(signedReq({ ts }), SECRET)).toBe(false)
+        }
+    )
 
     it('rejects when headers are missing', () => {
         expect(verifySlackSignature({ headers: {}, body: {} } as unknown as Request, SECRET)).toBe(false)

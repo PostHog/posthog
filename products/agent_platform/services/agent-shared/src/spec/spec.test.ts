@@ -617,43 +617,40 @@ describe('AgentSpecSchema', () => {
     })
 
     describe('principalsMatch — shared_secret per-caller binding', () => {
-        it('two secret holders with no caller_id match (single-principal default)', () => {
-            expect(principalsMatch({ kind: 'shared_secret', team_id: 7 }, { kind: 'shared_secret', team_id: 7 })).toBe(
-                true
-            )
-        })
-
-        it('a session bound to a caller_id rejects a different caller', () => {
-            expect(
-                principalsMatch(
-                    { kind: 'shared_secret', team_id: 7, caller_id: 'alice' },
-                    { kind: 'shared_secret', team_id: 7, caller_id: 'bob' }
-                )
-            ).toBe(false)
-        })
-
-        it('a caller can resume their own caller_id-bound session', () => {
-            expect(
-                principalsMatch(
-                    { kind: 'shared_secret', team_id: 7, caller_id: 'alice' },
-                    { kind: 'shared_secret', team_id: 7, caller_id: 'alice' }
-                )
-            ).toBe(true)
-        })
-
-        it('an unbound stored session does not match a caller_id-bearing request', () => {
-            expect(
-                principalsMatch(
-                    { kind: 'shared_secret', team_id: 7 },
-                    { kind: 'shared_secret', team_id: 7, caller_id: 'alice' }
-                )
-            ).toBe(false)
-        })
-
-        it('still isolates across teams', () => {
-            expect(principalsMatch({ kind: 'shared_secret', team_id: 7 }, { kind: 'shared_secret', team_id: 8 })).toBe(
-                false
-            )
+        type SS = { kind: 'shared_secret'; team_id: number; caller_id?: string }
+        it.each<[string, SS, SS, boolean]>([
+            [
+                'two secret holders with no caller_id match (single-principal default)',
+                { kind: 'shared_secret', team_id: 7 },
+                { kind: 'shared_secret', team_id: 7 },
+                true,
+            ],
+            [
+                'a session bound to a caller_id rejects a different caller',
+                { kind: 'shared_secret', team_id: 7, caller_id: 'alice' },
+                { kind: 'shared_secret', team_id: 7, caller_id: 'bob' },
+                false,
+            ],
+            [
+                'a caller can resume their own caller_id-bound session',
+                { kind: 'shared_secret', team_id: 7, caller_id: 'alice' },
+                { kind: 'shared_secret', team_id: 7, caller_id: 'alice' },
+                true,
+            ],
+            [
+                'an unbound stored session does not match a caller_id-bearing request',
+                { kind: 'shared_secret', team_id: 7 },
+                { kind: 'shared_secret', team_id: 7, caller_id: 'alice' },
+                false,
+            ],
+            [
+                'still isolates across teams',
+                { kind: 'shared_secret', team_id: 7 },
+                { kind: 'shared_secret', team_id: 8 },
+                false,
+            ],
+        ])('%s', (_label, stored, incoming, expected) => {
+            expect(principalsMatch(stored, incoming)).toBe(expected)
         })
     })
 })
