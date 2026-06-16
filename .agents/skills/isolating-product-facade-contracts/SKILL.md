@@ -43,6 +43,24 @@ hogli product:lint <name>           # structural lint + isolation chain (strict 
 hogli product:isolate:scan <name>   # the recon: import map, coupling gate, preflight (see below)
 ```
 
+**First, read the baseline to learn which migration phase you're in — you don't start
+knowing whether this is untouched or mid-flight, and that decides where you pick up.**
+The signals are all in the output above; there is no status file to consult (a hand-kept
+one would drift — the maturity score plus the `ignore_imports` TODO set _is_ the status,
+and `lint-imports` prunes the latter as modules finish):
+
+- **Fresh** — facade/presentation score zero, no `backend/facade/`, no `ignore_imports`
+  entries for the product. Start at step 1.
+- **Mid-sweep** — `facade/contracts.py` + `facade/api.py` exist but core still imports
+  internals (scan still lists model-access/etc., or `product:lint` warns `has legacy
+interface leaks`). The facade design is settled; continue migrating callers (step 4) —
+  don't redesign it.
+- **Mid presentation-wave** — the chain is mostly intact but `pyproject.toml` still has
+  `ignore_imports` TODO entries for the product. The sweep is done; resume the
+  presentation wave on exactly those deferred modules.
+- **Effectively done** — chain complete, no `ignore_imports` entries left. Verify against
+  the done criteria instead of changing anything.
+
 The scan does the recon that would otherwise cost a dozen ad-hoc greps, and is the
 source of truth for the rest of the flow:
 
