@@ -4689,6 +4689,7 @@ export namespace Schemas {
       GoogleCloudServiceAccount: 'google-cloud-service-account',
       GoogleCloudStorage: 'google-cloud-storage',
       GoogleAds: 'google-ads',
+      GoogleAnalytics: 'google-analytics',
       GoogleSearchConsole: 'google-search-console',
       GoogleSheets: 'google-sheets',
       LinkedinAds: 'linkedin-ads',
@@ -14650,6 +14651,7 @@ export namespace Schemas {
      * * `AmazonKinesis` - AmazonKinesis
      * * `AmazonCloudWatch` - AmazonCloudWatch
      * * `OpenAIAds` - OpenAIAds
+     * * `Grafana` - Grafana
      * * `Custom` - Custom
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
@@ -14888,6 +14890,7 @@ export namespace Schemas {
       AmazonKinesis: 'AmazonKinesis',
       AmazonCloudWatch: 'AmazonCloudWatch',
       OpenAIAds: 'OpenAIAds',
+      Grafana: 'Grafana',
       Custom: 'Custom',
     } as const;
 
@@ -15133,6 +15136,7 @@ export namespace Schemas {
        * * `AmazonKinesis` - AmazonKinesis
        * * `AmazonCloudWatch` - AmazonCloudWatch
        * * `OpenAIAds` - OpenAIAds
+       * * `Grafana` - Grafana
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
     }
@@ -19316,6 +19320,7 @@ export namespace Schemas {
        * * `AmazonKinesis` - AmazonKinesis
        * * `AmazonCloudWatch` - AmazonCloudWatch
        * * `OpenAIAds` - OpenAIAds
+       * * `Grafana` - Grafana
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
@@ -23083,6 +23088,7 @@ export namespace Schemas {
      * * `github` - Github
      * * `gitlab` - Gitlab
      * * `google-ads` - Google Ads
+     * * `google-analytics` - Google Analytics
      * * `google-cloud-service-account` - Google Cloud Service Account
      * * `google-cloud-storage` - Google Cloud Storage
      * * `google-pubsub` - Google Pubsub
@@ -23124,6 +23130,7 @@ export namespace Schemas {
       Github: 'github',
       Gitlab: 'gitlab',
       GoogleAds: 'google-ads',
+      GoogleAnalytics: 'google-analytics',
       GoogleCloudServiceAccount: 'google-cloud-service-account',
       GoogleCloudStorage: 'google-cloud-storage',
       GooglePubsub: 'google-pubsub',
@@ -42629,6 +42636,7 @@ export namespace Schemas {
        * * `AmazonKinesis` - AmazonKinesis
        * * `AmazonCloudWatch` - AmazonCloudWatch
        * * `OpenAIAds` - OpenAIAds
+       * * `Grafana` - Grafana
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
@@ -42900,6 +42908,7 @@ export namespace Schemas {
        * * `AmazonKinesis` - AmazonKinesis
        * * `AmazonCloudWatch` - AmazonCloudWatch
        * * `OpenAIAds` - OpenAIAds
+       * * `Grafana` - Grafana
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
@@ -48396,6 +48405,7 @@ export namespace Schemas {
      * * `github` - Github
      * * `gitlab` - Gitlab
      * * `google-ads` - Google Ads
+     * * `google-analytics` - Google Analytics
      * * `google-cloud-service-account` - Google Cloud Service Account
      * * `google-cloud-storage` - Google Cloud Storage
      * * `google-pubsub` - Google Pubsub
@@ -48448,6 +48458,7 @@ export namespace Schemas {
       Github: 'github',
       Gitlab: 'gitlab',
       GoogleAds: 'google-ads',
+      GoogleAnalytics: 'google-analytics',
       GoogleCloudServiceAccount: 'google-cloud-service-account',
       GoogleCloudStorage: 'google-cloud-storage',
       GooglePubsub: 'google-pubsub',
@@ -54508,6 +54519,7 @@ export namespace Schemas {
      * * `github` - Github
      * * `gitlab` - Gitlab
      * * `google-ads` - Google Ads
+     * * `google-analytics` - Google Analytics
      * * `google-cloud-service-account` - Google Cloud Service Account
      * * `google-cloud-storage` - Google Cloud Storage
      * * `google-pubsub` - Google Pubsub
@@ -54560,6 +54572,7 @@ export namespace Schemas {
       Github: 'github',
       Gitlab: 'gitlab',
       GoogleAds: 'google-ads',
+      GoogleAnalytics: 'google-analytics',
       GoogleCloudServiceAccount: 'google-cloud-service-account',
       GoogleCloudStorage: 'google-cloud-storage',
       GooglePubsub: 'google-pubsub',
