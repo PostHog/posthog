@@ -370,6 +370,124 @@ export interface WeeklyDigestResponseApi {
     dashboard_url: string
 }
 
+export interface AcknowledgeCelebrationRequestApi {
+    /** Track of the celebration being acknowledged. */
+    track_key: string
+    /**
+     * Stage number being acknowledged, 1-5.
+     * @minimum 1
+     * @maximum 5
+     */
+    stage: number
+}
+
+export interface AcknowledgeCelebrationResponseApi {
+    /** True if a matching pending celebration was cleared (idempotent). */
+    acknowledged: boolean
+}
+
+/**
+ * * `user` - user
+ * * `team` - team
+ */
+export type AchievementDefinitionScopeEnumApi =
+    (typeof AchievementDefinitionScopeEnumApi)[keyof typeof AchievementDefinitionScopeEnumApi]
+
+export const AchievementDefinitionScopeEnumApi = {
+    User: 'user',
+    Team: 'team',
+} as const
+
+export interface AchievementStageApi {
+    /** Stage number within the track, 1-5. */
+    stage: number
+    /** Hog-themed stage name, e.g. 'Spike Streak'. */
+    name: string
+    /** Progress value needed to unlock this stage, resolved for the user's streak arm. */
+    threshold: number
+}
+
+export interface AchievementDefinitionApi {
+    /** Stable track identifier, e.g. 'hog_streak'. */
+    key: string
+    /** Human-readable track name. */
+    display_name: string
+    /** One-line description of what the track rewards. */
+    description: string
+    /** Whether the track is tracked per user or per team.
+     *
+     * * `user` - user
+     * * `team` - team */
+    scope: AchievementDefinitionScopeEnumApi
+    /** True for the streak track, whose thresholds vary by the streak-cadence experiment arm. */
+    is_experiment_track: boolean
+    /** The five stages of this track, in ascending threshold order. */
+    stages: AchievementStageApi[]
+}
+
+export interface AchievementProgressApi {
+    /** Track this progress row belongs to. */
+    track_key: string
+    /** Highest stage unlocked so far, 0-5. */
+    current_stage: number
+    /** Most recently computed progress value for the track. */
+    progress_value: number
+    /**
+     * When the track was last recomputed, or null if it never has been.
+     * @nullable
+     */
+    last_computed_at: string | null
+}
+
+export interface PendingCelebrationApi {
+    /** Track whose stage was newly unlocked. */
+    track_key: string
+    /** Newly unlocked stage number, 1-5. */
+    stage: number
+    /** Name of the unlocked stage, shown in the celebration UI. */
+    stage_name: string
+}
+
+export interface AchievementsListResponseApi {
+    /** All Wave-1 track definitions, thresholds resolved for the user's streak arm. */
+    definitions: AchievementDefinitionApi[]
+    /** The requesting user's progress on per-user tracks. */
+    user_progress: AchievementProgressApi[]
+    /** The team's progress on per-team tracks. */
+    team_progress: AchievementProgressApi[]
+    /** Newly unlocked stages awaiting an in-session celebration; acknowledge each to clear it. */
+    pending_celebrations: PendingCelebrationApi[]
+}
+
+/**
+ * * `data` - data
+ * * `recording` - recording
+ */
+export type InteractionKindEnumApi = (typeof InteractionKindEnumApi)[keyof typeof InteractionKindEnumApi]
+
+export const InteractionKindEnumApi = {
+    Data: 'data',
+    Recording: 'recording',
+} as const
+
+export interface RecordInteractionRequestApi {
+    /** Which interaction counter to increment: 'data' (slicing/filtering the dashboard) or 'recording' (opening a session recording).
+     *
+     * * `data` - data
+     * * `recording` - recording */
+    interaction_kind: InteractionKindEnumApi
+}
+
+export interface RecordInteractionResponseApi {
+    /** True once the interaction has been counted for the user. */
+    recorded: boolean
+}
+
+export interface RecordVisitResponseApi {
+    /** True once today's visit row exists for the user. */
+    recorded: boolean
+}
+
 export interface WebAnalyticsFilterPresetApi {
     readonly id: string
     readonly short_id: string

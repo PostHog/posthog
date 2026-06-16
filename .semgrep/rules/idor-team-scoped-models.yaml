@@ -252,7 +252,10 @@ rules:
                               |UserInterview
                               |UserInterviewTopic
                               |UserRepoPreference
+                              |WebAnalyticsAchievementProgress
                               |WebAnalyticsFilterPreset
+                              |WebAnalyticsInteraction
+                              |WebAnalyticsVisit
                               |WizardSession
                           )$
                 - focus-metavariable: $SINK
@@ -503,7 +506,10 @@ rules:
                         |UserInterview
                         |UserInterviewTopic
                         |UserRepoPreference
+                        |WebAnalyticsAchievementProgress
                         |WebAnalyticsFilterPreset
+                        |WebAnalyticsInteraction
+                        |WebAnalyticsVisit
                         |WizardSession
                     )$
           # Exclude when team filter is present

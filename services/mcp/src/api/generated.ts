@@ -532,6 +532,95 @@ export namespace Schemas {
     }
 
     /**
+     * * `user` - user
+     * * `team` - team
+     */
+    export type AchievementDefinitionScopeEnum = typeof AchievementDefinitionScopeEnum[keyof typeof AchievementDefinitionScopeEnum];
+
+
+    export const AchievementDefinitionScopeEnum = {
+      User: 'user',
+      Team: 'team',
+    } as const;
+
+    export interface AchievementStage {
+      /** Stage number within the track, 1-5. */
+      stage: number;
+      /** Hog-themed stage name, e.g. 'Spike Streak'. */
+      name: string;
+      /** Progress value needed to unlock this stage, resolved for the user's streak arm. */
+      threshold: number;
+    }
+
+    export interface AchievementDefinition {
+      /** Stable track identifier, e.g. 'hog_streak'. */
+      key: string;
+      /** Human-readable track name. */
+      display_name: string;
+      /** One-line description of what the track rewards. */
+      description: string;
+      /** Whether the track is tracked per user or per team.
+       *
+       * * `user` - user
+       * * `team` - team */
+      scope: AchievementDefinitionScopeEnum;
+      /** True for the streak track, whose thresholds vary by the streak-cadence experiment arm. */
+      is_experiment_track: boolean;
+      /** The five stages of this track, in ascending threshold order. */
+      stages: AchievementStage[];
+    }
+
+    export interface AchievementProgress {
+      /** Track this progress row belongs to. */
+      track_key: string;
+      /** Highest stage unlocked so far, 0-5. */
+      current_stage: number;
+      /** Most recently computed progress value for the track. */
+      progress_value: number;
+      /**
+         * When the track was last recomputed, or null if it never has been.
+         * @nullable
+         */
+      last_computed_at: string | null;
+    }
+
+    export interface PendingCelebration {
+      /** Track whose stage was newly unlocked. */
+      track_key: string;
+      /** Newly unlocked stage number, 1-5. */
+      stage: number;
+      /** Name of the unlocked stage, shown in the celebration UI. */
+      stage_name: string;
+    }
+
+    export interface AchievementsListResponse {
+      /** All Wave-1 track definitions, thresholds resolved for the user's streak arm. */
+      definitions: AchievementDefinition[];
+      /** The requesting user's progress on per-user tracks. */
+      user_progress: AchievementProgress[];
+      /** The team's progress on per-team tracks. */
+      team_progress: AchievementProgress[];
+      /** Newly unlocked stages awaiting an in-session celebration; acknowledge each to clear it. */
+      pending_celebrations: PendingCelebration[];
+    }
+
+    export interface AcknowledgeCelebrationRequest {
+      /** Track of the celebration being acknowledged. */
+      track_key: string;
+      /**
+         * Stage number being acknowledged, 1-5.
+         * @minimum 1
+         * @maximum 5
+         */
+      stage: number;
+    }
+
+    export interface AcknowledgeCelebrationResponse {
+      /** True if a matching pending celebration was cleared (idempotent). */
+      acknowledged: boolean;
+    }
+
+    /**
      * * `event` - event
      * * `event_metadata` - event_metadata
      * * `feature` - feature
@@ -25199,6 +25288,18 @@ export namespace Schemas {
       created_at: string | null;
     }
 
+    /**
+     * * `data` - data
+     * * `recording` - recording
+     */
+    export type InteractionKindEnum = typeof InteractionKindEnum[keyof typeof InteractionKindEnum];
+
+
+    export const InteractionKindEnum = {
+      Data: 'data',
+      Recording: 'recording',
+    } as const;
+
     export interface InterestingNote {
       text: string;
       line_refs: string;
@@ -43256,6 +43357,24 @@ export namespace Schemas {
       ci_rerun_triggered: boolean;
       /** @nullable */
       ci_rerun_error?: string | null;
+    }
+
+    export interface RecordInteractionRequest {
+      /** Which interaction counter to increment: 'data' (slicing/filtering the dashboard) or 'recording' (opening a session recording).
+       *
+       * * `data` - data
+       * * `recording` - recording */
+      interaction_kind: InteractionKindEnum;
+    }
+
+    export interface RecordInteractionResponse {
+      /** True once the interaction has been counted for the user. */
+      recorded: boolean;
+    }
+
+    export interface RecordVisitResponse {
+      /** True once today's visit row exists for the user. */
+      recorded: boolean;
     }
 
     /**

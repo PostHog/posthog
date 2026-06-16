@@ -89,6 +89,7 @@ from products.streamlit_apps.backend.facade.api import (
     prune_old_streamlit_app_versions,
     stop_idle_streamlit_sandboxes,
 )
+from products.web_analytics.backend.achievements.tasks import sweep_web_analytics_achievement_team_tracks
 
 TWENTY_FOUR_HOURS = 24 * 60 * 60
 
@@ -323,6 +324,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="verify and fix auth token cache",
         # expires_seconds omitted — defaults to 1.5x interval (9 h) so the safety-net
         # task survives moderate worker downtime without being dropped.
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="*/6", minute="20"),
+        sweep_web_analytics_achievement_team_tracks.s(),
+        name="web analytics achievements team-track sweep",
     )
 
     # Update events table partitions twice a week
