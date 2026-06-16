@@ -77,16 +77,24 @@ def test_str_to_optional_int(value, expected):
     assert config.str_to_optional_int(value) == expected
 
 
-def test_optional_int_converter_handles_float_from_frontend():
-    """A NUMBER field whose value arrives as a float must not crash `to_config`."""
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        (None, None),
+        ("5432", 5432),
+        (5432.0, 5432),
+    ],
+)
+def test_optional_int_converter_handles_numeric_via_from_dict(value, expected):
+    """A NUMBER field fed through `Config.from_dict` must not crash and must coerce correctly."""
 
     @config.config
     class TestConfig(config.Config):
         port: int | None = config.value(converter=config.str_to_optional_int, default_factory=lambda: None)
 
-    cfg = TestConfig.from_dict({"port": 5432.0})
+    cfg = TestConfig.from_dict({"port": value})
 
-    assert cfg.port == 5432
+    assert cfg.port == expected
 
 
 def test_nested_to_config_with_flat_dict():
