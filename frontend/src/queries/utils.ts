@@ -5,6 +5,7 @@ import { getAppContext } from 'lib/utils/getAppContext'
 
 import { ProductAnalyticsInsightNodeKind } from '~/queries/nodes/InsightQuery/defaults'
 import {
+    AccountsQuery,
     ActionsNode,
     ActorsQuery,
     AnyDataWarehouseNode,
@@ -74,7 +75,6 @@ import {
     WebNotableChangesQuery,
     WebOverviewQuery,
     WebStatsTableQuery,
-    WebTrendsQuery,
     WebVitalsPathBreakdownQuery,
     WebVitalsQuery,
 } from '~/queries/schema/schema-general'
@@ -296,10 +296,6 @@ export function isWebNotableChangesQuery(node?: Record<string, any> | null): nod
     return node?.kind === NodeKind.WebNotableChangesQuery
 }
 
-export function isWebTrendsQuery(node?: Record<string, any> | null): node is WebTrendsQuery {
-    return node?.kind === NodeKind.WebTrendsQuery
-}
-
 export function isMarketingAnalyticsTableQuery(
     node?: Record<string, any> | null
 ): node is MarketingAnalyticsTableQuery {
@@ -411,8 +407,14 @@ export function isInsightQueryWithBreakdown(
 
 export function isInsightQueryWithCompare(
     node?: Record<string, any> | null
-): node is TrendsQuery | StickinessQuery | WebStatsTableQuery | WebOverviewQuery {
-    return isTrendsQuery(node) || isStickinessQuery(node) || isWebStatsTableQuery(node) || isWebOverviewQuery(node)
+): node is TrendsQuery | StickinessQuery | WebStatsTableQuery | WebOverviewQuery | FunnelsQuery {
+    return (
+        isTrendsQuery(node) ||
+        isStickinessQuery(node) ||
+        isWebStatsTableQuery(node) ||
+        isWebOverviewQuery(node) ||
+        isFunnelsQuery(node)
+    )
 }
 
 export function isDatabaseSchemaQuery(node?: Node): node is DatabaseSchemaQuery {
@@ -566,6 +568,8 @@ export const getShowLegend = (query: InsightQueryNode): boolean | undefined => {
         return query.trendsFilter?.showLegend
     } else if (isLifecycleQuery(query)) {
         return query.lifecycleFilter?.showLegend
+    } else if (isFunnelsQuery(query)) {
+        return query.funnelsFilter?.showLegend
     }
     return undefined
 }
@@ -573,6 +577,15 @@ export const getShowLegend = (query: InsightQueryNode): boolean | undefined => {
 export const getShowAlertThresholdLines = (query: InsightQueryNode): boolean | undefined => {
     if (isTrendsQuery(query)) {
         return query.trendsFilter?.showAlertThresholdLines
+    }
+    return undefined
+}
+
+export const getShowAnnotations = (query: InsightQueryNode): boolean | undefined => {
+    if (isTrendsQuery(query)) {
+        return query.trendsFilter?.showAnnotations
+    } else if (isFunnelsQuery(query)) {
+        return query.funnelsFilter?.showAnnotations
     }
     return undefined
 }
@@ -593,6 +606,13 @@ export const getShowValuesOnSeries = (query: InsightQueryNode): boolean | undefi
         return query.trendsFilter?.showValuesOnSeries
     } else if (isFunnelsQuery(query)) {
         return query.funnelsFilter?.showValuesOnSeries
+    }
+    return undefined
+}
+
+export const getShowPercentagesOnSeries = (query: InsightQueryNode): boolean | undefined => {
+    if (isLifecycleQuery(query)) {
+        return query.lifecycleFilter?.showPercentagesOnSeries
     }
     return undefined
 }
@@ -659,6 +679,12 @@ export const supportsPercentStackView = (q: InsightQueryNode | null | undefined)
 
 export const getShowPercentStackView = (query: InsightQueryNode): boolean | undefined =>
     supportsPercentStackView(query) && (query as TrendsQuery)?.trendsFilter?.showPercentStackView
+
+export const supportsBarValueStacking = (q: InsightQueryNode | null | undefined): boolean =>
+    isTrendsQuery(q) && getDisplay(q) === ChartDisplayType.ActionsBarValue && hasBreakdownFilter(getBreakdown(q))
+
+export const getStackBreakdownValues = (query: InsightQueryNode): boolean | undefined =>
+    supportsBarValueStacking(query) && (query as TrendsQuery)?.trendsFilter?.stackBreakdownValues
 
 export const nodeKindToFilterProperty: Record<ProductAnalyticsInsightNodeKind, InsightFilterProperty> = {
     [NodeKind.TrendsQuery]: 'trendsFilter',
@@ -867,15 +893,28 @@ export function hogql(strings: TemplateStringsArray, ...values: any[]): HogQLQue
 hogql.identifier = hogQLIdentifier
 hogql.raw = hogQLRaw
 
-/**
- * Wether we have a valid `breakdownFilter` or not.
- */
-export function isValidBreakdown(breakdownFilter?: BreakdownFilter | null): breakdownFilter is BreakdownFilter {
-    return !!(
-        breakdownFilter &&
-        ((breakdownFilter.breakdown && breakdownFilter.breakdown_type) ||
-            (breakdownFilter.breakdowns && breakdownFilter.breakdowns.length > 0))
-    )
+type SingleBreakdownFilter = BreakdownFilter & {
+    breakdown: NonNullable<BreakdownFilter['breakdown']>
+}
+
+type MultiBreakdownFilter = BreakdownFilter & {
+    breakdowns: NonNullable<BreakdownFilter['breakdowns']>
+}
+
+type PopulatedBreakdownFilter = SingleBreakdownFilter | MultiBreakdownFilter
+
+export function hasSingleBreakdown(breakdownFilter?: BreakdownFilter | null): breakdownFilter is SingleBreakdownFilter {
+    return breakdownFilter?.breakdown != null
+}
+
+export function hasMultiBreakdown(breakdownFilter?: BreakdownFilter | null): breakdownFilter is MultiBreakdownFilter {
+    return (breakdownFilter?.breakdowns?.length ?? 0) > 0
+}
+
+export function hasBreakdownFilter(
+    breakdownFilter?: BreakdownFilter | null
+): breakdownFilter is PopulatedBreakdownFilter {
+    return hasSingleBreakdown(breakdownFilter) || hasMultiBreakdown(breakdownFilter)
 }
 
 export function isValidQueryForExperiment(query: Node): boolean {
@@ -889,6 +928,10 @@ export function isValidQueryForExperiment(query: Node): boolean {
 
 export function isGroupsQuery(node?: Record<string, any> | null): node is GroupsQuery {
     return node?.kind === NodeKind.GroupsQuery
+}
+
+export function isAccountsQuery(node?: Record<string, any> | null): node is AccountsQuery {
+    return node?.kind === NodeKind.AccountsQuery
 }
 
 export const TRAILING_MATH_TYPES = new Set<MathType>([BaseMathType.WeeklyActiveUsers, BaseMathType.MonthlyActiveUsers])

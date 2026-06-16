@@ -1,7 +1,9 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
+    ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
@@ -33,8 +35,9 @@ class KlaviyoSource(ResumableSource[KlaviyoSourceConfig, KlaviyoResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.KLAVIYO,
+            category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Klaviyo",
-            betaSource=True,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Klaviyo API key to automatically pull your Klaviyo data into the PostHog Data warehouse.
 
 You can create a private API key in your [Klaviyo account settings](https://www.klaviyo.com/settings/account/api-keys).
@@ -59,13 +62,19 @@ Make sure to grant the following read permissions:
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="pk_...",
+                        secret=True,
                     ),
                 ],
             ),
         )
 
     def get_schemas(
-        self, config: KlaviyoSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+        self,
+        config: KlaviyoSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         # Events are immutable - append-only is the only sync mode
         append_only_endpoints = {"events"}

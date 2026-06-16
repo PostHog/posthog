@@ -227,6 +227,18 @@ export function isValidPropertyFilter(
 export function isCohortPropertyFilter(filter?: AnyFilterLike | null): filter is CohortPropertyFilter {
     return filter?.type === PropertyFilterType.Cohort
 }
+
+// Filter keys whose value we offer a read-only group-info card for on hover.
+// '$group_key' is the group's true identity (always a group key). 'id' is a
+// group *property* that conventionally holds the group key (e.g. CRM-imported
+// groups), so a card is a useful confirmation there too — but it is display
+// only: the lookup falls back to the plain label when the value isn't a real
+// group key, and we deliberately do NOT swap the value editor for these (only
+// the true '$group_key' identity gets the group picker). 'id' is also the
+// Cohort key, so the Group type gate matters.
+export function isGroupCardFilterKey(key: string | number | undefined, type: PropertyFilterType | undefined): boolean {
+    return type === PropertyFilterType.Group && (key === '$group_key' || key === 'id')
+}
 export function isEventMetadataPropertyFilter(filter?: AnyFilterLike | null): filter is EventMetadataPropertyFilter {
     return filter?.type === PropertyFilterType.EventMetadata
 }
@@ -550,12 +562,19 @@ export function isEmptyProperty(property: AnyPropertyFilter): boolean {
     )
 }
 
+/** Subset of TaxonomicFilter result-item fields that influence default-filter creation. */
+type SelectedTaxonomicItem = {
+    matchedOn?: string
+    matchedValue?: string
+}
+
 export function createDefaultPropertyFilter(
     filter: AnyPropertyFilter | null,
     propertyKey: string | number,
     propertyType: PropertyFilterType,
     taxonomicGroup: TaxonomicFilterGroup,
-    describeProperty: propertyDefinitionsModelType['values']['describeProperty']
+    describeProperty: propertyDefinitionsModelType['values']['describeProperty'],
+    selectedItem?: SelectedTaxonomicItem | null
 ): AnyPropertyFilter {
     if (propertyType === PropertyFilterType.Cohort) {
         const operator =
@@ -594,6 +613,8 @@ export function createDefaultPropertyFilter(
     const propertyValueType = describeProperty(propertyKey, apiType, taxonomicGroup.groupTypeIndex)
     const property_name_to_default_operator_override: Partial<Record<string | number, PropertyOperator>> = {
         $active_feature_flags: PropertyOperator.IContains,
+        $current_url: PropertyOperator.IContains,
+        $pathname: PropertyOperator.IContains,
     }
     const propValueTypeToDefaultOpOverride = {
         [PropertyType.Duration]: PropertyOperator.GreaterThan,
@@ -609,11 +630,20 @@ export function createDefaultPropertyFilter(
         PropertyOperator.Exact
 
     const isGroupNameFilter = taxonomicGroup.type.startsWith(TaxonomicFilterGroupType.GroupNamesPrefix)
+    // When the row was surfaced because the search matched a property *value* (not the key),
+    // pre-fill the filter with that value so the user doesn't have to retype it. Operator
+    // defaults above are multi-select (Exact), so wrap in an array.
+    const matchedValue =
+        selectedItem?.matchedOn === 'value' &&
+        typeof selectedItem.matchedValue === 'string' &&
+        selectedItem.matchedValue
+            ? selectedItem.matchedValue
+            : null
     // :TRICKY: When we have a GroupNamesPrefix taxonomic filter, selecting the group name
     // is the equivalent of selecting a property value
     const property: AnyPropertyFilter = {
         key: isGroupNameFilter ? '$group_key' : propertyKey.toString(),
-        value: isGroupNameFilter ? propertyKey.toString() : null,
+        value: isGroupNameFilter ? propertyKey.toString() : matchedValue ? [matchedValue] : null,
         operator,
         type: propertyType as AnyPropertyFilter['type'] as any, // bad | pipe chain :(
         group_type_index: taxonomicGroup.groupTypeIndex,

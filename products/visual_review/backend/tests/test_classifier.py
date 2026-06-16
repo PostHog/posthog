@@ -69,7 +69,7 @@ def _make_tolerated(repo: Repo, identifier: str, baseline_hash: str, alternate_h
 
 
 def _classify(run: Run, baseline: dict[str, str], tolerated_lookup: dict | None = None) -> dict[str, RunSnapshot]:
-    classifier = SnapshotClassifier(run, baseline, tolerated_lookup or {})
+    classifier = SnapshotClassifier(run, baseline, tolerated_lookup or {}, is_partial=run.is_partial)
     classifier.classify()
     return {s.identifier: s for s in run.snapshots.all()}
 
@@ -217,6 +217,17 @@ class TestRemovedClassification:
 
         assert run.snapshots.filter(identifier="Gone").count() == 1
 
+    def test_partial_run_does_not_fabricate_removed_for_unrendered_baseline(self, repo):
+        _make_artifact(repo, "old_hash")
+        run = _make_run(repo, [{"identifier": "Kept", "current_hash": "h1"}], is_partial=True)
+
+        result = _classify(run, {"Kept": "h1", "Deleted": "old_hash"})
+
+        # Partial runs only render a subset of the suite, so a baseline identifier
+        # absent from the run was simply not exercised — not deleted.
+        assert "Deleted" not in result
+        assert run.snapshots.filter(identifier="Deleted").count() == 0
+
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 class TestToleratedHashClassification:
@@ -235,6 +246,24 @@ class TestToleratedHashClassification:
         assert result["Button"].classification_reason == ClassificationReason.TOLERATED_HASH
         assert result["Button"].tolerated_hash_match_id == tolerated.id
         assert result["Button"].review_state == ""
+
+    def test_tolerated_hash_propagates_diff_percentage(self, repo):
+        tolerated = _make_tolerated(repo, "Button", "baseline_h", "current_h", diff_percentage=0.42)
+        run = _make_run(repo, [{"identifier": "Button", "current_hash": "current_h"}])
+
+        lookup = {("Button", "baseline_h", "current_h"): tolerated}
+        result = _classify(run, {"Button": "baseline_h"}, lookup)
+
+        assert result["Button"].diff_percentage == 0.42
+
+    def test_tolerated_hash_without_diff_percentage_sets_none(self, repo):
+        tolerated = _make_tolerated(repo, "Button", "baseline_h", "current_h")
+        run = _make_run(repo, [{"identifier": "Button", "current_hash": "current_h"}])
+
+        lookup = {("Button", "baseline_h", "current_h"): tolerated}
+        result = _classify(run, {"Button": "baseline_h"}, lookup)
+
+        assert result["Button"].diff_percentage is None
 
     def test_tolerated_hash_not_matched_when_different_identifier(self, repo):
         tolerated = _make_tolerated(repo, "OtherButton", "baseline_h", "current_h")

@@ -3,7 +3,6 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 from unittest import mock
-from unittest.mock import AsyncMock
 
 from django.conf import settings
 from django.test import override_settings
@@ -23,11 +22,12 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
 )
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 
-from products.data_warehouse.backend.models import ExternalDataSchema, ExternalDataSource
-from products.data_warehouse.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
-from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.data_warehouse.backend.models.external_data_job import ExternalDataJob, get_latest_run_if_exists
+from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob, get_latest_run_if_exists
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 BUCKET_NAME = "test-pipeline"
 
@@ -43,7 +43,8 @@ def api_client(user):
             return_value=(True, None),
         ),
         mock.patch(
-            "products.data_warehouse.backend.api.external_data_source.sync_external_data_job_workflow",
+            "products.data_warehouse.backend.api.external_data_source.bulk_create_external_data_job_schedules",
+            return_value=[],
         ) as mock_sync_workflow,
         mock.patch.object(DataWarehouseSavedQuery, "schedule_materialization"),
     ):
@@ -94,8 +95,7 @@ def run_data_import_workflow(mock_stripe_client):
             mock.patch("posthoganalytics.capture_exception", return_value=None),
             mock.patch.object(DataWarehouseSavedQuery, "schedule_materialization"),
             mock.patch(
-                "posthog.temporal.data_imports.workflow_activities.import_data_sync._is_pipeline_v3_enabled",
-                new_callable=AsyncMock,
+                "posthog.temporal.data_imports.workflow_activities.acquire_v3_lock.is_pipeline_v3_enabled",
                 return_value=False,
             ),
             mock.patch.object(AwsCredentials, "to_session_credentials", _mock_to_session_credentials),

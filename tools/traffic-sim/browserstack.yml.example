@@ -1,0 +1,6 @@
+# BrowserStack credentials for `traffic-sim --cloud`.
+# Copy to browserstack.yml and fill in real values, OR set BROWSERSTACK_USERNAME
+# and BROWSERSTACK_ACCESS_KEY in your shell environment.
+# Get credentials from https://www.browserstack.com/accounts/settings.
+userName: YOUR_BROWSERSTACK_USERNAME
+accessKey: YOUR_BROWSERSTACK_ACCESS_KEY

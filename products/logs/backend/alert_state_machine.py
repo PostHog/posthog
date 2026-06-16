@@ -37,6 +37,7 @@ class NotificationAction(Enum):
     FIRE = "fire"
     RESOLVE = "resolve"
     ERROR = "error"
+    BROKEN = "broken"
 
 
 class InvalidTransition(Exception):
@@ -49,6 +50,7 @@ class CheckResult:
     threshold_breached: bool
     error_message: str | None = None
     query_duration_ms: int | None = None
+    is_transient_error: bool = False
 
 
 @dataclass(frozen=True)
@@ -121,16 +123,25 @@ def evaluate_alert_check(
         effective_state = snapshot.state
 
     if check.error_message is not None:
-        consecutive_failures = snapshot.consecutive_failures + 1
+        consecutive_failures = (
+            snapshot.consecutive_failures if check.is_transient_error else snapshot.consecutive_failures + 1
+        )
         new_state = AlertState.BROKEN if consecutive_failures >= MAX_CONSECUTIVE_FAILURES else AlertState.ERRORED
         first_error = (
             effective_state != AlertState.ERRORED
             and snapshot.state != AlertState.ERRORED  # prevents re-notification after snooze auto-expiry
             and new_state == AlertState.ERRORED
         )
+        first_broken = new_state == AlertState.BROKEN
+        if first_broken:
+            notification = NotificationAction.BROKEN
+        elif first_error:
+            notification = NotificationAction.ERROR
+        else:
+            notification = NotificationAction.NONE
         return AlertCheckOutcome(
             new_state=new_state,
-            notification=NotificationAction.ERROR if first_error else NotificationAction.NONE,
+            notification=notification,
             consecutive_failures=consecutive_failures,
             update_last_notified_at=False,
             error_message=check.error_message,
@@ -157,13 +168,10 @@ def evaluate_alert_check(
         else:
             new_state = AlertState.NOT_FIRING
 
-    # PENDING_RESOLVE is currently unused — resolution is immediate on the first
-    # OK check. Kept in the enum for future symmetric N-of-M resolution support.
     elif effective_state in (AlertState.FIRING, AlertState.PENDING_RESOLVE):
-        if check.threshold_breached:
+        if breach_count >= n:
             new_state = AlertState.FIRING
         else:
-            # Always resolve after a single OK check — N-of-M only governs firing
             new_state = AlertState.NOT_FIRING
             notification = NotificationAction.RESOLVE
 

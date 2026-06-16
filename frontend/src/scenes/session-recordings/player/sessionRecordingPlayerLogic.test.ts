@@ -1,18 +1,20 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
-
-import { EventType, IncrementalSource, eventWithTime } from '@posthog/rrweb-types'
+import { EventType, IncrementalSource, eventWithTime } from 'posthog-js/rrweb-types'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
-import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import {
+    sessionRecordingPlayerLogic,
+    SessionRecordingPlayerMode,
+} from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { makeLogger } from 'scenes/session-recordings/player/utils/player-logging'
 import { urls } from 'scenes/urls'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
-import { RecordingSegment } from '~/types'
+import { ExporterFormat, RecordingSegment, RecordingSnapshot } from '~/types'
 
 import { deletedRecordingsLogic } from '../deletedRecordingsLogic'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
@@ -22,7 +24,7 @@ import {
     recordingMetaJson,
     setupSessionRecordingTest,
 } from './__mocks__/test-setup'
-import { findNewEvents, findSegmentForTimestamp } from './sessionRecordingPlayerLogic'
+import { findNewEvents, findSegmentForTimestamp, stripRrwebScriptShims } from './sessionRecordingPlayerLogic'
 import { snapshotDataLogic } from './snapshotDataLogic'
 import { deleteRecording as deleteRecordingMock } from './utils/playerUtils'
 
@@ -84,6 +86,56 @@ describe('findNewEvents', () => {
         const currentEvents = current.map((ts) => makeEvent(ts))
         const result = findNewEvents(allSnapshots, currentEvents)
         expect(result.map((e) => e.timestamp)).toEqual(expected)
+    })
+})
+
+describe('stripRrwebScriptShims', () => {
+    const countTag = (html: string, tag: string): number => (html.match(new RegExp(`<${tag}\\b`, 'gi')) || []).length
+
+    it.each([
+        { description: 'empty string', input: '' },
+        { description: 'no noscript tags', input: '<head></head><body><div>hello</div></body>' },
+    ])('passes through unchanged when there is nothing to strip ($description)', ({ input }) => {
+        expect(stripRrwebScriptShims(input)).toBe(input)
+    })
+
+    it('removes inline-script shims (noscript with SCRIPT_PLACEHOLDER body)', () => {
+        const input = '<head></head><body><p>real</p><noscript>SCRIPT_PLACEHOLDER</noscript></body>'
+        const output = stripRrwebScriptShims(input)
+        expect(output).not.toContain('SCRIPT_PLACEHOLDER')
+        expect(output).not.toContain('<noscript')
+        expect(output).toContain('<p>real</p>')
+    })
+
+    it('removes external-script shims (noscript with src/type/async attrs)', () => {
+        const input =
+            '<head><noscript type="text/javascript" async="" src="https://cdn.example.com/array.js"></noscript></head><body></body>'
+        const output = stripRrwebScriptShims(input)
+        expect(output).not.toContain('<noscript')
+        expect(output).not.toContain('cdn.example.com/array.js')
+    })
+
+    it('removes every noscript when many appear in a row (the reported repro)', () => {
+        const input =
+            '<head>' +
+            '<noscript type="text/javascript" async="" src="https://pcdn.example.com/array.js"></noscript>' +
+            '<noscript>SCRIPT_PLACEHOLDER</noscript>' +
+            '<noscript>SCRIPT_PLACEHOLDER</noscript>' +
+            '</head><body><h1>page</h1></body>'
+        const output = stripRrwebScriptShims(input)
+        expect(countTag(output, 'noscript')).toBe(0)
+        expect(output).not.toContain('SCRIPT_PLACEHOLDER')
+        expect(output).toContain('<h1>page</h1>')
+    })
+
+    it('preserves surrounding DOM structure (head + body content)', () => {
+        const input =
+            '<head><title>t</title><noscript>SCRIPT_PLACEHOLDER</noscript></head>' +
+            '<body><main><p>kept</p></main></body>'
+        const output = stripRrwebScriptShims(input)
+        expect(output).toContain('<title>t</title>')
+        expect(output).toContain('<main><p>kept</p></main>')
+        expect(countTag(output, 'noscript')).toBe(0)
     })
 })
 
@@ -356,6 +408,157 @@ describe('sessionRecordingPlayerLogic', () => {
             const start = logic.values.sessionPlayerData.start?.valueOf() ?? 0
             expect(logic.values.currentTimestamp).toBeGreaterThanOrEqual(start)
             expect(logic.values.isBuffering).toBe(false)
+        })
+    })
+
+    describe('seek renderability clamping', () => {
+        // Mock recording meta: start=1682952380877
+        const START = 1682952380877
+        const LATE_FS_TS = START + 300000
+
+        // Fresh blob keys ('8'/'9') — re-using the default mocks' key '0' would make
+        // setSources silently inherit the entry already loaded from the mocks instead
+        // of the snapshots seeded here
+        const SOURCE_A = {
+            source: 'blob_v2',
+            blob_key: '8',
+            start_timestamp: new Date(START).toISOString(),
+            end_timestamp: new Date(START + 60000).toISOString(),
+        }
+        const SOURCE_B = {
+            source: 'blob_v2',
+            blob_key: '9',
+            start_timestamp: new Date(START + 60000).toISOString(),
+            end_timestamp: new Date(LATE_FS_TS + 60000).toISOString(),
+        }
+
+        const makeSnapshot = (timestamp: number, type: EventType): RecordingSnapshot =>
+            ({ timestamp, type, windowId: 1, data: {} }) as unknown as RecordingSnapshot
+
+        const inc = (timestamp: number): RecordingSnapshot => makeSnapshot(timestamp, EventType.IncrementalSnapshot)
+        const fs = (timestamp: number): RecordingSnapshot => makeSnapshot(timestamp, EventType.FullSnapshot)
+
+        // Seeds the snapshot store and the coordinator's processed snapshots (which
+        // segments derive from) directly, bypassing the network loading machinery.
+        // Passing null leaves that source unloaded.
+        const seedRecording = (
+            firstSourceSnapshots: RecordingSnapshot[] | null,
+            secondSourceSnapshots: RecordingSnapshot[]
+        ): void => {
+            const dataLogic = snapshotDataLogic({ sessionRecordingId: '2' })
+            dataLogic.actions.loadSnapshotSourcesSuccess([SOURCE_A, SOURCE_B] as any)
+            const store = dataLogic.cache.store
+            const processed: RecordingSnapshot[] = []
+            if (firstSourceSnapshots) {
+                store.markLoaded(0, firstSourceSnapshots)
+                processed.push(...firstSourceSnapshots)
+            }
+            store.markLoaded(1, secondSourceSnapshots)
+            processed.push(...secondSourceSnapshots)
+            dataLogic.actions.storeUpdated()
+            sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' }).actions.setProcessedSnapshots(processed)
+        }
+
+        beforeEach(async () => {
+            await expectLogic(logic)
+                .toDispatchActions([snapshotDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotSources])
+                .toFinishAllListeners()
+        })
+
+        // assertions below run synchronously after the seek dispatch — kea listeners
+        // run synchronously up to their first await, and draining listeners instead
+        // would let the animation loop advance the playhead past the asserted value
+
+        it.each([
+            {
+                description: 'clamps a seek into a dead zone forward to the next full snapshot',
+                firstSourceSnapshots: [inc(START), inc(START + 1000)],
+                secondSourceSnapshots: [fs(LATE_FS_TS)],
+                seekTo: START + 1000,
+                expectedTimestamp: LATE_FS_TS,
+                expectedError: null,
+                expectsClampEvent: true,
+            },
+            {
+                // the seek target lies beyond the first source, so the scheduler enters
+                // seek mode — the unplayable verdict must still win over buffering
+                description: 'errors when fully loaded and no full snapshot exists anywhere',
+                firstSourceSnapshots: [inc(START), inc(START + 1000)],
+                secondSourceSnapshots: [inc(START + 61000), inc(START + 62000)],
+                seekTo: START + 61500,
+                expectedTimestamp: START + 61500,
+                expectedError: 'noPlayableFullSnapshot',
+                expectsClampEvent: false,
+            },
+            {
+                description: 'does not interfere when a full snapshot exists before the seek position',
+                firstSourceSnapshots: [fs(START), inc(START + 1000)],
+                secondSourceSnapshots: [inc(LATE_FS_TS)],
+                seekTo: START + 1000,
+                expectedTimestamp: START + 1000,
+                expectedError: null,
+                expectsClampEvent: false,
+            },
+        ])(
+            '$description',
+            ({
+                firstSourceSnapshots,
+                secondSourceSnapshots,
+                seekTo,
+                expectedTimestamp,
+                expectedError,
+                expectsClampEvent,
+            }) => {
+                seedRecording(firstSourceSnapshots, secondSourceSnapshots)
+                const captureSpy = jest.spyOn(posthog, 'capture')
+                captureSpy.mockClear()
+                logic.actions.setPause()
+
+                logic.actions.seekToTimestamp(seekTo)
+
+                expect(logic.values.currentTimestamp).toBe(expectedTimestamp)
+                expect(logic.values.playerError).toBe(expectedError)
+                const clampCalls = captureSpy.mock.calls.filter(
+                    ([eventName]) => eventName === 'recording player seek clamped to next full snapshot'
+                )
+                expect(clampCalls).toHaveLength(expectsClampEvent ? 1 : 0)
+                if (expectsClampEvent) {
+                    expect(clampCalls[0][1]).toMatchObject({
+                        seekTimestamp: seekTo,
+                        clampedToTimestamp: expectedTimestamp,
+                    })
+                }
+            }
+        )
+
+        it('does not clamp or capture when a null currentTimestamp is forwarded during player init', () => {
+            // Some callers (e.g. the setPlayer listener) forward currentTimestamp
+            // while it still holds its initial null — that must not be coerced to 0
+            // and clamped to the FullSnapshot with telemetry on every player init
+            seedRecording([inc(START), inc(START + 1000)], [fs(LATE_FS_TS)])
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            captureSpy.mockClear()
+
+            logic.actions.seekToTimestamp(null as unknown as number)
+
+            const clampCalls = captureSpy.mock.calls.filter(
+                ([eventName]) => eventName === 'recording player seek clamped to next full snapshot'
+            )
+            expect(clampCalls).toHaveLength(0)
+            expect(logic.values.currentTimestamp).not.toBe(LATE_FS_TS)
+        })
+
+        it('buffers while earlier data that could contain a full snapshot is still loading', () => {
+            // The first source is unloaded — it could still contain the window's
+            // FullSnapshot, so a seek into the second source's FullSnapshot-less data
+            // must buffer, not clamp
+            seedRecording(null, [inc(START + 61000), inc(START + 62000)])
+
+            logic.actions.seekToTimestamp(START + 61500)
+
+            expect(logic.values.isBuffering).toBe(true)
+            expect(logic.values.playerError).toBeNull()
+            expect(logic.values.currentTimestamp).toBe(START + 61500)
         })
     })
 
@@ -891,6 +1094,24 @@ describe('sessionRecordingPlayerLogic', () => {
             logic.actions.setCurrentSegment(segmentWithNoWindowId)
 
             expect(tryInitReplayerSpy).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('exportRecording', () => {
+        it('uses the player skip-inactivity setting', () => {
+            // setRootFrame clears innerHTML, so append the iframe after it runs
+            const rootFrame = document.createElement('div')
+            logic.actions.setRootFrame(rootFrame)
+            rootFrame.appendChild(document.createElement('iframe'))
+
+            playerSettingsLogic.actions.setSkipInactivitySetting(false)
+
+            const startReplayExportSpy = jest.spyOn(logic.actions, 'startReplayExport')
+            logic.actions.exportRecording(ExporterFormat.MP4, 0, SessionRecordingPlayerMode.Video, 3600)
+
+            expect(startReplayExportSpy).toHaveBeenCalledTimes(1)
+            expect(startReplayExportSpy.mock.calls[0]?.[5]?.skip_inactivity).toBe(false)
+            startReplayExportSpy.mockRestore()
         })
     })
 })

@@ -2,10 +2,24 @@ import uuid
 
 from django.db import models
 
+from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.utils import generate_short_id
 
+MIN_CPU_CORES = 0.25
+MAX_CPU_CORES = 8.0
+MIN_MEMORY_GB = 0.5
+MAX_MEMORY_GB = 16.0
 
-class StreamlitApp(models.Model):
+
+class StreamlitApp(TeamScopedRootMixin):
+    # `objects` (TeamScopedManager) inherited from TeamScopedRootMixin is fail-closed for
+    # explicit user code. `all_teams` is the unscoped sibling for Django framework internals
+    # (related-object access, prefetch_related, DRF class-body querysets) — Meta's
+    # default_manager_name routes _default_manager/_base_manager there. Same pattern as
+    # products/signals.
+    all_teams = models.Manager()  # noqa: DJ012
+
+    # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     short_id = models.CharField(max_length=12, blank=True, default=generate_short_id)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
@@ -34,6 +48,7 @@ class StreamlitApp(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        default_manager_name = "all_teams"
         constraints = [
             models.UniqueConstraint(
                 fields=["team", "short_id"],
@@ -47,6 +62,7 @@ class StreamlitApp(models.Model):
 
 
 class StreamlitAppVersion(models.Model):
+    # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     app = models.ForeignKey(StreamlitApp, on_delete=models.CASCADE, related_name="versions")
     version_number = models.PositiveIntegerField()
@@ -76,12 +92,13 @@ class StreamlitAppSandbox(models.Model):
         STOPPED = "stopped", "Stopped"
         ERROR = "error", "Error"
 
+    # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     app = models.OneToOneField(StreamlitApp, on_delete=models.CASCADE, related_name="sandbox")
     version = models.ForeignKey(StreamlitAppVersion, on_delete=models.SET_NULL, null=True, blank=True)
 
     sandbox_id = models.CharField(max_length=255)
-    status = models.CharField(max_length=20, choices=Status.choices, default=Status.STARTING)
+    status = models.CharField(max_length=20, choices=Status, default=Status.STARTING)
 
     last_error = models.TextField(blank=True, default="")
 

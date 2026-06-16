@@ -1,11 +1,10 @@
 import datetime as dt
-import dataclasses
 from collections.abc import Callable
 from typing import Any, Optional
 
 import structlog
 import temporalio
-from drf_spectacular.utils import extend_schema, extend_schema_field
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
@@ -16,11 +15,12 @@ from posthog.hogql.database.database import Database
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.exceptions_capture import capture_exception
-from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
-from posthog.models.signals import model_activity_signal, mutable_receiver
+from posthog.temporal.data_imports.cdc.adapters import get_cdc_adapter
 from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.temporal.data_imports.sources.common.base import WebhookSource
-from posthog.temporal.data_imports.sources.postgres.cdc.config import PostgresCDCConfig
+from posthog.temporal.data_imports.sources.common.sql import (
+    filter_dwh_columns_by_enabled_columns as _filter_dwh_columns_by_enabled_columns,
+)
 
 from products.data_warehouse.backend.data_load.service import (
     cancel_external_data_workflow,
@@ -33,38 +33,174 @@ from products.data_warehouse.backend.data_load.service import (
     trigger_external_data_workflow,
     unpause_external_data_schedule,
 )
-from products.data_warehouse.backend.direct_postgres import (
-    get_direct_postgres_location,
-    hide_direct_postgres_table,
-    postgres_schema_metadata_to_dwh_columns,
-    upsert_direct_postgres_table,
-)
+from products.data_warehouse.backend.direct_postgres import hide_direct_postgres_table
 from products.data_warehouse.backend.external_data_source.webhooks import (
     create_and_register_webhook,
     get_or_create_webhook_hog_function,
+    reconcile_webhook_events,
 )
-from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSchema
-from products.data_warehouse.backend.models.external_data_schema import (
+from products.data_warehouse.backend.postgres_helpers import (
+    get_postgres_source_location,
+    reproject_direct_postgres_table,
+)
+from products.data_warehouse.backend.types import ExternalDataSourceType, IncrementalFieldType
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_schema import (
+    ExternalDataSchema,
     sync_frequency_interval_to_sync_frequency,
     sync_frequency_to_sync_frequency_interval,
 )
-from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
-from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 logger = structlog.get_logger(__name__)
+
+
+def source_supports_column_selection(source_type: str) -> bool:
+    try:
+        source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
+    except Exception as e:
+        capture_exception(e)
+        return False
+    # `bool()` guards against test mocks whose attribute access returns a Mock — orjson can't serialize.
+    return bool(source.supports_column_selection)
+
+
+_CDC_WRITE_TARGETS_BY_TABLE_MODE: dict[str, frozenset[str]] = {
+    "consolidated": frozenset({"consolidated"}),
+    "cdc_only": frozenset({"cdc_history"}),
+    "both": frozenset({"consolidated", "cdc_history"}),
+}
+
+
+def _cdc_table_mode_change_needs_resnapshot(old_mode: str | None, new_mode: str | None) -> bool:
+    """True when the new mode adds a physical write target (consolidated and/or cdc history table)."""
+    if old_mode == new_mode:
+        return False
+    old_targets = _CDC_WRITE_TARGETS_BY_TABLE_MODE.get(old_mode or "", frozenset())
+    new_targets = _CDC_WRITE_TARGETS_BY_TABLE_MODE.get(new_mode or "", frozenset())
+    return bool(new_targets - old_targets)
+
+
+def _reset_cdc_for_full_resnapshot(instance: ExternalDataSchema) -> None:
+    """Cancel any running workflow and reset schema state so the next run does a full snapshot.
+
+    Must save before triggering: the workflow reloads the schema and bails via
+    `CDCHandledExternally` if it sees `cdc_mode='streaming'`.
+    """
+    latest_running_job = (
+        ExternalDataJob.objects.filter(schema_id=instance.pk, team_id=instance.team_id).order_by("-created_at").first()
+    )
+    if latest_running_job and latest_running_job.workflow_id and latest_running_job.status == "Running":
+        try:
+            cancel_external_data_workflow(latest_running_job.workflow_id)
+        except temporalio.service.RPCError as e:
+            logger.exception(
+                "Could not cancel running workflow before re-snapshot",
+                schema_id=str(instance.id),
+                exc_info=e,
+            )
+
+    instance.sync_type_config["reset_pipeline"] = True
+    instance.sync_type_config["cdc_mode"] = "snapshot"
+    instance.sync_type_config.pop("cdc_last_log_position", None)
+    instance.sync_type_config.pop("cdc_deferred_runs", None)
+    instance.initial_sync_complete = False
+    instance.status = ExternalDataSchema.Status.RUNNING
+    instance.save()
+
+    try:
+        trigger_external_data_workflow(instance)
+    except temporalio.service.RPCError as e:
+        logger.exception(
+            "Could not trigger external data workflow after re-snapshot reset",
+            schema_id=str(instance.id),
+            exc_info=e,
+        )
+        # Roll the status back so the Syncs UI doesn't show RUNNING for a workflow that never started.
+        # The sync_type_config mutations stay — the schema's intent is still "do a re-snapshot next run".
+        instance.status = ExternalDataSchema.Status.FAILED
+        instance.save(update_fields=["status"])
+
+
+# Sync frequencies that only CDC schemas may use. Every other sync type floors at 5 minutes.
+CDC_ONLY_SYNC_FREQUENCIES = {"1min"}
 
 
 class ExternalDataSchemaSerializer(serializers.ModelSerializer):
     table = serializers.SerializerMethodField(read_only=True)
     incremental = serializers.SerializerMethodField(read_only=True)
-    sync_type = serializers.SerializerMethodField(read_only=True)
-    incremental_field = serializers.SerializerMethodField(read_only=True)
-    incremental_field_type = serializers.SerializerMethodField(read_only=True)
-    sync_frequency = serializers.SerializerMethodField(read_only=True)
     status = serializers.SerializerMethodField(read_only=True)
-    sync_time_of_day = serializers.SerializerMethodField(read_only=True)
-    primary_key_columns = serializers.SerializerMethodField(read_only=True)
-    cdc_table_mode = serializers.SerializerMethodField(read_only=False)
+    sync_type = serializers.ChoiceField(
+        choices=ExternalDataSchema.SyncType.choices,
+        required=False,
+        allow_null=True,
+        help_text="Sync strategy: incremental, full_refresh, append, or cdc.",
+    )
+    incremental_field = serializers.CharField(
+        required=False, allow_null=True, help_text="Column name used to track sync progress."
+    )
+    incremental_field_type = serializers.ChoiceField(
+        choices=[(e.value, e.value) for e in IncrementalFieldType],
+        required=False,
+        allow_null=True,
+        help_text="Data type of the incremental field.",
+    )
+    sync_frequency = serializers.ChoiceField(
+        choices=[
+            ("never", "never"),
+            ("1min", "1min"),
+            ("5min", "5min"),
+            ("15min", "15min"),
+            ("30min", "30min"),
+            ("1hour", "1hour"),
+            ("6hour", "6hour"),
+            ("12hour", "12hour"),
+            ("24hour", "24hour"),
+            ("7day", "7day"),
+            ("30day", "30day"),
+        ],
+        required=False,
+        allow_null=True,
+        help_text="How often to sync.",
+    )
+    sync_time_of_day = serializers.TimeField(
+        required=False, allow_null=True, help_text="UTC time of day to run the sync (HH:MM:SS)."
+    )
+    primary_key_columns = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        allow_null=True,
+        help_text="Column names for primary key deduplication.",
+    )
+    cdc_table_mode = serializers.ChoiceField(
+        choices=["consolidated", "cdc_only", "both"],
+        required=False,
+        allow_null=True,
+        help_text="For CDC syncs: consolidated, cdc_only, or both.",
+    )
+    enabled_columns = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Names of source columns to sync. `null` (default) syncs all columns. "
+            "Primary-key columns and the active incremental field are always retained, "
+            "even if not listed here."
+        ),
+    )
+    available_columns = serializers.SerializerMethodField(
+        read_only=True,
+        help_text="Source-side column metadata (name, data type, nullable) discovered for this schema. "
+        "Empty until the source has been refreshed via `refresh_schemas`.",
+    )
+    # `source` shadows DRF's reserved `Field.source` attribute, so mypy flags the assignment;
+    # the runtime behaviour (a read-only SerializerMethodField backed by get_source) is correct.
+    source = serializers.SerializerMethodField(  # type: ignore[assignment]
+        read_only=True,
+        help_text="Lightweight parent-source summary (id, source_type, column-selection support, the requesting "
+        "user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so "
+        "read-only views can render without fetching the full source and all its schemas.",
+    )
 
     class Meta:
         model = ExternalDataSchema
@@ -87,6 +223,9 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "description",
             "primary_key_columns",
             "cdc_table_mode",
+            "enabled_columns",
+            "available_columns",
+            "source",
         ]
 
         read_only_fields = [
@@ -98,7 +237,68 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "latest_error",
             "status",
             "description",
+            "available_columns",
+            "source",
         ]
+
+    @extend_schema_field(
+        {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "data_type": {"type": "string"},
+                    "is_nullable": {"type": "boolean"},
+                },
+                "required": ["name"],
+            },
+        }
+    )
+    def get_available_columns(self, schema: ExternalDataSchema) -> list[dict[str, Any]]:
+        metadata = schema.schema_metadata or {}
+        columns = metadata.get("columns") if isinstance(metadata, dict) else None
+        if not isinstance(columns, list):
+            return []
+        return [
+            {
+                "name": column.get("name"),
+                "data_type": column.get("data_type"),
+                "is_nullable": column.get("is_nullable"),
+            }
+            for column in columns
+            if isinstance(column, dict) and isinstance(column.get("name"), str)
+        ]
+
+    @extend_schema_field(
+        {
+            "type": "object",
+            "nullable": True,
+            "properties": {
+                "id": {"type": "string"},
+                "source_type": {"type": "string"},
+                "supports_column_selection": {"type": "boolean"},
+                "user_access_level": {"type": "string", "nullable": True},
+            },
+        }
+    )
+    def get_source(self, schema: ExternalDataSchema) -> dict[str, Any] | None:
+        # Gated to the retrieve action (via `include_source` context) so the source endpoint's
+        # nested schema serialization and the schema `list` don't pay for the SourceRegistry lookup.
+        if not self.context.get("include_source"):
+            return None
+        source = schema.source
+        user_access_level = None
+        view = self.context.get("view")
+        user_access_control = getattr(view, "user_access_control", None)
+        if user_access_control is not None:
+            user_access_level = user_access_control.get_user_access_level(source)
+        return {
+            "id": str(source.id),
+            "source_type": source.source_type,
+            "supports_column_selection": source_supports_column_selection(source.source_type),
+            "user_access_level": user_access_level,
+        }
 
     def get_status(self, schema: ExternalDataSchema) -> str | None:
         if schema.status == ExternalDataSchema.Status.BILLING_LIMIT_REACHED:
@@ -112,18 +312,6 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
     def get_incremental(self, schema: ExternalDataSchema) -> bool:
         return schema.is_incremental
 
-    def get_incremental_field(self, schema: ExternalDataSchema) -> str | None:
-        return schema.sync_type_config.get("incremental_field")
-
-    def get_incremental_field_type(self, schema: ExternalDataSchema) -> str | None:
-        return schema.sync_type_config.get("incremental_field_type")
-
-    def get_sync_type(self, schema: ExternalDataSchema) -> ExternalDataSchema.SyncType | None:
-        return ExternalDataSchema.SyncType(schema.sync_type) if schema.sync_type is not None else None
-
-    def get_primary_key_columns(self, schema: ExternalDataSchema) -> list[str] | None:
-        return schema.primary_key_columns
-
     def get_table(self, schema: ExternalDataSchema) -> Optional[dict]:
         from products.data_warehouse.backend.api.table import SimpleTableSerializer
 
@@ -136,17 +324,24 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
 
         return SimpleTableSerializer(schema.table, context={"database": hogql_context}).data or None
 
-    @extend_schema_field(serializers.CharField(allow_null=True))
-    def get_sync_frequency(self, schema: ExternalDataSchema):
-        return sync_frequency_interval_to_sync_frequency(schema.sync_frequency_interval)
-
-    @extend_schema_field(serializers.TimeField(allow_null=True))
-    def get_sync_time_of_day(self, schema: ExternalDataSchema):
-        return schema.sync_time_of_day
-
-    @extend_schema_field(serializers.ChoiceField(choices=["consolidated", "cdc_only", "both"]))
-    def get_cdc_table_mode(self, schema: ExternalDataSchema) -> str:
-        return schema.cdc_table_mode
+    def to_representation(self, instance: ExternalDataSchema) -> dict:
+        ret = super().to_representation(instance)
+        ret["sync_type"] = ExternalDataSchema.SyncType(instance.sync_type) if instance.sync_type is not None else None
+        ret["sync_frequency"] = sync_frequency_interval_to_sync_frequency(instance.sync_frequency_interval)
+        ret["sync_time_of_day"] = (
+            self.fields["sync_time_of_day"].to_representation(instance.sync_time_of_day)
+            if instance.sync_time_of_day
+            else None
+        )
+        ret["incremental_field"] = (
+            instance.sync_type_config.get("incremental_field") if instance.sync_type_config else None
+        )
+        ret["incremental_field_type"] = (
+            instance.sync_type_config.get("incremental_field_type") if instance.sync_type_config else None
+        )
+        ret["primary_key_columns"] = instance.primary_key_columns
+        ret["cdc_table_mode"] = instance.cdc_table_mode
+        return ret
 
     def _run_temporal_side_effect(self, callback: Callable[[], None]) -> None:
         post_commit_actions = self.context.get("post_commit_actions")
@@ -159,17 +354,54 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
     def update(self, instance: ExternalDataSchema, validated_data: dict[str, Any]) -> ExternalDataSchema:
         data = self.initial_data if isinstance(self.initial_data, dict) else {}
 
-        sync_type = data.get("sync_type")
+        # Capture the previous cdc_table_mode before any mutation so the post-save hook below can decide
+        # whether the change adds a new physical write target (and therefore needs a re-snapshot).
+        previous_cdc_table_mode = instance.cdc_table_mode
 
+        # Refuse cdc_table_mode transitions that would kick a re-snapshot when the team is over its
+        # monthly sync billing limit. Checked here (pre-save) so we don't end up with the new mode
+        # persisted but no resnapshot triggered. Mirrors the gate in `resync` / `reload`.
         if (
-            sync_type is not None
-            and sync_type != ExternalDataSchema.SyncType.FULL_REFRESH
-            and sync_type != ExternalDataSchema.SyncType.INCREMENTAL
-            and sync_type != ExternalDataSchema.SyncType.APPEND
-            and sync_type != ExternalDataSchema.SyncType.WEBHOOK
-            and sync_type != ExternalDataSchema.SyncType.CDC
+            instance.sync_type == ExternalDataSchema.SyncType.CDC
+            and "cdc_table_mode" in data
+            and _cdc_table_mode_change_needs_resnapshot(previous_cdc_table_mode, data.get("cdc_table_mode"))
+            and is_any_external_data_schema_paused(instance.team_id)
         ):
-            raise ValidationError("Invalid sync type")
+            raise ValidationError(
+                "Monthly sync limit reached. Please increase your billing limit before changing "
+                "the CDC table mode — a full re-snapshot would be required."
+            )
+
+        # Pop non-model fields from validated_data so super().update() doesn't try to set them
+        validated_data.pop("sync_type", None)
+        validated_data.pop("sync_frequency", None)
+        validated_data.pop("sync_time_of_day", None)
+        validated_data.pop("incremental_field", None)
+        validated_data.pop("incremental_field_type", None)
+        validated_data.pop("primary_key_columns", None)
+        validated_data.pop("cdc_table_mode", None)
+
+        if "enabled_columns" in validated_data:
+            enabled_columns = validated_data["enabled_columns"]
+            if enabled_columns is not None:
+                if not isinstance(enabled_columns, list) or not all(isinstance(c, str) for c in enabled_columns):
+                    raise ValidationError("enabled_columns must be a list of column-name strings or null.")
+                metadata = instance.schema_metadata or {}
+                metadata_columns = metadata.get("columns") if isinstance(metadata, dict) else None
+                known = (
+                    {col.get("name") for col in metadata_columns if isinstance(col, dict)}
+                    if isinstance(metadata_columns, list)
+                    else set()
+                )
+                if known:
+                    unknown = [c for c in enabled_columns if c not in known]
+                    if unknown:
+                        raise ValidationError(
+                            f"Unknown columns in enabled_columns: {sorted(unknown)}. "
+                            "Run `Pull new schemas` to refresh available columns."
+                        )
+
+        sync_type = data.get("sync_type")
 
         if sync_type == ExternalDataSchema.SyncType.CDC:
             from posthog.models import Team
@@ -177,6 +409,14 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             team = Team.objects.get(id=self.context["team_id"])
             if not is_cdc_enabled_for_team(team):
                 raise ValidationError("CDC is not enabled for this team")
+
+        # Reject non-webhook sync types for webhook-only schemas (e.g. Stripe Discount —
+        # no API list endpoint, so anything other than webhook produces an empty sync).
+        if "sync_type" in data and sync_type != ExternalDataSchema.SyncType.WEBHOOK:
+            if self._is_webhook_only_schema(instance):
+                raise ValidationError(
+                    f"{instance.name} can only be synced via webhooks — pick the Webhook sync method."
+                )
 
         # Only update sync_type if it was explicitly provided in the request
         if "sync_type" in data:
@@ -209,10 +449,11 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             incremental_field_changed = False
             incremental_field = data.get("incremental_field")
             if sync_type in (ExternalDataSchema.SyncType.INCREMENTAL, ExternalDataSchema.SyncType.APPEND):
-                incremental_field_changed = (
-                    payload.get("incremental_field") != incremental_field
-                    or payload.get("incremental_field_last_value") is None
-                )
+                if "incremental_field" in data:
+                    incremental_field_changed = (
+                        payload.get("incremental_field") != incremental_field
+                        or payload.get("incremental_field_last_value") is None
+                    )
 
             if "incremental_field" in data:
                 payload["incremental_field"] = incremental_field
@@ -238,6 +479,26 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             cdc_table_mode = data.get("cdc_table_mode")
             if cdc_table_mode in ("consolidated", "cdc_only", "both"):
                 payload["cdc_table_mode"] = cdc_table_mode
+
+            # CDC needs a PK for UPDATE/DELETE merges. Accept the caller's PK or reuse what
+            # discovery already stored; refuse the switch when neither is set.
+            new_pk = data.get("primary_key_columns")
+            if new_pk:
+                old_pk = payload.get("primary_key_columns")
+                # Same rule as incremental: the PK is the merge key, so it can't change once data
+                # has synced (`instance.table` exists). Delete the synced data to change it.
+                if new_pk != old_pk and instance.table is not None:
+                    raise ValidationError(
+                        "Primary key cannot be changed after data has been synced. "
+                        "Delete the synced data first, then change the primary key."
+                    )
+                payload["primary_key_columns"] = new_pk
+            elif not payload.get("primary_key_columns"):
+                raise ValidationError(
+                    f"CDC requires a primary key on table '{instance.name}'. "
+                    "Provide primary_key_columns or refresh schema discovery to pick one up."
+                )
+
             validated_data["sync_type_config"] = payload
         else:
             # For CDC schemas where sync_type isn't being changed, still allow cdc_table_mode updates
@@ -255,6 +516,21 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         was_sync_frequency_updated = False
         was_sync_time_of_day_updated = False
         source = instance.source
+
+        # Sub-5-minute cadence is only valid for CDC. Enforce server-side so API/MCP callers (not
+        # just the UI) can't drop a non-CDC schema below the allowed floor. We validate the
+        # frequency the schema will actually end up with — the new value if one is supplied, else
+        # the existing interval — against the sync type it will end up with. This also catches
+        # switching a 1-minute CDC schema to a non-CDC type without re-sending the frequency.
+        resulting_sync_type = sync_type if "sync_type" in data else instance.sync_type
+        resulting_frequency = sync_frequency
+        if not resulting_frequency and instance.sync_frequency_interval is not None:
+            resulting_frequency = sync_frequency_interval_to_sync_frequency(instance.sync_frequency_interval)
+        if resulting_frequency in CDC_ONLY_SYNC_FREQUENCIES and resulting_sync_type != ExternalDataSchema.SyncType.CDC:
+            raise ValidationError(
+                "A 1-minute sync frequency is only available for CDC schemas. "
+                "The fastest frequency for other sync types is 5 minutes."
+            )
 
         if sync_frequency:
             sync_frequency_interval = sync_frequency_to_sync_frequency_interval(sync_frequency)
@@ -283,6 +559,20 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         if source.supports_scheduled_sync and should_sync is True and sync_type is None and instance.sync_type is None:
             raise ValidationError("Sync type must be set up first before enabling schema")
 
+        # Catches a CDC schema being flipped on later when sync_type isn't changing — the
+        # sync_type branch above doesn't run, so PK presence isn't enforced there.
+        effective_sync_type = sync_type or instance.sync_type
+        if (
+            should_sync is True
+            and not instance.should_sync
+            and effective_sync_type == ExternalDataSchema.SyncType.CDC
+            and not instance.primary_key_columns
+        ):
+            raise ValidationError(
+                f"CDC requires a primary key on table '{instance.name}'. "
+                "Add a primary key on the source table and retry."
+            )
+
         # When re-enabling a webhook schema, force a full refresh to avoid missing data
         if (
             should_sync is True
@@ -294,26 +584,39 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             validated_data["sync_type_config"]["reset_pipeline"] = True
             trigger_refresh = True
 
+        enabled_columns_changed = "enabled_columns" in validated_data and (
+            validated_data["enabled_columns"] != instance.enabled_columns
+        )
+
         if source.is_direct_postgres:
-            # We use "should_sync" to determine if the table should be exposed or hidden.
-            if should_sync is True and instance.should_sync is False:
-                source_catalog, source_schema, source_table_name = get_direct_postgres_location(
-                    schema_name=instance.name,
-                    schema_metadata=instance.schema_metadata,
-                    default_schema=(source.job_inputs or {}).get("schema"),
-                )
-                validated_data["table"] = upsert_direct_postgres_table(
-                    instance.table,
-                    schema_name=instance.name,
+            # Direct-mode lifecycle hooks that need a fresh DataWarehouseTable projection:
+            # (1) row is being re-exposed (should_sync flipping False → True);
+            # (2) the column-picker selection changed on an already-exposed row.
+            newly_exposed = should_sync is True and instance.should_sync is False
+            projection_needs_refresh = enabled_columns_changed and instance.table is not None and instance.should_sync
+            if newly_exposed or projection_needs_refresh:
+                validated_data["table"] = reproject_direct_postgres_table(
+                    instance,
                     source=source,
-                    columns=postgres_schema_metadata_to_dwh_columns(instance.schema_metadata),
-                    source_catalog=source_catalog,
-                    source_schema=source_schema,
-                    source_table_name=source_table_name,
+                    enabled_columns=validated_data.get("enabled_columns", instance.enabled_columns),
                 )
 
             if should_sync is False and instance.should_sync is True:
                 hide_direct_postgres_table(instance.table)
+        elif enabled_columns_changed and instance.table is not None and instance.should_sync:
+            # Warehouse mode: hide newly-disabled columns from HogQL immediately. Restoration
+            # (reset to None or re-enabling a column) is deferred to the next sync — Delta may
+            # not contain the column yet, so exposing it now would surface all-NULL queries.
+            current_columns = instance.table.columns or {}
+            projected_columns = _filter_dwh_columns_by_enabled_columns(
+                current_columns,
+                validated_data["enabled_columns"],
+                instance.primary_key_columns,
+                instance.incremental_field,
+            )
+            if projected_columns != current_columns:
+                instance.table.columns = projected_columns
+                instance.table.save(update_fields=["columns"])
 
         # CDC publication management: add/remove table when toggling should_sync
         is_cdc = (sync_type == ExternalDataSchema.SyncType.CDC) or (
@@ -366,7 +669,37 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
 
             self._run_temporal_side_effect(sync_cdc_schedule)
 
+        # If the cdc_table_mode change added a new physical write target, kick a full re-snapshot so the
+        # new table is seeded from the current source state. `_seed_cdc_companion_from_snapshot` runs
+        # automatically once the snapshot completes via `run_post_load_operations`.
+        if is_cdc and "cdc_table_mode" in data:
+            new_cdc_table_mode = data.get("cdc_table_mode")
+            if _cdc_table_mode_change_needs_resnapshot(previous_cdc_table_mode, new_cdc_table_mode):
+                logger.info(
+                    "cdc_table_mode_changed_resnapshot_triggered",
+                    schema_id=str(updated_instance.id),
+                    old_cdc_table_mode=previous_cdc_table_mode,
+                    new_cdc_table_mode=new_cdc_table_mode,
+                )
+                self._run_temporal_side_effect(lambda: _reset_cdc_for_full_resnapshot(updated_instance))
+
         return updated_instance
+
+    def _is_webhook_only_schema(self, schema: ExternalDataSchema) -> bool:
+        source = schema.source
+        if not source.job_inputs:
+            return False
+        try:
+            source_type = ExternalDataSourceType(source.source_type)
+            source_impl = SourceRegistry.get_source(source_type)
+        except Exception:
+            return False
+        try:
+            config = source_impl.parse_config(source.job_inputs)
+            source_schemas = source_impl.get_schemas(config, schema.team_id, names=[schema.name])
+        except Exception:
+            return False
+        return any(s.name == schema.name and s.webhook_only for s in source_schemas)
 
     def _maybe_create_webhook(self, schema: ExternalDataSchema) -> None:
         source = schema.source
@@ -412,6 +745,31 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                         f"Failed to register webhook on your source: {result.error or 'Unknown error'}. "
                         "You can set up the webhook manually from the Webhook tab."
                     )
+            else:
+                # Deferred to keep the provider call out of the surrounding transaction.
+                # Fully non-fatal: the table is already enabled by the time this runs, so any
+                # failure (bad creds, provider 403, network) must never propagate — it would
+                # otherwise 500 the post-commit hook on the bulk path, or roll back the enable
+                # on the single-update path. Data still flows once the user fixes provider events.
+                def reconcile() -> None:
+                    try:
+                        reconcile_result = reconcile_webhook_events(
+                            source_impl, config, hog_fn_result, schema.team_id, [schema.name]
+                        )
+                        if not reconcile_result.success:
+                            logger.warning(
+                                "Failed to reconcile webhook events on schema enable",
+                                error=reconcile_result.error,
+                                schema_id=str(schema.id),
+                            )
+                    except Exception as e:
+                        logger.warning(
+                            "Error reconciling webhook events on schema enable",
+                            error=str(e),
+                            schema_id=str(schema.id),
+                        )
+
+                self._run_temporal_side_effect(reconcile)
         except ValidationError:
             raise
         except Exception as e:
@@ -427,13 +785,13 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         should_sync: bool | None,
         sync_type: str | None,
     ) -> None:
-        """Manage CDC publication tables when a schema is toggled or newly set to CDC."""
-        cdc_config = PostgresCDCConfig.from_source(source)
+        """Add/remove the table from the CDC capture set when a schema is toggled or set to CDC."""
+        adapter = get_cdc_adapter(source)
+        cdc_config = adapter.parse_cdc_config(source)
         if cdc_config.management_mode != "posthog" or not cdc_config.publication_name:
             return
 
-        pub_name = cdc_config.publication_name
-        _, db_schema, source_table_name = get_direct_postgres_location(
+        _, db_schema, source_table_name = get_postgres_source_location(
             schema_name=instance.name,
             schema_metadata=instance.schema_metadata,
             default_schema=(source.job_inputs or {}).get("schema"),
@@ -443,9 +801,9 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             sync_type == ExternalDataSchema.SyncType.CDC and instance.sync_type != ExternalDataSchema.SyncType.CDC
         )
 
-        # Add table to publication when enabling CDC or toggling sync on
+        # Add table to capture set when enabling CDC or toggling sync on
         if newly_set_to_cdc or (should_sync is True and not instance.should_sync):
-            self._alter_cdc_publication(source, pub_name, db_schema, source_table_name, action="add")
+            adapter.add_table(source, db_schema, source_table_name)
 
             # Always force a full re-snapshot on re-enable: while removed from the
             # publication the replication slot kept advancing, so any changes made
@@ -455,39 +813,9 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                 instance.initial_sync_complete = False
                 instance.save(update_fields=["sync_type_config", "initial_sync_complete", "updated_at"])
 
-        # Remove table from publication when toggling sync off
+        # Remove table from capture set when toggling sync off
         elif should_sync is False and instance.should_sync:
-            self._alter_cdc_publication(source, pub_name, db_schema, source_table_name, action="remove")
-
-    def _alter_cdc_publication(
-        self,
-        source: ExternalDataSource,
-        pub_name: str,
-        db_schema: str,
-        table_name: str,
-        action: str,
-    ) -> None:
-        """Best-effort add/remove a table from the CDC publication."""
-        from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import (
-            add_table_to_publication,
-            cdc_pg_connection,
-            remove_table_from_publication,
-        )
-
-        try:
-            with cdc_pg_connection(source) as conn:
-                if action == "add":
-                    add_table_to_publication(conn, pub_name, db_schema, table_name)
-                else:
-                    remove_table_from_publication(conn, pub_name, db_schema, table_name)
-        except Exception as e:
-            logger.exception(
-                "Failed to alter CDC publication",
-                action=action,
-                table=table_name,
-                pub_name=pub_name,
-                error=str(e),
-            )
+            adapter.remove_table(source, db_schema, source_table_name)
 
 
 class SimpleExternalDataSchemaSerializer(serializers.ModelSerializer):
@@ -496,7 +824,6 @@ class SimpleExternalDataSchemaSerializer(serializers.ModelSerializer):
         fields = ["id", "name", "label", "should_sync", "last_synced_at", "sync_type"]
 
 
-@extend_schema(tags=["data_warehouse"])
 class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "external_data_source"
     scope_object_write_actions = [
@@ -521,10 +848,16 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
         context["database"] = Database.create_for(team_id=self.team_id)
+        # Only the single-schema retrieve embeds the parent-source summary (see ExternalDataSchemaSerializer.get_source).
+        context["include_source"] = self.action == "retrieve"
         return context
 
     def safely_get_queryset(self, queryset):
-        return queryset.exclude(deleted=True).prefetch_related("created_by").order_by(self.ordering)
+        queryset = queryset.exclude(deleted=True).prefetch_related("created_by")
+        if self.action == "retrieve":
+            # retrieve serializes the source summary + table; pull them in one round-trip.
+            queryset = queryset.select_related("source", "table__credential", "table__external_data_source")
+        return queryset.order_by(self.ordering)
 
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance: ExternalDataSchema = self.get_object()
@@ -673,20 +1006,26 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 data={"message": str(e)},
             )
 
-        if not schemas:
+        # Not every source honors the `names` filter (e.g. Slack returns all schemas regardless), so
+        # `schemas` may contain unrelated tables in any order. Pick the one that matches this schema
+        # instead of trusting `schemas[0]`, whose metadata could belong to a different table.
+        schema = next((s for s in schemas if s.name == instance.name), None)
+        if schema is None:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST, data={"message": f"Schema with name {instance.name} not found"}
             )
 
-        schema = schemas[0]
+        source_cdc_enabled = bool(source.job_inputs.get("cdc_enabled"))
+        cdc_available = schema.supports_cdc if is_cdc_enabled_for_team(self.team) and source_cdc_enabled else None
 
         data = {
             "incremental_fields": schema.incremental_fields,
             "incremental_available": schema.supports_incremental,
             "append_available": schema.supports_append,
-            "cdc_available": schema.supports_cdc if is_cdc_enabled_for_team(self.team) else None,
-            "full_refresh_available": True,
+            "cdc_available": cdc_available,
+            "full_refresh_available": not schema.webhook_only,
             "supports_webhooks": schema.supports_webhooks,
+            "webhook_only": schema.webhook_only,
             "available_columns": [
                 {"field": col_name, "label": col_name, "type": col_type, "nullable": nullable}
                 for col_name, col_type, nullable in schema.columns
@@ -695,60 +1034,3 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         }
 
         return Response(status=status.HTTP_200_OK, data=data)
-
-
-@dataclasses.dataclass(frozen=True)
-class ExternalDataSchemaContext(ActivityContextBase):
-    name: str
-    sync_type: str | None
-    sync_frequency: str | None
-    source_id: str
-    source_type: str
-
-
-@mutable_receiver(model_activity_signal, sender=ExternalDataSchema)
-def handle_external_data_schema_change(
-    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
-):
-    if activity == "created":
-        # We don't want to log the creation of schemas as they get bulk created on source creation
-        return
-
-    external_data_schema = after_update or before_update
-
-    if not external_data_schema:
-        return
-
-    source = external_data_schema.source
-    source_type = source.source_type if source else ""
-
-    sync_frequency = None
-    if external_data_schema.sync_frequency_interval:
-        from products.data_warehouse.backend.models.external_data_schema import (
-            sync_frequency_interval_to_sync_frequency,
-        )
-
-        sync_frequency = sync_frequency_interval_to_sync_frequency(external_data_schema.sync_frequency_interval)
-
-    context = ExternalDataSchemaContext(
-        name=external_data_schema.name or "",
-        sync_type=external_data_schema.sync_type,
-        sync_frequency=sync_frequency,
-        source_id=str(source.id) if source else "",
-        source_type=source_type,
-    )
-
-    log_activity(
-        organization_id=external_data_schema.team.organization_id,
-        team_id=external_data_schema.team_id,
-        user=user,
-        was_impersonated=was_impersonated,
-        item_id=external_data_schema.id,
-        scope=scope,
-        activity=activity,
-        detail=Detail(
-            changes=changes_between(scope, previous=before_update, current=after_update),
-            name=external_data_schema.name,
-            context=context,
-        ),
-    )

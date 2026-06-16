@@ -1,0 +1,23 @@
+# Example: { role: assistant, content: "hi", tool_calls: [{ id, type: function, function: { name, arguments } }] }
+
+id: openai_chat
+
+rules:
+    - on:
+          role: { exists: true }
+          content: { is: [string, null] }
+      emit:
+          # `spread: $` lets unknown kwargs (e.g. function_call) survive to the output.
+          spread: $
+          content:
+              try_parse_structured_content: $.content
+          # Lift OpenAI's `{id, type, function: {name, arguments}}` into the canonical
+          # `{id, name, args}` here, so the coercer stays provider-agnostic.
+          toolCalls:
+              select:
+                  from: $.tool_calls
+                  pluck:
+                      id: $.id
+                      name: $.function.name
+                      args: $.function.arguments
+          toolCallId: $.tool_call_id

@@ -1,18 +1,81 @@
 import copy
 import logging
 from collections.abc import Callable, Iterator
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from typing import Any, Optional
-from urllib.parse import urljoin
 
-import requests
-from requests import Request, Response
+from requests import Request, Response, Session
 from requests.auth import AuthBase
+from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt
 
+from posthog.temporal.data_imports.sources.common.http import make_tracked_session
+
+from .auth import auth_secret_values
 from .exceptions import IgnoreResponseException
 from .jsonpath_utils import TJsonPath, find_values
 from .paginators import BasePaginator
+from .utils import resolve_request_url
 
 logger = logging.getLogger(__name__)
+
+
+class RESTClientRetryableError(Exception):
+    def __init__(self, message: str, retry_after: Optional[float] = None) -> None:
+        super().__init__(message)
+        self.retry_after = retry_after
+
+
+# Upper bound on how long we'll honor a server-provided retry delay, so a
+# misreported header can't stall a worker for an unbounded amount of time.
+MAX_RETRY_AFTER_SECONDS = 300.0
+
+
+def _parse_retry_after(response: Response) -> Optional[float]:
+    """Best-effort retry delay (seconds) from a rate-limited / erroring response.
+
+    Honors the standard ``Retry-After`` header (delta-seconds or HTTP-date)
+    first. When it's absent, falls back to Sentry's ``X-Sentry-Rate-Limit-Reset``
+    (a UNIX epoch timestamp): Sentry's API signals its rate-limit window with
+    that header rather than ``Retry-After``, and Sentry's flat / fan-out
+    endpoints (e.g. ``project_users``) sync through this generic client, so
+    without it a 429 backs off on the short exponential fallback and exhausts
+    retries while still rate-limited. Capped at ``MAX_RETRY_AFTER_SECONDS``.
+    """
+    retry_after_header = response.headers.get("Retry-After")
+    if retry_after_header:
+        try:
+            return min(float(retry_after_header), MAX_RETRY_AFTER_SECONDS)
+        except ValueError:
+            try:
+                dt = parsedate_to_datetime(retry_after_header)
+            except (TypeError, ValueError):
+                return None
+            return min(max(0.0, (dt - datetime.now(UTC)).total_seconds()), MAX_RETRY_AFTER_SECONDS)
+
+    reset_header = response.headers.get("X-Sentry-Rate-Limit-Reset")
+    if reset_header:
+        try:
+            reset_epoch = int(reset_header)
+        except ValueError:
+            return None
+        wait_seconds = reset_epoch - int(datetime.now(UTC).timestamp())
+        if wait_seconds <= 0:
+            return None
+        return min(float(wait_seconds), MAX_RETRY_AFTER_SECONDS)
+
+    return None
+
+
+def _retry_wait_seconds(state: RetryCallState) -> float:
+    fallback = min(2 ** (state.attempt_number - 1), 60)
+    if state.outcome is None or not state.outcome.failed:
+        return float(fallback)
+    exc = state.outcome.exception()
+    if isinstance(exc, RESTClientRetryableError) and exc.retry_after is not None:
+        return min(exc.retry_after, MAX_RETRY_AFTER_SECONDS)
+    return float(fallback)
+
 
 Hooks = dict[str, list[Any]]
 
@@ -24,22 +87,24 @@ class RESTClient:
         headers: Optional[dict[str, str]] = None,
         auth: Optional[AuthBase] = None,
         paginator: Optional[BasePaginator] = None,
+        session: Optional[Session] = None,
     ) -> None:
         self.base_url = base_url or ""
         self.headers = headers or {}
         self.auth = auth
         self.paginator = paginator
-        self.session = requests.Session()
+        # Default to the tracked session so every source built on top of
+        # `RESTClient` participates in HTTP logging, metrics, and sample
+        # capture. Callers can pass a pre-built `Session` for tests or
+        # specialized auth (it should still be a tracked one in prod).
+        # The auth's credential values are registered for value-based redaction
+        # so a key injected into a query param/custom header can't leak into logs.
+        self.session = session or make_tracked_session(redact_values=auth_secret_values(auth))
         if self.headers:
             self.session.headers.update(self.headers)
 
     def _join_url(self, path: str) -> str:
-        if path.startswith(("http://", "https://")):
-            return path
-        base = self.base_url
-        if not base.endswith("/"):
-            base += "/"
-        return urljoin(base, path.lstrip("/"))
+        return resolve_request_url(self.base_url, path)
 
     def paginate(
         self,
@@ -94,9 +159,21 @@ class RESTClient:
             if paginator is None or not paginator.has_next_page:
                 break
 
+    @retry(
+        retry=retry_if_exception_type(RESTClientRetryableError),
+        stop=stop_after_attempt(5),
+        wait=_retry_wait_seconds,
+        reraise=True,
+    )
     def _send_request(self, request: Request, hooks: Hooks) -> Response:
         prepared = self.session.prepare_request(request)
         response = self.session.send(prepared)
+
+        if response.status_code == 429 or response.status_code >= 500:
+            raise RESTClientRetryableError(
+                f"HTTP {response.status_code} for {response.url}",
+                retry_after=_parse_retry_after(response),
+            )
 
         response_hooks = hooks.get("response", [])
         if response_hooks:

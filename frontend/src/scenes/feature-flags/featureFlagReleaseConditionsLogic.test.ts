@@ -785,6 +785,34 @@ describe('the feature flag release conditions logic', () => {
         })
     })
 
+    describe('early exit', () => {
+        it('enables early exit at the flag level', () => {
+            logic.actions.setEarlyExit(true)
+
+            expect(logic.values.filters.early_exit).toBe(true)
+        })
+
+        it('disables early exit', () => {
+            logic.actions.setEarlyExit(true)
+            logic.actions.setEarlyExit(false)
+
+            expect(logic.values.filters.early_exit).toBe(false)
+        })
+
+        it('preserves condition sets when toggling early exit', () => {
+            const filters = generateFeatureFlagFilters([
+                { properties: [], rollout_percentage: 50, variant: null, sort_key: 'A' },
+                { properties: [], rollout_percentage: 75, variant: null, sort_key: 'B' },
+            ])
+            logic.actions.setFilters(filters)
+
+            logic.actions.setEarlyExit(true)
+
+            expect(logic.values.filters.early_exit).toBe(true)
+            expect(logic.values.filters.groups).toEqual(filters.groups)
+        })
+    })
+
     describe('open conditions state', () => {
         it('initializes first condition as open when there is only one group', async () => {
             logic?.unmount()
@@ -1192,6 +1220,305 @@ describe('the feature flag release conditions logic', () => {
                     groups: expectedGroups.map((g) => expect.objectContaining(g)),
                 }),
             })
+        })
+
+        // v2 Properties → Device: the UI calls setAggregationGroupTypeIndex(null) when switching
+        // to Device mode. Group-scoped condition properties are dropped (incompatible with
+        // distinct_id bucketing) while person-scoped condition properties are preserved.
+        it('drops group-scoped condition properties when v2 switches to Device mode', async () => {
+            logic?.unmount()
+
+            logic = featureFlagReleaseConditionsLogic({
+                id: 'v2-properties-to-device',
+                filters: {
+                    ...generateFeatureFlagFilters([
+                        {
+                            properties: userProperties,
+                            rollout_percentage: 50,
+                            variant: null,
+                            sort_key: 'user-cond',
+                            aggregation_group_type_index: null,
+                        },
+                        {
+                            properties: groupProperties,
+                            rollout_percentage: 30,
+                            variant: 'test',
+                            sort_key: 'group-cond',
+                            aggregation_group_type_index: 0,
+                        },
+                    ]),
+                    aggregation_group_type_index: null,
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.mount()
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.setAggregationGroupTypeIndex(null)
+            }).toMatchValues({
+                filters: expect.objectContaining({
+                    aggregation_group_type_index: null,
+                    groups: [
+                        expect.objectContaining({
+                            sort_key: 'user-cond',
+                            rollout_percentage: 50,
+                            properties: userProperties,
+                        }),
+                        expect.objectContaining({
+                            sort_key: 'group-cond',
+                            rollout_percentage: 30,
+                            properties: [],
+                        }),
+                    ],
+                }),
+            })
+        })
+    })
+
+    describe('distinct_id display names', () => {
+        function distinctIdFilters(value: string | string[]): FeatureFlagType['filters'] {
+            return generateFeatureFlagFilters([
+                {
+                    properties: [
+                        {
+                            key: 'distinct_id',
+                            type: PropertyFilterType.Person,
+                            value,
+                            operator: PropertyOperator.Exact,
+                        },
+                    ],
+                    rollout_percentage: 100,
+                    variant: null,
+                    sort_key: 'A',
+                },
+            ])
+        }
+
+        it.each([
+            {
+                name: 'array value, falling back to the raw id for unmatched persons',
+                value: ['distinct-1', 'distinct-2'] as string | string[],
+                // distinct-2 has no matching person, so it's absent from results.
+                results: { 'distinct-1': { name: 'alice@example.com' } },
+                expectedDistinctIds: ['distinct-1', 'distinct-2'],
+                expectedCache: { 'distinct-1': 'alice@example.com', 'distinct-2': 'distinct-2' },
+                expectedLabels: {
+                    'distinct-1': 'distinct-1 (alice@example.com)',
+                    // Unresolved ids and unknown ids both fall back to the raw distinct id.
+                    'distinct-2': 'distinct-2',
+                    'never-requested': 'never-requested',
+                },
+            },
+            {
+                name: 'scalar value',
+                value: 'distinct-1' as string | string[],
+                results: { 'distinct-1': { name: 'alice@example.com' } },
+                expectedDistinctIds: ['distinct-1'],
+                expectedCache: { 'distinct-1': 'alice@example.com' },
+                expectedLabels: { 'distinct-1': 'distinct-1 (alice@example.com)' },
+            },
+        ])(
+            'resolves person names for distinct_id targeting ($name)',
+            async ({ value, results, expectedDistinctIds, expectedCache, expectedLabels }) => {
+                logic?.unmount()
+
+                useMocks({
+                    post: {
+                        '/api/projects/:team/feature_flags/user_blast_radius': () => [
+                            200,
+                            { affected: 10, total: 100 },
+                        ],
+                        '/api/environments/:team/persons/batch_by_distinct_ids/': () => [200, { results }],
+                    },
+                })
+
+                logic = featureFlagReleaseConditionsLogic({
+                    id: 'distinct-id-names',
+                    filters: distinctIdFilters(value),
+                })
+
+                await expectLogic(logic, () => {
+                    logic.mount()
+                })
+                    .toDispatchActions(['loadDistinctIdNames', 'setDistinctIdNames'])
+                    .toMatchValues({ distinctIdNameCache: expectedCache })
+
+                expect(logic.values.distinctIds).toEqual(expectedDistinctIds)
+                for (const [id, label] of Object.entries(expectedLabels)) {
+                    expect(logic.values.getDistinctIdName(id)).toBe(label)
+                }
+            }
+        )
+
+        it('falls back to raw ids without caching when the persons request fails', async () => {
+            logic?.unmount()
+
+            useMocks({
+                post: {
+                    '/api/projects/:team/feature_flags/user_blast_radius': () => [200, { affected: 10, total: 100 }],
+                    '/api/environments/:team/persons/batch_by_distinct_ids/': () => [500, {}],
+                },
+            })
+
+            logic = featureFlagReleaseConditionsLogic({
+                id: 'distinct-id-error',
+                filters: distinctIdFilters(['distinct-1', 'distinct-2']),
+            })
+
+            await expectLogic(logic, () => {
+                logic.mount()
+            })
+                .toDispatchActions(['loadDistinctIdNames'])
+                .toFinishAllListeners()
+                // Failed ids stay uncached so a later setFilters/updateConditionSet retries them.
+                .toMatchValues({ distinctIdNameCache: {} })
+
+            expect(logic.values.getDistinctIdName('distinct-1')).toBe('distinct-1')
+        })
+
+        it('preserves resolved names from earlier chunks when a later chunk fails', async () => {
+            logic?.unmount()
+
+            // More than one batch worth of ids so the request is chunked.
+            const ids = Array.from({ length: 250 }, (_, i) => `d-${i}`)
+            const firstChunkResults = Object.fromEntries(ids.slice(0, 200).map((id) => [id, { name: `name-${id}` }]))
+
+            let callCount = 0
+            useMocks({
+                post: {
+                    '/api/projects/:team/feature_flags/user_blast_radius': () => [200, { affected: 10, total: 100 }],
+                    '/api/environments/:team/persons/batch_by_distinct_ids/': () => {
+                        callCount += 1
+                        // First chunk resolves, second chunk fails.
+                        return callCount === 1 ? [200, { results: firstChunkResults }] : [500, {}]
+                    },
+                },
+            })
+
+            logic = featureFlagReleaseConditionsLogic({
+                id: 'distinct-id-chunked',
+                filters: distinctIdFilters(ids),
+            })
+
+            await expectLogic(logic, () => {
+                logic.mount()
+            })
+                .toDispatchActions(['loadDistinctIdNames', 'setDistinctIdNames'])
+                .toFinishAllListeners()
+
+            // First-chunk names survive; the failed second chunk stays uncached and renders raw.
+            expect(logic.values.getDistinctIdName('d-0')).toBe('d-0 (name-d-0)')
+            expect(logic.values.getDistinctIdName('d-200')).toBe('d-200')
+        })
+
+        it('resolves names when a distinct_id filter is added to a mounted flag', async () => {
+            logic?.unmount()
+
+            useMocks({
+                post: {
+                    '/api/projects/:team/feature_flags/user_blast_radius': () => [200, { affected: 10, total: 100 }],
+                    '/api/environments/:team/persons/batch_by_distinct_ids/': () => [
+                        200,
+                        { results: { 'distinct-1': { name: 'alice@example.com' } } },
+                    ],
+                },
+            })
+
+            logic = featureFlagReleaseConditionsLogic({
+                id: 'distinct-id-edit',
+                filters: generateFeatureFlagFilters([
+                    { properties: [], rollout_percentage: 100, variant: null, sort_key: 'A' },
+                ]),
+            })
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.updateConditionSet(0, undefined, [
+                    {
+                        key: 'distinct_id',
+                        type: PropertyFilterType.Person,
+                        value: ['distinct-1'],
+                        operator: PropertyOperator.Exact,
+                    },
+                ])
+            }).toDispatchActions(['loadDistinctIdNames', 'setDistinctIdNames'])
+
+            expect(logic.values.getDistinctIdName('distinct-1')).toBe('distinct-1 (alice@example.com)')
+        })
+
+        it('does not re-fetch names for ids already in the cache', async () => {
+            logic?.unmount()
+
+            let callCount = 0
+            useMocks({
+                post: {
+                    '/api/projects/:team/feature_flags/user_blast_radius': () => [200, { affected: 10, total: 100 }],
+                    '/api/environments/:team/persons/batch_by_distinct_ids/': () => {
+                        callCount += 1
+                        return [200, { results: { 'distinct-1': { name: 'alice@example.com' } } }]
+                    },
+                },
+            })
+
+            logic = featureFlagReleaseConditionsLogic({
+                id: 'distinct-id-no-refetch',
+                filters: distinctIdFilters(['distinct-1']),
+            })
+
+            await expectLogic(logic, () => {
+                logic.mount()
+            })
+                .toDispatchActions(['loadDistinctIdNames', 'setDistinctIdNames'])
+                .toFinishAllListeners()
+
+            expect(callCount).toBe(1)
+
+            // Re-adding the same id re-triggers resolution, but the cache filter should skip the fetch.
+            await expectLogic(logic, () => {
+                logic.actions.updateConditionSet(0, undefined, [
+                    {
+                        key: 'distinct_id',
+                        type: PropertyFilterType.Person,
+                        value: ['distinct-1'],
+                        operator: PropertyOperator.Exact,
+                    },
+                ])
+            })
+                .toDispatchActions(['loadDistinctIdNames'])
+                .toFinishAllListeners()
+
+            expect(callCount).toBe(1)
+        })
+
+        it('does not fetch names when there are no distinct_id filters', async () => {
+            logic?.unmount()
+
+            logic = featureFlagReleaseConditionsLogic({
+                id: 'no-distinct-id',
+                filters: generateFeatureFlagFilters([
+                    {
+                        properties: [
+                            {
+                                key: 'email',
+                                type: PropertyFilterType.Person,
+                                value: 'a@b.com',
+                                operator: PropertyOperator.Exact,
+                            },
+                        ],
+                        rollout_percentage: 100,
+                        variant: null,
+                        sort_key: 'A',
+                    },
+                ]),
+            })
+
+            await expectLogic(logic, () => {
+                logic.mount()
+            }).toNotHaveDispatchedActions(['loadDistinctIdNames'])
+
+            expect(logic.values.distinctIds).toEqual([])
         })
     })
 })

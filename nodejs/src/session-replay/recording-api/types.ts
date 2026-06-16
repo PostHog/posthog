@@ -5,20 +5,34 @@
  * Recording API-specific types.
  */
 import { CommonConfig } from '../../common/config'
+import {
+    KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
+    KAFKA_CLICKHOUSE_SESSION_REPLAY_FEATURES,
+} from '../../config/kafka-topics'
 import { SessionRecordingApiConfig, SessionRecordingConfig } from '../../session-recording/config'
+import {
+    INGESTION_SESSIONREPLAY_PRODUCER,
+    type IngestionSessionreplayProducer,
+} from '../shared/outputs/producer-config'
+
+/**
+ * Recording API's outputs are ClickHouse-bound deletion tombstones on the warpstream-replay
+ * cluster, produced through the INGESTION_SESSIONREPLAY slot.
+ */
+export type RecordingApiProducerName = IngestionSessionreplayProducer
 
 // Re-export all shared encryption types so existing recording-api imports still work
 export {
-    DecryptResult,
-    DeleteKeyResult,
-    EncryptResult,
-    KeyStore,
-    RecordingDecryptor,
-    RecordingEncryptor,
-    SerializedSessionKey,
-    SessionKey,
     SessionKeyDeletedError,
-    SessionState,
+    type DecryptResult,
+    type DeleteKeyResult,
+    type EncryptResult,
+    type KeyStore,
+    type RecordingDecryptor,
+    type RecordingEncryptor,
+    type SerializedSessionKey,
+    type SessionKey,
+    type SessionState,
 } from '../shared/types'
 
 /**
@@ -50,6 +64,29 @@ export type RecordingApiConfig = Pick<
         | 'SESSION_RECORDING_V2_S3_BUCKET'
         | 'SESSION_RECORDING_V2_S3_PREFIX'
     >
+
+/**
+ * Recording API outputs — topic and producer routing per output. All keys
+ * follow the `RECORDING_API_OUTPUT_*` convention. Topic values default to
+ * the same Kafka topics the session-replay ingestion consumer writes to,
+ * since recording-api emits deletion tombstones into the same streams.
+ */
+export type RecordingApiOutputsConfig = {
+    RECORDING_API_OUTPUT_REPLAY_EVENTS_TOPIC: string
+    RECORDING_API_OUTPUT_REPLAY_EVENTS_PRODUCER: RecordingApiProducerName
+
+    RECORDING_API_OUTPUT_SESSION_FEATURES_TOPIC: string
+    RECORDING_API_OUTPUT_SESSION_FEATURES_PRODUCER: RecordingApiProducerName
+}
+
+export function getDefaultRecordingApiOutputsConfig(): RecordingApiOutputsConfig {
+    return {
+        RECORDING_API_OUTPUT_REPLAY_EVENTS_TOPIC: KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
+        RECORDING_API_OUTPUT_REPLAY_EVENTS_PRODUCER: INGESTION_SESSIONREPLAY_PRODUCER,
+        RECORDING_API_OUTPUT_SESSION_FEATURES_TOPIC: KAFKA_CLICKHOUSE_SESSION_REPLAY_FEATURES,
+        RECORDING_API_OUTPUT_SESSION_FEATURES_PRODUCER: INGESTION_SESSIONREPLAY_PRODUCER,
+    }
+}
 
 export interface RecordingBlock {
     key: string

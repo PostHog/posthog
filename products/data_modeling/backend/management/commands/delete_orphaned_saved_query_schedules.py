@@ -13,7 +13,7 @@ from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import a_delete_schedule
 from posthog.temporal.common.search_attributes import POSTHOG_TEAM_ID_KEY
 
-from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
 logger = structlog.get_logger(__name__)
 
@@ -42,6 +42,12 @@ class Command(BaseCommand):
             default=None,
             type=str,
             help="Comma-separated team IDs to filter orphans by (uses search attributes if available, falls back to describe)",
+        )
+        parser.add_argument(
+            "--start-after-schedule-id",
+            default=None,
+            type=str,
+            help="Resume after this schedule ID (exclusive), following the sorted schedule ID ordering used by this command",
         )
         parser.add_argument(
             "--dry-run",
@@ -87,6 +93,10 @@ class Command(BaseCommand):
         else:
             # Pass team_ids to use search attribute filtering in the listing query
             orphans = await self._find_orphans_from_listing(temporal, team_ids=team_ids)
+
+        start_after_schedule_id = options.get("start_after_schedule_id")
+        if start_after_schedule_id:
+            orphans = {sid for sid in orphans if sid > start_after_schedule_id}
 
         if not orphans:
             logger.info("No orphaned schedules found")
@@ -188,7 +198,7 @@ class Command(BaseCommand):
 
         from posthog.temporal.common.codec import EncryptionCodec
 
-        codec = EncryptionCodec(settings=settings)
+        codec = EncryptionCodec.from_settings(settings=settings)
         payload_converter = temporalio.converter.default().payload_converter
         semaphore = asyncio.Semaphore(concurrency)
         results: dict[str, int | None] = {}

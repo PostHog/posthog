@@ -1,8 +1,6 @@
 import re
 from typing import TYPE_CHECKING, Optional, cast
 
-from posthog.schema import BounceRatePageViewMode, CustomChannelRule, SessionsV2JoinMode
-
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
@@ -24,6 +22,7 @@ from posthog.hogql.database.schema.sessions_v1 import DEFAULT_BOUNCE_RATE_DURATI
 from posthog.hogql.database.schema.util.where_clause_extractor import (
     SessionMinTimestampWhereClauseExtractorV2,
     build_session_id_v7_pushdown_predicate,
+    build_session_property_pre_aggregation_predicate,
 )
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
@@ -33,10 +32,13 @@ from posthog.models.raw_sessions.sessions_v2 import (
     RAW_SELECT_SESSION_PROP_STRING_VALUES_SQL_WITH_FILTER,
 )
 from posthog.queries.insight import insight_sync_execute
+from posthog.schema_enums import BounceRatePageViewMode, SessionsV2JoinMode
 
 from products.event_definitions.backend.models.property_definition import PropertyType
 
 if TYPE_CHECKING:
+    from posthog.schema import CustomChannelRule
+
     from posthog.models.team import Team
 
 RAW_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
@@ -431,7 +433,8 @@ def select_from_sessions_table_v2(
             select_fields.append(
                 ast.Alias(alias=name, expr=ast.Field(chain=cast(list[str | int], [table_name]) + chain))
             )
-            group_by_fields.append(ast.Field(chain=cast(list[str | int], [table_name]) + chain))
+            if name != "session_id_v7":
+                group_by_fields.append(ast.Field(chain=cast(list[str | int], [table_name]) + chain))
 
     where = SessionMinTimestampWhereClauseExtractorV2(context).get_inner_where(node)
     if extra_where is not None:
@@ -499,6 +502,18 @@ def join_events_table_to_sessions_table_v2(
             session_id_v7_field=ast.Field(chain=["raw_sessions", "session_id_v7"]),
             events_session_id_field=["$session_id_uuid"],
         )
+
+    if context.modifiers.sessionPropertyPreAggregation:
+        pre_agg_where = build_session_property_pre_aggregation_predicate(
+            node,
+            join_to_add,
+            context,
+            requested_fields=join_to_add.fields_accessed,
+            select_from_fn=select_from_sessions_table_v2,
+            session_id_v7_field=ast.Field(chain=["raw_sessions", "session_id_v7"]),
+        )
+        if pre_agg_where is not None:
+            extra_where = ast.And(exprs=[extra_where, pre_agg_where]) if extra_where is not None else pre_agg_where
 
     join_expr = ast.JoinExpr(
         table=select_from_sessions_table_v2(join_to_add.fields_accessed, node, context, extra_where=extra_where)
@@ -588,7 +603,7 @@ def get_lazy_session_table_properties_v2(search: Optional[str]):
     return results
 
 
-# NOTE: Keep the AD IDs in sync with `posthog.hogql_queries.web_analytics.session_attribution_explorer_query_runner.py`
+# NOTE: Keep the AD IDs in sync with `products.web_analytics.backend.hogql_queries.session_attribution_explorer_query_runner.py`
 SESSION_PROPERTY_TO_RAW_SESSIONS_EXPR_MAP = {
     "$entry_referring_domain": "finalizeAggregation(initial_referring_domain)",
     "$entry_utm_source": "finalizeAggregation(initial_utm_source)",

@@ -5,24 +5,26 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 import duckdb
+import psycopg
 from parameterized import parameterized
 
 from posthog.dags.events_backfill_to_duckling import (
+    DUCKLING_BACKFILL_CONCURRENCY_TAG,
     EARLIEST_BACKFILL_DATE,
     EVENTS_COLUMNS,
+    EVENTS_CONCURRENCY_TAG,
     EVENTS_TABLE_DDL,
     EXPECTED_DUCKLAKE_COLUMNS,
     EXPECTED_DUCKLAKE_PERSONS_COLUMNS,
-    MAX_RETRY_ATTEMPTS,
     PERSONS_COLUMNS,
+    PERSONS_CONCURRENCY_TAG,
     PERSONS_TABLE_DDL,
-    _connect_duckdb,
+    _connection_dropped,
+    _duckgres_backfill_options,
+    _DuckgresSession,
     _get_cluster,
-    _is_transaction_conflict,
     _set_table_partitioning,
     _validate_identifier,
-    delete_events_partition_data,
-    delete_persons_partition_data,
     duckling_events_full_backfill_sensor,
     get_months_in_range,
     get_s3_url_for_clickhouse,
@@ -122,37 +124,28 @@ class TestValidateIdentifier:
 
 
 class TestTableExists:
-    def test_returns_true_when_table_exists(self):
-        conn = duckdb.connect()
-        conn.execute("CREATE TABLE test_table (id INTEGER)")
-        assert table_exists(conn, "memory", "main", "test_table") is True
-        conn.close()
+    """Identifier-validation tests for `table_exists`.
 
-    def test_returns_false_when_table_does_not_exist(self):
-        conn = duckdb.connect()
-        assert table_exists(conn, "memory", "main", "nonexistent_table") is False
-        conn.close()
+    The actual existence check now runs against a duckgres pgwire server, so
+    the round-trip behavior is covered by integration tests rather than this
+    unit suite. The validation here still runs before any SQL executes,
+    so a `MagicMock()` connection is sufficient.
+    """
 
     def test_rejects_invalid_catalog_alias(self):
-        conn = duckdb.connect()
         with pytest.raises(ValueError) as exc_info:
-            table_exists(conn, "invalid;injection", "main", "test")
+            table_exists(MagicMock(), "invalid;injection", "main", "test")
         assert "Invalid SQL identifier" in str(exc_info.value)
-        conn.close()
 
     def test_rejects_invalid_schema(self):
-        conn = duckdb.connect()
         with pytest.raises(ValueError) as exc_info:
-            table_exists(conn, "memory", "DROP TABLE", "test")
+            table_exists(MagicMock(), "memory", "DROP TABLE", "test")
         assert "Invalid SQL identifier" in str(exc_info.value)
-        conn.close()
 
     def test_rejects_invalid_table(self):
-        conn = duckdb.connect()
         with pytest.raises(ValueError) as exc_info:
-            table_exists(conn, "memory", "main", "test'; DROP TABLE users;--")
+            table_exists(MagicMock(), "memory", "main", "test'; DROP TABLE users;--")
         assert "Invalid SQL identifier" in str(exc_info.value)
-        conn.close()
 
 
 class TestEventsDDL:
@@ -304,106 +297,17 @@ class TestGetMonthsInRange:
 
 
 class TestSetTablePartitioning:
-    def test_partitioning_is_idempotent_in_ducklake(self):
-        """Verify that SET PARTITIONED BY can be called multiple times safely."""
-        conn = duckdb.connect()
-        conn.execute("INSTALL ducklake; LOAD ducklake;")
-        conn.execute("ATTACH ':memory:' AS test_catalog (TYPE DUCKLAKE, DATA_PATH ':memory:')")
-        conn.execute("CREATE SCHEMA test_catalog.posthog")
-        conn.execute("CREATE TABLE test_catalog.posthog.events (timestamp TIMESTAMP, event VARCHAR)")
-
-        mock_context = MagicMock()
-
-        # First call should succeed
-        result1 = _set_table_partitioning(
-            conn,
-            "test_catalog",
-            "events",
-            "year(timestamp), month(timestamp)",
-            mock_context,
-            team_id=123,
-        )
-        assert result1 is True
-
-        # Second call with same keys should also succeed (idempotent)
-        result2 = _set_table_partitioning(
-            conn,
-            "test_catalog",
-            "events",
-            "year(timestamp), month(timestamp)",
-            mock_context,
-            team_id=123,
-        )
-        assert result2 is True
-
-        # Third call should also succeed
-        result3 = _set_table_partitioning(
-            conn,
-            "test_catalog",
-            "events",
-            "year(timestamp), month(timestamp)",
-            mock_context,
-            team_id=123,
-        )
-        assert result3 is True
-
-        conn.close()
-
-    def test_partitioning_logs_success(self):
-        """Verify that successful partitioning logs appropriately."""
-        conn = duckdb.connect()
-        conn.execute("INSTALL ducklake; LOAD ducklake;")
-        conn.execute("ATTACH ':memory:' AS test_catalog (TYPE DUCKLAKE, DATA_PATH ':memory:')")
-        conn.execute("CREATE SCHEMA test_catalog.posthog")
-        conn.execute("CREATE TABLE test_catalog.posthog.events (timestamp TIMESTAMP, event VARCHAR)")
-
-        mock_context = MagicMock()
-
-        result = _set_table_partitioning(
-            conn,
-            "test_catalog",
-            "events",
-            "year(timestamp), month(timestamp)",
-            mock_context,
-            team_id=123,
-        )
-
-        assert result is True
-        mock_context.log.info.assert_any_call("Setting partitioning on events table...")
-        mock_context.log.info.assert_any_call("Successfully set partitioning on events table")
-        conn.close()
-
-    def test_partitioning_handles_failure_gracefully(self):
-        """Verify that partitioning failures return False and log warning."""
-        conn = duckdb.connect()
-        # Don't load ducklake - table won't support SET PARTITIONED BY
-        conn.execute("CREATE SCHEMA posthog")
-        conn.execute("CREATE TABLE posthog.events (timestamp TIMESTAMP, event VARCHAR)")
-
-        mock_context = MagicMock()
-
-        # This should fail because regular DuckDB tables don't support SET PARTITIONED BY
-        result = _set_table_partitioning(
-            conn,
-            "memory",
-            "events",
-            "year(timestamp), month(timestamp)",
-            mock_context,
-            team_id=123,
-        )
-
-        assert result is False
-        mock_context.log.warning.assert_called()
-        conn.close()
+    """Identifier-validation only — the SET PARTITIONED BY behavior itself is a
+    DuckLake property and is exercised via duckgres integration tests rather
+    than this unit suite.
+    """
 
     def test_partitioning_rejects_invalid_identifiers(self):
-        """Verify that SQL injection attempts are blocked."""
-        conn = duckdb.connect()
         mock_context = MagicMock()
 
         with pytest.raises(ValueError) as exc_info:
             _set_table_partitioning(
-                conn,
+                MagicMock(),
                 "test; DROP TABLE",
                 "events",
                 "year(timestamp)",
@@ -414,7 +318,7 @@ class TestSetTablePartitioning:
 
         with pytest.raises(ValueError) as exc_info:
             _set_table_partitioning(
-                conn,
+                MagicMock(),
                 "test_catalog",
                 "events'; --",
                 "year(timestamp)",
@@ -422,8 +326,6 @@ class TestSetTablePartitioning:
                 team_id=123,
             )
         assert "Invalid SQL identifier" in str(exc_info.value)
-
-        conn.close()
 
 
 class TestExportSQLOrderBy:
@@ -466,32 +368,60 @@ class TestIsFullExportPartition:
         assert is_full_export_partition(key) == expected
 
 
-class TestConnectDuckdb:
-    def test_sets_memory_limit(self):
-        conn = _connect_duckdb()
-        try:
-            result = conn.execute("SELECT current_setting('memory_limit')").fetchone()
-            assert result is not None
-            # DuckDB reports memory in its own format; verify it's not the default (~80% of RAM)
-            # 4GB is reported as "3.7 GiB" by DuckDB
-            assert "GiB" in result[0] or "GB" in result[0]
-            # Parse the numeric value and verify it's approximately 4GB
-            numeric = float(result[0].split()[0])
-            assert 3.5 <= numeric <= 4.5
-        finally:
-            conn.close()
+class TestDeleteErrorHandling:
+    """Verify the exception contract for delete_*_partition_data.
 
-    def test_sets_temp_directory(self):
-        conn = _connect_duckdb()
-        try:
-            result = conn.execute("SELECT current_setting('temp_directory')").fetchone()
-            assert result is not None
-            assert result[0] == "/tmp/duckdb_temp"
-        finally:
-            conn.close()
+    Missing-table errors must be swallowed (return 0) so first-run partitions
+    don't fail. Operational/connection errors must propagate so caller-level
+    retry/handling can deal with transient failures.
+    """
+
+    @parameterized.expand(
+        [
+            ("events", "delete_events_partition_data", datetime(2024, 1, 1)),
+            ("persons_daily", "delete_persons_partition_data", datetime(2024, 1, 1)),
+            ("persons_full", "delete_persons_partition_data", None),
+        ]
+    )
+    @patch("posthog.dags.events_backfill_to_duckling.logger")
+    def test_handles_missing_table(self, _label, fn_name, partition_date, mock_logger):
+        from posthog.dags import events_backfill_to_duckling as mod
+
+        delete_fn = getattr(mod, fn_name)
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value.__enter__.return_value.execute.side_effect = psycopg.errors.UndefinedTable()
+
+        count = delete_fn(MagicMock(), MagicMock(), 12345, partition_date, conn=mock_conn)
+
+        assert count == 0
+        assert mock_logger.exception.call_count == 0
+
+    @parameterized.expand(
+        [
+            ("events", "delete_events_partition_data"),
+            ("persons", "delete_persons_partition_data"),
+        ]
+    )
+    def test_bubbles_operational_error(self, _label, fn_name):
+        from posthog.dags import events_backfill_to_duckling as mod
+
+        delete_fn = getattr(mod, fn_name)
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value.__enter__.return_value.execute.side_effect = psycopg.OperationalError("timeout")
+
+        with pytest.raises(psycopg.OperationalError):
+            delete_fn(MagicMock(), MagicMock(), 12345, datetime(2024, 1, 1), conn=mock_conn)
 
 
 class TestDeleteRangePredicate:
+    """Validate the half-open range predicate used by delete_*_partition_data.
+
+    These tests use in-process DuckDB ($N parameter binding) to verify the SQL
+    logic independently of the psycopg→duckgres connection path. The production
+    code uses psycopg %s bindings; the date-range predicate itself is binding-
+    agnostic and should behave identically through either binding layer.
+    """
+
     @parameterized.expand(
         [
             # (timestamps_to_insert, target_date, expected_deleted, expected_remaining)
@@ -552,187 +482,6 @@ class TestDeleteRangePredicate:
             conn.close()
 
 
-class TestIsTransactionConflict:
-    @parameterized.expand(
-        [
-            (duckdb.TransactionException("Transaction conflict: write-write"), True),
-            (duckdb.TransactionException("Transaction conflict on table"), True),
-            (duckdb.TransactionException("Some other transaction error"), False),
-            (duckdb.CatalogException("Table not found"), False),
-            (RuntimeError("Transaction conflict"), False),
-        ]
-    )
-    def test_identifies_conflicts(self, exc, expected):
-        assert _is_transaction_conflict(exc) == expected
-
-
-class TestDeleteEventsRetry:
-    @patch("posthog.dags.events_backfill_to_duckling.time.sleep")
-    @patch("posthog.dags.events_backfill_to_duckling.attach_catalog")
-    @patch("posthog.dags.events_backfill_to_duckling.configure_cross_account_connection")
-    @patch("posthog.dags.events_backfill_to_duckling._connect_duckdb")
-    @patch("posthog.dags.events_backfill_to_duckling.get_team_config")
-    def test_retries_on_transaction_conflict(self, mock_config, mock_connect, mock_cross, mock_attach, mock_sleep):
-        mock_config.return_value = {}
-        mock_catalog = MagicMock()
-        mock_catalog.team_id = 1
-        mock_catalog.to_cross_account_destination.return_value = MagicMock()
-        mock_context = MagicMock()
-
-        conflict_conn = MagicMock()
-        conflict_conn.execute.side_effect = duckdb.TransactionException("Transaction conflict: write-write")
-        success_conn = MagicMock()
-        success_conn.execute.return_value.fetchone.return_value = (5,)
-        mock_connect.side_effect = [conflict_conn, success_conn]
-
-        result = delete_events_partition_data(mock_context, mock_catalog, 1, datetime(2024, 1, 15))
-
-        assert result == 5
-        assert mock_connect.call_count == 2
-        mock_sleep.assert_called_once_with(4)
-        conflict_conn.close.assert_called_once()
-        success_conn.close.assert_called_once()
-
-    @patch("posthog.dags.events_backfill_to_duckling.time.sleep")
-    @patch("posthog.dags.events_backfill_to_duckling.attach_catalog")
-    @patch("posthog.dags.events_backfill_to_duckling.configure_cross_account_connection")
-    @patch("posthog.dags.events_backfill_to_duckling._connect_duckdb")
-    @patch("posthog.dags.events_backfill_to_duckling.get_team_config")
-    def test_raises_non_conflict_exception(self, mock_config, mock_connect, mock_cross, mock_attach, mock_sleep):
-        mock_config.return_value = {}
-        mock_catalog = MagicMock()
-        mock_catalog.team_id = 1
-        mock_catalog.to_cross_account_destination.return_value = MagicMock()
-        mock_context = MagicMock()
-
-        conn = MagicMock()
-        conn.execute.side_effect = RuntimeError("Connection failed")
-        mock_connect.return_value = conn
-
-        with pytest.raises(RuntimeError, match="Connection failed"):
-            delete_events_partition_data(mock_context, mock_catalog, 1, datetime(2024, 1, 15))
-
-        assert mock_connect.call_count == 1
-        mock_sleep.assert_not_called()
-
-    @patch("posthog.dags.events_backfill_to_duckling.time.sleep")
-    @patch("posthog.dags.events_backfill_to_duckling.attach_catalog")
-    @patch("posthog.dags.events_backfill_to_duckling.configure_cross_account_connection")
-    @patch("posthog.dags.events_backfill_to_duckling._connect_duckdb")
-    @patch("posthog.dags.events_backfill_to_duckling.get_team_config")
-    def test_raises_after_max_retries(self, mock_config, mock_connect, mock_cross, mock_attach, mock_sleep):
-        mock_config.return_value = {}
-        mock_catalog = MagicMock()
-        mock_catalog.team_id = 1
-        mock_catalog.to_cross_account_destination.return_value = MagicMock()
-        mock_context = MagicMock()
-
-        conn = MagicMock()
-        conn.execute.side_effect = duckdb.TransactionException("Transaction conflict: write-write")
-        mock_connect.return_value = conn
-
-        with pytest.raises(duckdb.TransactionException, match="Transaction conflict"):
-            delete_events_partition_data(mock_context, mock_catalog, 1, datetime(2024, 1, 15))
-
-        assert mock_connect.call_count == MAX_RETRY_ATTEMPTS
-        assert mock_sleep.call_count == MAX_RETRY_ATTEMPTS - 1
-
-    @patch("posthog.dags.events_backfill_to_duckling.attach_catalog")
-    @patch("posthog.dags.events_backfill_to_duckling.configure_cross_account_connection")
-    @patch("posthog.dags.events_backfill_to_duckling._connect_duckdb")
-    @patch("posthog.dags.events_backfill_to_duckling.get_team_config")
-    def test_returns_zero_on_catalog_exception(self, mock_config, mock_connect, mock_cross, mock_attach):
-        mock_config.return_value = {}
-        mock_catalog = MagicMock()
-        mock_catalog.team_id = 1
-        mock_catalog.to_cross_account_destination.return_value = MagicMock()
-        mock_context = MagicMock()
-
-        conn = MagicMock()
-        conn.execute.side_effect = duckdb.CatalogException("Table does not exist")
-        mock_connect.return_value = conn
-
-        result = delete_events_partition_data(mock_context, mock_catalog, 1, datetime(2024, 1, 15))
-        assert result == 0
-
-
-class TestDeletePersonsRetry:
-    @patch("posthog.dags.events_backfill_to_duckling.time.sleep")
-    @patch("posthog.dags.events_backfill_to_duckling.attach_catalog")
-    @patch("posthog.dags.events_backfill_to_duckling.configure_cross_account_connection")
-    @patch("posthog.dags.events_backfill_to_duckling._connect_duckdb")
-    @patch("posthog.dags.events_backfill_to_duckling.get_team_config")
-    def test_retries_on_transaction_conflict(self, mock_config, mock_connect, mock_cross, mock_attach, mock_sleep):
-        mock_config.return_value = {}
-        mock_catalog = MagicMock()
-        mock_catalog.team_id = 1
-        mock_catalog.to_cross_account_destination.return_value = MagicMock()
-        mock_context = MagicMock()
-
-        conflict_conn = MagicMock()
-        conflict_conn.execute.side_effect = duckdb.TransactionException("Transaction conflict: write-write")
-        success_conn = MagicMock()
-        success_conn.execute.return_value.fetchone.return_value = (3,)
-        mock_connect.side_effect = [conflict_conn, success_conn]
-
-        result = delete_persons_partition_data(mock_context, mock_catalog, 1, datetime(2024, 1, 15))
-
-        assert result == 3
-        assert mock_connect.call_count == 2
-        mock_sleep.assert_called_once_with(4)
-
-    @patch("posthog.dags.events_backfill_to_duckling.time.sleep")
-    @patch("posthog.dags.events_backfill_to_duckling.attach_catalog")
-    @patch("posthog.dags.events_backfill_to_duckling.configure_cross_account_connection")
-    @patch("posthog.dags.events_backfill_to_duckling._connect_duckdb")
-    @patch("posthog.dags.events_backfill_to_duckling.get_team_config")
-    def test_retries_on_full_export_conflict(self, mock_config, mock_connect, mock_cross, mock_attach, mock_sleep):
-        mock_config.return_value = {}
-        mock_catalog = MagicMock()
-        mock_catalog.team_id = 1
-        mock_catalog.to_cross_account_destination.return_value = MagicMock()
-        mock_context = MagicMock()
-
-        conflict_conn = MagicMock()
-        conflict_conn.execute.side_effect = duckdb.TransactionException("Transaction conflict: write-write")
-        success_conn = MagicMock()
-        success_conn.execute.return_value.fetchone.return_value = (10,)
-        mock_connect.side_effect = [conflict_conn, success_conn]
-
-        result = delete_persons_partition_data(mock_context, mock_catalog, 1, partition_date=None)
-
-        assert result == 10
-        assert mock_connect.call_count == 2
-        mock_sleep.assert_called_once_with(4)
-
-    @patch("posthog.dags.events_backfill_to_duckling.time.sleep")
-    @patch("posthog.dags.events_backfill_to_duckling.attach_catalog")
-    @patch("posthog.dags.events_backfill_to_duckling.configure_cross_account_connection")
-    @patch("posthog.dags.events_backfill_to_duckling._connect_duckdb")
-    @patch("posthog.dags.events_backfill_to_duckling.get_team_config")
-    def test_exponential_backoff(self, mock_config, mock_connect, mock_cross, mock_attach, mock_sleep):
-        mock_config.return_value = {}
-        mock_catalog = MagicMock()
-        mock_catalog.team_id = 1
-        mock_catalog.to_cross_account_destination.return_value = MagicMock()
-        mock_context = MagicMock()
-
-        conflict_conn = MagicMock()
-        conflict_conn.execute.side_effect = duckdb.TransactionException("Transaction conflict: write-write")
-        success_conn = MagicMock()
-        success_conn.execute.return_value.fetchone.return_value = (0,)
-        # MAX_RETRY_ATTEMPTS=3: attempts 0,1 conflict and retry, attempt 2 succeeds
-        mock_connect.side_effect = [conflict_conn, conflict_conn, success_conn]
-
-        delete_persons_partition_data(mock_context, mock_catalog, 1, datetime(2024, 1, 15))
-
-        # Backoff: min(4 * 2^attempt, 60) -> 4, 8
-        assert mock_sleep.call_args_list == [
-            ((4,),),
-            ((8,),),
-        ]
-
-
 class TestFullBackfillSensorEarliestDate:
     @parameterized.expand(
         [
@@ -743,7 +492,7 @@ class TestFullBackfillSensorEarliestDate:
         ]
     )
     @patch("posthog.dags.events_backfill_to_duckling.get_earliest_event_date_for_team")
-    @patch("posthog.dags.events_backfill_to_duckling.DuckLakeCatalog")
+    @patch("posthog.dags.events_backfill_to_duckling.DuckLakeBackfill")
     @patch("posthog.dags.events_backfill_to_duckling.timezone")
     def test_earliest_date_clamped(
         self,
@@ -751,7 +500,7 @@ class TestFullBackfillSensorEarliestDate:
         earliest_dt,
         expected_first_month,
         mock_tz,
-        mock_catalog_cls,
+        mock_backfill_cls,
         mock_get_earliest,
     ):
         from dagster import DagsterInstance, SensorResult, build_sensor_context
@@ -759,9 +508,9 @@ class TestFullBackfillSensorEarliestDate:
         mock_tz.now.return_value = datetime(2025, 2, 10, 12, 0, 0)
         mock_get_earliest.return_value = earliest_dt
 
-        catalog = MagicMock()
-        catalog.team_id = 1
-        mock_catalog_cls.objects.all.return_value.order_by.return_value = [catalog]
+        backfill = MagicMock()
+        backfill.team_id = 1
+        mock_backfill_cls.objects.filter.return_value.order_by.return_value = [backfill]
 
         instance = DagsterInstance.ephemeral()
         context = build_sensor_context(instance=instance)
@@ -774,17 +523,17 @@ class TestFullBackfillSensorEarliestDate:
         assert first_key == f"1_{expected_first_month}"
 
     @patch("posthog.dags.events_backfill_to_duckling.get_earliest_event_date_for_team")
-    @patch("posthog.dags.events_backfill_to_duckling.DuckLakeCatalog")
+    @patch("posthog.dags.events_backfill_to_duckling.DuckLakeBackfill")
     @patch("posthog.dags.events_backfill_to_duckling.timezone")
-    def test_no_events_returns_empty(self, mock_tz, mock_catalog_cls, mock_get_earliest):
+    def test_no_events_returns_empty(self, mock_tz, mock_backfill_cls, mock_get_earliest):
         from dagster import DagsterInstance, SensorResult, build_sensor_context
 
         mock_tz.now.return_value = datetime(2025, 2, 10, 12, 0, 0)
         mock_get_earliest.return_value = None
 
-        catalog = MagicMock()
-        catalog.team_id = 1
-        mock_catalog_cls.objects.all.return_value.order_by.return_value = [catalog]
+        backfill = MagicMock()
+        backfill.team_id = 1
+        mock_backfill_cls.objects.filter.return_value.order_by.return_value = [backfill]
 
         instance = DagsterInstance.ephemeral()
         context = build_sensor_context(instance=instance)
@@ -967,3 +716,202 @@ class TestDuckLakeAddDataFilesPartitioning:
                 f"CALL ducklake_add_data_files('test_lake', 'events', '{path}',"
                 f" schema => 'posthog', hive_partitioning => false)"
             )
+
+
+class TestDucklingConcurrencyTags:
+    # The combined events+persons cap is enforced on the shared key in the charts
+    # Dagster deployment settings. If either backfill drops the shared tag, the
+    # cap silently stops applying to it — guard against that here.
+    @parameterized.expand(
+        [
+            ("events", EVENTS_CONCURRENCY_TAG),
+            ("persons", PERSONS_CONCURRENCY_TAG),
+        ]
+    )
+    def test_backfill_carries_shared_concurrency_key(self, _name, tag_dict):
+        ((shared_key, shared_value),) = DUCKLING_BACKFILL_CONCURRENCY_TAG.items()
+        assert tag_dict[shared_key] == shared_value
+
+
+class TestConnectionDropped:
+    """_connection_dropped decides which errors mean "the worker/connection went
+    away, reconnect to a fresh worker" vs. a real SQL error that must propagate.
+    """
+
+    @parameterized.expand(
+        [
+            ("connection_exception", psycopg.errors.ConnectionException()),
+            ("server_closed", psycopg.OperationalError("server closed the connection unexpectedly")),
+            ("connection_lost", psycopg.OperationalError("connection to server was lost")),
+        ]
+    )
+    def test_operational_error_connection_loss_is_dropped(self, _label, exc):
+        assert _connection_dropped(exc) is True
+
+    @parameterized.expand(
+        [
+            # The exact shape the control plane surfaced when the backfill worker
+            # pod died mid-DELETE (gRPC Unavailable wrapping a reset socket).
+            ("reset", "flight execute update: rpc error: code = Unavailable desc = ...: connection reset by peer"),
+            ("refused", "transport: Error while dialing: dial tcp 10.0.0.1:8816: connect: connection refused"),
+            ("unavailable", "rpc error: code = Unavailable"),
+            ("reading", "error reading from server"),
+        ]
+    )
+    def test_internal_error_worker_gone_is_dropped(self, _label, msg):
+        assert _connection_dropped(psycopg.InternalError(msg)) is True
+
+    @parameterized.expand(
+        [
+            ("constraint", "Constraint Error: duplicate key value"),
+            ("generic_unavailable", "Catalog Error: schema unavailable for team"),
+            # duckgres prefixes EVERY worker-side SQL error with "flight execute",
+            # so these are flight-wrapped genuine engine errors. They must NOT be
+            # classified as transport drops (else they'd be retried 4x). This pins
+            # that we match on transport phrases, not the "flight execute" prefix.
+            (
+                "flight_wrapped_oom",
+                "flight execute update: rpc error: code = Internal desc = Out of Memory Error: "
+                "failed to allocate 4.0 GiB (limit 16.0 GiB)",
+            ),
+            (
+                "flight_wrapped_binder",
+                "flight execute: rpc error: code = InvalidArgument desc = Binder Error: "
+                'Referenced column "nope" not found',
+            ),
+        ]
+    )
+    def test_internal_error_real_sql_error_is_not_dropped(self, _label, msg):
+        # A genuine engine error (not a transport failure) must propagate, not retry.
+        assert _connection_dropped(psycopg.InternalError(msg)) is False
+
+    def test_internal_error_non_unavailable_transport_drop_is_dropped(self):
+        # A torn stream can carry a gRPC code other than Unavailable; the
+        # transport-phrase markers (here "transport:") still catch it.
+        msg = "flight execute: rpc error: code = Internal desc = transport: error while reading: EOF"
+        assert _connection_dropped(psycopg.InternalError(msg)) is True
+
+    @parameterized.expand(
+        [
+            ("disk_full", psycopg.errors.DiskFull()),
+            ("undefined_table", psycopg.errors.UndefinedTable()),
+            ("value_error", ValueError("nope")),
+            # Classification-gap pins (current intended behavior): a server-side
+            # statement cancel and a bare InterfaceError with no transport marker
+            # are NOT treated as worker-drops — they propagate rather than retry.
+            ("query_canceled", psycopg.errors.QueryCanceled("canceling statement due to user request")),
+            ("bare_interface_error", psycopg.InterfaceError("the connection is closed")),
+        ]
+    )
+    def test_non_connection_errors_are_not_dropped(self, _label, exc):
+        assert _connection_dropped(exc) is False
+
+
+class TestDuckgresSessionRetry:
+    """_DuckgresSession reconnects to a fresh worker on a mid-statement connection
+    drop and replays the (idempotent) op, giving up only after MAX_ATTEMPTS.
+    """
+
+    @patch("posthog.dags.events_backfill_to_duckling.time.sleep")
+    @patch("posthog.dags.events_backfill_to_duckling._connect_duckgres")
+    def test_success_runs_once_without_reconnect(self, mock_connect, _sleep):
+        mock_connect.return_value = MagicMock()
+        session = _DuckgresSession(MagicMock(), MagicMock())
+        op = MagicMock(return_value="ok")
+
+        assert session.run("op", op) == "ok"
+        assert op.call_count == 1
+        assert mock_connect.call_count == 1  # only the initial connect
+
+    @patch("posthog.dags.events_backfill_to_duckling.time.sleep")
+    @patch("posthog.dags.events_backfill_to_duckling._connect_duckgres")
+    def test_reconnects_then_succeeds(self, mock_connect, _sleep):
+        mock_connect.side_effect = [MagicMock(), MagicMock(), MagicMock()]
+        session = _DuckgresSession(MagicMock(), MagicMock())
+        op = MagicMock(
+            side_effect=[
+                psycopg.OperationalError("server closed the connection unexpectedly"),
+                psycopg.InternalError("connection reset by peer"),
+                "ok",
+            ]
+        )
+
+        assert session.run("op", op) == "ok"
+        assert op.call_count == 3
+        assert mock_connect.call_count == 3  # 1 initial + 2 reconnects
+
+    @patch("posthog.dags.events_backfill_to_duckling.time.sleep")
+    @patch("posthog.dags.events_backfill_to_duckling._connect_duckgres")
+    def test_gives_up_and_reraises_after_max_attempts(self, mock_connect, _sleep):
+        mock_connect.return_value = MagicMock()
+        session = _DuckgresSession(MagicMock(), MagicMock())
+        op = MagicMock(side_effect=psycopg.OperationalError("connection to server was lost"))
+
+        with pytest.raises(psycopg.OperationalError):
+            session.run("op", op)
+        assert op.call_count == _DuckgresSession.MAX_ATTEMPTS
+        # initial connect + (MAX_ATTEMPTS - 1) reconnects; the last attempt does not reconnect
+        assert mock_connect.call_count == _DuckgresSession.MAX_ATTEMPTS
+
+    @patch("posthog.dags.events_backfill_to_duckling.time.sleep")
+    @patch("posthog.dags.events_backfill_to_duckling._connect_duckgres")
+    def test_non_connection_error_propagates_immediately(self, mock_connect, _sleep):
+        mock_connect.return_value = MagicMock()
+        session = _DuckgresSession(MagicMock(), MagicMock())
+        op = MagicMock(side_effect=psycopg.InternalError("Constraint Error: duplicate key value"))
+
+        with pytest.raises(psycopg.InternalError):
+            session.run("op", op)
+        assert op.call_count == 1
+        assert mock_connect.call_count == 1  # no reconnect on a real SQL error
+
+    @patch("posthog.dags.events_backfill_to_duckling.time.sleep")
+    @patch("posthog.dags.events_backfill_to_duckling._connect_duckgres")
+    def test_replay_runs_against_fresh_connection(self, mock_connect, _sleep):
+        # The whole point of the fix: each replay must execute against the NEW
+        # worker connection, not the dead one, and the prior connection must be
+        # closed on reconnect.
+        conn0, conn1, conn2 = MagicMock(name="conn0"), MagicMock(name="conn1"), MagicMock(name="conn2")
+        mock_connect.side_effect = [conn0, conn1, conn2]
+        session = _DuckgresSession(MagicMock(), MagicMock())
+
+        seen_conns = []
+
+        def op(conn):
+            seen_conns.append(conn)
+            if len(seen_conns) < 3:
+                raise psycopg.InternalError("connection reset by peer")
+            return "ok"
+
+        assert session.run("op", op) == "ok"
+        # attempt 1 → conn0 (initial), attempt 2 → conn1 (reconnect), attempt 3 → conn2
+        assert seen_conns == [conn0, conn1, conn2]
+        # _reconnect closes the prior (dead) connection before acquiring a fresh one
+        conn0.close.assert_called_once()
+        conn1.close.assert_called_once()
+
+
+class TestDuckgresBackfillOptions:
+    """_duckgres_backfill_options() builds the libpq startup `options` string that
+    sizes/schedules the duckgres worker; it must request a small colocated worker
+    when enabled and never emit a statement_timeout (removed on purpose).
+    """
+
+    def test_enabled_requests_small_colocated_worker(self):
+        with patch("posthog.dags.events_backfill_to_duckling.DUCKGRES_WORKER_PROFILE_ENABLED", True):
+            assert (
+                _duckgres_backfill_options()
+                == "-c duckgres.colocate=true -c duckgres.worker_cpu=4 -c duckgres.worker_memory=16Gi"
+            )
+
+    def test_disabled_returns_empty_string(self):
+        # Disabled → no startup options → falls back to the default exclusive worker.
+        with patch("posthog.dags.events_backfill_to_duckling.DUCKGRES_WORKER_PROFILE_ENABLED", False):
+            assert _duckgres_backfill_options() == ""
+
+    @parameterized.expand([("enabled", True), ("disabled", False)])
+    def test_never_sets_statement_timeout(self, _label, enabled):
+        # The 5-minute statement_timeout was removed deliberately; it must never
+        # reappear in the options on either path (long OLAP backfills are the point).
+        with patch("posthog.dags.events_backfill_to_duckling.DUCKGRES_WORKER_PROFILE_ENABLED", enabled):
+            assert "statement_timeout" not in _duckgres_backfill_options()

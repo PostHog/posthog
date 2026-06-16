@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
@@ -24,7 +25,12 @@ class DoItSource(SimpleSource[DoItSourceConfig]):
         return ExternalDataSourceType.DOIT
 
     def get_schemas(
-        self, config: DoItSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+        self,
+        config: DoItSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         reports = doit_list_reports(config)
 
@@ -44,6 +50,11 @@ class DoItSource(SimpleSource[DoItSourceConfig]):
 
         return schemas
 
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            "Report no longer exists": "The DoIt report no longer exists. It may have been deleted or renamed in DoIt. Please reconnect the source or select a different report.",
+        }
+
     def source_for_pipeline(self, config: DoItSourceConfig, inputs: SourceInputs) -> SourceResponse:
         return doit_source(
             config,
@@ -59,6 +70,7 @@ class DoItSource(SimpleSource[DoItSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.DO_IT,
+            category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="DoIt",
             iconPath="/static/services/doit.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/doit",
@@ -71,6 +83,7 @@ class DoItSource(SimpleSource[DoItSourceConfig]):
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="",
+                        secret=True,
                     )
                 ],
             ),

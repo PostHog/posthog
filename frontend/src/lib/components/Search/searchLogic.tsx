@@ -1,7 +1,7 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { IconBell, IconClock, IconDownload, IconNotification } from '@posthog/icons'
+import { IconBell, IconClock, IconDownload, IconLeave, IconNotification } from '@posthog/icons'
 
 import api from 'lib/api'
 import { commandLogic } from 'lib/components/Command/commandLogic'
@@ -9,7 +9,9 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { toSentenceCase } from 'lib/utils'
 import { GroupQueryResult, mapGroupQueryResponse } from 'lib/utils/groups'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { organizationIntegrationsLogic } from 'scenes/settings/organization/organizationIntegrationsLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { getDefaultTreePersons } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
@@ -18,12 +20,59 @@ import { groupsModel } from '~/models/groupsModel'
 import { recentItemsModel } from '~/models/recentItemsModel'
 import { getTreeItemsMetadata, getTreeItemsNew, getTreeItemsProducts } from '~/products'
 import { FileSystemEntry, GroupsQueryResponse } from '~/queries/schema/schema-general'
-import { SETTINGS_MAP } from '~/scenes/settings/SettingsMap'
-import { SettingSectionId } from '~/scenes/settings/types'
-import { ActivityTab, GroupTypeIndex, PersonType, SearchResponse } from '~/types'
+import { matchesFlagDefinition } from '~/scenes/settings/flagGating'
+import { Setting, SettingSection, SettingSectionId } from '~/scenes/settings/types'
+import { ActivityTab, FileSystemIconColor, GroupTypeIndex, PersonType, SearchResponse } from '~/types'
 
 import type { searchLogicType } from './searchLogicType'
 import { filterSearchItems } from './utils'
+
+let cachedProductIconColorByType: Map<string, FileSystemIconColor> | null = null
+let cachedProductDisplayLabelByPath: Map<string, string> | null = null
+
+const getProductIconColorByType = (): Map<string, FileSystemIconColor> => {
+    if (cachedProductIconColorByType === null) {
+        cachedProductIconColorByType = new Map()
+        for (const product of getTreeItemsProducts()) {
+            const key = product.type || product.iconType
+            if (key && product.iconColor) {
+                cachedProductIconColorByType.set(key, product.iconColor)
+            }
+        }
+    }
+    return cachedProductIconColorByType
+}
+
+const getProductDisplayLabelByPath = (): Map<string, string> => {
+    if (cachedProductDisplayLabelByPath === null) {
+        cachedProductDisplayLabelByPath = new Map()
+        for (const product of getTreeItemsProducts()) {
+            if (product.displayLabel) {
+                cachedProductDisplayLabelByPath.set(product.path, product.displayLabel)
+            }
+        }
+    }
+    return cachedProductDisplayLabelByPath
+}
+
+const fileSystemEntryToSearchItem = (
+    item: FileSystemEntry,
+    overrides: { id: string; category: string; searchKeywords?: string[] }
+): SearchItem => {
+    const name = splitPath(item.path).pop()
+    const itemName = name ? unescapePath(name) : item.path
+    const displayName = getProductDisplayLabelByPath().get(itemName)
+    const productIconColor = item.type ? getProductIconColorByType().get(item.type) : undefined
+    return {
+        name: itemName,
+        displayName,
+        href: item.href || '#',
+        lastViewedAt: item.last_viewed_at ?? null,
+        itemType: item.type ?? null,
+        record: { ...item, iconColor: productIconColor },
+        ...overrides,
+    }
+}
 
 // Types for command search results
 export interface SearchItem {
@@ -33,6 +82,9 @@ export interface SearchItem {
     category: string
     productCategory?: string | null
     href?: string
+    /** Action invoked when the item is selected. Use for items that trigger something
+     * other than navigation (e.g. logging out). Consumers should prefer `onSelect` over `href`. */
+    onSelect?: () => void
     icon?: React.ReactNode
     lastViewedAt?: string | null
     groupNoun?: string | null
@@ -61,6 +113,27 @@ const SEARCH_LIMIT = 5
 /** Safely extract a string — returns undefined for objects/arrays to avoid rendering [object Object]. */
 const safeString = (val: unknown): string | undefined => (typeof val === 'string' ? val : undefined)
 
+/**
+ * Lean projection of SETTINGS_MAP for search. The full map statically imports every
+ * settings component (the whole configuration UI graph), so it is loaded dynamically
+ * on mount and only the searchable metadata is kept.
+ */
+export interface SettingsSectionSummary {
+    id: SettingSection['id']
+    level: SettingSection['level']
+    titleString: string | null
+    hideFromNavigation?: boolean
+    flag?: SettingSection['flag']
+    to?: string
+    settings: {
+        id: string
+        hasTitle: boolean
+        titleString: string | null
+        descriptionString: string | null
+        keywords?: string[]
+    }[]
+}
+
 export const searchLogic = kea<searchLogicType>([
     path((logicKey) => ['lib', 'components', 'Search', 'searchLogic', logicKey]),
     props({} as SearchLogicProps),
@@ -75,14 +148,19 @@ export const searchLogic = kea<searchLogicType>([
             ['featureFlags'],
             preflightLogic,
             ['isDev'],
+            userLogic,
+            ['user'],
             recentItemsModel,
             ['recents as cachedRecents', 'recentsHasLoaded', 'sceneLogViewsByRef', 'sceneLogViewsHasLoaded'],
             projectTreeDataLogic,
             ['shortcutData as cachedStarred', 'shortcutDataHasLoaded', 'groupItems as treeGroupItems'],
+            organizationIntegrationsLogic,
+            ['organizationIntegrations'],
         ],
     })),
     actions({
         setSearch: (search: string) => ({ search }),
+        setSettingsSections: (sections: SettingsSectionSummary[]) => ({ sections }),
     }),
     loaders(({ values }) => ({
         searchedRecents: [
@@ -217,6 +295,12 @@ export const searchLogic = kea<searchLogicType>([
                 loadUnifiedSearchResultsFailure: () => false,
             },
         ],
+        settingsSections: [
+            [] as SettingsSectionSummary[],
+            {
+                setSettingsSections: (_, { sections }) => sections,
+            },
+        ],
     }),
     selectors({
         isSearching: [
@@ -250,18 +334,7 @@ export const searchLogic = kea<searchLogicType>([
             (s) => [s.searchedRecents, s.cachedRecents, s.search],
             (searchedRecents, cachedRecents, search): SearchItem[] => {
                 const source = search.trim() ? (searchedRecents ?? []) : cachedRecents.slice(0, RECENTS_LIMIT)
-                return source.map((item) => {
-                    const name = splitPath(item.path).pop()
-                    return {
-                        id: item.path,
-                        name: name ? unescapePath(name) : item.path,
-                        category: 'recents',
-                        href: item.href || '#',
-                        lastViewedAt: item.last_viewed_at ?? null,
-                        itemType: item.type ?? null,
-                        record: item as unknown as Record<string, unknown>,
-                    }
-                })
+                return source.map((item) => fileSystemEntryToSearchItem(item, { id: item.path, category: 'recents' }))
             },
         ],
         starredItems: [
@@ -270,30 +343,24 @@ export const searchLogic = kea<searchLogicType>([
                 return cachedStarred
                     .filter((e) => e.type !== 'folder')
                     .slice(0, STARRED_LIMIT)
-                    .map((item) => {
-                        const name = splitPath(item.path).pop()
-                        return {
+                    .map((item) =>
+                        fileSystemEntryToSearchItem(item, {
                             id: `starred-${item.id}`,
-                            name: name ? unescapePath(name) : item.path,
                             category: 'starred',
-                            href: item.href || '#',
-                            lastViewedAt: item.last_viewed_at ?? null,
-                            itemType: item.type ?? null,
                             searchKeywords: ['starred', 'favorite', 'favourite', 'shortcut'],
-                            record: item as unknown as Record<string, unknown>,
-                        }
-                    })
+                        })
+                    )
             },
         ],
         appsItems: [
-            (s) => [s.featureFlags, s.isDev, s.sceneLogViewsByRef],
-            (featureFlags, isDev, sceneLogViewsByRef): SearchItem[] => {
+            (s) => [s.featureFlags, s.isDev, s.user, s.sceneLogViewsByRef],
+            (featureFlags, isDev, user, sceneLogViewsByRef): SearchItem[] => {
                 const allProducts = getTreeItemsProducts()
                 const filteredProducts = allProducts.filter((product) => {
                     if (!product.href) {
                         return false
                     }
-                    if (!isDev && product.category === 'Unreleased') {
+                    if (!isDev && !user?.is_staff && product.category === 'Unreleased') {
                         return false
                     }
                     if (product.flag && !(featureFlags as Record<string, boolean>)[product.flag]) {
@@ -305,7 +372,7 @@ export const searchLogic = kea<searchLogicType>([
                 const items: SearchItem[] = filteredProducts.map((product) => ({
                     id: `app-${product.path}`,
                     name: product.path,
-                    displayName: product.path,
+                    displayName: product.displayLabel ?? product.path,
                     category: 'apps',
                     productCategory: product.category || null,
                     href: product.href || '#',
@@ -352,11 +419,11 @@ export const searchLogic = kea<searchLogicType>([
             },
         ],
         dataManagementItems: [
-            (s) => [s.featureFlags, s.isDev, s.sceneLogViewsByRef],
-            (featureFlags, isDev, sceneLogViewsByRef): SearchItem[] => {
+            (s) => [s.featureFlags, s.isDev, s.user, s.sceneLogViewsByRef],
+            (featureFlags, isDev, user, sceneLogViewsByRef): SearchItem[] => {
                 const allMetadata = getTreeItemsMetadata()
                 const filteredMetadata = allMetadata.filter((item) => {
-                    if (!isDev && item.category === 'Unreleased') {
+                    if (!isDev && !user?.is_staff && item.category === 'Unreleased') {
                         return false
                     }
                     if (item.flag && !(featureFlags as Record<string, boolean>)[item.flag]) {
@@ -403,11 +470,11 @@ export const searchLogic = kea<searchLogicType>([
             },
         ],
         newItems: [
-            (s) => [s.featureFlags, s.isDev],
-            (featureFlags, isDev): SearchItem[] => {
+            (s) => [s.featureFlags, s.isDev, s.user],
+            (featureFlags, isDev, user): SearchItem[] => {
                 const allNewItems = getTreeItemsNew()
                 const filteredItems = allNewItems.filter((item) => {
-                    if (!isDev && item.category === 'Unreleased') {
+                    if (!isDev && !user?.is_staff && item.category === 'Unreleased') {
                         return false
                     }
                     if (item.flag && !(featureFlags as Record<string, boolean>)[item.flag]) {
@@ -560,14 +627,14 @@ export const searchLogic = kea<searchLogicType>([
                     record: { type: 'pipeline_status', iconType: 'pipeline_status' },
                 },
                 {
-                    id: 'health-sdk-doctor',
-                    name: 'SDK doctor',
-                    displayName: 'SDK doctor',
+                    id: 'health-sdk-health',
+                    name: 'SDK health',
+                    displayName: 'SDK health',
                     category: 'health',
-                    href: urls.sdkDoctor(),
-                    itemType: 'sdk_doctor',
-                    lastViewedAt: sceneLogViewsByRef['SdkDoctor'] ?? null,
-                    record: { type: 'sdk_doctor', iconType: 'sdk_doctor' },
+                    href: urls.sdkHealth(),
+                    itemType: 'sdk_health',
+                    lastViewedAt: sceneLogViewsByRef['SdkHealth'] ?? null,
+                    record: { type: 'sdk_health', iconType: 'sdk_health' },
                 },
             ],
         ],
@@ -607,27 +674,42 @@ export const searchLogic = kea<searchLogicType>([
                     lastViewedAt: sceneLogViewsByRef['Subscriptions'] ?? null,
                     record: { type: 'subscriptions' },
                 },
+                {
+                    id: 'misc-logout',
+                    name: 'Log out',
+                    displayName: 'Log out',
+                    category: 'misc',
+                    icon: <IconLeave />,
+                    itemType: null,
+                    searchKeywords: ['logout', 'log out', 'sign out', 'signout', 'exit'],
+                    onSelect: () => userLogic.actions.logout(),
+                    record: { type: 'logout' },
+                },
             ],
         ],
         settingsItems: [
-            (s) => [s.featureFlags],
-            (featureFlags): SearchItem[] => {
-                const items: SearchItem[] = []
+            (s) => [s.featureFlags, s.organizationIntegrations, s.settingsSections],
+            (featureFlags, organizationIntegrations, settingsSections): SearchItem[] => {
+                const checkFlag = (flagKey: Pick<Setting, 'flag'>['flag']): boolean =>
+                    matchesFlagDefinition(flagKey, featureFlags)
 
-                const checkFlag = (flag: string): boolean => {
-                    const isNegated = flag.startsWith('!')
-                    const flagName = isNegated ? flag.slice(1) : flag
-                    const flagValue = (featureFlags as Record<string, boolean>)[flagName]
-                    return isNegated ? !flagValue : !!flagValue
-                }
+                const items: SearchItem[] = []
 
                 // Skip project-level sections as they are duplicates of environment sections
                 const seenSectionIds = new Set<string>()
 
-                for (const section of SETTINGS_MAP) {
+                for (const section of settingsSections) {
                     // Skip sections hidden from navigation (they are only accessible
                     // from their product's own configuration page)
                     if (section.hideFromNavigation) {
+                        continue
+                    }
+
+                    // Mirror sidebar gating: only surface organization integrations when any exist
+                    if (
+                        section.id === 'organization-integrations' &&
+                        (!organizationIntegrations || organizationIntegrations.length === 0)
+                    ) {
                         continue
                     }
 
@@ -645,15 +727,8 @@ export const searchLogic = kea<searchLogicType>([
 
                     // Filter by feature flag if required
                     if (section.flag) {
-                        if (Array.isArray(section.flag)) {
-                            // All flags in the array must pass
-                            if (!section.flag.every(checkFlag)) {
-                                continue
-                            }
-                        } else {
-                            if (!checkFlag(section.flag)) {
-                                continue
-                            }
+                        if (!checkFlag(section.flag as Pick<Setting, 'flag'>['flag'])) {
+                            continue
                         }
                     }
 
@@ -661,22 +736,19 @@ export const searchLogic = kea<searchLogicType>([
                     const levelPrefix = toSentenceCase(effectiveLevel)
 
                     const settings = section.settings
-                        .filter((setting) => !!setting.title)
+                        .filter((setting) => setting.hasTitle)
                         .flatMap((setting) => [
                             toSentenceCase(setting.id.replace(/[-]/g, ' ')),
-                            ...(typeof setting.title === 'string' ? [setting.title] : []),
-                            ...(typeof setting.description === 'string' ? [setting.description] : []),
+                            ...(setting.titleString ? [setting.titleString] : []),
+                            ...(setting.descriptionString ? [setting.descriptionString] : []),
                             ...(setting.keywords ?? []),
                         ])
 
                     // Create the display name for each settings section
-                    const displayName =
-                        typeof section.title === 'string'
-                            ? section.title
-                            : toSentenceCase(section.id.replace(/[-]/g, ' '))
+                    const displayName = section.titleString ?? toSentenceCase(section.id.replace(/[-]/g, ' '))
 
                     const displayNameSuffix =
-                        displayName === 'General' || displayName === 'Danger zone'
+                        displayName === 'General' || displayName === 'Danger zone' || displayName === 'Integrations'
                             ? ` (${toSentenceCase(effectiveLevel)})`
                             : ''
 
@@ -1079,4 +1151,31 @@ export const searchLogic = kea<searchLogicType>([
             }
         },
     })),
+    afterMount(({ actions }) => {
+        import('~/scenes/settings/SettingsMap')
+            .then(({ SETTINGS_MAP }) => {
+                actions.setSettingsSections(
+                    SETTINGS_MAP.map((section) => ({
+                        id: section.id,
+                        level: section.level,
+                        titleString: typeof section.title === 'string' ? section.title : null,
+                        hideFromNavigation: section.hideFromNavigation,
+                        flag: section.flag,
+                        to: section.to,
+                        settings: section.settings.map((setting) => ({
+                            id: setting.id,
+                            // A JSX-titled setting has no title string to search but must stay
+                            // findable via its id token — hasTitle preserves that distinction.
+                            hasTitle: !!setting.title,
+                            titleString: typeof setting.title === 'string' ? setting.title : null,
+                            descriptionString: typeof setting.description === 'string' ? setting.description : null,
+                            keywords: setting.keywords,
+                        })),
+                    }))
+                )
+            })
+            .catch((error) => {
+                console.error('Failed to load SETTINGS_MAP for settings search:', error)
+            })
+    }),
 ])

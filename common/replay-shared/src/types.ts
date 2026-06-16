@@ -1,4 +1,4 @@
-import { eventWithTime } from '@posthog/rrweb-types'
+import { eventWithTime } from 'posthog-js/rrweb-types'
 
 export interface RecordingSegment {
     kind: 'window' | 'buffer' | 'gap'

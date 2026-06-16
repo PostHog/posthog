@@ -13,11 +13,16 @@ EventKind = Literal["firing", "resolved", "broken", "errored"]
 @dataclass(frozen=True)
 class EventKindSpec:
     event_id: str
+    display_kind: str
     header: str
-    body: str
+    # Plain-text (label, value) pairs; each destination renders these in its own markup.
+    details: tuple[tuple[str, str], ...]
     button_url: str
     button_label: str
     webhook_body: dict[str, Any]
+
+    def destination_description(self, alert_name: str) -> str:
+        return f'Sends {self.display_kind} notifications for logs alert "{alert_name}".'
 
 
 _FIRE_RESOLVE_DATA: dict[str, str] = {
@@ -30,6 +35,7 @@ _FIRE_RESOLVE_DATA: dict[str, str] = {
     "service_names": "{event.properties.service_names}",
     "severity_levels": "{event.properties.severity_levels}",
     "logs_url": "{project.url}/logs?{event.properties.logs_url_params}",
+    "alert_url": "{project.url}/logs/alerts/{event.properties.alert_id}",
 }
 
 _BROKEN_ERRORED_BASE_DATA: dict[str, str] = {
@@ -38,18 +44,21 @@ _BROKEN_ERRORED_BASE_DATA: dict[str, str] = {
     "consecutive_failures": "{event.properties.consecutive_failures}",
     "service_names": "{event.properties.service_names}",
     "severity_levels": "{event.properties.severity_levels}",
-    "alert_url": "{project.url}/logs?alertId={event.properties.alert_id}",
+    "alert_url": "{project.url}/logs/alerts/{event.properties.alert_id}",
 }
 
 
 EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
     "firing": EventKindSpec(
         event_id="$logs_alert_firing",
+        display_kind="firing",
         header="🔴 Log alert '{event.properties.alert_name}' is firing",
-        body=(
-            "*Threshold breached:* {event.properties.result_count} logs in "
-            "{event.properties.window_minutes}m "
-            "(threshold: {event.properties.threshold_operator} {event.properties.threshold_count})"
+        details=(
+            (
+                "Threshold breached",
+                "{event.properties.result_count} logs in {event.properties.window_minutes}m "
+                "(threshold: {event.properties.threshold_operator} {event.properties.threshold_count})",
+            ),
         ),
         button_url="{project.url}/logs?{event.properties.logs_url_params}",
         button_label="View logs",
@@ -62,11 +71,14 @@ EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
     ),
     "resolved": EventKindSpec(
         event_id="$logs_alert_resolved",
+        display_kind="resolved",
         header="🟢 Log alert '{event.properties.alert_name}' has resolved",
-        body=(
-            "*Current count:* {event.properties.result_count} logs in "
-            "{event.properties.window_minutes}m "
-            "(threshold: {event.properties.threshold_operator} {event.properties.threshold_count})"
+        details=(
+            (
+                "Current count",
+                "{event.properties.result_count} logs in {event.properties.window_minutes}m "
+                "(threshold: {event.properties.threshold_operator} {event.properties.threshold_count})",
+            ),
         ),
         button_url="{project.url}/logs?{event.properties.logs_url_params}",
         button_label="View logs",
@@ -79,14 +91,13 @@ EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
     ),
     "broken": EventKindSpec(
         event_id="$logs_alert_auto_disabled",
+        display_kind="auto-disabled",
         header="⚠️ Log alert '{event.properties.alert_name}' was auto-disabled",
-        body=(
-            "*Reason:* {event.properties.consecutive_failures} consecutive check failures.\n"
-            "*Last error:* {event.properties.last_error_message}"
+        details=(
+            ("Reason", "{event.properties.consecutive_failures} consecutive check failures."),
+            ("Last error", "{event.properties.last_error_message}"),
         ),
-        # Deep-link to the alert modal (via the ?alertId= param handled in logsSceneLogic) —
-        # a broken alert's viewer URL would show zero logs because the alert is no longer checking.
-        button_url="{project.url}/logs?alertId={event.properties.alert_id}",
+        button_url="{project.url}/logs/alerts/{event.properties.alert_id}",
         button_label="View alert",
         webhook_body={
             "id": "{event.uuid}",
@@ -100,9 +111,13 @@ EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
     ),
     "errored": EventKindSpec(
         event_id="$logs_alert_errored",
+        display_kind="errored",
         header="🟡 Log alert '{event.properties.alert_name}' couldn't evaluate",
-        body=("*Reason:* {event.properties.error_message}\n*Failure count:* {event.properties.consecutive_failures}"),
-        button_url="{project.url}/logs?alertId={event.properties.alert_id}",
+        details=(
+            ("Reason", "{event.properties.error_message}"),
+            ("Failure count", "{event.properties.consecutive_failures}"),
+        ),
+        button_url="{project.url}/logs/alerts/{event.properties.alert_id}",
         button_label="View alert",
         webhook_body={
             "id": "{event.uuid}",
@@ -117,6 +132,15 @@ EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
 }
 
 EVENT_KINDS: tuple[EventKind, ...] = tuple(EVENT_KIND_CONFIG.keys())
+
+# HogFunction.name is `models.CharField(max_length=400)` — clip rendered names to fit.
+_HOG_FUNCTION_NAME_MAX_LEN = 400
+
+
+def _clip_name(name: str) -> str:
+    if len(name) <= _HOG_FUNCTION_NAME_MAX_LEN:
+        return name
+    return name[: _HOG_FUNCTION_NAME_MAX_LEN - 1] + "…"
 
 
 _SEVERITY_SERVICE_CONTEXT = (
@@ -135,10 +159,15 @@ _SEVERITY_SERVICE_CONTEXT = (
 )
 
 
+def _slack_body(spec: EventKindSpec) -> str:
+    # Slack mrkdwn: *single asterisks* for bold, one line per detail.
+    return "\n".join(f"*{label}:* {value}" for label, value in spec.details)
+
+
 def _slack_blocks(spec: EventKindSpec) -> list[dict]:
     return [
         {"type": "header", "text": {"type": "plain_text", "text": spec.header}},
-        {"type": "section", "text": {"type": "mrkdwn", "text": spec.body}},
+        {"type": "section", "text": {"type": "mrkdwn", "text": _slack_body(spec)}},
         {
             "type": "context",
             "elements": [
@@ -158,6 +187,14 @@ def _slack_blocks(spec: EventKindSpec) -> list[dict]:
             ],
         },
     ]
+
+
+def _teams_text(spec: EventKindSpec) -> str:
+    # The Microsoft Teams template renders a single Adaptive Card TextBlock from `text`, so fold
+    # the header, details, and action into one markdown string (the button becomes an inline link).
+    # Adaptive Card markdown: **double asterisks** for bold, blank lines between paragraphs.
+    details = "\n\n".join(f"**{label}:** {value}" for label, value in spec.details)
+    return f"**{spec.header}**\n\n{details}\n\n[{spec.button_label}]({spec.button_url})"
 
 
 def _filter_for(alert: LogsAlertConfiguration, kind: EventKind) -> dict[str, Any]:
@@ -188,7 +225,8 @@ def build_slack_config(
         "type": "internal_destination",
         "enabled": True,
         "filters": _filter_for(alert, kind),
-        "name": f"{alert.name}: {kind} → Slack #{channel_display}",
+        "name": _clip_name(f"Logs alert — {alert.name} ({spec.display_kind}) → Slack #{channel_display}"),
+        "description": spec.destination_description(alert.name),
         "template_id": "template-slack",
         "inputs": {
             "blocks": {"value": _slack_blocks(spec)},
@@ -210,11 +248,33 @@ def build_webhook_config(
         "type": "internal_destination",
         "enabled": True,
         "filters": _filter_for(alert, kind),
-        "name": f"{alert.name}: {kind} → Webhook {webhook_url}",
+        "name": _clip_name(f"Logs alert — {alert.name} ({spec.display_kind}) → Webhook {webhook_url}"),
+        "description": spec.destination_description(alert.name),
         "template_id": "template-webhook",
         "inputs": {
             "body": {"value": spec.webhook_body},
             "url": {"value": webhook_url},
             "headers": {"value": {"Content-Type": "application/json", "X-PostHog-Webhook-Version": "1"}},
+        },
+    }
+
+
+def build_teams_config(
+    alert: LogsAlertConfiguration,
+    kind: EventKind,
+    webhook_url: str,
+) -> dict[str, Any]:
+    spec = EVENT_KIND_CONFIG[kind]
+    return {
+        "team": alert.team,
+        "type": "internal_destination",
+        "enabled": True,
+        "filters": _filter_for(alert, kind),
+        "name": _clip_name(f"Logs alert — {alert.name} ({spec.display_kind}) → Microsoft Teams"),
+        "description": spec.destination_description(alert.name),
+        "template_id": "template-microsoft-teams",
+        "inputs": {
+            "webhookUrl": {"value": webhook_url},
+            "text": {"value": _teams_text(spec)},
         },
     }

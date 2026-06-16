@@ -8,7 +8,6 @@ import api, { PaginatedResponse } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { uuid } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { createFuse } from 'lib/utils/fuseSearch'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
@@ -265,7 +264,8 @@ export const productToursLogic = kea<productToursLogicType>([
         productTours: {
             __default: [] as ProductTour[],
             loadProductTours: async () => {
-                const response: PaginatedResponse<ProductTour> = await api.productTours.list()
+                const search = values.searchTerm?.trim() || undefined
+                const response: PaginatedResponse<ProductTour> = await api.productTours.list({ search })
                 return response.results
             },
             deleteProductTour: async (id: string) => {
@@ -341,6 +341,10 @@ export const productToursLogic = kea<productToursLogicType>([
         ],
     }),
     listeners(({ actions }) => ({
+        setSearchTerm: async (_, breakpoint) => {
+            await breakpoint(250)
+            actions.loadProductTours()
+        },
         setTab: ({ tab }) => {
             actions.setFilters({ archived: tab === ProductToursTabs.Archived })
         },
@@ -404,25 +408,12 @@ export const productToursLogic = kea<productToursLogicType>([
     })),
     selectors({
         filteredProductTours: [
-            (s) => [s.productTours, s.searchTerm, s.filters],
-            (productTours: ProductTour[], searchTerm: string, filters: ProductToursFilters) => {
-                let filtered = productTours
-
-                if (searchTerm) {
-                    const fuse = createFuse(filtered, {
-                        keys: ['name', 'description'],
-                        ignoreLocation: true,
-                    })
-                    filtered = fuse.search(searchTerm).map((result) => result.item)
-                }
-
+            (s) => [s.productTours, s.filters],
+            (productTours: ProductTour[], filters: ProductToursFilters) => {
                 if (filters.archived) {
-                    filtered = filtered.filter((tour: ProductTour) => tour.archived)
-                } else {
-                    filtered = filtered.filter((tour: ProductTour) => !tour.archived)
+                    return productTours.filter((tour: ProductTour) => tour.archived)
                 }
-
-                return filtered
+                return productTours.filter((tour: ProductTour) => !tour.archived)
             },
         ],
         breadcrumbs: [

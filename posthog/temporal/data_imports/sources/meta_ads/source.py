@@ -1,7 +1,9 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
+    ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
@@ -13,19 +15,24 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInput
 from posthog.temporal.data_imports.sources.common.base import (
     MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
     FieldType,
-    SimpleSource,
+    ResumableSource,
 )
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import MetaAdsSourceConfig
-from posthog.temporal.data_imports.sources.meta_ads.meta_ads import meta_ads_source
+from posthog.temporal.data_imports.sources.meta_ads.meta_ads import (
+    META_AUTH_ERROR_MESSAGE,
+    MetaAdsResumeConfig,
+    meta_ads_source,
+)
 from posthog.temporal.data_imports.sources.meta_ads.schemas import ENDPOINTS, INCREMENTAL_FIELDS
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class MetaAdsSource(SimpleSource[MetaAdsSourceConfig]):
+class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig]):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.METAADS
@@ -33,12 +40,26 @@ class MetaAdsSource(SimpleSource[MetaAdsSourceConfig]):
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "Failed to refresh token for Meta Ads integration. Please re-authorize the integration.": None,
+            # Permanent auth/permission failures from the Graph API (e.g. revoked or expired
+            # access tokens, checkpoint-required, invalidated sessions, permission denials).
+            # `meta_ads._raise_meta_api_error` prefixes these with this exact message.
+            META_AUTH_ERROR_MESSAGE: META_AUTH_ERROR_MESSAGE,
             "Ad account owner has NOT": None,
             "cannot be loaded due to missing permissions": None,
+            # Meta returns this 500 when the requested query is too large for their backend to
+            # service. Both pagination paths adapt to it (stats chunks shrink 30 → 7 → 1 day, and
+            # both paths shrink the per-page limit 500 → 100 → 50); if it still escapes after those
+            # fallbacks are exhausted, retrying the whole job won't help.
+            "Please reduce the amount of data you're asking for": None,
         }
 
     def get_schemas(
-        self, config: MetaAdsSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+        self,
+        config: MetaAdsSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -56,11 +77,20 @@ class MetaAdsSource(SimpleSource[MetaAdsSourceConfig]):
 
         return schemas
 
-    def source_for_pipeline(self, config: MetaAdsSourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[MetaAdsResumeConfig]:
+        return ResumableSourceManager[MetaAdsResumeConfig](inputs, MetaAdsResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: MetaAdsSourceConfig,
+        resumable_source_manager: ResumableSourceManager[MetaAdsResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
         return meta_ads_source(
             resource_name=inputs.schema_name,
             config=config,
             team_id=inputs.team_id,
+            resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             incremental_field=inputs.incremental_field if inputs.should_use_incremental_field else None,
             incremental_field_type=inputs.incremental_field_type if inputs.should_use_incremental_field else None,
@@ -73,6 +103,8 @@ class MetaAdsSource(SimpleSource[MetaAdsSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.META_ADS,
+            category=DataWarehouseSourceCategory.ADVERTISING,
+            keywords=["facebook ads", "instagram ads"],
             label="Meta Ads",
             caption="Ensure you have granted PostHog access to your Meta Ads account, learn how to do this in the [documentation](https://posthog.com/docs/cdp/sources/meta-ads).",
             iconPath="/static/services/meta-ads.png",
@@ -85,6 +117,7 @@ class MetaAdsSource(SimpleSource[MetaAdsSourceConfig]):
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="",
+                        secret=False,
                     ),
                     SourceFieldOauthConfig(
                         name="meta_ads_integration_id",
@@ -98,10 +131,11 @@ class MetaAdsSource(SimpleSource[MetaAdsSourceConfig]):
                         type=SourceFieldInputConfigType.NUMBER,
                         required=False,
                         placeholder="90",
+                        secret=False,
                     ),
                 ],
             ),
-            betaSource=True,
+            releaseStatus=ReleaseStatus.GA,
             suggestedTables=[
                 SuggestedTable(
                     table="campaigns",

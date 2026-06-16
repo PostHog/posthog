@@ -15,6 +15,7 @@ import {
     buildLogsAlertFilterConfig,
     groupLogsAlertDestinations,
     LOGS_ALERT_NOTIFICATION_TYPE_SLACK,
+    LOGS_ALERT_NOTIFICATION_TYPE_TEAMS,
     LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK,
     LogsAlertDestinationGroup,
     LogsAlertNotificationType,
@@ -23,6 +24,7 @@ import {
 
 export const LOGS_ALERT_NOTIFICATION_TYPE_OPTIONS = [
     { label: 'Slack', value: LOGS_ALERT_NOTIFICATION_TYPE_SLACK },
+    { label: 'Microsoft Teams', value: LOGS_ALERT_NOTIFICATION_TYPE_TEAMS },
     { label: 'Webhook', value: LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK },
 ]
 
@@ -47,6 +49,7 @@ export const logsAlertNotificationLogic = kea<logsAlertNotificationLogicType>([
         setPendingNotifications: (notifications: PendingLogsAlertNotification[]) => ({ notifications }),
         deleteExistingDestination: (group: LogsAlertDestinationGroup) => ({ group }),
         createPendingHogFunctions: (alertId: string) => ({ alertId }),
+        destinationsChanged: true,
         setSelectedType: (selectedType: LogsAlertNotificationType) => ({ selectedType }),
         setSlackChannelValue: (slackChannelValue: string | null) => ({ slackChannelValue }),
         setWebhookUrl: (webhookUrl: string) => ({ webhookUrl }),
@@ -116,6 +119,11 @@ export const logsAlertNotificationLogic = kea<logsAlertNotificationLogicType>([
     }),
 
     listeners(({ actions, values, props }) => ({
+        addPendingNotification: () => {
+            if (props.alertId) {
+                actions.createPendingHogFunctions(props.alertId)
+            }
+        },
         loadIntegrationsSuccess: () => {
             if (!values.firstSlackIntegration) {
                 actions.setSelectedType(LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK)
@@ -131,6 +139,7 @@ export const logsAlertNotificationLogic = kea<logsAlertNotificationLogicType>([
                 })
                 lemonToast.success(`Removed ${group.label}`)
                 actions.loadExistingHogFunctions()
+                actions.destinationsChanged()
             } catch {
                 lemonToast.error(`Failed to remove ${group.label}`)
                 actions.loadExistingHogFunctions()
@@ -155,7 +164,7 @@ export const logsAlertNotificationLogic = kea<logsAlertNotificationLogicType>([
                                   slack_channel_name: notification.slackChannelName,
                               }
                             : {
-                                  type: LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK,
+                                  type: notification.type,
                                   webhook_url: notification.webhookUrl,
                               }
                     return logsAlertsDestinationsCreate(projectId, alertId, payload)
@@ -177,6 +186,7 @@ export const logsAlertNotificationLogic = kea<logsAlertNotificationLogicType>([
             }
 
             actions.loadExistingHogFunctions(alertId)
+            actions.destinationsChanged()
         },
     })),
 

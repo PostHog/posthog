@@ -10,6 +10,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     CopyExperimentToProjectApi,
+    CreateFromPromptInputApi,
     EndExperimentApi,
     ExperimentApi,
     ExperimentHoldoutApi,
@@ -17,6 +18,8 @@ import type {
     ExperimentSavedMetricApi,
     ExperimentSavedMetricsListParams,
     ExperimentsListParams,
+    ExperimentsPromptTemplatesRetrieve200Item,
+    ExperimentsTimeseriesResultsRetrieveParams,
     PaginatedExperimentHoldoutListApi,
     PaginatedExperimentListApi,
     PaginatedExperimentSavedMetricListApi,
@@ -48,7 +51,7 @@ export const getExperimentHoldoutsListUrl = (projectId: string, params?: Experim
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -127,7 +130,7 @@ export const getExperimentHoldoutsPartialUpdateUrl = (projectId: string, id: num
 export const experimentHoldoutsPartialUpdate = async (
     projectId: string,
     id: number,
-    patchedExperimentHoldoutApi: NonReadonly<PatchedExperimentHoldoutApi>,
+    patchedExperimentHoldoutApi?: NonReadonly<PatchedExperimentHoldoutApi>,
     options?: RequestInit
 ): Promise<ExperimentHoldoutApi> => {
     return apiMutator<ExperimentHoldoutApi>(getExperimentHoldoutsPartialUpdateUrl(projectId, id), {
@@ -158,7 +161,7 @@ export const getExperimentSavedMetricsListUrl = (projectId: string, params?: Exp
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -237,7 +240,7 @@ export const getExperimentSavedMetricsPartialUpdateUrl = (projectId: string, id:
 export const experimentSavedMetricsPartialUpdate = async (
     projectId: string,
     id: number,
-    patchedExperimentSavedMetricApi: NonReadonly<PatchedExperimentSavedMetricApi>,
+    patchedExperimentSavedMetricApi?: NonReadonly<PatchedExperimentSavedMetricApi>,
     options?: RequestInit
 ): Promise<ExperimentSavedMetricApi> => {
     return apiMutator<ExperimentSavedMetricApi>(getExperimentSavedMetricsPartialUpdateUrl(projectId, id), {
@@ -263,15 +266,12 @@ export const experimentSavedMetricsDestroy = async (
     })
 }
 
-/**
- * List experiments for the current project. Supports filtering by status and archival state.
- */
 export const getExperimentsListUrl = (projectId: string, params?: ExperimentsListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -282,6 +282,9 @@ export const getExperimentsListUrl = (projectId: string, params?: ExperimentsLis
         : `/api/projects/${projectId}/experiments/`
 }
 
+/**
+ * List experiments for the current project. Supports filtering by status and archival state.
+ */
 export const experimentsList = async (
     projectId: string,
     params?: ExperimentsListParams,
@@ -293,13 +296,13 @@ export const experimentsList = async (
     })
 }
 
-/**
- * Create a new experiment in draft status with optional metrics.
- */
 export const getExperimentsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/experiments/`
 }
 
+/**
+ * Create a new experiment in draft status with optional metrics.
+ */
 export const experimentsCreate = async (
     projectId: string,
     experimentApi: NonReadonly<ExperimentApi>,
@@ -313,13 +316,13 @@ export const experimentsCreate = async (
     })
 }
 
-/**
- * Retrieve a single experiment by ID, including its current status, metrics, feature flag, and results metadata.
- */
 export const getExperimentsRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiments/${id}/`
 }
 
+/**
+ * Retrieve a single experiment by ID, including its current status, metrics, feature flag, and results metadata.
+ */
 export const experimentsRetrieve = async (
     projectId: string,
     id: number,
@@ -331,17 +334,17 @@ export const experimentsRetrieve = async (
     })
 }
 
-/**
- * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
-
-This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
-on serializer methods and converts them into proper HTTP 409 Conflict responses with
-change request details.
- */
 export const getExperimentsUpdateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiments/${id}/`
 }
 
+/**
+ * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
+ *
+ * This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
+ * on serializer methods and converts them into proper HTTP 409 Conflict responses with
+ * change request details.
+ */
 export const experimentsUpdate = async (
     projectId: string,
     id: number,
@@ -356,17 +359,17 @@ export const experimentsUpdate = async (
     })
 }
 
-/**
- * Update an experiment. Use this to modify experiment properties such as name, description, metrics, variants, and configuration. Metrics can be added, changed and removed at any time.
- */
 export const getExperimentsPartialUpdateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiments/${id}/`
 }
 
+/**
+ * Update an experiment. Use this to modify experiment properties such as name, description, metrics, variants, and configuration. Metrics can be added, changed and removed at any time.
+ */
 export const experimentsPartialUpdate = async (
     projectId: string,
     id: number,
-    patchedExperimentApi: NonReadonly<PatchedExperimentApi>,
+    patchedExperimentApi?: NonReadonly<PatchedExperimentApi>,
     options?: RequestInit
 ): Promise<ExperimentApi> => {
     return apiMutator<ExperimentApi>(getExperimentsPartialUpdateUrl(projectId, id), {
@@ -377,13 +380,13 @@ export const experimentsPartialUpdate = async (
     })
 }
 
-/**
- * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
- */
 export const getExperimentsDestroyUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiments/${id}/`
 }
 
+/**
+ * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
+ */
 export const experimentsDestroy = async (projectId: string, id: number, options?: RequestInit): Promise<unknown> => {
     return apiMutator<unknown>(getExperimentsDestroyUrl(projectId, id), {
         ...options,
@@ -391,17 +394,17 @@ export const experimentsDestroy = async (projectId: string, id: number, options?
     })
 }
 
-/**
- * Archive an ended experiment.
-
-Hides the experiment from the default list view. The experiment can be
-restored at any time by updating archived=false. Returns 400 if the
-experiment is already archived or has not ended yet.
- */
 export const getExperimentsArchiveCreateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiments/${id}/archive/`
 }
 
+/**
+ * Archive an ended experiment.
+ *
+ * Hides the experiment from the default list view. The experiment can be
+ * restored at any time by updating archived=false. Returns 400 if the
+ * experiment is already archived or has not ended yet.
+ */
 export const experimentsArchiveCreate = async (
     projectId: string,
     id: number,
@@ -413,17 +416,13 @@ export const experimentsArchiveCreate = async (
     })
 }
 
-/**
- * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
-
-This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
-on serializer methods and converts them into proper HTTP 409 Conflict responses with
-change request details.
- */
 export const getExperimentsCopyToProjectCreateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiments/${id}/copy_to_project/`
 }
 
+/**
+ * Copy an experiment into another project in the same organization as a new draft.
+ */
 export const experimentsCopyToProjectCreate = async (
     projectId: string,
     id: number,
@@ -438,17 +437,17 @@ export const experimentsCopyToProjectCreate = async (
     })
 }
 
-/**
- * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
-
-This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
-on serializer methods and converts them into proper HTTP 409 Conflict responses with
-change request details.
- */
 export const getExperimentsCreateExposureCohortForExperimentCreateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiments/${id}/create_exposure_cohort_for_experiment/`
 }
 
+/**
+ * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
+ *
+ * This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
+ * on serializer methods and converts them into proper HTTP 409 Conflict responses with
+ * change request details.
+ */
 export const experimentsCreateExposureCohortForExperimentCreate = async (
     projectId: string,
     id: number,
@@ -463,17 +462,17 @@ export const experimentsCreateExposureCohortForExperimentCreate = async (
     })
 }
 
-/**
- * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
-
-This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
-on serializer methods and converts them into proper HTTP 409 Conflict responses with
-change request details.
- */
 export const getExperimentsDuplicateCreateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiments/${id}/duplicate/`
 }
 
+/**
+ * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
+ *
+ * This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
+ * on serializer methods and converts them into proper HTTP 409 Conflict responses with
+ * change request details.
+ */
 export const experimentsDuplicateCreate = async (
     projectId: string,
     id: number,
@@ -488,38 +487,38 @@ export const experimentsDuplicateCreate = async (
     })
 }
 
-/**
- * End a running experiment without shipping a variant.
-
-Sets end_date to now and marks the experiment as stopped. The feature
-flag is NOT modified — users continue to see their assigned variants
-and exposure events ($feature_flag_called) continue to be recorded.
-However, only data up to end_date is included in experiment results.
-
-Use this when:
-
-- You want to freeze the results window without changing which variant
-  users see.
-- A variant was already shipped manually via the feature flag UI and
-  the experiment just needs to be marked complete.
-
-The end_date can be adjusted after ending via PATCH if it needs to be
-backdated (e.g. to match when the flag was actually paused).
-
-Other options:
-- Use ship_variant to end the experiment AND roll out a single variant to 100%% of users.
-- Use pause to deactivate the flag without ending the experiment (stops variant assignment but does not freeze results).
-
-Returns 400 if the experiment is not running.
- */
 export const getExperimentsEndCreateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiments/${id}/end/`
 }
 
+/**
+ * End a running experiment without shipping a variant.
+ *
+ * Sets end_date to now and marks the experiment as stopped. The feature
+ * flag is NOT modified — users continue to see their assigned variants
+ * and exposure events ($feature_flag_called) continue to be recorded.
+ * However, only data up to end_date is included in experiment results.
+ *
+ * Use this when:
+ *
+ * - You want to freeze the results window without changing which variant
+ *   users see.
+ * - A variant was already shipped manually via the feature flag UI and
+ *   the experiment just needs to be marked complete.
+ *
+ * The end_date can be adjusted after ending via PATCH if it needs to be
+ * backdated (e.g. to match when the flag was actually paused).
+ *
+ * Other options:
+ * - Use ship_variant to end the experiment AND roll out a single variant to 100%% of users.
+ * - Use pause to deactivate the flag without ending the experiment (stops variant assignment but does not freeze results).
+ *
+ * Returns 400 if the experiment is not running.
+ */
 export const experimentsEndCreate = async (
     projectId: string,
     id: number,
-    endExperimentApi: EndExperimentApi,
+    endExperimentApi?: EndExperimentApi,
     options?: RequestInit
 ): Promise<ExperimentApi> => {
     return apiMutator<ExperimentApi>(getExperimentsEndCreateUrl(projectId, id), {
@@ -530,18 +529,18 @@ export const experimentsEndCreate = async (
     })
 }
 
-/**
- * Launch a draft experiment.
-
-Validates the experiment is in draft state, activates its linked feature flag,
-sets start_date to the current server time, and transitions the experiment to running.
-Returns 400 if the experiment has already been launched or if the feature flag
-configuration is invalid (e.g. missing "control" variant or fewer than 2 variants).
- */
 export const getExperimentsLaunchCreateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiments/${id}/launch/`
 }
 
+/**
+ * Launch a draft experiment.
+ *
+ * Validates the experiment is in draft state, activates its linked feature flag,
+ * sets start_date to the current server time, and transitions the experiment to running.
+ * Returns 400 if the experiment has already been launched or if the feature flag
+ * configuration is invalid (e.g. missing "control" variant or fewer than 2 variants).
+ */
 export const experimentsLaunchCreate = async (
     projectId: string,
     id: number,
@@ -553,19 +552,19 @@ export const experimentsLaunchCreate = async (
     })
 }
 
-/**
- * Pause a running experiment.
-
-Deactivates the linked feature flag so it is no longer returned by the
-/decide endpoint. Users fall back to the application default (typically
-the control experience), and no new exposure events are recorded (i.e.
-$feature_flag_called is not fired).
-Returns 400 if the experiment is not running or is already paused.
- */
 export const getExperimentsPauseCreateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiments/${id}/pause/`
 }
 
+/**
+ * Pause a running experiment.
+ *
+ * Deactivates the linked feature flag so it is no longer returned by the
+ * /decide endpoint. Users fall back to the application default (typically
+ * the control experience), and no new exposure events are recorded (i.e.
+ * $feature_flag_called is not fired).
+ * Returns 400 if the experiment is not running or is already paused.
+ */
 export const experimentsPauseCreate = async (
     projectId: string,
     id: number,
@@ -577,17 +576,17 @@ export const experimentsPauseCreate = async (
     })
 }
 
-/**
- * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
-
-This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
-on serializer methods and converts them into proper HTTP 409 Conflict responses with
-change request details.
- */
 export const getExperimentsRecalculateTimeseriesCreateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiments/${id}/recalculate_timeseries/`
 }
 
+/**
+ * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
+ *
+ * This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
+ * on serializer methods and converts them into proper HTTP 409 Conflict responses with
+ * change request details.
+ */
 export const experimentsRecalculateTimeseriesCreate = async (
     projectId: string,
     id: number,
@@ -602,21 +601,21 @@ export const experimentsRecalculateTimeseriesCreate = async (
     })
 }
 
-/**
- * Reset an experiment back to draft state.
-
-Clears start/end dates, conclusion, and archived flag. The feature
-flag is left unchanged — users continue to see their assigned variants.
-
-Previously collected events still exist but won't be included in
-results unless the start date is manually adjusted after re-launch.
-
-Returns 400 if the experiment is already in draft state.
- */
 export const getExperimentsResetCreateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiments/${id}/reset/`
 }
 
+/**
+ * Reset an experiment back to draft state.
+ *
+ * Clears start/end dates, conclusion, and archived flag. The feature
+ * flag is left unchanged — users continue to see their assigned variants.
+ *
+ * Previously collected events still exist but won't be included in
+ * results unless the start date is manually adjusted after re-launch.
+ *
+ * Returns 400 if the experiment is already in draft state.
+ */
 export const experimentsResetCreate = async (
     projectId: string,
     id: number,
@@ -628,18 +627,18 @@ export const experimentsResetCreate = async (
     })
 }
 
-/**
- * Resume a paused experiment.
-
-Reactivates the linked feature flag so it is returned by /decide again.
-Users are re-bucketed deterministically into the same variants they had
-before the pause, and exposure tracking resumes.
-Returns 400 if the experiment is not running or is not paused.
- */
 export const getExperimentsResumeCreateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiments/${id}/resume/`
 }
 
+/**
+ * Resume a paused experiment.
+ *
+ * Reactivates the linked feature flag so it is returned by /decide again.
+ * Users are re-bucketed deterministically into the same variants they had
+ * before the pause, and exposure tracking resumes.
+ * Returns 400 if the experiment is not running or is not paused.
+ */
 export const experimentsResumeCreate = async (
     projectId: string,
     id: number,
@@ -651,29 +650,32 @@ export const experimentsResumeCreate = async (
     })
 }
 
-/**
- * Ship a variant to 100% of users and (optionally) end the experiment.
-
-Rewrites the feature flag so that the selected variant is served to everyone.
-Existing release conditions (flag groups) are preserved so the change can be
-rolled back by deleting the auto-added release condition in the feature flag UI.
-
-Can be called on both running and stopped experiments. If the experiment is
-still running, it will also be ended (end_date set and status marked as stopped).
-If the experiment has already ended, only the flag is rewritten - this supports
-the "end first, ship later" workflow.
-
-If an approval policy requires review before changes on the flag take effect,
-the API returns 409 with a change_request_id. The experiment is NOT ended until
-the change request is approved and the user retries.
-
-Returns 400 if the experiment is in draft state, the variant_key is not found
-on the flag, or the experiment has no linked feature flag.
- */
 export const getExperimentsShipVariantCreateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiments/${id}/ship_variant/`
 }
 
+/**
+ * Ship a variant and (optionally) end the experiment.
+ *
+ * Updates the feature flag so the selected variant gets 100% of the variant
+ * distribution. By default, existing release conditions on the flag are preserved
+ * untouched — the variant is served only to users who already match them. Pass
+ * ``release_to_everyone: true`` to also prepend a catch-all release condition
+ * that rolls the variant out to 100% of users (overrides any existing release
+ * conditions on the flag).
+ *
+ * Can be called on both running and stopped experiments. If the experiment is
+ * still running, it will also be ended (end_date set and status marked as stopped).
+ * If the experiment has already ended, only the flag is rewritten - this supports
+ * the "end first, ship later" workflow.
+ *
+ * If an approval policy requires review before changes on the flag take effect,
+ * the API returns 409 with a change_request_id. The experiment is NOT ended until
+ * the change request is approved and the user retries.
+ *
+ * Returns 400 if the experiment is in draft state, the variant_key is not found
+ * on the flag, or the experiment has no linked feature flag.
+ */
 export const experimentsShipVariantCreate = async (
     projectId: string,
     id: number,
@@ -688,49 +690,113 @@ export const experimentsShipVariantCreate = async (
     })
 }
 
-/**
- * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
+export const getExperimentsTimeseriesResultsRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params: ExperimentsTimeseriesResultsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
 
-This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
-on serializer methods and converts them into proper HTTP 409 Conflict responses with
-change request details.
- */
-export const getExperimentsTimeseriesResultsRetrieveUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/experiments/${id}/timeseries_results/`
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/experiments/${id}/timeseries_results/?${stringifiedParams}`
+        : `/api/projects/${projectId}/experiments/${id}/timeseries_results/`
 }
 
+/**
+ * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
+ *
+ * This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
+ * on serializer methods and converts them into proper HTTP 409 Conflict responses with
+ * change request details.
+ */
 export const experimentsTimeseriesResultsRetrieve = async (
     projectId: string,
     id: number,
+    params: ExperimentsTimeseriesResultsRetrieveParams,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getExperimentsTimeseriesResultsRetrieveUrl(projectId, id), {
+    return apiMutator<void>(getExperimentsTimeseriesResultsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
 }
 
+export const getExperimentsUnarchiveCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiments/${id}/unarchive/`
+}
+
 /**
- * Returns a paginated list of feature flags eligible for use in experiments.
-
-Eligible flags must:
-- Be multivariate with at least 2 variants
-- Have "control" as the first variant key
-
-Query parameters:
-- search: Filter by flag key or name (case insensitive)
-- limit: Number of results per page (default: 20)
-- offset: Pagination offset (default: 0)
-- active: Filter by active status ("true" or "false")
-- created_by_id: Filter by creator user ID
-- order: Sort order field
-- evaluation_runtime: Filter by evaluation runtime
-- has_evaluation_contexts: Filter by presence of evaluation contexts ("true" or "false")
+ * Unarchive an archived experiment.
+ *
+ * Restores the experiment to the default list view. Returns 400 if the
+ * experiment is not currently archived.
  */
+export const experimentsUnarchiveCreate = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ExperimentApi> => {
+    return apiMutator<ExperimentApi>(getExperimentsUnarchiveCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getExperimentsCreateFromPromptCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/experiments/create_from_prompt/`
+}
+
+/**
+ * Create an experiment that compares N versions of an LLM prompt using a metric template.
+ *
+ * The user picks 2+ versions of an existing LLMPrompt and 1+ metric templates
+ * (cost / latency / eval_pass_rate). The endpoint builds the matching variants
+ * (control + test-N, each named after its prompt version) and attaches one
+ * metric per selected template, each scoped to the prompt's $ai_prompt_name.
+ * Resulting experiment is in draft state.
+ */
+export const experimentsCreateFromPromptCreate = async (
+    projectId: string,
+    createFromPromptInputApi: CreateFromPromptInputApi,
+    options?: RequestInit
+): Promise<ExperimentApi> => {
+    return apiMutator<ExperimentApi>(getExperimentsCreateFromPromptCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(createFromPromptInputApi),
+    })
+}
+
 export const getExperimentsEligibleFeatureFlagsRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/experiments/eligible_feature_flags/`
 }
 
+/**
+ * Returns a paginated list of feature flags eligible for use in experiments.
+ *
+ * Eligible flags must:
+ * - Be multivariate with at least 2 variants
+ * - Have "control" as the first variant key
+ *
+ * Query parameters:
+ * - search: Filter by flag key or name (case insensitive)
+ * - limit: Number of results per page (default: 20)
+ * - offset: Pagination offset (default: 0)
+ * - active: Filter by active status ("true" or "false")
+ * - created_by_id: Filter by creator user ID
+ * - order: Sort order field
+ * - evaluation_runtime: Filter by evaluation runtime
+ * - has_evaluation_contexts: Filter by presence of evaluation contexts ("true" or "false")
+ */
 export const experimentsEligibleFeatureFlagsRetrieve = async (
     projectId: string,
     options?: RequestInit
@@ -741,17 +807,37 @@ export const experimentsEligibleFeatureFlagsRetrieve = async (
     })
 }
 
-/**
- * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
+export const getExperimentsPromptTemplatesRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/experiments/prompt_templates/`
+}
 
-This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
-on serializer methods and converts them into proper HTTP 409 Conflict responses with
-change request details.
+/**
+ * List the LLM metric templates that can be passed to `create_from_prompt`.
  */
+export const experimentsPromptTemplatesRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ExperimentsPromptTemplatesRetrieve200Item[]> => {
+    return apiMutator<ExperimentsPromptTemplatesRetrieve200Item[]>(
+        getExperimentsPromptTemplatesRetrieveUrl(projectId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
 export const getExperimentsRequiresFlagImplementationRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/experiments/requires_flag_implementation/`
 }
 
+/**
+ * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
+ *
+ * This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
+ * on serializer methods and converts them into proper HTTP 409 Conflict responses with
+ * change request details.
+ */
 export const experimentsRequiresFlagImplementationRetrieve = async (
     projectId: string,
     options?: RequestInit
@@ -762,17 +848,17 @@ export const experimentsRequiresFlagImplementationRetrieve = async (
     })
 }
 
-/**
- * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
-
-This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
-on serializer methods and converts them into proper HTTP 409 Conflict responses with
-change request details.
- */
 export const getExperimentsStatsRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/experiments/stats/`
 }
 
+/**
+ * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
+ *
+ * This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
+ * on serializer methods and converts them into proper HTTP 409 Conflict responses with
+ * change request details.
+ */
 export const experimentsStatsRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getExperimentsStatsRetrieveUrl(projectId), {
         ...options,

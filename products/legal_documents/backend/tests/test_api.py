@@ -1,9 +1,14 @@
+import hmac
+import json
+import hashlib
+from contextlib import contextmanager
 from typing import Any
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.db import IntegrityError
+from django.test import override_settings
 
 from parameterized import parameterized
 from rest_framework import status
@@ -16,8 +21,7 @@ from products.legal_documents.backend.models import LegalDocument
 BAA_PAYLOAD = {
     "document_type": "BAA",
     "company_name": "Acme, Inc.",
-    "representative_name": "Ada Lovelace",
-    "representative_title": "CEO",
+    "company_address": "1 Analytics Way, SF CA",
     "representative_email": "ada@acme.example",
 }
 
@@ -25,10 +29,7 @@ DPA_PAYLOAD = {
     "document_type": "DPA",
     "company_name": "Acme, Inc.",
     "company_address": "1 Analytics Way, SF CA",
-    "representative_name": "Ada Lovelace",
-    "representative_title": "CEO",
     "representative_email": "ada@acme.example",
-    "dpa_mode": "pretty",
 }
 
 
@@ -44,6 +45,7 @@ def _billing_with_addons(addon_types_subscribed: set[str]) -> dict[str, Any]:
     }
 
 
+@override_settings(CLOUD_DEPLOYMENT="US")
 class TestLegalDocumentAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -63,8 +65,6 @@ class TestLegalDocumentAPI(APIBaseTest):
         self.assertEqual(row.document_type, "BAA")
         self.assertEqual(row.organization_id, self.organization.id)
         self.assertEqual(row.created_by_id, self.user.id)
-        self.assertEqual(row.dpa_mode, "")
-        self.assertEqual(row.company_address, "")
 
     @patch("products.legal_documents.backend.logic.BillingManager")
     def test_create_baa_without_qualifying_addon_is_forbidden(self, mock_manager_cls) -> None:
@@ -76,34 +76,30 @@ class TestLegalDocumentAPI(APIBaseTest):
         self.assertIn("Boost, Scale, or Enterprise", response.json()["detail"])
         self.assertFalse(LegalDocument.objects.exists())
 
-    def test_create_dpa_with_pretty_mode_succeeds(self) -> None:
+    def test_create_dpa_succeeds(self) -> None:
         response = self.client.post(self.url, DPA_PAYLOAD, format="json")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
-        row = LegalDocument.objects.get(id=response.json()["id"])
-        self.assertEqual(row.dpa_mode, "pretty")
 
-    def test_create_dpa_with_lawyer_mode_succeeds(self) -> None:
-        response = self.client.post(self.url, {**DPA_PAYLOAD, "dpa_mode": "lawyer"}, format="json")
+    def test_create_dpa_ignores_unknown_dpa_mode_field(self) -> None:
+        # dpa_mode is a frontend-only preview toggle — extra keys are silently dropped.
+        response = self.client.post(self.url, {**DPA_PAYLOAD, "dpa_mode": "fairytale"}, format="json")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-    @parameterized.expand([("fairytale",), ("tswift",)])
-    def test_create_dpa_with_preview_only_mode_is_rejected(self, dpa_mode: str) -> None:
-        response = self.client.post(self.url, {**DPA_PAYLOAD, "dpa_mode": dpa_mode}, format="json")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("preview-only", response.json()["detail"])
-
-    def test_create_dpa_without_mode_is_rejected(self) -> None:
-        payload = {**DPA_PAYLOAD}
-        payload.pop("dpa_mode")
-        response = self.client.post(self.url, payload, format="json")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-    def test_create_dpa_without_address_is_rejected(self) -> None:
+    def test_create_without_address_is_rejected(self) -> None:
         payload = {**DPA_PAYLOAD}
         payload.pop("company_address")
         response = self.client.post(self.url, payload, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("company_address", response.json()["attr"])
+
+    def test_create_msa_is_rejected_from_public_api(self) -> None:
+        # MSAs only exist via Django admin upload — the public serializer's
+        # ChoiceField does not list MSA, so a POST should 400 on document_type.
+        payload = {**DPA_PAYLOAD, "document_type": "MSA"}
+        response = self.client.post(self.url, payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("document_type", response.json()["attr"])
+        self.assertFalse(LegalDocument.objects.exists())
 
     def test_list_is_scoped_to_current_organization(self) -> None:
         other_org = Organization.objects.create(name="Other")
@@ -112,10 +108,7 @@ class TestLegalDocumentAPI(APIBaseTest):
             document_type="DPA",
             company_name="Other Co",
             company_address="Elsewhere",
-            representative_name="Bob",
-            representative_title="CTO",
             representative_email="bob@other.example",
-            dpa_mode="lawyer",
         )
         self.client.post(self.url, DPA_PAYLOAD, format="json")
 
@@ -142,35 +135,31 @@ class TestLegalDocumentAPI(APIBaseTest):
         response = self.client.post(self.url, DPA_PAYLOAD, format="json")
         self.assertIn(response.status_code, (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN))
 
-    def test_create_returns_default_status_and_no_secret(self) -> None:
+    def test_create_returns_default_status(self) -> None:
         response = self.client.post(self.url, DPA_PAYLOAD, format="json")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         body = response.json()
         self.assertEqual(body["status"], "submitted_for_signature")
-        self.assertEqual(body["signed_document_url"], "")
-        # Secret is generated server-side and MUST never reach the UI.
-        self.assertNotIn("webhook_secret", body)
-        # But the row itself has one so the webhook can verify it.
-        row = LegalDocument.objects.get(id=body["id"])
-        self.assertTrue(row.webhook_secret)
-        self.assertGreaterEqual(len(row.webhook_secret), 32)
 
     @patch("products.legal_documents.backend.logic.posthoganalytics.capture")
-    def test_create_fires_zapier_event_with_secret(self, mock_capture) -> None:
+    def test_create_fires_submitted_analytics_event(self, mock_capture) -> None:
         response = self.client.post(self.url, DPA_PAYLOAD, format="json")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         row = LegalDocument.objects.get(id=response.json()["id"])
 
         mock_capture.assert_called_once()
         kwargs = mock_capture.call_args.kwargs
-        self.assertEqual(kwargs["event"], "clicked Request DPA")
+        self.assertEqual(kwargs["event"], "legal document submitted")
         props = kwargs["properties"]
         self.assertEqual(props["legal_document_id"], str(row.id))
-        self.assertEqual(props["legal_document_secret"], row.webhook_secret)
-        self.assertEqual(props["companyName"], "Acme, Inc.")
+        self.assertEqual(props["document_type"], "DPA")
+        self.assertEqual(props["company_name"], "Acme, Inc.")
+        # Old per-row webhook secret is no longer part of the event payload —
+        # PandaDoc is now hit directly, so there's nothing to echo back.
+        self.assertNotIn("legal_document_secret", props)
 
     @patch("products.legal_documents.backend.logic.posthoganalytics.capture")
-    def test_create_baa_fires_submitted_baa_event(self, mock_capture) -> None:
+    def test_create_baa_fires_submitted_event(self, mock_capture) -> None:
         with patch(
             "products.legal_documents.backend.logic.has_qualifying_baa_addon",
             return_value=True,
@@ -179,7 +168,8 @@ class TestLegalDocumentAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         mock_capture.assert_called_once()
-        self.assertEqual(mock_capture.call_args.kwargs["event"], "submitted BAA")
+        self.assertEqual(mock_capture.call_args.kwargs["event"], "legal document submitted")
+        self.assertEqual(mock_capture.call_args.kwargs["properties"]["document_type"], "BAA")
 
     def test_regular_member_cannot_list(self) -> None:
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -246,10 +236,7 @@ class TestLegalDocumentAPI(APIBaseTest):
             document_type="DPA",
             company_name="Acme, Inc.",
             company_address="1 Analytics Way",
-            representative_name="Ada",
-            representative_title="CEO",
             representative_email="ada@acme.example",
-            dpa_mode="pretty",
         )
         with self.assertRaises(IntegrityError):
             LegalDocument.objects.create(
@@ -257,14 +244,236 @@ class TestLegalDocumentAPI(APIBaseTest):
                 document_type="DPA",
                 company_name="Acme again",
                 company_address="somewhere else",
-                representative_name="Ada",
-                representative_title="CEO",
                 representative_email="ada@acme.example",
-                dpa_mode="lawyer",
             )
 
 
-class TestLegalDocumentSignedWebhook(APIBaseTest):
+@override_settings(CLOUD_DEPLOYMENT="US")
+class TestLegalDocumentDownloadEndpoint(APIBaseTest):
+    """
+    The `GET .../download` proxy hands back a short-lived presigned URL to the
+    signed PDF in object storage. The PDF itself lives at legal_documents/{id}.pdf.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.document = LegalDocument.objects.create(
+            organization=self.organization,
+            document_type="DPA",
+            company_name="Acme, Inc.",
+            company_address="1 Analytics Way",
+            representative_email="ada@acme.example",
+            status=LegalDocument.Status.SIGNED,
+            pandadoc_document_id="doc_123",
+            created_by=self.user,
+        )
+        self.url = f"/api/organizations/{self.organization.id}/legal_documents/{self.document.id}/download"
+
+    def test_signed_document_returns_302_to_presigned_url(self) -> None:
+        with patch(
+            "products.legal_documents.backend.logic.object_storage.get_presigned_url",
+            return_value="https://s3.example/signed-url?token=abc",
+        ) as presign_mock:
+            response = self.client.get(self.url)
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertEqual(response["Location"], "https://s3.example/signed-url?token=abc")
+        presign_mock.assert_called_once()
+        # Key should be under the legal_documents prefix.
+        args, kwargs = presign_mock.call_args
+        self.assertTrue(args[0].endswith(f"{self.document.id}.pdf"))
+
+    def test_unsigned_document_returns_404(self) -> None:
+        self.document.status = LegalDocument.Status.SUBMITTED_FOR_SIGNATURE
+        self.document.save()
+        with patch("products.legal_documents.backend.logic.object_storage.get_presigned_url") as presign_mock:
+            response = self.client.get(self.url)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        presign_mock.assert_not_called()
+
+    def test_unknown_document_returns_404(self) -> None:
+        bogus_url = (
+            f"/api/organizations/{self.organization.id}/legal_documents/00000000-0000-0000-0000-000000000000/download"
+        )
+        response = self.client.get(bogus_url)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_regular_member_cannot_download(self) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_cross_organization_download_is_blocked(self) -> None:
+        other_org = Organization.objects.create(name="Other Co")
+        OrganizationMembership.objects.create(
+            user=self.user, organization=other_org, level=OrganizationMembership.Level.ADMIN
+        )
+        # Same document id but accessed under the wrong org's path.
+        url = f"/api/organizations/{other_org.id}/legal_documents/{self.document.id}/download"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_staff_user_without_membership_can_download(self) -> None:
+        # PostHog staff need to fetch signed PDFs from the Django admin without
+        # joining the customer's org first. Drop the membership entirely and
+        # flip is_staff — the request should still 302 to the presigned URL.
+        self.organization_membership.delete()
+        self.user.is_staff = True
+        self.user.save()
+        with patch(
+            "products.legal_documents.backend.logic.object_storage.get_presigned_url",
+            return_value="https://s3.example/signed-url?token=abc",
+        ):
+            response = self.client.get(self.url)
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+
+
+@override_settings(CLOUD_DEPLOYMENT="US")
+class TestLegalDocumentDeleteEndpoint(APIBaseTest):
+    """
+    Self-serve DELETE for an unsigned legal document. Voids the underlying
+    PandaDoc envelope, removes the row, and frees the
+    unique-per-org-per-type constraint so a fresh document can be generated
+    (e.g., with a different signer). Signed documents stay admin-only.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.document = LegalDocument.objects.create(
+            organization=self.organization,
+            document_type="DPA",
+            company_name="Acme, Inc.",
+            company_address="1 Analytics Way",
+            representative_email="ada@acme.example",
+            pandadoc_document_id="doc_123",
+            created_by=self.user,
+        )
+        self.url = f"/api/organizations/{self.organization.id}/legal_documents/{self.document.id}/"
+
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient")
+    def test_unsigned_document_deletes_and_voids_pandadoc(self, mock_pandadoc_cls) -> None:
+        response = self.client.delete(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT, response.content)
+        self.assertFalse(LegalDocument.objects.filter(id=self.document.id).exists())
+        mock_pandadoc_cls.return_value.void_document.assert_called_once_with(document_id="doc_123")
+
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient")
+    def test_delete_frees_unique_constraint_so_new_dpa_can_be_created(self, _mock_pandadoc_cls) -> None:
+        # The whole point of the feature: after deleting an unsigned DPA, a
+        # second POST with a corrected signer should succeed.
+        list_url = f"/api/organizations/{self.organization.id}/legal_documents/"
+        blocked = self.client.post(list_url, DPA_PAYLOAD, format="json")
+        self.assertEqual(blocked.status_code, status.HTTP_400_BAD_REQUEST)
+
+        deleted = self.client.delete(self.url)
+        self.assertEqual(deleted.status_code, status.HTTP_204_NO_CONTENT, deleted.content)
+
+        replacement = self.client.post(
+            list_url,
+            {**DPA_PAYLOAD, "representative_email": "joakim@hubexo.example"},
+            format="json",
+        )
+        self.assertEqual(replacement.status_code, status.HTTP_201_CREATED, replacement.content)
+        new_row = LegalDocument.objects.get(id=replacement.json()["id"])
+        self.assertEqual(new_row.representative_email, "joakim@hubexo.example")
+
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient")
+    def test_signed_document_cannot_be_deleted_via_api(self, mock_pandadoc_cls) -> None:
+        # The facade re-reads the row under select_for_update inside the
+        # delete transaction, so a webhook that flips status to signed
+        # between request start and lock acquisition lands here too — the
+        # gate is enforced on the locked row, not on a stale read.
+        self.document.status = LegalDocument.Status.SIGNED
+        self.document.save()
+
+        response = self.client.delete(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        self.assertTrue(LegalDocument.objects.filter(id=self.document.id).exists())
+        mock_pandadoc_cls.return_value.void_document.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("unknown_uuid", "00000000-0000-0000-0000-000000000000"),
+            ("invalid_uuid", "not-a-uuid"),
+        ]
+    )
+    def test_nonexistent_or_invalid_pk_returns_404(self, _name: str, pk: str) -> None:
+        url = f"/api/organizations/{self.organization.id}/legal_documents/{pk}/"
+        response = self.client.delete(url)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient")
+    def test_cross_organization_delete_is_blocked(self, mock_pandadoc_cls) -> None:
+        # Same document id, accessed from another org the user happens to
+        # also admin. The lookup is org-scoped so the row should look 404 from
+        # that path — and the actual row stays put.
+        other_org = Organization.objects.create(name="Other Co")
+        OrganizationMembership.objects.create(
+            user=self.user, organization=other_org, level=OrganizationMembership.Level.ADMIN
+        )
+        url = f"/api/organizations/{other_org.id}/legal_documents/{self.document.id}/"
+
+        response = self.client.delete(url)
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertTrue(LegalDocument.objects.filter(id=self.document.id).exists())
+        mock_pandadoc_cls.return_value.void_document.assert_not_called()
+
+    def test_regular_member_cannot_delete(self) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        response = self.client.delete(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertTrue(LegalDocument.objects.filter(id=self.document.id).exists())
+
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient")
+    def test_pandadoc_void_failure_returns_503_and_keeps_row(self, mock_pandadoc_cls) -> None:
+        # Self-serve delete runs PandaDoc void in strict mode: if void fails,
+        # the facade's transaction rolls back and the row stays. The
+        # alternative (deleting the row anyway) would mean telling the user
+        # the envelope was cancelled when it wasn't, leaving the original
+        # signer with a still-completable document.
+        from products.legal_documents.backend.logic import pandadoc as pandadoc_module
+
+        mock_pandadoc_cls.return_value.void_document.side_effect = pandadoc_module.PandaDocError("boom")
+
+        response = self.client.delete(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertEqual(response.json()["code"], "legal_document_void_failed")
+        self.assertTrue(LegalDocument.objects.filter(id=self.document.id).exists())
+
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient")
+    def test_activity_log_row_is_written_on_delete(self, _mock_pandadoc_cls) -> None:
+        response = self.client.delete(self.url)
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+        log = ActivityLog.objects.filter(scope="LegalDocument", activity="deleted").first()
+        self.assertIsNotNone(log, "expected a deleted-activity log entry from ModelActivityMixin")
+        assert log is not None  # mypy
+        self.assertEqual(str(log.organization_id), str(self.organization.id))
+
+    def test_anonymous_user_cannot_delete(self) -> None:
+        self.client.logout()
+        response = self.client.delete(self.url)
+        self.assertIn(response.status_code, (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN))
+        self.assertTrue(LegalDocument.objects.filter(id=self.document.id).exists())
+
+
+@override_settings(CLOUD_DEPLOYMENT="US")
+class TestLegalDocumentPandaDocWebhook(APIBaseTest):
+    SECRET = "pandadoc-test-secret"
+    BAA_TEMPLATE_ID = "tpl_baa"
+    DPA_TEMPLATE_ID = "tpl_dpa"
+
     def setUp(self) -> None:
         super().setUp()
         self.document = LegalDocument.objects.create(
@@ -272,49 +481,374 @@ class TestLegalDocumentSignedWebhook(APIBaseTest):
             document_type="DPA",
             company_name="Acme, Inc.",
             company_address="1 Analytics Way",
-            representative_name="Ada Lovelace",
-            representative_title="CEO",
             representative_email="ada@acme.example",
-            dpa_mode="pretty",
+            pandadoc_document_id="doc_123",
             created_by=self.user,
         )
-        self.url = "/api/legal_documents/signed"
-        self.client.logout()  # webhook is public; no session cookie
+        self.url = "/api/legal_documents/pandadoc"
+        self.client.logout()
 
-    def _post(self, **overrides: Any):
-        payload: dict[str, Any] = {
-            "secret": self.document.webhook_secret,
-            "signed_document_url": "https://app.pandadoc.com/s/signed.pdf",
-        }
-        payload.update(overrides)
-        return self.client.post(self.url, payload, format="json")
+    def _completed_payload(self, pandadoc_document_id: str = "doc_123", template_id: str | None = None) -> list[dict]:
+        # PandaDoc's `document.completed` webhook doesn't carry a signed-PDF
+        # URL — we pull the PDF ourselves via the public API. The fixture
+        # mirrors the real shape (no download_link, no public_url).
+        return [
+            {
+                "event": "document_state_changed",
+                "data": {
+                    "id": pandadoc_document_id,
+                    "status": "document.completed",
+                    "template": {"id": template_id or self.DPA_TEMPLATE_ID},
+                },
+            }
+        ]
 
-    def test_valid_secret_flips_status_and_stores_url(self) -> None:
-        response = self._post()
+    def _draft_payload(self, pandadoc_document_id: str = "doc_123", template_id: str | None = None) -> list[dict]:
+        return [
+            {
+                "event": "document_state_changed",
+                "data": {
+                    "id": pandadoc_document_id,
+                    "status": "document.draft",
+                    "template": {"id": template_id or self.DPA_TEMPLATE_ID},
+                },
+            }
+        ]
+
+    def _post_raw(self, body: bytes, signature: str):
+        # DRF's test client types `data` as str even though it accepts bytes at
+        # runtime; decode so mypy doesn't complain while the wire payload stays
+        # the exact bytes we signed (UTF-8 round-trips cleanly).
+        return self.client.generic(
+            "POST",
+            self.url,
+            data=body.decode("utf-8", errors="surrogateescape"),
+            content_type="application/json",
+            HTTP_X_PANDADOC_SIGNATURE=signature,
+        )
+
+    def _sign(self, body: bytes) -> str:
+        return hmac.new(self.SECRET.encode("utf-8"), body, hashlib.sha256).hexdigest()
+
+    def _override(self):
+        return self.settings(
+            PANDADOC_WEBHOOK_SECRET=self.SECRET,
+            PANDADOC_BAA_TEMPLATE_ID=self.BAA_TEMPLATE_ID,
+            PANDADOC_DPA_TEMPLATE_ID=self.DPA_TEMPLATE_ID,
+        )
+
+    def test_valid_signature_streams_pdf_to_object_storage_and_flips_status(self) -> None:
+        # The streaming handle is opaque to the webhook layer; we just need to
+        # confirm it's threaded from PandaDoc into object storage.
+        fake_stream = object()
+
+        @contextmanager
+        def fake_stream_cm(*, document_id):  # noqa: ARG001
+            yield fake_stream
+
+        body = json.dumps(self._completed_payload()).encode("utf-8")
+        with (
+            self._override(),
+            patch(
+                "products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.stream_document",
+                side_effect=fake_stream_cm,
+            ) as stream_mock,
+            patch("products.legal_documents.backend.logic.object_storage.write_stream") as write_mock,
+        ):
+            response = self._post_raw(body, self._sign(body))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.document.refresh_from_db()
         self.assertEqual(self.document.status, "signed")
-        self.assertEqual(self.document.signed_document_url, "https://app.pandadoc.com/s/signed.pdf")
+        stream_mock.assert_called_once_with(document_id="doc_123")
+        write_mock.assert_called_once()
+        args, kwargs = write_mock.call_args
+        # Positional args: (key, fileobj); content-type rides in extras.
+        self.assertTrue(args[0].endswith(f"{self.document.id}.pdf"))
+        self.assertIs(args[1], fake_stream)
+        self.assertEqual(kwargs["extras"], {"ContentType": "application/pdf"})
 
-    def test_wrong_secret_returns_404_and_leaves_document_unchanged(self) -> None:
-        response = self._post(secret="nope")
+    def test_download_failure_returns_503_and_leaves_row_unsigned(self) -> None:
+        from products.legal_documents.backend.logic import pandadoc as pandadoc_module
+
+        body = json.dumps(self._completed_payload()).encode("utf-8")
+        with (
+            self._override(),
+            patch(
+                "products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.stream_document",
+                side_effect=pandadoc_module.PandaDocError("network boom"),
+            ),
+            patch("products.legal_documents.backend.logic.object_storage.write_stream") as write_mock,
+        ):
+            response = self._post_raw(body, self._sign(body))
+
+        # 503 surfaces so PandaDoc retries the delivery.
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        write_mock.assert_not_called()
+        self.document.refresh_from_db()
+        self.assertEqual(self.document.status, "submitted_for_signature")
+
+    def test_invalid_signature_returns_404(self) -> None:
+        body = json.dumps(self._completed_payload()).encode("utf-8")
+        with self._override():
+            response = self._post_raw(body, "not-the-right-signature")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.document.refresh_from_db()
         self.assertEqual(self.document.status, "submitted_for_signature")
-        self.assertEqual(self.document.signed_document_url, "")
 
-    def test_unknown_secret_returns_404(self) -> None:
-        response = self.client.post(
-            self.url,
-            {"secret": "whatever", "signed_document_url": "https://app.pandadoc.com/s/x.pdf"},
-            format="json",
-        )
+    def test_unknown_document_id_returns_204(self) -> None:
+        # Sibling cloud instance scenario: signature is valid but the document
+        # belongs to a different instance. 2xx so PandaDoc doesn't retry.
+        body = json.dumps(self._completed_payload(pandadoc_document_id="unknown")).encode("utf-8")
+        with self._override():
+            response = self._post_raw(body, self._sign(body))
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+    def test_uninteresting_state_event_is_noop(self) -> None:
+        # document.sent / document.viewed / etc. — we only act on draft + completed.
+        payload = self._completed_payload()
+        payload[0]["data"]["status"] = "document.sent"
+        body = json.dumps(payload).encode("utf-8")
+        with self._override():
+            response = self._post_raw(body, self._sign(body))
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.document.refresh_from_db()
+        self.assertEqual(self.document.status, "submitted_for_signature")
+
+    def test_draft_event_dispatches_send(self) -> None:
+        body = json.dumps(self._draft_payload()).encode("utf-8")
+        with (
+            self._override(),
+            patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.send_document") as send_mock,
+        ):
+            response = self._post_raw(body, self._sign(body))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        send_mock.assert_called_once()
+        self.assertEqual(send_mock.call_args.kwargs["document_id"], "doc_123")
+
+    def test_draft_event_swallows_pandadoc_send_failure(self) -> None:
+        from products.legal_documents.backend.logic import pandadoc as pandadoc_client
+
+        body = json.dumps(self._draft_payload()).encode("utf-8")
+        with (
+            self._override(),
+            patch(
+                "products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.send_document",
+                side_effect=pandadoc_client.PandaDocError("boom"),
+            ),
+        ):
+            response = self._post_raw(body, self._sign(body))
+        # Endpoint still 2xx — we don't want PandaDoc to retry.
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_draft_event_for_already_signed_document_is_a_noop(self) -> None:
+        self.document.status = "signed"
+        self.document.save()
+
+        body = json.dumps(self._draft_payload()).encode("utf-8")
+        with (
+            self._override(),
+            patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.send_document") as send_mock,
+        ):
+            response = self._post_raw(body, self._sign(body))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        send_mock.assert_not_called()
+
+    def test_template_mismatch_does_not_flip_row(self) -> None:
+        # Completed event with BAA template id for what's actually a DPA row in the DB
+        # — reject so a misconfigured template can never mark the wrong document.
+        body = json.dumps(self._completed_payload(template_id=self.BAA_TEMPLATE_ID)).encode("utf-8")
+        with self._override():
+            response = self._post_raw(body, self._sign(body))
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.document.refresh_from_db()
+        self.assertEqual(self.document.status, "submitted_for_signature")
+
+    def test_invalid_json_returns_400(self) -> None:
+        body = b"not-valid-json{"
+        with self._override():
+            response = self._post_raw(body, self._sign(body))
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_replayed_completed_event_skips_side_effects(self) -> None:
+        @contextmanager
+        def fake_stream_cm(*, document_id):  # noqa: ARG001
+            yield object()
+
+        # First delivery: stream + flip to signed.
+        body = json.dumps(self._completed_payload()).encode("utf-8")
+        with (
+            self._override(),
+            patch(
+                "products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.stream_document",
+                side_effect=fake_stream_cm,
+            ),
+            patch("products.legal_documents.backend.logic.object_storage.write_stream"),
+        ):
+            first = self._post_raw(body, self._sign(body))
+        self.assertEqual(first.status_code, status.HTTP_200_OK)
+        self.document.refresh_from_db()
+        self.assertEqual(self.document.status, "signed")
+
+        # Replay: must not re-stream the PDF, re-upload, or re-fire analytics.
+        # PandaDoc retries / cross-instance fan-out both land here.
+        replay_body = json.dumps(self._completed_payload()).encode("utf-8")
+        with (
+            self._override(),
+            patch(
+                "products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.stream_document"
+            ) as stream_spy,
+            patch("products.legal_documents.backend.logic.object_storage.write_stream") as write_spy,
+            patch("products.legal_documents.backend.logic.fire_legal_document_signed_event") as event_spy,
+        ):
+            response = self._post_raw(replay_body, self._sign(replay_body))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        stream_spy.assert_not_called()
+        write_spy.assert_not_called()
+        event_spy.assert_not_called()
+
+    def _swap_to_baa_document(self) -> None:
+        """The default fixture is a DPA. For BAA-side-effect tests, retarget it."""
+        self.document.document_type = "BAA"
+        self.document.save(update_fields=["document_type"])
+
+    @contextmanager
+    def _fake_pdf_pipeline(self):
+        @contextmanager
+        def fake_stream_cm(*, document_id):  # noqa: ARG001
+            yield object()
+
+        with (
+            patch(
+                "products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.stream_document",
+                side_effect=fake_stream_cm,
+            ),
+            patch("products.legal_documents.backend.logic.object_storage.write_stream"),
+        ):
+            yield
+
+    def test_signed_baa_opts_organization_out_of_ai_data_processing(self) -> None:
+        self._swap_to_baa_document()
+        # New orgs default to True now — explicitly set so this isn't accidentally testing the default.
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+
+        body = json.dumps(self._completed_payload(template_id=self.BAA_TEMPLATE_ID)).encode("utf-8")
+        with self._override(), self._fake_pdf_pipeline():
+            response = self._post_raw(body, self._sign(body))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.organization.refresh_from_db()
+        self.assertFalse(self.organization.is_ai_data_processing_approved)
+
+    def test_signed_dpa_does_not_change_ai_flag(self) -> None:
+        # Default fixture is a DPA, so don't swap.
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+
+        body = json.dumps(self._completed_payload()).encode("utf-8")
+        with self._override(), self._fake_pdf_pipeline():
+            response = self._post_raw(body, self._sign(body))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.organization.refresh_from_db()
+        self.assertTrue(self.organization.is_ai_data_processing_approved)
+
+    def test_signed_baa_emails_org_owners(self) -> None:
+        self._swap_to_baa_document()
+        # Promote the test user to OWNER so the email path has a recipient.
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.OWNER
+        membership.save(update_fields=["level"])
+
+        body = json.dumps(self._completed_payload(template_id=self.BAA_TEMPLATE_ID)).encode("utf-8")
+        with (
+            self._override(),
+            self._fake_pdf_pipeline(),
+            patch("products.legal_documents.backend.logic.is_email_available", return_value=True),
+            patch("products.legal_documents.backend.logic.EmailMessage") as email_cls,
+        ):
+            response = self._post_raw(body, self._sign(body))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        email_cls.assert_called_once()
+        kwargs = email_cls.call_args.kwargs
+        self.assertEqual(kwargs["template_name"], "baa_signed_ai_disabled")
+        self.assertTrue(kwargs["use_http"])
+        self.assertEqual(kwargs["template_context"]["organization_name"], self.organization.name)
+        self.assertIn("organization-ai-consent", kwargs["template_context"]["ai_settings_url"])
+        instance = email_cls.return_value
+        instance.add_user_recipient.assert_called_once_with(self.user)
+        instance.send.assert_called_once_with(send_async=True)
+
+    def test_signed_baa_skips_email_when_no_owner(self) -> None:
+        self._swap_to_baa_document()
+        # Default APIBaseTest membership is MEMBER, not OWNER — so no recipients.
+
+        body = json.dumps(self._completed_payload(template_id=self.BAA_TEMPLATE_ID)).encode("utf-8")
+        with (
+            self._override(),
+            self._fake_pdf_pipeline(),
+            patch("products.legal_documents.backend.logic.is_email_available", return_value=True),
+            patch("products.legal_documents.backend.logic.EmailMessage") as email_cls,
+        ):
+            response = self._post_raw(body, self._sign(body))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        email_cls.assert_not_called()
+        self.organization.refresh_from_db()
+        # Opt-out still happens even when there are no owners to notify.
+        self.assertFalse(self.organization.is_ai_data_processing_approved)
+
+
+@override_settings(CLOUD_DEPLOYMENT=None, DEBUG=False)
+class TestLegalDocumentsSelfHostedGate(APIBaseTest):
+    """
+    Self-hosted instances must never hit the PandaDoc integration. The API
+    should 404 regardless of auth, and the PandaDoc webhook should 404 even
+    with a valid signature.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+    def test_list_404s_on_self_hosted(self) -> None:
+        response = self.client.get(f"/api/organizations/{self.organization.id}/legal_documents/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    def test_missing_signed_url_returns_400(self) -> None:
-        response = self.client.post(self.url, {"secret": self.document.webhook_secret}, format="json")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+    def test_create_404s_on_self_hosted(self) -> None:
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/legal_documents/", DPA_PAYLOAD, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertFalse(LegalDocument.objects.exists())
 
-    def test_non_absolute_signed_url_returns_400(self) -> None:
-        response = self._post(signed_document_url="ftp://bad")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+    def test_delete_404s_on_self_hosted(self) -> None:
+        # Rows shouldn't exist on self-hosted but we still want the gate to
+        # respond 404 regardless of what's in the DB — never reach PandaDoc.
+        document = LegalDocument.objects.create(
+            organization=self.organization,
+            document_type="DPA",
+            company_name="Acme, Inc.",
+            company_address="1 Analytics Way",
+            representative_email="ada@acme.example",
+        )
+        response = self.client.delete(f"/api/organizations/{self.organization.id}/legal_documents/{document.id}/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertTrue(LegalDocument.objects.filter(id=document.id).exists())
+
+    def test_pandadoc_webhook_404s_on_self_hosted_even_with_valid_signature(self) -> None:
+        self.client.logout()
+        secret = "any-secret"
+        body = b'{"event": "document_state_changed"}'
+        signature = hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
+        with self.settings(PANDADOC_WEBHOOK_SECRET=secret):
+            response = self.client.generic(
+                "POST",
+                "/api/legal_documents/pandadoc",
+                data=body.decode("utf-8"),
+                content_type="application/json",
+                HTTP_X_PANDADOC_SIGNATURE=signature,
+            )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)

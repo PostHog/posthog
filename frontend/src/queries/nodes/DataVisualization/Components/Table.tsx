@@ -58,6 +58,19 @@ function getDisplayedColumnTitle(
     return label || title || columnName
 }
 
+// Plain-text representation of a cell, used as the hover title so clipped content is
+// still visible on hover. The full value stays in the DOM (CSS ellipsis only), so
+// selecting and copying a cell copies the whole value, not just the clipped portion.
+function getCellTitle(cell: TableDataCell<any>): string | undefined {
+    if (typeof cell.formattedValue === 'string') {
+        return cell.formattedValue
+    }
+    if (typeof cell.value === 'string' || typeof cell.value === 'number') {
+        return String(cell.value)
+    }
+    return undefined
+}
+
 export const Table = (props: TableProps): JSX.Element => {
     const { isDarkModeOn } = useValues(themeLogic)
 
@@ -130,11 +143,18 @@ export const Table = (props: TableProps): JSX.Element => {
                                   ? sourceColumnTitle
                                   : String(sourceColumnTitle)
 
-                        return <div className="truncate">{renderedSourceColumnTitle}</div>
+                        return (
+                            <div
+                                className="truncate"
+                                title={typeof sourceColumnTitle === 'string' ? sourceColumnTitle : undefined}
+                            >
+                                {renderedSourceColumnTitle}
+                            </div>
+                        )
                     }
 
                     return (
-                        <div className="truncate">
+                        <div className="truncate" title={getCellTitle(cell)}>
                             {renderColumn(
                                 cell.sourceColumnName ?? column.name,
                                 cell.formattedValue,
@@ -248,6 +268,7 @@ export const Table = (props: TableProps): JSX.Element => {
             footer={tabularData.length > 0 ? <LoadNext query={props.query} /> : null}
             rowClassName="DataVizRow"
             embedded={props.embedded}
+            allowContentScroll={!!props.embedded}
         />
     )
 }

@@ -4,6 +4,9 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
@@ -156,6 +159,11 @@ describe('PropertyFilters recent selections', () => {
         expect(screen.getByTestId(`prop-filter-suggested_filters-${index}`)).toHaveTextContent(pattern)
     }
 
+    function expectBareKeyBeforeFullRecent(valuePattern: RegExp, fullPattern: RegExp): void {
+        expect(screen.getByTestId('prop-filter-suggested_filters-0')).not.toHaveTextContent(valuePattern)
+        expectRecentInSuggestedFilters(1, fullPattern)
+    }
+
     function expectRecentCount(count: number): void {
         expect(recentTaxonomicFiltersLogic.values.recentFilters).toHaveLength(count)
     }
@@ -173,7 +181,10 @@ describe('PropertyFilters recent selections', () => {
             tabTestId: 'taxonomic-tab-pageview_urls',
             searchQuery: 'example',
             itemTestId: 'prop-filter-pageview_urls-0',
-            expectedRecentPattern: /Current URL.*∋.*example\.com\/pricing/i,
+            // Pageview URLs collapse to a single `$current_url IContains <query>` shortcut,
+            // so the recorded value is the typed query, not a specific matched URL.
+            expectedRecentPattern: /Current URL.*∋.*example/i,
+            expectedValuePattern: /example/i,
         },
         {
             description: 'screen name',
@@ -185,6 +196,7 @@ describe('PropertyFilters recent selections', () => {
             searchQuery: 'Home',
             itemTestId: 'prop-filter-screens-0',
             expectedRecentPattern: /Screen Name.*=.*HomeScreen/i,
+            expectedValuePattern: /HomeScreen/i,
         },
         {
             description: 'email address',
@@ -196,10 +208,19 @@ describe('PropertyFilters recent selections', () => {
             searchQuery: 'alice',
             itemTestId: 'prop-filter-email_addresses-0',
             expectedRecentPattern: /email.*=.*alice@example\.com/i,
+            expectedValuePattern: /alice@example\.com/i,
         },
     ])(
         'shortcut group: selecting a $description records and displays it in recents',
-        async ({ taxonomicGroupTypes, mockOverrides, tabTestId, searchQuery, itemTestId, expectedRecentPattern }) => {
+        async ({
+            taxonomicGroupTypes,
+            mockOverrides,
+            tabTestId,
+            searchQuery,
+            itemTestId,
+            expectedRecentPattern,
+            expectedValuePattern,
+        }) => {
             useSetupMocks(mockOverrides)
             const { onChange } = renderFilters({ taxonomicGroupTypes })
 
@@ -213,7 +234,7 @@ describe('PropertyFilters recent selections', () => {
             await openNewFilter()
 
             await waitFor(() => {
-                expectRecentInSuggestedFilters(0, expectedRecentPattern)
+                expectBareKeyBeforeFullRecent(expectedValuePattern, expectedRecentPattern)
             })
         }
     )
@@ -240,7 +261,7 @@ describe('PropertyFilters recent selections', () => {
         await openNewFilter()
 
         await waitFor(() => {
-            expectRecentInSuggestedFilters(0, /Browser.*=.*Chrome/i)
+            expectBareKeyBeforeFullRecent(/Chrome/i, /Browser.*=.*Chrome/i)
         })
     })
 
@@ -269,7 +290,8 @@ describe('PropertyFilters recent selections', () => {
         await openNewFilter()
 
         await waitFor(() => {
-            expectRecentInSuggestedFilters(0, /Current URL.*∋.*example\.com\/first/i)
+            // Collapsed to `$current_url IContains 'first'` — the recent shows the query.
+            expectBareKeyBeforeFullRecent(/first/i, /Current URL.*∋.*first/i)
         })
     })
 
@@ -335,19 +357,18 @@ describe('PropertyFilters recent selections', () => {
     it('recents from unavailable groups are hidden', async () => {
         useSetupMocks()
 
-        recentTaxonomicFiltersLogic.actions.recordRecentFilter(
-            TaxonomicFilterGroupType.PersonProperties,
-            'Person properties',
-            'location',
-            { name: 'location' },
-            undefined,
-            {
+        recentTaxonomicFiltersLogic.actions.recordRecentFilter({
+            groupType: TaxonomicFilterGroupType.PersonProperties,
+            groupName: 'Person properties',
+            value: 'location',
+            item: { name: 'location' },
+            propertyFilter: {
                 key: 'location',
                 type: PropertyFilterType.Person,
                 value: 'US',
                 operator: PropertyOperator.Exact,
-            }
-        )
+            },
+        })
 
         expectRecentCount(1)
 
@@ -430,6 +451,85 @@ describe('PropertyFilters recent selections', () => {
         await waitFor(() => {
             expect(screen.getByTestId('prop-filter-recent_filters-0')).toBeInTheDocument()
             expect(screen.getByTestId('prop-filter-recent_filters-0')).toHaveTextContent(/pricing/i)
+        })
+    })
+
+    describe('category dropdown inside property modal', () => {
+        let unmountFeatureFlagLogic: (() => void) | null = null
+
+        beforeEach(() => {
+            unmountFeatureFlagLogic = featureFlagLogic.mount()
+        })
+
+        afterEach(() => {
+            featureFlagLogic.actions.setFeatureFlags([], {})
+            unmountFeatureFlagLogic?.()
+            unmountFeatureFlagLogic = null
+        })
+
+        it('pill variant: clicking the inline category trigger does not close the property modal', async () => {
+            useSetupMocks()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN], {
+                [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: 'pill',
+            })
+
+            renderFilters({
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.PersonProperties,
+                ],
+            })
+
+            await openNewFilter()
+
+            const trigger = await screen.findByTestId('taxonomic-category-dropdown-trigger-pill')
+            await userEvent.click(trigger)
+
+            expect(screen.getByTestId('taxonomic-filter-searchfield')).toBeInTheDocument()
+        })
+
+        it('pill variant: picking a category in the inline dropdown does not close the property modal', async () => {
+            useSetupMocks()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN], {
+                [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: 'pill',
+            })
+
+            renderFilters({
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.PersonProperties,
+                ],
+            })
+
+            await openNewFilter()
+
+            const trigger = await screen.findByTestId('taxonomic-category-dropdown-trigger-pill')
+            await userEvent.click(trigger)
+
+            const item = await screen.findByTestId('taxonomic-category-dropdown-item-person_properties')
+            await userEvent.click(item)
+
+            expect(screen.getByTestId('taxonomic-filter-searchfield')).toBeInTheDocument()
+        })
+
+        it('control: clicking outside the property modal closes it', async () => {
+            useSetupMocks()
+            renderFilters({
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.PersonProperties,
+                ],
+            })
+
+            await openNewFilter()
+
+            expect(screen.getByTestId('taxonomic-filter-searchfield')).toBeInTheDocument()
+
+            await userEvent.click(document.body)
+
+            await waitFor(() => {
+                expect(screen.queryByTestId('taxonomic-filter-searchfield')).not.toBeInTheDocument()
+            })
         })
     })
 })

@@ -108,6 +108,11 @@ pub struct Config {
     #[envconfig(default = "500")]
     pub consumer_batch_timeout_ms: u64,
 
+    /// Maximum Kafka batches to process concurrently. Matches the Node.js
+    /// CONSUMER_MAX_BACKGROUND_TASKS setting used by the Kafka consumer wrapper.
+    #[envconfig(from = "CONSUMER_MAX_BACKGROUND_TASKS", default = "1")]
+    pub consumer_max_background_tasks: usize,
+
     // ---- Worker transport ----
     /// Comma-separated list of worker HTTP URLs
     #[envconfig(default = "http://localhost:9001")]
@@ -121,9 +126,56 @@ pub struct Config {
     #[envconfig(default = "3")]
     pub max_retries: u32,
 
+    /// Maximum in-flight batches per worker. MUST match
+    /// `INGESTION_WORKER_CONCURRENT_BATCHES` on the Node.js side, which is
+    /// passed into `BatchingPipeline.concurrentBatches`. The consumer caps
+    /// itself via a per-worker `Semaphore`; the worker still responds 503
+    /// if it sees `feed()` rejection, so any divergence is observable via
+    /// `ingestion_api_batch_capacity_rejections_total`.
+    #[envconfig(from = "INGESTION_WORKER_CONCURRENT_BATCHES", default = "1")]
+    pub ingestion_worker_concurrent_batches: usize,
+
     /// Shared secret for authenticating with Node.js workers (X-Internal-Api-Secret header)
     #[envconfig(default = "")]
     pub internal_api_secret: String,
+
+    // ---- Worker health / registry ----
+    /// How often to probe each worker's /_ready endpoint (milliseconds).
+    #[envconfig(default = "5000")]
+    pub worker_probe_interval_ms: u64,
+
+    /// Time a worker must spend in Unhealthy before it is declared dead and
+    /// sticky pins are dropped (milliseconds).
+    #[envconfig(default = "15000")]
+    pub worker_dead_declaration_ms: u64,
+
+    /// Rolling window over which passive send outcomes are aggregated (milliseconds).
+    #[envconfig(default = "30000")]
+    pub worker_passive_window_ms: u64,
+
+    /// Error rate above which the passive signal promotes a worker toward Unhealthy.
+    /// Requires at least worker_passive_min_samples samples in the window.
+    #[envconfig(default = "0.2")]
+    pub worker_passive_error_threshold: f64,
+
+    /// Minimum number of samples in the passive window before the error rate triggers
+    /// a state transition. Prevents noise on low-traffic workers.
+    #[envconfig(default = "5")]
+    pub worker_passive_min_samples: usize,
+
+    /// How long a worker stays in Degraded after recovering from Unhealthy before
+    /// being promoted back to Healthy (milliseconds).
+    #[envconfig(default = "10000")]
+    pub worker_degraded_hold_ms: u64,
+
+    /// Minimum time a worker must remain in a state before any transition is allowed.
+    /// Prevents flapping (milliseconds).
+    #[envconfig(default = "2000")]
+    pub worker_min_state_duration_ms: u64,
+
+    /// Number of consecutive probe failures before a worker is marked Unhealthy.
+    #[envconfig(default = "2")]
+    pub worker_probe_failure_threshold: u32,
 
     // ---- Health/metrics server ----
     #[envconfig(default = "0.0.0.0")]
@@ -221,6 +273,10 @@ impl Config {
             info!(key = %key, value = %value, "Applying KAFKA_CONSUMER_ env override");
             builder = builder.set(key, value);
         }
+
+        // After all overrides: if KAFKA_CONSUMER_GROUP_PROTOCOL=consumer selected the
+        // KIP-848 protocol, drop the classic-only keys librdkafka would reject.
+        builder = builder.strip_classic_protocol_keys_if_consumer();
 
         builder.build()
     }

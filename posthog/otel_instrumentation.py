@@ -7,10 +7,12 @@ from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.aiohttp_client import AioHttpClientInstrumentor
 from opentelemetry.instrumentation.aiokafka import AIOKafkaInstrumentor
+from opentelemetry.instrumentation.celery import CeleryInstrumentor
 from opentelemetry.instrumentation.django import DjangoInstrumentor
 from opentelemetry.instrumentation.kafka import KafkaInstrumentor
 from opentelemetry.instrumentation.psycopg import PsycopgInstrumentor
 from opentelemetry.instrumentation.redis import RedisInstrumentor
+from opentelemetry.instrumentation.requests import RequestsInstrumentor
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
@@ -88,6 +90,7 @@ def initialize_otel():
         )
 
         instrument_django(provider)
+        instrument_celery(provider)
         instrument_redis(provider)
         instrument_psycopg(provider)
         instrument_kafka(provider)
@@ -116,6 +119,14 @@ def instrument_django(provider: trace.TracerProvider):
         logger.info("otel_instrumentation_attempt", instrumentor="DjangoInstrumentor", status="success")
     except Exception as e:
         logger.exception("otel_instrumentation_attempt", instrumentor="DjangoInstrumentor", status="error", exc_info=e)
+
+
+def instrument_celery(provider: trace.TracerProvider):
+    try:
+        CeleryInstrumentor().instrument(tracer_provider=provider)
+        logger.info("otel_instrumentation_attempt", instrumentor="CeleryInstrumentor", status="success")
+    except Exception as e:
+        logger.exception("otel_instrumentation_attempt", instrumentor="CeleryInstrumentor", status="error", exc_info=e)
 
 
 def instrument_redis(provider: trace.TracerProvider):
@@ -167,6 +178,16 @@ def instrument_aiohttp_client(provider: trace.TracerProvider):
         )
 
 
+def instrument_requests_client(provider: trace.TracerProvider):
+    try:
+        RequestsInstrumentor().instrument(tracer_provider=provider)
+        logger.info("otel_instrumentation_attempt", instrumentor="RequestsInstrumentor", status="success")
+    except Exception as e:
+        logger.exception(
+            "otel_instrumentation_attempt", instrumentor="RequestsInstrumentor", status="error", exc_info=e
+        )
+
+
 INSTRUMENTORS: dict[str, typing.Callable[[trace.TracerProvider], None]] = {
     "django": instrument_django,
     "psycopg": instrument_psycopg,
@@ -174,4 +195,5 @@ INSTRUMENTORS: dict[str, typing.Callable[[trace.TracerProvider], None]] = {
     "kafka": instrument_kafka,
     "aiokafka": instrument_aiokafka,
     "aiohttp-client": instrument_aiohttp_client,
+    "requests": instrument_requests_client,
 }

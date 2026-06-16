@@ -1,3 +1,12 @@
+# DEPRECATED: superseded by `posthog.models.app_metrics2`. No producer writes to the
+# v1 `clickhouse_app_metrics` topic anymore (the legacy-plugin Node.js producer was
+# migrated to v2). The Django API and Python query layer that read these tables have
+# been removed. The DDL is kept here only so existing instances and tests that
+# already created the tables continue to introspect them — the underlying tables
+# have not been dropped to avoid an irreversible data deletion. Drop with a
+# follow-up ClickHouse migration once you're sure no historical reads are needed,
+# then delete this file along with KAFKA_APP_METRICS in posthog/kafka_client/topics.py
+# and CONSUMER_GROUP_APP_METRICS in posthog/clickhouse/kafka_engine.py.
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.kafka_engine import CONSUMER_GROUP_APP_METRICS, KAFKA_COLUMNS_WITH_PARTITION, kafka_engine
 from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplicationScheme
@@ -37,8 +46,8 @@ BASE_APP_METRICS_COLUMNS = """
 # we need to revisit producers (e.g. the webhook service currently known as rusty-hook or pgqueue).
 APP_METRICS_TIMESTAMP_TRUNCATION = "toStartOfHour(timestamp)"
 
-APP_METRICS_DATA_TABLE_SQL = (
-    lambda on_cluster=True: f"""
+APP_METRICS_DATA_TABLE_SQL = lambda on_cluster=True: (
+    f"""
 CREATE TABLE IF NOT EXISTS {APP_METRICS_SHARDED_TABLE} {ON_CLUSTER_CLAUSE(on_cluster)}
 (
     {BASE_APP_METRICS_COLUMNS}
@@ -51,8 +60,8 @@ ORDER BY (team_id, plugin_config_id, job_id, category, {APP_METRICS_TIMESTAMP_TR
 )
 
 
-DISTRIBUTED_APP_METRICS_TABLE_SQL = (
-    lambda: f"""
+DISTRIBUTED_APP_METRICS_TABLE_SQL = lambda: (
+    f"""
 CREATE TABLE IF NOT EXISTS {APP_METRICS_TABLE}
 (
     {BASE_APP_METRICS_COLUMNS}
@@ -62,8 +71,8 @@ ENGINE={Distributed(data_table=APP_METRICS_SHARDED_TABLE, sharding_key="rand()")
 """
 )
 
-WRITABLE_APP_METRICS_TABLE_SQL = (
-    lambda: f"""
+WRITABLE_APP_METRICS_TABLE_SQL = lambda: (
+    f"""
 CREATE TABLE IF NOT EXISTS {APP_METRICS_WRITABLE_TABLE}
 (
     {BASE_APP_METRICS_COLUMNS}
@@ -73,8 +82,8 @@ ENGINE={Distributed(data_table=APP_METRICS_SHARDED_TABLE, sharding_key="rand()")
 """
 )
 
-KAFKA_APP_METRICS_TABLE_SQL = (
-    lambda: f"""
+KAFKA_APP_METRICS_TABLE_SQL = lambda: (
+    f"""
 CREATE TABLE IF NOT EXISTS {KAFKA_APP_METRICS_TABLE}
 (
     team_id Int64,

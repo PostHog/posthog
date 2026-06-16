@@ -3,6 +3,16 @@ import { MessageSizeTooLarge } from '../../utils/db/error'
 import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writing-group-store'
 import { PersonOutputs } from '../../worker/ingestion/persons/person-context'
 import { FlushResult, PersonsStore } from '../../worker/ingestion/persons/persons-store'
+import {
+    batchStoreFlushCacheEntriesHistogram,
+    batchStoreFlushDirtyEntriesHistogram,
+    batchStoreFlushKafkaMessagesHistogram,
+    batchStoreFlushLatencyHistogram,
+    batchStoreFlushOperationsCounter,
+    batchStoreFlushReferencedBatchesHistogram,
+    batchStoreFlushResultRecordsHistogram,
+    batchStoreFlushTriggerBatchSizeHistogram,
+} from '../../worker/ingestion/stores/metrics'
 import { PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT } from '../analytics/outputs'
 import { emitIngestionWarning } from '../common/ingestion-warnings'
 import { INGESTION_WARNINGS_OUTPUT } from '../common/outputs'
@@ -14,6 +24,17 @@ jest.mock('../common/ingestion-warnings', () => ({
     emitIngestionWarning: jest.fn(),
 }))
 
+jest.mock('../../worker/ingestion/stores/metrics', () => ({
+    batchStoreFlushCacheEntriesHistogram: { observe: jest.fn() },
+    batchStoreFlushDirtyEntriesHistogram: { observe: jest.fn() },
+    batchStoreFlushKafkaMessagesHistogram: { observe: jest.fn() },
+    batchStoreFlushLatencyHistogram: { observe: jest.fn() },
+    batchStoreFlushOperationsCounter: { inc: jest.fn() },
+    batchStoreFlushReferencedBatchesHistogram: { observe: jest.fn() },
+    batchStoreFlushResultRecordsHistogram: { observe: jest.fn() },
+    batchStoreFlushTriggerBatchSizeHistogram: { observe: jest.fn() },
+}))
+
 describe('flush-batch-stores-step', () => {
     let mockPersonsStore: jest.Mocked<PersonsStore>
     let mockGroupStore: jest.Mocked<BatchWritingGroupStore>
@@ -22,15 +43,25 @@ describe('flush-batch-stores-step', () => {
 
     beforeEach(() => {
         mockPersonsStore = {
+            getFlushStats: jest.fn(() => ({
+                dirtyEntryCount: 0,
+                referencedBatchCount: 0,
+                cacheEntryCount: 0,
+            })),
             flush: jest.fn(),
-            reportBatch: jest.fn(),
-            reset: jest.fn(),
+            shutdown: jest.fn(),
+            releaseBatch: jest.fn(),
         } as any
 
         mockGroupStore = {
+            getFlushStats: jest.fn(() => ({
+                dirtyEntryCount: 0,
+                referencedBatchCount: 0,
+                cacheEntryCount: 0,
+            })),
             flush: jest.fn(),
-            reportBatch: jest.fn(),
-            reset: jest.fn(),
+            shutdown: jest.fn(),
+            releaseBatch: jest.fn(),
         } as any
 
         mockOutputs = createMockIngestionOutputs<
@@ -74,26 +105,6 @@ describe('flush-batch-stores-step', () => {
             expect(mockGroupStore.flush).toHaveBeenCalledTimes(1)
         })
 
-        it('should report batch metrics after flushing', async () => {
-            mockPersonsStore.flush.mockResolvedValue([])
-            mockGroupStore.flush.mockResolvedValue([])
-
-            await step(makeInput())
-
-            expect(mockPersonsStore.reportBatch).toHaveBeenCalledTimes(1)
-            expect(mockGroupStore.reportBatch).toHaveBeenCalledTimes(1)
-        })
-
-        it('should reset both stores after flushing', async () => {
-            mockPersonsStore.flush.mockResolvedValue([])
-            mockGroupStore.flush.mockResolvedValue([])
-
-            await step(makeInput())
-
-            expect(mockPersonsStore.reset).toHaveBeenCalledTimes(1)
-            expect(mockGroupStore.reset).toHaveBeenCalledTimes(1)
-        })
-
         it('should return ok result with produce promises as side effects', async () => {
             const personMessages: FlushResult[] = [
                 {
@@ -122,6 +133,7 @@ describe('flush-batch-stores-step', () => {
             expect(produceSpy).toHaveBeenCalledWith(PERSONS_OUTPUT, {
                 key: null,
                 value: Buffer.from('value1'),
+                teamId: 1,
             })
         })
 
@@ -195,6 +207,63 @@ describe('flush-batch-stores-step', () => {
             }
         })
 
+        it('reports flush lifecycle metrics', async () => {
+            const personMessages: FlushResult[] = [
+                {
+                    messages: [
+                        { output: PERSONS_OUTPUT, value: Buffer.from('value1') },
+                        { output: PERSONS_OUTPUT, value: Buffer.from('value2') },
+                    ],
+                    teamId: 1,
+                    distinctId: 'user1',
+                    uuid: 'uuid1',
+                },
+                {
+                    messages: [{ output: PERSON_DISTINCT_IDS_OUTPUT, value: Buffer.from('value3') }],
+                    teamId: 1,
+                    distinctId: 'user2',
+                    uuid: 'uuid2',
+                },
+            ]
+
+            mockPersonsStore.getFlushStats.mockReturnValue({
+                dirtyEntryCount: 2,
+                referencedBatchCount: 2,
+                cacheEntryCount: 5,
+            })
+            mockGroupStore.getFlushStats.mockReturnValue({
+                dirtyEntryCount: 1,
+                referencedBatchCount: 1,
+                cacheEntryCount: 3,
+            })
+            mockPersonsStore.flush.mockResolvedValue(personMessages)
+            mockGroupStore.flush.mockResolvedValue([])
+
+            await step(makeInput(7))
+
+            expect(batchStoreFlushTriggerBatchSizeHistogram.observe).toHaveBeenCalledWith(7)
+            expect(batchStoreFlushDirtyEntriesHistogram.observe).toHaveBeenCalledWith({ store: 'person' }, 2)
+            expect(batchStoreFlushDirtyEntriesHistogram.observe).toHaveBeenCalledWith({ store: 'group' }, 1)
+            expect(batchStoreFlushReferencedBatchesHistogram.observe).toHaveBeenCalledWith({ store: 'person' }, 2)
+            expect(batchStoreFlushReferencedBatchesHistogram.observe).toHaveBeenCalledWith({ store: 'group' }, 1)
+            expect(batchStoreFlushCacheEntriesHistogram.observe).toHaveBeenCalledWith({ store: 'person' }, 5)
+            expect(batchStoreFlushCacheEntriesHistogram.observe).toHaveBeenCalledWith({ store: 'group' }, 3)
+            expect(batchStoreFlushOperationsCounter.inc).toHaveBeenCalledWith({ store: 'person', outcome: 'success' })
+            expect(batchStoreFlushOperationsCounter.inc).toHaveBeenCalledWith({ store: 'group', outcome: 'success' })
+            expect(batchStoreFlushLatencyHistogram.observe).toHaveBeenCalledWith(
+                { store: 'person', outcome: 'success' },
+                expect.any(Number)
+            )
+            expect(batchStoreFlushLatencyHistogram.observe).toHaveBeenCalledWith(
+                { store: 'group', outcome: 'success' },
+                expect.any(Number)
+            )
+            expect(batchStoreFlushResultRecordsHistogram.observe).toHaveBeenCalledWith({ store: 'person' }, 2)
+            expect(batchStoreFlushResultRecordsHistogram.observe).toHaveBeenCalledWith({ store: 'group' }, 0)
+            expect(batchStoreFlushKafkaMessagesHistogram.observe).toHaveBeenCalledWith({ store: 'person' }, 3)
+            expect(batchStoreFlushKafkaMessagesHistogram.observe).toHaveBeenCalledWith({ store: 'group' }, 0)
+        })
+
         it('should handle MessageSizeTooLarge errors gracefully', async () => {
             const personMessages: FlushResult[] = [
                 {
@@ -263,16 +332,26 @@ describe('flush-batch-stores-step', () => {
             await expect(step(makeInput())).rejects.toThrow('Database connection failed')
         })
 
-        it('should not reset or report if flush fails', async () => {
+        it('calls releaseBatch on both stores with the correct batchId after a successful flush', async () => {
+            mockPersonsStore.flush.mockResolvedValue([])
+            mockGroupStore.flush.mockResolvedValue([])
+
+            const input = makeInput()
+            await step(input)
+
+            expect(mockPersonsStore.releaseBatch).toHaveBeenCalledWith(input.batchId)
+            expect(mockGroupStore.releaseBatch).toHaveBeenCalledWith(input.batchId)
+        })
+
+        it('calls releaseBatch on both stores even when flush throws', async () => {
             mockPersonsStore.flush.mockRejectedValue(new Error('DB error'))
             mockGroupStore.flush.mockResolvedValue([])
 
-            await expect(step(makeInput())).rejects.toThrow('DB error')
+            const input = makeInput()
+            await expect(step(input)).rejects.toThrow('DB error')
 
-            expect(mockPersonsStore.reportBatch).not.toHaveBeenCalled()
-            expect(mockGroupStore.reportBatch).not.toHaveBeenCalled()
-            expect(mockPersonsStore.reset).not.toHaveBeenCalled()
-            expect(mockGroupStore.reset).not.toHaveBeenCalled()
+            expect(mockPersonsStore.releaseBatch).toHaveBeenCalledWith(input.batchId)
+            expect(mockGroupStore.releaseBatch).toHaveBeenCalledWith(input.batchId)
         })
 
         it('should handle null values in messages', async () => {
@@ -292,10 +371,11 @@ describe('flush-batch-stores-step', () => {
             expect(produceSpy).toHaveBeenCalledWith(PERSONS_OUTPUT, {
                 key: null,
                 value: null,
+                teamId: 1,
             })
         })
 
-        it('should call lifecycle methods in correct order', async () => {
+        it('flushes both stores in parallel', async () => {
             const callOrder: string[] = []
 
             mockPersonsStore.flush.mockImplementation(() => {
@@ -306,28 +386,10 @@ describe('flush-batch-stores-step', () => {
                 callOrder.push('group.flush')
                 return Promise.resolve([])
             })
-            mockPersonsStore.reportBatch.mockImplementation(() => {
-                callOrder.push('persons.reportBatch')
-            })
-            mockGroupStore.reportBatch.mockImplementation(() => {
-                callOrder.push('group.reportBatch')
-            })
-            mockPersonsStore.reset.mockImplementation(() => {
-                callOrder.push('persons.reset')
-            })
-            mockGroupStore.reset.mockImplementation(() => {
-                callOrder.push('group.reset')
-            })
 
             await step(makeInput())
 
-            expect(callOrder.slice(0, 2).sort()).toEqual(['group.flush', 'persons.flush'])
-            expect(callOrder.slice(2)).toEqual([
-                'persons.reportBatch',
-                'group.reportBatch',
-                'persons.reset',
-                'group.reset',
-            ])
+            expect(callOrder.sort()).toEqual(['group.flush', 'persons.flush'])
         })
 
         it('should produce messages with correct Buffer conversion', async () => {
@@ -352,6 +414,7 @@ describe('flush-batch-stores-step', () => {
             expect(produceSpy).toHaveBeenCalledWith(PERSONS_OUTPUT, {
                 key: null,
                 value: Buffer.from('string-value'),
+                teamId: 1,
             })
         })
 

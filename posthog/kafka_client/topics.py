@@ -23,12 +23,17 @@ KAFKA_PLUGIN_LOG_ENTRIES = f"{KAFKA_PREFIX}plugin_log_entries{SUFFIX}"
 KAFKA_DEAD_LETTER_QUEUE = f"{KAFKA_PREFIX}events_dead_letter_queue{SUFFIX}"
 KAFKA_GROUPS = f"{KAFKA_PREFIX}clickhouse_groups{SUFFIX}"
 KAFKA_INGESTION_WARNINGS = f"{KAFKA_PREFIX}clickhouse_ingestion_warnings{SUFFIX}"
+# DEPRECATED: superseded by clickhouse_app_metrics2 (see KAFKA_APP_METRICS2 below).
+# Kept only because the legacy `kafka_app_metrics` ClickHouse Kafka-engine table
+# still references this topic in its DDL — see posthog/models/app_metrics/sql.py.
+# No producer writes to it. Remove once the underlying tables are dropped.
 KAFKA_APP_METRICS = f"{KAFKA_PREFIX}clickhouse_app_metrics{SUFFIX}"
 KAFKA_APP_METRICS2 = f"{KAFKA_PREFIX}clickhouse_app_metrics2{SUFFIX}"
 KAFKA_METRICS_TIME_TO_SEE_DATA = f"{KAFKA_PREFIX}clickhouse_metrics_time_to_see_data{SUFFIX}"
 KAFKA_PERSON_OVERRIDE = f"{KAFKA_PREFIX}clickhouse_person_override{SUFFIX}"
 KAFKA_LOG_ENTRIES = f"{KAFKA_PREFIX}log_entries{SUFFIX}"
 KAFKA_LOG_ENTRIES_V2_TEST = f"{KAFKA_PREFIX}log_entries_v2_test{SUFFIX}"
+KAFKA_HOG_INVOCATION_RESULTS = f"{KAFKA_PREFIX}clickhouse_hog_invocation_results{SUFFIX}"
 
 KAFKA_CLICKHOUSE_HEATMAP_EVENTS = f"{KAFKA_PREFIX}clickhouse_heatmap_events{SUFFIX}"
 KAFKA_CLICKHOUSE_AI_EVENTS_JSON = f"{KAFKA_PREFIX}clickhouse_ai_events_json{SUFFIX}"
@@ -51,6 +56,7 @@ KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_EMBEDDINGS = (
 )
 KAFKA_DOCUMENT_EMBEDDINGS_TOPIC = f"{KAFKA_PREFIX}clickhouse_document_embeddings{SUFFIX}"
 KAFKA_DOCUMENT_EMBEDDINGS_INPUT_TOPIC = f"{KAFKA_PREFIX}document_embeddings_input{SUFFIX}"
+KAFKA_DOCUMENT_EMBEDDING_RESULTS_TOPIC = f"{KAFKA_PREFIX}document_embedding_results{SUFFIX}"
 
 KAFKA_CDP_INTERNAL_EVENTS = f"{KAFKA_PREFIX}cdp_internal_events{SUFFIX}"
 KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES = (
@@ -68,9 +74,18 @@ KAFKA_CLICKHOUSE_TOPHOG = f"{KAFKA_PREFIX}clickhouse_tophog{SUFFIX}"
 
 # Distinct ID usage - pre-processed by WarpStream pipeline from clickhouse_events_json
 KAFKA_DISTINCT_ID_USAGE_EVENTS_JSON = f"{KAFKA_PREFIX}distinct_id_usage_events_json{SUFFIX}"
+
+# Property values - pre-processed by WarpStream pipeline from clickhouse_events_json
+KAFKA_CLICKHOUSE_PROPERTY_VALUES = f"{KAFKA_PREFIX}clickhouse_property_values{SUFFIX}"
 KAFKA_WAREHOUSE_SOURCES_JOBS = f"{KAFKA_PREFIX}data_warehouse_sources_jobs{SUFFIX}"
 KAFKA_WAREHOUSE_SOURCES_JOBS_DLQ = f"{KAFKA_PREFIX}data_warehouse_sources_jobs_dlq{SUFFIX}"
 
 KAFKA_NOTIFICATION_EVENTS = f"{KAFKA_PREFIX}notification_events{SUFFIX}"
 
 KAFKA_SIGNALS_REPORT_COMPLETED = f"{KAFKA_PREFIX}signals_report_completed{SUFFIX}"
+
+# Producer: Django signal handlers in products/feature_flags/backend/flags_cache.py.
+# Consumer: rust/feature-flags flags-cache-builder bin. Not a plugin-server
+# concern — no Node-side mirror needed.
+KAFKA_FLAGS_CACHE_INVALIDATION = f"{KAFKA_PREFIX}flags_cache_invalidation{SUFFIX}"
+KAFKA_FLAGS_CACHE_INVALIDATION_DLQ = f"{KAFKA_PREFIX}flags_cache_invalidation_dlq{SUFFIX}"

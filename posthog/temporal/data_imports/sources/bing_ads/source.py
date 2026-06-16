@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
@@ -14,31 +15,80 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInput
 from posthog.temporal.data_imports.sources.common.base import (
     MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
     FieldType,
-    SimpleSource,
+    ResumableSource,
 )
 from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import BingAdsSourceConfig
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
 from .bing_ads import bing_ads_source, get_incremental_fields, get_schemas
+from .utils import BingAdsResumeConfig
 
 
 @SourceRegistry.register
-class BingAdsSource(SimpleSource[BingAdsSourceConfig], OAuthMixin):
+class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], OAuthMixin):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.BINGADS
+
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        # Match only on auth/permission failures that retrying cannot recover from.
+        # Transient SDK errors (network, Bing outage, rate limits) propagate as their
+        # original exception class and stay retryable — see BingAdsClient.get_customer_id,
+        # which wraps the underlying error as `ValueError("Failed to fetch customer ID: <ExcType>: <msg>")`.
+        auth_friendly = (
+            "PostHog could not authenticate with Bing Ads. The connected account's OAuth credentials "
+            "are revoked, expired, or no longer have access. Please reconnect your Bing Ads integration."
+        )
+        # Specific Azure AD error code surfaced when the tenant lacks a service principal for the
+        # Microsoft Advertising API application. Reconnecting won't help — the org admin has to consent
+        # on behalf of the tenant — so the generic "reconnect your integration" message is misleading.
+        # Must be matched first: the SDK wraps this as `OAuthTokenRequestException: invalid_client AADSTS650052: …`,
+        # so both "OAuthTokenRequestException" and "invalid_client" are substrings of the same message —
+        # handle_non_retryable picks the first matching dict entry, so AADSTS650052 has to come before both.
+        service_principal_friendly = (
+            "Your Microsoft tenant has not consented to PostHog's Bing Ads connector "
+            "(error AADSTS650052: missing service principal for the Microsoft Advertising API). "
+            "Ask a Microsoft 365 administrator to grant admin consent to the application for your tenant, "
+            "then reconnect your Bing Ads integration."
+        )
+        return {
+            "AADSTS650052": service_principal_friendly,
+            # OAuth grant rejection by Microsoft (the bingads SDK raises OAuthTokenRequestException
+            # whose str() format is "<error_code> <error_description>").
+            "OAuthTokenRequestException": auth_friendly,
+            "invalid_grant": auth_friendly,
+            "invalid_client": auth_friendly,
+            "unauthorized_client": auth_friendly,
+            # Bing Ads service-level auth error codes surfaced via suds.WebFault details.
+            "AuthenticationTokenExpired": auth_friendly,
+            "AuthenticationFailed": auth_friendly,
+            "InvalidCredentials": auth_friendly,
+            "OAuthTokenExpired": auth_friendly,
+            # Integration row was deleted/disconnected while a scheduled job still references it.
+            # Raised by OAuthMixin.get_oauth_integration as `ValueError("Integration not found: <id>")`;
+            # the id is volatile, so match only the stable prefix. Retrying can't recreate the row —
+            # the customer has to reconnect.
+            "Integration not found": "The linked Bing Ads integration no longer exists. Please reconnect your Bing Ads integration.",
+            # Deterministic credential/config errors raised in source_for_pipeline.
+            "Bing Ads access token not found": "Bing Ads OAuth access token is missing. Please reconnect your Bing Ads integration.",
+            "Bing Ads refresh token not found": "Bing Ads OAuth refresh token is missing. Please reconnect your Bing Ads integration.",
+            "Bing Ads developer token not configured": None,
+        }
 
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.BING_ADS,
+            category=DataWarehouseSourceCategory.ADVERTISING,
+            keywords=["microsoft ads", "microsoft advertising"],
             label="Bing Ads",
             caption="Ensure you have granted PostHog access to your Bing Ads account, learn how to do this in [the documentation](https://posthog.com/docs/cdp/sources/bing-ads).",
-            betaSource=True,
+            releaseStatus="beta",
             iconPath="/static/services/bing-ads.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/bing-ads",
             fields=cast(
@@ -50,6 +100,7 @@ class BingAdsSource(SimpleSource[BingAdsSourceConfig], OAuthMixin):
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="",
+                        secret=False,
                     ),
                     SourceFieldOauthConfig(
                         name="bing_ads_integration_id",
@@ -91,7 +142,12 @@ class BingAdsSource(SimpleSource[BingAdsSourceConfig], OAuthMixin):
             return False, f"Failed to validate Bing Ads credentials: {str(e)}"
 
     def get_schemas(
-        self, config: BingAdsSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+        self,
+        config: BingAdsSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         bing_ads_schemas = get_schemas()
         ads_incremental_fields = get_incremental_fields()
@@ -115,7 +171,15 @@ class BingAdsSource(SimpleSource[BingAdsSourceConfig], OAuthMixin):
 
         return schemas
 
-    def source_for_pipeline(self, config: BingAdsSourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[BingAdsResumeConfig]:
+        return ResumableSourceManager[BingAdsResumeConfig](inputs, BingAdsResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: BingAdsSourceConfig,
+        resumable_source_manager: ResumableSourceManager[BingAdsResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
         integration = self.get_oauth_integration(config.bing_ads_integration_id, inputs.team_id)
 
         if not integration.access_token:
@@ -128,6 +192,7 @@ class BingAdsSource(SimpleSource[BingAdsSourceConfig], OAuthMixin):
             resource_name=inputs.schema_name,
             access_token=integration.access_token,
             refresh_token=integration.refresh_token,
+            resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             incremental_field=inputs.incremental_field if inputs.should_use_incremental_field else None,
             incremental_field_type=inputs.incremental_field_type if inputs.should_use_incremental_field else None,

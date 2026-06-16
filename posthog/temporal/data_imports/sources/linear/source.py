@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldOauthConfig,
@@ -8,12 +9,14 @@ from posthog.schema import (
 
 from posthog.models.integration import OauthIntegration
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import LinearSourceConfig
 from posthog.temporal.data_imports.sources.linear.linear import (
+    LinearResumeConfig,
     linear_source,
     validate_credentials as validate_linear_credentials,
 )
@@ -23,7 +26,7 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class LinearSource(SimpleSource[LinearSourceConfig], OAuthMixin):
+class LinearSource(ResumableSource[LinearSourceConfig, LinearResumeConfig], OAuthMixin):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.LINEAR
@@ -32,8 +35,9 @@ class LinearSource(SimpleSource[LinearSourceConfig], OAuthMixin):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.LINEAR,
+            category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Linear",
-            betaSource=True,
+            releaseStatus="beta",
             caption="Connect your Linear workspace to sync issues, projects, teams, and more.",
             iconPath="/static/services/linear.png",
             fields=cast(
@@ -53,6 +57,10 @@ class LinearSource(SimpleSource[LinearSourceConfig], OAuthMixin):
         return {
             "401 Client Error": "Invalid Linear credentials. Please reconnect your account.",
             "403 Client Error": "Access forbidden. Your token may lack required permissions.",
+            # The linked OAuth integration was deleted while the source still references it.
+            # Retrying can never resolve this — the integration won't reappear — so stop and
+            # ask the user to reconnect. Matched as a substring; the trailing integration id varies.
+            "Integration not found": "The linked Linear integration no longer exists. Please reconnect your Linear account.",
         }
 
     def _get_access_token(self, config: LinearSourceConfig, team_id: int) -> str:
@@ -67,7 +75,12 @@ class LinearSource(SimpleSource[LinearSourceConfig], OAuthMixin):
         return integration.access_token
 
     def get_schemas(
-        self, config: LinearSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+        self,
+        config: LinearSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -92,13 +105,22 @@ class LinearSource(SimpleSource[LinearSourceConfig], OAuthMixin):
         except Exception as e:
             return False, str(e)
 
-    def source_for_pipeline(self, config: LinearSourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[LinearResumeConfig]:
+        return ResumableSourceManager[LinearResumeConfig](inputs, LinearResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: LinearSourceConfig,
+        resumable_source_manager: ResumableSourceManager[LinearResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
         access_token = self._get_access_token(config, inputs.team_id)
 
         return linear_source(
             access_token=access_token,
             endpoint_name=inputs.schema_name,
             logger=inputs.logger,
+            resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field

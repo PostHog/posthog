@@ -1,7 +1,9 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
+    ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
@@ -37,7 +39,12 @@ class BuildBetterSource(ResumableSource[BuildBetterSourceConfig, BuildBetterResu
         }
 
     def get_schemas(
-        self, config: BuildBetterSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+        self,
+        config: BuildBetterSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -84,8 +91,9 @@ class BuildBetterSource(ResumableSource[BuildBetterSourceConfig, BuildBetterResu
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.BUILD_BETTER,
+            category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="BuildBetter",
-            betaSource=True,
+            releaseStatus=ReleaseStatus.GA,
             caption="Connect your BuildBetter workspace to sync interviews, extractions, persons, and companies.",
             iconPath="/static/services/buildbetter.png",
             fields=cast(
@@ -97,6 +105,7 @@ class BuildBetterSource(ResumableSource[BuildBetterSourceConfig, BuildBetterResu
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="",
+                        secret=True,
                     ),
                 ],
             ),

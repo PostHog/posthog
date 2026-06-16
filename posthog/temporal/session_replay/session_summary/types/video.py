@@ -1,4 +1,4 @@
-from typing import Literal, TypedDict
+from typing import Any, Literal, TypedDict
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -36,15 +36,16 @@ class VideoSummarySingleSessionInputs(BaseModel):
     redis_key_base: str
     model_to_use: str
     extra_summary_context: ExtraSummaryContext | None = None
+    product_context: str | None = None
+    custom_tags: dict[str, str] | None = None
 
 
 class PrepSessionVideoAssetResult(BaseModel):
-    """Result from preparing the session video ExportedAsset."""
-
     model_config = ConfigDict(frozen=True)
 
     asset_id: int
-    needs_export: bool
+    team_api_token: str
+    team_name: str
 
 
 class UploadedVideo(BaseModel):
@@ -59,10 +60,9 @@ class UploadedVideo(BaseModel):
 
 
 class UploadVideoToGeminiOutput(TypedDict):
-    """Return type for upload_video_to_gemini_activity including uploaded video and team name"""
+    """Return type for upload_video_to_gemini_activity."""
 
     uploaded_video: UploadedVideo
-    team_name: str
     # Stored as list of dicts from ReplayInactivityPeriod.model_dump()
     inactivity_periods: list[ReplayInactivityPeriod] | None
 
@@ -85,6 +85,25 @@ class VideoSegmentSpec(BaseModel):
         if self.recording_end_time <= self.recording_start_time:
             raise ValueError("recording_end_time must be greater than recording_start_time")
         return self
+
+
+class SegmentEventEntry(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    event_id: str
+    data: list[Any]
+
+
+class SegmentLlmContext(BaseModel):
+    """Per-segment slice of LlmInputs — events in range plus the URL/window keys they reference."""
+
+    model_config = ConfigDict(frozen=True)
+
+    events: list[SegmentEventEntry]
+    simplified_events_columns: list[str]
+    url_mapping_reversed: dict[str, str]
+    window_mapping_reversed: dict[str, str]
+    session_start_time_str: str
 
 
 class VideoSegmentOutput(BaseModel):
@@ -120,6 +139,55 @@ class ConsolidatedVideoSegment(BaseModel):
     )
     confusion_detected: bool = Field(default=False, description="User appeared confused (backtracking, hesitation)")
     abandonment_detected: bool = Field(default=False, description="User abandoned a flow")
+
+
+def classify_consolidated_segment_problem(segment: ConsolidatedVideoSegment) -> str | None:
+    """Return the most severe problem type for a segment, or None if no problem signal would be emitted."""
+    if segment.exception == "blocking":
+        return "blocking_exception"
+    if segment.abandonment_detected:
+        return "abandonment"
+    # A non-blocking exception on its own is deliberately not a problem: the user wasn't blocked,
+    # it's the largest and weakest slice of replay session problems, and the main source of false
+    # positives (e.g. console errors merely viewed on screen). It still shows in the session
+    # summary via the segment's `exception` field; we just don't research it as a signal. A segment
+    # that ALSO has confusion or a failure still classifies as that real problem below.
+    if segment.confusion_detected:
+        return "confusion"
+    if not segment.success:
+        return "failure"
+    return None
+
+
+class SessionProblem(BaseModel):
+    """A segment that classifies as a problem and should be emitted as a session_problem signal."""
+
+    model_config = ConfigDict(frozen=True)
+
+    problem_type: str = Field(description="Output of classify_consolidated_segment_problem, e.g. 'blocking_exception'")
+    title: str
+    description: str
+    start_time: str = Field(description="Format: MM:SS or HH:MM:SS")
+    end_time: str = Field(description="Format: MM:SS or HH:MM:SS")
+
+
+def collect_session_problems(segments: list[ConsolidatedVideoSegment]) -> list[SessionProblem]:
+    """Classify segments and return only those that would emit a session_problem signal."""
+    problems: list[SessionProblem] = []
+    for segment in segments:
+        problem_type = classify_consolidated_segment_problem(segment)
+        if problem_type is None:
+            continue
+        problems.append(
+            SessionProblem(
+                problem_type=problem_type,
+                title=segment.title,
+                description=segment.description,
+                start_time=segment.start_time,
+                end_time=segment.end_time,
+            )
+        )
+    return problems
 
 
 class VideoSessionOutcome(BaseModel):
@@ -212,6 +280,9 @@ class SessionTaggingOutput(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     tags_fixed: list[str] = Field(description="1-5 tags from the fixed taxonomy")
+    tags_custom: list[str] = Field(
+        default_factory=list, description="0-5 tags from the team's custom taxonomy, if one was provided"
+    )
     tags_freeform: list[str] = Field(description="1-5 specific free-form tags")
     highlighted: bool = Field(default=False, description="Whether the session is worth watching")
 

@@ -8,6 +8,7 @@ export interface ModelCost {
     image?: number
     image_output?: number
     audio?: number
+    audio_output?: number
     input_audio_cache?: number
     internal_reasoning?: number
 }

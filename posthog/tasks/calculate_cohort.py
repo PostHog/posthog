@@ -18,45 +18,51 @@ from posthog.clickhouse.query_tagging import QueryTags, update_tags
 from posthog.errors import CHQueryErrorCannotScheduleTask, CHQueryErrorS3Error, CHQueryErrorTooManySimultaneousQueries
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Cohort
-from posthog.models.cohort import CohortOrEmpty
-from posthog.models.cohort.calculation_history import CohortCalculationHistory
-from posthog.models.cohort.util import (
+from posthog.models.team.team import Team
+from posthog.models.user import User
+from posthog.scoping_audit import skip_team_scope_audit
+from posthog.tasks.utils import CeleryQueue
+
+from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
+from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
+from products.cohorts.backend.models.util import (
     COHORT_STATS_COLLECTION_DELAY_SECONDS,
     get_all_cohort_dependencies,
     get_all_cohort_dependents,
     get_clickhouse_query_stats,
     sort_cohorts_topologically,
 )
-from posthog.models.team.team import Team
-from posthog.models.user import User
-from posthog.tasks.utils import CeleryQueue
 
 COHORT_RECALCULATIONS_BACKLOG_GAUGE = Gauge(
     "cohort_recalculations_backlog",
     "Number of cohorts that are waiting to be calculated",
+    multiprocess_mode="max",
 )
 
 COHORT_STALENESS_HOURS_GAUGE = Gauge(
     "cohort_staleness_hours",
     "Cohort's count of hours since last calculation",
+    multiprocess_mode="max",
 )
 
 COHORTS_STALE_COUNT_GAUGE = Gauge(
     "cohorts_stale",
     "Number of cohorts that haven't been calculated in more than X hours",
     ["hours"],
+    multiprocess_mode="max",
 )
 
 COHORTS_TOTAL_GAUGE = Gauge(
     "cohorts_total",
     "Total number of eligible cohorts for recalculation (non-static, non-deleted)",
+    multiprocess_mode="max",
 )
 
 COHORT_STUCK_COUNT_GAUGE = Gauge(
     # TODO: rename to cohorts_stuck because this is a gauge not a counter
     "cohort_stuck_count",
     "Number of cohorts that are stuck calculating for more than 1 hour",
+    multiprocess_mode="max",
 )
 
 COHORT_DEPENDENCY_CALCULATION_FAILURES_COUNTER = Counter(
@@ -69,6 +75,7 @@ COHORT_STUCK_RESETS_COUNTER = Counter("cohort_stuck_resets_total", "Number of st
 COHORT_MAXED_ERRORS_GAUGE = Gauge(
     "cohort_maxed_errors",
     "Number of cohorts that have reached the maximum number of errors",
+    multiprocess_mode="max",
 )
 
 COHORT_CALCULATION_STARTED_COUNTER = Counter(
@@ -104,7 +111,7 @@ MAX_STUCK_STATIC_COHORTS_TO_SCAN = MAX_STUCK_COHORTS_TO_RESET * 10
 
 
 def static_cohort_has_supported_population_source(cohort: Cohort) -> bool:
-    from posthog.models.cohort.util import cohort_filters_have_values
+    from products.cohorts.backend.models.util import cohort_filters_have_values
 
     return bool(cohort.query or cohort_filters_have_values(cohort.filters))
 
@@ -428,6 +435,7 @@ def _enqueue_single_cohort_calculation(cohort: Cohort, initiating_user: Optional
     retry_backoff_max=1800,
     max_retries=6,
 )
+@skip_team_scope_audit
 def calculate_cohort_ch(cohort_id: int, pending_version: int, initiating_user_id: Optional[int] = None) -> None:
     with posthoganalytics.new_context():
         posthoganalytics.tag("feature", Feature.COHORT.value)
@@ -463,11 +471,13 @@ def calculate_cohort_ch(cohort_id: int, pending_version: int, initiating_user_id
 
 
 @shared_task(ignore_result=True, max_retries=1)
+@skip_team_scope_audit
 def calculate_cohort_from_list(
     cohort_id: int,
     items: list[str],
     team_id: Optional[int] = None,
     id_type: str = "distinct_id",
+    email_property_key: Optional[str] = None,
 ) -> None:
     """
     team_id is only optional for backwards compatibility with the old celery task signature.
@@ -483,7 +493,7 @@ def calculate_cohort_from_list(
     elif id_type == "person_id":
         batch_count = cohort.insert_users_list_by_uuid(items, team_id=team_id)
     elif id_type == "email":
-        batch_count = cohort.insert_users_by_email(items, team_id=team_id)
+        batch_count = cohort.insert_users_by_email(items, team_id=team_id, email_property_key=email_property_key)
     else:
         raise ValueError(f"Unsupported id_type: {id_type}")
     logger.warn(
@@ -498,6 +508,7 @@ def calculate_cohort_from_list(
     max_retries=1,
     queue=CeleryQueue.LONG_RUNNING.value,
 )
+@skip_team_scope_audit
 def insert_cohort_from_query(cohort_id: int, team_id: Optional[int] = None) -> None:
     """
     One-time population task for static cohorts created from a HogQL query
@@ -508,7 +519,7 @@ def insert_cohort_from_query(cohort_id: int, team_id: Optional[int] = None) -> N
     team_id is only optional for backwards compatibility with the old celery task signature.
     All new tasks should pass team_id explicitly.
     """
-    from posthog.models.cohort.util import insert_cohort_people_into_pg, insert_cohort_query_actors_into_ch
+    from products.cohorts.backend.models.util import insert_cohort_people_into_pg, insert_cohort_query_actors_into_ch
 
     cohort = Cohort.objects.get(pk=cohort_id)
     if team_id is None:
@@ -574,11 +585,12 @@ def insert_cohort_from_query(cohort_id: int, team_id: Optional[int] = None) -> N
     max_retries=1,
     queue=CeleryQueue.LONG_RUNNING.value,
 )
+@skip_team_scope_audit
 def insert_cohort_from_filters(cohort_id: int, team_id: Optional[int] = None) -> None:
     """
     One-time population task for static cohorts created from saved cohort criteria.
     """
-    from posthog.models.cohort.util import insert_cohort_filter_actors_into_ch, insert_cohort_people_into_pg
+    from products.cohorts.backend.models.util import insert_cohort_filter_actors_into_ch, insert_cohort_people_into_pg
 
     if team_id is not None:
         cohort = Cohort.objects.get(pk=cohort_id, team_id=team_id)
@@ -711,6 +723,7 @@ def _collect_cohort_calculation_metrics(history: CohortCalculationHistory, start
 
 
 @shared_task(ignore_result=True, max_retries=3)
+@skip_team_scope_audit
 def collect_cohort_query_stats(
     tag_matcher: str, cohort_id: int, start_time_iso: str, history_id: str, query: str
 ) -> None:

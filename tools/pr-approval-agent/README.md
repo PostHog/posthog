@@ -8,7 +8,15 @@ Deterministic safety gates first, then Claude reviews for showstoppers.
 Add the `stamphog` label to a non-draft PR.
 The GitHub Action runs the agent and posts an approval or comment.
 On approval the label stays so it's visible which PRs were stamphog'd.
-On failure the label is removed so it can be re-applied.
+On a substantive non-approval (`REFUSE`/`ESCALATE`) the label is removed so it
+can be re-applied once the feedback is addressed.
+If the review agent can't reach its LLM backend (credentials, credit, or
+outage) it returns `ERROR` and **keeps** the label — a transient infra failure
+must not silently drop labels across every queued PR. The review retries on the
+next push, or re-apply the label once the backend recovers. When the whole
+fleet of stamphog reviews suddenly returns `ERROR`, suspect the
+`STAMPHOG_ANTHROPIC_API_KEY` org secret first (stamphog uses its own dedicated
+Anthropic key, separate from the shared `ANTHROPIC_API_KEY`).
 
 ### Local testing
 
@@ -101,6 +109,10 @@ Deny-listed categories where even a small diff can have high blast radius:
 | **billing**        | billing, payment, stripe, invoice, subscription, pricing                                     |
 | **public_api**     | openapi, api_schema, swagger, public_api                                                     |
 | **deps_toolchain** | package.json, requirements.txt, pyproject.toml, pnpm-lock, uv.lock, Cargo.toml, go.mod, etc. |
+
+The **migrations** deny-list is bypassed when the `Migration risk` check on the head commit concludes `success` (all migrations classified Safe). The check is published by `analyze_migration_risk` in `ci-backend.yml` and is the same signal humans see in the PR's Checks tab. See `tools/pr-approval-agent/migration_risk.py` for how stamphog reads it.
+
+If the check hasn't completed yet when stamphog runs, stamphog refuses with a message asking the user to wait for the `Migration risk` check and re-apply the `stamphog` label. The label-strip on non-approved verdicts breaks the auto-rerun loop, so the next labeling action is the one that triggers a fresh review against the now-classified head commit.
 
 ### Ownership
 

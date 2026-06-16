@@ -1,4 +1,9 @@
-import { buildQueryForColumnClick, normalizeIdentifier, parseQueryTablesAndColumns } from './sql-utils'
+import {
+    buildQueryForColumnClick,
+    normalizeIdentifier,
+    parseQueryTablesAndColumns,
+    queryUsesFiltersPlaceholder,
+} from './sql-utils'
 
 describe('sql-utils', () => {
     describe('normalizeIdentifier', () => {
@@ -11,6 +16,23 @@ describe('sql-utils', () => {
             ['identifier with underscores is lowercased', 'My_Table', 'my_table'],
         ])('%s', (_name, input, expected) => {
             expect(normalizeIdentifier(input)).toEqual(expected)
+        })
+    })
+
+    describe('queryUsesFiltersPlaceholder', () => {
+        test.each([
+            ['plain placeholder', 'SELECT * FROM events WHERE {filters}', true],
+            ['field placeholder', 'SELECT * FROM events WHERE {filters.properties}', true],
+            ['line-commented placeholder', 'SELECT * FROM events\n-- {filters}', false],
+            ['inline line-commented placeholder', 'SELECT * FROM events -- WHERE {filters}', false],
+            ['block-commented placeholder', 'SELECT * FROM events /* WHERE {filters} */', false],
+            ['single-quoted placeholder', "SELECT '{filters}' FROM events", false],
+            ['double-quoted placeholder', 'SELECT "{filters}" FROM events', false],
+            ['backtick-quoted placeholder', 'SELECT `{filters}` FROM events', false],
+            ['real placeholder after comment', 'SELECT * FROM events -- {filters}\nWHERE {filters}', true],
+            ['real placeholder after block comment', 'SELECT * FROM events /* {filters} */ WHERE {filters}', true],
+        ])('%s', (_name, query, expected) => {
+            expect(queryUsesFiltersPlaceholder(query)).toBe(expected)
         })
     })
 

@@ -2,15 +2,20 @@ from textwrap import dedent
 from types import SimpleNamespace
 from typing import Any
 
+import posthoganalytics
 from pydantic import BaseModel, Field
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import FeatureFlagGroupType
 
-from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.exceptions_capture import capture_exception
-from posthog.models import FeatureFlag, GroupTypeMapping
+from posthog.rbac.user_access_control import AccessControlLevel
+from posthog.scopes import APIScopeObject
 from posthog.sync import database_sync_to_async
+
+from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
+from products.feature_flags.backend.models.evaluation_context import TeamDefaultEvaluationContext
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.hogai.tool import MaxTool
 
@@ -34,20 +39,31 @@ class FeatureFlagCreationSchema(BaseModel):
     description: str | None = Field(default=None, description="Optional description of what the flag controls")
     active: bool = Field(default=True, description="Whether the flag is active")
     group_type: str | None = Field(
-        default=None, description="Group type name for group-based targeting (e.g., 'organization', 'company')"
+        default=None,
+        description="Group type name for group-based targeting (e.g., 'organization', 'company')",
     )
     groups: list[FeatureFlagGroupType] = Field(
         default_factory=list,
         description="Feature flag groups containing properties and rollout percentage. "
         "Uses PostHog's native FeatureFlagGroupType schema.",
     )
-    tags: list[str] = Field(default_factory=list, description="Tags for organizing and categorizing the flag")
+    tags: list[str] = Field(
+        default_factory=list,
+        description="Tags for organizing and categorizing the flag",
+    )
     variants: list[MultivariateVariant] | None = Field(
         default=None,
         description="Multivariate variants for A/B testing. If provided, creates a multivariate flag. "
         "Variant rollout percentages should sum to 100. "
         "Common example: [{'key': 'control', 'name': 'Control', 'rollout_percentage': 50}, "
         "{'key': 'test', 'name': 'Test', 'rollout_percentage': 50}]",
+    )
+    evaluation_contexts: list[str] | None = Field(
+        default=None,
+        description="Evaluation context names (e.g. 'production', 'staging') that control where this flag "
+        "evaluates at runtime. Some projects require at least one evaluation context on every new flag. "
+        "If omitted, the project's default evaluation contexts are applied automatically when configured. "
+        "An explicit empty list skips the defaults.",
     )
 
 
@@ -95,6 +111,10 @@ class CreateFeatureFlagToolArgs(BaseModel):
         - **groups**: Array of targeting groups (see Groups Structure below)
         - **tags**: Array of tag strings for organizing flags
         - **variants**: Array of variants for A/B testing (see Variants Structure below)
+        - **evaluation_contexts**: Array of evaluation context names (e.g. ['production', 'staging'])
+          controlling where the flag evaluates at runtime. Some projects require at least one on every
+          new flag; omit this field entirely to apply the project's configured defaults when set
+          (an explicit empty list skips the defaults).
 
         # Groups Structure
         Each group defines targeting criteria with AND logic within the group:
@@ -193,7 +213,9 @@ class CreateFeatureFlagTool(MaxTool):
     description: str = FEATURE_FLAG_CREATION_TOOL_DESCRIPTION
     args_schema: type[BaseModel] = CreateFeatureFlagToolArgs
 
-    def get_required_resource_access(self):
+    def get_required_resource_access(
+        self,
+    ) -> list[tuple[APIScopeObject, AccessControlLevel]]:
         """
         Creating a feature flag requires editor-level access to feature flags.
         This check runs before the tool executes.
@@ -211,10 +233,14 @@ class CreateFeatureFlagTool(MaxTool):
             if flag_schema.group_type:
 
                 @database_sync_to_async
-                def get_group_mapping():
-                    return GroupTypeMapping.objects.filter(
-                        team=self._team, group_type=flag_schema.group_type.lower() if flag_schema.group_type else None
-                    ).first()
+                def get_group_mapping() -> dict | None:
+                    from posthog.models.group_type_mapping import get_group_types_for_project
+
+                    target = flag_schema.group_type.lower() if flag_schema.group_type else None
+                    for m in get_group_types_for_project(self._team.project_id):
+                        if m["group_type"] == target:
+                            return m
+                    return None
 
                 group_mapping = await get_group_mapping()
                 if not group_mapping:
@@ -223,8 +249,8 @@ class CreateFeatureFlagTool(MaxTool):
                         {"error": "group_type_not_found"},
                     )
 
-                aggregation_group_type_index = group_mapping.group_type_index
-                group_type_display_name = group_mapping.name_plural or flag_schema.group_type
+                aggregation_group_type_index = group_mapping["group_type_index"]
+                group_type_display_name = group_mapping["name_plural"] or flag_schema.group_type
 
             filters: dict[str, Any] = {}
             if aggregation_group_type_index is not None:
@@ -243,6 +269,13 @@ class CreateFeatureFlagTool(MaxTool):
                 "tags": flag_schema.tags,
                 "_should_create_usage_dashboard": False,
             }
+
+            # Unspecified (None) falls back to the project defaults; an explicit empty list is left as-is.
+            evaluation_contexts = flag_schema.evaluation_contexts
+            if evaluation_contexts is None:
+                evaluation_contexts = await self._get_default_evaluation_contexts()
+            if evaluation_contexts:
+                serializer_data["evaluation_contexts"] = evaluation_contexts
 
             # Mock request following established patterns
             mock_request = SimpleNamespace(
@@ -263,7 +296,7 @@ class CreateFeatureFlagTool(MaxTool):
             }
 
             @database_sync_to_async
-            def create_flag_via_serializer():
+            def create_flag_via_serializer() -> FeatureFlag:
                 serializer = FeatureFlagSerializer(data=serializer_data, context=context)
                 serializer.is_valid(raise_exception=True)
                 return serializer.save()
@@ -272,14 +305,18 @@ class CreateFeatureFlagTool(MaxTool):
 
             flag_url = f"/project/{self._team.project_id}/feature_flags/{flag.id}"
             targeting_info = self._format_targeting_info(flag_schema, group_type_display_name)
+            contexts_info = (
+                f" with evaluation contexts: {', '.join(evaluation_contexts)}" if evaluation_contexts else ""
+            )
 
             return (
-                f"Successfully created feature flag '{flag_schema.name}' (key: {flag_schema.key}){targeting_info}. View at {flag_url}",
+                f"Successfully created feature flag '{flag_schema.name}' (key: {flag_schema.key}){targeting_info}{contexts_info}. View at {flag_url}",
                 {
                     "flag_id": flag.id,
                     "flag_key": flag_schema.key,
                     "flag_name": flag_schema.name,
                     "url": flag_url,
+                    "evaluation_contexts": evaluation_contexts,
                 },
             )
 
@@ -291,7 +328,7 @@ class CreateFeatureFlagTool(MaxTool):
                 if any("already" in str(err).lower() for err in key_errors):
 
                     @database_sync_to_async
-                    def get_existing_flag():
+                    def get_existing_flag() -> FeatureFlag | None:
                         return FeatureFlag.objects.filter(team=self._team, key=flag_schema.key).first()
 
                     existing = await get_existing_flag()
@@ -318,6 +355,33 @@ class CreateFeatureFlagTool(MaxTool):
         except Exception as e:
             capture_exception(e, {"team_id": self._team.id, "user_id": self._user.id})
             return f"Failed to create feature flag: {str(e)}", {"error": str(e)}
+
+    @database_sync_to_async
+    def _get_default_evaluation_contexts(self) -> list[str]:
+        """Return the project's default evaluation context names, if defaults are enabled."""
+        if not self._team.default_evaluation_contexts_enabled:
+            return []
+
+        # Mirror the web UI, which applies defaults only when this gate is also on (featureFlagLogic.ts).
+        organization = self._user.organization
+        distinct_id = self._user.distinct_id
+        if organization is None or distinct_id is None:
+            return []
+        if not posthoganalytics.feature_enabled(
+            "default-evaluation-environments",
+            distinct_id,
+            groups={"organization": str(organization.id)},
+            group_properties={"organization": {"id": str(organization.id)}},
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        ):
+            return []
+
+        return list(
+            TeamDefaultEvaluationContext.objects.filter(team=self._team)
+            .select_related("evaluation_context")
+            .values_list("evaluation_context__name", flat=True)
+        )
 
     def _format_targeting_info(self, schema: FeatureFlagCreationSchema, group_display_name: str | None) -> str:
         """Format targeting information for success message."""

@@ -58,6 +58,14 @@ class TestCheckProductAccess:
             ("llma_translation", "personal_api_key", None, "gpt-4.1-mini", True, None),
             ("llma_translation", "personal_api_key", None, "claude-3-opus", False, "not allowed"),
             ("llma_translation", "oauth_access_token", "any-app-id", "gpt-4.1-mini", False, "not authorized"),
+            # signals allows API keys (shared gateway key) with any model, and OAuth from the
+            # array/twig (posthog_code) app for coding-agent tasks
+            ("signals", "personal_api_key", None, "claude-haiku-4-5", True, None),
+            ("signals", "personal_api_key", None, "claude-sonnet-4-5", True, None),
+            ("signals", "personal_api_key", None, "claude-3-opus", True, None),
+            ("signals", "oauth_access_token", "any-app-id", "claude-haiku-4-5", False, "not authorized"),
+            ("signals", "oauth_access_token", POSTHOG_CODE_US_APP_ID, "claude-haiku-4-5", True, None),
+            ("signals", "oauth_access_token", POSTHOG_CODE_EU_APP_ID, "claude-sonnet-4-5", True, None),
             # unknown product
             ("unknown", "personal_api_key", None, None, False, "Unknown product"),
         ],
@@ -83,9 +91,11 @@ class TestCheckProductAccess:
             "claude-opus-4-5",
             "claude-opus-4-6",
             "claude-opus-4-7",
+            "claude-opus-4-8",
             "claude-sonnet-4-5",
             "claude-sonnet-4-6",
             "claude-haiku-4-5",
+            "gpt-5.5",
             "gpt-5.3-codex",
             "gpt-5.2",
             "gpt-5-mini",
@@ -103,6 +113,7 @@ class TestCheckProductAccess:
             "gpt-4o-mini",
             "claude-3-5-haiku-20241022",
             "claude-3-opus",
+            "claude-fable-5",
             "o1",
         ],
     )
@@ -118,9 +129,11 @@ class TestCheckProductAccess:
             "claude-opus-4-5",
             "claude-opus-4-6",
             "claude-opus-4-7",
+            "claude-opus-4-8",
             "claude-sonnet-4-5",
             "claude-sonnet-4-6",
             "claude-haiku-4-5",
+            "gpt-5.5",
             "gpt-5.3-codex",
             "gpt-5.2",
             "gpt-5-mini",
@@ -184,12 +197,30 @@ class TestCheckProductAccess:
         assert allowed is True
         assert error is None
 
+    @patch(
+        "llm_gateway.products.config.get_settings", return_value=MagicMock(debug=False, bedrock_region_name="us-east-1")
+    )
+    def test_posthog_code_rejects_claude_fable_5_via_bedrock_provider(self, mock_get_settings: MagicMock):
+        # Fable 5 has no Bedrock mapping, so the bedrock provider path must not
+        # resurrect it via the BEDROCK_MODELS entries in the allowlist union.
+        allowed, error = check_product_access(
+            "posthog_code",
+            "oauth_access_token",
+            POSTHOG_CODE_US_APP_ID,
+            "claude-fable-5",
+            provider="bedrock",
+        )
+        assert allowed is False
+        assert error is not None
+        assert "not allowed" in error
+
     @pytest.mark.parametrize(
         "model",
         [
             "claude-opus-4-5",
             "claude-opus-4-6",
             "claude-opus-4-7",
+            "claude-opus-4-8",
             "claude-sonnet-4-5",
             "claude-haiku-4-5",
             "gpt-5.3-codex",
@@ -247,6 +278,52 @@ class TestCheckProductAccess:
         assert error is not None
         assert "not allowed" in error
 
+    def test_slack_app_routing_allows_claude_haiku_via_api_key(self):
+        allowed, error = check_product_access("slack_app_routing", "personal_api_key", None, "claude-haiku-4-5")
+        assert allowed is True
+        assert error is None
+
+    def test_slack_app_routing_rejects_non_haiku_models(self):
+        allowed, error = check_product_access("slack_app_routing", "personal_api_key", None, "claude-sonnet-4-5")
+        assert allowed is False
+        assert error is not None
+        assert "not allowed" in error
+
+    def test_slack_posthog_code_alias_still_resolves(self):
+        # Legacy alias kept for backward compat (old URL paths, Django integration kind).
+        allowed, error = check_product_access("slack-posthog-code", "personal_api_key", None, "claude-haiku-4-5")
+        assert allowed is True
+        assert error is None
+
+    @pytest.mark.parametrize(
+        "model",
+        [
+            "claude-opus-4-7",
+            "claude-opus-4-8",
+            "claude-sonnet-4-6",
+            "claude-haiku-4-5",
+            "gpt-5.3-codex",
+        ],
+    )
+    def test_slack_app_allows_agent_models(self, model: str):
+        allowed, error = check_product_access("slack_app", "oauth_access_token", POSTHOG_CODE_US_APP_ID, model)
+        assert allowed is True
+        assert error is None
+
+    def test_slack_app_rejects_api_keys(self):
+        allowed, error = check_product_access("slack_app", "personal_api_key", None, "claude-sonnet-4-6")
+        assert allowed is False
+        assert error is not None
+        assert "requires OAuth" in error
+
+    def test_slack_app_rejects_unauthorized_oauth_app(self):
+        allowed, error = check_product_access(
+            "slack_app", "oauth_access_token", "00000000-0000-0000-0000-000000000000", "claude-sonnet-4-6"
+        )
+        assert allowed is False
+        assert error is not None
+        assert "not authorized" in error
+
 
 class TestBackwardsCompatibility:
     def test_twig_app_id_constants_are_aliases(self):
@@ -258,10 +335,11 @@ class TestBackwardsCompatibility:
         [
             ("twig", "posthog_code"),
             ("array", "posthog_code"),
-            ("slack-twig", "slack-posthog-code"),
+            ("slack-twig", "slack_app_routing"),
+            ("slack-posthog-code", "slack_app_routing"),
         ],
     )
-    def test_aliases_resolve_to_posthog_code(self, alias: str, target: str):
+    def test_aliases_resolve_to_canonical_product(self, alias: str, target: str):
         assert resolve_product_alias(alias) == target
 
     def test_twig_alias_returns_same_config_as_posthog_code(self):
@@ -276,9 +354,11 @@ class TestBackwardsCompatibility:
     def test_array_alias_validates_to_posthog_code(self):
         assert validate_product("array") == "posthog_code"
 
-    def test_slack_twig_alias_resolves_to_slack_posthog_code(self):
-        assert get_product_config("slack-twig") is get_product_config("slack-posthog-code")
-        assert validate_product("slack-twig") == "slack-posthog-code"
+    def test_slack_aliases_resolve_to_slack_app_routing(self):
+        assert get_product_config("slack-twig") is get_product_config("slack_app_routing")
+        assert get_product_config("slack-posthog-code") is get_product_config("slack_app_routing")
+        assert validate_product("slack-twig") == "slack_app_routing"
+        assert validate_product("slack-posthog-code") == "slack_app_routing"
 
 
 class TestValidateProduct:
@@ -302,7 +382,8 @@ class TestValidateProduct:
     def test_resolve_product_alias_returns_alias_target(self):
         assert resolve_product_alias("array") == "posthog_code"
         assert resolve_product_alias("twig") == "posthog_code"
-        assert resolve_product_alias("slack-twig") == "slack-posthog-code"
+        assert resolve_product_alias("slack-twig") == "slack_app_routing"
+        assert resolve_product_alias("slack-posthog-code") == "slack_app_routing"
 
     def test_resolve_product_alias_returns_input_if_not_aliased(self):
         assert resolve_product_alias("wizard") == "wizard"

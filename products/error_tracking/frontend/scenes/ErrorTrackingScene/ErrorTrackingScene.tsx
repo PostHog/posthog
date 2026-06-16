@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { LemonBanner, LemonButton, LemonTab, LemonTabs, Link } from '@posthog/lemon-ui'
+import { LemonBadge, LemonBanner, LemonButton, LemonTab, LemonTabs, Link, Spinner } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -32,7 +32,9 @@ import {
 import { ErrorTrackingInsights } from './tabs/insights/ErrorTrackingInsights'
 import { IssuesFilters } from './tabs/issues/IssuesFilters'
 import { IssuesList } from './tabs/issues/IssuesList'
+import { SourceMapsBanner } from './tabs/issues/SourceMapsBanner'
 import { RecommendationsTab } from './tabs/recommendations/RecommendationsTab'
+import { recommendationsTabLogic } from './tabs/recommendations/recommendationsTabLogic'
 
 const ERROR_TRACKING_ALERT_FILTER_GROUPS: CyclotronJobFiltersType[] = [
     { events: [{ id: '$error_tracking_issue_created', type: 'events' }] },
@@ -49,8 +51,8 @@ export function ErrorTrackingScene(): JSX.Element {
     const { hasSentExceptionEvent, hasSentExceptionEventLoading } = useValues(exceptionIngestionLogic)
     const { activeTab } = useValues(errorTrackingSceneLogic)
     const { setActiveTab } = useActions(errorTrackingSceneLogic)
-    const hasInsights = useFeatureFlag('ERROR_TRACKING_INSIGHTS')
     const hasRecommendations = useFeatureFlag('ERROR_TRACKING_RECOMMENDATIONS')
+    const hasSourceMapsBanner = useFeatureFlag('ERROR_TRACKING_SOURCE_MAPS_BANNER')
 
     useOnMountEffect(() => {
         const utmSource = new URLSearchParams(window.location.search).get('utm_source')
@@ -73,30 +75,27 @@ export function ErrorTrackingScene(): JSX.Element {
             key: 'issues',
             label: 'Issues',
             content: (
-                <>
+                <ErrorTrackingSetupPrompt>
                     <ErrorTrackingIssueFilteringTool />
                     {hasSentExceptionEventLoading || hasSentExceptionEvent ? null : <IngestionStatusCheck />}
+                    {hasSourceMapsBanner ? <SourceMapsBanner /> : null}
                     <div className="border rounded bg-surface-primary p-2">
                         <IssuesFilters />
                     </div>
                     <IssuesList />
-                </>
+                </ErrorTrackingSetupPrompt>
             ),
         },
-        ...(hasInsights
-            ? [
-                  {
-                      key: 'insights' as const,
-                      label: 'Insights',
-                      content: <ErrorTrackingInsights />,
-                  },
-              ]
-            : []),
+        {
+            key: 'insights',
+            label: 'Insights',
+            content: <ErrorTrackingInsights />,
+        },
         ...(hasRecommendations
             ? [
                   {
                       key: 'recommendations' as const,
-                      label: 'Recommendations',
+                      label: <RecommendationsTabLabel />,
                       content: <RecommendationsTab />,
                   },
               ]
@@ -122,20 +121,28 @@ export function ErrorTrackingScene(): JSX.Element {
         <StyleVariables>
             <BindLogic logic={issueFiltersLogic} props={{ logicKey: ERROR_TRACKING_SCENE_LOGIC_KEY }}>
                 <BindLogic logic={issueQueryOptionsLogic} props={{ logicKey: ERROR_TRACKING_SCENE_LOGIC_KEY }}>
-                    <ErrorTrackingSetupPrompt>
-                        <SceneContent>
-                            <Header />
-                            <LemonTabs
-                                activeKey={activeTab}
-                                onChange={(key) => setActiveTab(key)}
-                                tabs={tabs}
-                                sceneInset
-                            />
-                        </SceneContent>
-                    </ErrorTrackingSetupPrompt>
+                    <SceneContent>
+                        <Header />
+                        <LemonTabs activeKey={activeTab} onChange={(key) => setActiveTab(key)} tabs={tabs} sceneInset />
+                    </SceneContent>
                 </BindLogic>
             </BindLogic>
         </StyleVariables>
+    )
+}
+
+const RecommendationsTabLabel = (): JSX.Element => {
+    const { activeRecommendations, recommendationsLoading } = useValues(recommendationsTabLogic)
+
+    return (
+        <span className="flex items-center gap-1.5">
+            Recommendations
+            {recommendationsLoading ? (
+                <LemonBadge size="small" content={<Spinner textColored />} />
+            ) : (
+                <LemonBadge.Number count={activeRecommendations.length} size="small" showZero />
+            )}
+        </span>
     )
 }
 

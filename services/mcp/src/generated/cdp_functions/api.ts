@@ -17,15 +17,14 @@ export const HogFunctionsListParams = /* @__PURE__ */ zod.object({
 })
 
 export const HogFunctionsListQueryParams = /* @__PURE__ */ zod.object({
-    created_at: zod.iso.datetime({}).optional(),
+    created_at: zod.iso.datetime({ offset: true }).optional(),
     created_by: zod.number().optional(),
     enabled: zod.boolean().optional(),
     id: zod.string().optional(),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
-    search: zod.string().optional().describe('A search term.'),
     type: zod.array(zod.string()).optional().describe('Multiple values may be separated by commas.'),
-    updated_at: zod.iso.datetime({}).optional(),
+    updated_at: zod.iso.datetime({ offset: true }).optional(),
 })
 
 export const HogFunctionsCreateParams = /* @__PURE__ */ zod.object({
@@ -70,9 +69,9 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
                 .describe(
                     '* `destination` - Destination\n* `site_destination` - Site Destination\n* `internal_destination` - Internal Destination\n* `source_webhook` - Source Webhook\n* `warehouse_source_webhook` - Warehouse Source Webhook\n* `site_app` - Site App\n* `transformation` - Transformation'
                 ),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish()
+        .optional()
         .describe(
             'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.\n\n* `destination` - Destination\n* `site_destination` - Site Destination\n* `internal_destination` - Internal Destination\n* `source_webhook` - Source Webhook\n* `warehouse_source_webhook` - Warehouse Source Webhook\n* `site_app` - Site App\n* `transformation` - Transformation'
         ),
@@ -101,13 +100,15 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
                         'posthog_assignee',
                         'posthog_ticket_tags',
                         'posthog_business_hours',
+                        'non_failure_status_codes',
                     ])
                     .describe(
-                        '* `string` - string\n* `number` - number\n* `boolean` - boolean\n* `dictionary` - dictionary\n* `choice` - choice\n* `json` - json\n* `integration` - integration\n* `integration_field` - integration_field\n* `email` - email\n* `native_email` - native_email\n* `posthog_assignee` - posthog_assignee\n* `posthog_ticket_tags` - posthog_ticket_tags\n* `posthog_business_hours` - posthog_business_hours'
+                        '* `string` - string\n* `number` - number\n* `boolean` - boolean\n* `dictionary` - dictionary\n* `choice` - choice\n* `json` - json\n* `integration` - integration\n* `integration_field` - integration_field\n* `email` - email\n* `native_email` - native_email\n* `posthog_assignee` - posthog_assignee\n* `posthog_ticket_tags` - posthog_ticket_tags\n* `posthog_business_hours` - posthog_business_hours\n* `non_failure_status_codes` - non_failure_status_codes'
                     ),
                 key: zod.string(),
                 label: zod.string().optional(),
                 choices: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                searchable: zod.boolean().optional(),
                 required: zod.boolean().default(hogFunctionsCreateBodyInputsSchemaItemRequiredDefault),
                 default: zod.unknown().optional(),
                 secret: zod.boolean().default(hogFunctionsCreateBodyInputsSchemaItemSecretDefault),
@@ -143,7 +144,7 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
             events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
             data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
             properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-            bytecode: zod.unknown().nullish(),
+            bytecode: zod.unknown().optional(),
             transpiled: zod.unknown().optional(),
             filter_test_accounts: zod.boolean().optional(),
             bytecode_error: zod.string().optional(),
@@ -151,17 +152,23 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Event filters that control which events trigger this function.'),
     masking: zod
-        .object({
-            ttl: zod
-                .number()
-                .min(hogFunctionsCreateBodyMaskingOneTtlMin)
-                .max(hogFunctionsCreateBodyMaskingOneTtlMax)
-                .describe('Time-to-live in seconds for the masking cache (60–86400).'),
-            threshold: zod.number().nullish().describe('Optional threshold count before masking applies.'),
-            hash: zod.string().describe('Hog expression used to compute the masking hash.'),
-            bytecode: zod.unknown().nullish().describe('Compiled bytecode for the hash expression. Auto-generated.'),
-        })
-        .nullish()
+        .union([
+            zod.object({
+                ttl: zod
+                    .number()
+                    .min(hogFunctionsCreateBodyMaskingOneTtlMin)
+                    .max(hogFunctionsCreateBodyMaskingOneTtlMax)
+                    .describe('Time-to-live in seconds for the masking cache (60–86400).'),
+                threshold: zod.number().nullish().describe('Optional threshold count before masking applies.'),
+                hash: zod.string().describe('Hog expression used to compute the masking hash.'),
+                bytecode: zod
+                    .unknown()
+                    .optional()
+                    .describe('Compiled bytecode for the hash expression. Auto-generated.'),
+            }),
+            zod.null(),
+        ])
+        .optional()
         .describe('PII masking configuration with TTL, threshold, and hash expression.'),
     mappings: zod
         .array(
@@ -185,13 +192,15 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
                                     'posthog_assignee',
                                     'posthog_ticket_tags',
                                     'posthog_business_hours',
+                                    'non_failure_status_codes',
                                 ])
                                 .describe(
-                                    '* `string` - string\n* `number` - number\n* `boolean` - boolean\n* `dictionary` - dictionary\n* `choice` - choice\n* `json` - json\n* `integration` - integration\n* `integration_field` - integration_field\n* `email` - email\n* `native_email` - native_email\n* `posthog_assignee` - posthog_assignee\n* `posthog_ticket_tags` - posthog_ticket_tags\n* `posthog_business_hours` - posthog_business_hours'
+                                    '* `string` - string\n* `number` - number\n* `boolean` - boolean\n* `dictionary` - dictionary\n* `choice` - choice\n* `json` - json\n* `integration` - integration\n* `integration_field` - integration_field\n* `email` - email\n* `native_email` - native_email\n* `posthog_assignee` - posthog_assignee\n* `posthog_ticket_tags` - posthog_ticket_tags\n* `posthog_business_hours` - posthog_business_hours\n* `non_failure_status_codes` - non_failure_status_codes'
                                 ),
                             key: zod.string(),
                             label: zod.string().optional(),
                             choices: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                            searchable: zod.boolean().optional(),
                             required: zod
                                 .boolean()
                                 .default(hogFunctionsCreateBodyMappingsItemInputsSchemaItemRequiredDefault),
@@ -307,9 +316,9 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
                 .describe(
                     '* `destination` - Destination\n* `site_destination` - Site Destination\n* `internal_destination` - Internal Destination\n* `source_webhook` - Source Webhook\n* `warehouse_source_webhook` - Warehouse Source Webhook\n* `site_app` - Site App\n* `transformation` - Transformation'
                 ),
-            zod.literal(null),
+            zod.null(),
         ])
-        .nullish()
+        .optional()
         .describe(
             'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.\n\n* `destination` - Destination\n* `site_destination` - Site Destination\n* `internal_destination` - Internal Destination\n* `source_webhook` - Source Webhook\n* `warehouse_source_webhook` - Warehouse Source Webhook\n* `site_app` - Site App\n* `transformation` - Transformation'
         ),
@@ -338,13 +347,15 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
                         'posthog_assignee',
                         'posthog_ticket_tags',
                         'posthog_business_hours',
+                        'non_failure_status_codes',
                     ])
                     .describe(
-                        '* `string` - string\n* `number` - number\n* `boolean` - boolean\n* `dictionary` - dictionary\n* `choice` - choice\n* `json` - json\n* `integration` - integration\n* `integration_field` - integration_field\n* `email` - email\n* `native_email` - native_email\n* `posthog_assignee` - posthog_assignee\n* `posthog_ticket_tags` - posthog_ticket_tags\n* `posthog_business_hours` - posthog_business_hours'
+                        '* `string` - string\n* `number` - number\n* `boolean` - boolean\n* `dictionary` - dictionary\n* `choice` - choice\n* `json` - json\n* `integration` - integration\n* `integration_field` - integration_field\n* `email` - email\n* `native_email` - native_email\n* `posthog_assignee` - posthog_assignee\n* `posthog_ticket_tags` - posthog_ticket_tags\n* `posthog_business_hours` - posthog_business_hours\n* `non_failure_status_codes` - non_failure_status_codes'
                     ),
                 key: zod.string(),
                 label: zod.string().optional(),
                 choices: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                searchable: zod.boolean().optional(),
                 required: zod.boolean().default(hogFunctionsPartialUpdateBodyInputsSchemaItemRequiredDefault),
                 default: zod.unknown().optional(),
                 secret: zod.boolean().default(hogFunctionsPartialUpdateBodyInputsSchemaItemSecretDefault),
@@ -380,7 +391,7 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
             events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
             data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
             properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-            bytecode: zod.unknown().nullish(),
+            bytecode: zod.unknown().optional(),
             transpiled: zod.unknown().optional(),
             filter_test_accounts: zod.boolean().optional(),
             bytecode_error: zod.string().optional(),
@@ -388,17 +399,23 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Event filters that control which events trigger this function.'),
     masking: zod
-        .object({
-            ttl: zod
-                .number()
-                .min(hogFunctionsPartialUpdateBodyMaskingOneTtlMin)
-                .max(hogFunctionsPartialUpdateBodyMaskingOneTtlMax)
-                .describe('Time-to-live in seconds for the masking cache (60–86400).'),
-            threshold: zod.number().nullish().describe('Optional threshold count before masking applies.'),
-            hash: zod.string().describe('Hog expression used to compute the masking hash.'),
-            bytecode: zod.unknown().nullish().describe('Compiled bytecode for the hash expression. Auto-generated.'),
-        })
-        .nullish()
+        .union([
+            zod.object({
+                ttl: zod
+                    .number()
+                    .min(hogFunctionsPartialUpdateBodyMaskingOneTtlMin)
+                    .max(hogFunctionsPartialUpdateBodyMaskingOneTtlMax)
+                    .describe('Time-to-live in seconds for the masking cache (60–86400).'),
+                threshold: zod.number().nullish().describe('Optional threshold count before masking applies.'),
+                hash: zod.string().describe('Hog expression used to compute the masking hash.'),
+                bytecode: zod
+                    .unknown()
+                    .optional()
+                    .describe('Compiled bytecode for the hash expression. Auto-generated.'),
+            }),
+            zod.null(),
+        ])
+        .optional()
         .describe('PII masking configuration with TTL, threshold, and hash expression.'),
     mappings: zod
         .array(
@@ -422,13 +439,15 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                     'posthog_assignee',
                                     'posthog_ticket_tags',
                                     'posthog_business_hours',
+                                    'non_failure_status_codes',
                                 ])
                                 .describe(
-                                    '* `string` - string\n* `number` - number\n* `boolean` - boolean\n* `dictionary` - dictionary\n* `choice` - choice\n* `json` - json\n* `integration` - integration\n* `integration_field` - integration_field\n* `email` - email\n* `native_email` - native_email\n* `posthog_assignee` - posthog_assignee\n* `posthog_ticket_tags` - posthog_ticket_tags\n* `posthog_business_hours` - posthog_business_hours'
+                                    '* `string` - string\n* `number` - number\n* `boolean` - boolean\n* `dictionary` - dictionary\n* `choice` - choice\n* `json` - json\n* `integration` - integration\n* `integration_field` - integration_field\n* `email` - email\n* `native_email` - native_email\n* `posthog_assignee` - posthog_assignee\n* `posthog_ticket_tags` - posthog_ticket_tags\n* `posthog_business_hours` - posthog_business_hours\n* `non_failure_status_codes` - non_failure_status_codes'
                                 ),
                             key: zod.string(),
                             label: zod.string().optional(),
                             choices: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                            searchable: zod.boolean().optional(),
                             required: zod
                                 .boolean()
                                 .default(hogFunctionsPartialUpdateBodyMappingsItemInputsSchemaItemRequiredDefault),
@@ -568,9 +587,9 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                         .describe(
                             '* `destination` - Destination\n* `site_destination` - Site Destination\n* `internal_destination` - Internal Destination\n* `source_webhook` - Source Webhook\n* `warehouse_source_webhook` - Warehouse Source Webhook\n* `site_app` - Site App\n* `transformation` - Transformation'
                         ),
-                    zod.literal(null),
+                    zod.null(),
                 ])
-                .nullish()
+                .optional()
                 .describe(
                     'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.\n\n* `destination` - Destination\n* `site_destination` - Site Destination\n* `internal_destination` - Internal Destination\n* `source_webhook` - Source Webhook\n* `warehouse_source_webhook` - Warehouse Source Webhook\n* `site_app` - Site App\n* `transformation` - Transformation'
                 ),
@@ -580,7 +599,7 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                 .nullish()
                 .describe('Display name for the function.'),
             description: zod.string().optional().describe('Human-readable description of what this function does.'),
-            created_at: zod.iso.datetime({}).optional(),
+            created_at: zod.iso.datetime({ offset: true }).optional(),
             created_by: zod
                 .object({
                     id: zod.number().optional(),
@@ -617,19 +636,19 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                                     '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
                                 ),
                             zod.enum(['']),
-                            zod.literal(null),
+                            zod.null(),
                         ])
-                        .nullish(),
+                        .optional(),
                 })
                 .optional(),
-            updated_at: zod.iso.datetime({}).optional(),
+            updated_at: zod.iso.datetime({ offset: true }).optional(),
             enabled: zod.boolean().optional().describe('Whether the function is active and processing events.'),
             deleted: zod.boolean().optional().describe('Soft-delete flag. Set to true to archive the function.'),
             hog: zod
                 .string()
                 .optional()
                 .describe('Source code. Hog language for most types; TypeScript for site_destination and site_app.'),
-            bytecode: zod.unknown().nullish(),
+            bytecode: zod.unknown().optional(),
             transpiled: zod.string().nullish(),
             inputs_schema: zod
                 .array(
@@ -649,13 +668,15 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                                 'posthog_assignee',
                                 'posthog_ticket_tags',
                                 'posthog_business_hours',
+                                'non_failure_status_codes',
                             ])
                             .describe(
-                                '* `string` - string\n* `number` - number\n* `boolean` - boolean\n* `dictionary` - dictionary\n* `choice` - choice\n* `json` - json\n* `integration` - integration\n* `integration_field` - integration_field\n* `email` - email\n* `native_email` - native_email\n* `posthog_assignee` - posthog_assignee\n* `posthog_ticket_tags` - posthog_ticket_tags\n* `posthog_business_hours` - posthog_business_hours'
+                                '* `string` - string\n* `number` - number\n* `boolean` - boolean\n* `dictionary` - dictionary\n* `choice` - choice\n* `json` - json\n* `integration` - integration\n* `integration_field` - integration_field\n* `email` - email\n* `native_email` - native_email\n* `posthog_assignee` - posthog_assignee\n* `posthog_ticket_tags` - posthog_ticket_tags\n* `posthog_business_hours` - posthog_business_hours\n* `non_failure_status_codes` - non_failure_status_codes'
                             ),
                         key: zod.string(),
                         label: zod.string().optional(),
                         choices: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                        searchable: zod.boolean().optional(),
                         required: zod
                             .boolean()
                             .default(hogFunctionsInvocationsCreateBodyConfigurationOneInputsSchemaItemRequiredDefault),
@@ -705,7 +726,7 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                     events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                     data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                     properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                    bytecode: zod.unknown().nullish(),
+                    bytecode: zod.unknown().optional(),
                     transpiled: zod.unknown().optional(),
                     filter_test_accounts: zod.boolean().optional(),
                     bytecode_error: zod.string().optional(),
@@ -713,20 +734,23 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                 .optional()
                 .describe('Event filters that control which events trigger this function.'),
             masking: zod
-                .object({
-                    ttl: zod
-                        .number()
-                        .min(hogFunctionsInvocationsCreateBodyConfigurationOneMaskingOneTtlMin)
-                        .max(hogFunctionsInvocationsCreateBodyConfigurationOneMaskingOneTtlMax)
-                        .describe('Time-to-live in seconds for the masking cache (60–86400).'),
-                    threshold: zod.number().nullish().describe('Optional threshold count before masking applies.'),
-                    hash: zod.string().describe('Hog expression used to compute the masking hash.'),
-                    bytecode: zod
-                        .unknown()
-                        .nullish()
-                        .describe('Compiled bytecode for the hash expression. Auto-generated.'),
-                })
-                .nullish()
+                .union([
+                    zod.object({
+                        ttl: zod
+                            .number()
+                            .min(hogFunctionsInvocationsCreateBodyConfigurationOneMaskingOneTtlMin)
+                            .max(hogFunctionsInvocationsCreateBodyConfigurationOneMaskingOneTtlMax)
+                            .describe('Time-to-live in seconds for the masking cache (60–86400).'),
+                        threshold: zod.number().nullish().describe('Optional threshold count before masking applies.'),
+                        hash: zod.string().describe('Hog expression used to compute the masking hash.'),
+                        bytecode: zod
+                            .unknown()
+                            .optional()
+                            .describe('Compiled bytecode for the hash expression. Auto-generated.'),
+                    }),
+                    zod.null(),
+                ])
+                .optional()
                 .describe('PII masking configuration with TTL, threshold, and hash expression.'),
             mappings: zod
                 .array(
@@ -750,13 +774,15 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                                             'posthog_assignee',
                                             'posthog_ticket_tags',
                                             'posthog_business_hours',
+                                            'non_failure_status_codes',
                                         ])
                                         .describe(
-                                            '* `string` - string\n* `number` - number\n* `boolean` - boolean\n* `dictionary` - dictionary\n* `choice` - choice\n* `json` - json\n* `integration` - integration\n* `integration_field` - integration_field\n* `email` - email\n* `native_email` - native_email\n* `posthog_assignee` - posthog_assignee\n* `posthog_ticket_tags` - posthog_ticket_tags\n* `posthog_business_hours` - posthog_business_hours'
+                                            '* `string` - string\n* `number` - number\n* `boolean` - boolean\n* `dictionary` - dictionary\n* `choice` - choice\n* `json` - json\n* `integration` - integration\n* `integration_field` - integration_field\n* `email` - email\n* `native_email` - native_email\n* `posthog_assignee` - posthog_assignee\n* `posthog_ticket_tags` - posthog_ticket_tags\n* `posthog_business_hours` - posthog_business_hours\n* `non_failure_status_codes` - non_failure_status_codes'
                                         ),
                                     key: zod.string(),
                                     label: zod.string().optional(),
                                     choices: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                                    searchable: zod.boolean().optional(),
                                     required: zod
                                         .boolean()
                                         .default(
@@ -812,7 +838,7 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                                 events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                                 data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                                 properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-                                bytecode: zod.unknown().nullish(),
+                                bytecode: zod.unknown().optional(),
                                 transpiled: zod.unknown().optional(),
                                 filter_test_accounts: zod.boolean().optional(),
                                 bytecode_error: zod.string().optional(),
@@ -852,8 +878,8 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                     category: zod.unknown().optional().describe('Category tags for organizing templates.'),
                     free: zod.boolean().optional().describe('Whether available on free plans.'),
                     icon_url: zod.string().nullish().describe("URL for the template's icon."),
-                    filters: zod.unknown().nullish().describe('Default event filters.'),
-                    masking: zod.unknown().nullish().describe('Default PII masking configuration.'),
+                    filters: zod.unknown().optional().describe('Default event filters.'),
+                    masking: zod.unknown().optional().describe('Default PII masking configuration.'),
                     mapping_templates: zod
                         .array(
                             zod.object({
@@ -868,11 +894,11 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                                     .describe(
                                         'Whether this mapping should match all events by default, hiding the event filter UI.'
                                     ),
-                                filters: zod.unknown().nullish().describe('Event filters specific to this mapping.'),
-                                inputs: zod.unknown().nullish().describe('Input values specific to this mapping.'),
+                                filters: zod.unknown().optional().describe('Event filters specific to this mapping.'),
+                                inputs: zod.unknown().optional().describe('Input values specific to this mapping.'),
                                 inputs_schema: zod
                                     .unknown()
-                                    .nullish()
+                                    .optional()
                                     .describe('Additional input schema fields specific to this mapping.'),
                             })
                         )
@@ -886,20 +912,23 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                 .nullish()
                 .describe('ID of the template to create this function from.'),
             status: zod
-                .object({
-                    state: zod
-                        .union([
-                            zod.literal(0),
-                            zod.literal(1),
-                            zod.literal(2),
-                            zod.literal(3),
-                            zod.literal(11),
-                            zod.literal(12),
-                        ])
-                        .describe('* `0` - 0\n* `1` - 1\n* `2` - 2\n* `3` - 3\n* `11` - 11\n* `12` - 12'),
-                    tokens: zod.number(),
-                })
-                .nullish(),
+                .union([
+                    zod.object({
+                        state: zod
+                            .union([
+                                zod.literal(0),
+                                zod.literal(1),
+                                zod.literal(2),
+                                zod.literal(3),
+                                zod.literal(11),
+                                zod.literal(12),
+                            ])
+                            .describe('* `0` - 0\n* `1` - 1\n* `2` - 2\n* `3` - 3\n* `11` - 11\n* `12` - 12'),
+                        tokens: zod.number(),
+                    }),
+                    zod.null(),
+                ])
+                .optional(),
             execution_order: zod
                 .number()
                 .min(hogFunctionsInvocationsCreateBodyConfigurationOneExecutionOrderMin)
@@ -907,7 +936,13 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                 .nullish()
                 .describe('Execution priority for transformations. Lower values run first.'),
             _create_in_folder: zod.string().optional(),
-            batch_export_id: zod.string().nullish(),
+            batch_export_id: zod.uuid().nullish(),
+            search_match_type: zod
+                .union([zod.enum(['exact', 'similar']), zod.null()])
+                .optional()
+                .describe(
+                    'How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`.'
+                ),
         })
         .describe('Full function configuration to test.'),
     globals: zod
@@ -938,8 +973,11 @@ export const hogFunctionsLogsRetrieveQueryLimitDefault = 50
 export const hogFunctionsLogsRetrieveQueryLimitMax = 500
 
 export const HogFunctionsLogsRetrieveQueryParams = /* @__PURE__ */ zod.object({
-    after: zod.iso.datetime({}).optional().describe('Only return entries after this ISO 8601 timestamp.'),
-    before: zod.iso.datetime({}).optional().describe('Only return entries before this ISO 8601 timestamp.'),
+    after: zod.iso.datetime({ offset: true }).optional().describe('Only return entries after this ISO 8601 timestamp.'),
+    before: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe('Only return entries before this ISO 8601 timestamp.'),
     instance_id: zod.string().min(1).optional().describe('Filter logs to a specific execution instance.'),
     level: zod
         .string()

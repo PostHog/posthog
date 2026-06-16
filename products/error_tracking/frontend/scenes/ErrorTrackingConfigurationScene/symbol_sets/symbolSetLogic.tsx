@@ -23,8 +23,10 @@ export const symbolSetLogic = kea<symbolSetLogicType>([
 
     actions({
         loadSymbolSets: () => {},
+        downloadSymbolSet: (id: string) => ({ id }),
         setSymbolSetStatusFilter: (status: SymbolSetStatusFilter) => ({ status }),
         setSymbolSetOrder: (order: SymbolSetOrder) => ({ order }),
+        setSearchQuery: (search: string) => ({ search }),
         setPage: (page: number) => ({ page }),
         setSelectedSymbolSetIds: (ids: string[]) => ({ ids }),
         setShiftKeyHeld: (shiftKeyHeld: boolean) => ({ shiftKeyHeld }),
@@ -36,6 +38,7 @@ export const symbolSetLogic = kea<symbolSetLogicType>([
         symbolSetResponse: null as ErrorTrackingSymbolSetResponse | null,
         symbolSetStatusFilter: 'all' as SymbolSetStatusFilter,
         symbolSetOrder: '-created_at' as SymbolSetOrder,
+        searchQuery: '' as string,
         selectedSymbolSetIds: [] as string[],
         deleteSymbolSetResponse: null as null,
         shiftKeyHeld: false as boolean,
@@ -50,9 +53,13 @@ export const symbolSetLogic = kea<symbolSetLogicType>([
             setPage: (_, { page }) => page,
             setSymbolSetStatusFilter: () => 1,
             setSymbolSetOrder: () => 1,
+            setSearchQuery: () => 1,
         },
         symbolSetOrder: {
             setSymbolSetOrder: (_, { order }) => order,
+        },
+        searchQuery: {
+            setSearchQuery: (_, { search }) => search,
         },
         selectedSymbolSetIds: {
             setSelectedSymbolSetIds: (_, { ids }) => ids,
@@ -76,6 +83,7 @@ export const symbolSetLogic = kea<symbolSetLogicType>([
                     limit: RESULTS_PER_PAGE,
                     offset: (values.page - 1) * RESULTS_PER_PAGE,
                     orderBy: values.symbolSetOrder,
+                    search: values.searchQuery.trim() || undefined,
                 })
                 return res
             },
@@ -98,9 +106,22 @@ export const symbolSetLogic = kea<symbolSetLogicType>([
     })),
 
     listeners(({ actions }) => ({
+        downloadSymbolSet: async ({ id }) => {
+            try {
+                const response = await api.errorTracking.symbolSets.download(id)
+                window.open(response.url, '_blank')
+            } catch (e) {
+                lemonToast.error('Failed to download symbol set')
+                throw e
+            }
+        },
         setSymbolSetStatusFilter: () => actions.loadSymbolSets(),
         setPage: () => actions.loadSymbolSets(),
         setSymbolSetOrder: () => actions.loadSymbolSets(),
+        setSearchQuery: async (_, breakpoint) => {
+            await breakpoint(300)
+            actions.loadSymbolSets()
+        },
     })),
 
     selectors({

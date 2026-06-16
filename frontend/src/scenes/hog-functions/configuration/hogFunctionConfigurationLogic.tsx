@@ -10,7 +10,10 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { CyclotronJobInputsValidation } from 'lib/components/CyclotronJob/CyclotronJobInputsValidation'
+import {
+    CyclotronJobInputsValidation,
+    CyclotronJobInputsValidationResult,
+} from 'lib/components/CyclotronJob/CyclotronJobInputsValidation'
 import { dayjs } from 'lib/dayjs'
 import { uuid } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
@@ -64,6 +67,7 @@ import {
     SurveyEventProperties,
 } from '~/types'
 
+import { performWideEventsQueryInTwoPhases } from '../sampleEventsQuery'
 import { eventToHogFunctionContextId } from '../sub-templates/sub-templates'
 import type { hogFunctionConfigurationLogicType } from './hogFunctionConfigurationLogicType'
 
@@ -609,7 +613,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         'No events match these filters in the last 30 days. Showing an example $pageview event instead.'
                     try {
                         await breakpoint(values.sampleGlobals === null ? 10 : 1000)
-                        let response = await performQuery({
+                        let response = await performWideEventsQueryInTwoPhases({
                             ...values.lastEventQuery,
                             properties: eventId
                                 ? [
@@ -621,7 +625,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                                 : undefined,
                         })
                         if (!response?.results?.[0] && values.lastEventSecondQuery) {
-                            response = await performQuery({
+                            response = await performWideEventsQueryInTwoPhases({
                                 ...values.lastEventSecondQuery,
                                 properties: eventId
                                     ? [
@@ -804,16 +808,19 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
         ],
 
-        inputFormErrors: [
+        inputsValidation: [
             (s) => [s.configuration],
-            (configuration): Record<string, string> | null => {
-                const result = CyclotronJobInputsValidation.validate(
-                    configuration.inputs ?? {},
-                    configuration.inputs_schema ?? []
-                )
-
-                return result.valid ? null : result.errors
-            },
+            (configuration): CyclotronJobInputsValidationResult =>
+                CyclotronJobInputsValidation.validate(configuration.inputs ?? {}, configuration.inputs_schema ?? []),
+        ],
+        inputFormErrors: [
+            (s) => [s.inputsValidation],
+            (inputsValidation): Record<string, string> | null =>
+                inputsValidation.valid ? null : inputsValidation.errors,
+        ],
+        inputFormWarnings: [
+            (s) => [s.inputsValidation],
+            (inputsValidation): Record<string, string> => inputsValidation.warnings,
         ],
         willReEnableOnSave: [
             (s) => [s.configuration, s.hogFunction],
@@ -871,24 +878,42 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                                                 description: 'This is the issue description',
                                             },
                                         }
-                                      : contextId === 'activity-log'
+                                      : contextId === 'health-alerts'
                                         ? {
-                                              event: '$activity_log_entry_created',
+                                              event:
+                                                  configuration?.filters?.events?.[0].id ||
+                                                  '$health_check_issue_firing',
                                               properties: {
-                                                  activity: 'created',
-                                                  scope: 'Insight',
-                                                  item_id: 'abcdef',
+                                                  kind: 'sdk_outdated',
+                                                  severity: 'warning',
+                                                  issue_id: '00000000-0000-0000-0000-000000000000',
+                                                  title: 'posthog-python SDK is outdated',
+                                                  summary: 'posthog-python is on 7.0.0, latest is 7.14.0',
+                                                  link: '/health/sdk-health',
+                                                  payload: {
+                                                      sdk_name: 'posthog-python',
+                                                      latest_version: '7.14.0',
+                                                  },
                                               },
                                           }
-                                        : {
-                                              event: '$pageview',
-                                              properties: {
-                                                  $current_url: currentUrl,
-                                                  $browser: 'Chrome',
-                                                  $ip: '89.160.20.129',
-                                                  this_is_an_example_event: true,
-                                              },
-                                          }),
+                                        : contextId === 'activity-log'
+                                          ? {
+                                                event: '$activity_log_entry_created',
+                                                properties: {
+                                                    activity: 'created',
+                                                    scope: 'Insight',
+                                                    item_id: 'abcdef',
+                                                },
+                                            }
+                                          : {
+                                                event: '$pageview',
+                                                properties: {
+                                                    $current_url: currentUrl,
+                                                    $browser: 'Chrome',
+                                                    $ip: '89.160.20.129',
+                                                    this_is_an_example_event: true,
+                                                },
+                                            }),
                               },
                               person:
                                   contextId !== 'error-tracking'
@@ -947,8 +972,22 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     }
                 }
 
+                const baseGlobals = sampleGlobals ?? exampleInvocationGlobals
+
+                // Transformations only receive `project` and `event` at runtime
+                // (see HogTransformerService.createInvocationGlobals). Hide `person`,
+                // `groups`, `source`, etc. so input templates can't reference them
+                // and trigger a "Global variable not found" failure in production.
+                if (configuration.type === 'transformation') {
+                    return {
+                        project: baseGlobals.project,
+                        event: baseGlobals.event,
+                        inputs,
+                    }
+                }
+
                 return {
-                    ...(sampleGlobals ?? exampleInvocationGlobals),
+                    ...baseGlobals,
                     inputs,
                 }
             },

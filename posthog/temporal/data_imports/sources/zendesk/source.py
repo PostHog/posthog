@@ -2,6 +2,7 @@ import re
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
@@ -38,7 +39,12 @@ class ZendeskSource(SimpleSource[ZendeskSourceConfig]):
         }
 
     def get_schemas(
-        self, config: ZendeskSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+        self,
+        config: ZendeskSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -71,6 +77,7 @@ class ZendeskSource(SimpleSource[ZendeskSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.ZENDESK,
+            category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             caption="Enter your Zendesk API key to automatically pull your Zendesk support data into the PostHog Data warehouse.",
             iconPath="/static/services/zendesk.png",
             iconClassName="rounded dark:bg-white p-[2px]",
@@ -84,6 +91,7 @@ class ZendeskSource(SimpleSource[ZendeskSourceConfig]):
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="api_key",
@@ -91,6 +99,7 @@ class ZendeskSource(SimpleSource[ZendeskSourceConfig]):
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="",
+                        secret=True,
                     ),
                     SourceFieldInputConfig(
                         name="email_address",
@@ -98,6 +107,7 @@ class ZendeskSource(SimpleSource[ZendeskSourceConfig]):
                         type=SourceFieldInputConfigType.EMAIL,
                         required=True,
                         placeholder="",
+                        secret=False,
                     ),
                 ],
             ),

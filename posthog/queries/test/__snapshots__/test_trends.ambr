@@ -635,18 +635,23 @@
   WHERE team_id = 99999
     AND ((event = '$pageview'
           AND (has(['p1', 'p2', 'p3'], replaceRegexpAll(JSONExtractRaw(person_props, 'name'), '^"|"$', ''))
-               AND pdi.person_id IN
-                 (SELECT id
-                  FROM person
-                  WHERE team_id = 99999
-                    AND id IN
-                      (SELECT id
-                       FROM person
-                       WHERE team_id = 99999
-                         AND ((has(['p1', 'p2'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', '')))))
-                  GROUP BY id
-                  HAVING max(is_deleted) = 0
-                  AND ((has(['p1', 'p2'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1))))
+               AND pdi.person_id IN (
+                                       (SELECT persons.id AS id
+                                        FROM
+                                          (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___name,
+                                                  person.id AS id
+                                           FROM person
+                                           WHERE and(equals(person.team_id, 99999), in(id,
+                                                                                         (SELECT where_optimization.id AS id
+                                                                                          FROM person AS where_optimization
+                                                                                          WHERE and(equals(where_optimization.team_id, 99999), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'name'), ''), 'null'), '^"|"$', ''), tuple('p1', 'p2'))))))
+                                           GROUP BY person.id
+                                           HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+                                        WHERE in(persons.properties___name,
+                                                 tuple('p1', 'p2'))
+                                        ORDER BY persons.id ASC
+                                        LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
+                                                                  join_algorithm='auto')))))
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
   GROUP BY value
@@ -720,18 +725,23 @@
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
                    AND ((event = '$pageview'
                          AND (has(['p1', 'p2', 'p3'], replaceRegexpAll(JSONExtractRaw(person_props, 'name'), '^"|"$', ''))
-                              AND pdi.person_id IN
-                                (SELECT id
-                                 FROM person
-                                 WHERE team_id = 99999
-                                   AND id IN
-                                     (SELECT id
-                                      FROM person
-                                      WHERE team_id = 99999
-                                        AND ((has(['p1', 'p2'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', '')))))
-                                 GROUP BY id
-                                 HAVING max(is_deleted) = 0
-                                 AND ((has(['p1', 'p2'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1))))
+                              AND pdi.person_id IN (
+                                                      (SELECT persons.id AS id
+                                                       FROM
+                                                         (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___name,
+                                                                 person.id AS id
+                                                          FROM person
+                                                          WHERE and(equals(person.team_id, 99999), in(id,
+                                                                                                        (SELECT where_optimization.id AS id
+                                                                                                         FROM person AS where_optimization
+                                                                                                         WHERE and(equals(where_optimization.team_id, 99999), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'name'), ''), 'null'), '^"|"$', ''), tuple('p1', 'p2'))))))
+                                                          GROUP BY person.id
+                                                          HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+                                                       WHERE in(persons.properties___name,
+                                                                tuple('p1', 'p2'))
+                                                       ORDER BY persons.id ASC
+                                                       LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
+                                                                                 join_algorithm='auto')))))
                  GROUP BY timestamp, person_id,
                                      breakdown_value) e
               WHERE e.timestamp <= d.timestamp
@@ -932,6 +942,18 @@
 # ---
 # name: TestTrends.test_dau_with_breakdown_filtering_with_sampling
   '''
+  /* celery:posthog.tasks.tasks.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '''
+# ---
+# name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.1
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS value,
          count(*) as count
@@ -946,7 +968,7 @@
   OFFSET 0
   '''
 # ---
-# name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.1
+# name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.2
   '''
   
   SELECT groupArray(day_start) as date,
@@ -998,7 +1020,7 @@
   ORDER BY breakdown_value
   '''
 # ---
-# name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.2
+# name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.3
   '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS value,
@@ -1014,7 +1036,7 @@
   OFFSET 0
   '''
 # ---
-# name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.3
+# name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.4
   '''
   
   SELECT groupArray(day_start) as date,
@@ -1639,6 +1661,18 @@
 # ---
 # name: TestTrends.test_person_filtering_in_cohort_in_action
   '''
+  /* celery:posthog.tasks.tasks.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '''
+# ---
+# name: TestTrends.test_person_filtering_in_cohort_in_action.1
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS value,
          count(*) as count
@@ -1652,18 +1686,22 @@
      HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
   WHERE team_id = 99999
     AND ((event = 'sign up'
-          AND (pdi.person_id IN
-                 (SELECT id
-                  FROM person
-                  WHERE team_id = 99999
-                    AND id IN
-                      (SELECT id
-                       FROM person
-                       WHERE team_id = 99999
-                         AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(properties, '$some_prop'), '^"|"$', '')))))
-                  GROUP BY id
-                  HAVING max(is_deleted) = 0
-                  AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1))))
+          AND (pdi.person_id IN (
+                                   (SELECT persons.id AS id
+                                    FROM
+                                      (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'), '^"|"$', '')), person.version), 1) AS `properties___$some_prop`,
+                                              person.id AS id
+                                       FROM person
+                                       WHERE and(equals(person.team_id, 99999), in(id,
+                                                                                     (SELECT where_optimization.id AS id
+                                                                                      FROM person AS where_optimization
+                                                                                      WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, '$some_prop'), ''), 'null'), '^"|"$', ''), 'some_val'), 0)))))
+                                       GROUP BY person.id
+                                       HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+                                    WHERE ifNull(equals(persons.`properties___$some_prop`, 'some_val'), 0)
+                                    ORDER BY persons.id ASC
+                                    LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
+                                                              join_algorithm='auto')))))
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
   GROUP BY value
@@ -1672,7 +1710,7 @@
   OFFSET 0
   '''
 # ---
-# name: TestTrends.test_person_filtering_in_cohort_in_action.1
+# name: TestTrends.test_person_filtering_in_cohort_in_action.2
   '''
   
   SELECT groupArray(day_start) as date,
@@ -1714,18 +1752,22 @@
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
              AND ((event = 'sign up'
-                   AND (pdi.person_id IN
-                          (SELECT id
-                           FROM person
-                           WHERE team_id = 99999
-                             AND id IN
-                               (SELECT id
-                                FROM person
-                                WHERE team_id = 99999
-                                  AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(properties, '$some_prop'), '^"|"$', '')))))
-                           GROUP BY id
-                           HAVING max(is_deleted) = 0
-                           AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1))))
+                   AND (pdi.person_id IN (
+                                            (SELECT persons.id AS id
+                                             FROM
+                                               (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'), '^"|"$', '')), person.version), 1) AS `properties___$some_prop`,
+                                                       person.id AS id
+                                                FROM person
+                                                WHERE and(equals(person.team_id, 99999), in(id,
+                                                                                              (SELECT where_optimization.id AS id
+                                                                                               FROM person AS where_optimization
+                                                                                               WHERE and(equals(where_optimization.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, '$some_prop'), ''), 'null'), '^"|"$', ''), 'some_val'), 0)))))
+                                                GROUP BY person.id
+                                                HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+                                             WHERE ifNull(equals(persons.`properties___$some_prop`, 'some_val'), 0)
+                                             ORDER BY persons.id ASC
+                                             LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
+                                                                       join_algorithm='auto')))))
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -4095,6 +4137,18 @@
 # ---
 # name: TestTrends.test_trends_any_event_total_count
   '''
+  /* celery:posthog.tasks.tasks.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '''
+# ---
+# name: TestTrends.test_trends_any_event_total_count.1
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -4119,7 +4173,7 @@
      ORDER BY day_start)
   '''
 # ---
-# name: TestTrends.test_trends_any_event_total_count.1
+# name: TestTrends.test_trends_any_event_total_count.2
   '''
   
   SELECT groupArray(day_start) as date,
@@ -4147,6 +4201,18 @@
 # ---
 # name: TestTrends.test_trends_breakdown_cumulative
   '''
+  /* celery:posthog.tasks.tasks.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '''
+# ---
+# name: TestTrends.test_trends_breakdown_cumulative.1
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS value,
          count(*) as count
@@ -4161,7 +4227,7 @@
   OFFSET 0
   '''
 # ---
-# name: TestTrends.test_trends_breakdown_cumulative.1
+# name: TestTrends.test_trends_breakdown_cumulative.2
   '''
   
   SELECT groupArray(day_start) as date,
@@ -4423,6 +4489,18 @@
 # ---
 # name: TestTrends.test_trends_compare_day_interval_relative_range
   '''
+  /* celery:posthog.tasks.tasks.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '''
+# ---
+# name: TestTrends.test_trends_compare_day_interval_relative_range.1
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -4447,7 +4525,7 @@
      ORDER BY day_start)
   '''
 # ---
-# name: TestTrends.test_trends_compare_day_interval_relative_range.1
+# name: TestTrends.test_trends_compare_day_interval_relative_range.2
   '''
   
   SELECT groupArray(day_start) as date,
@@ -4473,7 +4551,7 @@
      ORDER BY day_start)
   '''
 # ---
-# name: TestTrends.test_trends_compare_day_interval_relative_range.2
+# name: TestTrends.test_trends_compare_day_interval_relative_range.3
   '''
   
   SELECT groupArray(day_start) as date,
@@ -4781,6 +4859,18 @@
   '''
 # ---
 # name: TestTrends.test_trends_per_day_cumulative
+  '''
+  /* celery:posthog.tasks.tasks.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '''
+# ---
+# name: TestTrends.test_trends_per_day_cumulative.1
   '''
   
   SELECT groupArray(day_start) as date,

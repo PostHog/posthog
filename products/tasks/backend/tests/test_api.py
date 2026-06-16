@@ -3,26 +3,29 @@ import time
 import uuid
 import base64
 import asyncio
-import threading
 from collections.abc import Iterator
+from datetime import timedelta
 from typing import ClassVar, cast
+from urllib.parse import quote
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.conf import settings
 from django.http import StreamingHttpResponse
 from django.test import TestCase, override_settings
-from django.utils import timezone
+from django.utils import timezone as django_timezone
 
 import jwt
+import requests
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog.models import Integration, Organization, OrganizationMembership, PersonalAPIKey, Team, User
 from posthog.models.personal_api_key import hash_key_value
+from posthog.models.user_integration import UserIntegration
 from posthog.models.utils import generate_random_token_personal
 from posthog.storage import object_storage
-from posthog.storage.object_storage import ObjectStorageError
 
 from products.tasks.backend.models import (
     CodeInvite,
@@ -37,18 +40,42 @@ from products.tasks.backend.serializers import (
     TASK_RUN_PDF_ARTIFACT_MAX_SIZE_BYTES,
     TaskAutomationSerializer,
 )
-from products.tasks.backend.services.connection_token import get_sandbox_jwt_public_key
+from products.tasks.backend.services.code_usage_gate import CodeUsageStatus, _gateway_usage_url, get_posthog_code_usage
+from products.tasks.backend.services.connection_token import get_sandbox_jwt_public_key, reset_sandbox_jwt_key_cache
 from products.tasks.backend.services.staged_artifacts import (
+    RUN_ARTIFACT_TTL_DAYS,
     build_task_artifact_entry,
     cache_task_staged_artifact,
     get_task_staged_artifacts,
 )
-from products.tasks.backend.stream.redis_stream import (
-    TaskRunRedisStream,
-    get_task_run_stream_key,
-    publish_task_run_stream_event,
-)
+from products.tasks.backend.stream.redis_stream import TaskRunRedisStream, get_task_run_stream_key
 from products.tasks.backend.temporal.process_task.utils import get_cached_github_user_token
+
+
+def _grant_user_github_access(user: User, *, refresh_ttl_seconds: int = 15897600) -> UserIntegration:
+    now = int(time.time())
+    return UserIntegration.objects.create(
+        user=user,
+        kind="github",
+        integration_id="12345",
+        config={
+            "installation_id": "12345",
+            "expires_in": 3600,
+            "refreshed_at": now,
+            "repository_selection": "selected",
+            "account": {"type": "User", "name": "octocat"},
+            "github_user": {"login": "octocat", "id": 99},
+            "user_token_refreshed_at": now,
+            "user_access_token_expires_at": now + 28800,
+            "user_refresh_token_expires_at": now + refresh_ttl_seconds,
+        },
+        sensitive_config={
+            "access_token": "ghs_install",
+            "user_access_token": "gho_access",
+            "user_refresh_token": "ghr_refresh",
+        },
+    )
+
 
 # Test RSA private key for JWT tests (RS256)
 TEST_RSA_PRIVATE_KEY = """-----BEGIN PRIVATE KEY-----
@@ -125,13 +152,23 @@ class BaseTaskAPITest(TestCase):
 
         self.mock_feature_flag.side_effect = check_flag
 
-    def create_task(self, title="Test Task"):
+    def create_task(self, title="Test Task", created_by: User | None = None):
         return Task.objects.create(
             team=self.team,
+            created_by=created_by or self.user,
             title=title,
             description="Test Description",
             origin_product=Task.OriginProduct.USER_CREATED,
         )
+
+    def create_organization_user(self, email_prefix: str = "other") -> User:
+        user = User.objects.create_user(
+            email=f"{email_prefix}-{uuid.uuid4()}@example.com",
+            first_name="Other",
+            password="password",
+        )
+        self.organization.members.add(user)
+        return user
 
     def create_automation(
         self,
@@ -155,6 +192,544 @@ class BaseTaskAPITest(TestCase):
             timezone="Europe/London",
             enabled=True,
         )
+
+
+class TestTaskCreatorScoping(BaseTaskAPITest):
+    def _create_legacy_task(self, title: str = "Legacy") -> Task:
+        return Task.objects.create(
+            team=self.team,
+            created_by=None,
+            title=title,
+            description="Legacy unowned",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+
+    def test_list_excludes_other_user_tasks_but_includes_legacy_unowned(self):
+        other_user = self.create_organization_user("victim")
+        self.create_task("Mine", created_by=self.user)
+        self.create_task("Theirs", created_by=other_user)
+        self._create_legacy_task("Legacy")
+
+        response = self.client.get("/api/projects/@current/tasks/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        titles = sorted(task["title"] for task in response.json()["results"])
+        self.assertEqual(titles, ["Legacy", "Mine"])
+
+    def test_retrieve_other_user_task_returns_404(self):
+        other_user = self.create_organization_user("victim")
+        task = self.create_task(created_by=other_user)
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_retrieve_legacy_unowned_task_is_visible(self):
+        task = self._create_legacy_task()
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_retrieve_signal_report_task_owned_by_another_user_is_visible(self):
+        # Signals-generated tasks are team-scoped artifacts; the pipeline picks
+        # a system user as `created_by` purely to mint an OAuth token. Any team
+        # member must be able to retrieve them by ID.
+        other_user = self.create_organization_user("signal-owner")
+        task = Task.objects.create(
+            team=self.team,
+            created_by=other_user,
+            title="Signal Report Task",
+            description="Generated by signals",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            internal=True,
+        )
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["id"], str(task.id))
+
+    def test_list_signal_report_tasks_hidden_by_default(self):
+        # Signal-report tasks are always created with internal=True, so the
+        # default list still hides them. The retrieve-by-ID path (and the
+        # staff/DEBUG `?internal=true` path) is how they're surfaced.
+        other_user = self.create_organization_user("signal-owner")
+        signal_task = Task.objects.create(
+            team=self.team,
+            created_by=other_user,
+            title="Signal Report Task",
+            description="Generated by signals",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            internal=True,
+        )
+        mine = self.create_task("Mine", created_by=self.user)
+
+        response = self.client.get("/api/projects/@current/tasks/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids = {t["id"] for t in response.json()["results"]}
+        self.assertIn(str(mine.id), ids)
+        self.assertNotIn(str(signal_task.id), ids)
+
+    def test_list_signals_scout_tasks_owned_by_another_user(self):
+        # Signals scout task runs are team-scoped, but created under the user
+        # resolved from the team's GitHub integration so the sandbox can mint
+        # OAuth tokens. They should still show in the shared Tasks list.
+        other_user = self.create_organization_user("scout-owner")
+        scout_task = Task.objects.create(
+            team=self.team,
+            created_by=other_user,
+            title="Signals Scout Task",
+            description="Generated by Signals scout",
+            origin_product=Task.OriginProduct.SIGNALS_SCOUT,
+        )
+        mine = self.create_task("Mine", created_by=self.user)
+
+        response = self.client.get("/api/projects/@current/tasks/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids = {t["id"] for t in response.json()["results"]}
+        self.assertIn(str(mine.id), ids)
+        self.assertIn(str(scout_task.id), ids)
+
+    def test_retrieve_signals_scout_task_owned_by_another_user_is_visible(self):
+        other_user = self.create_organization_user("scout-owner")
+        task = Task.objects.create(
+            team=self.team,
+            created_by=other_user,
+            title="Signals Scout Task",
+            description="Generated by Signals scout",
+            origin_product=Task.OriginProduct.SIGNALS_SCOUT,
+        )
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["id"], str(task.id))
+
+    def test_retrieve_other_user_non_signal_internal_task_returns_404(self):
+        # Non-signal internal tasks created by another user remain private.
+        other_user = self.create_organization_user("victim")
+        task = Task.objects.create(
+            team=self.team,
+            created_by=other_user,
+            title="Their internal",
+            description="",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            internal=True,
+        )
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_list_runs_signal_report_task_owned_by_another_user_succeeds(self):
+        other_user = self.create_organization_user("signal-owner")
+        task = Task.objects.create(
+            team=self.team,
+            created_by=other_user,
+            title="Signal Report Task",
+            description="Generated by signals",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            internal=True,
+        )
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids = {r["id"] for r in response.json()["results"]}
+        self.assertEqual(ids, {str(run.id)})
+
+    def test_list_runs_signals_scout_task_owned_by_another_user_succeeds(self):
+        other_user = self.create_organization_user("scout-owner")
+        task = Task.objects.create(
+            team=self.team,
+            created_by=other_user,
+            title="Signals Scout Task",
+            description="Generated by Signals scout",
+            origin_product=Task.OriginProduct.SIGNALS_SCOUT,
+        )
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids = {r["id"] for r in response.json()["results"]}
+        self.assertEqual(ids, {str(run.id)})
+
+    def test_retrieve_run_signal_report_task_owned_by_another_user_succeeds(self):
+        other_user = self.create_organization_user("signal-owner")
+        task = Task.objects.create(
+            team=self.team,
+            created_by=other_user,
+            title="Signal Report Task",
+            description="Generated by signals",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            internal=True,
+        )
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["id"], str(run.id))
+
+    def test_retrieve_signal_report_automation_owned_by_another_user_succeeds(self):
+        # TaskAutomationViewSet filters with task_run_visibility_q (task FK traversal).
+        other_user = self.create_organization_user("signal-owner")
+        task = Task.objects.create(
+            team=self.team,
+            created_by=other_user,
+            title="Signal Report Task",
+            description="Generated by signals",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            internal=True,
+        )
+        automation = TaskAutomation.objects.create(
+            task=task,
+            cron_expression="0 9 * * *",
+            timezone="Europe/London",
+            enabled=True,
+        )
+
+        response = self.client.get(f"/api/projects/@current/task_automations/{automation.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["id"], str(automation.id))
+
+    def test_retrieve_other_user_internal_non_signal_automation_returns_404(self):
+        other_user = self.create_organization_user("victim")
+        task = Task.objects.create(
+            team=self.team,
+            created_by=other_user,
+            title="Their internal",
+            description="",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            internal=True,
+        )
+        automation = TaskAutomation.objects.create(
+            task=task,
+            cron_expression="0 9 * * *",
+            timezone="Europe/London",
+            enabled=True,
+        )
+
+        response = self.client.get(f"/api/projects/@current/task_automations/{automation.id}/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_repositories_excludes_other_user_repos(self):
+        other_user = self.create_organization_user("victim")
+        mine = self.create_task("Mine", created_by=self.user)
+        mine.repository = "me/repo"
+        mine.save(update_fields=["repository"])
+        theirs = self.create_task("Theirs", created_by=other_user)
+        theirs.repository = "victim/secret"
+        theirs.save(update_fields=["repository"])
+
+        response = self.client.get("/api/projects/@current/tasks/repositories/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["repositories"], ["me/repo"])
+
+    def test_summaries_excludes_other_user_tasks(self):
+        other_user = self.create_organization_user("victim")
+        mine = self.create_task("Mine", created_by=self.user)
+        theirs = self.create_task("Theirs", created_by=other_user)
+
+        response = self.client.post(
+            "/api/projects/@current/tasks/summaries/",
+            {"ids": [str(mine.id), str(theirs.id)]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids = sorted(item["id"] for item in response.json()["results"])
+        self.assertEqual(ids, [str(mine.id)])
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_other_user_task_returns_404(self, mock_workflow):
+        other_user = self.create_organization_user("victim")
+        task = self.create_task(created_by=other_user)
+
+        response = self.client.post(f"/api/projects/@current/tasks/{task.id}/run/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertFalse(TaskRun.objects.filter(task=task).exists())
+        mock_workflow.assert_not_called()
+
+    def test_update_other_user_task_returns_404(self):
+        other_user = self.create_organization_user("victim")
+        task = self.create_task(created_by=other_user, title="Original")
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/",
+            {"title": "Hijacked"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        task.refresh_from_db()
+        self.assertEqual(task.title, "Original")
+
+    def test_delete_other_user_task_returns_404(self):
+        other_user = self.create_organization_user("victim")
+        task = self.create_task(created_by=other_user)
+
+        response = self.client.delete(f"/api/projects/@current/tasks/{task.id}/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        task.refresh_from_db()
+        self.assertFalse(task.deleted)
+
+    def test_staged_artifacts_prepare_upload_other_user_task_returns_404(self):
+        other_user = self.create_organization_user("victim")
+        task = self.create_task(created_by=other_user)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/staged_artifacts/prepare_upload/",
+            {"artifacts": [{"name": "x.txt", "type": "user_attachment", "size": 1}]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_list_runs_for_other_user_task_returns_404(self):
+        other_user = self.create_organization_user("victim")
+        task = self.create_task(created_by=other_user)
+        TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_create_run_for_other_user_task_returns_404(self):
+        other_user = self.create_organization_user("victim")
+        task = self.create_task(created_by=other_user)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/",
+            {"environment": "cloud"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertFalse(TaskRun.objects.filter(task=task).exists())
+
+    def test_command_on_other_user_run_returns_404(self):
+        other_user = self.create_organization_user("victim")
+        task = self.create_task(created_by=other_user)
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/command/",
+            {"jsonrpc": "2.0", "method": "user_message", "params": {"content": "leak secrets"}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_set_output_on_other_user_run_returns_404(self):
+        other_user = self.create_organization_user("victim")
+        task = self.create_task(created_by=other_user)
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/set_output/",
+            {"output": {"pr_url": "https://example.com/hijack"}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_connection_token_on_other_user_run_returns_404(self):
+        other_user = self.create_organization_user("victim")
+        task = self.create_task(created_by=other_user)
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        response = self.client.get(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/connection_token/",
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_run_automation_for_other_user_task_returns_404(self):
+        other_user = self.create_organization_user("victim")
+        task = Task.objects.create(
+            team=self.team,
+            created_by=other_user,
+            title="Their automation task",
+            description="prompt",
+            origin_product=Task.OriginProduct.AUTOMATION,
+            repository="victim/repo",
+        )
+        automation = TaskAutomation.objects.create(
+            task=task,
+            cron_expression="0 9 * * *",
+            timezone="Europe/London",
+            enabled=True,
+        )
+
+        response = self.client.post(f"/api/projects/@current/task_automations/{automation.id}/run/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+
+@override_settings(CLOUD_DEPLOYMENT="US")
+class TestTaskVisibilityInternalDebugTeamBypass(BaseTaskAPITest):
+    """When the gate (`_is_internal_debug_team`) fires, PostHog employees can
+    read any teammate's task/run by ID — but the bypass is deliberately narrow:
+    only the `retrieve` action on TaskViewSet and read-only actions on
+    TaskRunViewSet. List views, write actions, and other teams remain
+    creator-scoped. The unaffected cases live in `TestTaskCreatorScoping`
+    above; the deployment-region requirement is covered by
+    `TestTaskVisibilityInternalDebugRegionGate`."""
+
+    def setUp(self):
+        super().setUp()
+        # Production checks `team_id == 2 AND CLOUD_DEPLOYMENT == "US"`; tests
+        # can't easily force the row id, so substitute the test team's id and
+        # keep the deployment-region clause intact so off-US tests still flip.
+        self._bypass_patch = patch(
+            "products.tasks.backend.api._is_internal_debug_team",
+            side_effect=lambda team_id: team_id == self.team.id and settings.CLOUD_DEPLOYMENT == "US",
+        )
+        self._bypass_patch.start()
+
+    def tearDown(self):
+        self._bypass_patch.stop()
+        super().tearDown()
+
+    def test_retrieve_other_user_task_succeeds(self):
+        other_user = self.create_organization_user("teammate")
+        task = self.create_task(created_by=other_user)
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/?ph_debug=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["id"], str(task.id))
+
+    def test_retrieve_other_user_task_without_ph_debug_still_404s(self):
+        # The whole point of the param-gated bypass — even on the internal team
+        # in US-prod, default behavior matches every other team.
+        other_user = self.create_organization_user("teammate")
+        task = self.create_task(created_by=other_user)
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_list_still_excludes_other_user_tasks(self):
+        # The bypass is scoped to `retrieve` — list still filters by creator even
+        # with `?ph_debug=true`.
+        other_user = self.create_organization_user("teammate")
+        mine = self.create_task("Mine", created_by=self.user)
+        theirs = self.create_task("Theirs", created_by=other_user)
+
+        response = self.client.get("/api/projects/@current/tasks/?ph_debug=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids = {item["id"] for item in response.json()["results"]}
+        assert str(mine.id) in ids
+        assert str(theirs.id) not in ids
+
+    def test_repositories_still_excludes_other_user_repos(self):
+        other_user = self.create_organization_user("teammate")
+        theirs = self.create_task("Theirs", created_by=other_user)
+        theirs.repository = "team/repo"
+        theirs.save(update_fields=["repository"])
+
+        response = self.client.get("/api/projects/@current/tasks/repositories/?ph_debug=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["repositories"], [])
+
+    def test_list_runs_for_other_user_task_succeeds(self):
+        other_user = self.create_organization_user("teammate")
+        task = self.create_task(created_by=other_user)
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/?ph_debug=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids = {item["id"] for item in response.json()["results"]}
+        self.assertEqual(ids, {str(run.id)})
+
+    def test_list_runs_for_other_user_task_without_ph_debug_still_404s(self):
+        other_user = self.create_organization_user("teammate")
+        task = self.create_task(created_by=other_user)
+        TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_retrieve_other_user_run_succeeds(self):
+        other_user = self.create_organization_user("teammate")
+        task = self.create_task(created_by=other_user)
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/?ph_debug=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["id"], str(run.id))
+
+    def test_connection_token_on_other_user_run_still_404s_with_ph_debug(self):
+        # connection_token is a GET but mints a write-capable sandbox JWT — the
+        # read-only debug bypass must NOT expose it for another user's run.
+        other_user = self.create_organization_user("teammate")
+        task = self.create_task(created_by=other_user)
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        response = self.client.get(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/connection_token/?ph_debug=true"
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_write_action_on_other_user_task_still_returns_404(self, _mock_workflow):
+        # POST /tasks/<id>/run/ is a write — bypass must NOT fire even when the
+        # `?ph_debug=true` opt-in is set; that param is read-only.
+        other_user = self.create_organization_user("teammate")
+        task = self.create_task(created_by=other_user)
+
+        response = self.client.post(f"/api/projects/@current/tasks/{task.id}/run/?ph_debug=true")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_create_run_on_other_user_task_still_returns_404(self):
+        # POST /tasks/<id>/runs/ is a write — bypass must NOT fire even with the
+        # opt-in.
+        other_user = self.create_organization_user("teammate")
+        task = self.create_task(created_by=other_user)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/?ph_debug=true",
+            {"environment": "cloud"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+
+class TestTaskVisibilityInternalDebugRegionGate(BaseTaskAPITest):
+    """The internal-debug bypass keys on team-id 2 — but that's only meaningful in
+    the US-prod DB. On EU prod, self-hosted, and dev, team-id 2 belongs to some
+    unrelated organization. The gate must require `CLOUD_DEPLOYMENT == "US"` to
+    avoid silently granting cross-creator visibility there."""
+
+    def setUp(self):
+        super().setUp()
+        # Same shape as `TestTaskVisibilityInternalDebugTeamBypass.setUp` — the
+        # `team.id` match would pass on its own, leaving `CLOUD_DEPLOYMENT` as
+        # the only thing each test varies.
+        self._bypass_patch = patch(
+            "products.tasks.backend.api._is_internal_debug_team",
+            side_effect=lambda team_id: team_id == self.team.id and settings.CLOUD_DEPLOYMENT == "US",
+        )
+        self._bypass_patch.start()
+
+    def tearDown(self):
+        self._bypass_patch.stop()
+        super().tearDown()
+
+    @parameterized.expand(
+        [
+            ("eu_prod", "EU"),
+            ("self_hosted_or_dev", None),
+        ]
+    )
+    def test_retrieve_other_user_task_still_blocked_off_us(self, _name: str, deployment: str | None) -> None:
+        # Sending the FE opt-in must NOT unlock the bypass off-US: the deployment
+        # guard fires before the param is even considered.
+        other_user = self.create_organization_user("teammate")
+        task = self.create_task(created_by=other_user)
+
+        with override_settings(CLOUD_DEPLOYMENT=deployment):
+            response = self.client.get(f"/api/projects/@current/tasks/{task.id}/?ph_debug=true")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    @parameterized.expand(
+        [
+            ("eu_prod", "EU"),
+            ("self_hosted_or_dev", None),
+        ]
+    )
+    def test_slack_thread_context_403_off_us(self, _name: str, deployment: str | None) -> None:
+        with override_settings(CLOUD_DEPLOYMENT=deployment):
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/tasks/slack_thread_context/"
+                "?url=https%3A%2F%2Fposthog.slack.com%2Farchives%2FC0%2Fp1779956938619299"
+            )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
 
 class TestTaskAPI(BaseTaskAPITest):
@@ -268,6 +843,89 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(data["description"], "New Description")
         self.assertEqual(data["repository"], "posthog/posthog")
 
+    def test_create_task_defaults_origin_product(self):
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "title": "New Task",
+                "description": "New Description",
+                "repository": "posthog/posthog",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        data = response.json()
+        self.assertEqual(data["origin_product"], Task.OriginProduct.USER_CREATED)
+
+        task = Task.objects.get(id=data["id"])
+        self.assertEqual(task.origin_product, Task.OriginProduct.USER_CREATED)
+
+    def test_create_task_with_github_user_integration(self):
+        user_integration = _grant_user_github_access(self.user)
+
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "title": "New Task",
+                "description": "New Description",
+                "origin_product": "user_created",
+                "repository": "posthog/posthog",
+                "github_user_integration": str(user_integration.id),
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        data = response.json()
+        self.assertEqual(data["github_user_integration"], str(user_integration.id))
+
+        task = Task.objects.get(id=data["id"])
+        self.assertEqual(task.github_user_integration_id, user_integration.id)
+
+    def test_create_and_run_slack_task_uses_user_github_integration(self):
+        user_integration = _grant_user_github_access(self.user)
+        user_integration.repository_cache = [{"id": 1, "name": "posthog", "full_name": "posthog/posthog"}]
+        user_integration.repository_cache_updated_at = django_timezone.now()
+        user_integration.save(update_fields=["repository_cache", "repository_cache_updated_at"])
+        Integration.objects.create(team=self.team, kind="github", integration_id="12345", config={})
+
+        task = Task.create_and_run(
+            team=self.team,
+            title="Slack task",
+            description="Created from Slack",
+            origin_product=Task.OriginProduct.SLACK,
+            user_id=self.user.id,
+            repository="posthog/posthog",
+            create_pr=True,
+            mode="interactive",
+            start_workflow=False,
+        )
+
+        self.assertEqual(task.origin_product, Task.OriginProduct.SLACK)
+        self.assertEqual(task.github_user_integration_id, user_integration.id)
+        assert task.latest_run is not None
+        self.assertEqual(task.latest_run.state["pr_authorship_mode"], "user")
+
+    def test_create_task_rejects_github_user_integration_for_other_user(self):
+        other_user = self.create_organization_user()
+        user_integration = _grant_user_github_access(other_user)
+
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "title": "New Task",
+                "description": "New Description",
+                "origin_product": "user_created",
+                "repository": "posthog/posthog",
+                "github_user_integration": str(user_integration.id),
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "github_user_integration")
+
     def test_create_task_with_signal_report_same_team(self):
         from products.signals.backend.models import SignalReport, SignalReportTask
 
@@ -309,6 +967,32 @@ class TestTaskAPI(BaseTaskAPITest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_patch_cannot_change_origin_product(self):
+        task = self.create_task("Mine")
+        self.assertEqual(task.origin_product, Task.OriginProduct.USER_CREATED)
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/",
+            {"origin_product": "signal_report"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        task.refresh_from_db()
+        self.assertEqual(task.origin_product, Task.OriginProduct.USER_CREATED)
+
+    def test_patch_cannot_change_signal_report(self):
+        from products.signals.backend.models import SignalReport
+
+        report = SignalReport.objects.create(team=self.team)
+        task = self.create_task("Mine")
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/",
+            {"signal_report": str(report.id)},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        task.refresh_from_db()
+        self.assertIsNone(task.signal_report_id)
+
     def test_update_task(self):
         task = self.create_task("Original Task")
 
@@ -329,6 +1013,115 @@ class TestTaskAPI(BaseTaskAPITest):
         task.refresh_from_db()
         self.assertTrue(task.deleted)
         self.assertIsNotNone(task.deleted_at)
+
+    @parameterized.expand(
+        [
+            # (archived_param, expected_titles)
+            ("default_excludes_archived", None, {"Active"}),
+            ("archived_true_returns_only_archived", "true", {"Archived"}),
+            ("archived_all_returns_both", "all", {"Active", "Archived"}),
+            ("archived_false_returns_only_active", "false", {"Active"}),
+        ]
+    )
+    def test_list_tasks_archived_filter(self, _name, archived_param, expected_titles):
+        active_task = self.create_task("Active")
+        archived_task = self.create_task("Archived")
+        archived_task.archived = True
+        archived_task.archived_at = django_timezone.now()
+        archived_task.save(update_fields=["archived", "archived_at"])
+
+        url = "/api/projects/@current/tasks/"
+        if archived_param is not None:
+            url = f"{url}?archived={archived_param}"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        results = response.json()["results"]
+        titles = {task["title"] for task in results}
+        self.assertEqual(titles, expected_titles)
+        # The expected set drives which task UUIDs we expect to come back.
+        expected_ids: set[str] = set()
+        if "Active" in expected_titles:
+            expected_ids.add(str(active_task.id))
+        if "Archived" in expected_titles:
+            expected_ids.add(str(archived_task.id))
+        self.assertEqual({task["id"] for task in results}, expected_ids)
+
+    def test_list_tasks_rejects_invalid_archived_value(self):
+        self.create_task("Active")
+
+        response = self.client.get("/api/projects/@current/tasks/?archived=foo")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_retrieve_archived_task_still_works(self):
+        task = self.create_task("Archived")
+        task.archived = True
+        task.archived_at = django_timezone.now()
+        task.save(update_fields=["archived", "archived_at"])
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertTrue(data["archived"])
+        self.assertIsNotNone(data["archived_at"])
+
+    def test_patch_archived_true_stamps_archived_at(self):
+        task = self.create_task("Mine")
+        self.assertFalse(task.archived)
+        self.assertIsNone(task.archived_at)
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/",
+            {"archived": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertTrue(data["archived"])
+        self.assertIsNotNone(data["archived_at"])
+
+        task.refresh_from_db()
+        self.assertTrue(task.archived)
+        self.assertIsNotNone(task.archived_at)
+
+    def test_patch_archived_false_clears_archived_at(self):
+        task = self.create_task("Mine")
+        task.archived = True
+        task.archived_at = django_timezone.now()
+        task.save(update_fields=["archived", "archived_at"])
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/",
+            {"archived": False},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertFalse(data["archived"])
+        self.assertIsNone(data["archived_at"])
+
+        task.refresh_from_db()
+        self.assertFalse(task.archived)
+        self.assertIsNone(task.archived_at)
+
+    def test_patch_archived_idempotent_preserves_archived_at(self):
+        task = self.create_task("Mine")
+        original_archived_at = django_timezone.now() - timedelta(days=1)
+        task.archived = True
+        task.archived_at = original_archived_at
+        task.save(update_fields=["archived", "archived_at"])
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/",
+            {"archived": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        task.refresh_from_db()
+        self.assertTrue(task.archived)
+        # archived_at should not be re-stamped because the value did not transition.
+        self.assertEqual(task.archived_at, original_archived_at)
 
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
     def test_run_endpoint_triggers_workflow(self, mock_workflow):
@@ -351,15 +1144,36 @@ class TestTaskAPI(BaseTaskAPITest):
             run_id=run_id,
             team_id=task.team.id,
             user_id=self.user.id,
+            posthog_mcp_scopes="full",
         )
 
         self.assertEqual(latest_run["task"], str(task.id))
         self.assertEqual(latest_run["status"], "queued")
         self.assertEqual(latest_run["environment"], "cloud")
 
+    @parameterized.expand(
+        [
+            ("run_source_omitted", None, "full"),
+            ("manual", {"run_source": "manual"}, "full"),
+            ("signal_report", {"run_source": "signal_report"}, "read_only"),
+        ]
+    )
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_resolves_mcp_scope_from_run_source(self, _name, payload, expected_scope, mock_workflow):
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            payload,
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.assertEqual(mock_workflow.call_args.kwargs["posthog_mcp_scopes"], expected_scope)
+
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
     def test_run_endpoint_persists_sandbox_environment_id(self, mock_workflow):
-        task = self.create_task()
+        task = self.create_task(created_by=self.user)
         sandbox_environment = SandboxEnvironment.objects.create(
             team=self.team,
             created_by=self.user,
@@ -378,6 +1192,75 @@ class TestTaskAPI(BaseTaskAPITest):
         run_id = response.json()["latest_run"]["id"]
         task_run = TaskRun.objects.get(id=run_id)
         self.assertEqual(task_run.state["sandbox_environment_id"], str(sandbox_environment.id))
+        mock_workflow.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("run_endpoint", "run", {"sandbox_environment_id": "{sandbox_environment_id}"}),
+            (
+                "create_run_endpoint",
+                "runs",
+                {"environment": "cloud", "sandbox_environment_id": "{sandbox_environment_id}"},
+            ),
+        ]
+    )
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoints_reject_other_users_private_sandbox_environment(
+        self, _name, endpoint, payload_template, mock_workflow
+    ):
+        other_user = self.create_organization_user("victim")
+        task = self.create_task(created_by=self.user)
+        sandbox_environment = SandboxEnvironment.objects.create(
+            team=self.team,
+            created_by=other_user,
+            name="Victim's private env",
+            private=True,
+            environment_variables={"SECRET_KEY": "secret_value"},
+        )
+        payload = {
+            key: str(sandbox_environment.id) if value == "{sandbox_environment_id}" else value
+            for key, value in payload_template.items()
+        }
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/{endpoint}/",
+            payload,
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["detail"], "Invalid sandbox_environment_id")
+        self.assertFalse(TaskRun.objects.filter(task=task).exists())
+        mock_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_drops_inaccessible_inherited_sandbox_environment_id(self, mock_workflow):
+        other_user = self.create_organization_user("victim")
+        task = self.create_task(created_by=self.user)
+        sandbox_environment = SandboxEnvironment.objects.create(
+            team=self.team,
+            created_by=other_user,
+            name="Victim's private env",
+            private=True,
+            environment_variables={"SECRET_KEY": "secret_value"},
+        )
+        previous_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            state={"sandbox_environment_id": str(sandbox_environment.id)},
+        )
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"resume_from_run_id": str(previous_run.id)},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        run = TaskRun.objects.get(id=response.json()["latest_run"]["id"])
+        self.assertEqual(run.state["resume_from_run_id"], str(previous_run.id))
+        self.assertNotIn("sandbox_environment_id", run.state)
         mock_workflow.assert_called_once()
 
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
@@ -435,21 +1318,25 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(artifact["name"], "spec.pdf")
         self.assertEqual(artifact["type"], "user_attachment")
         self.assertEqual(artifact["source"], "user_attachment")
-        self.assertIn(f"tasks/artifacts/team_{self.team.id}/task_{task.id}/run_{run_id}/", artifact["storage_path"])
-        mock_copy.assert_called_once_with(
+        self.assertEqual(artifact["storage_path"], staged_artifact["storage_path"])
+        mock_copy.assert_not_called()
+        mock_tag.assert_called_once_with(
             staged_artifact["storage_path"],
-            artifact["storage_path"],
+            {
+                "ttl_days": RUN_ARTIFACT_TTL_DAYS,
+                "team_id": str(self.team.id),
+            },
         )
-        mock_tag.assert_called_once()
         remaining_staged_artifacts, missing_artifact_ids = get_task_staged_artifacts(task, ["artifact-123"])
         self.assertEqual(remaining_staged_artifacts, [])
         self.assertEqual(missing_artifact_ids, ["artifact-123"])
         mock_workflow.assert_called_once()
 
     @patch("posthog.storage.object_storage.copy")
+    @patch("posthog.storage.object_storage.tag")
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
-    def test_run_endpoint_preserves_staged_artifacts_when_copy_fails(self, mock_workflow, mock_copy):
-        mock_copy.side_effect = ObjectStorageError("copy failed")
+    def test_run_endpoint_ignores_copy_failures_for_staged_artifacts(self, mock_workflow, mock_tag, mock_copy):
+        mock_copy.side_effect = AssertionError("copy should not be called")
         task = self.create_task()
         staged_artifact = build_task_artifact_entry(
             artifact_id="artifact-123",
@@ -471,15 +1358,264 @@ class TestTaskAPI(BaseTaskAPITest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
-
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(TaskRun.objects.filter(task=task).count(), 1)
         task_run = TaskRun.objects.get(task=task)
-        self.assertEqual(task_run.artifacts, [])
+        self.assertEqual(task_run.artifacts, [staged_artifact])
         remaining_staged_artifacts, missing_artifact_ids = get_task_staged_artifacts(task, ["artifact-123"])
-        self.assertEqual(remaining_staged_artifacts, [staged_artifact])
-        self.assertEqual(missing_artifact_ids, [])
+        self.assertEqual(remaining_staged_artifacts, [])
+        self.assertEqual(missing_artifact_ids, ["artifact-123"])
+        mock_copy.assert_not_called()
+        mock_tag.assert_called_once_with(
+            staged_artifact["storage_path"],
+            {
+                "ttl_days": RUN_ARTIFACT_TTL_DAYS,
+                "team_id": str(self.team.id),
+            },
+        )
+        mock_workflow.assert_called_once()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_create_run_endpoint_creates_cloud_run_without_triggering_workflow(self, mock_workflow):
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/",
+            {
+                "environment": "cloud",
+                "mode": "interactive",
+                "branch": "release/direct-upload",
+                "runtime_adapter": "codex",
+                "model": "gpt-5.4",
+                "reasoning_effort": "high",
+                "initial_permission_mode": "auto",
+                "run_source": "manual",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        task_run = TaskRun.objects.get(id=response.json()["id"])
+        self.assertEqual(task_run.environment, TaskRun.Environment.CLOUD)
+        self.assertEqual(task_run.status, TaskRun.Status.QUEUED)
+        self.assertEqual(task_run.branch, "release/direct-upload")
+        self.assertEqual(task_run.state["mode"], "interactive")
+        self.assertEqual(task_run.state["pr_base_branch"], "release/direct-upload")
+        self.assertEqual(task_run.state["runtime_adapter"], "codex")
+        self.assertEqual(task_run.state["provider"], "openai")
+        self.assertEqual(task_run.state["model"], "gpt-5.4")
+        self.assertEqual(task_run.state["reasoning_effort"], "high")
+        self.assertEqual(task_run.state["initial_permission_mode"], "auto")
+        self.assertEqual(task_run.state["run_source"], "manual")
         mock_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_create_run_endpoint_caches_user_github_token(self, mock_workflow):
+        integration = Integration.objects.create(team=self.team, kind="github", config={"access_token": "token"})
+        task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="GitHub task",
+            description="Ship it",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            repository="posthog/posthog",
+            github_integration=integration,
+        )
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/",
+            {
+                "environment": "cloud",
+                "pr_authorship_mode": "user",
+                "github_user_token": "ghu_test_token",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        task_run = TaskRun.objects.get(id=response.json()["id"])
+        self.assertEqual(get_cached_github_user_token(str(task_run.id)), "ghu_test_token")
+        mock_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_create_run_endpoint_rejects_user_authorship_without_github_identity_when_no_repo(self, mock_workflow):
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/",
+            {
+                "environment": "cloud",
+                "pr_authorship_mode": "user",
+                "run_source": "manual",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "github_authorization_required")
+        mock_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_create_run_endpoint_persists_user_integration_when_no_repo(self, mock_workflow):
+        task = self.create_task(created_by=self.user)
+        user_integration = _grant_user_github_access(self.user)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/",
+            {
+                "environment": "cloud",
+                "pr_authorship_mode": "user",
+                "run_source": "manual",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        task.refresh_from_db()
+        self.assertEqual(task.github_user_integration_id, user_integration.id)
+        mock_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_create_run_endpoint_falls_back_to_team_integration_when_no_user_integration(self, mock_workflow):
+        integration = Integration.objects.create(team=self.team, kind="github", config={"access_token": "token"})
+        task = self.create_task(created_by=self.user)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/",
+            {
+                "environment": "cloud",
+                "pr_authorship_mode": "user",
+                "run_source": "manual",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        task.refresh_from_db()
+        task_run = TaskRun.objects.get(id=response.json()["id"])
+        self.assertEqual(task.github_integration_id, integration.id)
+        self.assertIsNone(task.github_user_integration_id)
+        self.assertEqual(task_run.state["pr_authorship_mode"], "bot")
+        mock_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_start_run_endpoint_triggers_workflow_for_existing_cloud_run(self, mock_workflow):
+        task = self.create_task()
+        task_run = task.create_run(environment=TaskRun.Environment.CLOUD)
+        task_run.artifacts = [
+            build_task_artifact_entry(
+                artifact_id="artifact-123",
+                name="spec.pdf",
+                artifact_type="user_attachment",
+                source="user_attachment",
+                size=4096,
+                content_type="application/pdf",
+                storage_path=f"tasks/artifacts/team_{self.team.id}/task_{task.id}/run_{task_run.id}/artifact-123_spec.pdf",
+            )
+        ]
+        task_run.save(update_fields=["artifacts", "updated_at"])
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{task_run.id}/start/",
+            {
+                "pending_user_message": "Read the file first",
+                "pending_user_artifact_ids": ["artifact-123"],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        task_run.refresh_from_db()
+        self.assertEqual(task_run.state["pending_user_message"], "Read the file first")
+        self.assertEqual(task_run.state["pending_user_artifact_ids"], ["artifact-123"])
+        mock_workflow.assert_called_once_with(
+            task_id=str(task.id),
+            run_id=str(task_run.id),
+            team_id=task.team.id,
+            user_id=self.user.id,
+            posthog_mcp_scopes="full",
+        )
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_start_run_endpoint_rejects_missing_run_artifacts(self, mock_workflow):
+        task = self.create_task()
+        task_run = task.create_run(environment=TaskRun.Environment.CLOUD)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{task_run.id}/start/",
+            {"pending_user_artifact_ids": ["artifact-123"]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "detail": "Some pending_user_artifact_ids are invalid for this run",
+                "missing_artifact_ids": ["artifact-123"],
+            },
+        )
+        mock_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_start_run_endpoint_rejects_non_startable_status(self, mock_workflow):
+        task = self.create_task()
+        task_run = task.create_run(environment=TaskRun.Environment.CLOUD)
+        task_run.status = TaskRun.Status.COMPLETED
+        task_run.save(update_fields=["status", "updated_at"])
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{task_run.id}/start/",
+            {"pending_user_message": "Retry this"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {"error": "Only queued or not_started cloud runs can be started (current status: completed)"},
+        )
+        mock_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_start_run_endpoint_rolls_back_pending_state_when_workflow_trigger_fails(self, mock_workflow):
+        mock_workflow.side_effect = RuntimeError("workflow start failed")
+        task = self.create_task()
+        task_run = task.create_run(environment=TaskRun.Environment.CLOUD)
+        task_run.state = {"existing_key": "keep-me"}
+        task_run.artifacts = [
+            build_task_artifact_entry(
+                artifact_id="artifact-123",
+                name="spec.pdf",
+                artifact_type="user_attachment",
+                source="user_attachment",
+                size=4096,
+                content_type="application/pdf",
+                storage_path=f"tasks/artifacts/team_{self.team.id}/task_{task.id}/run_{task_run.id}/artifact-123_spec.pdf",
+            )
+        ]
+        task_run.save(update_fields=["state", "artifacts", "updated_at"])
+
+        self.client.raise_request_exception = False
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{task_run.id}/start/",
+            {
+                "pending_user_message": "Read the file first",
+                "pending_user_artifact_ids": ["artifact-123"],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        task_run.refresh_from_db()
+        self.assertEqual(task_run.state, {"existing_key": "keep-me"})
+        mock_workflow.assert_called_once_with(
+            task_id=str(task.id),
+            run_id=str(task_run.id),
+            team_id=task.team.id,
+            user_id=self.user.id,
+            posthog_mcp_scopes="full",
+        )
 
     @parameterized.expand(
         [
@@ -487,6 +1623,7 @@ class TestTaskAPI(BaseTaskAPITest):
             ("acceptEdits",),
             ("plan",),
             ("bypassPermissions",),
+            ("auto",),
         ]
     )
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
@@ -552,6 +1689,38 @@ class TestTaskAPI(BaseTaskAPITest):
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
     def test_run_endpoint_persists_pr_authorship_metadata(self, mock_workflow):
         task = self.create_task()
+        task.repository = "posthog/posthog"
+        task.created_by = self.user
+        task.save(update_fields=["repository", "created_by"])
+        user_integration = _grant_user_github_access(self.user)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "mode": "interactive",
+                "branch": "main",
+                "pr_authorship_mode": "user",
+                "run_source": "manual",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        task_run = TaskRun.objects.get(id=response.json()["latest_run"]["id"])
+        assert task_run.state["pr_authorship_mode"] == "user"
+        assert task_run.state["run_source"] == "manual"
+        assert task_run.state["pr_base_branch"] == "main"
+        assert task_run.state["github_credential_source"] == "server_integration"
+        task.refresh_from_db()
+        assert task.github_user_integration_id == user_integration.id
+        mock_workflow.assert_called_once()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_caches_github_user_token_backcompat(self, mock_workflow):
+        """Backward-compat: callers that ship ``github_user_token`` have it cached per-run."""
+        task = self.create_task()
+        task.repository = "posthog/posthog"
+        task.save(update_fields=["repository"])
         github_user_token = "ghu_test_token"
 
         response = self.client.post(
@@ -568,10 +1737,29 @@ class TestTaskAPI(BaseTaskAPITest):
 
         assert response.status_code == status.HTTP_200_OK
         task_run = TaskRun.objects.get(id=response.json()["latest_run"]["id"])
-        assert task_run.state["pr_authorship_mode"] == "user"
-        assert task_run.state["run_source"] == "manual"
-        assert task_run.state["pr_base_branch"] == "main"
         assert get_cached_github_user_token(str(task_run.id)) == github_user_token
+        assert task_run.state["github_credential_source"] == "caller_token"
+        mock_workflow.assert_called_once()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_accepts_token_even_without_linked_identity(self, mock_workflow):
+        """A caller-supplied token satisfies the preflight on its own (no identity required)."""
+        task = self.create_task()
+        task.repository = "posthog/posthog"
+        task.save(update_fields=["repository"])
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "mode": "interactive",
+                "pr_authorship_mode": "user",
+                "run_source": "manual",
+                "github_user_token": "ghu_manual_token",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
         mock_workflow.assert_called_once()
 
     @parameterized.expand(
@@ -636,8 +1824,8 @@ class TestTaskAPI(BaseTaskAPITest):
                 "claude_rejects_codex_mode",
                 "claude",
                 "claude-opus-4-6",
-                "auto",
-                "Invalid choice 'auto' for runtime_adapter 'claude'. Supported values: 'default', 'acceptEdits', 'plan', 'bypassPermissions'.",
+                "full-access",
+                "Invalid choice 'full-access' for runtime_adapter 'claude'. Supported values: 'default', 'acceptEdits', 'plan', 'bypassPermissions', 'auto'.",
             ),
             (
                 "codex_rejects_claude_mode",
@@ -681,7 +1869,7 @@ class TestTaskAPI(BaseTaskAPITest):
         mock_workflow.assert_not_called()
 
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
-    def test_run_endpoint_rejects_user_authorship_without_github_user_token(self, mock_workflow):
+    def test_run_endpoint_rejects_user_authorship_without_github_identity(self, mock_workflow):
         task = self.create_task()
         task.repository = "posthog/posthog"
         task.save(update_fields=["repository"])
@@ -697,7 +1885,83 @@ class TestTaskAPI(BaseTaskAPITest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["detail"] == "github_user_token is required for user-authored cloud runs"
+        assert response.json()["code"] == "github_authorization_required"
+        mock_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_rejects_user_authorship_when_refresh_token_expired(self, mock_workflow):
+        task = self.create_task()
+        task.repository = "posthog/posthog"
+        task.created_by = self.user
+        task.save(update_fields=["repository", "created_by"])
+        integration = _grant_user_github_access(self.user)
+        integration.config["user_refresh_token_expires_at"] = int(time.time()) - 1
+        integration.save(update_fields=["config"])
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "mode": "interactive",
+                "pr_authorship_mode": "user",
+                "run_source": "manual",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "github_authorization_required"
+        mock_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_rejects_non_creator_with_404(self, mock_workflow: MagicMock) -> None:
+        # Cross-user run attempts are blocked at the queryset level: a teammate
+        # cannot see (let alone run) someone else's task. The previous
+        # `github_authorization_required` 400 path is now unreachable for
+        # non-creators and is superseded by this 404.
+        task = self.create_task(created_by=self.user)
+        task.repository = "posthog/posthog"
+        task.save(update_fields=["repository"])
+        _grant_user_github_access(self.user)
+        requester = self.create_organization_user()
+        self.client.force_authenticate(requester)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "mode": "interactive",
+                "pr_authorship_mode": "user",
+                "run_source": "manual",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert not TaskRun.objects.filter(task=task).exists()
+        mock_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_rejects_user_authorship_when_access_token_missing(self, mock_workflow: MagicMock) -> None:
+        task = self.create_task(created_by=self.user)
+        task.repository = "posthog/posthog"
+        task.save(update_fields=["repository"])
+        integration = _grant_user_github_access(self.user)
+        sensitive_config = dict(integration.sensitive_config)
+        sensitive_config.pop("user_access_token")
+        integration.sensitive_config = sensitive_config
+        integration.save(update_fields=["sensitive_config"])
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "mode": "interactive",
+                "pr_authorship_mode": "user",
+                "run_source": "manual",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "github_authorization_required"
         mock_workflow.assert_not_called()
 
     @parameterized.expand(
@@ -777,6 +2041,36 @@ class TestTaskAPI(BaseTaskAPITest):
         }
         mock_workflow.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("low",),
+            ("medium",),
+            ("high",),
+            ("xhigh",),
+            ("max",),
+        ]
+    )
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_accepts_fable_reasoning_effort(self, reasoning_effort, mock_workflow):
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "runtime_adapter": "claude",
+                "model": "claude-fable-5",
+                "reasoning_effort": reasoning_effort,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        latest_run = response.json()["latest_run"]
+        task_run = TaskRun.objects.get(id=latest_run["id"])
+        assert task_run.state["model"] == "claude-fable-5"
+        assert task_run.state["reasoning_effort"] == reasoning_effort
+        mock_workflow.assert_called_once()
+
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
     def test_run_endpoint_derives_provider_from_runtime_adapter(self, mock_workflow):
         task = self.create_task()
@@ -798,7 +2092,7 @@ class TestTaskAPI(BaseTaskAPITest):
         mock_workflow.assert_called_once()
 
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
-    def test_run_endpoint_allows_user_authorship_without_token_when_no_repo(self, mock_workflow):
+    def test_run_endpoint_rejects_user_authorship_without_github_identity_when_no_repo(self, mock_workflow):
         task = self.create_task()
 
         response = self.client.post(
@@ -811,13 +2105,57 @@ class TestTaskAPI(BaseTaskAPITest):
             format="json",
         )
 
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "github_authorization_required"
+        mock_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_persists_user_integration_when_no_repo(self, mock_workflow):
+        task = self.create_task(created_by=self.user)
+        user_integration = _grant_user_github_access(self.user)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "mode": "interactive",
+                "pr_authorship_mode": "user",
+                "run_source": "manual",
+            },
+            format="json",
+        )
+
         assert response.status_code == status.HTTP_200_OK
+        task.refresh_from_db()
+        assert task.github_user_integration_id == user_integration.id
+        mock_workflow.assert_called_once()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_falls_back_to_team_integration_when_no_user_integration(self, mock_workflow):
+        integration = Integration.objects.create(team=self.team, kind="github", config={"access_token": "token"})
+        task = self.create_task(created_by=self.user)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "mode": "interactive",
+                "pr_authorship_mode": "user",
+                "run_source": "manual",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        task.refresh_from_db()
+        task_run = task.latest_run
+        assert task_run is not None
+        assert task.github_integration_id == integration.id
+        assert task.github_user_integration_id is None
+        assert task_run.state["pr_authorship_mode"] == "bot"
         mock_workflow.assert_called_once()
 
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
     def test_run_endpoint_resume_carries_forward_pr_authorship_metadata(self, mock_workflow):
         task = self.create_task()
-        github_user_token = "ghu_resume_token"
         previous_run = TaskRun.objects.create(
             task=task,
             team=self.team,
@@ -840,7 +2178,7 @@ class TestTaskAPI(BaseTaskAPITest):
                 "mode": "interactive",
                 "resume_from_run_id": str(previous_run.id),
                 "pending_user_message": "Please continue",
-                "github_user_token": github_user_token,
+                "github_user_token": "ghu_resume_token",
             },
             format="json",
         )
@@ -856,7 +2194,7 @@ class TestTaskAPI(BaseTaskAPITest):
         assert task_run.state["provider"] == "openai"
         assert task_run.state["model"] == "gpt-5.3-codex"
         assert task_run.state["reasoning_effort"] == "medium"
-        # Token not cached for bot-authored runs even if the client sends one
+        # Token passed on a BOT resume must not be cached — only USER mode runs use it.
         assert get_cached_github_user_token(str(task_run.id)) is None
 
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
@@ -974,9 +2312,12 @@ class TestTaskAPI(BaseTaskAPITest):
 
     @parameterized.expand(
         [
+            # Tasks are creator-scoped: a user can only ever see their own tasks
+            # plus legacy tasks without a creator. The `created_by` filter narrows
+            # within that visible set; it cannot widen it to other users' tasks.
             ("self_user", "self", [0]),
-            ("other_user", "other", [1]),
-            ("no_filter", None, [0, 1, 2]),
+            ("other_user", "other", []),
+            ("no_filter", None, [0, 2]),
         ]
     )
     def test_filter_by_created_by(self, _name, filter_user, expected_indices):
@@ -1026,6 +2367,335 @@ class TestTaskAPI(BaseTaskAPITest):
         for expected_id in expected_task_ids:
             self.assertIn(expected_id, task_ids)
 
+    @parameterized.expand(
+        [
+            # (name, search_value, expected_task_indices)
+            ("matches_title_substring", "login", [0]),
+            ("matches_title_case_insensitive", "LOGIN", [0]),
+            ("matches_description_substring", "regression", [1]),
+            ("matches_both_title_and_description", "bug", [1, 2]),
+            ("matches_task_number", "2", [2]),
+            ("matches_slug_style_input", "TSK-1", [1]),
+            ("no_match_returns_empty", "zzzzz", []),
+            ("whitespace_is_trimmed", "   login   ", [0]),
+            ("empty_string_is_ignored", "", [0, 1, 2]),
+        ]
+    )
+    def test_filter_by_search(self, _name, search_value, expected_indices):
+        tasks = []
+        # Pin task_number explicitly so the "matches_task_number" and "matches_slug_style_input"
+        # cases don't silently break if anything in setup were to bump the per-team counter.
+        titles_descriptions_and_numbers = [
+            ("Fix login flow", "Users cannot sign in on mobile", 0),
+            ("Ship new feature", "Roll out regression-proof bug fix", 1),
+            ("Cleanup", "Addresses a latent bug in the parser", 2),
+        ]
+        for title, description, task_number in titles_descriptions_and_numbers:
+            tasks.append(
+                Task.objects.create(
+                    team=self.team,
+                    title=title,
+                    description=description,
+                    origin_product=Task.OriginProduct.USER_CREATED,
+                    created_by=self.user,
+                    task_number=task_number,
+                )
+            )
+
+        url = "/api/projects/@current/tasks/"
+        if search_value is not None:
+            url += f"?search={quote(search_value)}"
+
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        task_ids = {t["id"] for t in data["results"]}
+        expected_task_ids = {str(tasks[i].id) for i in expected_indices}
+        self.assertEqual(task_ids, expected_task_ids)
+
+    @parameterized.expand(
+        [
+            # (name, status_value, expected_task_indices)
+            ("in_progress_latest_only", TaskRun.Status.IN_PROGRESS, [0]),
+            ("completed_latest_only", TaskRun.Status.COMPLETED, [1]),
+            ("failed_matches_nothing_here", TaskRun.Status.FAILED, []),
+            ("queued_matches_task_with_single_queued_run", TaskRun.Status.QUEUED, [2]),
+        ]
+    )
+    def test_filter_by_status(self, _name, status_value, expected_indices):
+        # Explicit timestamps avoid flaky ordering when two runs share the same
+        # default `created_at=now()` microsecond on fast machines.
+        base_time = django_timezone.now()
+
+        # Task 0: earlier completed run, newer in_progress run — latest = in_progress
+        task_in_progress = self.create_task("Task 0")
+        TaskRun.objects.create(
+            task=task_in_progress,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            created_at=base_time,
+        )
+        TaskRun.objects.create(
+            task=task_in_progress,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            created_at=base_time + timedelta(seconds=1),
+        )
+
+        # Task 1: single completed run — latest = completed
+        task_completed = self.create_task("Task 1")
+        TaskRun.objects.create(task=task_completed, team=self.team, status=TaskRun.Status.COMPLETED)
+
+        # Task 2: single queued run — latest = queued
+        task_queued = self.create_task("Task 2")
+        TaskRun.objects.create(task=task_queued, team=self.team, status=TaskRun.Status.QUEUED)
+
+        # Task 3: no runs — should never match any status filter
+        self.create_task("Task 3")
+
+        tasks = [task_in_progress, task_completed, task_queued]
+
+        response = self.client.get(f"/api/projects/@current/tasks/?status={status_value}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        task_ids = {t["id"] for t in data["results"]}
+        expected_task_ids = {str(tasks[i].id) for i in expected_indices}
+        self.assertEqual(task_ids, expected_task_ids)
+
+    def test_filter_by_status_rejects_unknown_value(self):
+        response = self.client.get("/api/projects/@current/tasks/?status=not_a_real_status")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_filter_by_status_uses_latest_run_not_any_run(self):
+        """A task whose latest run is in_progress must not match status=completed, even if an older run completed."""
+        base_time = django_timezone.now()
+
+        task = self.create_task("Task with mixed runs")
+        TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED, created_at=base_time)
+        TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            created_at=base_time + timedelta(seconds=1),
+        )
+
+        response = self.client.get(f"/api/projects/@current/tasks/?status={TaskRun.Status.COMPLETED}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["results"], [])
+
+    def test_filter_combines_search_and_status(self):
+        matching = self.create_task("Payments bug")
+        TaskRun.objects.create(task=matching, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        wrong_status = self.create_task("Payments crash")
+        TaskRun.objects.create(task=wrong_status, team=self.team, status=TaskRun.Status.COMPLETED)
+
+        wrong_search = self.create_task("Other issue")
+        TaskRun.objects.create(task=wrong_search, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        response = self.client.get(f"/api/projects/@current/tasks/?search=payments&status={TaskRun.Status.IN_PROGRESS}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual([t["id"] for t in data["results"]], [str(matching.id)])
+
+    def test_filter_combines_all_filters(self):
+        other_user = User.objects.create_user(email="other@example.com", first_name="Other", password="password")
+        self.organization.members.add(other_user)
+
+        matching = Task.objects.create(
+            team=self.team,
+            title="Fix login flow",
+            description="Payments login regression",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            repository="posthog/posthog",
+            created_by=self.user,
+        )
+        TaskRun.objects.create(task=matching, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        # Same content but wrong repository.
+        Task.objects.create(
+            team=self.team,
+            title="Fix login flow elsewhere",
+            description="Payments login regression",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            repository="other/repo",
+            created_by=self.user,
+        )
+
+        # Same repo and content but wrong creator.
+        Task.objects.create(
+            team=self.team,
+            title="Fix login flow",
+            description="Payments login regression",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            repository="posthog/posthog",
+            created_by=other_user,
+        )
+
+        # Same creator/repo/content but wrong latest run status.
+        wrong_status = Task.objects.create(
+            team=self.team,
+            title="Fix login flow",
+            description="Payments login regression",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            repository="posthog/posthog",
+            created_by=self.user,
+        )
+        TaskRun.objects.create(task=wrong_status, team=self.team, status=TaskRun.Status.COMPLETED)
+
+        response = self.client.get(
+            "/api/projects/@current/tasks/"
+            f"?search=login&repository=posthog/posthog&created_by={self.user.id}"
+            f"&status={TaskRun.Status.IN_PROGRESS}"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual([t["id"] for t in data["results"]], [str(matching.id)])
+
+    def test_filters_survive_large_result_sets(self):
+        """Regression test: filters must apply at the DB level, not after pagination truncates the page."""
+        other_user = User.objects.create_user(email="other@example.com", first_name="Other", password="password")
+        self.organization.members.add(other_user)
+
+        # The task we care about — created first, so it ends up older than the noise below
+        # and would fall outside a naive "top N by created_at" slice.
+        needle = Task.objects.create(
+            team=self.team,
+            title="Needle task",
+            description="Find me",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            created_by=self.user,
+        )
+
+        # Pile of newer tasks created by someone else to push the needle below the default page.
+        bulk = [
+            Task(
+                team=self.team,
+                title=f"Noise {i}",
+                description="...",
+                origin_product=Task.OriginProduct.USER_CREATED,
+                created_by=other_user,
+            )
+            for i in range(150)
+        ]
+        for task in bulk:
+            task.save()
+
+        response = self.client.get(f"/api/projects/@current/tasks/?created_by={self.user.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+
+        returned_ids = [t["id"] for t in data["results"]]
+        self.assertIn(str(needle.id), returned_ids)
+
+
+class TestTaskRepositoriesAction(BaseTaskAPITest):
+    def test_returns_distinct_sorted_repositories(self):
+        Task.objects.create(
+            team=self.team,
+            title="T1",
+            description="",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            repository="posthog/posthog-js",
+        )
+        Task.objects.create(
+            team=self.team,
+            title="T2",
+            description="",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            repository="posthog/posthog",
+        )
+        # Duplicate of an existing repo should be collapsed.
+        Task.objects.create(
+            team=self.team,
+            title="T3",
+            description="",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            repository="posthog/posthog",
+        )
+        # Null and empty repositories should be excluded.
+        Task.objects.create(
+            team=self.team,
+            title="T4",
+            description="",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            repository=None,
+        )
+
+        response = self.client.get("/api/projects/@current/tasks/repositories/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.assertEqual(
+            response.json(),
+            {"repositories": ["posthog/posthog", "posthog/posthog-js"]},
+        )
+
+    def test_excludes_soft_deleted_tasks(self):
+        active = Task.objects.create(
+            team=self.team,
+            title="Active",
+            description="",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            repository="posthog/posthog",
+        )
+        deleted = Task.objects.create(
+            team=self.team,
+            title="Deleted",
+            description="",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            repository="gone/repo",
+        )
+        deleted.soft_delete()
+
+        response = self.client.get("/api/projects/@current/tasks/repositories/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["repositories"], [active.repository])
+
+    def test_excludes_internal_tasks(self):
+        Task.objects.create(
+            team=self.team,
+            title="Public",
+            description="",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            repository="posthog/public",
+        )
+        Task.objects.create(
+            team=self.team,
+            title="Internal",
+            description="",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            repository="posthog/internal",
+            internal=True,
+        )
+
+        response = self.client.get("/api/projects/@current/tasks/repositories/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["repositories"], ["posthog/public"])
+
+    def test_scoped_to_team(self):
+        Task.objects.create(
+            team=self.team,
+            title="Mine",
+            description="",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            repository="posthog/mine",
+        )
+
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        Task.objects.create(
+            team=other_team,
+            title="Not mine",
+            description="",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            repository="posthog/not-mine",
+        )
+
+        response = self.client.get("/api/projects/@current/tasks/repositories/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["repositories"], ["posthog/mine"])
+
 
 class TestTaskInternalFilterAPI(BaseTaskAPITest):
     def setUp(self):
@@ -1048,8 +2718,38 @@ class TestTaskInternalFilterAPI(BaseTaskAPITest):
         self.assertIn(str(self.external_task.id), task_ids)
         self.assertNotIn(str(self.internal_task.id), task_ids)
 
-    def test_list_internal_true_shows_only_internal_tasks(self):
-        response = self.client.get("/api/projects/@current/tasks/?internal=true")
+    def test_list_internal_true_is_ignored_for_non_staff_in_production(self):
+        # Non-staff user with DEBUG=False must not have internal tasks surfaced.
+        self.assertFalse(self.user.is_staff)
+        with self.settings(DEBUG=False):
+            response = self.client.get("/api/projects/@current/tasks/?internal=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        task_ids = [t["id"] for t in data["results"]]
+        self.assertIn(str(self.external_task.id), task_ids)
+        self.assertNotIn(str(self.internal_task.id), task_ids)
+
+    def test_list_internal_true_shows_only_internal_tasks_in_debug(self):
+        with self.settings(DEBUG=True):
+            response = self.client.get("/api/projects/@current/tasks/?internal=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        task_ids = [t["id"] for t in data["results"]]
+        self.assertNotIn(str(self.external_task.id), task_ids)
+        self.assertIn(str(self.internal_task.id), task_ids)
+
+    def test_list_internal_true_shows_only_internal_tasks_for_staff(self):
+        # Staff users can list internal tasks even with DEBUG=False.
+        staff_user = User.objects.create_user(
+            email="staff@example.com", password="password", first_name="Staff", is_staff=True
+        )
+        self.organization.members.add(staff_user)
+        staff_client = APIClient()
+        staff_client.force_authenticate(staff_user)
+        with self.settings(DEBUG=False):
+            response = staff_client.get("/api/projects/@current/tasks/?internal=true")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         data = response.json()
@@ -1093,6 +2793,108 @@ class TestTaskInternalFilterAPI(BaseTaskAPITest):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertFalse(response.json()["internal"])
+
+
+class TestTaskSummariesAPI(BaseTaskAPITest):
+    SUMMARIES_URL = "/api/projects/@current/tasks/summaries/"
+    SUMMARY_FIELDS = {"id", "title", "repository", "created_at", "updated_at", "latest_run"}
+
+    def post_summaries(self, ids):
+        return self.client.post(self.SUMMARIES_URL, {"ids": ids}, format="json")
+
+    def assertReturnsTaskIds(self, response, expected_ids):
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            sorted(t["id"] for t in response.json()["results"]),
+            sorted(str(i) for i in expected_ids),
+        )
+
+    def test_summaries_returns_only_requested_ids_scoped_to_team(self):
+        task_a = self.create_task("Task A")
+        task_b = self.create_task("Task B")
+        self.create_task("Task C")
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        other_task = Task.objects.create(
+            team=other_team, title="Other", description="", origin_product=Task.OriginProduct.USER_CREATED
+        )
+
+        response = self.post_summaries([str(task_a.id), str(task_b.id), str(other_task.id), str(uuid.uuid4())])
+
+        self.assertReturnsTaskIds(response, [task_a.id, task_b.id])
+
+    def test_summaries_returns_internal_tasks_when_requested_by_id(self):
+        internal_task = Task.objects.create(
+            team=self.team,
+            title="Internal",
+            description="",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            internal=True,
+        )
+
+        response = self.post_summaries([str(internal_task.id)])
+
+        self.assertReturnsTaskIds(response, [internal_task.id])
+
+    @parameterized.expand(
+        [
+            ("with_run", True),
+            ("no_runs", False),
+        ]
+    )
+    def test_summaries_response_shape(self, _name, with_run):
+        task = self.create_task("Task")
+        run = (
+            TaskRun.objects.create(
+                team=self.team,
+                task=task,
+                status=TaskRun.Status.IN_PROGRESS,
+                environment=TaskRun.Environment.LOCAL,
+            )
+            if with_run
+            else None
+        )
+
+        response = self.post_summaries([str(task.id)])
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        [payload] = response.json()["results"]
+        self.assertEqual(set(payload.keys()), self.SUMMARY_FIELDS)
+        expected_run = {"status": run.status, "environment": run.environment} if run else None
+        self.assertEqual(payload["latest_run"], expected_run)
+
+    def test_summaries_paginates_large_id_sets(self):
+        tasks = [self.create_task(f"Task {i}") for i in range(3)]
+        ids = [str(t.id) for t in tasks]
+
+        response = self.client.post(f"{self.SUMMARIES_URL}?limit=2", {"ids": ids}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        payload = response.json()
+        self.assertEqual(payload["count"], 3)
+        self.assertEqual(len(payload["results"]), 2)
+        self.assertIsNotNone(payload["next"])
+
+        # Follow `next` cursor; combined results should equal the full set without duplicates.
+        next_url = payload["next"]
+        next_path = next_url[next_url.index("/api/") :]
+        response2 = self.client.post(next_path, {"ids": ids}, format="json")
+        self.assertEqual(response2.status_code, status.HTTP_200_OK)
+        payload2 = response2.json()
+        self.assertEqual(len(payload2["results"]), 1)
+        self.assertIsNone(payload2["next"])
+
+        seen_ids = [r["id"] for r in payload["results"]] + [r["id"] for r in payload2["results"]]
+        self.assertEqual(sorted(seen_ids), sorted(ids))
+        self.assertEqual(len(set(seen_ids)), 3)
+
+    @parameterized.expand(
+        [
+            ("empty", lambda: []),
+            ("invalid_uuid", lambda: ["not-a-uuid"]),
+        ]
+    )
+    def test_summaries_rejects_invalid_payload(self, _name, ids_factory):
+        response = self.post_summaries(ids_factory())
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
 
 class TestTaskAutomationAPI(BaseTaskAPITest):
@@ -1300,6 +3102,53 @@ class TestTaskRunAPI(BaseTaskAPITest):
         mock_signal.assert_called_once()
         mock_publish_stream_state_event.assert_called_once()
 
+    @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
+    def test_patch_cannot_mutate_protected_credential_state_keys(self, _mock_publish):
+        task = self.create_task()
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={
+                "github_credential_source": "caller_token",
+                "pr_authorship_mode": "user",
+                "sandbox_id": "sb-real",
+            },
+        )
+
+        # A caller cannot escalate to the creator's integration, flip authorship, or repoint the
+        # credential-propagation target at a sandbox they control. Non-protected keys still merge.
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
+            {
+                "state": {
+                    "github_credential_source": "server_integration",
+                    "pr_authorship_mode": "bot",
+                    "sandbox_id": "sb-attacker",
+                    "scratch": "ok",
+                }
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        run.refresh_from_db()
+        assert run.state["github_credential_source"] == "caller_token"
+        assert run.state["pr_authorship_mode"] == "user"
+        assert run.state["sandbox_id"] == "sb-real"
+        assert run.state["scratch"] == "ok"  # non-protected keys still merge
+
+        # Nor can a caller remove a protected key to force a fallback or unguarded path.
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
+            {"state": {}, "state_remove_keys": ["github_credential_source", "sandbox_id", "scratch"]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        run.refresh_from_db()
+        assert run.state["github_credential_source"] == "caller_token"  # protected key survives removal
+        assert run.state["sandbox_id"] == "sb-real"  # protected key survives removal
+        assert "scratch" not in run.state  # non-protected key removed
+
     @patch("products.tasks.backend.api.TaskRunViewSet._signal_workflow_completion")
     def test_update_run_status_to_completed_signals_workflow(self, mock_signal):
         task = self.create_task()
@@ -1320,6 +3169,72 @@ class TestTaskRunAPI(BaseTaskAPITest):
         run.refresh_from_db()
         self.assertEqual(run.status, TaskRun.Status.COMPLETED)
         self.assertIsNotNone(run.completed_at)
+
+    @patch("products.tasks.backend.api.resume_task_in_cloud_workflow")
+    def test_resume_in_cloud_rejects_user_authorship_without_github_identity_when_no_repo(self, mock_resume):
+        task = self.create_task(created_by=self.user)
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            environment=TaskRun.Environment.LOCAL,
+            status=TaskRun.Status.COMPLETED,
+            state={"pr_authorship_mode": "user"},
+        )
+
+        response = self.client.post(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/resume_in_cloud/")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "github_authorization_required")
+        run.refresh_from_db()
+        self.assertEqual(run.environment, TaskRun.Environment.LOCAL)
+        self.assertEqual(run.status, TaskRun.Status.COMPLETED)
+        mock_resume.assert_not_called()
+
+    @patch("products.tasks.backend.api.resume_task_in_cloud_workflow")
+    def test_resume_in_cloud_persists_user_integration_when_no_repo(self, mock_resume):
+        task = self.create_task(created_by=self.user)
+        user_integration = _grant_user_github_access(self.user)
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            environment=TaskRun.Environment.LOCAL,
+            status=TaskRun.Status.COMPLETED,
+            state={"pr_authorship_mode": "user"},
+        )
+
+        response = self.client.post(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/resume_in_cloud/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        task.refresh_from_db()
+        run.refresh_from_db()
+        self.assertEqual(task.github_user_integration_id, user_integration.id)
+        self.assertEqual(run.environment, TaskRun.Environment.CLOUD)
+        self.assertEqual(run.status, TaskRun.Status.QUEUED)
+        mock_resume.assert_called_once_with(str(run.id), run.workflow_id)
+
+    @patch("products.tasks.backend.api.resume_task_in_cloud_workflow")
+    def test_resume_in_cloud_falls_back_to_team_integration_when_no_user_integration(self, mock_resume):
+        integration = Integration.objects.create(team=self.team, kind="github", config={"access_token": "token"})
+        task = self.create_task(created_by=self.user)
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            environment=TaskRun.Environment.LOCAL,
+            status=TaskRun.Status.COMPLETED,
+            state={"pr_authorship_mode": "user"},
+        )
+
+        response = self.client.post(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/resume_in_cloud/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        task.refresh_from_db()
+        run.refresh_from_db()
+        self.assertEqual(task.github_integration_id, integration.id)
+        self.assertIsNone(task.github_user_integration_id)
+        self.assertEqual(run.state["pr_authorship_mode"], "bot")
+        self.assertEqual(run.environment, TaskRun.Environment.CLOUD)
+        self.assertEqual(run.status, TaskRun.Status.QUEUED)
+        mock_resume.assert_called_once_with(str(run.id), run.workflow_id)
 
     @patch("products.tasks.backend.api.TaskRunViewSet._signal_workflow_completion")
     def test_update_run_status_to_failed_signals_workflow_with_error(self, mock_signal):
@@ -1357,6 +3272,39 @@ class TestTaskRunAPI(BaseTaskAPITest):
         mock_signal.assert_called_once()
         call_args = mock_signal.call_args
         self.assertEqual(call_args[0][1], "cancelled")
+
+    @patch("products.tasks.backend.api.TaskRunViewSet._signal_workflow_completion")
+    @patch("products.tasks.backend.push_dispatcher.notify_task_run_cancelled")
+    def test_update_run_status_to_cancelled_triggers_push(self, mock_notify, _mock_signal):
+        """Cancellation only flows through the API PATCH path — mark_completed / mark_failed
+        cover the other terminal transitions. A regression that removes this hook would go
+        undetected without an integration test here."""
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
+            {"status": "cancelled"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_notify.assert_called_once()
+        self.assertEqual(str(mock_notify.call_args.args[0].id), str(run.id))
+
+    @patch("products.tasks.backend.api.TaskRunViewSet._signal_workflow_completion")
+    @patch("products.tasks.backend.push_dispatcher.notify_task_run_cancelled")
+    def test_update_run_status_to_non_cancelled_terminal_does_not_trigger_cancel_push(self, mock_notify, _mock_signal):
+        """Sanity check: a PATCH to completed/failed must NOT fire the cancelled push."""
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
+            {"status": "completed"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_notify.assert_not_called()
 
     @patch("products.tasks.backend.api.TaskRunViewSet._signal_workflow_completion")
     def test_update_run_non_terminal_status_does_not_signal(self, mock_signal):
@@ -1495,9 +3443,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
-        integration = Integration.objects.create(
-            team=self.team, kind="slack-posthog-code", integration_id="T_SLACK", config={}
-        )
+        integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T_SLACK", config={})
 
         SlackThreadTaskMapping.objects.create(
             team=self.team,
@@ -1546,9 +3492,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
-        integration = Integration.objects.create(
-            team=self.team, kind="slack-posthog-code", integration_id="T_SLACK", config={}
-        )
+        integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T_SLACK", config={})
 
         SlackThreadTaskMapping.objects.create(
             team=self.team,
@@ -1676,9 +3620,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
         mock_execute_relay.return_value = "relay-1"
 
-        integration = Integration.objects.create(
-            team=self.team, kind="slack-posthog-code", integration_id="T_SLACK", config={}
-        )
+        integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T_SLACK", config={})
         SlackThreadTaskMapping.objects.create(
             team=self.team,
             integration=integration,
@@ -1760,9 +3702,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
 
-        integration = Integration.objects.create(
-            team=self.team, kind="slack-posthog-code", integration_id="T_SLACK", config={}
-        )
+        integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T_SLACK", config={})
         SlackThreadTaskMapping.objects.create(
             team=self.team,
             integration=integration,
@@ -1854,7 +3794,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        mock_heartbeat.assert_called_once()
+        mock_heartbeat.assert_called_once_with(agent_active=True)
 
     @patch("posthog.storage.object_storage.write")
     @patch("posthog.storage.object_storage.tag")
@@ -2395,7 +4335,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "size": 4096,
                 "content_type": "application/pdf",
                 "storage_path": storage_path,
-                "uploaded_at": timezone.now().isoformat(),
+                "uploaded_at": django_timezone.now().isoformat(),
             }
         ]
         run.save(update_fields=["artifacts", "updated_at"])
@@ -2631,9 +4571,275 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
+    @patch("posthog.storage.object_storage.read_bytes")
+    def test_download_artifact_walks_resume_chain(self, mock_read_bytes):
+        """A resumed run can download an artifact owned by the run it was forked from.
+
+        Cloud→cloud resume creates a new TaskRun with state.resume_from_run_id pointing
+        to the prior run; the prior run owns the git checkpoint pack/index artifacts.
+        """
+        mock_read_bytes.return_value = b"prior run pack bytes"
+        task = self.create_task()
+        prior_storage_path = "tasks/artifacts/team_1/task_x/run_prior/abc_pack.pack"
+
+        prior_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            artifacts=[
+                {
+                    "id": uuid.uuid4().hex,
+                    "name": "checkpoint.pack",
+                    "type": "artifact",
+                    "content_type": "application/x-git-packed-objects",
+                    "storage_path": prior_storage_path,
+                }
+            ],
+        )
+        new_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            artifacts=[],
+            state={"resume_from_run_id": str(prior_run.id)},
+        )
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{new_run.id}/artifacts/download/",
+            {"storage_path": prior_storage_path},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.content, b"prior run pack bytes")
+        mock_read_bytes.assert_called_once_with(prior_storage_path, missing_ok=True)
+
+    def test_find_artifact_in_resume_chain_direct_hit(self):
+        """Finds artifact on the run itself without walking the chain."""
+
+        task = self.create_task()
+        storage_path = "tasks/artifacts/team_1/task_x/run_a/artifact.pack"
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            artifacts=[{"id": "a", "name": "artifact.pack", "storage_path": storage_path}],
+        )
+
+        artifact = run.find_artifact_in_resume_chain(storage_path)
+        self.assertIsNotNone(artifact)
+        self.assertEqual(artifact["storage_path"], storage_path)  # type: ignore
+
+    def test_find_artifact_in_resume_chain_miss(self):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, artifacts=[])
+        self.assertIsNone(run.find_artifact_in_resume_chain("tasks/missing.pack"))
+
+    def test_find_artifact_in_resume_chain_walks_one_hop(self):
+        task = self.create_task()
+        storage_path = "tasks/artifacts/team_1/task_x/run_prior/artifact.pack"
+        prior_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            artifacts=[{"id": "a", "name": "artifact.pack", "storage_path": storage_path}],
+        )
+        new_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            artifacts=[],
+            state={"resume_from_run_id": str(prior_run.id)},
+        )
+
+        artifact = new_run.find_artifact_in_resume_chain(storage_path)
+        self.assertIsNotNone(artifact)
+
+    def test_find_artifact_in_resume_chain_walks_multiple_hops(self):
+        """Resumed-from-resumed-from chain still resolves."""
+
+        task = self.create_task()
+        storage_path = "tasks/artifacts/team_1/task_x/run_root/artifact.pack"
+        root_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            artifacts=[{"id": "a", "name": "artifact.pack", "storage_path": storage_path}],
+        )
+        middle_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            artifacts=[],
+            state={"resume_from_run_id": str(root_run.id)},
+        )
+        new_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            artifacts=[],
+            state={"resume_from_run_id": str(middle_run.id)},
+        )
+
+        artifact = new_run.find_artifact_in_resume_chain(storage_path)
+        self.assertIsNotNone(artifact)
+
+    def test_find_artifact_in_resume_chain_handles_cycle(self):
+        """A self-referencing or circular resume chain doesn't loop forever."""
+
+        task = self.create_task()
+        run_a = TaskRun.objects.create(task=task, team=self.team, artifacts=[])
+        run_b = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            artifacts=[],
+            state={"resume_from_run_id": str(run_a.id)},
+        )
+        # Patch run_a to point back at run_b — circular.
+        run_a.state = {"resume_from_run_id": str(run_b.id)}
+        run_a.save(update_fields=["state"])
+
+        result = run_b.find_artifact_in_resume_chain("tasks/missing.pack")
+        self.assertIsNone(result)
+
+    def test_find_artifact_in_resume_chain_does_not_cross_tasks(self):
+        """Resume chain lookup is scoped to the same task — sibling tasks are invisible."""
+
+        task_a = self.create_task(title="A")
+        task_b = self.create_task(title="B")
+        storage_path = "tasks/artifacts/team_1/task_a/run/artifact.pack"
+
+        prior_run_on_a = TaskRun.objects.create(
+            task=task_a,
+            team=self.team,
+            artifacts=[{"id": "a", "name": "artifact.pack", "storage_path": storage_path}],
+        )
+        # Run on task B references a run from task A — should not resolve.
+        run_on_b = TaskRun.objects.create(
+            task=task_b,
+            team=self.team,
+            artifacts=[],
+            state={"resume_from_run_id": str(prior_run_on_a.id)},
+        )
+
+        self.assertIsNone(run_on_b.find_artifact_in_resume_chain(storage_path))
+
+    def test_walk_resume_chain_single_run(self):
+        """A run with no resume_from_run_id resolves to a 1-element chain."""
+
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team)
+
+        chain = run.get_resume_chain()
+        self.assertEqual([r.id for r in chain], [run.id])
+
+    def test_walk_resume_chain_multi_hop_ordered_oldest_first(self):
+        """Chain returns oldest-ancestor → ... → parent → this in order."""
+
+        task = self.create_task()
+        root = TaskRun.objects.create(task=task, team=self.team)
+        middle = TaskRun.objects.create(task=task, team=self.team, state={"resume_from_run_id": str(root.id)})
+        leaf = TaskRun.objects.create(task=task, team=self.team, state={"resume_from_run_id": str(middle.id)})
+
+        chain = leaf.get_resume_chain()
+        self.assertEqual([r.id for r in chain], [root.id, middle.id, leaf.id])
+
+    def test_walk_resume_chain_handles_cycle(self):
+        """A circular `resume_from_run_id` chain doesn't loop forever."""
+
+        task = self.create_task()
+        run_a = TaskRun.objects.create(task=task, team=self.team)
+        run_b = TaskRun.objects.create(task=task, team=self.team, state={"resume_from_run_id": str(run_a.id)})
+        run_a.state = {"resume_from_run_id": str(run_b.id)}
+        run_a.save(update_fields=["state"])
+
+        chain = run_b.get_resume_chain()
+        self.assertEqual({r.id for r in chain}, {run_a.id, run_b.id})
+
+    def test_walk_resume_chain_respects_max_depth(self):
+        task = self.create_task()
+        prior: TaskRun | None = None
+        runs: list[TaskRun] = []
+        for _ in range(5):
+            current = TaskRun.objects.create(
+                task=task,
+                team=self.team,
+                state={"resume_from_run_id": str(prior.id)} if prior else {},
+            )
+            runs.append(current)
+            prior = current
+
+        chain = runs[-1].get_resume_chain(max_depth=2)
+        # max_depth=2 means we walk at most 2 hops back from the leaf, so the
+        # chain should contain exactly 3 entries (leaf + 2 ancestors).
+        self.assertEqual(len(chain), 3)
+
+    def test_walk_resume_chain_does_not_cross_tasks(self):
+        task_a = self.create_task(title="A")
+        task_b = self.create_task(title="B")
+
+        run_on_a = TaskRun.objects.create(task=task_a, team=self.team)
+        run_on_b = TaskRun.objects.create(task=task_b, team=self.team, state={"resume_from_run_id": str(run_on_a.id)})
+
+        chain = run_on_b.get_resume_chain()
+        # Walker is scoped via `task_run.task.runs.filter(...)` so a stale
+        # cross-task `resume_from_run_id` is silently dropped.
+        self.assertEqual([r.id for r in chain], [run_on_b.id])
+
+    @parameterized.expand(
+        [
+            (
+                "chained_returns_ancestors_first",
+                True,  # has_ancestor
+                {"a": '{"notification":{"method":"_posthog/git_checkpoint","params":{"checkpointId":"ckpt-A"}}}\n'},
+                '{"notification":{"method":"session/update","params":{"update":{"sessionUpdate":"agent_message"}}}}\n',
+                [
+                    '{"notification":{"method":"_posthog/git_checkpoint","params":{"checkpointId":"ckpt-A"}}}',
+                    '{"notification":{"method":"session/update","params":{"update":{"sessionUpdate":"agent_message"}}}}',
+                ],
+            ),
+            (
+                "unchained_returns_only_own_log",
+                False,
+                {},
+                '{"hello":"world"}\n',
+                ['{"hello":"world"}'],
+            ),
+            (
+                "skips_missing_ancestor_logs",
+                True,
+                {"a": None},
+                '{"only":"b"}\n',
+                ['{"only":"b"}'],
+            ),
+        ]
+    )
+    @patch("posthog.storage.object_storage.read")
+    def test_logs_endpoint_walks_resume_chain(
+        self,
+        _name: str,
+        has_ancestor: bool,
+        ancestor_logs: dict[str, str | None],
+        own_log: str,
+        expected_lines: list[str],
+        mock_read,
+    ):
+        task = self.create_task()
+        ancestor = TaskRun.objects.create(task=task, team=self.team) if has_ancestor else None
+        target_state = {"resume_from_run_id": str(ancestor.id)} if ancestor else {}
+        target = TaskRun.objects.create(task=task, team=self.team, state=target_state)
+
+        def fake_read(path: str, missing_ok: bool = False) -> str | None:
+            if ancestor and path == ancestor.log_url:
+                return ancestor_logs.get("a")
+            if path == target.log_url:
+                return own_log
+            return None
+
+        mock_read.side_effect = fake_read
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{target.id}/logs/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.content.decode("utf-8").splitlines(), expected_lines)
+
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_connection_token_returns_jwt(self):
-        get_sandbox_jwt_public_key.cache_clear()
+        reset_sandbox_jwt_key_cache()
 
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
@@ -2660,7 +4866,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_connection_token_has_correct_expiry(self):
-        get_sandbox_jwt_public_key.cache_clear()
+        reset_sandbox_jwt_key_cache()
 
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
@@ -2682,7 +4888,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_connection_token_includes_distinct_id(self):
-        get_sandbox_jwt_public_key.cache_clear()
+        reset_sandbox_jwt_key_cache()
 
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
@@ -3017,7 +5223,7 @@ class TestTaskRunStreamAPI(BaseTaskAPITest):
         run.emit_console_event("info", "hello")
         self._mark_stream_complete(run)
 
-        response = self.client.get(self._stream_url(task, run), HTTP_ACCEPT="text/event-stream")
+        response = self.client.get(self._stream_url(task, run), headers={"accept": "text/event-stream"})
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         events = self._collect_sse_events(response)
@@ -3034,10 +5240,7 @@ class TestTaskRunStreamAPI(BaseTaskAPITest):
         stream_ids = self._read_stream_ids(run)
         self._mark_stream_complete(run)
 
-        response = self.client.get(
-            self._stream_url(task, run),
-            HTTP_LAST_EVENT_ID=stream_ids[1],
-        )
+        response = self.client.get(self._stream_url(task, run), headers={"last-event-id": stream_ids[1]})
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         events = self._collect_sse_events(response)
@@ -3046,33 +5249,32 @@ class TestTaskRunStreamAPI(BaseTaskAPITest):
 
     def test_stream_start_latest_only_yields_new_events(self):
         task = self.create_task()
-        run = task.create_run()
+        run = task.create_run()  # publishes a task_run_state event the latest cursor must skip
 
-        def publish_future_events() -> None:
-            time.sleep(0.05)
-            publish_task_run_stream_event(
-                str(run.id),
-                {
-                    "type": "notification",
-                    "timestamp": "2026-01-01T00:00:01Z",
-                    "notification": {
-                        "jsonrpc": "2.0",
-                        "method": "_posthog/console",
-                        "params": {
-                            "sessionId": str(run.id),
-                            "level": "info",
-                            "message": "late hello",
-                        },
-                    },
-                },
-            )
-            self._mark_stream_complete(run)
+        new_event = {
+            "type": "notification",
+            "timestamp": "2026-01-01T00:00:01Z",
+            "notification": {
+                "jsonrpc": "2.0",
+                "method": "_posthog/console",
+                "params": {"sessionId": str(run.id), "level": "info", "message": "late hello"},
+            },
+        }
 
-        publisher = threading.Thread(target=publish_future_events)
-        publisher.start()
-        response = self.client.get(self._stream_url(task, run) + "?start=latest")
-        events = self._collect_sse_events(response)
-        publisher.join()
+        # Append the new event the instant the handler captures the latest cursor, on the
+        # handler's own event loop. A background thread would mutate the shared in-memory
+        # fakeredis concurrently with the reader, which is racy and flakes in CI.
+        real_get_latest = TaskRunRedisStream.get_latest_stream_id
+
+        async def get_latest_then_publish(redis_stream: TaskRunRedisStream) -> str | None:
+            latest_id = await real_get_latest(redis_stream)
+            await redis_stream.write_event(new_event)
+            await redis_stream.mark_complete()
+            return latest_id
+
+        with patch.object(TaskRunRedisStream, "get_latest_stream_id", get_latest_then_publish):
+            response = self.client.get(self._stream_url(task, run) + "?start=latest")
+            events = self._collect_sse_events(response)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertGreaterEqual(len(events), 1)
@@ -3118,6 +5320,44 @@ class TestTaskRunStreamKeepaliveAPI(BaseTaskAPITest):
     def _stream_url(self, task: Task, run: TaskRun) -> str:
         return f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/stream/"
 
+    def test_stream_emits_keepalive_while_waiting_for_stream_creation(self):
+        task = self.create_task()
+        run = task.create_run()
+
+        async def fake_read_stream_entries(self, *args, **kwargs):
+            yield (
+                "1-0",
+                {
+                    "type": "notification",
+                    "timestamp": "2026-01-01T00:00:01Z",
+                    "notification": {
+                        "jsonrpc": "2.0",
+                        "method": "_posthog/console",
+                        "params": {
+                            "sessionId": str(run.id),
+                            "level": "info",
+                            "message": "after stream creation",
+                        },
+                    },
+                },
+            )
+
+        with (
+            patch.object(TaskRunRedisStream, "exists", new=AsyncMock(side_effect=[False, True])),
+            patch.object(TaskRunRedisStream, "read_stream_entries", new=fake_read_stream_entries),
+            patch("products.tasks.backend.api.TASK_RUN_STREAM_KEEPALIVE_INTERVAL_SECONDS", 0),
+        ):
+            response = cast(
+                StreamingHttpResponse,
+                self.client.get(self._stream_url(task, run), HTTP_ACCEPT="text/event-stream"),
+            )
+            content = b"".join(cast(Iterator[bytes], response.streaming_content)).decode("utf-8")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("event: keepalive", content)
+        self.assertIn("after stream creation", content)
+        self.assertLess(content.index("event: keepalive"), content.index("after stream creation"))
+
     def test_stream_emits_keepalive_comments_while_idle(self):
         task = self.create_task()
         run = task.create_run()
@@ -3147,7 +5387,7 @@ class TestTaskRunStreamKeepaliveAPI(BaseTaskAPITest):
         ):
             response = cast(
                 StreamingHttpResponse,
-                self.client.get(self._stream_url(task, run), HTTP_ACCEPT="text/event-stream"),
+                self.client.get(self._stream_url(task, run), headers={"accept": "text/event-stream"}),
             )
             content = b"".join(cast(Iterator[bytes], response.streaming_content)).decode("utf-8")
 
@@ -3169,55 +5409,28 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             level=OrganizationMembership.Level.ADMIN
         )
 
-    def test_tasks_feature_flag_required(self):
+    def test_check_access_flag_on_no_redemption(self):
+        self.set_tasks_feature_flag(True)
+
+        response = self.client.get("/api/code/invites/check-access/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.json()["has_access"])
+
+    def test_check_access_flag_off_no_redemption(self):
         self.set_tasks_feature_flag(False)
-        task = self.create_task()
-        automation = self.create_automation(name="Daily PRs", prompt="Check my PRs")
-        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
 
-        endpoints = [
-            # TaskViewSet endpoints
-            ("/api/projects/@current/tasks/", "GET"),
-            (f"/api/projects/@current/tasks/{task.id}/", "GET"),
-            ("/api/projects/@current/tasks/", "POST"),
-            (f"/api/projects/@current/tasks/{task.id}/", "PATCH"),
-            (f"/api/projects/@current/tasks/{task.id}/", "DELETE"),
-            (f"/api/projects/@current/tasks/{task.id}/run/", "POST"),
-            # TaskAutomationViewSet endpoints
-            ("/api/projects/@current/task_automations/", "GET"),
-            (f"/api/projects/@current/task_automations/{automation.id}/", "GET"),
-            ("/api/projects/@current/task_automations/", "POST"),
-            (f"/api/projects/@current/task_automations/{automation.id}/", "PATCH"),
-            (f"/api/projects/@current/task_automations/{automation.id}/", "DELETE"),
-            (f"/api/projects/@current/task_automations/{automation.id}/run/", "POST"),
-            # TaskRunViewSet endpoints
-            (f"/api/projects/@current/tasks/{task.id}/runs/", "GET"),
-            (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/", "GET"),
-            (f"/api/projects/@current/tasks/{task.id}/runs/", "POST"),
-            (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/", "PATCH"),
-            (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/set_output/", "PATCH"),
-            (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/append_log/", "POST"),
-            (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/relay_message/", "POST"),
-            (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/command/", "POST"),
-        ]
+        response = self.client.get("/api/code/invites/check-access/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(response.json()["has_access"])
 
-        for url, method in endpoints:
-            response = getattr(self.client, method.lower())(url, format="json")
-            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, f"Failed for {method} {url}")
-
-    def test_invite_redemption_grants_access_when_flag_disabled(self):
+    def test_check_access_flag_off_with_redemption(self):
         self.set_tasks_feature_flag(False)
-        invite = CodeInvite.objects.create(code="TESTCODE", max_redemptions=0, is_active=True)
+        invite = CodeInvite.objects.create(code="ACCESSCODE", max_redemptions=0, is_active=True)
         CodeInviteRedemption.objects.create(invite_code=invite, user=self.user)
 
-        response = self.client.get("/api/projects/@current/tasks/")
+        response = self.client.get("/api/code/invites/check-access/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-    def test_no_flag_no_redemption_blocked(self):
-        self.set_tasks_feature_flag(False)
-
-        response = self.client.get("/api/projects/@current/tasks/")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertTrue(response.json()["has_access"])
 
     def test_authentication_required(self):
         task = self.create_task()
@@ -3319,6 +5532,7 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             ("task:read", "GET", f"/api/projects/@current/tasks/{{task_id}}/", True),
             ("task:read", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/", True),
             ("task:read", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/", True),
+            ("task:read", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/connection_token/", False),
             ("task:read", "GET", "/api/projects/@current/task_automations/", True),
             ("task:read", "GET", "/api/projects/@current/task_automations/{automation_id}/", True),
             ("task:read", "POST", "/api/projects/@current/tasks/", False),
@@ -3333,6 +5547,8 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             ("task:write", "POST", f"/api/projects/@current/tasks/{{task_id}}/run/", True),
             ("task:write", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/", True),
             ("task:write", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/", True),
+            ("task:write", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/connection_token/", True),
+            ("task:write", "POST", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/start/", True),
             ("task:write", "GET", "/api/projects/@current/task_automations/", True),
             ("task:write", "GET", "/api/projects/@current/task_automations/{automation_id}/", True),
             ("task:write", "POST", "/api/projects/@current/task_automations/", True),
@@ -3346,6 +5562,7 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             ("*", "POST", f"/api/projects/@current/tasks/{{task_id}}/run/", True),
             ("*", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/", True),
             ("*", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/", True),
+            ("*", "POST", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/start/", True),
             ("*", "GET", "/api/projects/@current/task_automations/", True),
             ("*", "GET", "/api/projects/@current/task_automations/{automation_id}/", True),
             ("*", "POST", "/api/projects/@current/task_automations/", True),
@@ -3477,6 +5694,9 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
             "id": request_id,
         }
 
+    def _make_cancel(self, request_id="req-cancel"):
+        return {"jsonrpc": "2.0", "method": "cancel", "id": request_id}
+
     def _create_run_with_sandbox(self, task, sandbox_url="http://localhost:9999", connect_token=None):
         state = {"sandbox_url": sandbox_url, "mode": "interactive"}
         if connect_token:
@@ -3496,19 +5716,8 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         mock_resp.text = json.dumps(body) if isinstance(body, dict) else str(body)
         mock_post.return_value = mock_resp
 
-    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
-    @patch("products.tasks.backend.api.http_requests.post")
-    def test_command_proxies_user_message(self, mock_post):
-        get_sandbox_jwt_public_key.cache_clear()
-        self._mock_agent_response(
-            mock_post,
-            {
-                "jsonrpc": "2.0",
-                "id": "req-1",
-                "result": {"stopReason": "end_turn"},
-            },
-        )
-
+    @patch("products.tasks.backend.api.signal_task_followup_message")
+    def test_command_signals_user_message(self, mock_signal_followup):
         task = self.create_task()
         run = self._create_run_with_sandbox(task)
 
@@ -3521,27 +5730,32 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
         self.assertEqual(data["jsonrpc"], "2.0")
-        self.assertEqual(data["result"]["stopReason"], "end_turn")
+        self.assertTrue(data["result"]["queued"])
 
-        mock_post.assert_called_once()
-        call_kwargs = mock_post.call_args
-        self.assertEqual(call_kwargs[1]["json"]["method"], "user_message")
-        self.assertEqual(call_kwargs[1]["json"]["params"]["content"], "Hello agent")
-        self.assertIn("Bearer ", call_kwargs[1]["headers"]["Authorization"])
+        mock_signal_followup.assert_called_once_with(run.workflow_id, "Hello agent", [])
 
-    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
-    @patch("products.tasks.backend.api.http_requests.post")
-    def test_command_resolves_artifact_ids(self, mock_post):
-        get_sandbox_jwt_public_key.cache_clear()
-        self._mock_agent_response(
-            mock_post,
-            {
-                "jsonrpc": "2.0",
-                "id": "req-attachments",
-                "result": {"stopReason": "end_turn"},
-            },
+    @patch("products.tasks.backend.api.signal_task_followup_message")
+    def test_command_signals_user_message_without_active_sandbox(self, mock_signal_followup):
+        task = self.create_task()
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.QUEUED,
+            state={},
         )
 
+        response = self.client.post(
+            self._command_url(task, run),
+            self._make_user_message(),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.json()["result"]["queued"])
+        mock_signal_followup.assert_called_once_with(run.workflow_id, "Hello agent", [])
+
+    @patch("products.tasks.backend.api.signal_task_followup_message")
+    def test_command_signals_user_message_artifact_ids(self, mock_signal_followup):
         task = self.create_task()
         run = self._create_run_with_sandbox(task)
         artifact = {
@@ -3569,15 +5783,28 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        sent_params = mock_post.call_args[1]["json"]["params"]
-        self.assertEqual(sent_params["content"], "See attached")
-        self.assertEqual(sent_params["artifacts"], [artifact])
-        self.assertNotIn("artifact_ids", sent_params)
+        self.assertTrue(response.json()["result"]["queued"])
+        mock_signal_followup.assert_called_once_with(run.workflow_id, "See attached", ["artifact-123"])
+
+    @patch("products.tasks.backend.api.signal_task_followup_message")
+    def test_command_returns_502_when_user_message_signal_fails(self, mock_signal_followup):
+        mock_signal_followup.side_effect = RuntimeError("temporal unavailable")
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            self._make_user_message(),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
+        self.assertEqual(response.json()["error"], "Failed to queue user message for task run")
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.api.http_requests.post")
     def test_command_rejects_unknown_artifact_ids(self, mock_post):
-        get_sandbox_jwt_public_key.cache_clear()
+        reset_sandbox_jwt_key_cache()
         task = self.create_task()
         run = self._create_run_with_sandbox(task)
 
@@ -3600,7 +5827,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.api.http_requests.post")
     def test_command_proxies_cancel(self, mock_post):
-        get_sandbox_jwt_public_key.cache_clear()
+        reset_sandbox_jwt_key_cache()
         self._mock_agent_response(
             mock_post,
             {
@@ -3625,7 +5852,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.api.http_requests.post")
     def test_command_proxies_close(self, mock_post):
-        get_sandbox_jwt_public_key.cache_clear()
+        reset_sandbox_jwt_key_cache()
         self._mock_agent_response(
             mock_post,
             {
@@ -3650,7 +5877,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.api.http_requests.post")
     def test_command_proxies_permission_response(self, mock_post):
-        get_sandbox_jwt_public_key.cache_clear()
+        reset_sandbox_jwt_key_cache()
         self._mock_agent_response(
             mock_post,
             {"jsonrpc": "2.0", "id": "req-4", "result": {"acknowledged": True}},
@@ -3679,7 +5906,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.api.http_requests.post")
     def test_command_proxies_set_config_option(self, mock_post):
-        get_sandbox_jwt_public_key.cache_clear()
+        reset_sandbox_jwt_key_cache()
         self._mock_agent_response(
             mock_post,
             {"jsonrpc": "2.0", "id": "req-5", "result": {"updated": True}},
@@ -3716,7 +5943,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         response = self.client.post(
             self._command_url(task, run),
-            self._make_user_message(),
+            self._make_cancel(),
             format="json",
         )
 
@@ -3771,7 +5998,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.api.http_requests.post")
     def test_command_passes_modal_connect_token_as_query_param(self, mock_post):
-        get_sandbox_jwt_public_key.cache_clear()
+        reset_sandbox_jwt_key_cache()
         self._mock_agent_response(mock_post, {"jsonrpc": "2.0", "result": {}})
 
         task = self.create_task()
@@ -3783,7 +6010,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         response = self.client.post(
             self._command_url(task, run),
-            self._make_user_message(),
+            self._make_cancel(),
             format="json",
         )
 
@@ -3795,7 +6022,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.api.http_requests.post")
     def test_command_no_query_params_for_docker(self, mock_post):
-        get_sandbox_jwt_public_key.cache_clear()
+        reset_sandbox_jwt_key_cache()
         self._mock_agent_response(mock_post, {"jsonrpc": "2.0", "result": {}})
 
         task = self.create_task()
@@ -3803,7 +6030,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         response = self.client.post(
             self._command_url(task, run),
-            self._make_user_message(),
+            self._make_cancel(),
             format="json",
         )
 
@@ -3814,7 +6041,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.api.http_requests.post")
     def test_command_returns_502_on_connection_error(self, mock_post):
-        get_sandbox_jwt_public_key.cache_clear()
+        reset_sandbox_jwt_key_cache()
         mock_post.side_effect = __import__("requests").ConnectionError("Connection refused")
 
         task = self.create_task()
@@ -3822,7 +6049,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         response = self.client.post(
             self._command_url(task, run),
-            self._make_user_message(),
+            self._make_cancel(),
             format="json",
         )
 
@@ -3832,7 +6059,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.api.http_requests.post")
     def test_command_returns_504_on_timeout(self, mock_post):
-        get_sandbox_jwt_public_key.cache_clear()
+        reset_sandbox_jwt_key_cache()
         mock_post.side_effect = __import__("requests").Timeout("Request timed out")
 
         task = self.create_task()
@@ -3840,7 +6067,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         response = self.client.post(
             self._command_url(task, run),
-            self._make_user_message(),
+            self._make_cancel(),
             format="json",
         )
 
@@ -3850,7 +6077,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.api.http_requests.post")
     def test_command_forwards_agent_server_auth_error(self, mock_post):
-        get_sandbox_jwt_public_key.cache_clear()
+        reset_sandbox_jwt_key_cache()
         self._mock_agent_response(
             mock_post,
             {"error": "Missing authorization header"},
@@ -3862,7 +6089,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         response = self.client.post(
             self._command_url(task, run),
-            self._make_user_message(),
+            self._make_cancel(),
             format="json",
         )
 
@@ -3872,7 +6099,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.api.http_requests.post")
     def test_command_forwards_agent_server_no_session_error(self, mock_post):
-        get_sandbox_jwt_public_key.cache_clear()
+        reset_sandbox_jwt_key_cache()
         self._mock_agent_response(
             mock_post,
             {"error": "No active session for this run"},
@@ -3884,7 +6111,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         response = self.client.post(
             self._command_url(task, run),
-            self._make_user_message(),
+            self._make_cancel(),
             format="json",
         )
 
@@ -3894,7 +6121,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.api.http_requests.post")
     def test_command_sends_jwt_with_correct_claims(self, mock_post):
-        get_sandbox_jwt_public_key.cache_clear()
+        reset_sandbox_jwt_key_cache()
         self._mock_agent_response(mock_post, {"jsonrpc": "2.0", "result": {}})
 
         task = self.create_task()
@@ -3902,7 +6129,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         self.client.post(
             self._command_url(task, run),
-            self._make_user_message(),
+            self._make_cancel(),
             format="json",
         )
 
@@ -3926,7 +6153,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.api.http_requests.post")
     def test_command_posts_to_correct_url(self, mock_post):
-        get_sandbox_jwt_public_key.cache_clear()
+        reset_sandbox_jwt_key_cache()
         self._mock_agent_response(mock_post, {"jsonrpc": "2.0", "result": {}})
 
         task = self.create_task()
@@ -3934,7 +6161,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         self.client.post(
             self._command_url(task, run),
-            self._make_user_message(),
+            self._make_cancel(),
             format="json",
         )
 
@@ -3984,7 +6211,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.api.http_requests.post")
     def test_command_with_trailing_slash_sandbox_url(self, mock_post):
-        get_sandbox_jwt_public_key.cache_clear()
+        reset_sandbox_jwt_key_cache()
         self._mock_agent_response(mock_post, {"jsonrpc": "2.0", "result": {}})
 
         task = self.create_task()
@@ -3992,7 +6219,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         self.client.post(
             self._command_url(task, run),
-            self._make_user_message(),
+            self._make_cancel(),
             format="json",
         )
 
@@ -4002,7 +6229,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.api.http_requests.post")
     def test_command_accepts_numeric_id(self, mock_post):
-        get_sandbox_jwt_public_key.cache_clear()
+        reset_sandbox_jwt_key_cache()
         self._mock_agent_response(mock_post, {"jsonrpc": "2.0", "id": 42, "result": {}})
 
         task = self.create_task()
@@ -4021,7 +6248,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.api.http_requests.post")
     def test_command_uses_600s_timeout(self, mock_post):
-        get_sandbox_jwt_public_key.cache_clear()
+        reset_sandbox_jwt_key_cache()
         self._mock_agent_response(mock_post, {"jsonrpc": "2.0", "result": {}})
 
         task = self.create_task()
@@ -4029,7 +6256,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         self.client.post(
             self._command_url(task, run),
-            self._make_user_message(),
+            self._make_cancel(),
             format="json",
         )
 
@@ -4039,7 +6266,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.api.http_requests.post")
     def test_command_omits_params_for_cancel(self, mock_post):
-        get_sandbox_jwt_public_key.cache_clear()
+        reset_sandbox_jwt_key_cache()
         self._mock_agent_response(mock_post, {"jsonrpc": "2.0", "result": {"cancelled": True}})
 
         task = self.create_task()
@@ -4072,7 +6299,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         response = self.client.post(
             self._command_url(task, run),
-            self._make_user_message(),
+            self._make_cancel(),
             format="json",
         )
 
@@ -4095,7 +6322,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.api.http_requests.post")
     def test_command_allows_valid_sandbox_urls(self, _name, valid_url, mock_post):
-        get_sandbox_jwt_public_key.cache_clear()
+        reset_sandbox_jwt_key_cache()
         self._mock_agent_response(mock_post, {"jsonrpc": "2.0", "result": {}})
 
         task = self.create_task()
@@ -4103,7 +6330,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         response = self.client.post(
             self._command_url(task, run),
-            self._make_user_message(),
+            self._make_cancel(),
             format="json",
         )
 
@@ -4119,7 +6346,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         response = self.client.post(
             self._command_url(task, run),
-            self._make_user_message(),
+            self._make_cancel(),
             format="json",
         )
 
@@ -4129,7 +6356,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.api.http_requests.post")
     def test_command_accepts_id_zero(self, mock_post):
-        get_sandbox_jwt_public_key.cache_clear()
+        reset_sandbox_jwt_key_cache()
         self._mock_agent_response(mock_post, {"jsonrpc": "2.0", "id": 0, "result": {}})
 
         task = self.create_task()
@@ -4148,7 +6375,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.api.http_requests.post")
     def test_command_generic_error_does_not_leak_details(self, mock_post):
-        get_sandbox_jwt_public_key.cache_clear()
+        reset_sandbox_jwt_key_cache()
         mock_post.side_effect = RuntimeError("internal DNS resolve failed for secret-host.internal:8080")
 
         task = self.create_task()
@@ -4156,7 +6383,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         response = self.client.post(
             self._command_url(task, run),
-            self._make_user_message(),
+            self._make_cancel(),
             format="json",
         )
 
@@ -4354,6 +6581,7 @@ class TestSandboxEnvironmentAPI(BaseTaskAPITest):
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_run_task_stores_sandbox_environment_id_in_state(self, mock_workflow):
         task = self.create_task()
+        task.created_by = self.user
         task.repository = "org/repo"
         task.github_integration = Integration.objects.create(team=self.team, kind="github")
         task.save()
@@ -4422,3 +6650,202 @@ class TestSandboxEnvironmentAPI(BaseTaskAPITest):
 
         task_run = TaskRun.objects.filter(task=task).latest("created_at")
         self.assertNotIn("sandbox_environment_id", task_run.state)
+
+
+class TestCloudUsageGate(BaseTaskAPITest):
+    OVER_LIMIT: ClassVar[CodeUsageStatus] = CodeUsageStatus(
+        is_rate_limited=True,
+        limit_type="burst",
+        reset_at="2026-06-09T00:00:00Z",
+        is_pro=False,
+    )
+
+    def _cloud_run(self, task, status_value=TaskRun.Status.QUEUED):
+        return TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            environment=TaskRun.Environment.CLOUD,
+            status=status_value,
+        )
+
+    @patch("products.tasks.backend.services.code_usage_gate.get_posthog_code_usage")
+    def test_run_over_limit_returns_429_and_creates_no_run(self, mock_gate):
+        mock_gate.return_value = self.OVER_LIMIT
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"mode": "background"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(response.json()["code"], "usage_limit_exceeded")
+        self.assertEqual(response.json()["limit_type"], "burst")
+        self.assertFalse(TaskRun.objects.filter(task=task).exists())
+
+    @patch("products.tasks.backend.services.code_usage_gate.get_posthog_code_usage")
+    def test_create_cloud_run_over_limit_returns_429_and_creates_no_run(self, mock_gate):
+        mock_gate.return_value = self.OVER_LIMIT
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/",
+            {"environment": "cloud"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(response.json()["code"], "usage_limit_exceeded")
+        self.assertFalse(TaskRun.objects.filter(task=task).exists())
+
+    @patch("products.tasks.backend.services.code_usage_gate.get_posthog_code_usage")
+    def test_create_local_run_is_not_gated(self, mock_gate):
+        mock_gate.return_value = self.OVER_LIMIT
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/",
+            {"environment": "local"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        mock_gate.assert_not_called()
+        self.assertTrue(TaskRun.objects.filter(task=task).exists())
+
+    @patch("products.tasks.backend.services.code_usage_gate.get_posthog_code_usage")
+    def test_start_over_limit_returns_429(self, mock_gate):
+        mock_gate.return_value = self.OVER_LIMIT
+        task = self.create_task()
+        run = self._cloud_run(task)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/start/",
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(response.json()["code"], "usage_limit_exceeded")
+        run.refresh_from_db()
+        self.assertEqual(run.status, TaskRun.Status.QUEUED)
+
+    @patch("products.tasks.backend.services.code_usage_gate.get_posthog_code_usage")
+    def test_resume_in_cloud_over_limit_returns_429(self, mock_gate):
+        mock_gate.return_value = self.OVER_LIMIT
+        task = self.create_task()
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            environment=TaskRun.Environment.LOCAL,
+            status=TaskRun.Status.COMPLETED,
+        )
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/resume_in_cloud/",
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(response.json()["code"], "usage_limit_exceeded")
+
+    @parameterized.expand(
+        [
+            ("fail_open", None),
+            ("under_limit", CodeUsageStatus(is_rate_limited=False, limit_type=None, reset_at=None, is_pro=False)),
+        ]
+    )
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    @patch("products.tasks.backend.services.code_usage_gate.get_posthog_code_usage")
+    def test_run_proceeds_when_not_blocked(self, _name, gate_return, mock_gate, mock_workflow):
+        mock_gate.return_value = gate_return
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"mode": "background"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_gate.assert_called_once()
+        self.assertTrue(TaskRun.objects.filter(task=task).exists())
+        mock_workflow.assert_called_once()
+
+
+class TestGetPosthogCodeUsage(TestCase):
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    @patch("products.tasks.backend.services.code_usage_gate.requests.get")
+    @patch("products.tasks.backend.services.code_usage_gate.create_oauth_access_token_for_user")
+    def test_parses_rate_limited_usage(self, mock_token, mock_get):
+        mock_token.return_value = "tok"
+        mock_get.return_value = MagicMock(
+            status_code=200,
+            json=lambda: {
+                "is_rate_limited": True,
+                "burst": {"exceeded": True, "reset_at": "2026-06-09T00:00:00Z"},
+                "sustained": {"exceeded": False, "reset_at": "2026-07-01T00:00:00Z"},
+                "is_pro": True,
+            },
+        )
+
+        usage = get_posthog_code_usage(MagicMock(), 1)
+
+        assert usage is not None
+        self.assertTrue(usage.is_rate_limited)
+        self.assertEqual(usage.limit_type, "burst")
+        self.assertEqual(usage.reset_at, "2026-06-09T00:00:00Z")
+        self.assertTrue(usage.is_pro)
+        self.assertEqual(mock_get.call_args.args[0], "https://gateway.us.posthog.com/v1/usage/posthog_code")
+
+    @override_settings(DEBUG=True, CLOUD_DEPLOYMENT=None)
+    def test_local_uses_localhost_gateway(self):
+        self.assertEqual(_gateway_usage_url(), "http://localhost:3308/v1/usage/posthog_code")
+
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    @patch("products.tasks.backend.services.code_usage_gate.OAuthAccessToken")
+    @patch("products.tasks.backend.services.code_usage_gate.requests.get")
+    @patch("products.tasks.backend.services.code_usage_gate.create_oauth_access_token_for_user")
+    def test_token_cleanup_error_does_not_break_fail_open(self, mock_token, mock_get, mock_oauth_model):
+        mock_token.return_value = "tok"
+        mock_get.return_value = MagicMock(
+            status_code=200,
+            json=lambda: {
+                "is_rate_limited": True,
+                "burst": {"exceeded": True, "reset_at": "2026-06-09T00:00:00Z"},
+                "sustained": {"exceeded": False, "reset_at": "2026-07-01T00:00:00Z"},
+                "is_pro": False,
+            },
+        )
+        mock_oauth_model.objects.filter.return_value.delete.side_effect = Exception("db down")
+
+        usage = get_posthog_code_usage(MagicMock(), 1)
+
+        assert usage is not None
+        self.assertTrue(usage.is_rate_limited)
+
+    @parameterized.expand(
+        [
+            ("non_200", 500, None),
+            ("network_error", None, None),
+        ]
+    )
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    @patch("products.tasks.backend.services.code_usage_gate.requests.get")
+    @patch("products.tasks.backend.services.code_usage_gate.create_oauth_access_token_for_user")
+    def test_fails_open_on_gateway_error(self, _name, status_code, _unused, mock_token, mock_get):
+        mock_token.return_value = "tok"
+        if status_code is None:
+            mock_get.side_effect = requests.RequestException("boom")
+        else:
+            mock_get.return_value = MagicMock(status_code=status_code)
+
+        self.assertIsNone(get_posthog_code_usage(MagicMock(), 1))
+
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="DEV")
+    @patch("products.tasks.backend.services.code_usage_gate.create_oauth_access_token_for_user")
+    def test_fails_open_when_no_gateway_url(self, mock_token):
+        self.assertIsNone(get_posthog_code_usage(MagicMock(), 1))
+        mock_token.assert_not_called()

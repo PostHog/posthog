@@ -2,6 +2,7 @@ import re
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,12 +11,14 @@ from posthog.schema import (
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.chargebee.chargebee import (
+    ChargebeeResumeConfig,
     chargebee_source,
     validate_credentials as validate_chargebee_credentials,
 )
 from posthog.temporal.data_imports.sources.chargebee.settings import ENDPOINTS, INCREMENTAL_FIELDS
-from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import ChargebeeSourceConfig
 
@@ -23,7 +26,7 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class ChargebeeSource(SimpleSource[ChargebeeSourceConfig]):
+class ChargebeeSource(ResumableSource[ChargebeeSourceConfig, ChargebeeResumeConfig]):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.CHARGEBEE
@@ -35,7 +38,12 @@ class ChargebeeSource(SimpleSource[ChargebeeSourceConfig]):
         }
 
     def get_schemas(
-        self, config: ChargebeeSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+        self,
+        config: ChargebeeSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -65,13 +73,22 @@ class ChargebeeSource(SimpleSource[ChargebeeSourceConfig]):
 
         return False, "Invalid credentials"
 
-    def source_for_pipeline(self, config: ChargebeeSourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[ChargebeeResumeConfig]:
+        return ResumableSourceManager[ChargebeeResumeConfig](inputs, ChargebeeResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: ChargebeeSourceConfig,
+        resumable_source_manager: ResumableSourceManager[ChargebeeResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
         resource = chargebee_source(
             api_key=config.api_key,
             site_name=config.site_name,
             endpoint=inputs.schema_name,
             team_id=inputs.team_id,
             job_id=inputs.job_id,
+            resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
@@ -88,6 +105,7 @@ class ChargebeeSource(SimpleSource[ChargebeeSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.CHARGEBEE,
+            category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             docsUrl="https://posthog.com/docs/cdp/sources/chargebee",
             iconPath="/static/services/chargebee.png",
             fields=cast(
@@ -99,6 +117,7 @@ class ChargebeeSource(SimpleSource[ChargebeeSourceConfig]):
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="",
+                        secret=True,
                     ),
                     SourceFieldInputConfig(
                         name="site_name",
@@ -106,6 +125,7 @@ class ChargebeeSource(SimpleSource[ChargebeeSourceConfig]):
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="",
+                        secret=False,
                     ),
                 ],
             ),

@@ -1,3 +1,4 @@
+import { Code, ConnectError } from '@connectrpc/connect'
 import { Counter, Gauge, Histogram } from 'prom-client'
 
 // -- Connection-level metrics --
@@ -46,9 +47,28 @@ export const personhogRequestsTotal = new Counter({
 
 export const personhogErrorsTotal = new Counter({
     name: 'personhog_errors_total',
-    help: 'Total PersonHog gRPC errors (before fallback to Postgres)',
-    labelNames: ['method', 'client'] as const,
+    help: 'Total PersonHog gRPC errors',
+    labelNames: ['method', 'client', 'error_type'] as const,
 })
+
+export const personhogRetriesTotal = new Counter({
+    name: 'personhog_retries_total',
+    help: 'Total PersonHog gRPC retries before success or exhaustion',
+    labelNames: ['method', 'client', 'error_type'] as const,
+})
+
+export const personhogTerminalErrorsTotal = new Counter({
+    name: 'personhog_terminal_errors_total',
+    help: 'PersonHog gRPC errors after retry exhaustion — the request was not fulfilled',
+    labelNames: ['method', 'client', 'error_type'] as const,
+})
+
+export function grpcErrorType(error: unknown): string {
+    if (error instanceof ConnectError) {
+        return Code[error.code] ?? 'unknown'
+    }
+    return 'non_grpc'
+}
 
 export const personhogLatencySeconds = new Histogram({
     name: 'personhog_latency_seconds',
@@ -72,7 +92,7 @@ export async function timedGrpc<T>(clientLabel: string, method: string, fn: () =
     try {
         return await fn()
     } catch (error) {
-        personhogErrorsTotal.inc({ method, client: clientLabel })
+        personhogErrorsTotal.inc({ method, client: clientLabel, error_type: grpcErrorType(error) })
         throw error
     } finally {
         end()

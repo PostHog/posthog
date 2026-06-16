@@ -165,6 +165,12 @@ class PersonHogServiceStub:
             response_deserializer=personhog_dot_types_dot_v1_dot_group__pb2.GetGroupsBatchResponse.FromString,
             _registered_method=True,
         )
+        self.ListGroups = channel.unary_unary(
+            "/personhog.service.v1.PersonHogService/ListGroups",
+            request_serializer=personhog_dot_types_dot_v1_dot_group__pb2.ListGroupsRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_group__pb2.ListGroupsResponse.FromString,
+            _registered_method=True,
+        )
         self.GetGroupTypeMappingsByTeamId = channel.unary_unary(
             "/personhog.service.v1.PersonHogService/GetGroupTypeMappingsByTeamId",
             request_serializer=personhog_dot_types_dot_v1_dot_group__pb2.GetGroupTypeMappingsByTeamIdRequest.SerializeToString,
@@ -189,6 +195,54 @@ class PersonHogServiceStub:
             response_deserializer=personhog_dot_types_dot_v1_dot_group__pb2.GroupTypeMappingsBatchResponse.FromString,
             _registered_method=True,
         )
+        self.GetGroupTypeMappingByDashboardId = channel.unary_unary(
+            "/personhog.service.v1.PersonHogService/GetGroupTypeMappingByDashboardId",
+            request_serializer=personhog_dot_types_dot_v1_dot_group__pb2.GetGroupTypeMappingByDashboardIdRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_group__pb2.GetGroupTypeMappingByDashboardIdResponse.FromString,
+            _registered_method=True,
+        )
+        self.CountGroupTypeMappings = channel.unary_unary(
+            "/personhog.service.v1.PersonHogService/CountGroupTypeMappings",
+            request_serializer=personhog_dot_types_dot_v1_dot_group__pb2.CountGroupTypeMappingsRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_group__pb2.CountGroupTypeMappingsResponse.FromString,
+            _registered_method=True,
+        )
+        self.CreateGroup = channel.unary_unary(
+            "/personhog.service.v1.PersonHogService/CreateGroup",
+            request_serializer=personhog_dot_types_dot_v1_dot_group__pb2.CreateGroupRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_group__pb2.CreateGroupResponse.FromString,
+            _registered_method=True,
+        )
+        self.UpdateGroup = channel.unary_unary(
+            "/personhog.service.v1.PersonHogService/UpdateGroup",
+            request_serializer=personhog_dot_types_dot_v1_dot_group__pb2.UpdateGroupRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_group__pb2.UpdateGroupResponse.FromString,
+            _registered_method=True,
+        )
+        self.DeleteGroupsBatchForTeam = channel.unary_unary(
+            "/personhog.service.v1.PersonHogService/DeleteGroupsBatchForTeam",
+            request_serializer=personhog_dot_types_dot_v1_dot_group__pb2.DeleteGroupsBatchForTeamRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_group__pb2.DeleteGroupsBatchForTeamResponse.FromString,
+            _registered_method=True,
+        )
+        self.UpdateGroupTypeMapping = channel.unary_unary(
+            "/personhog.service.v1.PersonHogService/UpdateGroupTypeMapping",
+            request_serializer=personhog_dot_types_dot_v1_dot_group__pb2.UpdateGroupTypeMappingRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_group__pb2.UpdateGroupTypeMappingResponse.FromString,
+            _registered_method=True,
+        )
+        self.DeleteGroupTypeMapping = channel.unary_unary(
+            "/personhog.service.v1.PersonHogService/DeleteGroupTypeMapping",
+            request_serializer=personhog_dot_types_dot_v1_dot_group__pb2.DeleteGroupTypeMappingRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_group__pb2.DeleteGroupTypeMappingResponse.FromString,
+            _registered_method=True,
+        )
+        self.DeleteGroupTypeMappingsBatchForTeam = channel.unary_unary(
+            "/personhog.service.v1.PersonHogService/DeleteGroupTypeMappingsBatchForTeam",
+            request_serializer=personhog_dot_types_dot_v1_dot_group__pb2.DeleteGroupTypeMappingsBatchForTeamRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_group__pb2.DeleteGroupTypeMappingsBatchForTeamResponse.FromString,
+            _registered_method=True,
+        )
         self.UpdatePersonProperties = channel.unary_unary(
             "/personhog.service.v1.PersonHogService/UpdatePersonProperties",
             request_serializer=personhog_dot_types_dot_v1_dot_person__pb2.UpdatePersonPropertiesRequest.SerializeToString,
@@ -205,6 +259,12 @@ class PersonHogServiceStub:
             "/personhog.service.v1.PersonHogService/DeletePersonsBatchForTeam",
             request_serializer=personhog_dot_types_dot_v1_dot_person__pb2.DeletePersonsBatchForTeamRequest.SerializeToString,
             response_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.DeletePersonsBatchForTeamResponse.FromString,
+            _registered_method=True,
+        )
+        self.SplitPerson = channel.unary_unary(
+            "/personhog.service.v1.PersonHogService/SplitPerson",
+            request_serializer=personhog_dot_types_dot_v1_dot_person__pb2.SplitPersonRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.SplitPersonResponse.FromString,
             _registered_method=True,
         )
 
@@ -340,6 +400,12 @@ class PersonHogServiceServicer:
         context.set_details("Method not implemented!")
         raise NotImplementedError("Method not implemented!")
 
+    def ListGroups(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
     def GetGroupTypeMappingsByTeamId(self, request, context):
         """Group type mappings"""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
@@ -364,6 +430,54 @@ class PersonHogServiceServicer:
         context.set_details("Method not implemented!")
         raise NotImplementedError("Method not implemented!")
 
+    def GetGroupTypeMappingByDashboardId(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
+    def CountGroupTypeMappings(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
+    def CreateGroup(self, request, context):
+        """Group writes (routed to replica — non-person data)"""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
+    def UpdateGroup(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
+    def DeleteGroupsBatchForTeam(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
+    def UpdateGroupTypeMapping(self, request, context):
+        """Group type mapping writes (routed to replica — non-person data)"""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
+    def DeleteGroupTypeMapping(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
+    def DeleteGroupTypeMappingsBatchForTeam(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
     def UpdatePersonProperties(self, request, context):
         """Person property updates (routed to leader)"""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
@@ -383,6 +497,15 @@ class PersonHogServiceServicer:
 
     def DeletePersonsBatchForTeam(self, request, context):
         """WARNING: Same routing caveat as DeletePersons above."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
+    def SplitPerson(self, request, context):
+        """Person split
+        WARNING: Same routing caveat as DeletePersons above — write operation on person data
+        routed through replica (primary pool) until leader supports transactional writes.
+        """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details("Method not implemented!")
         raise NotImplementedError("Method not implemented!")
@@ -495,6 +618,11 @@ def add_PersonHogServiceServicer_to_server(servicer, server):
             request_deserializer=personhog_dot_types_dot_v1_dot_group__pb2.GetGroupsBatchRequest.FromString,
             response_serializer=personhog_dot_types_dot_v1_dot_group__pb2.GetGroupsBatchResponse.SerializeToString,
         ),
+        "ListGroups": grpc.unary_unary_rpc_method_handler(
+            servicer.ListGroups,
+            request_deserializer=personhog_dot_types_dot_v1_dot_group__pb2.ListGroupsRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_group__pb2.ListGroupsResponse.SerializeToString,
+        ),
         "GetGroupTypeMappingsByTeamId": grpc.unary_unary_rpc_method_handler(
             servicer.GetGroupTypeMappingsByTeamId,
             request_deserializer=personhog_dot_types_dot_v1_dot_group__pb2.GetGroupTypeMappingsByTeamIdRequest.FromString,
@@ -515,6 +643,46 @@ def add_PersonHogServiceServicer_to_server(servicer, server):
             request_deserializer=personhog_dot_types_dot_v1_dot_group__pb2.GetGroupTypeMappingsByProjectIdsRequest.FromString,
             response_serializer=personhog_dot_types_dot_v1_dot_group__pb2.GroupTypeMappingsBatchResponse.SerializeToString,
         ),
+        "GetGroupTypeMappingByDashboardId": grpc.unary_unary_rpc_method_handler(
+            servicer.GetGroupTypeMappingByDashboardId,
+            request_deserializer=personhog_dot_types_dot_v1_dot_group__pb2.GetGroupTypeMappingByDashboardIdRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_group__pb2.GetGroupTypeMappingByDashboardIdResponse.SerializeToString,
+        ),
+        "CountGroupTypeMappings": grpc.unary_unary_rpc_method_handler(
+            servicer.CountGroupTypeMappings,
+            request_deserializer=personhog_dot_types_dot_v1_dot_group__pb2.CountGroupTypeMappingsRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_group__pb2.CountGroupTypeMappingsResponse.SerializeToString,
+        ),
+        "CreateGroup": grpc.unary_unary_rpc_method_handler(
+            servicer.CreateGroup,
+            request_deserializer=personhog_dot_types_dot_v1_dot_group__pb2.CreateGroupRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_group__pb2.CreateGroupResponse.SerializeToString,
+        ),
+        "UpdateGroup": grpc.unary_unary_rpc_method_handler(
+            servicer.UpdateGroup,
+            request_deserializer=personhog_dot_types_dot_v1_dot_group__pb2.UpdateGroupRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_group__pb2.UpdateGroupResponse.SerializeToString,
+        ),
+        "DeleteGroupsBatchForTeam": grpc.unary_unary_rpc_method_handler(
+            servicer.DeleteGroupsBatchForTeam,
+            request_deserializer=personhog_dot_types_dot_v1_dot_group__pb2.DeleteGroupsBatchForTeamRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_group__pb2.DeleteGroupsBatchForTeamResponse.SerializeToString,
+        ),
+        "UpdateGroupTypeMapping": grpc.unary_unary_rpc_method_handler(
+            servicer.UpdateGroupTypeMapping,
+            request_deserializer=personhog_dot_types_dot_v1_dot_group__pb2.UpdateGroupTypeMappingRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_group__pb2.UpdateGroupTypeMappingResponse.SerializeToString,
+        ),
+        "DeleteGroupTypeMapping": grpc.unary_unary_rpc_method_handler(
+            servicer.DeleteGroupTypeMapping,
+            request_deserializer=personhog_dot_types_dot_v1_dot_group__pb2.DeleteGroupTypeMappingRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_group__pb2.DeleteGroupTypeMappingResponse.SerializeToString,
+        ),
+        "DeleteGroupTypeMappingsBatchForTeam": grpc.unary_unary_rpc_method_handler(
+            servicer.DeleteGroupTypeMappingsBatchForTeam,
+            request_deserializer=personhog_dot_types_dot_v1_dot_group__pb2.DeleteGroupTypeMappingsBatchForTeamRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_group__pb2.DeleteGroupTypeMappingsBatchForTeamResponse.SerializeToString,
+        ),
         "UpdatePersonProperties": grpc.unary_unary_rpc_method_handler(
             servicer.UpdatePersonProperties,
             request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.UpdatePersonPropertiesRequest.FromString,
@@ -529,6 +697,11 @@ def add_PersonHogServiceServicer_to_server(servicer, server):
             servicer.DeletePersonsBatchForTeam,
             request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.DeletePersonsBatchForTeamRequest.FromString,
             response_serializer=personhog_dot_types_dot_v1_dot_person__pb2.DeletePersonsBatchForTeamResponse.SerializeToString,
+        ),
+        "SplitPerson": grpc.unary_unary_rpc_method_handler(
+            servicer.SplitPerson,
+            request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.SplitPersonRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_person__pb2.SplitPersonResponse.SerializeToString,
         ),
     }
     generic_handler = grpc.method_handlers_generic_handler("personhog.service.v1.PersonHogService", rpc_method_handlers)
@@ -1172,6 +1345,36 @@ class PersonHogService:
         )
 
     @staticmethod
+    def ListGroups(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.service.v1.PersonHogService/ListGroups",
+            personhog_dot_types_dot_v1_dot_group__pb2.ListGroupsRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_group__pb2.ListGroupsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
     def GetGroupTypeMappingsByTeamId(
         request,
         target,
@@ -1292,6 +1495,246 @@ class PersonHogService:
         )
 
     @staticmethod
+    def GetGroupTypeMappingByDashboardId(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.service.v1.PersonHogService/GetGroupTypeMappingByDashboardId",
+            personhog_dot_types_dot_v1_dot_group__pb2.GetGroupTypeMappingByDashboardIdRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_group__pb2.GetGroupTypeMappingByDashboardIdResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
+    def CountGroupTypeMappings(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.service.v1.PersonHogService/CountGroupTypeMappings",
+            personhog_dot_types_dot_v1_dot_group__pb2.CountGroupTypeMappingsRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_group__pb2.CountGroupTypeMappingsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
+    def CreateGroup(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.service.v1.PersonHogService/CreateGroup",
+            personhog_dot_types_dot_v1_dot_group__pb2.CreateGroupRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_group__pb2.CreateGroupResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
+    def UpdateGroup(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.service.v1.PersonHogService/UpdateGroup",
+            personhog_dot_types_dot_v1_dot_group__pb2.UpdateGroupRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_group__pb2.UpdateGroupResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
+    def DeleteGroupsBatchForTeam(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.service.v1.PersonHogService/DeleteGroupsBatchForTeam",
+            personhog_dot_types_dot_v1_dot_group__pb2.DeleteGroupsBatchForTeamRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_group__pb2.DeleteGroupsBatchForTeamResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
+    def UpdateGroupTypeMapping(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.service.v1.PersonHogService/UpdateGroupTypeMapping",
+            personhog_dot_types_dot_v1_dot_group__pb2.UpdateGroupTypeMappingRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_group__pb2.UpdateGroupTypeMappingResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
+    def DeleteGroupTypeMapping(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.service.v1.PersonHogService/DeleteGroupTypeMapping",
+            personhog_dot_types_dot_v1_dot_group__pb2.DeleteGroupTypeMappingRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_group__pb2.DeleteGroupTypeMappingResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
+    def DeleteGroupTypeMappingsBatchForTeam(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.service.v1.PersonHogService/DeleteGroupTypeMappingsBatchForTeam",
+            personhog_dot_types_dot_v1_dot_group__pb2.DeleteGroupTypeMappingsBatchForTeamRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_group__pb2.DeleteGroupTypeMappingsBatchForTeamResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
     def UpdatePersonProperties(
         request,
         target,
@@ -1370,6 +1813,36 @@ class PersonHogService:
             "/personhog.service.v1.PersonHogService/DeletePersonsBatchForTeam",
             personhog_dot_types_dot_v1_dot_person__pb2.DeletePersonsBatchForTeamRequest.SerializeToString,
             personhog_dot_types_dot_v1_dot_person__pb2.DeletePersonsBatchForTeamResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
+    def SplitPerson(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.service.v1.PersonHogService/SplitPerson",
+            personhog_dot_types_dot_v1_dot_person__pb2.SplitPersonRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_person__pb2.SplitPersonResponse.FromString,
             options,
             channel_credentials,
             insecure,

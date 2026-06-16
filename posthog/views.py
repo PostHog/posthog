@@ -23,13 +23,14 @@ from django.views.decorators.csrf import csrf_exempt, csrf_protect
 from django.views.decorators.http import require_http_methods
 
 import structlog
-import posthoganalytics
+from opentelemetry import trace
 
 from posthog.auth import AUTH_BRAND_COOKIE, apply_auth_brand_cookie, normalize_auth_brand
 from posthog.cloud_utils import is_cloud
 from posthog.email import is_email_available
 from posthog.exceptions_capture import capture_exception
 from posthog.health import is_clickhouse_connected
+from posthog.helpers.dev_login import is_dev_login_allowed
 from posthog.models import Organization, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.integration import SlackIntegration
@@ -61,6 +62,12 @@ from products.messaging.backend.models.message_preferences import (
 from products.messaging.backend.services.customerio_sync_service import sync_preferences_to_customerio
 
 logger = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
+
+
+def _traced(name: str, fn, *args, **kwargs):
+    with tracer.start_as_current_span(name):
+        return fn(*args, **kwargs)
 
 
 def noop(*args, **kwargs) -> None:
@@ -169,77 +176,45 @@ def render_query(request: HttpRequest) -> HttpResponse:
     return render_template("render_query.html", request, context={"render_query_payload": payload})
 
 
-def _posthog_code_slack_available_for_user(request: HttpRequest) -> bool:
-    """Feature-flag gate controlling whether the PostHog Code Slack integration is offered in the UI.
-
-    Why: the approved Slack app doubles as the coding agent, but we only want to surface
-    the coding-agent integration to orgs in the rollout cohort. Anonymous preflight requests
-    skip the flag check entirely to avoid noisy eval calls.
-    """
-    from products.slack_app.backend.api import POSTHOG_CODE_SLACK_AVAILABILITY_FLAG
-
-    user = getattr(request, "user", None)
-    if not user or not getattr(user, "is_authenticated", False):
-        return False
-    org = getattr(user, "current_organization", None)
-    region = get_instance_region() or "unknown"
-    groups = {"organization": str(org.id)} if org else {}
-    try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                POSTHOG_CODE_SLACK_AVAILABILITY_FLAG,
-                str(user.distinct_id),
-                groups=groups,
-                person_properties={"region": region},
-            )
-        )
-    except Exception:
-        capture_exception()
-        return False
-
-
 @never_cache
 def preflight_check(request: HttpRequest) -> JsonResponse:
-    slack_client_id = SlackIntegration.slack_config().get("SLACK_APP_CLIENT_ID")
-    posthog_code_slack_config = SlackIntegration.posthog_code_slack_config()
-    posthog_code_slack_client_id = posthog_code_slack_config.get("SLACK_POSTHOG_CODE_CLIENT_ID")
-    posthog_code_slack_signing_secret = posthog_code_slack_config.get("SLACK_POSTHOG_CODE_SIGNING_SECRET")
-    posthog_code_slack_flag_enabled = _posthog_code_slack_available_for_user(request)
+    with tracer.start_as_current_span("preflight.slack_config_main"):
+        slack_client_id = SlackIntegration.slack_config().get("SLACK_APP_CLIENT_ID")
     hubspot_client_id = settings.HUBSPOT_APP_CLIENT_ID
     salesforce_client_id = settings.SALESFORCE_CONSUMER_KEY
 
+    in_cloud = is_cloud()
+
     response = {
         "django": True,
-        "redis": is_cloud() or is_redis_alive() or settings.TEST,
-        "plugins": is_cloud() or is_plugin_server_alive() or settings.TEST,
-        "celery": is_cloud() or is_celery_alive() or settings.TEST,
-        "clickhouse": is_cloud() or is_clickhouse_connected() or settings.TEST,
-        "kafka": is_cloud() or settings.TEST,
-        "db": is_cloud() or is_postgres_alive(),
-        "initiated": is_cloud() or Organization.objects.exists(),
-        "cloud": is_cloud(),
+        "redis": in_cloud or _traced("preflight.is_redis_alive", is_redis_alive) or settings.TEST,
+        "plugins": in_cloud or _traced("preflight.is_plugin_server_alive", is_plugin_server_alive) or settings.TEST,
+        "celery": in_cloud or _traced("preflight.is_celery_alive", is_celery_alive) or settings.TEST,
+        "clickhouse": in_cloud
+        or _traced("preflight.is_clickhouse_connected", is_clickhouse_connected)
+        or settings.TEST,
+        "kafka": in_cloud or settings.TEST,
+        "db": in_cloud or _traced("preflight.is_postgres_alive", is_postgres_alive),
+        "initiated": in_cloud or _traced("preflight.organization_exists", Organization.objects.exists),
+        "cloud": in_cloud,
         "demo": settings.DEMO,
         "realm": get_instance_realm(),
         "region": get_instance_region(),
-        "available_social_auth_providers": get_instance_available_sso_providers(),
-        "can_create_org": get_can_create_org(request.user),
-        "email_service_available": is_cloud() or is_email_available(with_absolute_urls=True),
+        "available_social_auth_providers": _traced(
+            "preflight.available_social_auth_providers", get_instance_available_sso_providers
+        ),
+        "can_create_org": _traced("preflight.can_create_org", get_can_create_org, request.user),
+        "email_service_available": in_cloud
+        or _traced("preflight.is_email_available", is_email_available, with_absolute_urls=True),
         "slack_service": {
             "available": bool(slack_client_id),
             "client_id": slack_client_id or None,
-        },
-        "posthog_code_slack_service": {
-            "available": bool(posthog_code_slack_client_id)
-            and bool(posthog_code_slack_signing_secret)
-            and bool(posthog_code_slack_config.get("SLACK_POSTHOG_CODE_CLIENT_SECRET"))
-            and posthog_code_slack_flag_enabled,
-            "client_id": posthog_code_slack_client_id or None,
         },
         "data_warehouse_integrations": {
             "hubspot": {"client_id": hubspot_client_id},
             "salesforce": {"client_id": salesforce_client_id},
         },
-        "object_storage": is_cloud() or is_object_storage_available(),
+        "object_storage": in_cloud or _traced("preflight.is_object_storage_available", is_object_storage_available),
         "public_egress_ip_addresses": settings.PUBLIC_EGRESS_IP_ADDRESSES,
     }
     auth_brand = normalize_auth_brand(request.COOKIES.get(AUTH_BRAND_COOKIE))
@@ -248,6 +223,9 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
 
     if settings.DEBUG or settings.E2E_TESTING:
         response["is_debug"] = True
+
+    if is_dev_login_allowed():
+        response["allow_dev_login"] = True
 
     if settings.TEST:
         response["is_test"] = True
@@ -258,10 +236,15 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
     if request.user.is_authenticated:
         response = {
             **response,
-            "available_timezones": get_available_timezones_with_offsets(),
+            "available_timezones": _traced("preflight.available_timezones", get_available_timezones_with_offsets),
             "opt_out_capture": os.environ.get("OPT_OUT_CAPTURE", False),
-            "licensed_users_available": get_licensed_users_available() if not is_cloud() else None,
+            "licensed_users_available": _traced("preflight.licensed_users_available", get_licensed_users_available)
+            if not in_cloud
+            else None,
             "openai_available": bool(os.environ.get("OPENAI_API_KEY")),
+            # Max runs on Anthropic, so it needs its own signal — otherwise self-hosted instances
+            # render the assistant but fail at call time with no key configured.
+            "anthropic_available": bool(os.environ.get("ANTHROPIC_API_KEY")),
             "site_url": settings.SITE_URL,
             "instance_preferences": settings.INSTANCE_PREFERENCES,
             "buffer_conversion_seconds": settings.BUFFER_CONVERSION_SECONDS,

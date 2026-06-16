@@ -110,8 +110,8 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                 access_type: undefined,
             } as EditingKeyFormValues,
             errors: ({ label, access_type, scopes, scoped_organizations, scoped_teams }) => ({
-                label: !label ? 'Your API key needs a label' : undefined,
-                scopes: !scopes?.length ? ('Your API key needs at least one scope' as any) : undefined,
+                label: !label ? 'Your personal API key needs a label' : undefined,
+                scopes: !scopes?.length ? ('Your personal API key needs at least one scope' as any) : undefined,
                 access_type: !access_type ? ('Select access mode' as any) : undefined,
                 scoped_organizations:
                     access_type === 'organizations' && !scoped_organizations?.length
@@ -127,10 +127,25 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                     return
                 }
 
+                // Sanitize scopes against `allowedScopeKeys` so flag-gated scopes
+                // (e.g. `llm_gateway`) can't slip through via presets like
+                // "Read-only access" that expand to every scope in API_SCOPES.
+                // `*` (all access) is preserved as-is.
+                const allowed = values.allowedScopeKeys
+                const sanitizedScopes =
+                    payload.scopes?.filter((scope) => {
+                        if (scope === '*') {
+                            return true
+                        }
+                        const [object] = scope.split(':')
+                        return !!object && allowed.has(object)
+                    }) ?? []
+                const sanitizedPayload = { ...payload, scopes: sanitizedScopes }
+
                 const key =
                     values.editingKeyId === 'new'
-                        ? await api.personalApiKeys.create(payload)
-                        : await api.personalApiKeys.update(values.editingKeyId, payload)
+                        ? await api.personalApiKeys.create(sanitizedPayload)
+                        : await api.personalApiKeys.update(values.editingKeyId, sanitizedPayload)
 
                 breakpoint()
 
@@ -144,9 +159,9 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
         },
     })),
     selectors(() => ({
-        filteredScopes: [
-            (s) => [s.searchTerm, s.featureFlags, s.hasAvailableFeature],
-            (searchTerm, featureFlags, hasAvailableFeature): APIScope[] => {
+        allowedScopes: [
+            (s) => [s.featureFlags, s.hasAvailableFeature],
+            (featureFlags, hasAvailableFeature): APIScope[] => {
                 let scopes = API_SCOPES
 
                 // Filter out llm_gateway scope if feature flag is disabled
@@ -154,10 +169,27 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                     scopes = scopes.filter((scope) => scope.key !== 'llm_gateway')
                 }
 
+                // Hide agents scope unless the agent platform flag is enabled (hidden until GA)
+                if (!featureFlags[FEATURE_FLAGS.AGENT_PLATFORM_MCP]) {
+                    scopes = scopes.filter((scope) => scope.key !== 'agents')
+                }
+
                 // Hide approvals scope unless the org has the APPROVALS feature
                 if (!hasAvailableFeature(AvailableFeature.APPROVALS)) {
                     scopes = scopes.filter((scope) => scope.key !== 'approvals')
                 }
+
+                return scopes
+            },
+        ],
+        allowedScopeKeys: [
+            (s) => [s.allowedScopes],
+            (allowedScopes): Set<string> => new Set(allowedScopes.map((scope) => scope.key)),
+        ],
+        filteredScopes: [
+            (s) => [s.searchTerm, s.allowedScopes],
+            (searchTerm, allowedScopes): APIScope[] => {
+                const scopes = allowedScopes
 
                 if (!searchTerm.trim()) {
                     return scopes

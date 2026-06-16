@@ -28,6 +28,7 @@ import { HogFunctionHandler } from './actions/hog_function'
 import { RandomCohortBranchHandler } from './actions/random_cohort_branch'
 import { TriggerHandler } from './actions/trigger.handler'
 import { WaitUntilTimeWindowHandler } from './actions/wait_until_time_window'
+import { HogFlowDuplicateObserverService } from './hogflow-duplicate-observer.service'
 import { HogFlowFunctionsService } from './hogflow-functions.service'
 import {
     actionIdForLogging,
@@ -78,11 +79,14 @@ export function createHogFlowInvocation(
 
 export class HogFlowExecutorService {
     private readonly actionHandlers: Record<HogFlowAction['type'], ActionHandler>
+    private readonly duplicateObserver: HogFlowDuplicateObserverService | null
 
     constructor(
         hogFlowFunctionsService: HogFlowFunctionsService,
-        recipientPreferencesService: RecipientPreferencesService
+        recipientPreferencesService: RecipientPreferencesService,
+        duplicateObserver?: HogFlowDuplicateObserverService
     ) {
+        this.duplicateObserver = duplicateObserver ?? null
         const hogFunctionHandler = new HogFunctionHandler(hogFlowFunctionsService, recipientPreferencesService, 'fetch')
         const hogFunctionEmailHandler = new HogFunctionHandler(
             hogFlowFunctionsService,
@@ -146,6 +150,13 @@ export class HogFlowExecutorService {
             metrics,
             logs,
         }
+    }
+
+    private async observeDuplicateInvocation(
+        invocation: CyclotronJobInvocationHogFlow,
+        currentAction: HogFlowAction
+    ): Promise<void> {
+        await this.duplicateObserver?.observe(invocation, currentAction)
     }
 
     async execute(
@@ -273,6 +284,15 @@ export class HogFlowExecutorService {
                 )
             }
         }
+        // Event-based conversion goals are evaluated by the subscription matcher (against the live
+        // event stream), which flags the job when the conversion event fires. The property-based
+        // check above can't see those, so honor the flag here. It is a one-shot signal ("the
+        // conversion event just fired"), so consume it: clear it after reading so a later, unrelated
+        // resume (e.g. after a subsequent delay) can't re-trigger an exit from a stale flag.
+        if (invocation.state.conversionMatched) {
+            conversionMatch = true
+            invocation.state.conversionMatched = false
+        }
 
         switch (hogFlow.exit_condition) {
             case 'exit_on_trigger_not_matched':
@@ -337,6 +357,8 @@ export class HogFlowExecutorService {
 
                 return result
             }
+
+            await this.observeDuplicateInvocation(invocation, currentAction)
 
             result.logs.push({
                 level: 'debug',
@@ -620,9 +642,21 @@ export class HogFlowExecutorService {
                 : ''
         }
 
-        const triggeredByEvent = hasAssociatedEvent
+        let triggeredByEvent = hasAssociatedEvent
             ? ` on [Event:${invocation.state.event?.uuid}|${invocation.state.event?.event?.replaceAll('|', '')}|${invocation.state.event?.timestamp}]`
             : ''
+
+        // Surface the event that woke the job (not the trigger). The logs view builds the link
+        // from uuid + timestamp, so emit the linkable token only when both are present.
+        const wakeEvent = invocation.state.currentAction?.eventMatchedEvent
+        const wakeEventUuid = invocation.state.currentAction?.eventMatchedEventUuid
+        const wakeEventTimestamp = invocation.state.currentAction?.eventMatchedEventTimestamp
+        if (hasCurrentAction && invocation.state.currentAction?.eventMatched && wakeEvent) {
+            triggeredByEvent +=
+                wakeEventUuid && wakeEventTimestamp
+                    ? ` (woken by [Event:${wakeEventUuid}|${wakeEvent.replaceAll('|', '')}|${wakeEventTimestamp}])`
+                    : ` (woken by event: ${wakeEvent.replaceAll('|', '')})`
+        }
 
         return {
             level: 'info',

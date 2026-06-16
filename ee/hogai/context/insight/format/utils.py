@@ -2,7 +2,7 @@ import datetime
 from math import floor
 from typing import Any, Optional, Union
 
-from posthog.hogql_queries.insights.trends.breakdown import (
+from posthog.hogql_queries.insights.utils.breakdowns import (
     BREAKDOWN_NULL_DISPLAY,
     BREAKDOWN_NULL_STRING_LABEL,
     BREAKDOWN_OTHER_DISPLAY,
@@ -10,10 +10,11 @@ from posthog.hogql_queries.insights.trends.breakdown import (
 )
 
 
-def format_matrix(matrix: list[list[str]]) -> str:
+def format_matrix(matrix: list[list[Any]]) -> str:
+    # Coerce cells: a None (or non-str) cell would make "|".join raise and crash the build.
     lines: list[str] = []
     for row in matrix:
-        lines.append("|".join(row))
+        lines.append("|".join("" if cell is None else str(cell) for cell in row))
 
     return "\n".join(lines).strip()
 

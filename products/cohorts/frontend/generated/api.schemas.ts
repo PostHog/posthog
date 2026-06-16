@@ -14,12 +14,6 @@ export const PropertyGroupOperatorApi = {
     Or: 'OR',
 } as const
 
-export type BehavioralFilterApiType = (typeof BehavioralFilterApiType)[keyof typeof BehavioralFilterApiType]
-
-export const BehavioralFilterApiType = {
-    Behavioral: 'behavioral',
-} as const
-
 export type EventPropFilterTypeEnumApi = (typeof EventPropFilterTypeEnumApi)[keyof typeof EventPropFilterTypeEnumApi]
 
 export const EventPropFilterTypeEnumApi = {
@@ -31,102 +25,57 @@ export interface EventPropFilterApi {
     type: EventPropFilterTypeEnumApi
     key: string
     value: unknown
-    /** @nullable */
     operator?: string | null
 }
 
-export type HogQLFilterApiType = (typeof HogQLFilterApiType)[keyof typeof HogQLFilterApiType]
-
-export const HogQLFilterApiType = {
-    Hogql: 'hogql',
-} as const
-
 export interface HogQLFilterApi {
-    type: HogQLFilterApiType
+    type: 'hogql'
     key: string
-    value?: unknown | null
+    value?: unknown
 }
 
 export interface BehavioralFilterApi {
-    /** @nullable */
     bytecode?: unknown[] | null
-    /** @nullable */
     bytecode_error?: string | null
-    /** @nullable */
     conditionHash?: string | null
-    type: BehavioralFilterApiType
+    type: 'behavioral'
     key: string | number
     value: string
     event_type: string
-    /** @nullable */
     time_value?: number | null
-    /** @nullable */
     time_interval?: string | null
     negation?: boolean
-    /** @nullable */
     operator?: string | null
-    /** @nullable */
     operator_value?: number | null
-    /** @nullable */
     seq_time_interval?: string | null
-    /** @nullable */
     seq_time_value?: number | null
     seq_event?: string | number | null
-    /** @nullable */
     seq_event_type?: string | null
-    /** @nullable */
     total_periods?: number | null
-    /** @nullable */
     min_periods?: number | null
-    /** @nullable */
     event_filters?: (EventPropFilterApi | HogQLFilterApi)[] | null
-    /** @nullable */
     explicit_datetime?: string | null
+    explicit_datetime_to?: string | null
 }
 
-export type CohortFilterApiType = (typeof CohortFilterApiType)[keyof typeof CohortFilterApiType]
-
-export const CohortFilterApiType = {
-    Cohort: 'cohort',
-} as const
-
-export type CohortFilterApiKey = (typeof CohortFilterApiKey)[keyof typeof CohortFilterApiKey]
-
-export const CohortFilterApiKey = {
-    Id: 'id',
-} as const
-
 export interface CohortFilterApi {
-    /** @nullable */
     bytecode?: unknown[] | null
-    /** @nullable */
     bytecode_error?: string | null
-    /** @nullable */
     conditionHash?: string | null
-    type: CohortFilterApiType
-    key: CohortFilterApiKey
+    type: 'cohort'
+    key: 'id'
     value: number
     negation?: boolean
 }
 
-export type PersonFilterApiType = (typeof PersonFilterApiType)[keyof typeof PersonFilterApiType]
-
-export const PersonFilterApiType = {
-    Person: 'person',
-} as const
-
 export interface PersonFilterApi {
-    /** @nullable */
     bytecode?: unknown[] | null
-    /** @nullable */
     bytecode_error?: string | null
-    /** @nullable */
     conditionHash?: string | null
-    type: PersonFilterApiType
+    type: 'person'
     key: string
-    /** @nullable */
     operator?: string | null
-    value?: unknown | null
+    value?: unknown
     negation?: boolean
 }
 
@@ -144,13 +93,13 @@ export interface CohortFiltersApi {
 
 /**
  * * `engineering` - Engineering
- * `data` - Data
- * `product` - Product Management
- * `founder` - Founder
- * `leadership` - Leadership
- * `marketing` - Marketing
- * `sales` - Sales / Success
- * `other` - Other
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
@@ -171,14 +120,10 @@ export const BlankEnumApi = {
     '': '',
 } as const
 
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
 export interface UserBasicApi {
     readonly id: number
@@ -198,15 +143,15 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
 /**
  * * `static` - static
- * `person_property` - person_property
- * `behavioral` - behavioral
- * `realtime` - realtime
- * `analytical` - analytical
+ * * `person_property` - person_property
+ * * `behavioral` - behavioral
+ * * `realtime` - realtime
+ * * `analytical` - analytical
  */
 export type CohortTypeEnumApi = (typeof CohortTypeEnumApi)[keyof typeof CohortTypeEnumApi]
 
@@ -230,7 +175,7 @@ export interface CohortApi {
     groups?: unknown
     deleted?: boolean
     filters?: CohortFiltersApi | null
-    query?: unknown | null
+    query?: unknown
     /** @nullable */
     readonly version: number | null
     /** @nullable */
@@ -250,13 +195,13 @@ export interface CohortApi {
     readonly count: number | null
     is_static?: boolean
     /** Type of cohort based on filter complexity
-
-* `static` - static
-* `person_property` - person_property
-* `behavioral` - behavioral
-* `realtime` - realtime
-* `analytical` - analytical */
-    cohort_type?: CohortTypeEnumApi | BlankEnumApi | NullEnumApi | null
+     *
+     * * `static` - static
+     * * `person_property` - person_property
+     * * `behavioral` - behavioral
+     * * `realtime` - realtime
+     * * `analytical` - analytical */
+    cohort_type?: CohortTypeEnumApi | BlankEnumApi | null
     readonly experiment_set: readonly number[]
     _create_in_folder?: string
     _create_static_person_ids?: string[]
@@ -283,7 +228,7 @@ export interface PatchedCohortApi {
     groups?: unknown
     deleted?: boolean
     filters?: CohortFiltersApi | null
-    query?: unknown | null
+    query?: unknown
     /** @nullable */
     readonly version?: number | null
     /** @nullable */
@@ -303,13 +248,13 @@ export interface PatchedCohortApi {
     readonly count?: number | null
     is_static?: boolean
     /** Type of cohort based on filter complexity
-
-* `static` - static
-* `person_property` - person_property
-* `behavioral` - behavioral
-* `realtime` - realtime
-* `analytical` - analytical */
-    cohort_type?: CohortTypeEnumApi | BlankEnumApi | NullEnumApi | null
+     *
+     * * `static` - static
+     * * `person_property` - person_property
+     * * `behavioral` - behavioral
+     * * `realtime` - realtime
+     * * `analytical` - analytical */
+    cohort_type?: CohortTypeEnumApi | BlankEnumApi | null
     readonly experiment_set?: readonly number[]
     _create_in_folder?: string
     _create_static_person_ids?: string[]
@@ -320,12 +265,124 @@ export interface PatchedAddPersonsToStaticCohortRequestApi {
     person_ids?: string[]
 }
 
+/**
+ * * `person` - person
+ */
+export type CohortPersonResultTypeEnumApi =
+    (typeof CohortPersonResultTypeEnumApi)[keyof typeof CohortPersonResultTypeEnumApi]
+
+export const CohortPersonResultTypeEnumApi = {
+    Person: 'person',
+} as const
+
+export type CohortPersonResultApiProperties = { [key: string]: unknown }
+
+export type CohortPersonResultApiMatchedRecordingsItem = { [key: string]: unknown }
+
+export interface CohortPersonResultApi {
+    id: string
+    uuid: string
+    type: CohortPersonResultTypeEnumApi
+    name: string
+    distinct_ids: string[]
+    properties: CohortPersonResultApiProperties
+    /** @nullable */
+    created_at: string | null
+    /** @nullable */
+    last_seen_at: string | null
+    /** @nullable */
+    is_identified: boolean | null
+    matched_recordings: CohortPersonResultApiMatchedRecordingsItem[]
+    /** @nullable */
+    value_at_data_point: number | null
+}
+
+export interface CohortPersonsResponseApi {
+    results: CohortPersonResultApi[]
+    /** @nullable */
+    next: string | null
+    /** @nullable */
+    previous: string | null
+}
+
 export interface PatchedRemovePersonRequestApi {
     /** Person UUID to remove from the cohort */
     person_id?: string
 }
 
+export interface CohortUsedInFlagApi {
+    /** Feature flag database ID */
+    id: number
+    /** Feature flag key (URL slug) */
+    key: string
+    /**
+     * Feature flag display name
+     * @nullable
+     */
+    name: string | null
+}
+
+export interface CohortUsedInFlagsBlockApi {
+    /** Feature flags referencing this cohort, capped at 100 results */
+    results: CohortUsedInFlagApi[]
+    /** Total number of feature flags referencing this cohort, before truncation */
+    total: number
+    /** True when more feature flags exist beyond the truncation cap */
+    has_more: boolean
+}
+
+export interface CohortUsedInInsightApi {
+    /** Insight database ID */
+    id: number
+    /** Insight short ID used for routing in the frontend */
+    short_id: string
+    /** Insight display name; falls back to derived name, then to 'Unnamed' when both are empty */
+    name: string
+}
+
+export interface CohortUsedInInsightsBlockApi {
+    /** Insights referencing this cohort, capped at 100 results */
+    results: CohortUsedInInsightApi[]
+    /** Total number of insights referencing this cohort, before truncation */
+    total: number
+    /** True when more insights exist beyond the truncation cap */
+    has_more: boolean
+}
+
+export interface CohortUsedInCohortApi {
+    /** Cohort database ID */
+    id: number
+    /** Cohort display name; falls back to 'Unnamed' when empty */
+    name: string
+}
+
+export interface CohortUsedInCohortsBlockApi {
+    /** Cohorts that include this cohort as a criterion, capped at 100 results */
+    results: CohortUsedInCohortApi[]
+    /** Total number of cohorts referencing this cohort, before truncation */
+    total: number
+    /** True when more cohorts exist beyond the truncation cap */
+    has_more: boolean
+}
+
+export interface CohortUsedInResponseApi {
+    /** Feature flags (active and inactive, excluding soft-deleted) that reference this cohort in their targeting conditions, with truncation metadata */
+    feature_flags: CohortUsedInFlagsBlockApi
+    /** Insights referencing this cohort with truncation metadata */
+    insights: CohortUsedInInsightsBlockApi
+    /** Other cohorts that include this cohort as a criterion, with truncation metadata */
+    cohorts: CohortUsedInCohortsBlockApi
+}
+
 export type CohortsListParams = {
+    /**
+     * Return a basic payload that omits the heavy `filters`, `query`, and `groups` fields. Useful for pickers that only need id/name/count.
+     */
+    basic?: boolean
+    /**
+     * Set true to exclude behavioral (event-based) cohorts, which can't be used in feature flags or batch workflow audiences.
+     */
+    hide_behavioral_cohorts?: boolean
     /**
      * Number of results to return per page.
      */
@@ -338,6 +395,14 @@ export type CohortsListParams = {
 
 export type CohortsPersonsRetrieveParams = {
     format?: CohortsPersonsRetrieveFormat
+    /**
+     * Maximum number of persons to return per page (defaults to 100).
+     */
+    limit?: number
+    /**
+     * Number of persons to skip before starting to return results.
+     */
+    offset?: number
 }
 
 export type CohortsPersonsRetrieveFormat =

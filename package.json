@@ -41,9 +41,9 @@
         "cleandep": "rm -rf node_modules && pnpm -r exec rm -rf node_modules",
         "storybook": "pnpm turbo --filter=@posthog/storybook start",
         "quill:dev": "pnpm --filter=@posthog/quill-workspace dev",
-        "quill:build": "pnpm --filter='@posthog/quill...' build",
+        "quill:build": "pnpm --filter='@posthog/quill...' --filter='@posthog/quill-charts...' build",
         "quill:storybook": "pnpm --filter=@posthog/quill-workspace storybook",
-        "quill:publish": "pnpm quill:build && pnpm --filter @posthog/quill-tokens publish --tag alpha --no-git-checks && pnpm --filter @posthog/quill publish --tag alpha --no-git-checks",
+        "quill:publish": "pnpm quill:build && pnpm --filter @posthog/quill-tokens publish --tag alpha --no-git-checks && pnpm --filter @posthog/quill publish --tag alpha --no-git-checks && pnpm --filter @posthog/quill-charts publish --tag alpha --no-git-checks",
         "// DEPRECATED - use hogli start instead": "",
         "start": "./bin/start",
         "postinstall": "git config --get blame.ignoreRevsFile > /dev/null 2>&1 || git config blame.ignoreRevsFile .git-blame-ignore-revs > /dev/null 2>&1 || true; [ ! -f bin/fix-rdkafka-paths ] || bin/fix-rdkafka-paths",
@@ -57,22 +57,25 @@
         "fuse.js": "catalog:",
         "husky": "catalog:",
         "lint-staged": "catalog:",
-        "uuid": "^10.0.0"
+        "uuid": "^11.1.1",
+        "zod": "^4.3.6"
     },
     "devDependencies": {
         "@parcel/packager-ts": "catalog:",
         "@parcel/transformer-typescript-types": "catalog:",
-        "@types/uuid": "^10.0.0",
+        "@playwright/test": "catalog:",
+        "@types/uuid": "^11.0.0",
+        "@typescript/native-preview": "7.0.0-dev.20260421.2",
         "markdownlint-cli2": "^0.18.1",
         "oxfmt": "catalog:",
         "oxlint": "^1.8.0",
-        "playwright": "1.45.0",
+        "playwright": "1.60.0",
         "stylelint": "^15.11.0",
         "stylelint-config-recess-order": "^4.6.0",
         "stylelint-config-standard-scss": "^11.1.0",
         "stylelint-order": "^6.0.4",
-        "syncpack": "^13.0.4",
-        "turbo": "^2.4.2"
+        "syncpack": "^15.3.1",
+        "turbo": "^2.9.14"
     },
     "optionalDependencies": {
         "fsevents": "^2.3.3"
@@ -80,6 +83,8 @@
     "lint-staged": {
         ".claude/settings.json": "sh -c 'printf \"\\n\\033[31mDo not commit .claude/settings.json — personal permissions belong in .claude/settings.local.json (gitignored).\\nUnstage with: git restore --staged .claude/settings.json\\033[0m\\n\\n\" >&2 && exit 1'",
         ".claude/hooks/**": "sh -c 'printf \"\\n\\033[33mWarning: hooks in .claude/ are reserved for env bootstrapping (SessionStart only).\\nPrefer skills, AGENTS.md instructions, or lint-staged rules. See Agent automation in AGENTS.md.\\033[0m\\n\\n\"'",
+        "**/{AGENTS,CLAUDE}.md": "sh -c '.github/scripts/check-agents-md-symlinks.sh'",
+        "packages/quill/packages/*/src/**/*.{ts,tsx,css}": "sh -c 'git diff --cached --name-only | grep -q \"^packages/quill/.*AGENTS\\\\.md$\" || printf \"\\n\\033[33mWarning: quill component sources changed without an AGENTS.md update.\\nIf variants, composition, or spacing changed, update the consumer guide (packages/quill/packages/<pkg>/AGENTS.md) in the same PR.\\033[0m\\n\\n\"'",
         "products/**/manifest.tsx": [
             "bin/hogli format:js",
             "sh -c 'pnpm build:products && git add frontend/src/products.tsx frontend/src/products.json'"
@@ -90,8 +95,8 @@
             "bin/hogli lint:feature-flags:fix",
             "bin/hogli format:js"
         ],
-        "{playwright,frontend,products,common,ee,services,docs}/**/*.{js,jsx,mjs,ts,tsx}": "bin/hogli format:js",
-        "nodejs/**/*.{js,jsx,mjs,ts,tsx}": "bin/hogli format:nodejs",
+        "{playwright,frontend,products,common,ee,services,docs}/**/*.{js,jsx,mjs,mts,ts,tsx}": "bin/hogli format:js",
+        "nodejs/**/*.{js,jsx,mjs,mts,ts,tsx}": "bin/hogli format:nodejs",
         "funnel-udf/**/*.rs": "bin/hogli format:rust",
         "!(posthog/hogql/grammar/*|posthog/personhog_client/proto/generated/*|products/*/skills/*/scripts/*)*.{py,pyi}": [
             "bin/hogli lint:python:fix",
@@ -126,15 +131,16 @@
             "d3-selection": ">=3.0.0",
             "d3-zoom": ">=3.0.0",
             "form-data": ">=4.0.4",
-            "node-forge": "1.3.2",
+            "node-forge": ">=1.4.0",
             "pbkdf2": ">=3.1.3",
             "react": "18.3.1",
             "react-dom": "18.3.1",
             "sha.js": ">=2.4.12",
-            "typescript": "5.9.3",
+            "typescript": "6.0.3",
             "uWebSockets.js": "https://codeload.github.com/uNetworking/uWebSockets.js/tar.gz/cfc9a40d8132a34881813cec3d5f8e3a185b3ce3",
             "fast-xml-parser@^4": ">=4.5.4",
-            "fast-xml-parser@^5": ">=5.3.5"
+            "fast-xml-parser@^5": ">=5.3.5",
+            "jest-playwright-preset>playwright-core": "1.60.0"
         },
         "patchedDependencies": {
             "heatmap.js@2.0.5": "patches/heatmap.js@2.0.5.patch",
@@ -144,6 +150,7 @@
         "// Known dependencies that we need preinstall scripts for, add new ones with caution": "",
         "onlyBuiltDependencies": [
             "@modelcontextprotocol/ext-apps",
+            "@mongodb-js/zstd",
             "@parcel/watcher",
             "chartjs-plugin-stacked100",
             "@swc/core",

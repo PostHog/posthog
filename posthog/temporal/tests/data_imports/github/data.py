@@ -135,6 +135,54 @@ COMMITS = [
     },
 ]
 
+WORKFLOW_RUNS = [
+    {
+        "id": 1001,
+        "name": "CI",
+        "head_branch": "master",
+        "head_sha": "abc123",
+        "path": ".github/workflows/ci.yml",
+        "run_number": 100,
+        "event": "push",
+        "status": "completed",
+        "conclusion": "success",
+        "workflow_id": 9001,
+        "created_at": "2026-01-20T10:00:00Z",
+        "updated_at": "2026-01-20T10:30:00Z",
+        "run_started_at": "2026-01-20T10:00:30Z",
+    },
+    {
+        "id": 1002,
+        "name": "CI",
+        "head_branch": "feature/foo",
+        "head_sha": "def456",
+        "path": ".github/workflows/ci.yml",
+        "run_number": 101,
+        "event": "pull_request",
+        "status": "completed",
+        "conclusion": "failure",
+        "workflow_id": 9001,
+        "created_at": "2026-01-22T10:00:00Z",
+        "updated_at": "2026-01-22T10:45:00Z",
+        "run_started_at": "2026-01-22T10:00:20Z",
+    },
+    {
+        "id": 1003,
+        "name": "Deploy",
+        "head_branch": "master",
+        "head_sha": "ghi789",
+        "path": ".github/workflows/deploy.yml",
+        "run_number": 50,
+        "event": "push",
+        "status": "in_progress",
+        "conclusion": None,
+        "workflow_id": 9002,
+        "created_at": "2026-01-25T10:00:00Z",
+        "updated_at": "2026-01-25T10:05:00Z",
+        "run_started_at": "2026-01-25T10:00:10Z",
+    },
+]
+
 STARGAZERS = [
     {
         "starred_at": "2026-01-10T10:00:00Z",

@@ -435,6 +435,7 @@ async fn test_get_person_with_unspecified_consistency() {
             person_id: 42,
             read_options: Some(ReadOptions {
                 consistency: ConsistencyLevel::Unspecified.into(),
+                ..Default::default()
             }),
         })
         .await

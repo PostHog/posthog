@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
@@ -25,6 +26,7 @@ from posthog.temporal.data_imports.sources.hubspot.hubspot import HubspotResumeC
 from posthog.temporal.data_imports.sources.hubspot.settings import (
     DEFAULT_PROPS,
     ENDPOINTS as HUBSPOT_ENDPOINTS,
+    HUBSPOT_ENDPOINTS as HUBSPOT_ENDPOINT_CONFIGS,
 )
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
@@ -46,6 +48,7 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.HUBSPOT,
+            category=DataWarehouseSourceCategory.CRM,
             caption="Select an existing Hubspot account to link to PostHog or create a new connection",
             iconPath="/static/services/hubspot.png",
             docsUrl="https://posthog.com/docs/cdp/sources/hubspot",
@@ -70,6 +73,7 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
                                     type=SourceFieldInputConfigType.TEXTAREA,
                                     required=False,
                                     placeholder=", ".join(default_props),
+                                    secret=False,
                                 )
                                 for schema_name, default_props in DEFAULT_PROPS.items()
                             ],
@@ -83,6 +87,18 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
         return {
             "missing or invalid refresh token": "Your HubSpot connection is invalid or expired. Please reconnect it.",
             "missing or unknown hub id": None,
+            # HubSpot's CRM API returns 401/403 when the OAuth grant can't read the requested object
+            # (token revoked, or the connected app is missing a scope like `crm.objects.companies.read`).
+            # `fetch_data` already refreshes the access token once on a 401; if the retried request is
+            # still rejected, the credentials genuinely lack access and retrying can't recover. Match the
+            # stable host, not the per-object URL path (companies/deals/contacts/...), which varies.
+            "401 Client Error: Unauthorized for url: https://api.hubapi.com": "Your HubSpot credentials are no longer authorized. Please reconnect your HubSpot account and ensure it has the required permissions, then try again.",
+            "403 Client Error: Forbidden for url: https://api.hubapi.com": "Your HubSpot credentials do not have permission to access this data. Please reconnect your HubSpot account and ensure it has the required permissions, then try again.",
+            # Raised by source_for_pipeline when the source config carries no refresh token at all
+            # (integration never connected or lost its token). Retrying cannot recover.
+            "Hubspot refresh token not found": "Your HubSpot connection is missing its refresh token. Please reconnect it.",
+            # Raised by source_for_pipeline (OAuth path) when the integration is missing its access or refresh token.
+            "Hubspot refresh or access token not found": "Your HubSpot connection is missing its refresh token. Please reconnect it.",
         }
 
     # TODO: clean up hubspot job inputs to not have two auth config options
@@ -98,16 +114,20 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
         team_id: int,
         with_counts: bool = False,
         names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=[],
+        schemas = []
+        for endpoint in HUBSPOT_ENDPOINTS:
+            endpoint_config = HUBSPOT_ENDPOINT_CONFIGS[endpoint]
+            supports_incremental = bool(endpoint_config.cursor_filter_property_field)
+            schemas.append(
+                SourceSchema(
+                    name=endpoint,
+                    supports_incremental=supports_incremental,
+                    supports_append=supports_incremental,
+                    incremental_fields=endpoint_config.incremental_fields,
+                )
             )
-            for endpoint in HUBSPOT_ENDPOINTS
-        ]
 
         if names is not None:
             names_set = set(names)
@@ -153,6 +173,8 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
             if properties_str and properties_str.strip():
                 selected_properties = [p.strip() for p in properties_str.split(",") if p.strip()]
 
+        use_search_path = self._should_use_search_path(inputs)
+
         return hubspot_source(
             api_key=hubspot_access_code,
             refresh_token=refresh_token,
@@ -161,4 +183,47 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
             resumable_source_manager=resumable_source_manager,
             selected_properties=selected_properties,
             source_id=inputs.source_id,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
+            use_search_path=use_search_path,
         )
+
+    def _should_use_search_path(self, inputs: SourceInputs) -> bool:
+        """Route to the search-based incremental path only when:
+        - the schema is configured for incremental sync,
+        - the endpoint supports incremental (has a cursor filter property),
+        - the initial full sync has completed (so we have a meaningful watermark and the
+          delta is small enough that per-page association backfills are cheap),
+        - the pipeline isn't being reset.
+
+        On the first sync for a newly-incremental schema, this falls back to the GET path
+        so we get a complete one-shot backfill (associations included) and the pipeline
+        establishes the db_incremental_field_last_value watermark for future runs.
+        """
+        if not inputs.should_use_incremental_field:
+            return False
+        if inputs.reset_pipeline:
+            return False
+        endpoint_config = HUBSPOT_ENDPOINT_CONFIGS.get(inputs.schema_name)
+        if endpoint_config is None or not endpoint_config.cursor_filter_property_field:
+            return False
+        from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+
+        try:
+            schema = ExternalDataSchema.objects.get(id=inputs.schema_id, team_id=inputs.team_id)
+        except ExternalDataSchema.DoesNotExist:
+            # Schema has been deleted (or id is wrong) — safest to fall back to the GET path.
+            inputs.logger.debug(
+                f"Hubspot: ExternalDataSchema(id={inputs.schema_id}, team_id={inputs.team_id}) not found; "
+                "defaulting to full-refresh/seed GET path"
+            )
+            return False
+        except Exception:
+            # Any other lookup failure (DB blip, etc.) also falls back, but log with details
+            # so we can debug why incremental routing is disabled.
+            inputs.logger.exception(
+                f"Hubspot: failed to look up ExternalDataSchema(id={inputs.schema_id}, team_id={inputs.team_id}); "
+                "defaulting to full-refresh/seed GET path"
+            )
+            return False
+
+        return bool(schema.initial_sync_complete)

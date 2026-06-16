@@ -2,6 +2,7 @@ import { Popover as PopoverPrimitive } from '@base-ui/react/popover'
 import * as React from 'react'
 
 import { cn } from './lib/utils'
+import './popover.css'
 
 function Popover({ ...props }: PopoverPrimitive.Root.Props): React.ReactElement {
     return <PopoverPrimitive.Root data-slot="popover" {...props} />
@@ -17,22 +18,37 @@ function PopoverContent({
     alignOffset = 0,
     side = 'bottom',
     sideOffset = 4,
+    collisionAvoidance,
+    container,
     ...props
 }: PopoverPrimitive.Popup.Props &
-    Pick<PopoverPrimitive.Positioner.Props, 'align' | 'alignOffset' | 'side' | 'sideOffset'>): React.ReactElement {
+    Pick<PopoverPrimitive.Positioner.Props, 'align' | 'alignOffset' | 'side' | 'sideOffset' | 'collisionAvoidance'> &
+    Pick<PopoverPrimitive.Portal.Props, 'container'>): React.ReactElement {
+    /*
+     * `container` opt-in lets consumers mount the popover inside a
+     * specific DOM subtree instead of `document.body`. Useful when
+     * popover content needs to inherit ancestor context that doesn't
+     * survive a portal jump — most notably CSS container queries
+     * (`@container/<name>`), which only follow DOM ancestors. Pass a
+     * ref to the container-query host and the portaled content can
+     * read its size as if it were a direct child.
+     */
     return (
-        <PopoverPrimitive.Portal>
+        <PopoverPrimitive.Portal container={container}>
             <PopoverPrimitive.Positioner
+                data-quill
+                data-quill-portal="popover"
                 align={align}
                 alignOffset={alignOffset}
                 side={side}
                 sideOffset={sideOffset}
-                className="isolate z-50"
+                collisionAvoidance={collisionAvoidance}
+                className="isolate"
             >
                 <PopoverPrimitive.Popup
                     data-slot="popover-content"
                     className={cn(
-                        'z-50 flex w-72 origin-(--transform-origin) flex-col gap-4 rounded-md bg-popover p-2.5 text-xs text-popover-foreground shadow-md ring-1 ring-foreground/10 outline-hidden duration-100 data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-start-2 data-[side=inline-start]:slide-in-from-end-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95',
+                        'quill-popover__content flex flex-col gap-4',
                         className
                     )}
                     {...props}
@@ -48,7 +64,11 @@ function PopoverHeader({ className, ...props }: React.ComponentProps<'div'>): Re
 
 function PopoverTitle({ className, ...props }: PopoverPrimitive.Title.Props): React.ReactElement {
     return (
-        <PopoverPrimitive.Title data-slot="popover-title" className={cn('text-sm font-medium', className)} {...props} />
+        <PopoverPrimitive.Title
+            data-slot="popover-title"
+            className={cn('quill-popover__title', className)}
+            {...props}
+        />
     )
 }
 
@@ -56,7 +76,7 @@ function PopoverDescription({ className, ...props }: PopoverPrimitive.Descriptio
     return (
         <PopoverPrimitive.Description
             data-slot="popover-description"
-            className={cn('text-muted-foreground', className)}
+            className={cn('quill-popover__description', className)}
             {...props}
         />
     )

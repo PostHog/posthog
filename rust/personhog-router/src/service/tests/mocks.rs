@@ -1,13 +1,18 @@
 use async_trait::async_trait;
 use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, CohortMembershipResponse, CountCohortMembersRequest,
-    CountCohortMembersResponse, DeleteCohortMemberRequest, DeleteCohortMemberResponse,
-    DeleteCohortMembersBulkRequest, DeleteCohortMembersBulkResponse,
-    DeleteHashKeyOverridesByTeamsRequest, DeleteHashKeyOverridesByTeamsResponse,
-    DeletePersonsBatchForTeamRequest, DeletePersonsBatchForTeamResponse, DeletePersonsRequest,
-    DeletePersonsResponse, GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
+    CountCohortMembersResponse, CountGroupTypeMappingsRequest, CountGroupTypeMappingsResponse,
+    CreateGroupRequest, CreateGroupResponse, DeleteCohortMemberRequest, DeleteCohortMemberResponse,
+    DeleteCohortMembersBulkRequest, DeleteCohortMembersBulkResponse, DeleteGroupTypeMappingRequest,
+    DeleteGroupTypeMappingResponse, DeleteGroupTypeMappingsBatchForTeamRequest,
+    DeleteGroupTypeMappingsBatchForTeamResponse, DeleteGroupsBatchForTeamRequest,
+    DeleteGroupsBatchForTeamResponse, DeleteHashKeyOverridesByTeamsRequest,
+    DeleteHashKeyOverridesByTeamsResponse, DeletePersonsBatchForTeamRequest,
+    DeletePersonsBatchForTeamResponse, DeletePersonsRequest, DeletePersonsResponse,
+    GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
     GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
-    GetGroupResponse, GetGroupTypeMappingsByProjectIdRequest,
+    GetGroupResponse, GetGroupTypeMappingByDashboardIdRequest,
+    GetGroupTypeMappingByDashboardIdResponse, GetGroupTypeMappingsByProjectIdRequest,
     GetGroupTypeMappingsByProjectIdsRequest, GetGroupTypeMappingsByTeamIdRequest,
     GetGroupTypeMappingsByTeamIdsRequest, GetGroupsBatchRequest, GetGroupsBatchResponse,
     GetGroupsRequest, GetHashKeyOverrideContextRequest, GetHashKeyOverrideContextResponse,
@@ -15,8 +20,10 @@ use personhog_proto::personhog::types::v1::{
     GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest,
     GetPersonsRequest, GroupTypeMappingsBatchResponse, GroupTypeMappingsResponse, GroupsResponse,
     InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
-    ListCohortMemberIdsResponse, Person, PersonsByDistinctIdsInTeamResponse,
-    PersonsByDistinctIdsResponse, PersonsResponse, UpsertHashKeyOverridesRequest,
+    ListCohortMemberIdsResponse, ListGroupsRequest, ListGroupsResponse, Person,
+    PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse, PersonsResponse,
+    SplitPersonRequest, SplitPersonResponse, UpdateGroupRequest, UpdateGroupResponse,
+    UpdateGroupTypeMappingRequest, UpdateGroupTypeMappingResponse, UpsertHashKeyOverridesRequest,
     UpsertHashKeyOverridesResponse,
 };
 use std::sync::Mutex;
@@ -252,6 +259,14 @@ impl PersonHogBackend for MockBackend {
         Ok(GetGroupsBatchResponse { results: vec![] })
     }
 
+    async fn list_groups(&self, _request: ListGroupsRequest) -> Result<ListGroupsResponse, Status> {
+        self.check_error()?;
+        Ok(ListGroupsResponse {
+            groups: vec![],
+            has_more: false,
+        })
+    }
+
     async fn get_group_type_mappings_by_team_id(
         &self,
         _request: GetGroupTypeMappingsByTeamIdRequest,
@@ -282,5 +297,80 @@ impl PersonHogBackend for MockBackend {
     ) -> Result<GroupTypeMappingsBatchResponse, Status> {
         self.check_error()?;
         Ok(GroupTypeMappingsBatchResponse { results: vec![] })
+    }
+
+    async fn count_group_type_mappings(
+        &self,
+        _request: CountGroupTypeMappingsRequest,
+    ) -> Result<CountGroupTypeMappingsResponse, Status> {
+        self.check_error()?;
+        Ok(CountGroupTypeMappingsResponse { counts: vec![] })
+    }
+
+    async fn get_group_type_mapping_by_dashboard_id(
+        &self,
+        _request: GetGroupTypeMappingByDashboardIdRequest,
+    ) -> Result<GetGroupTypeMappingByDashboardIdResponse, Status> {
+        self.check_error()?;
+        Ok(GetGroupTypeMappingByDashboardIdResponse { mapping: None })
+    }
+
+    async fn create_group(
+        &self,
+        _request: CreateGroupRequest,
+    ) -> Result<CreateGroupResponse, Status> {
+        self.check_error()?;
+        Ok(CreateGroupResponse { group: None })
+    }
+
+    async fn update_group(
+        &self,
+        _request: UpdateGroupRequest,
+    ) -> Result<UpdateGroupResponse, Status> {
+        self.check_error()?;
+        Ok(UpdateGroupResponse {
+            group: None,
+            updated: false,
+        })
+    }
+
+    async fn delete_groups_batch_for_team(
+        &self,
+        _request: DeleteGroupsBatchForTeamRequest,
+    ) -> Result<DeleteGroupsBatchForTeamResponse, Status> {
+        self.check_error()?;
+        Ok(DeleteGroupsBatchForTeamResponse { deleted_count: 0 })
+    }
+
+    async fn update_group_type_mapping(
+        &self,
+        _request: UpdateGroupTypeMappingRequest,
+    ) -> Result<UpdateGroupTypeMappingResponse, Status> {
+        self.check_error()?;
+        Ok(UpdateGroupTypeMappingResponse { mapping: None })
+    }
+
+    async fn delete_group_type_mapping(
+        &self,
+        _request: DeleteGroupTypeMappingRequest,
+    ) -> Result<DeleteGroupTypeMappingResponse, Status> {
+        self.check_error()?;
+        Ok(DeleteGroupTypeMappingResponse { deleted: false })
+    }
+
+    async fn delete_group_type_mappings_batch_for_team(
+        &self,
+        _request: DeleteGroupTypeMappingsBatchForTeamRequest,
+    ) -> Result<DeleteGroupTypeMappingsBatchForTeamResponse, Status> {
+        self.check_error()?;
+        Ok(DeleteGroupTypeMappingsBatchForTeamResponse { deleted_count: 0 })
+    }
+
+    async fn split_person(
+        &self,
+        _request: SplitPersonRequest,
+    ) -> Result<SplitPersonResponse, Status> {
+        self.check_error()?;
+        Ok(SplitPersonResponse { splits: vec![] })
     }
 }

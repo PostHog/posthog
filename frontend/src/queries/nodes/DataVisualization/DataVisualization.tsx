@@ -13,7 +13,7 @@ import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
 import { urls } from 'scenes/urls'
 
-import { insightVizDataCollectionId, insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
+import { insightVizDataCollectionId, insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
 import {
     AnyResponseType,
     DataVisualizationNode,
@@ -226,6 +226,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 query={query}
                 context={props.context}
                 cachedResults={props.cachedResults as HogQLQueryResponse | undefined}
+                embedded={props.embedded}
             />
         )
     } else if (
@@ -268,6 +269,10 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         component = <TwoDimensionalHeatmap allowSorting={!(props.embedded && readOnly)} />
     } else if (effectiveVisualizationType === ChartDisplayType.BoldNumber) {
         component = <HogQLBoldNumber />
+    }
+
+    if (props.embedded) {
+        return <div className="DataVisualization InsightCard__viz">{component}</div>
     }
 
     return (

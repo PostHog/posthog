@@ -51,7 +51,9 @@ describe('PersonCreateService', () => {
             mockOutputs,
             mockPersonStore,
             0,
-            createDefaultSyncMergeMode()
+            createDefaultSyncMergeMode(),
+            false,
+            false
         )
 
         personCreateService = new PersonCreateService(personContext)
@@ -106,6 +108,7 @@ describe('PersonCreateService', () => {
             expect(mockOutputs.produce).toHaveBeenCalledWith('persons', {
                 value: Buffer.from('test'),
                 key: null,
+                teamId,
             })
         })
 

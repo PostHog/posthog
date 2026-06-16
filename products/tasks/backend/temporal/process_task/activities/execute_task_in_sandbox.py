@@ -5,9 +5,9 @@ from temporalio import activity
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import asyncify
 
+from products.tasks.backend.exceptions import SandboxExecutionError, TaskExecutionFailedError
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.services.sandbox import Sandbox
-from products.tasks.backend.temporal.exceptions import SandboxExecutionError, TaskExecutionFailedError
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
 
 from .get_task_processing_context import TaskProcessingContext
@@ -51,7 +51,7 @@ def execute_task_in_sandbox(input: ExecuteTaskInput) -> ExecuteTaskOutput:
         sandbox_id=input.sandbox_id,
         **ctx.to_log_context(),
     ):
-        emit_agent_log(ctx.run_id, "info", "Initiating task execution in development environment")
+        emit_agent_log(ctx.run_id, "debug", "Initiating task execution in development environment")
 
         sandbox = Sandbox.get_by_id(input.sandbox_id)
 

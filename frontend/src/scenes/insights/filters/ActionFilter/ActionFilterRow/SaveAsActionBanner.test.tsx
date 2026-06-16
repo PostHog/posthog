@@ -4,9 +4,6 @@ import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
 import { useMocks } from '~/mocks/jest'
 import { actionsModel } from '~/models/actionsModel'
 import { initKeaTests } from '~/test/init'
@@ -42,8 +39,6 @@ describe('SaveAsActionBanner', () => {
             },
         })
         actionsModel.mount()
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.AUTOCAPTURE_SAVE_AS_ACTION]: true })
     })
 
     describe('conditional rendering', () => {

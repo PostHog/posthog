@@ -5,38 +5,43 @@ from typing import Any, cast
 
 from django.conf import settings
 from django.db import transaction
+from django.db.models import QuerySet
 from django.http import HttpResponse, JsonResponse
 from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt
 
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_view
 from loginas.utils import is_impersonated_session
 from nanoid import generate
-from rest_framework import exceptions, filters, serializers, status, viewsets
+from opentelemetry import trace
+from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.api.feature_flag import FeatureFlagSerializer, MinimalFeatureFlagSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.shared import UserBasicSerializer
+from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.utils import get_token
 from posthog.cloud_utils import is_cloud
 from posthog.constants import PRODUCT_TOUR_TARGETING_FLAG_PREFIX
 from posthog.event_usage import report_user_action
 from posthog.exceptions import generate_exception_response
+from posthog.helpers.trigram_search import DESCRIPTION_FIELD, MAX_SEARCH_LENGTH, NAME_FIELD, apply_trigram_search
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.utils_cors import cors_response
 
+from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer, MinimalFeatureFlagSerializer
 from products.product_tours.backend.constants import ProductTourEventName, ProductTourPersonProperties
 from products.product_tours.backend.generate_tour_content import ContentGenerationResult, generate_with_gemini
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
 
 logger = logging.getLogger(__name__)
+tracer = trace.get_tracer(__name__)
 
 TOUR_GENERATION_MODEL = "claude-haiku-4-5"
 
@@ -88,7 +93,7 @@ def _validate_step_targeting(step: dict, idx: int):
         raise serializers.ValidationError(f"Step {idx + 1} requires an element to be selected")
 
 
-class ProductTourSerializer(serializers.ModelSerializer):
+class ProductTourSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializer):
     """Read-only serializer for ProductTour."""
 
     internal_targeting_flag = MinimalFeatureFlagSerializer(read_only=True)
@@ -117,6 +122,7 @@ class ProductTourSerializer(serializers.ModelSerializer):
             "created_by",
             "updated_at",
             "archived",
+            "search_match_type",
         ]
         read_only_fields = ["id", "created_at", "created_by", "updated_at"]
 
@@ -216,7 +222,7 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
         return value
 
     def validate(self, data):
-        from posthog.models.feature_flag import FeatureFlag
+        from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
         # For partial updates (PATCH), fall back to the instance's existing
         # linked_flag_id when the field wasn't included in the request.
@@ -737,6 +743,17 @@ class GenerateResponseSerializer(serializers.Serializer):
     steps = GenerateStepResponseSerializer(many=True)
 
 
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="search",
+                type=OpenApiTypes.STR,
+                description="Fuzzy match against product tour `name` and `description` using Postgres trigram word similarity. Supports typos and prefix-as-you-type.",
+            ),
+        ],
+    ),
+)
 class ProductTourViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "product_tour"
     scope_object_read_actions = ["list", "retrieve", "draft_status"]
@@ -751,16 +768,45 @@ class ProductTourViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, view
         "generate",
     ]
     queryset = ProductTour.all_objects.select_related("internal_targeting_flag", "linked_flag", "created_by").all()
-    filter_backends = [filters.SearchFilter]
-    search_fields = ["name", "description"]
 
     def get_serializer_class(self) -> type[serializers.Serializer]:
         if self.request.method in ("POST", "PATCH"):
             return ProductTourSerializerCreateUpdateOnly
         return ProductTourSerializer
 
+    @tracer.start_as_current_span("ProductTourViewSet.list")
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        response = super().list(request, *args, **kwargs)
+        if request.query_params.get("search"):
+            data = response.data if isinstance(response.data, dict) else {}
+            results_len = data.get("count", len(data.get("results", [])))
+            span = trace.get_current_span()
+            span.set_attribute("product_tour.search.result_count", results_len)
+            span.set_attribute("product_tour.search.empty", results_len == 0)
+        return response
+
+    @staticmethod
+    @tracer.start_as_current_span("ProductTourViewSet._apply_search")
+    def _apply_search(queryset: QuerySet, search: str) -> QuerySet:
+        return apply_trigram_search(
+            queryset,
+            search,
+            span_prefix="product_tour.search",
+            fields=(NAME_FIELD, DESCRIPTION_FIELD),
+            tiebreakers=("name",),
+        )
+
     def safely_get_queryset(self, queryset):
-        return queryset.filter(team_id=self.team_id)
+        queryset = queryset.filter(team_id=self.team_id)
+        if self.action == "list":
+            search = self.request.GET.get("search")
+            if search:
+                if len(search) > MAX_SEARCH_LENGTH:
+                    raise serializers.ValidationError(
+                        {"search": f"Search query must be {MAX_SEARCH_LENGTH} characters or fewer."}
+                    )
+                queryset = self._apply_search(queryset, search)
+        return queryset
 
     def perform_destroy(self, instance: ProductTour) -> None:
         """Hard delete the tour and clean up related resources."""

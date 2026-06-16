@@ -17,7 +17,7 @@ import { IndexedTrendResult } from 'scenes/trends/types'
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { extractDisplayLabel } from '~/queries/nodes/DataTable/utils'
-import { isValidBreakdown } from '~/queries/utils'
+import { hasBreakdownFilter } from '~/queries/utils'
 import { ChartDisplayType, TrendsFilterType } from '~/types'
 
 import { entityFilterLogic } from '../../filters/ActionFilter/entityFilterLogic'
@@ -135,17 +135,20 @@ export function InsightsTable({
     // info into the first column and skip the separate "Breakdown" column.
     const isSingleSeriesWithBreakdown =
         isSingleSeriesDefinition &&
-        isValidBreakdown(breakdownFilter) &&
+        hasBreakdownFilter(breakdownFilter) &&
         !(breakdownFilter.breakdowns && breakdownFilter.breakdowns.length > 1)
 
-    const formatItemBreakdownLabel = isValidBreakdown(breakdownFilter)
+    // Untruncated — BreakdownColumnItem clips for display but needs the full value for hover and copy
+    const formatItemBreakdownLabel = hasBreakdownFilter(breakdownFilter)
         ? (item: IndexedTrendResult): string =>
               formatBreakdownLabel(
                   Array.isArray(item.breakdown_value) ? item.breakdown_value[0] : item.breakdown_value,
                   breakdownFilter,
                   allCohorts?.results,
                   formatPropertyValueForDisplay,
-                  breakdownFilter.breakdowns ? 0 : undefined
+                  breakdownFilter.breakdowns ? 0 : undefined,
+                  undefined,
+                  false
               )
         : undefined
 
@@ -191,7 +194,7 @@ export function InsightsTable({
                     seriesNameTooltip={seriesNameTooltip}
                     handleEditClick={handleSeriesEditClick}
                     hasMultipleSeries={!isSingleSeriesDefinition}
-                    hasBreakdown={isValidBreakdown(breakdownFilter)}
+                    hasBreakdown={hasBreakdownFilter(breakdownFilter)}
                     hideCompare={isCompareTable}
                 />
             )
@@ -226,7 +229,7 @@ export function InsightsTable({
         },
     })
 
-    if (isValidBreakdown(breakdownFilter) && breakdownFilter.breakdown) {
+    if (hasBreakdownFilter(breakdownFilter) && breakdownFilter.breakdown) {
         if (!isSingleSeriesWithBreakdown) {
             columns.push({
                 title: (
@@ -275,7 +278,9 @@ export function InsightsTable({
                     breakdownFilter,
                     allCohorts?.results,
                     formatPropertyValueForDisplay,
-                    index
+                    index,
+                    undefined,
+                    false
                 )
 
             const columnKey = `breakdown-${breakdown.property?.toString() || index}`

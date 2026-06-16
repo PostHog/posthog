@@ -10,23 +10,33 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     ActivityLogPaginatedResponseApi,
+    BulkDeleteRequestApi,
+    BulkDeleteResponseApi,
+    BulkKeysRequestApi,
+    BulkKeysResponseApi,
     BulkUpdateTagsRequestApi,
     BulkUpdateTagsResponseApi,
     CopyFlagsRequestApi,
     CopyFlagsResponseApi,
     DependentFlagApi,
+    EnvironmentsEvaluationContextSuggestionsDestroyParams,
+    EvaluationContextSuggestionRequestApi,
+    EvaluationContextSuggestionResponseApi,
     FeatureFlagApi,
     FeatureFlagCreateRequestSchemaApi,
     FeatureFlagStatusResponseApi,
+    FeatureFlagTestEvaluationRequestApi,
+    FeatureFlagTestEvaluationResponseApi,
     FeatureFlagVersionResponseApi,
-    FeatureFlagsActivityRetrieve2Params,
     FeatureFlagsActivityRetrieveParams,
+    FeatureFlagsAllActivityRetrieveParams,
     FeatureFlagsEvaluationReasonsRetrieveParams,
     FeatureFlagsListParams,
-    FeatureFlagsLocalEvaluationRetrieveParams,
     FeatureFlagsMyFlagsRetrieveParams,
-    LocalEvaluationResponseApi,
+    FlagValueResponseApi,
+    FlagValueValuesRetrieveParams,
     MyFlagsResponseApi,
+    OrganizationsProjectsEvaluationContextSuggestionsDestroyParams,
     PaginatedFeatureFlagListApi,
     PaginatedScheduledChangeListApi,
     PatchedFeatureFlagPartialUpdateRequestSchemaApi,
@@ -54,16 +64,16 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-export const getFeatureFlagsRetrieveUrl = (organizationId: string, featureFlagKey: string) => {
+export const getOrgFeatureFlagsRetrieveUrl = (organizationId: string, featureFlagKey: string) => {
     return `/api/organizations/${organizationId}/feature_flags/${featureFlagKey}/`
 }
 
-export const featureFlagsRetrieve = async (
+export const orgFeatureFlagsRetrieve = async (
     organizationId: string,
     featureFlagKey: string,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getFeatureFlagsRetrieveUrl(organizationId, featureFlagKey), {
+    return apiMutator<void>(getOrgFeatureFlagsRetrieveUrl(organizationId, featureFlagKey), {
         ...options,
         method: 'GET',
     })
@@ -86,17 +96,148 @@ export const featureFlagsCopyFlagsCreate = async (
     })
 }
 
-/**
- * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
+export const getOrganizationsProjectsEvaluationContextSuggestionsCreateUrl = (organizationId: string, id: number) => {
+    return `/api/organizations/${organizationId}/projects/${id}/evaluation_context_suggestions/`
+}
 
-If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
+/**
+ * Hide an evaluation context name from the flag editor's suggestion list, or restore it.
+ *
+ * POST hides the name; DELETE restores it. The underlying context row and any flags already
+ * using it are never modified — this only controls what gets suggested.
  */
+export const organizationsProjectsEvaluationContextSuggestionsCreate = async (
+    organizationId: string,
+    id: number,
+    evaluationContextSuggestionRequestApi: EvaluationContextSuggestionRequestApi,
+    options?: RequestInit
+): Promise<EvaluationContextSuggestionResponseApi> => {
+    return apiMutator<EvaluationContextSuggestionResponseApi>(
+        getOrganizationsProjectsEvaluationContextSuggestionsCreateUrl(organizationId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(evaluationContextSuggestionRequestApi),
+        }
+    )
+}
+
+export const getOrganizationsProjectsEvaluationContextSuggestionsDestroyUrl = (
+    organizationId: string,
+    id: number,
+    params: OrganizationsProjectsEvaluationContextSuggestionsDestroyParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/organizations/${organizationId}/projects/${id}/evaluation_context_suggestions/?${stringifiedParams}`
+        : `/api/organizations/${organizationId}/projects/${id}/evaluation_context_suggestions/`
+}
+
+/**
+ * Hide an evaluation context name from the flag editor's suggestion list, or restore it.
+ *
+ * POST hides the name; DELETE restores it. The underlying context row and any flags already
+ * using it are never modified — this only controls what gets suggested.
+ */
+export const organizationsProjectsEvaluationContextSuggestionsDestroy = async (
+    organizationId: string,
+    id: number,
+    params: OrganizationsProjectsEvaluationContextSuggestionsDestroyParams,
+    options?: RequestInit
+): Promise<EvaluationContextSuggestionResponseApi> => {
+    return apiMutator<EvaluationContextSuggestionResponseApi>(
+        getOrganizationsProjectsEvaluationContextSuggestionsDestroyUrl(organizationId, id, params),
+        {
+            ...options,
+            method: 'DELETE',
+        }
+    )
+}
+
+export const getEnvironmentsEvaluationContextSuggestionsCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/environments/${id}/evaluation_context_suggestions/`
+}
+
+/**
+ * Hide an evaluation context name from the flag editor's suggestion list, or restore it.
+ *
+ * POST hides the name; DELETE restores it. The underlying context row and any flags already
+ * using it are never modified — this only controls what gets suggested.
+ */
+export const environmentsEvaluationContextSuggestionsCreate = async (
+    projectId: string,
+    id: number,
+    evaluationContextSuggestionRequestApi: EvaluationContextSuggestionRequestApi,
+    options?: RequestInit
+): Promise<EvaluationContextSuggestionResponseApi> => {
+    return apiMutator<EvaluationContextSuggestionResponseApi>(
+        getEnvironmentsEvaluationContextSuggestionsCreateUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(evaluationContextSuggestionRequestApi),
+        }
+    )
+}
+
+export const getEnvironmentsEvaluationContextSuggestionsDestroyUrl = (
+    projectId: string,
+    id: number,
+    params: EnvironmentsEvaluationContextSuggestionsDestroyParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/environments/${id}/evaluation_context_suggestions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/environments/${id}/evaluation_context_suggestions/`
+}
+
+/**
+ * Hide an evaluation context name from the flag editor's suggestion list, or restore it.
+ *
+ * POST hides the name; DELETE restores it. The underlying context row and any flags already
+ * using it are never modified — this only controls what gets suggested.
+ */
+export const environmentsEvaluationContextSuggestionsDestroy = async (
+    projectId: string,
+    id: number,
+    params: EnvironmentsEvaluationContextSuggestionsDestroyParams,
+    options?: RequestInit
+): Promise<EvaluationContextSuggestionResponseApi> => {
+    return apiMutator<EvaluationContextSuggestionResponseApi>(
+        getEnvironmentsEvaluationContextSuggestionsDestroyUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'DELETE',
+        }
+    )
+}
+
 export const getFeatureFlagsListUrl = (projectId: string, params?: FeatureFlagsListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -107,6 +248,11 @@ export const getFeatureFlagsListUrl = (projectId: string, params?: FeatureFlagsL
         : `/api/projects/${projectId}/feature_flags/`
 }
 
+/**
+ * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
+ *
+ * If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
+ */
 export const featureFlagsList = async (
     projectId: string,
     params?: FeatureFlagsListParams,
@@ -118,18 +264,18 @@ export const featureFlagsList = async (
     })
 }
 
-/**
- * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
-
-If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
- */
 export const getFeatureFlagsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/feature_flags/`
 }
 
+/**
+ * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
+ *
+ * If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
+ */
 export const featureFlagsCreate = async (
     projectId: string,
-    featureFlagCreateRequestSchemaApi: FeatureFlagCreateRequestSchemaApi,
+    featureFlagCreateRequestSchemaApi?: FeatureFlagCreateRequestSchemaApi,
     options?: RequestInit
 ): Promise<FeatureFlagApi> => {
     return apiMutator<FeatureFlagApi>(getFeatureFlagsCreateUrl(projectId), {
@@ -140,35 +286,35 @@ export const featureFlagsCreate = async (
     })
 }
 
-/**
- * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
-
-If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
- */
-export const getFeatureFlagsRetrieve2Url = (projectId: string, id: number) => {
+export const getFeatureFlagsRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/feature_flags/${id}/`
 }
 
-export const featureFlagsRetrieve2 = async (
+/**
+ * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
+ *
+ * If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
+ */
+export const featureFlagsRetrieve = async (
     projectId: string,
     id: number,
     options?: RequestInit
 ): Promise<FeatureFlagApi> => {
-    return apiMutator<FeatureFlagApi>(getFeatureFlagsRetrieve2Url(projectId, id), {
+    return apiMutator<FeatureFlagApi>(getFeatureFlagsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
 }
 
-/**
- * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
-
-If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
- */
 export const getFeatureFlagsUpdateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/feature_flags/${id}/`
 }
 
+/**
+ * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
+ *
+ * If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
+ */
 export const featureFlagsUpdate = async (
     projectId: string,
     id: number,
@@ -183,19 +329,19 @@ export const featureFlagsUpdate = async (
     })
 }
 
-/**
- * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
-
-If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
- */
 export const getFeatureFlagsPartialUpdateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/feature_flags/${id}/`
 }
 
+/**
+ * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
+ *
+ * If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
+ */
 export const featureFlagsPartialUpdate = async (
     projectId: string,
     id: number,
-    patchedFeatureFlagPartialUpdateRequestSchemaApi: PatchedFeatureFlagPartialUpdateRequestSchemaApi,
+    patchedFeatureFlagPartialUpdateRequestSchemaApi?: PatchedFeatureFlagPartialUpdateRequestSchemaApi,
     options?: RequestInit
 ): Promise<FeatureFlagApi> => {
     return apiMutator<FeatureFlagApi>(getFeatureFlagsPartialUpdateUrl(projectId, id), {
@@ -206,13 +352,13 @@ export const featureFlagsPartialUpdate = async (
     })
 }
 
-/**
- * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
- */
 export const getFeatureFlagsDestroyUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/feature_flags/${id}/`
 }
 
+/**
+ * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
+ */
 export const featureFlagsDestroy = async (projectId: string, id: number, options?: RequestInit): Promise<unknown> => {
     return apiMutator<unknown>(getFeatureFlagsDestroyUrl(projectId, id), {
         ...options,
@@ -220,21 +366,16 @@ export const featureFlagsDestroy = async (projectId: string, id: number, options
     })
 }
 
-/**
- * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
-
-If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
- */
-export const getFeatureFlagsActivityRetrieve2Url = (
+export const getFeatureFlagsActivityRetrieveUrl = (
     projectId: string,
     id: number,
-    params?: FeatureFlagsActivityRetrieve2Params
+    params?: FeatureFlagsActivityRetrieveParams
 ) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -245,27 +386,32 @@ export const getFeatureFlagsActivityRetrieve2Url = (
         : `/api/projects/${projectId}/feature_flags/${id}/activity/`
 }
 
-export const featureFlagsActivityRetrieve2 = async (
+/**
+ * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
+ *
+ * If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
+ */
+export const featureFlagsActivityRetrieve = async (
     projectId: string,
     id: number,
-    params?: FeatureFlagsActivityRetrieve2Params,
+    params?: FeatureFlagsActivityRetrieveParams,
     options?: RequestInit
 ): Promise<ActivityLogPaginatedResponseApi> => {
-    return apiMutator<ActivityLogPaginatedResponseApi>(getFeatureFlagsActivityRetrieve2Url(projectId, id, params), {
+    return apiMutator<ActivityLogPaginatedResponseApi>(getFeatureFlagsActivityRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
 }
 
-/**
- * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
-
-If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
- */
 export const getFeatureFlagsCreateStaticCohortForFlagCreateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/feature_flags/${id}/create_static_cohort_for_flag/`
 }
 
+/**
+ * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
+ *
+ * If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
+ */
 export const featureFlagsCreateStaticCohortForFlagCreate = async (
     projectId: string,
     id: number,
@@ -280,15 +426,15 @@ export const featureFlagsCreateStaticCohortForFlagCreate = async (
     })
 }
 
-/**
- * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
-
-If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
- */
 export const getFeatureFlagsDashboardCreateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/feature_flags/${id}/dashboard/`
 }
 
+/**
+ * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
+ *
+ * If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
+ */
 export const featureFlagsDashboardCreate = async (
     projectId: string,
     id: number,
@@ -303,13 +449,13 @@ export const featureFlagsDashboardCreate = async (
     })
 }
 
-/**
- * Get other active flags that depend on this flag.
- */
 export const getFeatureFlagsDependentFlagsListUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/feature_flags/${id}/dependent_flags/`
 }
 
+/**
+ * Get other active flags that depend on this flag.
+ */
 export const featureFlagsDependentFlagsList = async (
     projectId: string,
     id: number,
@@ -321,15 +467,15 @@ export const featureFlagsDependentFlagsList = async (
     })
 }
 
-/**
- * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
-
-If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
- */
 export const getFeatureFlagsEnrichUsageDashboardCreateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/feature_flags/${id}/enrich_usage_dashboard/`
 }
 
+/**
+ * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
+ *
+ * If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
+ */
 export const featureFlagsEnrichUsageDashboardCreate = async (
     projectId: string,
     id: number,
@@ -344,15 +490,15 @@ export const featureFlagsEnrichUsageDashboardCreate = async (
     })
 }
 
-/**
- * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
-
-If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
- */
 export const getFeatureFlagsRemoteConfigRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/feature_flags/${id}/remote_config/`
 }
 
+/**
+ * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
+ *
+ * If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
+ */
 export const featureFlagsRemoteConfigRetrieve = async (
     projectId: string,
     id: number,
@@ -364,15 +510,15 @@ export const featureFlagsRemoteConfigRetrieve = async (
     })
 }
 
-/**
- * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
-
-If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
- */
 export const getFeatureFlagsStatusRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/feature_flags/${id}/status/`
 }
 
+/**
+ * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
+ *
+ * If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
+ */
 export const featureFlagsStatusRetrieve = async (
     projectId: string,
     id: number,
@@ -384,15 +530,40 @@ export const featureFlagsStatusRetrieve = async (
     })
 }
 
-/**
- * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
+export const getFeatureFlagsTestEvaluationCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/feature_flags/${id}/test_evaluation/`
+}
 
-If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
+/**
+ * Test feature flag evaluation against a specific user at an optional point in time.
+ *
+ * This endpoint allows testing how a feature flag would evaluate for a specific user,
+ * optionally at a historical timestamp. When a timestamp is provided, both the flag
+ * conditions and person properties are evaluated as they existed at that time.
  */
+export const featureFlagsTestEvaluationCreate = async (
+    projectId: string,
+    id: number,
+    featureFlagTestEvaluationRequestApi?: FeatureFlagTestEvaluationRequestApi,
+    options?: RequestInit
+): Promise<FeatureFlagTestEvaluationResponseApi> => {
+    return apiMutator<FeatureFlagTestEvaluationResponseApi>(getFeatureFlagsTestEvaluationCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(featureFlagTestEvaluationRequestApi),
+    })
+}
+
 export const getFeatureFlagsVersionsRetrieveUrl = (projectId: string, id: number, versionNumber: number) => {
     return `/api/projects/${projectId}/feature_flags/${id}/versions/${versionNumber}/`
 }
 
+/**
+ * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
+ *
+ * If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
+ */
 export const featureFlagsVersionsRetrieve = async (
     projectId: string,
     id: number,
@@ -405,17 +576,15 @@ export const featureFlagsVersionsRetrieve = async (
     })
 }
 
-/**
- * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
-
-If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
- */
-export const getFeatureFlagsActivityRetrieveUrl = (projectId: string, params?: FeatureFlagsActivityRetrieveParams) => {
+export const getFeatureFlagsAllActivityRetrieveUrl = (
+    projectId: string,
+    params?: FeatureFlagsAllActivityRetrieveParams
+) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -426,82 +595,95 @@ export const getFeatureFlagsActivityRetrieveUrl = (projectId: string, params?: F
         : `/api/projects/${projectId}/feature_flags/activity/`
 }
 
-export const featureFlagsActivityRetrieve = async (
+/**
+ * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
+ *
+ * If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
+ */
+export const featureFlagsAllActivityRetrieve = async (
     projectId: string,
-    params?: FeatureFlagsActivityRetrieveParams,
+    params?: FeatureFlagsAllActivityRetrieveParams,
     options?: RequestInit
 ): Promise<ActivityLogPaginatedResponseApi> => {
-    return apiMutator<ActivityLogPaginatedResponseApi>(getFeatureFlagsActivityRetrieveUrl(projectId, params), {
+    return apiMutator<ActivityLogPaginatedResponseApi>(getFeatureFlagsAllActivityRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
 }
 
-/**
- * Bulk delete feature flags by filter criteria or explicit IDs.
-
-Accepts either:
-- {"filters": {...}} - Same filter params as list endpoint (search, active, type, etc.)
-- {"ids": [...]} - Explicit list of flag IDs (no limit)
-
-Returns same format as bulk_delete for UI compatibility.
-
-Uses bulk operations for efficiency: database updates are batched and cache
-invalidation happens once at the end rather than per-flag.
- */
 export const getFeatureFlagsBulkDeleteCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/feature_flags/bulk_delete/`
 }
 
+/**
+ * Bulk delete feature flags by filter criteria or explicit IDs.
+ *
+ * Accepts either:
+ * - {"filters": {...}} - Same filter params as list endpoint (search, active, type, etc.)
+ * - {"ids": [...]} - Explicit list of flag IDs (no limit)
+ *
+ * Returns same format as bulk_delete for UI compatibility.
+ *
+ * Uses bulk operations for efficiency: database updates are batched and cache
+ * invalidation happens once at the end rather than per-flag.
+ */
 export const featureFlagsBulkDeleteCreate = async (
     projectId: string,
-    featureFlagApi: NonReadonly<FeatureFlagApi>,
+    bulkDeleteRequestApi?: BulkDeleteRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getFeatureFlagsBulkDeleteCreateUrl(projectId), {
+): Promise<BulkDeleteResponseApi> => {
+    return apiMutator<BulkDeleteResponseApi>(getFeatureFlagsBulkDeleteCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(featureFlagApi),
+        body: JSON.stringify(bulkDeleteRequestApi),
     })
+}
+
+export const getFeatureFlagsBulkKeysRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/feature_flags/bulk_keys/`
 }
 
 /**
  * Get feature flag keys by IDs.
-Accepts a list of feature flag IDs and returns a mapping of ID to key.
+ * Accepts a list of feature flag IDs and returns a mapping of ID to key.
  */
-export const getFeatureFlagsBulkKeysCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/feature_flags/bulk_keys/`
-}
-
-export const featureFlagsBulkKeysCreate = async (
+export const featureFlagsBulkKeysRetrieve = async (
     projectId: string,
-    featureFlagApi: NonReadonly<FeatureFlagApi>,
+    bulkKeysRequestApi?: BulkKeysRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getFeatureFlagsBulkKeysCreateUrl(projectId), {
+): Promise<BulkKeysResponseApi> => {
+    return apiMutator<BulkKeysResponseApi>(getFeatureFlagsBulkKeysRetrieveUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(featureFlagApi),
+        body: JSON.stringify(bulkKeysRequestApi),
     })
 }
 
-/**
- * Bulk update tags on multiple objects.
-
-Accepts:
-- {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
-
-Actions:
-- "add": Add tags to existing tags on each object
-- "remove": Remove specific tags from each object
-- "set": Replace all tags on each object with the provided list
- */
 export const getFeatureFlagsBulkUpdateTagsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/feature_flags/bulk_update_tags/`
 }
 
+/**
+ * Bulk update tags on multiple objects.
+ *
+ * PAT access: this action has no ``required_scopes=`` on the decorator —
+ * inheriting viewsets must add ``"bulk_update_tags"`` to their
+ * ``scope_object_write_actions`` list to accept personal API keys.
+ * Without that opt-in, ``APIScopePermission`` rejects PAT requests with
+ * "This action does not support personal API key access". Done per-viewset
+ * so granting ``<scope>:write`` for one resource doesn't leak access to
+ * sibling resources that share this mixin.
+ *
+ * Accepts:
+ * - {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
+ *
+ * Actions:
+ * - "add": Add tags to existing tags on each object
+ * - "remove": Remove specific tags from each object
+ * - "set": Replace all tags on each object with the provided list
+ */
 export const featureFlagsBulkUpdateTagsCreate = async (
     projectId: string,
     bulkUpdateTagsRequestApi: BulkUpdateTagsRequestApi,
@@ -515,11 +697,6 @@ export const featureFlagsBulkUpdateTagsCreate = async (
     })
 }
 
-/**
- * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
-
-If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
- */
 export const getFeatureFlagsEvaluationReasonsRetrieveUrl = (
     projectId: string,
     params: FeatureFlagsEvaluationReasonsRetrieveParams
@@ -528,7 +705,7 @@ export const getFeatureFlagsEvaluationReasonsRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -539,6 +716,11 @@ export const getFeatureFlagsEvaluationReasonsRetrieveUrl = (
         : `/api/projects/${projectId}/feature_flags/evaluation_reasons/`
 }
 
+/**
+ * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
+ *
+ * If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
+ */
 export const featureFlagsEvaluationReasonsRetrieve = async (
     projectId: string,
     params: FeatureFlagsEvaluationReasonsRetrieveParams,
@@ -550,50 +732,15 @@ export const featureFlagsEvaluationReasonsRetrieve = async (
     })
 }
 
-/**
- * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
-
-If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
- */
-export const getFeatureFlagsLocalEvaluationRetrieveUrl = (
-    projectId: string,
-    params?: FeatureFlagsLocalEvaluationRetrieveParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/feature_flags/local_evaluation/?${stringifiedParams}`
-        : `/api/projects/${projectId}/feature_flags/local_evaluation/`
-}
-
-export const featureFlagsLocalEvaluationRetrieve = async (
-    projectId: string,
-    params?: FeatureFlagsLocalEvaluationRetrieveParams,
-    options?: RequestInit
-): Promise<LocalEvaluationResponseApi> => {
-    return apiMutator<LocalEvaluationResponseApi>(getFeatureFlagsLocalEvaluationRetrieveUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-/**
- * Get IDs of all feature flags matching the current filters.
-Uses the same filtering logic as the list endpoint.
-Returns only IDs that the user has permission to edit.
- */
 export const getFeatureFlagsMatchingIdsRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/feature_flags/matching_ids/`
 }
 
+/**
+ * Get IDs of all feature flags matching the current filters.
+ * Uses the same filtering logic as the list endpoint.
+ * Returns only IDs that the user has permission to edit.
+ */
 export const featureFlagsMatchingIdsRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getFeatureFlagsMatchingIdsRetrieveUrl(projectId), {
         ...options,
@@ -601,17 +748,12 @@ export const featureFlagsMatchingIdsRetrieve = async (projectId: string, options
     })
 }
 
-/**
- * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
-
-If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
- */
 export const getFeatureFlagsMyFlagsRetrieveUrl = (projectId: string, params?: FeatureFlagsMyFlagsRetrieveParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -622,6 +764,11 @@ export const getFeatureFlagsMyFlagsRetrieveUrl = (projectId: string, params?: Fe
         : `/api/projects/${projectId}/feature_flags/my_flags/`
 }
 
+/**
+ * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
+ *
+ * If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
+ */
 export const featureFlagsMyFlagsRetrieve = async (
     projectId: string,
     params?: FeatureFlagsMyFlagsRetrieveParams,
@@ -633,15 +780,15 @@ export const featureFlagsMyFlagsRetrieve = async (
     })
 }
 
-/**
- * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
-
-If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
- */
 export const getFeatureFlagsUserBlastRadiusCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/feature_flags/user_blast_radius/`
 }
 
+/**
+ * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
+ *
+ * If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
+ */
 export const featureFlagsUserBlastRadiusCreate = async (
     projectId: string,
     userBlastRadiusRequestApi: UserBlastRadiusRequestApi,
@@ -655,15 +802,48 @@ export const featureFlagsUserBlastRadiusCreate = async (
     })
 }
 
+export const getFlagValueValuesRetrieveUrl = (projectId: string, params?: FlagValueValuesRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/flag_value/values/?${stringifiedParams}`
+        : `/api/projects/${projectId}/flag_value/values/`
+}
+
 /**
- * Create, read, update and delete scheduled changes.
+ * Get possible values for a feature flag.
+ *
+ * Query parameters:
+ * - key: The flag ID (required)
+ * Returns:
+ *
+ * - Array of objects with 'name' field containing possible values
  */
+export const flagValueValuesRetrieve = async (
+    projectId: string,
+    params?: FlagValueValuesRetrieveParams,
+    options?: RequestInit
+): Promise<FlagValueResponseApi> => {
+    return apiMutator<FlagValueResponseApi>(getFlagValueValuesRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getScheduledChangesListUrl = (projectId: string, params?: ScheduledChangesListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -674,6 +854,9 @@ export const getScheduledChangesListUrl = (projectId: string, params?: Scheduled
         : `/api/projects/${projectId}/scheduled_changes/`
 }
 
+/**
+ * Create, read, update and delete scheduled changes.
+ */
 export const scheduledChangesList = async (
     projectId: string,
     params?: ScheduledChangesListParams,
@@ -685,13 +868,13 @@ export const scheduledChangesList = async (
     })
 }
 
-/**
- * Create, read, update and delete scheduled changes.
- */
 export const getScheduledChangesCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/scheduled_changes/`
 }
 
+/**
+ * Create, read, update and delete scheduled changes.
+ */
 export const scheduledChangesCreate = async (
     projectId: string,
     scheduledChangeApi: NonReadonly<ScheduledChangeApi>,
@@ -705,13 +888,13 @@ export const scheduledChangesCreate = async (
     })
 }
 
-/**
- * Create, read, update and delete scheduled changes.
- */
 export const getScheduledChangesRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/scheduled_changes/${id}/`
 }
 
+/**
+ * Create, read, update and delete scheduled changes.
+ */
 export const scheduledChangesRetrieve = async (
     projectId: string,
     id: number,
@@ -723,13 +906,13 @@ export const scheduledChangesRetrieve = async (
     })
 }
 
-/**
- * Create, read, update and delete scheduled changes.
- */
 export const getScheduledChangesUpdateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/scheduled_changes/${id}/`
 }
 
+/**
+ * Create, read, update and delete scheduled changes.
+ */
 export const scheduledChangesUpdate = async (
     projectId: string,
     id: number,
@@ -744,17 +927,17 @@ export const scheduledChangesUpdate = async (
     })
 }
 
-/**
- * Create, read, update and delete scheduled changes.
- */
 export const getScheduledChangesPartialUpdateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/scheduled_changes/${id}/`
 }
 
+/**
+ * Create, read, update and delete scheduled changes.
+ */
 export const scheduledChangesPartialUpdate = async (
     projectId: string,
     id: number,
-    patchedScheduledChangeApi: NonReadonly<PatchedScheduledChangeApi>,
+    patchedScheduledChangeApi?: NonReadonly<PatchedScheduledChangeApi>,
     options?: RequestInit
 ): Promise<ScheduledChangeApi> => {
     return apiMutator<ScheduledChangeApi>(getScheduledChangesPartialUpdateUrl(projectId, id), {
@@ -765,13 +948,13 @@ export const scheduledChangesPartialUpdate = async (
     })
 }
 
-/**
- * Create, read, update and delete scheduled changes.
- */
 export const getScheduledChangesDestroyUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/scheduled_changes/${id}/`
 }
 
+/**
+ * Create, read, update and delete scheduled changes.
+ */
 export const scheduledChangesDestroy = async (projectId: string, id: number, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getScheduledChangesDestroyUrl(projectId, id), {
         ...options,

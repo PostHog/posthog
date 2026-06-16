@@ -83,3 +83,48 @@ export function WebAnalyticsDashboard(): JSX.Element {
 
     return <App />
 }
+
+WebAnalyticsDashboardMetricCards.parameters = {
+    ...meta.parameters,
+    featureFlags: [...((meta.parameters?.featureFlags as string[]) ?? []), FEATURE_FLAGS.WEB_ANALYTICS_METRIC_CARDS],
+}
+export function WebAnalyticsDashboardMetricCards(): JSX.Element {
+    const { setSourceTab, setDeviceTab } = useActions(webAnalyticsLogic)
+
+    useEffect(() => {
+        setSourceTab(SourceTab.REFERRING_DOMAIN)
+        setDeviceTab(DeviceTab.BROWSER)
+    }, [setDeviceTab, setSourceTab])
+
+    return <App />
+}
+
+WebAnalyticsDashboardLoading.parameters = {
+    layout: 'fullscreen',
+    viewMode: 'story',
+    mockDate: '2023-02-01',
+    pageUrl: urls.webAnalytics(),
+    featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2, FEATURE_FLAGS.WEB_ANALYTICS_TILE_SKELETONS],
+    testOptions: {
+        includeNavigationInSnapshot: true,
+        waitForLoadersToDisappear: false,
+        waitForSelector: '[data-attr=web-analytics-skeleton-table], [data-attr=web-analytics-skeleton-chart]',
+    },
+    msw: {
+        handlers: [],
+    },
+}
+WebAnalyticsDashboardLoading.decorators = [
+    mswDecorator({
+        get: {
+            '/stats': () => [200, { users_on_product: 2387 }],
+            '/api/projects/:team_id/event_definitions': () => [200, { count: 5 }],
+        },
+        post: {
+            '/api/environments/:team_id/query/:kind': () => new Promise<never>(() => {}),
+        },
+    }),
+]
+export function WebAnalyticsDashboardLoading(): JSX.Element {
+    return <App />
+}

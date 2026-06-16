@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { buildToolResultPayload } from '@/lib/build-tool-result'
+import { EXEC_BUILT_PAYLOAD, markExecPayload, buildToolResultPayload, isToolCallPayload } from '@/lib/build-tool-result'
 import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, POSTHOG_META_KEY } from '@/tools/types'
 
 // Simulates a `query-trends` handler return value: a UI-resource tool that
@@ -54,7 +54,7 @@ describe('buildToolResultPayload — query-trends for Claude Code', () => {
             toolMeta: queryTrendsToolMeta,
             toolName: 'query-trends',
             params: { series: [{ event: '$pageview', kind: 'EventsNode' }] },
-            clientName: 'claude-code',
+            suppressStructuredContentForFormattedResults: true,
             distinctId: 'test-distinct-id',
         })
 
@@ -65,40 +65,13 @@ describe('buildToolResultPayload — query-trends for Claude Code', () => {
         expect(payload).not.toHaveProperty('structuredContent')
     })
 
-    it.each([
-        ['claude-code'],
-        ['Claude Code'], // whitespace variant — normalizer strips it
-        ['claude-code-cli'],
-        ['claude-code/1.2.3'],
-        ['cline'],
-        ['cline-bot'],
-        ['continue'],
-        ['codex'],
-        ['windsurf'],
-        ['zed'],
-        ['aider'],
-        ['github.copilot'],
-    ])('suppresses structuredContent for coding agent %s', (clientName) => {
+    it('keeps structuredContent when suppression is false', () => {
         const payload = buildToolResultPayload({
             handlerResult: queryTrendsHandlerResult(),
             toolMeta: queryTrendsToolMeta,
             toolName: 'query-trends',
             params: {},
-            clientName,
-            distinctId: 'd',
-        })
-
-        expect(payload.content[0]!.text).toBe(FORMATTED_TABLE)
-        expect(payload).not.toHaveProperty('structuredContent')
-    })
-
-    it('keeps structuredContent for Cursor (it reads text for the model, structured for UI)', () => {
-        const payload = buildToolResultPayload({
-            handlerResult: queryTrendsHandlerResult(),
-            toolMeta: queryTrendsToolMeta,
-            toolName: 'query-trends',
-            params: {},
-            clientName: 'cursor',
+            suppressStructuredContentForFormattedResults: false,
             distinctId: 'test-distinct-id',
         })
 
@@ -112,22 +85,18 @@ describe('buildToolResultPayload — query-trends for Claude Code', () => {
         expect(payload.structuredContent).not.toHaveProperty(POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY)
     })
 
-    it.each([['Claude Desktop'], ['claude-desktop'], ['mcp-inspector'], [undefined]])(
-        'keeps structuredContent for non-coding client %s',
-        (clientName) => {
-            const payload = buildToolResultPayload({
-                handlerResult: queryTrendsHandlerResult(),
-                toolMeta: queryTrendsToolMeta,
-                toolName: 'query-trends',
-                params: {},
-                clientName,
-                distinctId: 'd',
-            })
+    it('keeps structuredContent when suppression is omitted', () => {
+        const payload = buildToolResultPayload({
+            handlerResult: queryTrendsHandlerResult(),
+            toolMeta: queryTrendsToolMeta,
+            toolName: 'query-trends',
+            params: {},
+            distinctId: 'd',
+        })
 
-            expect(payload.content[0]!.text).toBe(FORMATTED_TABLE)
-            expect(payload.structuredContent).not.toBeUndefined()
-        }
-    )
+        expect(payload.content[0]!.text).toBe(FORMATTED_TABLE)
+        expect(payload.structuredContent).not.toBeUndefined()
+    })
 
     it('keeps structuredContent when caller explicitly passes output_format=json (even on claude-code)', () => {
         const payload = buildToolResultPayload({
@@ -135,7 +104,7 @@ describe('buildToolResultPayload — query-trends for Claude Code', () => {
             toolMeta: queryTrendsToolMeta,
             toolName: 'query-trends',
             params: { output_format: 'json' },
-            clientName: 'claude-code',
+            suppressStructuredContentForFormattedResults: true,
             distinctId: 'd',
         })
 
@@ -158,7 +127,7 @@ describe('buildToolResultPayload — query-trends for Claude Code', () => {
             toolMeta: queryTrendsToolMeta,
             toolName: 'query-trends',
             params: {},
-            clientName: 'claude-code',
+            suppressStructuredContentForFormattedResults: true,
             distinctId: 'd',
         })
 
@@ -174,7 +143,7 @@ describe('buildToolResultPayload — query-trends for Claude Code', () => {
             toolMeta: queryTrendsToolMeta,
             toolName: 'query-trends',
             params: {},
-            clientName: 'claude-desktop',
+            suppressStructuredContentForFormattedResults: false,
             distinctId: 'user-abc-123',
         })
 
@@ -194,7 +163,7 @@ describe('buildToolResultPayload — query-trends for Claude Code', () => {
             toolMeta: undefined,
             toolName: 'whatever',
             params: {},
-            clientName: 'cursor',
+            suppressStructuredContentForFormattedResults: false,
             distinctId: 'd',
         })
 
@@ -214,7 +183,7 @@ describe('buildToolResultPayload — non-query use cases', () => {
             toolMeta: undefined,
             toolName: 'execute-sql',
             params: {},
-            clientName: 'claude-code',
+            suppressStructuredContentForFormattedResults: true,
             distinctId: undefined,
         })
 
@@ -231,7 +200,7 @@ describe('buildToolResultPayload — non-query use cases', () => {
             toolMeta: { [POSTHOG_META_KEY]: { outputFormat: 'json' } },
             toolName: 'query-llm-traces-list',
             params: {},
-            clientName: 'claude-code',
+            suppressStructuredContentForFormattedResults: true,
             distinctId: undefined,
         })
 
@@ -240,5 +209,47 @@ describe('buildToolResultPayload — non-query use cases', () => {
             results: [],
             _posthogUrl: 'http://...',
         })
+    })
+})
+
+describe('isToolCallPayload — nominal brand', () => {
+    it('matches only payloads carrying the exec brand', () => {
+        const branded = markExecPayload({
+            content: [{ type: 'text', text: 'hi' }],
+            structuredContent: { foo: 1 },
+            _meta: { ui: { resourceUri: 'ui://app' } },
+        })
+        expect(isToolCallPayload(branded)).toBe(true)
+        expect(branded[EXEC_BUILT_PAYLOAD]).toBe(true)
+    })
+
+    it('returns false for bare CallToolResult-shaped payloads without the brand', () => {
+        // Regression guard: `setActive` / `searchDocs` return this shape today, and
+        // a future tool returning a similar shape must not silently skip the
+        // buildToolResultPayload pipeline.
+        expect(
+            isToolCallPayload({
+                content: [{ type: 'text', text: 'switched' }],
+            })
+        ).toBe(false)
+        expect(
+            isToolCallPayload({
+                content: [{ type: 'text', text: 'switched' }],
+                structuredContent: { foo: 1 },
+            })
+        ).toBe(false)
+        expect(
+            isToolCallPayload({
+                content: [{ type: 'text', text: 'switched' }],
+                _meta: { ui: { resourceUri: 'ui://app' } },
+            })
+        ).toBe(false)
+    })
+
+    it('returns false for non-object values', () => {
+        expect(isToolCallPayload(undefined)).toBe(false)
+        expect(isToolCallPayload(null)).toBe(false)
+        expect(isToolCallPayload('string-result')).toBe(false)
+        expect(isToolCallPayload(42)).toBe(false)
     })
 })

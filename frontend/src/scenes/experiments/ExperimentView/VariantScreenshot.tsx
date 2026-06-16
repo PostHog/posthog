@@ -1,13 +1,22 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { IconX } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonFileInput, LemonModal, LemonSkeleton, lemonToast } from '@posthog/lemon-ui'
+import { IconChevronLeft, IconChevronRight, IconX } from '@posthog/icons'
+import {
+    LemonButton,
+    LemonDivider,
+    LemonFileInput,
+    LemonModal,
+    LemonSkeleton,
+    lemonToast,
+    Spinner,
+} from '@posthog/lemon-ui'
 
+import { ZoomableImage } from 'lib/components/ZoomableImage/ZoomableImage'
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
 
 import { experimentLogic } from '../experimentLogic'
-import { VariantTag } from './components'
+import { VariantTag } from './VariantTag'
 
 export function VariantScreenshot({
     variantKey,
@@ -31,6 +40,9 @@ export function VariantScreenshot({
     const [mediaIds, setMediaIds] = useState<string[]>(getInitialMediaIds)
     const [loadingImages, setLoadingImages] = useState<Record<string, boolean>>({})
     const [selectedImageIndex, setSelectedImageIndex] = useState<number | null>(null)
+
+    const [isFocused, setIsFocused] = useState(false)
+    const containerRef = useRef<HTMLDivElement>(null)
 
     const { setFilesToUpload, filesToUpload, uploading } = useUploadFiles({
         onUpload: (_, __, id) => {
@@ -58,6 +70,38 @@ export function VariantScreenshot({
             lemonToast.error(`Error uploading image: ${detail}`)
         },
     })
+
+    const handlePaste = useCallback(
+        (e: React.ClipboardEvent): void => {
+            if (uploading) {
+                return
+            }
+
+            const items = e.clipboardData?.items
+            if (!items) {
+                return
+            }
+
+            for (let i = 0; i < items.length; i++) {
+                const item = items[i]
+                if (item.type.startsWith('image/')) {
+                    e.preventDefault()
+                    const file = item.getAsFile()
+                    if (file) {
+                        if (mediaIds.length >= 5) {
+                            lemonToast.error('Maximum of 5 images allowed')
+                            return
+                        }
+                        setFilesToUpload([file])
+                    } else {
+                        lemonToast.error('Could not read image from clipboard')
+                    }
+                    return
+                }
+            }
+        },
+        [mediaIds.length, setFilesToUpload, uploading]
+    )
 
     const handleImageLoad = (mediaId: string): void => {
         setLoadingImages((prev) => ({ ...prev, [mediaId]: false }))
@@ -99,8 +143,45 @@ export function VariantScreenshot({
 
     const widthClass = getThumbnailWidth()
 
+    const getMediaSrc = (mediaId: string): string =>
+        mediaId.startsWith('data:') ? mediaId : `/uploaded_media/${mediaId}`
+
+    const showPrevious = (): void =>
+        setSelectedImageIndex((prev) => (prev === null ? prev : (prev - 1 + mediaIds.length) % mediaIds.length))
+    const showNext = (): void => setSelectedImageIndex((prev) => (prev === null ? prev : (prev + 1) % mediaIds.length))
+
+    // Arrow-key navigation while the screenshot viewer is open.
+    useEffect(() => {
+        if (selectedImageIndex === null || mediaIds.length <= 1) {
+            return
+        }
+        const onKeyDown = (e: KeyboardEvent): void => {
+            if (e.key === 'ArrowLeft') {
+                showPrevious()
+            } else if (e.key === 'ArrowRight') {
+                showNext()
+            }
+        }
+        window.addEventListener('keydown', onKeyDown)
+        return () => window.removeEventListener('keydown', onKeyDown)
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [selectedImageIndex, mediaIds.length])
+
     return (
-        <div className="deprecated-space-y-4">
+        <div
+            ref={containerRef}
+            className={`deprecated-space-y-4 rounded p-1 -m-1 outline-none transition-colors ${
+                isFocused ? 'ring-1 ring-accent' : ''
+            }`}
+            tabIndex={0}
+            onPaste={handlePaste}
+            onFocus={() => setIsFocused(true)}
+            onBlur={(e) => {
+                if (!containerRef.current?.contains(e.relatedTarget as Node)) {
+                    setIsFocused(false)
+                }
+            }}
+        >
             <div className="flex gap-4 items-start">
                 {mediaIds.map((mediaId, index) => (
                     <div key={mediaId} className="relative">
@@ -112,7 +193,7 @@ export function VariantScreenshot({
                                     {loadingImages[mediaId] && <LemonSkeleton className="absolute inset-0" />}
                                     <img
                                         className="w-full h-full object-cover"
-                                        src={mediaId.startsWith('data:') ? mediaId : `/uploaded_media/${mediaId}`}
+                                        src={getMediaSrc(mediaId)}
                                         alt={`Variant screenshot thumbnail ${index + 1}`}
                                         onError={() => handleImageError(mediaId)}
                                         onLoad={() => handleImageLoad(mediaId)}
@@ -145,12 +226,22 @@ export function VariantScreenshot({
                             onChange={setFilesToUpload}
                             loading={uploading}
                             value={filesToUpload}
+                            showUploadedFiles={false}
                             callToAction={
                                 <div className="flex items-center justify-center w-full h-16 border border-dashed rounded cursor-pointer hover:border-accent">
-                                    <span className="text-2xl text-secondary">+</span>
+                                    {uploading ? (
+                                        <Spinner className="text-secondary" />
+                                    ) : (
+                                        <span className="text-2xl text-secondary">+</span>
+                                    )}
                                 </div>
                             }
                         />
+                    </div>
+                )}
+                {isFocused && mediaIds.length < 5 && (
+                    <div className="flex items-center h-16">
+                        <span className="text-xs text-secondary whitespace-nowrap">⌘V to paste</span>
                     </div>
                 )}
             </div>
@@ -158,9 +249,13 @@ export function VariantScreenshot({
             <LemonModal
                 isOpen={selectedImageIndex !== null}
                 onClose={() => setSelectedImageIndex(null)}
+                width="90vw"
+                maxWidth={1400}
                 title={
                     <div className="flex items-center gap-2">
-                        <span>Screenshot {selectedImageIndex !== null ? selectedImageIndex + 1 : ''}</span>
+                        <span>
+                            Screenshot {selectedImageIndex !== null ? selectedImageIndex + 1 : ''} of {mediaIds.length}
+                        </span>
                         <LemonDivider className="my-0 mx-1" vertical />
                         <VariantTag variantKey={variantKey} />
                         {rolloutPercentage !== undefined && (
@@ -170,19 +265,34 @@ export function VariantScreenshot({
                 }
             >
                 {selectedImageIndex !== null && mediaIds[selectedImageIndex] && (
-                    <img
-                        src={
-                            mediaIds[selectedImageIndex]?.startsWith('data:')
-                                ? mediaIds[selectedImageIndex]
-                                : `/uploaded_media/${mediaIds[selectedImageIndex]}`
-                        }
-                        alt={`Screenshot ${selectedImageIndex + 1}: ${variantKey}`}
-                        className="max-w-full max-h-[80vh] overflow-auto"
-                    />
+                    <div className="flex items-center gap-2">
+                        {mediaIds.length > 1 && (
+                            <LemonButton
+                                icon={<IconChevronLeft />}
+                                onClick={showPrevious}
+                                size="large"
+                                tooltip="Previous screenshot"
+                                aria-label="Previous screenshot"
+                            />
+                        )}
+                        <ZoomableImage
+                            src={getMediaSrc(mediaIds[selectedImageIndex])}
+                            alt={`Screenshot ${selectedImageIndex + 1}: ${variantKey}`}
+                            resetKey={selectedImageIndex}
+                            className="flex-1 h-[80vh]"
+                        />
+                        {mediaIds.length > 1 && (
+                            <LemonButton
+                                icon={<IconChevronRight />}
+                                onClick={showNext}
+                                size="large"
+                                tooltip="Next screenshot"
+                                aria-label="Next screenshot"
+                            />
+                        )}
+                    </div>
                 )}
             </LemonModal>
         </div>
     )
 }
-
-export default VariantScreenshot

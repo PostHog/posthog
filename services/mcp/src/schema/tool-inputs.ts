@@ -1,38 +1,18 @@
 import { z } from 'zod'
 
-import { InsightQuerySchema, PropertyFilter } from './query'
-
-export const ExternalDataSchemaSyncTypeSchema = z
-    .enum(['incremental', 'full_refresh', 'append', 'cdc'])
-    .describe(
-        'Sync strategy: incremental (only new/changed rows), full_refresh (re-import all), append (add-only), or cdc (change data capture).'
-    )
-
-export const ExternalDataSchemaSyncFrequencySchema = z
-    .enum(['30min', '1hour', '6hour', '12hour', '24hour'])
-    .describe('How often to sync this table.')
-
-export const ExternalDataSchemaSyncTimeOfDaySchema = z
-    .string()
-    .nullable()
-    .describe('Time of day to sync in HH:MM:SS format (e.g. "02:00:00"). Set to null to clear.')
-
-export const ExternalDataSchemaIncrementalFieldSchema = z
-    .string()
-    .describe('Column name used to track sync progress for incremental syncs (e.g. "updated_at", "id").')
-
-export const ExternalDataSchemaIncrementalFieldTypeSchema = z
-    .enum(['integer', 'datetime', 'timestamp', 'date'])
-    .describe('Data type of the incremental field.')
-
-export const ExternalDataSchemaPrimaryKeyColumnsSchema = z
-    .array(z.string())
-    .nullable()
-    .describe('Column names that form the primary key for deduplication. Set to null to use auto-detected PKs.')
-
-export const ExternalDataSchemaCdcTableModeSchema = z
-    .enum(['consolidated', 'cdc_only', 'both'])
-    .describe('For CDC syncs: consolidated (merge changes into one table), cdc_only (only change log), or both.')
+export const BusinessKnowledgeUrlSourceCreateSchema = z.object({
+    name: z
+        .string()
+        .max(255)
+        .describe('Short human label for the source. Shown in the settings list and in agent citations.'),
+    url: z.string().url().max(2048).describe('Public HTTP(S) URL to fetch. Private or internal hosts are rejected.'),
+    source_type: z.literal('url').default('url').describe('Source type. Always "url" for this tool.'),
+    refresh_interval: z
+        .enum(['manual', '1h', '6h', '24h', '7d'])
+        .optional()
+        .default('manual')
+        .describe('How often to auto-refresh this source in the background. Defaults to "manual" (no auto-refresh).'),
+})
 
 export const ExternalDataJobsAfterSchema = z
     .string()
@@ -58,6 +38,118 @@ export const ExternalDataSourceTypeSchema = z
         'The source type name (e.g. "Postgres", "MySQL", "Stripe"). Use external-data-sources-wizard to see available types and their required fields.'
     )
 
+const UsageMetricEventsFilterEntrySchema = z.object({
+    id: z.string().describe('Event name (e.g. "$pageview").'),
+    name: z.string().optional(),
+    type: z.literal('events').optional(),
+    order: z.number().int().optional(),
+    properties: z.array(z.unknown()).optional(),
+})
+
+const UsageMetricEventsFiltersSchema = z
+    .object({
+        events: z.array(UsageMetricEventsFilterEntrySchema).describe('Events to count or sum over.'),
+        actions: z.array(z.unknown()).optional(),
+        properties: z.array(z.unknown()).optional(),
+        filter_test_accounts: z.boolean().optional(),
+    })
+    .describe('Events-source filter shape (default).')
+
+const UsageMetricDataWarehouseFiltersSchema = z
+    .object({
+        source: z.literal('data_warehouse'),
+        table_name: z
+            .string()
+            .describe(
+                'Name of a synced data warehouse table. Use `external-data-schemas-list` to discover available tables.'
+            ),
+        timestamp_field: z
+            .string()
+            .describe(
+                'Timestamp column or HogQL expression on the row (e.g. "created" or "toDateTime(created_at)"). Use `execute-sql` (`SELECT * FROM <table> LIMIT 1`) to inspect available columns.'
+            ),
+        key_field: z
+            .string()
+            .describe(
+                'Column on the row whose value matches the entity key. v1 supports group profiles only — the column value is compared to the group_key.'
+            ),
+    })
+    .describe('Data-warehouse-source filter shape.')
+
+export const UsageMetricFiltersSchema = z
+    .union([UsageMetricDataWarehouseFiltersSchema, UsageMetricEventsFiltersSchema])
+    .describe(
+        'Filter definition. Pick exactly one branch: `data_warehouse` (set `source: "data_warehouse"` plus `table_name`/`timestamp_field`/`key_field`) or `events` (HogFunction filter shape with an `events` array).'
+    )
+
+const CategoricalScoreOptionSchema = z.object({
+    key: z
+        .string()
+        .min(1)
+        .max(128)
+        .describe(
+            'Stable option key — lowercase letters, numbers, underscores, hyphens. Sent back when this option is selected.'
+        ),
+    label: z.string().min(1).max(256).describe('Human-readable label shown in the review UI.'),
+})
+
+const CategoricalScoreDefinitionConfigSchema = z
+    .object({
+        options: z
+            .array(CategoricalScoreOptionSchema)
+            .min(1)
+            .refine(
+                (options) => new Set(options.map((option) => option.key)).size === options.length,
+                'Categorical option keys must be unique.'
+            )
+            .describe('Ordered categorical options. Must contain at least one option with unique keys.'),
+        selection_mode: z
+            .enum(['single', 'multiple'])
+            .optional()
+            .describe('Whether reviewers select one option or many. Defaults to "single".'),
+        min_selections: z
+            .number()
+            .int()
+            .min(1)
+            .optional()
+            .describe('Minimum selections required. Only valid when selection_mode is "multiple".'),
+        max_selections: z
+            .number()
+            .int()
+            .min(1)
+            .optional()
+            .describe('Maximum selections allowed. Only valid when selection_mode is "multiple".'),
+    })
+    .strict()
+    .describe('Config shape used when kind is "categorical".')
+
+const NumericScoreDefinitionConfigSchema = z
+    .object({
+        min: z.number().optional().describe('Optional inclusive minimum score.'),
+        max: z.number().optional().describe('Optional inclusive maximum score (must be ≥ min).'),
+        step: z.number().positive().optional().describe('Optional increment step for numeric input, e.g. 1 or 0.5.'),
+    })
+    .strict()
+    .describe('Config shape used when kind is "numeric".')
+
+const BooleanScoreDefinitionConfigSchema = z
+    .object({
+        true_label: z.string().min(1).optional().describe('Optional label shown for the true branch (e.g. "Yes").'),
+        false_label: z.string().min(1).optional().describe('Optional label shown for the false branch (e.g. "No").'),
+    })
+    .strict()
+    .describe('Config shape used when kind is "boolean".')
+
+export const ScoreDefinitionConfigSchema = z
+    .union([
+        CategoricalScoreDefinitionConfigSchema,
+        NumericScoreDefinitionConfigSchema,
+        BooleanScoreDefinitionConfigSchema,
+    ])
+    .describe(
+        'Immutable scorer configuration. Pick the shape matching the scorer kind: categorical (options + selection_mode), numeric (min/max/step), or boolean (true_label/false_label). The server validates the shape against the kind on the parent scorer and returns 400 on a mismatch.'
+    )
+
 export const PromptListInputSchema = z.object({
     search: z.string().optional().describe('Optional substring filter applied to prompt names and prompt content.'),
     content: z
@@ -68,249 +160,77 @@ export const PromptListInputSchema = z.object({
         ),
 })
 
-export const DocumentationSearchSchema = z.object({
-    query: z.string(),
+export const FeedbackSubmitSchema = z.object({
+    summary: z
+        .string()
+        .min(1)
+        .describe(
+            'A one-sentence headline naming the problem (e.g. "query-trends descriptions made it hard to choose between trends and funnels"). Only submit when something went wrong or was missing — never for positive or "everything worked" feedback.'
+        ),
+    sentiment: z
+        .enum(['negative', 'mixed'])
+        .describe(
+            'How much the MCP server got in your way for this task. Use "negative" if it blocked you, "mixed" if it mostly worked but had a concrete problem worth fixing. Do not submit purely positive feedback — only report problems.'
+        ),
+    category: z
+        .enum([
+            'tool_correctness',
+            'tool_description',
+            'tool_input_schema',
+            'tool_output_format',
+            'missing_tool',
+            'instructions_clarity',
+            'performance',
+            'error_message',
+            'other',
+        ])
+        .describe(
+            'The single category that best describes the dominant theme of this feedback. Pick "missing_tool" if a capability was absent, "tool_description" if the tool docs were unclear, "tool_input_schema" if input args were confusing, "tool_output_format" if the response was hard to consume, "instructions_clarity" if these MCP instructions were unclear, "tool_correctness" if a tool returned wrong data, "error_message" if an error was unhelpful, "performance" if latency was the issue.'
+        ),
+    task_completed: z
+        .boolean()
+        .describe(
+            'Were you able to complete the user\'s task using PostHog MCP tools? Be honest — "false" is just as useful as "true".'
+        ),
+    tools_used: z
+        .array(z.string())
+        .optional()
+        .describe(
+            'The tool names you called while working on the user\'s task (e.g. ["read-data-schema", "query-trends"]). Helps us correlate feedback to specific tools.'
+        ),
+    friction_points: z
+        .string()
+        .optional()
+        .describe(
+            "Clear, concise bullet points describing friction with the MCP server itself — what slowed you down or made you guess. Quote the exact tool name, parameter, or error text. Keep it about the MCP, not the user's task or data."
+        ),
+    suggested_improvement: z
+        .string()
+        .optional()
+        .describe(
+            'The single most impactful, concrete change that would fix the problem you hit. Be specific (e.g. "add a `filters` example to query-funnel\'s description"). If you cannot name a specific change, do not submit feedback.'
+        ),
+    user_request: z
+        .string()
+        .optional()
+        .describe(
+            'A short, anonymised paraphrase of what the user originally asked you to do. Do not include PII, customer names, or sensitive query content.'
+        ),
+    details: z
+        .string()
+        .optional()
+        .describe(
+            "Any additional context about the MCP server that doesn't fit the other fields. Keep it to clear, concise bullet points."
+        ),
 })
 
 export const ExperimentResultsGetSchema = z.object({
-    experimentId: z.number().describe('The ID of the experiment to get comprehensive results for'),
-    refresh: z.boolean().describe('Force refresh of results instead of using cached values'),
-})
-
-export const ExperimentDeleteSchema = z.object({
-    experimentId: z.number().describe('The ID of the experiment to delete'),
-})
-
-/**
- * User-friendly input schema for experiment updates
- * This provides a simplified interface that gets transformed to API format
- */
-export const ExperimentUpdateInputSchema = z.object({
-    name: z.string().optional().describe('Update experiment name'),
-
-    description: z.string().optional().describe('Update experiment description'),
-
-    // Primary metrics with guidance
-    primary_metrics: z
-        .array(
-            z.object({
-                name: z.string().optional().describe('Human-readable metric name'),
-                metric_type: z
-                    .enum(['mean', 'funnel', 'ratio'])
-                    .describe(
-                        "Metric type: 'mean' for average values, 'funnel' for conversion flows, 'ratio' for comparing two metrics"
-                    ),
-                event_name: z.string().describe("PostHog event name (e.g., '$pageview', 'add_to_cart', 'purchase')"),
-                funnel_steps: z
-                    .array(z.string())
-                    .optional()
-                    .describe('For funnel metrics only: Array of event names for each funnel step'),
-                properties: z
-                    .array(PropertyFilter)
-                    .optional()
-                    .describe(
-                        'Event property filters as an array, e.g. [{ key: "$browser", value: "Chrome", operator: "exact", type: "event" }]'
-                    ),
-                description: z.string().optional().describe('What this metric measures'),
-            })
-        )
-        .optional()
-        .describe('Update primary metrics'),
-
-    secondary_metrics: z
-        .array(
-            z.object({
-                name: z.string().optional().describe('Human-readable metric name'),
-                metric_type: z.enum(['mean', 'funnel', 'ratio']).describe('Metric type'),
-                event_name: z.string().describe('PostHog event name'),
-                funnel_steps: z.array(z.string()).optional().describe('For funnel metrics only: Array of event names'),
-                properties: z
-                    .array(PropertyFilter)
-                    .optional()
-                    .describe(
-                        'Event property filters as an array, e.g. [{ key: "$browser", value: "Chrome", operator: "exact", type: "event" }]'
-                    ),
-                description: z.string().optional().describe('What this metric measures'),
-            })
-        )
-        .optional()
-        .describe('Update secondary metrics'),
-
-    minimum_detectable_effect: z.number().optional().describe('Update minimum detectable effect in percentage'),
-
-    // Experiment state management
-    launch: z.boolean().optional().describe('Launch experiment (set start_date) or keep as draft'),
-
-    conclude: z
-        .enum(['won', 'lost', 'inconclusive', 'stopped_early', 'invalid'])
-        .optional()
-        .describe('Conclude experiment with result'),
-
-    conclusion_comment: z.string().optional().describe('Comment about experiment conclusion'),
-
-    restart: z
+    id: z.number().describe('The ID of the experiment to get comprehensive results for'),
+    refresh: z
         .boolean()
         .optional()
-        .describe('Restart concluded experiment as draft (clears start_date, end_date, and conclusion)'),
-
-    archive: z.boolean().optional().describe('Archive or unarchive experiment'),
-})
-
-export const ExperimentUpdateSchema = z.object({
-    experimentId: z.number().describe('The ID of the experiment to update'),
-    data: ExperimentUpdateInputSchema.describe('The experiment data to update using user-friendly format'),
-})
-
-export const ExperimentCreateSchema = z.object({
-    name: z.string().min(1).describe('Experiment name - should clearly describe what is being tested'),
-
-    description: z
-        .string()
-        .optional()
-        .describe(
-            'Detailed description of the experiment hypothesis, what changes are being tested, and expected outcomes'
-        ),
-
-    feature_flag_key: z
-        .string()
-        .describe(
-            'Feature flag key (letters, numbers, hyphens, underscores only). IMPORTANT: First search for existing feature flags that might be suitable using the feature-flags-get-all tool, then suggest reusing existing ones or creating a new key based on the experiment name'
-        ),
-
-    // Primary metrics with guidance
-    primary_metrics: z
-        .array(
-            z.object({
-                name: z.string().optional().describe('Human-readable metric name'),
-                metric_type: z
-                    .enum(['mean', 'funnel', 'ratio'])
-                    .describe(
-                        "Metric type: 'mean' for average values (revenue, time spent), 'funnel' for conversion flows, 'ratio' for comparing two metrics"
-                    ),
-                event_name: z
-                    .string()
-                    .describe(
-                        "REQUIRED for metrics to work: PostHog event name (e.g., '$pageview', 'add_to_cart', 'purchase'). For funnels, this is the first step. Use '$pageview' if unsure. Search project-property-definitions tool for available events."
-                    ),
-                funnel_steps: z
-                    .array(z.string())
-                    .optional()
-                    .describe(
-                        "For funnel metrics only: Array of event names for each funnel step (e.g., ['product_view', 'add_to_cart', 'checkout', 'purchase'])"
-                    ),
-                properties: z
-                    .array(PropertyFilter)
-                    .optional()
-                    .describe(
-                        'Event property filters as an array, e.g. [{ key: "$browser", value: "Chrome", operator: "exact", type: "event" }]'
-                    ),
-                description: z
-                    .string()
-                    .optional()
-                    .describe("What this metric measures and why it's important for the experiment"),
-            })
-        )
-        .optional()
-        .describe(
-            'Primary metrics to measure experiment success. IMPORTANT: Each metric needs event_name to track data. For funnels, provide funnel_steps array with event names for each step. Ask user what events they track, or use project-property-definitions to find available events.'
-        ),
-
-    // Secondary metrics for additional insights
-    secondary_metrics: z
-        .array(
-            z.object({
-                name: z.string().optional().describe('Human-readable metric name'),
-                metric_type: z
-                    .enum(['mean', 'funnel', 'ratio'])
-                    .describe(
-                        "Metric type: 'mean' for average values, 'funnel' for conversion flows, 'ratio' for comparing two metrics"
-                    ),
-                event_name: z.string().describe("REQUIRED: PostHog event name. Use '$pageview' if unsure."),
-                funnel_steps: z
-                    .array(z.string())
-                    .optional()
-                    .describe('For funnel metrics only: Array of event names for each funnel step'),
-                properties: z
-                    .array(PropertyFilter)
-                    .optional()
-                    .describe(
-                        'Event property filters as an array, e.g. [{ key: "$browser", value: "Chrome", operator: "exact", type: "event" }]'
-                    ),
-                description: z.string().optional().describe('What this secondary metric measures'),
-            })
-        )
-        .optional()
-        .describe(
-            'Secondary metrics to monitor for potential side effects or additional insights. Each metric needs event_name.'
-        ),
-
-    // Feature flag variants
-    variants: z
-        .array(
-            z.object({
-                key: z.string().describe("Variant key (e.g., 'control', 'variant_a', 'new_design')"),
-                name: z.string().optional().describe('Human-readable variant name'),
-                split_percent: z
-                    .number()
-                    .min(0)
-                    .max(100)
-                    .optional()
-                    .describe(
-                        'Percentage of traffic allocated to this variant (0-100). All variants must sum to 100. One of split_percent (recommended) or rollout_percentage (deprecated) must be provided per variant.'
-                    ),
-                rollout_percentage: z
-                    .number()
-                    .min(0)
-                    .max(100)
-                    .optional()
-                    .describe('Deprecated: use split_percent instead. Accepted for backward compatibility.'),
-            })
-        )
-        .optional()
-        .describe(
-            'Experiment variants. If not specified, defaults to 50/50 control/test split. Ask user how many variants they need and what each tests'
-        ),
-
-    // Experiment parameters
-    minimum_detectable_effect: z
-        .number()
-        .default(30)
-        .describe(
-            'Minimum detectable effect in percentage. Lower values require more users but detect smaller changes. Suggest 20-30% for most experiments'
-        ),
-
-    // Exposure and targeting
-    filter_test_accounts: z.boolean().default(true).describe('Whether to filter out internal test accounts'),
-
-    target_properties: z
-        .record(z.string(), z.any())
-        .optional()
-        .describe('Properties to target specific user segments (e.g., country, subscription type)'),
-
-    // Control flags
-    draft: z
-        .boolean()
-        .default(true)
-        .describe('Create as draft (true) or launch immediately (false). Recommend draft for review first'),
-
-    holdout_id: z
-        .number()
-        .optional()
-        .describe('Holdout group ID if this experiment should exclude users from other experiments'),
-
-    allow_unknown_events: z
-        .boolean()
-        .optional()
-        .describe(
-            'Set to true to skip validation that event names exist in the project. Use when intentionally referencing events that have not been ingested yet.'
-        ),
-})
-
-export const InsightGenerateHogQLFromQuestionSchema = z.object({
-    question: z
-        .string()
-        .max(1000)
-        .describe('Your natural language query describing the SQL insight (max 1000 characters).'),
+        .default(false)
+        .describe('Force refresh of results instead of using cached values. Defaults to false.'),
 })
 
 export const InsightQueryInputSchema = z.object({
@@ -322,9 +242,21 @@ export const InsightQueryInputSchema = z.object({
         .describe(
             'Output format. "optimized" returns a human-readable summary from server-side formatters (recommended for analysis). "json" returns the raw query results as JSON.'
         ),
+    variables_override: z
+        .union([z.string(), z.record(z.string(), z.unknown())])
+        .optional()
+        .describe(
+            'Object (or pre-encoded JSON string) to override the insight\'s HogQL variables for this run only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `insight-get` first, copy the matching entry from the response\'s query variables, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.'
+        ),
+    filters_override: z
+        .union([z.string(), z.record(z.string(), z.unknown())])
+        .optional()
+        .describe(
+            "Object (or pre-encoded JSON string) to override the insight's filters for this run only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token."
+        ),
 })
 
-export const LLMAnalyticsGetCostsSchema = z.object({
+export const AIObservabilityGetCostsSchema = z.object({
     projectId: z.number().int().positive(),
     days: z.number().optional(),
 })
@@ -334,12 +266,6 @@ export const OrganizationSetActiveSchema = z.object({
 })
 
 export const ProjectGetAllSchema = z.object({})
-
-export const ProjectEventDefinitionsSchema = z.object({
-    q: z.string().optional().describe('Search query to filter event names. Only use if there are lots of events.'),
-    limit: z.number().int().positive().optional(),
-    offset: z.number().int().min(0).optional(),
-})
 
 export const EventDefinitionUpdateInputSchema = z.object({
     description: z.string().optional().describe('Description explaining when the event is triggered'),
@@ -364,45 +290,8 @@ export const EventDefinitionUpdateSchema = z.object({
     data: EventDefinitionUpdateInputSchema.describe('The event definition data to update'),
 })
 
-export const ProjectPropertyDefinitionsInputSchema = z.object({
-    type: z.enum(['event', 'person']).describe('Type of properties to get'),
-    eventName: z.string().describe('Event name to filter properties by, required for event type').optional(),
-    includePredefinedProperties: z.boolean().optional().describe('Whether to include predefined properties'),
-    limit: z.number().int().positive().optional(),
-    offset: z.number().int().min(0).optional(),
-})
-
 export const ProjectSetActiveSchema = z.object({
     projectId: z.number().int().positive(),
-})
-
-export const SurveyResponseCountsSchema = z.object({})
-
-export const QueryRunInputSchema = z.object({
-    query: InsightQuerySchema,
-})
-
-// Entity Search
-export const EntitySearchSchema = z.object({
-    query: z.string().min(1).describe('Search query to find entities by name or description'),
-    entities: z
-        .array(
-            z.enum([
-                'insight',
-                'dashboard',
-                'experiment',
-                'feature_flag',
-                'notebook',
-                'action',
-                'cohort',
-                'event_definition',
-                'survey',
-            ])
-        )
-        .optional()
-        .describe(
-            'Entity types to search. If not specified, searches all types. Available: insight, dashboard, experiment, feature_flag, notebook, action, cohort, event_definition, survey'
-        ),
 })
 
 // Debug MCP UI Apps
@@ -419,6 +308,12 @@ export const ExecuteSQLSchema = z.object({
         .default(true)
         .describe(
             'Whether to truncate large blob/JSON values in results. Defaults to true. Set to false when you need full untruncated results (e.g., for dumping to a file).'
+        ),
+    connectionId: z
+        .string()
+        .optional()
+        .describe(
+            'Optional id of an external data source (e.g. a Postgres or DuckDB direct-query connection). When set, runs the query against that source instead of the ClickHouse catalog. Use external-data-sources-list to discover available connection ids.'
         ),
 })
 
@@ -478,3 +373,25 @@ export const ReadDataSchemaSchema = z.object({
         ])
         .describe('The data schema query to execute.'),
 })
+
+// Mirrors the Django serializer's `validate` rule so the MCP layer fails fast
+// instead of forwarding an empty/ambiguous body and waiting for a 400.
+export function validateDistinctIdPersonIdExclusive(
+    data: { distinct_id?: string | undefined; person_id?: string | undefined },
+    ctx: z.RefinementCtx
+): void {
+    const hasDistinctId = typeof data.distinct_id === 'string' && data.distinct_id.length > 0
+    const hasPersonId = typeof data.person_id === 'string' && data.person_id.length > 0
+    if (!hasDistinctId && !hasPersonId) {
+        ctx.addIssue({
+            code: 'custom',
+            message: 'Either distinct_id or person_id must be provided',
+        })
+    }
+    if (hasDistinctId && hasPersonId) {
+        ctx.addIssue({
+            code: 'custom',
+            message: 'Cannot provide both distinct_id and person_id (they are mutually exclusive)',
+        })
+    }
+}

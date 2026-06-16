@@ -1,19 +1,17 @@
 import dataclasses
-from collections.abc import Callable, Sequence
-from typing import Any, Protocol, cast
+from collections.abc import Sequence
+from typing import Any, Protocol
 
-from posthog.hogql import ast
-from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
-from posthog.hogql.database.models import LazyJoin, LazyJoinToAdd, Table
+from posthog.hogql.database.lazy_join_tags import FOREIGN_KEY
+from posthog.hogql.database.models import LazyJoin, Table
 from posthog.hogql.database.utils import get_join_field_chain
-from posthog.hogql.errors import ResolutionError
 
 from posthog.exceptions_capture import capture_exception
 
-from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
-from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
-from products.data_warehouse.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
 class DatabaseTableLookup(Protocol):
@@ -163,7 +161,7 @@ def _add_foreign_key_lazy_join(
         from_field=from_field,
         to_field=to_field,
         join_table=join_table,
-        join_function=_foreign_key_join_function(from_field, to_field),
+        resolver=FOREIGN_KEY,
     )
 
     target_table_name = target_hogql_table.name if isinstance(target_hogql_table.name, str) else None
@@ -179,7 +177,7 @@ def _add_foreign_key_lazy_join(
         from_field=to_field,
         to_field=from_field,
         join_table=hogql_table,
-        join_function=_foreign_key_join_function(to_field, from_field),
+        resolver=FOREIGN_KEY,
     )
 
 
@@ -227,42 +225,6 @@ def _is_same_external_scope(
         return False
 
     return source_table_name.rsplit(".", 1)[0] == target_table_name.rsplit(".", 1)[0]
-
-
-def _foreign_key_join_function(
-    from_field: list[str | int], to_field: list[str | int]
-) -> Callable[[LazyJoinToAdd, HogQLContext, ast.SelectQuery], ast.JoinExpr]:
-    def _join_function(join_to_add: LazyJoinToAdd, context: HogQLContext, node: ast.SelectQuery):
-        join_table = join_to_add.lazy_join.resolve_table(context)
-
-        if isinstance(join_table.name, str):
-            join_table_chain = cast(list[str | int], join_table.name.split("."))
-        else:
-            join_table_chain = [join_to_add.to_table]
-
-        if not join_to_add.fields_accessed:
-            raise ResolutionError(f"No fields requested from {join_to_add.to_table}")
-
-        left = ast.Field(chain=[join_to_add.from_table, *from_field])
-        right = ast.Field(chain=[join_to_add.to_table, *to_field])
-
-        return ast.JoinExpr(
-            table=ast.SelectQuery(
-                select=[
-                    ast.Alias(alias=alias, expr=ast.Field(chain=chain))
-                    for alias, chain in join_to_add.fields_accessed.items()
-                ],
-                select_from=ast.JoinExpr(table=ast.Field(chain=join_table_chain)),
-            ),
-            join_type="LEFT JOIN",
-            alias=join_to_add.to_table,
-            constraint=ast.JoinConstraint(
-                expr=ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=left, right=right),
-                constraint_type="ON",
-            ),
-        )
-
-    return _join_function
 
 
 def _reverse_foreign_key_field_name(from_table: str, target_table: str) -> str:

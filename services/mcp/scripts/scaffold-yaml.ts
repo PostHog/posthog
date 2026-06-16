@@ -2,8 +2,11 @@
 /**
  * Scaffolds YAML tool definitions from the OpenAPI schema.
  *
- * Discovers operations using x-explicit-tags (priority 1) and URL path
- * substring matching (fallback), same approach as generate-openapi-types.mjs.
+ * Discovers operations by the x-product values the spec emits per operation:
+ * auto-derived from the ViewSet module path (products/<name>/backend/) or
+ * declared explicitly via @extend_schema(extensions={"x-product": "<name>"}).
+ * There is deliberately no URL-based guessing — paths are a lossy projection
+ * of ownership and used to poach operations across products.
  *
  * Idempotent: re-running on an existing file only adds newly discovered
  * operations and removes stale ones. All hand-authored config is preserved.
@@ -27,6 +30,10 @@ const PRODUCTS_DIR = path.resolve(REPO_ROOT, 'products')
 const OPENAPI_PATH = path.resolve(REPO_ROOT, 'frontend/tmp/openapi.json')
 const DEFINITIONS_DIR = path.resolve(MCP_ROOT, 'definitions')
 
+const productAliases: Record<string, string> = {
+    llm_analytics: 'ai_observability',
+}
+
 // ------------------------------------------------------------------
 // Types
 // ------------------------------------------------------------------
@@ -37,7 +44,7 @@ interface OpenApiOperation {
     summary?: string
     description?: string
     deprecated?: boolean
-    'x-explicit-tags'?: string[]
+    'x-product'?: string[]
 }
 
 interface OpenApiSpec {
@@ -90,22 +97,32 @@ function operationIdToToolName(operationId: string): string {
 }
 
 /**
- * Find operations by x-explicit-tags — same priority-1 approach as
- * frontend/bin/generate-openapi-types.mjs resolveTagToProduct().
- * Tags are set via @extend_schema(tags=[...]) or auto-derived from
- * the ViewSet module path (products/<name>/backend/ → tag "<name>").
+ * Find operations whose x-product list names this product. Values are
+ * auto-derived from the ViewSet module path (products/<name>/backend/ →
+ * "<name>") or declared via @extend_schema(extensions={"x-product": "..."}).
+ * Both sides are normalized (kebab → snake) so hyphenated definition
+ * filenames like proxy-records match the snake_case x-product value.
  */
-function findOperationsByTag(spec: OpenApiSpec, product: string): DiscoveredOperation[] {
+function findOperationsByProduct(spec: OpenApiSpec, product: string): DiscoveredOperation[] {
     const ops: DiscoveredOperation[] = []
     const httpMethods = new Set(['get', 'post', 'put', 'patch', 'delete'])
+    const normalize = (name: string): string => name.toLowerCase().replace(/-/g, '_')
+    const matchingProducts = new Set(
+        [
+            product,
+            ...Object.entries(productAliases)
+                .filter(([, target]) => target === product)
+                .map(([source]) => source),
+        ].map(normalize)
+    )
 
     for (const [urlPath, methods] of Object.entries(spec.paths)) {
         for (const [method, op] of Object.entries(methods)) {
             if (!httpMethods.has(method) || !op?.operationId || op.deprecated) {
                 continue
             }
-            const tags = op['x-explicit-tags'] ?? []
-            if (tags.includes(product)) {
+            const xProduct = op['x-product'] ?? []
+            if (xProduct.some((value) => matchingProducts.has(normalize(value)))) {
                 ops.push({
                     operationId: op.operationId,
                     method: method.toUpperCase(),
@@ -117,62 +134,6 @@ function findOperationsByTag(spec: OpenApiSpec, product: string): DiscoveredOper
     }
 
     return ops
-}
-
-/**
- * Find operations whose URL path contains /{product}/ — fallback when
- * x-explicit-tags doesn't match, same as generate-openapi-types.mjs
- * matchUrlToProduct().
- */
-function findOperationsByUrl(spec: OpenApiSpec, product: string): DiscoveredOperation[] {
-    const ops: DiscoveredOperation[] = []
-    const httpMethods = new Set(['get', 'post', 'put', 'patch', 'delete'])
-    const needle = `/${product.replace(/-/g, '_').toLowerCase()}/`
-
-    for (const [urlPath, methods] of Object.entries(spec.paths)) {
-        if (!urlPath.toLowerCase().replace(/-/g, '_').includes(needle)) {
-            continue
-        }
-
-        for (const [method, op] of Object.entries(methods)) {
-            if (!httpMethods.has(method) || !op?.operationId || op.deprecated) {
-                continue
-            }
-
-            ops.push({
-                operationId: op.operationId,
-                method: method.toUpperCase(),
-                path: urlPath,
-                description: op.summary || op.description,
-            })
-        }
-    }
-
-    return ops
-}
-
-/**
- * Find operations for a product. Uses the same priority as
- * frontend/bin/generate-openapi-types.mjs:
- * 1. x-explicit-tags match (covers ViewSets with @extend_schema(tags=[...])
- *    and ViewSets in products/<name>/backend/)
- * 2. URL path substring match (fallback for legacy endpoints)
- */
-function findOperationsByProduct(spec: OpenApiSpec, product: string): DiscoveredOperation[] {
-    const byTag = findOperationsByTag(spec, product)
-    const byUrl = findOperationsByUrl(spec, product)
-
-    // Merge, preferring tag-matched ops and deduping by operationId
-    const seen = new Set(byTag.map((op) => op.operationId))
-    const merged = [...byTag]
-    for (const op of byUrl) {
-        if (!seen.has(op.operationId)) {
-            merged.push(op)
-            seen.add(op.operationId)
-        }
-    }
-
-    return merged
 }
 
 function findOperationsByPath(spec: OpenApiSpec, pathPrefix: string): DiscoveredOperation[] {
@@ -240,11 +201,13 @@ function generateFreshYaml(ops: DiscoveredOperation[], tag: string): string {
         }
     }
 
+    const sortedTools = Object.fromEntries(Object.entries(tools).sort(([a], [b]) => a.localeCompare(b)))
+
     const yaml: Record<string, unknown> = {
         category: tag.charAt(0).toUpperCase() + tag.slice(1),
         feature: tag.replace(/-/g, '_'),
         url_prefix: `/${tag.replace(/_/g, '-')}`,
-        tools,
+        tools: sortedTools,
     }
 
     return YAML_HEADER + stringifyYaml(yaml, { indent: 4, lineWidth: 120 })
@@ -283,7 +246,8 @@ function mergeWithExisting(
     let matched = 0
     const unmatchedTools: string[] = []
 
-    // Preserve existing tool order and hand-authored operation values
+    // Preserve hand-authored config (enabled, scopes, descriptions, etc.) per tool.
+    // Tool order itself is normalized alphabetically below — see `sortedTools`.
     for (const [name, config] of Object.entries(existingTools)) {
         const base = config.operation.replace(/_\d+$/, '')
         const op = openApiByBase.get(base)
@@ -324,12 +288,18 @@ function mergeWithExisting(
         }
     }
 
+    const sortedTools = Object.fromEntries(Object.entries(mergedTools).sort(([a], [b]) => a.localeCompare(b)))
+
     const merged: Record<string, unknown> = {
         category: existing.category ?? tag.charAt(0).toUpperCase() + tag.slice(1),
         feature: existing.feature ?? tag.replace(/-/g, '_'),
         url_prefix: existing.url_prefix ?? `/${tag.replace(/_/g, '-')}`,
+        // Hand-authored category-level gate — sync must not drop it.
+        ...(existing.feature_flag ? { feature_flag: existing.feature_flag } : {}),
+        ...(existing.feature_flag_behavior ? { feature_flag_behavior: existing.feature_flag_behavior } : {}),
+        ...(existing.feature_flag_variant ? { feature_flag_variant: existing.feature_flag_variant } : {}),
         ui_apps: existing.ui_apps ?? {},
-        tools: mergedTools,
+        tools: sortedTools,
     }
 
     // Query wrappers are hand-authored (schema.json); OpenAPI sync must not drop them.
@@ -426,7 +396,8 @@ function syncAll(spec: OpenApiSpec): void {
             const normalized = product.replace(/-/g, '_').toLowerCase()
             process.stderr.write(
                 `⚠ ${label}: no operations found in OpenAPI for "${product}"\n` +
-                    `  → ensure the ViewSet has @extend_schema(tags=["${normalized}"]) or the URL contains /${normalized}/\n`
+                    `  → declare @extend_schema(extensions={"x-product": "${normalized}"}) on the ViewSet, ` +
+                    `or place it in products/${normalized}/backend/ for module-path auto-attribution\n`
             )
             noOpsProducts.push(label)
             continue
@@ -440,11 +411,8 @@ function syncAll(spec: OpenApiSpec): void {
             validIds,
             subset
         )
-        // Only write when there are semantic changes (avoids formatting-only rewrites)
-        if (added > 0 || removed > 0 || updated > 0) {
-            fs.writeFileSync(filePath, content)
-            writtenFiles.push(filePath)
-        }
+        fs.writeFileSync(filePath, content)
+        writtenFiles.push(filePath)
         const total = matched + unmatchedTools.length
         const parts = [
             subset ? (total === 0 ? '0 tool(s)' : `${matched}/${total} tool(s) matched`) : `${ops.length} operation(s)`,
@@ -464,7 +432,7 @@ function syncAll(spec: OpenApiSpec): void {
         process.stdout.write(`${label}: ${parts.join(', ')}\n`)
         if (unmatchedTools.length > 0) {
             process.stderr.write(
-                `  ⚠ ${unmatchedTools.length} tool(s) not found in OpenAPI — add @extend_schema(tags=["${product}"]) to the ViewSet\n`
+                `  ⚠ ${unmatchedTools.length} tool(s) not found in OpenAPI — add @extend_schema(extensions={"x-product": "${product}"}) to the ViewSet\n`
             )
             for (const tool of unmatchedTools) {
                 process.stderr.write(`    - ${tool}\n`)
@@ -509,7 +477,8 @@ function main(): void {
         console.error('       scaffold-yaml --path <prefix> [--output <file>]')
         console.error('       scaffold-yaml --sync-all')
         console.error('')
-        console.error('--product discovers endpoints by x-explicit-tags first, then URL path fallback.')
+        console.error('--product discovers endpoints by x-product: module-path auto-attribution,')
+        console.error('or declared explicitly via @extend_schema(extensions={"x-product": "..."}).')
         console.error('Uses the product folder name (underscores), e.g. error_tracking, workflows.')
         process.exit(1)
     }

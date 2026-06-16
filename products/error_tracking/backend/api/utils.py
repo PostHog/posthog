@@ -1,8 +1,7 @@
 from typing import Any, Protocol, TypeVar
 
 import structlog
-from drf_spectacular.utils import extend_schema_field
-from rest_framework import serializers, status
+from rest_framework import status
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
@@ -16,28 +15,10 @@ from posthog.api.utils import action
 from posthog.models.team.team import Team
 
 from products.error_tracking.backend.hogvm_stl import RUST_HOGVM_STL
-from products.error_tracking.backend.models import ErrorTrackingIssueAssignment
 
 from common.hogvm.python.operation import Operation
 
 logger = structlog.get_logger(__name__)
-
-
-class ErrorTrackingIssueAssignmentSerializer(serializers.ModelSerializer):
-    id = serializers.SerializerMethodField()
-    type = serializers.SerializerMethodField()
-
-    class Meta:
-        model = ErrorTrackingIssueAssignment
-        fields = ["id", "type"]
-
-    @extend_schema_field({"oneOf": [{"type": "integer"}, {"type": "string"}], "nullable": True})
-    def get_id(self, obj):
-        return obj.user_id if obj.user_id else str(obj.role_id) if obj.role_id else None
-
-    @extend_schema_field(serializers.CharField())
-    def get_type(self, obj):
-        return "role" if obj.role else "user"
 
 
 class HasGetQueryset(Protocol):
@@ -74,6 +55,23 @@ def generate_match_all_bytecode():
     """Generate bytecode that always returns true (matches all events)."""
     with_return = ast.ReturnStatement(expr=ast.Constant(value=True))
     return create_bytecode(with_return).bytecode
+
+
+def has_filter_values(json_filters: dict) -> bool:
+    """Check whether a filter dict contains any actual filter values, recursively.
+
+    Non-dict entries are treated as "has values" so the request reaches pydantic
+    validation and gets rejected with a 400 instead of raising AttributeError.
+    """
+    values = json_filters.get("values", [])
+    if not values:
+        return False
+    for v in values:
+        if not isinstance(v, dict):
+            return True
+        if "key" in v or has_filter_values(v):
+            return True
+    return False
 
 
 def validate_bytecode(bytecode: list[Any]) -> None:

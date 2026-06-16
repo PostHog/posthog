@@ -1,6 +1,6 @@
 import { Page } from '@playwright/test'
 
-import { expect, test } from '../../utils/playwright-test-base'
+import { PlaywrightWorkspaceSetupResult, expect, test } from '../../utils/workspace-test-base'
 import { createMockBatchExport, MOCK_EXPORT_ID, setupBatchExportRoutes } from './batch-export-helpers'
 
 async function setupRunsRoutes(
@@ -45,6 +45,16 @@ async function setupRunsRoutes(
 }
 
 test.describe('Batch export runs', () => {
+    let workspace: PlaywrightWorkspaceSetupResult | null = null
+
+    test.beforeAll(async ({ playwrightSetup }) => {
+        workspace = await playwrightSetup.createWorkspace({ skip_onboarding: true, no_demo_data: true })
+    })
+
+    test.beforeEach(async ({ page, playwrightSetup }) => {
+        await playwrightSetup.login(page, workspace!)
+    })
+
     test('Renders empty runs table', async ({ page }) => {
         await setupRunsRoutes(page)
 
@@ -79,10 +89,10 @@ test.describe('Batch export runs', () => {
         await expect(page.getByText('Failed')).toBeVisible()
 
         // Verify batch export context uses "Rows exported" (not "Events exported")
-        await expect(page.getByRole('cell', { name: 'Rows exported' })).toBeVisible()
+        await expect(page.getByRole('columnheader', { name: 'Rows exported' })).toBeVisible()
 
         // Verify "Bytes exported" column is shown for batch exports
-        await expect(page.getByRole('cell', { name: 'Bytes exported' })).toBeVisible()
+        await expect(page.getByRole('columnheader', { name: 'Bytes exported' })).toBeVisible()
     })
 
     test('Creates a backfill successfully from runs tab', async ({ page }) => {

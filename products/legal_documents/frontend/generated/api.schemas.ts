@@ -19,10 +19,8 @@ export interface LegalDocumentDTOApi {
     id: string
     document_type: string
     company_name: string
-    representative_name: string
     representative_email: string
     status: string
-    signed_document_url: string
     created_by: LegalDocumentCreatorApi | null
     created_at: string
 }
@@ -38,53 +36,39 @@ export interface PaginatedLegalDocumentDTOListApi {
 
 /**
  * * `BAA` - BAA
- * `DPA` - DPA
+ * * `DPA` - DPA
  */
-export type DocumentTypeEnumApi = (typeof DocumentTypeEnumApi)[keyof typeof DocumentTypeEnumApi]
+export type CreateLegalDocumentDocumentTypeEnumApi =
+    (typeof CreateLegalDocumentDocumentTypeEnumApi)[keyof typeof CreateLegalDocumentDocumentTypeEnumApi]
 
-export const DocumentTypeEnumApi = {
+export const CreateLegalDocumentDocumentTypeEnumApi = {
     Baa: 'BAA',
     Dpa: 'DPA',
 } as const
 
 /**
  * Input serializer for POST. Mirrors the submittable fields on the model plus
-cross-field rules (BAA addon, DPA mode, uniqueness). The view supplies the
-organization and submitting user.
+ * cross-field rules (BAA addon, DPA mode, uniqueness). The view supplies the
+ * organization and submitting user.
  */
 export interface CreateLegalDocumentApi {
     /** Either 'BAA' or 'DPA'.
-
-* `BAA` - BAA
-* `DPA` - DPA */
-    document_type: DocumentTypeEnumApi
+     *
+     * * `BAA` - BAA
+     * * `DPA` - DPA */
+    document_type: CreateLegalDocumentDocumentTypeEnumApi
     /**
-     * The customer legal entity entering the agreement.
+     * The customer legal entity entering the agreement (PandaDoc's Client.Company).
      * @maxLength 255
      */
     company_name: string
     /**
-     * Customer address. Required for DPAs; ignored for BAAs.
+     * The customer address (PandaDoc's Client.StreetAddress).
      * @maxLength 512
      */
-    company_address?: string
-    /**
-     * Name of the signer at the customer.
-     * @maxLength 255
-     */
-    representative_name: string
-    /**
-     * Title of the signer at the customer.
-     * @maxLength 255
-     */
-    representative_title: string
-    /** Email the signed PandaDoc envelope is sent to. */
+    company_address: string
+    /** Email the signed PandaDoc envelope is sent to (PandaDoc's Client.Email). */
     representative_email: string
-    /**
-     * DPA style: 'pretty' or 'lawyer' for submittable versions. 'fairytale' and 'tswift' are preview-only on posthog.com and are not accepted by the API.
-     * @maxLength 16
-     */
-    dpa_mode?: string
 }
 
 export type LegalDocumentsListParams = {

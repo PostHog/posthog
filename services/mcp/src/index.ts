@@ -1,19 +1,14 @@
-import { MCP_DOCS_URL, OAUTH_SCOPES_SUPPORTED, getAuthorizationServerUrl } from '@/lib/constants'
-import {
-    buildInsufficientScopeChallenge,
-    ErrorCode,
-    findPostHogPermissionError,
-    formatPermissionErrorMessage,
-} from '@/lib/errors'
+import { MCP_DOCS_URL, getAuthorizationServerUrl } from '@/lib/constants'
+import { isIdJagAccessToken } from '@/lib/id-jag'
 import { RequestLogger, withLogging } from '@/lib/logging'
+import { extractClientInfoFromBody } from '@/lib/mcp-client-info'
+import { RequestProperties } from '@/lib/request-properties'
 import { buildRedirectUrl, matchAuthServerRedirect } from '@/lib/routing'
-import { hash, sanitizeHeaderValue } from '@/lib/utils'
+import { extractBearerToken, hash, parseMcpMode, sanitizeHeaderValue } from '@/lib/utils'
+import { getAdvertisedOAuthScopes } from '@/tools/toolDefinitions'
 import type { CloudRegion } from '@/tools/types'
 
-import { MCP, RequestProperties } from './mcp'
-import RAW_LANDING_HTML from './static/landing.html'
-
-const PARSED_LANDING_HTML = RAW_LANDING_HTML.replace('{{DOCS_URL}}', MCP_DOCS_URL)
+import { proxyToHono, resolveProxyRegion } from './proxy'
 
 // Helper to get the public-facing URL, respecting reverse proxy headers
 // This is needed for local development with ngrok/cloudflared where request.url
@@ -69,43 +64,6 @@ function getRegionFromRequest(request: Request): CloudRegion | null {
     return queryRegion
 }
 
-// Detect error codes and return appropriate responses
-const onThenErrorHandler = async (response: Response): Promise<Response> => {
-    if (!response.ok) {
-        const body = await response.clone().text()
-        const errorResponse = generateErrorResponseFromMessage(body)
-        if (errorResponse) {
-            return errorResponse
-        }
-    }
-
-    return response
-}
-
-const onCatchErrorHandler = async (error: Error): Promise<Response> => {
-    const permissionError = findPostHogPermissionError(error)
-    if (permissionError) {
-        return new Response(formatPermissionErrorMessage(permissionError), {
-            status: 403,
-            headers: {
-                'Content-Type': 'text/plain; charset=utf-8',
-                'WWW-Authenticate': buildInsufficientScopeChallenge(permissionError),
-            },
-        })
-    }
-    return generateErrorResponseFromMessage(error.message) || new Response('Internal server error', { status: 500 })
-}
-
-const generateErrorResponseFromMessage = (message: string): Response | null => {
-    if (message.includes(ErrorCode.INACTIVE_OAUTH_TOKEN)) {
-        return new Response('OAuth token is inactive', { status: 401 })
-    } else if (message.includes(ErrorCode.INVALID_API_KEY)) {
-        return new Response('Invalid API key', { status: 401 })
-    }
-
-    return null
-}
-
 const handleRequest = async (
     request: Request,
     env: Env,
@@ -116,9 +74,7 @@ const handleRequest = async (
     log.extend({ route: url.pathname })
 
     if (url.pathname === '/') {
-        return new Response(PARSED_LANDING_HTML, {
-            headers: { 'content-type': 'text/html; charset=utf-8' },
-        })
+        return Response.redirect(MCP_DOCS_URL, 302)
     }
 
     // OpenAI ChatGPT App Directory domain verification
@@ -126,6 +82,26 @@ const handleRequest = async (
         return new Response('pRLV9JYbPOF5Dy039v3Rn3-qrMuKqZ2_4SsX9GoL9aU', {
             headers: { 'content-type': 'text/plain' },
         })
+    }
+
+    // Health endpoint for uptime probes and load-balancer checks.
+    // Public and unauthenticated so external monitors can hit it without a token.
+    if (url.pathname === '/health' || url.pathname === '/healthz') {
+        return new Response(JSON.stringify({ status: 'ok' }), {
+            headers: {
+                'Content-Type': 'application/json',
+                'Cache-Control': 'no-store',
+            },
+        })
+    }
+
+    // Static MCP UI app bundles (`/ui-apps/<app>/main.js`,
+    // `/ui-apps/<app>/styles.css`). Production's Cloudflare edge already
+    // routes these to the asset binding before the Worker runs, but
+    // `wrangler dev` invokes the Worker first — without this short-circuit,
+    // the OAuth gate below 401s the request before assets get a chance.
+    if (url.pathname.startsWith('/ui-apps/')) {
+        return env.ASSETS.fetch(request)
     }
 
     // Detect region from hostname (mcp-eu.posthog.com) or query param (?region=eu)
@@ -148,13 +124,26 @@ const handleRequest = async (
         return Response.redirect(redirectTo, redirect.status)
     }
 
+    // The legacy SSE transport (`/sse`) is deprecated in favor of `/mcp`
+    // (Streamable HTTP). Permanently redirect `/sse*` to the equivalent `/mcp*`.
+    // We tag the redirect Location with `_deprecated=sse` so the followup
+    // request on /mcp carries the marker — that lets us correlate
+    // success/failure on /mcp back to clients that came in via the deprecated
+    // path, even after the protocol-level handoff.
+    if (url.pathname === '/sse' || url.pathname.startsWith('/sse/')) {
+        const target = getPublicUrl(request)
+        target.pathname = '/mcp' + url.pathname.slice('/sse'.length)
+        target.searchParams.set('_deprecated', 'sse')
+        log.extend({ deprecation: 'sse', redirectTo: target.toString() })
+        return Response.redirect(target.toString(), 308)
+    }
+
     // OAuth Protected Resource Metadata (RFC 9728)
     // This endpoint tells MCP clients where to authenticate to get tokens.
     //
     // Per RFC 9728, the well-known URL is constructed by inserting /.well-known/oauth-protected-resource
     // between the host and the path. For example:
     // - Resource: https://mcp.posthog.com/mcp → Well-known: https://mcp.posthog.com/.well-known/oauth-protected-resource/mcp
-    // - Resource: https://mcp.posthog.com/sse → Well-known: https://mcp.posthog.com/.well-known/oauth-protected-resource/sse
     //
     // OAuth flow for MCP:
     // 1. Client connects to MCP server without a token
@@ -179,7 +168,7 @@ const handleRequest = async (
             JSON.stringify({
                 resource: resourceUrl.toString().replace(/\/$/, ''),
                 authorization_servers: [authorizationServer],
-                scopes_supported: OAUTH_SCOPES_SUPPORTED,
+                scopes_supported: getAdvertisedOAuthScopes(),
                 bearer_methods_supported: ['header'],
             }),
             {
@@ -191,7 +180,7 @@ const handleRequest = async (
         )
     }
 
-    const token = request.headers.get('Authorization')?.split(' ')[1]
+    const token = extractBearerToken(request)
     const sessionId = url.searchParams.get('sessionId')
 
     if (!token) {
@@ -200,7 +189,6 @@ const handleRequest = async (
         // Per RFC 9728, the well-known URL is constructed by inserting the well-known path
         // between the host and the resource path:
         // - Resource /mcp → metadata at /.well-known/oauth-protected-resource/mcp
-        // - Resource /sse → metadata at /.well-known/oauth-protected-resource/sse
         const metadataUrl = getPublicUrl(request)
         metadataUrl.pathname = `/.well-known/oauth-protected-resource${url.pathname}`
         metadataUrl.search = ''
@@ -218,7 +206,7 @@ const handleRequest = async (
         )
     }
 
-    if (!token.startsWith('phx_') && !token.startsWith('pha_')) {
+    if (!token.startsWith('phx_') && !token.startsWith('pha_') && !isIdJagAccessToken(token)) {
         log.extend({ authError: 'invalid_token_format' })
         return new Response(
             `Invalid token, please provide a valid API token. View the documentation for more information: ${MCP_DOCS_URL}`,
@@ -235,13 +223,56 @@ const handleRequest = async (
     const rawUserAgent = request.headers.get('User-Agent') || undefined
     const clientUserAgent = sanitizeHeaderValue(rawUserAgent)
 
+    // Self-identification signal set by a wrapping consumer app (e.g. PostHog's
+    // Tasks sandbox, or an AI-tool plugin that auto-installs the MCP) when the
+    // wrapped MCP client's name is too generic to distinguish (e.g. both direct
+    // and sandboxed Claude Code send `claude-code`). Query-param fallback for
+    // clients that only let the user customize the URL, not headers.
+    const mcpConsumer = sanitizeHeaderValue(
+        request.headers.get('x-posthog-mcp-consumer') || url.searchParams.get('consumer') || undefined
+    )
+
+    // Extract MCP `clientInfo` eagerly from the JSON-RPC initialize message in the
+    // request body (streamable-http only). The framework's async
+    // `getInitializeRequest()` relies on Durable Object storage which is only
+    // written after `onStart`/`init()` runs, so on the first connect `init()` has
+    // no client info to read. Parsing the body here gives `init()` the values
+    // synchronously via `RequestProperties`.
+    const clientInfo = await extractClientInfoFromBody(request)
+
+    // Streamable-HTTP transport session id, minted by the MCP server on
+    // initialize and echoed back on every subsequent request. Absent on the
+    // initialize call itself. Distinct from `sessionId` (above), which is the
+    // wrapper-app-provided analytics correlation id.
+    const mcpSessionId = sanitizeHeaderValue(request.headers.get('mcp-session-id') || undefined)
+    // Agent-echoed conversation id from `@posthog/mcp-analytics` PR #14.
+    // Caller-supplied for now (wrapper apps can pass it via the header even
+    // before the SDK lands). Once the SDK is bumped with `enableConversationId`,
+    // the same value will also flow in from tool args — both sources land on
+    // the same `requestProperties.mcpConversationId` slot.
+    const mcpConversationId = sanitizeHeaderValue(request.headers.get('mcp-conversation-id') || undefined)
+
+    // Anthropic-set per-request identifier for the inner upstream client (e.g.
+    // `ClaudeCode`, `ClaudeAI`, `Cowork`). Distinct from `mcpClientName` (the
+    // MCP `initialize` body's `clientInfo.name`) because Claude pools MCP
+    // transports — the same `mcpSessionId` can carry requests from multiple
+    // upstream products, and only this header tracks the live one.
+    const mcpVendorClient = sanitizeHeaderValue(request.headers.get('x-anthropic-client') || undefined)
+
     Object.assign(ctx.props, {
         apiToken: token,
         userHash: hash(token),
         sessionId: sessionId || undefined,
+        mcpSessionId,
+        mcpConversationId,
         organizationId,
         projectId,
         clientUserAgent,
+        mcpConsumer,
+        mcpClientName: clientInfo.clientName,
+        mcpClientVersion: clientInfo.clientVersion,
+        mcpProtocolVersion: clientInfo.protocolVersion,
+        mcpVendorClient,
         requestStartTime: Date.now(),
     })
 
@@ -261,32 +292,42 @@ const handleRequest = async (
 
     const version = Number(request.headers.get('x-posthog-mcp-version') || url.searchParams.get('v')) || 1
 
-    const readOnlyRaw = request.headers.get('x-posthog-readonly') || url.searchParams.get('readonly')
+    const readOnlyRaw = request.headers.get('x-posthog-read-only') || url.searchParams.get('readonly')
     const readOnly = readOnlyRaw === 'true' || readOnlyRaw === '1' || undefined
 
-    const extraContextProps = { features, tools, region: regionParam, version, readOnly }
+    // Explicit selection between tool-based and CLI-based MCP. Falls back to the
+    // flag + client-detection logic in `MCP.init()` when unset. See `parseMcpMode`.
+    const mode = parseMcpMode(request.headers.get('x-posthog-mcp-mode') || url.searchParams.get('mode'))
+
+    const extraContextProps = { features, tools, region: regionParam, version, readOnly, mode }
     Object.assign(ctx.props, extraContextProps)
     log.extend(extraContextProps)
-
-    let server: Promise<Response> | null = null
-    if (url.pathname.startsWith('/mcp')) {
-        Object.assign(ctx.props, { transport: 'streamable-http' })
-        server = MCP.serve('/mcp').fetch(request, env, ctx)
-    } else if (url.pathname.startsWith('/sse')) {
-        Object.assign(ctx.props, { transport: 'sse' })
-        server = MCP.serveSSE('/sse').fetch(request, env, ctx)
+    if (mcpConsumer) {
+        log.extend({ mcpConsumer })
+    }
+    if (clientInfo.clientName) {
+        log.extend({ mcpClientName: clientInfo.clientName })
     }
 
-    if (server !== null) {
-        return server.then(onThenErrorHandler).catch(onCatchErrorHandler)
+    // Marker set by the /sse → /mcp redirect handler above. Lets us correlate
+    // success/failure on this /mcp request back to clients that originated on
+    // the deprecated /sse path — both in worker logs and in the `mcp init`
+    // analytics event (via `RequestProperties.viaSseRedirect`).
+    const viaSseRedirect = url.searchParams.get('_deprecated') === 'sse'
+    if (viaSseRedirect) {
+        log.extend({ via: 'sse_redirect' })
+        Object.assign(ctx.props, { viaSseRedirect: true })
+    }
+
+    if (url.pathname.startsWith('/mcp')) {
+        const region = await resolveProxyRegion(token, ctx.props.userHash, env.MCP_KV)
+        log.extend({ proxy: 'hono', region })
+        return proxyToHono(request, region)
     }
 
     log.extend({ error: 'route_not_found' })
     return new Response('Not found', { status: 404 })
 }
-
-// Durable Object class export - required for Wrangler to find the class for the MCP_OBJECT binding
-export { MCP } from './mcp'
 
 // Worker entry point
 export default {

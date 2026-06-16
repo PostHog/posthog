@@ -484,8 +484,13 @@
     }
 
     &--compact:not(.Notebook--canvas) {
-        .NotebookEditor {
+        .NotebookEditor,
+        .Notebook__markdown-v2 {
             max-width: 50rem;
+        }
+
+        .Notebook__markdown-v2 {
+            --markdown-notebook-canvas-max-width: 50rem;
         }
     }
 
@@ -545,7 +550,11 @@
             flex: 1;
 
             // Add some padding to help clicking below the last element
-            padding-bottom: 10rem;
+            padding-bottom: 6rem;
+        }
+
+        .Notebook__markdown-v2 .MarkdownNotebook__canvas {
+            padding-bottom: 6rem;
         }
 
         .NotebookColumn--left.NotebookColumn--showing {
@@ -591,9 +600,15 @@
         background: color-mix(in oklab, var(--color-accent) 25%, transparent);
         border-radius: 2px;
         box-decoration-break: clone;
+        transition: background 120ms ease-in-out;
 
         &:hover {
             background: color-mix(in oklab, var(--color-accent) 50%, transparent);
+        }
+
+        &--active,
+        &--active:hover {
+            background: color-mix(in oklab, var(--color-accent) 65%, transparent);
         }
     }
 
@@ -607,6 +622,13 @@
     }
 }
 
+.Notebook__top-actions {
+    display: flex;
+    justify-content: flex-end;
+    padding: 0 0.75rem;
+    margin-bottom: 0.75rem;
+}
+
 .Notebook_content {
     display: flex;
     flex: 1;
@@ -618,8 +640,92 @@
     }
 }
 
+.Notebook__markdown-v2 {
+    // Notebook provides its own width constraint; let the canvas fill it. Overriding the
+    // variable (not the canvas rule) keeps the debug toolbar's right-edge calc in sync,
+    // so the code icon hugs the first text block's right edge at any viewport width.
+    --markdown-notebook-canvas-max-width: 100%;
+
+    flex: 1;
+    width: 100%;
+    min-width: 0;
+    margin: 0 auto;
+}
+
+body:has(.Notebook--markdown-v2),
+.Navigation3000:has(.Notebook--markdown-v2),
+.main-content-container:has(.Notebook--markdown-v2) > main {
+    --notebook-markdown-v2-page-background: var(--color-bg-primary);
+    --scene-layout-background: var(--notebook-markdown-v2-page-background);
+
+    background: var(--notebook-markdown-v2-page-background);
+}
+
+[theme='dark']:has(.Notebook--markdown-v2),
+[theme='dark'] .Navigation3000:has(.Notebook--markdown-v2),
+[theme='dark'] .main-content-container:has(.Notebook--markdown-v2) > main {
+    --notebook-markdown-v2-page-background: var(--color-bg-surface-primary);
+}
+
+.Notebook--markdown-v2 {
+    --notebook-markdown-v2-page-background: var(--color-bg-primary);
+
+    background: var(--notebook-markdown-v2-page-background);
+
+    [theme='dark'] & {
+        --notebook-markdown-v2-page-background: var(--color-bg-surface-primary);
+    }
+
+    .Notebook_content,
+    .Notebook__markdown-v2,
+    .Notebook__markdown-v2 .MarkdownNotebook__debug-layout,
+    .Notebook__markdown-v2 .MarkdownNotebook__main,
+    .Notebook__markdown-v2 .MarkdownNotebook__canvas {
+        background: var(--notebook-markdown-v2-page-background);
+    }
+
+    .Notebook__markdown-v2 {
+        --markdown-notebook-component-background: var(--color-bg-surface-primary);
+
+        [theme='dark'] & {
+            --markdown-notebook-component-background: var(--color-bg-surface-tertiary);
+        }
+    }
+}
+
 .NotebookProfileCanvas {
     .Notebook_content {
         padding: 0;
+    }
+}
+
+// Google-Docs-style remote presence carets + name flag.
+.NotebookRemotePresence {
+    position: relative;
+    display: inline-block;
+    width: 0;
+    height: 1.1em;
+    margin: 0;
+    vertical-align: text-bottom;
+    pointer-events: none;
+    border-left: 2px solid var(--remote-presence-color, currentColor);
+
+    &__flag {
+        position: absolute;
+        bottom: 100%;
+        left: -2px; // aligned with the bar's left edge
+        z-index: 5;
+        max-width: 12rem;
+        padding: 1px 6px;
+        overflow: hidden;
+        font-size: 0.7rem;
+        font-weight: 500;
+        line-height: 1.2;
+        color: var(--white);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        user-select: none;
+        background: var(--remote-presence-color, currentColor);
+        border-radius: 3px 3px 3px 0;
     }
 }

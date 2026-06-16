@@ -34,8 +34,10 @@ CLICKHOUSE_HTTPS_PORT = 8443
 
 # Connect timeout for the HTTP client
 CONNECT_TIMEOUT_SECONDS = 15
-# Per-query timeout for metadata/discovery queries
-METADATA_QUERY_TIMEOUT_SECONDS = 30
+# Cloud cold-resume (idle services routinely take 30–60s to wake on the
+# first request) and to leave headroom over the server-side `max_execution_time`
+# caps on bounded probes
+METADATA_QUERY_TIMEOUT_SECONDS = 120
 # Per-query timeout for the main data extraction query
 DATA_QUERY_TIMEOUT_SECONDS = 60 * 60  # 1 hour
 
@@ -226,10 +228,26 @@ def get_schemas(
     schema_list: dict[str, list[tuple[str, str, bool]]] = collections.defaultdict(list)
     for row in result.result_rows:
         table_name, column_name, raw_type = row[0], row[1], row[2]
+        if _is_inner_table(table_name):
+            continue
         _, nullable = _strip_type_modifiers(raw_type)
         schema_list[table_name].append((column_name, raw_type, nullable))
 
     return schema_list
+
+
+def _is_inner_table(table_name: str) -> bool:
+    """Whether a table is a materialized view's hidden inner table.
+
+    ClickHouse backs a materialized view created without an explicit `TO`
+    target with an auto-generated inner table — `.inner.<mv_name>` on older
+    Ordinary databases, `.inner_id.<uuid>` on Atomic databases. These are
+    implementation details, not user data: their `.inner_id.<uuid>` names
+    change whenever the view is recreated, so a sync pointed at one breaks
+    the moment the view is rebuilt. Discover the materialized view by its own
+    name instead, never its inner table.
+    """
+    return table_name.startswith(".inner.") or table_name.startswith(".inner_id.")
 
 
 # Match `TO db.table` or `TO table` clause in MV CREATE statement.
@@ -710,6 +728,16 @@ _DUPLICATE_PK_CHECK_SETTINGS: dict[str, Any] = {
     "max_memory_usage": 1_000_000_000,
 }
 
+# ClickHouse error names raised when the bounded probe exhausts one of its own
+# budgets (`max_memory_usage` → MEMORY_LIMIT_EXCEEDED, `max_execution_time` →
+# TIMEOUT_EXCEEDED). `optimize_aggregation_in_order` keeps the GROUP BY
+# streaming, but on large/slow (e.g. S3-backed) source tables the scan can
+# still hit these caps before `read_overflow_mode='break'` truncates on rows.
+# When that happens the probe behaves exactly as designed — fall back to
+# "assume duplicates" — so it's an expected outcome, not an error worth
+# reporting to error tracking.
+_DUPLICATE_PK_PROBE_BUDGET_ERRORS: tuple[str, ...] = ("MEMORY_LIMIT_EXCEEDED", "TIMEOUT_EXCEEDED")
+
 
 def _has_duplicate_primary_keys(
     client: ClickHouseClient,
@@ -746,14 +774,18 @@ def _has_duplicate_primary_keys(
         result = client.query(query, settings=_DUPLICATE_PK_CHECK_SETTINGS)
         return len(result.result_rows) > 0
     except ClickHouseError as e:
-        # Any unexpected server error is treated as "assume duplicates" —
-        # safer to force append mode than to merge against a key we couldn't
-        # verify. (We don't hit max_rows_to_read here because
-        # read_overflow_mode='break' turns that into a silent truncation.)
+        # Any server error is treated as "assume duplicates" — safer to force
+        # append mode than to merge against a key we couldn't verify. (We don't
+        # hit max_rows_to_read here because read_overflow_mode='break' turns
+        # that into a silent truncation.)
         logger.warning(
             f"_has_duplicate_primary_keys: assuming duplicates exist (probe failed for {database}.{table_name}): {e}"
         )
-        capture_exception(e)
+        # Exhausting the probe's own memory/time budget is the designed fallback
+        # on large source tables, not an exceptional condition — don't flood
+        # error tracking with it. Capture only genuinely unexpected errors.
+        if not any(name in str(e) for name in _DUPLICATE_PK_PROBE_BUDGET_ERRORS):
+            capture_exception(e)
         return True
 
 

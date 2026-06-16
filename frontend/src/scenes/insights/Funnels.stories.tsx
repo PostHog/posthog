@@ -1,8 +1,10 @@
 import { samplePersonProperties, sampleRetentionPeopleResponse } from 'scenes/insights/__mocks__/insight.mocks'
 
 import { Meta, StoryObj } from '@storybook/react'
-import { userEvent, waitFor } from '@storybook/testing-library'
+import { waitFor } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -41,6 +43,21 @@ export default meta
 
 // Funnels
 
+const waitForFunnelToStabilize: NonNullable<Story['play']> = async ({ canvasElement }) => {
+    let lastHeight = 0
+    await waitFor(
+        () => {
+            const funnelContainer = canvasElement.querySelector('[data-attr=funnel-bar-vertical]')
+            const currentHeight = funnelContainer ? funnelContainer.getBoundingClientRect().height : 0
+            if (currentHeight === 0 || currentHeight !== lastHeight) {
+                lastHeight = currentHeight
+                throw new Error('funnel height not yet stable')
+            }
+        },
+        { timeout: 3000, interval: 200 }
+    )
+}
+
 // FLAP!
 // export const FunnelLeftToRight: Story = createInsightStory(
 //     require('../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json')
@@ -72,6 +89,7 @@ export const FunnelLeftToRightBreakdownEdit: Story = createInsightStory(
 FunnelLeftToRightBreakdownEdit.parameters = {
     testOptions: { waitForSelector: ['[data-attr=funnel-bar-vertical] .StepBar', '.PayGateMini'] },
 }
+FunnelLeftToRightBreakdownEdit.play = waitForFunnelToStabilize
 export const FunnelTopToBottom: Story = createInsightStory(
     require('../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottom.json')
 )
@@ -111,6 +129,15 @@ export const FunnelHistoricalTrendsEdit: Story = createInsightStory(
 FunnelHistoricalTrendsEdit.parameters = {
     testOptions: { waitForSelector: '[data-attr=trend-line-graph-funnel] > canvas' },
 }
+export const FunnelHistoricalTrendsCompare: Story = createInsightStory(
+    require('../../mocks/fixtures/api/projects/team_id/insights/funnelHistoricalTrendsCompare.json')
+)
+FunnelHistoricalTrendsCompare.parameters = {
+    // funnels-compare gates the Compare-to-previous toggle on funnel trends — without this the
+    // dual-period chart degrades back to the single-period rendering and the snapshot is wrong.
+    featureFlags: [FEATURE_FLAGS.PRODUCT_ANALYTICS_FUNNELS_COMPARE],
+    testOptions: { waitForSelector: '[data-attr=trend-line-graph-funnel] > canvas' },
+}
 
 export const FunnelTimeToConvert: Story = createInsightStory(
     require('../../mocks/fixtures/api/projects/team_id/insights/funnelTimeToConvert.json')
@@ -147,20 +174,6 @@ export const FunnelLeftToRightEditViewports: Story = createInsightStory(
     require('../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json'),
     'edit'
 )
-const waitForFunnelToStabilize: NonNullable<Story['play']> = async ({ canvasElement }) => {
-    let lastHeight = 0
-    await waitFor(
-        () => {
-            const funnelContainer = canvasElement.querySelector('[data-attr=funnel-bar-vertical]')
-            const currentHeight = funnelContainer ? funnelContainer.getBoundingClientRect().height : 0
-            if (currentHeight === 0 || currentHeight !== lastHeight) {
-                lastHeight = currentHeight
-                throw new Error('funnel height not yet stable')
-            }
-        },
-        { timeout: 3000, interval: 200 }
-    )
-}
 FunnelLeftToRightEditViewports.parameters = {
     testOptions: {
         waitForSelector: ['[data-attr=funnel-bar-vertical] .StepBar', '.PayGateMini'],

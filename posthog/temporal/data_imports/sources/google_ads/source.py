@@ -2,7 +2,9 @@ import re
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
+    ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
@@ -11,30 +13,31 @@ from posthog.schema import (
     SuggestedTable,
 )
 
+from posthog.models.integration import Integration
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.base import (
     MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
     FieldType,
-    SimpleSource,
+    ResumableSource,
 )
 from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import GoogleAdsSourceConfig
-from posthog.temporal.data_imports.sources.google_ads.google_ads import (
+from posthog.temporal.data_imports.sources.google_ads.configs import (
+    GoogleAdsResumeConfig,
     GoogleAdsServiceAccountSourceConfig,
     clean_customer_id,
-    get_incremental_fields as get_google_ads_incremental_fields,
-    get_schemas as get_google_ads_schemas,
-    google_ads_client,
-    google_ads_source,
 )
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class GoogleAdsSource(SimpleSource[GoogleAdsSourceConfig | GoogleAdsServiceAccountSourceConfig], OAuthMixin):
+class GoogleAdsSource(
+    ResumableSource[GoogleAdsSourceConfig | GoogleAdsServiceAccountSourceConfig, GoogleAdsResumeConfig], OAuthMixin
+):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.GOOGLEADS
@@ -46,6 +49,15 @@ class GoogleAdsSource(SimpleSource[GoogleAdsSourceConfig | GoogleAdsServiceAccou
             "ACCESS_TOKEN_SCOPE_INSUFFICIENT": None,
             "Account has been deleted": None,
             "INVALID_CUSTOMER_ID": None,
+            "REQUESTED_METRICS_FOR_MANAGER": "Metrics cannot be requested for a Google Ads manager (MCC) account. Reconfigure this source with a client account customer ID, or enable the MCC option and provide both the manager and client customer IDs.",
+            # google.auth.exceptions.RefreshError raised when the stored OAuth refresh token
+            # has been revoked, expired, or is otherwise rejected by Google's token endpoint.
+            # Retrying cannot recover — the user must reconnect their Google Ads account.
+            "invalid_grant": "Your Google Ads connection has expired or been revoked. Please reconnect your Google Ads account.",
+            # google.auth.exceptions.RefreshError raised when the user's Google Workspace admin
+            # has restricted third-party API access for this app (org policy / app not approved).
+            # Retrying cannot recover — an admin must grant access before the user reconnects.
+            "access_not_configured": "Your Google Workspace administrator has restricted API access for this app. Ask your admin to approve it, then reconnect your Google Ads account.",
         }
 
     # TODO: clean up google ads source to not have two auth config options
@@ -61,7 +73,14 @@ class GoogleAdsSource(SimpleSource[GoogleAdsSourceConfig | GoogleAdsServiceAccou
         team_id: int,
         with_counts: bool = False,
         names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
+        # Deferred so registering this source doesn't import the google-ads SDK — see configs.py.
+        from posthog.temporal.data_imports.sources.google_ads.google_ads import (  # noqa: PLC0415
+            get_incremental_fields as get_google_ads_incremental_fields,
+            get_schemas as get_google_ads_schemas,
+        )
+
         google_ads_schemas = get_google_ads_schemas(
             config,
             team_id,
@@ -90,13 +109,22 @@ class GoogleAdsSource(SimpleSource[GoogleAdsSourceConfig | GoogleAdsServiceAccou
 
         return schemas
 
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[GoogleAdsResumeConfig]:
+        return ResumableSourceManager[GoogleAdsResumeConfig](inputs, GoogleAdsResumeConfig)
+
     def source_for_pipeline(
-        self, config: GoogleAdsSourceConfig | GoogleAdsServiceAccountSourceConfig, inputs: SourceInputs
+        self,
+        config: GoogleAdsSourceConfig | GoogleAdsServiceAccountSourceConfig,
+        resumable_source_manager: ResumableSourceManager[GoogleAdsResumeConfig],
+        inputs: SourceInputs,
     ) -> SourceResponse:
+        from posthog.temporal.data_imports.sources.google_ads.google_ads import google_ads_source  # noqa: PLC0415
+
         return google_ads_source(
             config=config,
             resource_name=inputs.schema_name,
             team_id=inputs.team_id,
+            resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             incremental_field=inputs.incremental_field if inputs.should_use_incremental_field else None,
             incremental_field_type=inputs.incremental_field_type if inputs.should_use_incremental_field else None,
@@ -109,9 +137,11 @@ class GoogleAdsSource(SimpleSource[GoogleAdsSourceConfig | GoogleAdsServiceAccou
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.GOOGLE_ADS,
+            category=DataWarehouseSourceCategory.ADVERTISING,
+            keywords=["adwords"],
             label="Google Ads",
             caption="Ensure you have granted PostHog access to your Google Ads account, learn how to do this in [the docs](https://posthog.com/docs/cdp/sources/google-ads).",
-            betaSource=True,
+            releaseStatus=ReleaseStatus.GA,
             iconPath="/static/services/google-ads.png",
             docsUrl="https://posthog.com/docs/cdp/sources/google-ads",
             fields=cast(
@@ -123,6 +153,7 @@ class GoogleAdsSource(SimpleSource[GoogleAdsSourceConfig | GoogleAdsServiceAccou
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="123-456-7890",
+                        secret=False,
                     ),
                     SourceFieldOauthConfig(
                         name="google_ads_integration_id", label="Google Ads account", required=True, kind="google-ads"
@@ -141,6 +172,7 @@ class GoogleAdsSource(SimpleSource[GoogleAdsSourceConfig | GoogleAdsServiceAccou
                                     type=SourceFieldInputConfigType.TEXT,
                                     required=True,
                                     placeholder="123-456-7890",
+                                    secret=False,
                                 )
                             ],
                         ),
@@ -162,19 +194,26 @@ class GoogleAdsSource(SimpleSource[GoogleAdsSourceConfig | GoogleAdsServiceAccou
     def validate_config(self, job_inputs: dict) -> tuple[bool, list[str]]:
         is_valid, errors = super().validate_config(job_inputs)
 
-        customer_id = job_inputs.get("customer_id", "")
-        if customer_id and not re.match(r"^\d{3}-\d{3}-\d{4}$", customer_id):
+        # Normalize before validating: `clean_customer_id` strips dashes, spaces and
+        # whitespace, so `123-456-7890`, `1234567890`, or a copy-pasted value all pass.
+        # The same normalization is applied wherever the id is sent to the API. We guard
+        # on the raw value so a non-numeric entry (which normalizes to empty) is still
+        # rejected rather than silently slipping through.
+        raw_customer_id = job_inputs.get("customer_id", "")
+        if raw_customer_id and not re.fullmatch(r"\d{10}", clean_customer_id(raw_customer_id) or ""):
             errors.append(
-                "Please enter a valid Google Ads customer ID. This should be 10-digits and in XXX-XXX-XXXX format."
+                "Please enter a valid Google Ads customer ID — the 10-digit number from your "
+                "Google Ads account (dashes optional)."
             )
             is_valid = False
 
         is_mcc_account = job_inputs.get("is_mcc_account", {})
         if is_mcc_account.get("enabled"):
-            mcc_client_id = is_mcc_account.get("mcc_client_id", "")
-            if mcc_client_id and not re.match(r"^\d{3}-\d{3}-\d{4}$", mcc_client_id):
+            raw_mcc_client_id = is_mcc_account.get("mcc_client_id", "")
+            if raw_mcc_client_id and not re.fullmatch(r"\d{10}", clean_customer_id(raw_mcc_client_id) or ""):
                 errors.append(
-                    "Please enter a valid Google Ads manager customer ID. This should be 10-digits and in XXX-XXX-XXXX format."
+                    "Please enter a valid Google Ads manager customer ID — the 10-digit number from "
+                    "your manager account (dashes optional)."
                 )
                 is_valid = False
 
@@ -209,6 +248,8 @@ class GoogleAdsSource(SimpleSource[GoogleAdsSourceConfig | GoogleAdsServiceAccou
         team_id: int,
         schema_name: Optional[str] = None,
     ) -> tuple[bool, str | None]:
+        from posthog.temporal.data_imports.sources.google_ads.google_ads import google_ads_client  # noqa: PLC0415
+
         try:
             client = google_ads_client(config, team_id)
 
@@ -226,6 +267,11 @@ class GoogleAdsSource(SimpleSource[GoogleAdsSourceConfig | GoogleAdsServiceAccou
                     f"Customer ID {config.customer_id} is not correct. Please check your customer ID and try again.",
                 )
             return True, None
+        except Integration.DoesNotExist:
+            return (
+                False,
+                "The Google Ads connection for this source no longer exists. Please reconnect your Google Ads account.",
+            )
         except Exception as e:
             error_message = str(e)
             if "ACCESS_TOKEN_SCOPE_INSUFFICIENT" in error_message:
@@ -237,5 +283,11 @@ class GoogleAdsSource(SimpleSource[GoogleAdsSourceConfig | GoogleAdsServiceAccou
                 return (
                     False,
                     "The Google account is not associated with any Google Ads accounts. Please use an account with Google Ads access.",
+                )
+            if "matching query does not exist" in error_message:
+                return (
+                    False,
+                    "Your Google Ads connection is no longer available — it may have been disconnected. "
+                    "Please reconnect your Google Ads account.",
                 )
             return False, f"Error validating credentials: {error_message}"

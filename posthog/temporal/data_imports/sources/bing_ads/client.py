@@ -46,7 +46,7 @@ class BingAdsClient:
             authentication=self.oauth,
         )
 
-    def get_customer_id(self) -> int | None:
+    def get_customer_id(self) -> int:
         if self._customer_id is not None:
             return self._customer_id
 
@@ -60,12 +60,17 @@ class BingAdsClient:
 
             user = service_client.GetUser(UserId=None).User
             self._customer_id = user.CustomerId
-            return self._customer_id
         except Exception as e:
             logger.warning("Failed to fetch customer ID", error=str(e), error_type=type(e).__name__)
-            return None
+            # Preserve the underlying exception's type and message so the retry framework
+            # can selectively recognise auth-related failures as non-retryable while
+            # transient SDK errors (network, Bing outage, rate limits) keep their original
+            # signature and remain retryable.
+            raise ValueError(f"Failed to fetch customer ID: {type(e).__name__}: {e}") from e
 
-    def get_campaigns(self, account_id: int, customer_id: int) -> Generator[list[dict[str, Any]], None, None]:
+        return self._customer_id
+
+    def get_campaigns(self, account_id: int, customer_id: int) -> Generator[list[dict[str, Any]]]:
         self.authorization_data.account_id = account_id
         self.authorization_data.customer_id = customer_id
 
@@ -145,10 +150,8 @@ class BingAdsClient:
         account_id: int,
         start_date: datetime | None = None,
         end_date: datetime | None = None,
-    ) -> Generator[list[dict[str, Any]], None, None]:
+    ) -> Generator[list[dict[str, Any]]]:
         customer_id = self.get_customer_id()
-        if customer_id is None:
-            raise ValueError("Failed to fetch customer ID")
 
         if resource == BingAdsResource.CAMPAIGNS:
             yield from self.get_campaigns(account_id, customer_id)

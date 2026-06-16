@@ -3,7 +3,7 @@ import React from 'react'
 import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { dayjs } from 'lib/dayjs'
 import { capitalizeFirstLetter, midEllipsis, pluralize } from 'lib/utils'
-import { getConstrainedWeekRange } from 'lib/utils/dateTimeUtils'
+import { getConstrainedWeekRange, parseDateInTimezone } from 'lib/utils/dateTimeUtils'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
@@ -88,6 +88,7 @@ export interface FormattedDateOptions {
     dateRange?: DateRange | null
     timezone?: string
     weekStartDay?: number // 0 for Sunday, 1 for Monday, etc.
+    short?: boolean // Drop the year for a compact label (e.g. tooltip headers)
 }
 
 export function getTooltipTitle(
@@ -114,22 +115,33 @@ export const INTERVAL_UNIT_TO_DAYJS_FORMAT: Record<IntervalType, string> = {
     month: 'MMMM YYYY',
 }
 
+const INTERVAL_UNIT_TO_DAYJS_FORMAT_SHORT: Record<IntervalType, string> = {
+    second: 'D MMM HH:mm:ss',
+    minute: 'D MMM HH:mm',
+    hour: 'D MMM HH:00',
+    day: 'D MMM',
+    week: 'D MMM',
+    month: 'MMM',
+}
+
 /**
  * Format a date range
  */
-function formatDateRange(startDate: dayjs.Dayjs, endDate: dayjs.Dayjs): string {
+function formatDateRange(startDate: dayjs.Dayjs, endDate: dayjs.Dayjs, short = false): string {
+    const yearSuffix = short ? '' : ' YYYY'
+
     // Same year and month
     if (startDate.month() === endDate.month() && startDate.year() === endDate.year()) {
-        return `${startDate.format('D')}-${endDate.format('D MMM YYYY')}`
+        return `${startDate.format('D')}-${endDate.format(`D MMM${yearSuffix}`)}`
     }
 
     // Same year but different months
     if (startDate.year() === endDate.year()) {
-        return `${startDate.format('D MMM')} - ${endDate.format('D MMM YYYY')}`
+        return `${startDate.format('D MMM')} - ${endDate.format(`D MMM${yearSuffix}`)}`
     }
 
     // Different years
-    return `${startDate.format('D MMM YYYY')} - ${endDate.format('D MMM YYYY')}`
+    return `${startDate.format(`D MMM${yearSuffix}`)} - ${endDate.format(`D MMM${yearSuffix}`)}`
 }
 
 export function getFormattedDate(input?: string | number, options?: FormattedDateOptions): string {
@@ -138,7 +150,7 @@ export function getFormattedDate(input?: string | number, options?: FormattedDat
         timezone: 'UTC',
         weekStartDay: 0, // Default to Sunday
     }
-    const { interval, dateRange, timezone, weekStartDay } = { ...defaultOptions, ...options }
+    const { interval, dateRange, timezone, weekStartDay, short } = { ...defaultOptions, ...options }
 
     // Number of intervals (i.e. days, weeks)
     if (Number.isInteger(input)) {
@@ -151,25 +163,32 @@ export function getFormattedDate(input?: string | number, options?: FormattedDat
         return input
     }
 
-    const day = dayjs.tz(input, timezone)
+    const tz = timezone ?? 'UTC'
+    const day = typeof input === 'string' ? parseDateInTimezone(input, tz) : dayjs.tz(input, tz)
     if (input === undefined || !day.isValid()) {
         return String(input)
     }
 
     // Handle week interval separately
     if (interval === 'week') {
-        const dateFrom = dayjs.tz(dateRange?.date_from, timezone)
-        const dateTo = dayjs.tz(dateRange?.date_to, timezone)
+        const dateFrom =
+            typeof dateRange?.date_from === 'string'
+                ? parseDateInTimezone(dateRange.date_from, tz)
+                : dayjs.tz(dateRange?.date_from, tz)
+        const dateTo =
+            typeof dateRange?.date_to === 'string'
+                ? parseDateInTimezone(dateRange.date_to, tz)
+                : dayjs.tz(dateRange?.date_to, tz)
         const { start: weekStart, end: weekEnd } = getConstrainedWeekRange(
             day,
             { start: dateFrom, end: dateTo },
             weekStartDay
         )
-        return formatDateRange(weekStart, weekEnd)
+        return formatDateRange(weekStart, weekEnd, short)
     }
 
     // Handle all other intervals
-    return day.format(INTERVAL_UNIT_TO_DAYJS_FORMAT[interval ?? 'day'])
+    return day.format((short ? INTERVAL_UNIT_TO_DAYJS_FORMAT_SHORT : INTERVAL_UNIT_TO_DAYJS_FORMAT)[interval ?? 'day'])
 }
 
 function getPillValues(

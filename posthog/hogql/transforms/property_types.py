@@ -4,30 +4,32 @@ from typing import Literal, Optional, cast
 from django.db import models
 from django.db.models.functions.comparison import Coalesce
 
-from posthog.schema import PersonsOnEventsMode
-
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import BooleanDatabaseField, DateTimeDatabaseField
+from posthog.hogql.database.models import BooleanDatabaseField, DateTimeDatabaseField, StringJSONDatabaseField
 from posthog.hogql.database.s3_table import S3Table
+from posthog.hogql.database.schema.events import (
+    EVENTS_TABLE_TYPES,
+    EventsGroupSubTable,
+    EventsPersonSubTable,
+    EventsTable,
+)
+from posthog.hogql.database.schema.groups import GroupsTable
+from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
 from posthog.hogql.escape_sql import escape_hogql_identifier
+from posthog.hogql.property_planner import PropertySourceKind, plan_property_access
+from posthog.hogql.type_system import normalized_runtime_type, parse_sql_runtime_type
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
 from posthog.clickhouse.materialized_columns import (
+    DMAT_STRING_COLUMN_NAME_PREFIX,
+    MATERIALIZATION_VALID_TABLES,
     MaterializedColumn,
     TablesWithMaterializedColumns,
     get_materialized_column_for_property,
 )
 from posthog.models import Team
 from posthog.models.property import PropertyName, TableColumn
-
-# Mapping from PropertyType enum values to column name suffixes for dynamic materialized columns
-PROPERTY_TYPE_TO_COLUMN_NAME: dict[str, str] = {
-    "String": "string",
-    "Numeric": "numeric",
-    "Boolean": "bool",
-    "DateTime": "datetime",
-}
 
 
 def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
@@ -77,9 +79,7 @@ def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
         prop_info: dict[str, str | None] = {"type": prop_def.property_type}
         slot = prop_def.materialized_column_slots.first()
         if slot:
-            type_name = PROPERTY_TYPE_TO_COLUMN_NAME.get(slot.property_type)
-            if type_name:
-                prop_info["dmat"] = f"dmat_{type_name}_{slot.slot_index}"
+            prop_info["dmat"] = f"{DMAT_STRING_COLUMN_NAME_PREFIX}{slot.slot_index}"
 
         event_properties[prop_def.name] = prop_info
 
@@ -124,6 +124,23 @@ def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
             }
         )
 
+    if context.type_observability is not None:
+        context.type_observability.record_property_definition_lookup(
+            property_source="event",
+            known_count=len(event_properties),
+            total_count=len(property_finder.event_properties),
+        )
+        context.type_observability.record_property_definition_lookup(
+            property_source="person",
+            known_count=len(person_properties),
+            total_count=len(property_finder.person_properties),
+        )
+        context.type_observability.record_property_definition_lookup(
+            property_source="group",
+            known_count=len(group_properties),
+            total_count=sum(len(properties) for properties in property_finder.group_properties.values()),
+        )
+
     timezone = context.database.get_timezone() if context and context.database else "UTC"
     context.property_swapper = PropertySwapper(
         timezone=timezone,
@@ -150,11 +167,11 @@ class PropertyFinder(TraversingVisitor):
         if node.field_type.name == "properties" and len(node.chain) == 1:
             if isinstance(node.field_type.table_type, ast.BaseTableType):
                 table_type = node.field_type.table_type
-                table_name = table_type.resolve_database_table(self.context).to_printed_hogql()
+                resolved_table = table_type.resolve_database_table(self.context)
                 property_name = str(node.chain[0])
-                if table_name == "persons" or table_name == "raw_persons":
+                if isinstance(resolved_table, (PersonsTable, RawPersonsTable)):
                     self.person_properties.add(property_name)
-                if table_name == "groups":
+                if isinstance(resolved_table, GroupsTable):
                     if isinstance(table_type, ast.LazyJoinType):
                         if table_type.field.startswith("group_"):
                             group_id = int(table_type.field.split("_")[1])
@@ -169,14 +186,12 @@ class PropertyFinder(TraversingVisitor):
                             if self.group_properties.get(global_group_id) is None:
                                 self.group_properties[global_group_id] = set()
                             self.group_properties[global_group_id].add(property_name)
-                if table_name == "events":
-                    if (
-                        isinstance(node.field_type.table_type, ast.VirtualTableType)
-                        and node.field_type.table_type.field == "poe"
-                    ):
-                        self.person_properties.add(property_name)
-                    else:
-                        self.event_properties.add(property_name)
+                if isinstance(resolved_table, EventsPersonSubTable):
+                    self.person_properties.add(property_name)
+                elif isinstance(resolved_table, EventsGroupSubTable):
+                    pass  # group properties are handled above via GroupsTable
+                elif isinstance(resolved_table, EventsTable):
+                    self.event_properties.add(property_name)
 
     def visit_field(self, node: ast.Field):
         super().visit_field(node)
@@ -274,11 +289,114 @@ class PropertySwapper(CloningVisitor):
         )
 
     def visit_call(self, node: ast.Call):
+        rewritten = self._try_rewrite_json_extract_to_mat_column(node)
+        if rewritten is not None:
+            return rewritten
+
         self._inside_call_depth += 1
         try:
             return super().visit_call(node)
         finally:
             self._inside_call_depth -= 1
+
+    def _try_rewrite_json_extract_to_mat_column(self, node: ast.Call) -> ast.Field | None:
+        """Rewrite safe direct JSON property extraction to use a materialized column.
+
+        When users write raw JSONExtractString(properties, '$foo') in HogQL,
+        ClickHouse decompresses the full properties JSON blob. If '$foo' has a
+        materialized column (mat_$foo), this is unnecessary I/O. We rewrite the
+        call to a property access node that the printer resolves to the mat_ column.
+
+        Typed JSONExtract(...) calls are only rewritten when the physical column type
+        exactly matches the requested ClickHouse type, because JSON helper semantics
+        for missing keys and type mismatches differ by function family.
+        """
+        property_name = self._simple_json_extract_property_name(node)
+        if property_name is None:
+            return None
+
+        # Unwrap Alias if present (resolver wraps fields in Alias nodes)
+        field_arg = node.args[0]
+        if isinstance(field_arg, ast.Alias):
+            field_arg = field_arg.expr
+        if not isinstance(field_arg, ast.Field):
+            return None
+
+        # Unwrap FieldAliasType to get the underlying FieldType
+        field_type = field_arg.type
+        if isinstance(field_type, ast.FieldAliasType):
+            field_type = field_type.type
+        if not isinstance(field_type, ast.FieldType):
+            return None
+
+        database_field = field_type.resolve_database_field(self.context)
+        if not isinstance(database_field, StringJSONDatabaseField):
+            return None
+
+        table_type = field_type.table_type
+        while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType, ast.VirtualTableType)):
+            table_type = table_type.table_type
+        if not isinstance(table_type, ast.TableType):
+            return None
+
+        table_name = table_type.resolve_database_table(self.context).to_printed_hogql()
+        if table_name not in MATERIALIZATION_VALID_TABLES:
+            return None
+
+        field_name = cast(TableColumn, database_field.name)
+        mat_col = get_materialized_column_for_property(
+            cast(TablesWithMaterializedColumns, table_name),
+            field_name,
+            property_name,
+        )
+        if mat_col is None:
+            return None
+
+        if not self._json_extract_matches_materialized_column_type(node, mat_col):
+            return None
+
+        return ast.Field(
+            start=node.start,
+            end=node.end,
+            chain=[*field_arg.chain, property_name],
+            type=ast.PropertyType(chain=[property_name], field_type=field_type),
+        )
+
+    @staticmethod
+    def _simple_json_extract_property_name(node: ast.Call) -> str | None:
+        if node.name == "JSONExtractString" and len(node.args) == 2:
+            prop_name_arg = node.args[1]
+        elif node.name == "JSONExtract" and len(node.args) == 3:
+            prop_name_arg = node.args[1]
+        else:
+            return None
+
+        if isinstance(prop_name_arg, ast.Constant) and isinstance(prop_name_arg.value, str):
+            return prop_name_arg.value
+        return None
+
+    @staticmethod
+    def _json_extract_matches_materialized_column_type(node: ast.Call, mat_col: MaterializedColumn) -> bool:
+        if node.name == "JSONExtractString":
+            # JSONExtractString has string semantics, so it only matches a string-backed column.
+            # A non-string materialized column (e.g. Nullable(Float64)) would otherwise be rewritten
+            # to the bare typed column, dropping the string type the surrounding query expects.
+            return parse_sql_runtime_type(mat_col.type).family == "string"
+
+        if node.name != "JSONExtract" or len(node.args) != 3:
+            return False
+
+        type_arg = node.args[2]
+        if not isinstance(type_arg, ast.Constant) or not isinstance(type_arg.value, str):
+            return False
+
+        # Normalize before comparing so formatting differences in the type spelling
+        # (whitespace, quoting) don't block the rewrite; semantic differences
+        # (nullability, width, timezone) still do, because JSON helper semantics for
+        # missing keys and out-of-range values differ from bare column semantics.
+        requested_type = normalized_runtime_type(parse_sql_runtime_type(type_arg.value))
+        materialized_type = normalized_runtime_type(parse_sql_runtime_type(mat_col.type))
+        return requested_type.family != "unknown" and requested_type == materialized_type
 
     def visit_compare_operation(self, node: ast.CompareOperation):
         result = super().visit_compare_operation(node)
@@ -435,11 +553,11 @@ class PropertySwapper(CloningVisitor):
                     return self._convert_string_property_to_type(node, "person", property_name)
             elif isinstance(type.field_type.table_type, ast.BaseTableType):
                 table_type = type.field_type.table_type
-                table_name = table_type.resolve_database_table(self.context).to_printed_hogql()
-                if table_name == "persons" or table_name == "raw_persons":
+                resolved_table = table_type.resolve_database_table(self.context)
+                if isinstance(resolved_table, (PersonsTable, RawPersonsTable)):
                     if property_name in self.person_properties:
                         return self._convert_string_property_to_type(node, "person", property_name)
-                if table_name == "groups":
+                if isinstance(resolved_table, GroupsTable):
                     if isinstance(table_type, ast.LazyJoinType):
                         if table_type.field.startswith("group_"):
                             group_id = int(table_type.field.split("_")[1])
@@ -456,14 +574,17 @@ class PropertySwapper(CloningVisitor):
                                 return self._convert_string_property_to_type(
                                     node, "group", f"{global_group_id}_{property_name}"
                                 )
-                if table_name == "events":
+                if isinstance(resolved_table, EventsPersonSubTable):
+                    if property_name in self.person_properties:
+                        return self._convert_string_property_to_type(node, "person", property_name)
+                elif isinstance(resolved_table, EventsTable):
                     if property_name in self.event_properties:
                         return self._convert_string_property_to_type(node, "event", property_name)
         if isinstance(type, ast.PropertyType) and type.field_type.name == "person_properties" and len(type.chain) == 1:
             property_name = str(type.chain[0])
             if isinstance(type.field_type.table_type, ast.BaseTableType):
-                table = type.field_type.table_type.resolve_database_table(self.context).to_printed_hogql()
-                if table == "events":
+                resolved_table = type.field_type.table_type.resolve_database_table(self.context)
+                if isinstance(resolved_table, EVENTS_TABLE_TYPES):
                     if property_name in self.person_properties:
                         return self._convert_string_property_to_type(node, "person", property_name)
 
@@ -486,18 +607,37 @@ class PropertySwapper(CloningVisitor):
         # Add notice about the property type and materialization status
         self._add_property_notice(node, property_type, field_type, prop_info.get("dmat"))
 
-        if "dmat" in prop_info:
-            # Don't rewrite the AST - let the printer substitute the dmat column
-            # The printer will check context.property_swapper and use the dmat column
-            return node
-
+        # Both paths fall through to the wrapper: dmat columns are `Nullable(String)` (the
+        # printer swaps the field to `dmat_string_<idx>`), so they need the same cast as
+        # the JSON fallback.
         return self._field_type_to_property_call(node, field_type)
 
     def _field_type_to_property_call(self, node: ast.Field, field_type: str):
         if field_type == "DateTime":
-            return ast.Call(name="toDateTime", args=[node])
+            # Carry the return type so an enclosing toDateTime() resolves its
+            # already-a-datetime overload instead of re-parsing this value
+            # (parseDateTime64BestEffortOrNull only accepts strings). Only
+            # return_type drives overload resolution here; arg_types is an
+            # approximation of the signature and is not re-validated.
+            return ast.Call(
+                name="toDateTime",
+                args=[node],
+                type=ast.CallType(
+                    name="toDateTime",
+                    arg_types=[ast.StringType(nullable=True)],
+                    return_type=ast.DateTimeType(nullable=True),
+                ),
+            )
         if field_type == "Float":
-            return ast.Call(name="toFloat", args=[node])
+            return ast.Call(
+                name="toFloat",
+                args=[node],
+                type=ast.CallType(
+                    name="toFloat",
+                    arg_types=[ast.StringType(nullable=True)],
+                    return_type=ast.FloatType(nullable=True),
+                ),
+            )
         if field_type == "Boolean":
             return ast.Call(
                 name="toBool",
@@ -512,6 +652,11 @@ class PropertySwapper(CloningVisitor):
                         ],
                     )
                 ],
+                type=ast.CallType(
+                    name="toBool",
+                    arg_types=[ast.StringType(nullable=True)],
+                    return_type=ast.BooleanType(nullable=True),
+                ),
             )
         return node
 
@@ -523,23 +668,18 @@ class PropertySwapper(CloningVisitor):
         dmat_column: str | None = None,
     ):
         property_name = str(node.chain[-1])
-        if property_type == "person":
-            if self.context.modifiers.personsOnEventsMode != PersonsOnEventsMode.DISABLED:
-                materialized_column = self._get_materialized_column("events", property_name, "person_properties")
-            else:
-                materialized_column = self._get_materialized_column("person", property_name, "properties")
-        elif property_type == "group":
-            name_parts = property_name.split("_")
-            name_parts.pop(0)
-            property_name = "_".join(name_parts)
-            materialized_column = self._get_materialized_column("groups", property_name, "properties")
-        else:
-            materialized_column = self._get_materialized_column("events", property_name, "properties")
+        if property_type == "group" and "_" in property_name:
+            property_name = property_name.split("_", 1)[1]
 
         message = f"{property_type.capitalize()} property '{property_name}' is of type '{field_type}'."
         if self.context.debug:
-            if materialized_column is not None:
+            access_plan = plan_property_access(node, self.context)
+            if access_plan is not None and access_plan.source.kind == PropertySourceKind.MATERIALIZED_COLUMN:
                 message += " This property is materialized (mat_*) ⚡️."
+            elif access_plan is not None and access_plan.source.kind == PropertySourceKind.DYNAMIC_MATERIALIZED_COLUMN:
+                message += f" This property is materialized ({access_plan.source.column_name}) ⚡️."
+            elif access_plan is not None and access_plan.source.kind == PropertySourceKind.PROPERTY_GROUP:
+                message += f" This property is served from property group column '{access_plan.source.column_name}' ⚡️."
             elif dmat_column is not None:
                 message += f" This property is materialized ({dmat_column}) ⚡️."
             else:

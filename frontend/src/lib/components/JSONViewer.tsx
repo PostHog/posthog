@@ -1,16 +1,21 @@
 import './JSONViewer.scss'
 
-import ReactJson, { ReactJsonViewProps } from '@microlink/react-json-view'
+import type { ReactJsonViewProps } from '@microlink/react-json-view'
 import { useValues } from 'kea'
+import { Suspense, lazy } from 'react'
+
+import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+
+const ReactJson = lazy(() => import('@microlink/react-json-view'))
 
 export enum JSONViewerTheme {
     DARK = 'railscasts',
     LIGHT = 'rjv-default',
 }
 
-export function JSONViewer({
+export function JSONViewerInner({
     name = null, // Don't label the root node as "root" by default
     displayDataTypes = false, // Reduce visual clutter
     displayObjectSize = false, // Reduce visual clutter
@@ -36,5 +41,26 @@ export function JSONViewer({
             }}
             {...props}
         />
+    )
+}
+
+export function JSONViewerSkeleton(): JSX.Element {
+    return (
+        <WrappingLoadingSkeleton fullWidth>
+            <span className="block font-mono text-xs leading-5">
+                <span className="block">{'{'}</span>
+                <span className="block pl-4">"loading": "json content",</span>
+                <span className="block pl-4">"please": "wait"</span>
+                <span className="block">{'}'}</span>
+            </span>
+        </WrappingLoadingSkeleton>
+    )
+}
+
+export function JSONViewer(props: ReactJsonViewProps): JSX.Element {
+    return (
+        <Suspense fallback={<JSONViewerSkeleton />}>
+            <JSONViewerInner {...props} />
+        </Suspense>
     )
 }

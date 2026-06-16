@@ -5,7 +5,9 @@ from django.conf import settings
 import gspread
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
+    ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
@@ -37,7 +39,11 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
             "the header row in the worksheet contains duplicates": "Import failed: There exists duplicate column headers. Please make sure all column headers have values and aren't duplicated.",
             "can't be found": None,
             "SpreadsheetNotFound": None,
-            "must be real number, not str": "Import failed: all cells in a numerical column must have a value and not be blank",
+            "must be real number, not str": "Import failed: a numeric column contains a non-numeric value. Ensure every cell in numeric columns is stored as a plain number.",
+            "Spreadsheet access denied": "Import failed: PostHog does not have access to this spreadsheet. Please share it with our service account as described at https://posthog.com/docs/cdp/sources/google-sheets",
+            # gspread raises APIError "[404]: Requested entity was not found." when the
+            # spreadsheet has been deleted or is otherwise unreachable. Retrying cannot recover.
+            "Requested entity was not found": "Import failed: the Google Sheet could not be found. It may have been deleted or moved. Please check the spreadsheet URL and that it is shared with our service account.",
         }
 
     def get_schemas(
@@ -46,6 +52,7 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
         team_id: int,
         with_counts: bool = False,
         names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         sheets = get_google_sheets_schemas(config)
 
@@ -99,9 +106,10 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.GOOGLE_SHEETS,
+            category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Google Sheets",
             caption="Ensure you have granted PostHog access to your Google Sheet as instructed in the [documentation](https://posthog.com/docs/cdp/sources/google-sheets)",
-            betaSource=True,
+            releaseStatus=ReleaseStatus.GA,
             iconPath="/static/services/Google_Sheets.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/google-sheets",
             fields=cast(
@@ -114,6 +122,7 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
                         required=True,
                         placeholder="",
                         caption=f'Share the sheet with our service account by entering **{settings.GOOGLE_SHEETS_SERVICE_ACCOUNT_CLIENT_EMAIL}** into the "Add people" field. We only require "Viewer" permissions to sync the sheet.',
+                        secret=False,
                     )
                 ],
             ),

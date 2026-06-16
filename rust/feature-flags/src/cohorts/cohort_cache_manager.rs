@@ -7,6 +7,7 @@ use crate::metrics::consts::{
 use async_trait::async_trait;
 use common_database::PostgresReader;
 use common_types::TeamId;
+use lifecycle::Handle;
 use moka::future::Cache;
 use std::sync::Arc;
 use std::time::Duration;
@@ -177,7 +178,8 @@ impl<F: CohortFetcher> CohortCacheManager<F> {
     /// at the specified interval. This ensures metrics stay fresh regardless of cache
     /// hit/miss patterns, since `report_cache_metrics()` is otherwise only called on
     /// cache misses.
-    pub async fn start_monitoring(&self, interval_secs: u64) {
+    pub async fn start_monitoring(&self, interval_secs: u64, shutdown: Handle) {
+        let _scope = shutdown.process_scope();
         let mut ticker = tokio::time::interval(Duration::from_secs(interval_secs));
 
         tracing::info!(
@@ -186,14 +188,21 @@ impl<F: CohortFetcher> CohortCacheManager<F> {
         );
 
         loop {
-            ticker.tick().await;
-            self.report_cache_metrics();
+            tokio::select! {
+                _ = shutdown.shutdown_recv() => {
+                    tracing::info!("Cohort cache monitor shutting down");
+                    break;
+                }
+                _ = ticker.tick() => {
+                    self.report_cache_metrics();
 
-            tracing::debug!(
-                "Cohort cache metrics - size: {} bytes, entries: {}",
-                self.cache.weighted_size(),
-                self.cache.entry_count()
-            );
+                    tracing::debug!(
+                        "Cohort cache metrics - size: {} bytes, entries: {}",
+                        self.cache.weighted_size(),
+                        self.cache.entry_count()
+                    );
+                }
+            }
         }
     }
 
@@ -709,10 +718,19 @@ mod tests {
         // Pause time for deterministic testing
         tokio::time::pause();
 
+        // Build a test-mode lifecycle manager and hand its Handle to the monitor.
+        let token = tokio_util::sync::CancellationToken::new();
+        let mut manager = lifecycle::Manager::builder("cohort-cache-monitor-test")
+            .with_trap_signals(false)
+            .with_prestop_check(false)
+            .with_shutdown_token(token.clone())
+            .build();
+        let handle = manager.register("cohort-cache-monitor", lifecycle::ComponentOptions::new());
+
         // Spawn the actual start_monitoring method
         let cohort_cache_clone = cohort_cache.clone();
         let monitor_handle = tokio::spawn(async move {
-            cohort_cache_clone.start_monitoring(30).await;
+            cohort_cache_clone.start_monitoring(30, handle).await;
         });
 
         // First tick is immediate - empty cache
@@ -764,7 +782,11 @@ mod tests {
             "Cache with one entry should report 1 entry"
         );
 
-        monitor_handle.abort();
+        token.cancel();
+        tokio::time::timeout(Duration::from_secs(1), monitor_handle)
+            .await
+            .expect("monitor did not exit on shutdown")
+            .ok();
         Ok(())
     }
 

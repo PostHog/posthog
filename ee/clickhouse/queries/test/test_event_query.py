@@ -8,8 +8,6 @@ from posthog.test.base import (
 )
 
 from posthog.clickhouse.client import sync_execute
-from posthog.models import Action
-from posthog.models.cohort import Cohort
 from posthog.models.element import Element
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
@@ -17,6 +15,9 @@ from posthog.models.group.util import create_group
 from posthog.models.person import Person
 from posthog.queries.trends.trends_event_query import TrendsEventQuery
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
+
+from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.cohort import Cohort
 
 from ee.clickhouse.materialized_columns.columns import materialize
 

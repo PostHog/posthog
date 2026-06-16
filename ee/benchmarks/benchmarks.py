@@ -7,7 +7,6 @@ from ee.clickhouse.materialized_columns.analyze import (
     materialize,
 )
 from ee.clickhouse.materialized_columns.columns import MaterializedColumn
-from ee.clickhouse.queries.funnels.funnel_correlation import FunnelCorrelation
 from posthog.queries.funnels import ClickhouseFunnel
 from posthog.queries.property_values import (
     get_property_values_for_key,
@@ -18,11 +17,12 @@ from posthog.queries.session_recordings.session_recording_list import (
     SessionRecordingList,
 )
 from posthog.queries.util import get_earliest_timestamp
-from posthog.models import Action, Cohort, Team, Organization
+from posthog.models import Team, Organization
+from products.cohorts.backend.models.cohort import Cohort
+from products.actions.backend.models.action import Action
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.filters.filter import Filter
 from posthog.models.property import PropertyName, TableWithProperties
-from posthog.constants import FunnelCorrelationType
 
 MATERIALIZED_PROPERTIES: dict[TableWithProperties, list[PropertyName]] = {
     "events": [
@@ -360,72 +360,6 @@ class QuerySuite:
             team=self.team,
         )
         ClickhouseFunnel(filter, self.team).run()
-
-    @benchmark_clickhouse
-    def track_correlations_by_events(self):
-        filter = Filter(
-            data={
-                "events": [{"id": "user signed up"}, {"id": "insight analyzed"}],
-                **SHORT_DATE_RANGE,
-            },
-            team=self.team,
-        )
-
-        FunnelCorrelation(filter, self.team).run()
-
-    @benchmark_clickhouse
-    def track_correlations_by_properties_materialized(self):
-        filter = Filter(
-            data={
-                "events": [{"id": "user signed up"}, {"id": "insight analyzed"}],
-                **SHORT_DATE_RANGE,
-                "funnel_correlation_type": FunnelCorrelationType.PROPERTIES,
-                "funnel_correlation_names": ["$browser"],
-            },
-            team=self.team,
-        )
-        FunnelCorrelation(filter, self.team).run()
-
-    @benchmark_clickhouse
-    def track_correlations_by_properties(self):
-        filter = Filter(
-            data={
-                "events": [{"id": "user signed up"}, {"id": "insight analyzed"}],
-                **SHORT_DATE_RANGE,
-                "funnel_correlation_type": FunnelCorrelationType.PROPERTIES,
-                "funnel_correlation_names": ["$browser"],
-            },
-            team=self.team,
-        )
-        with no_materialized_columns():
-            FunnelCorrelation(filter, self.team).run()
-
-    @benchmark_clickhouse
-    def track_correlations_by_event_properties(self):
-        filter = Filter(
-            data={
-                "events": [{"id": "user signed up"}, {"id": "insight analyzed"}],
-                **SHORT_DATE_RANGE,
-                "funnel_correlation_type": FunnelCorrelationType.EVENT_WITH_PROPERTIES,
-                "funnel_correlation_event_names": ["$autocapture"],
-            },
-            team=self.team,
-        )
-        with no_materialized_columns():
-            FunnelCorrelation(filter, self.team).run()
-
-    @benchmark_clickhouse
-    def track_correlations_by_event_properties_materialized(self):
-        filter = Filter(
-            data={
-                "events": [{"id": "user signed up"}, {"id": "insight analyzed"}],
-                **SHORT_DATE_RANGE,
-                "funnel_correlation_type": FunnelCorrelationType.EVENT_WITH_PROPERTIES,
-                "funnel_correlation_event_names": ["$autocapture"],
-            },
-            team=self.team,
-        )
-        FunnelCorrelation(filter, self.team).run()
 
     @benchmark_clickhouse
     def track_session_recordings_list(self):

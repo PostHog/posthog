@@ -57,13 +57,26 @@ function recordRecentFromPropertyFilter(propertyFilter: AnyPropertyFilter): void
     if (!groupType) {
         return
     }
-    recentTaxonomicFiltersLogic.actions.recordRecentFilter(
+    recentTaxonomicFiltersLogic.actions.recordRecentFilter({
         groupType,
-        groupType,
-        key,
-        { name: key },
-        teamLogic.values.currentTeamId ?? undefined,
-        propertyFilter
+        groupName: groupType,
+        value: key,
+        item: { name: key },
+        teamId: teamLogic.values.currentTeamId ?? undefined,
+        propertyFilter,
+    })
+}
+
+const QUICK_FILTER_PROPERTY_GROUP_TYPES = [
+    TaxonomicFilterGroupType.PageviewUrls,
+    TaxonomicFilterGroupType.Screens,
+    TaxonomicFilterGroupType.EmailAddresses,
+]
+
+function isPropertyEditableTaxonomicGroupType(groupType: TaxonomicFilterGroupType): boolean {
+    return (
+        taxonomicFilterTypeToPropertyFilterType(groupType) !== undefined ||
+        QUICK_FILTER_PROPERTY_GROUP_TYPES.includes(groupType)
     )
 }
 
@@ -110,7 +123,13 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
         addGroupFilter: (
             taxonomicGroup: TaxonomicFilterGroup,
             propertyKey: TaxonomicFilterValue,
-            item: { propertyFilterType?: PropertyFilterType; name?: string; key?: string }
+            item: {
+                propertyFilterType?: PropertyFilterType
+                name?: string
+                key?: string
+                matchedOn?: string
+                matchedValue?: string
+            }
         ) => ({
             taxonomicGroup,
             propertyKey,
@@ -151,27 +170,7 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
         ],
         taxonomicPropertyFilterGroupTypes: [
             (_, p) => [p.taxonomicGroupTypes],
-            (types) =>
-                types.filter((t) =>
-                    [
-                        TaxonomicFilterGroupType.EventProperties,
-                        TaxonomicFilterGroupType.PersonProperties,
-                        TaxonomicFilterGroupType.EventFeatureFlags,
-                        TaxonomicFilterGroupType.Cohorts,
-                        TaxonomicFilterGroupType.Elements,
-                        TaxonomicFilterGroupType.HogQLExpression,
-                        TaxonomicFilterGroupType.FeatureFlags,
-                        TaxonomicFilterGroupType.PageviewUrls,
-                        TaxonomicFilterGroupType.Screens,
-                        TaxonomicFilterGroupType.EmailAddresses,
-                        TaxonomicFilterGroupType.Logs,
-                        TaxonomicFilterGroupType.LogAttributes,
-                        TaxonomicFilterGroupType.LogResourceAttributes,
-                        TaxonomicFilterGroupType.Spans,
-                        TaxonomicFilterGroupType.SpanAttributes,
-                        TaxonomicFilterGroupType.SpanResourceAttributes,
-                    ].includes(t)
-                ),
+            (types) => types.filter(isPropertyEditableTaxonomicGroupType),
         ],
     }),
 
@@ -327,8 +326,10 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
                         propertyKey,
                         propertyType,
                         taxonomicGroup,
-                        values.describeProperty
+                        values.describeProperty,
+                        item
                     )
+
                     newValues.push(newPropertyFilter)
                 } else {
                     const entityType = taxonomicFilterGroupTypeToEntityType(taxonomicGroup.type)

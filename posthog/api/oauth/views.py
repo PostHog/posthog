@@ -2,12 +2,13 @@ import json
 import uuid
 import hashlib
 import calendar
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import TypedDict, cast
 from urllib.parse import urlparse
 
 from django.conf import settings
 from django.core.exceptions import DisallowedRedirect
+from django.db import OperationalError
 from django.http import JsonResponse
 from django.utils import timezone
 from django.utils.decorators import method_decorator
@@ -16,7 +17,7 @@ from django.views.decorators.csrf import csrf_exempt
 import structlog
 import posthoganalytics
 from oauth2_provider.compat import login_not_required
-from oauth2_provider.exceptions import OAuthToolkitError
+from oauth2_provider.exceptions import FatalClientError, OAuthToolkitError
 from oauth2_provider.http import OAuth2ResponseRedirect
 from oauth2_provider.oauth2_validators import OAuth2Validator
 from oauth2_provider.settings import oauth2_settings
@@ -29,6 +30,7 @@ from oauth2_provider.views import (
     UserInfoView,
 )
 from oauth2_provider.views.mixins import OAuthLibMixin
+from oauthlib.oauth2 import InvalidGrantError
 from rest_framework import serializers, status
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.permissions import IsAuthenticated
@@ -36,16 +38,27 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from posthog.api.oauth.cimd import (
-    CIMD_THROTTLES,
+    CIMD_THROTTLE_CLASSES,
     CIMDFetchError,
     CIMDValidationError,
     get_application_by_client_id,
     get_or_create_cimd_application,
     is_cimd_client_id,
 )
-from posthog.models import OAuthAccessToken, OAuthApplication, Team, User
-from posthog.models.oauth import OAuthApplicationAccessLevel, OAuthGrant, OAuthRefreshToken
-from posthog.scopes import get_scope_descriptions
+from posthog.helpers.impersonation import get_original_user_from_session, is_impersonated_session
+from posthog.middleware import is_read_only_impersonation
+from posthog.models import OAuthAccessToken, OAuthApplication, Organization, Team, User
+from posthog.models.oauth import OAuthApplicationAccessLevel, OAuthGrant, OAuthRefreshToken, revoke_oauth_session
+from posthog.scopes import (
+    ALWAYS_ALLOWED_SCOPES,
+    downgrade_scopes_to_read_only,
+    effective_ceiling,
+    get_oauth_scopes_supported,
+    narrow_scopes_to_ceiling,
+    scopes_outside_ceiling,
+    scopes_within_ceiling,
+)
+from posthog.security.url_validation import has_authority_bypass_chars
 from posthog.user_permissions import UserPermissions
 from posthog.utils import render_template
 from posthog.views import login_required
@@ -64,6 +77,10 @@ CLIENT_IDS_WITHOUT_REFRESH_TOKEN: frozenset[str] = frozenset(
     }
 )
 
+# Sentinel for the per-request impersonator_id cache so None (no impersonator) is
+# distinguishable from "not resolved yet".
+_IMPERSONATOR_CACHE_UNSET: object = object()
+
 
 def get_region_info() -> dict | None:
     """Return region metadata if running on PostHog Cloud US/EU, else None."""
@@ -72,6 +89,96 @@ def get_region_info() -> dict | None:
         region = cloud.lower()
         return {"posthog_region": region, "posthog_base_url": settings.SITE_URL}
     return None
+
+
+def _temporarily_unavailable_response(retry_after_seconds: int = 1) -> JsonResponse:
+    """RFC 6749 `temporarily_unavailable` response with HTTP 503 and Retry-After.
+
+    Use for transient failures (e.g. database connection-pool saturation) so OAuth
+    clients back off and retry instead of treating the request as permanently failed.
+    """
+    response = JsonResponse(
+        {
+            "error": "temporarily_unavailable",
+            "error_description": "The authorization server is temporarily unable to handle the request. Please retry.",
+        },
+        status=503,
+    )
+    response["Retry-After"] = str(retry_after_seconds)
+    return response
+
+
+def _impersonator_id_for_request(request) -> int | None:
+    """Return the staff user id that should tag any OAuth token minted on behalf of this request.
+
+    Returns the original (staff) user's id when the Django session is an active impersonation
+    session, otherwise None. Threaded through oauthlib via the `credentials` dict so the
+    validator can stamp `impersonated_by` on the grant / access token / refresh token.
+    """
+    if not is_impersonated_session(request):
+        return None
+    original_user = get_original_user_from_session(request)
+    return original_user.pk if original_user else None
+
+
+def _scoped_organization_ids(
+    user: User,
+    access_level: str | None,
+    scoped_organization_ids: list[str] | None,
+    scoped_team_ids: list[int] | None,
+) -> set[uuid.UUID]:
+    """Resolve the set of organizations a grant with this access scope would reach.
+
+    `all` access (or any unscoped grant) reaches every organization the user belongs to;
+    `organization` access is the listed organizations; `team` access is the organizations
+    owning the listed teams.
+    """
+    if access_level == OAuthApplicationAccessLevel.ORGANIZATION.value and scoped_organization_ids:
+        return {uuid.UUID(str(org_id)) for org_id in scoped_organization_ids}
+    if access_level == OAuthApplicationAccessLevel.TEAM.value and scoped_team_ids:
+        return set(Team.objects.filter(pk__in=scoped_team_ids).values_list("organization_id", flat=True))
+    return set(user.organizations.values_list("id", flat=True))
+
+
+def _impersonation_ai_processing_block(
+    request,
+    *,
+    access_level: str | None = None,
+    scoped_organization_ids: list[str] | None = None,
+    scoped_team_ids: list[int] | None = None,
+) -> Response | None:
+    """Block OAuth during impersonation when an in-scope organization has disabled AI data processing.
+
+    Some organizations explicitly opt out of AI processing of their data
+    (`Organization.is_ai_data_processing_approved`). A staff member impersonating a customer
+    must not be able to grant an OAuth client access to that data in that case (the MCP being
+    the motivating case). This does not apply to customers authorizing a client themselves —
+    they have already consented for their own data.
+
+    Mirrors the fail-closed check used elsewhere for AI features: only an explicit `True`
+    counts as approved, so a null/unset value is treated as not approved. Returns a 403
+    `Response` to short-circuit with, or `None` to proceed.
+    """
+    if not is_impersonated_session(request):
+        return None
+
+    organization_ids = _scoped_organization_ids(request.user, access_level, scoped_organization_ids, scoped_team_ids)
+    if not organization_ids:
+        return None
+
+    has_disabled_org = (
+        Organization.objects.filter(id__in=organization_ids).exclude(is_ai_data_processing_approved=True).exists()
+    )
+    if not has_disabled_org:
+        return None
+
+    return Response(
+        {
+            "error": "access_denied",
+            "error_description": "This organization has disabled AI data processing, so it cannot be authorized for an OAuth client while impersonating.",
+        },
+        status=status.HTTP_403_FORBIDDEN,
+    )
 
 
 class OAuthAuthorizationContext(TypedDict):
@@ -156,12 +263,17 @@ class OAuthValidator(OAuth2Validator):
         return False
 
     def _should_skip_refresh_token(self, request) -> bool:
-        if not hasattr(request, "client") or not request.client:
-            return False
+        # No refresh tokens for impersonation-minted tokens.
+        if self._get_impersonator_id(request) is not None:
+            return True
+
         # CIMD clients expose their canonical id via cimd_metadata_url (the model's
         # client_id is an auto-generated UUID for those). Gate on is_cimd_client so
         # a stray cimd_metadata_url on a non-CIMD app can't flip the behavior.
-        if getattr(request.client, "is_cimd_client", False):
+        client_key: str | None = None
+        if not hasattr(request, "client") or not request.client:
+            client_key = None
+        elif getattr(request.client, "is_cimd_client", False):
             client_key = getattr(request.client, "cimd_metadata_url", None)
         else:
             client_key = getattr(request.client, "client_id", None)
@@ -193,6 +305,34 @@ class OAuthValidator(OAuth2Validator):
 
         request.client = app
         return request.client
+
+    # PostHog deliberately does NOT support OIDC silent authentication (`prompt=none`). Every
+    # authorization must go through the interactive login + consent prompt — we never issue a
+    # token without showing UI. oauthlib gates `prompt=none` on two validators in sequence
+    # (validate_silent_login then validate_silent_authorization); neither the base class nor
+    # django-oauth-toolkit implements them, so both default to NotImplementedError -> 500. We
+    # override both so that every `prompt=none` request is instead rejected with a
+    # spec-compliant OIDC error, forcing the client into the normal interactive flow.
+
+    def validate_silent_login(self, request) -> bool:
+        # First gate. We don't authorize silently regardless, but reporting real login state
+        # here yields the correct rejection error: a logged-out user gets `login_required`,
+        # while a logged-in user passes this gate and is rejected by validate_silent_authorization
+        # below with `consent_required`.
+        user = getattr(request, "user", None)
+        return bool(user and getattr(user, "is_authenticated", False))
+
+    def validate_silent_authorization(self, request) -> bool:
+        # Second gate — the one that actually disables silent authentication. Always False, so
+        # oauthlib raises `consent_required` for any authenticated `prompt=none` request instead
+        # of completing the grant (or crashing with NotImplementedError -> 500).
+        #
+        # This gate is only reached when the user is authenticated, which is precisely the
+        # silent-auth case `prompt=none` is meant to enable: oauthlib attaches request.user via
+        # credentials only in create_authorization_response (POST allow, first-party auto-grant,
+        # auto-approval), not in validate_authorization_request. Overriding validate_silent_login
+        # alone would leave the 500 in place for exactly that case.
+        return False
 
     def validate_client_id(self, client_id, request, *args, **kwargs):
         """
@@ -229,6 +369,9 @@ class OAuthValidator(OAuth2Validator):
         http://localhost/callback and request http://localhost:<ephemeral>/callback.
         """
 
+        if has_authority_bypass_chars(redirect_uri):
+            return False
+
         if request.client.redirect_uri_allowed(redirect_uri):
             return True
 
@@ -252,6 +395,64 @@ class OAuthValidator(OAuth2Validator):
 
         return False
 
+    def validate_scopes(self, client_id, scopes, client, request, *args, **kwargs):
+        """Enforce the per-application scope ceiling from `OAuthApplication.scopes`.
+
+        Delegates the ceiling resolution to `scopes_within_ceiling` so `/authorize`
+        and the hand-rolled provisioning mint paths share one implementation. The
+        only `/authorize`-specific bit kept here is mutating `request.scopes` when
+        the client omits `scope=`, so oauthlib doesn't fall back to just `["openid"]`
+        from `DEFAULT_SCOPES`. `*` is accepted under an empty ceiling here (legacy
+        PostHog Code CLI) but not on the provisioning paths — see the flag.
+        """
+        app_scopes = getattr(client, "scopes", None) or []
+        requested = set(scopes or [])
+        if not requested:
+            request.scopes = sorted(effective_ceiling(app_scopes) | ALWAYS_ALLOWED_SCOPES)
+            return True
+        return scopes_within_ceiling(requested, app_scopes, allow_wildcard_under_empty_ceiling=True)
+
+    def get_original_scopes(self, refresh_token, request, *args, **kwargs):
+        """Cap refreshed scopes at the application's current ceiling.
+
+        DOT's refresh grant copies the prior access token's scopes verbatim and never
+        re-runs `validate_scopes`, so a token minted before a ceiling was tightened would
+        keep refreshing into the old, broader set. Intersecting with `application.scopes`
+        means a narrowed app drops the removed scopes on the next refresh.
+
+        Always-allowed scopes (OIDC, introspection) pass through, mirroring
+        `validate_scopes`. Resolution when the app has a ceiling:
+        - a `*` token is left untouched: narrowing it would strip all resource access
+          on refresh, and `*` is still issued to legacy clients. Its retirement is
+          handled separately in #60330 (coupled to #60342).
+        - a token whose scopes have no overlap with the ceiling can't be narrowed
+          without emptying it, so we reject the refresh (`invalid_grant`) — the client
+          re-authorizes and gets a token within the current ceiling, rather than
+          silently keeping out-of-ceiling access.
+
+        An empty `application.scopes` (no ceiling) is a no-op.
+        """
+        original = super().get_original_scopes(refresh_token, request, *args, **kwargs)
+        # DOT's base returns the stored scope as a space-delimited string; oauthlib
+        # `scope_to_list`s whatever we return, so a list back is fine.
+        original_list = original.split() if isinstance(original, str) else list(original)
+        # `request.client` is not always populated when oauthlib calls this during the
+        # refresh grant, so fall back to resolving the application from the token row.
+        application = getattr(request, "client", None)
+        if application is None:
+            rt = OAuthRefreshToken.objects.filter(token=refresh_token).select_related("application").first()
+            application = rt.application if rt else None
+
+        narrowed = narrow_scopes_to_ceiling(original_list, getattr(application, "scopes", None) or [])
+        if narrowed is None:
+            # Raised inside oauthlib's validate_token_request, which create_token_response
+            # wraps and turns into an RFC 6749 `invalid_grant` 400 — not a 500.
+            raise InvalidGrantError(
+                description="Token scopes are no longer within the application's allowed scopes; re-authorize.",
+                request=request,
+            )
+        return narrowed
+
     def rotate_refresh_token(self, request) -> bool:
         """
         Don't rotate refresh tokens for dynamically registered (DCR/CIMD) clients.
@@ -272,8 +473,11 @@ class OAuthValidator(OAuth2Validator):
         """
         Returns access token expiry in seconds.
         Dynamically registered (DCR/CIMD) clients get extended TTL since they
-        don't reliably refresh.
+        don't reliably refresh. Impersonation-minted tokens are capped to the
+        impersonation idle timeout so they can't outlive the admin's session.
         """
+        if self._get_impersonator_id(request) is not None:
+            return settings.IMPERSONATION_IDLE_TIMEOUT_SECONDS
         if self._is_dynamic_client(request):
             return 60 * 60 * 24 * 7  # 7 days
         return oauth2_settings.ACCESS_TOKEN_EXPIRE_SECONDS
@@ -286,6 +490,8 @@ class OAuthValidator(OAuth2Validator):
         """
         expires_in = self._get_token_expires_in(request)
         token["expires_in"] = expires_in
+        # Impersonation-minted tokens are short-lived and refresh-less so they can't
+        # outlive the admin's impersonation session; clients re-auth instead.
         skip_refresh = self._should_skip_refresh_token(request)
         if skip_refresh:
             # Dropping the key short-circuits DOT's refresh-token branch so no
@@ -302,6 +508,87 @@ class OAuthValidator(OAuth2Validator):
         )
         return super().save_bearer_token(token, request, *args, **kwargs)
 
+    def _save_bearer_token(self, token, request, *args, **kwargs):
+        """
+        Insert a new access_token row per non-rotating refresh instead of
+        overwriting the previous one. Upstream's non-rotating branch
+        SELECT FOR UPDATEs and writes over a single AccessToken row, so
+        concurrent refreshes for the same RT corrupt each others' response
+        bodies (the losing writers return a token whose DB row was just
+        overwritten by the winner, then upstream's post-grant
+        ``objects.get(token_checksum=...)`` misses and 500s).
+
+        ``OAuthAccessToken.source_refresh_token`` is OneToOne, so only the
+        original ``authorization_code``-issued AT keeps the back-reference;
+        refresh-issued rows pass ``source_refresh_token=None`` and stay
+        addressable by token / token_checksum.
+        """
+        refresh_token_code = token.get("refresh_token")
+        refresh_token_instance = getattr(request, "refresh_token_instance", None)
+
+        is_non_rotating_refresh = (
+            refresh_token_code
+            and not self.rotate_refresh_token(request)
+            and isinstance(refresh_token_instance, OAuthRefreshToken)
+        )
+        if not is_non_rotating_refresh:
+            return super()._save_bearer_token(token, request, *args, **kwargs)
+
+        assert isinstance(refresh_token_instance, OAuthRefreshToken)
+
+        if "scope" not in token:
+            raise FatalClientError("Failed to renew access token: missing scope")
+
+        expires = timezone.now() + timedelta(
+            seconds=token.get("expires_in", oauth2_settings.ACCESS_TOKEN_EXPIRE_SECONDS),
+        )
+
+        self._create_access_token(
+            expires,
+            request,
+            token,
+            source_refresh_token=None,
+            scope_source_refresh_token=refresh_token_instance,
+        )
+        logger.info(
+            "oauth_non_rotating_refresh_inserted",
+            client_id_prefix=str(getattr(request.client, "client_id", "")[:8]),
+            refresh_token_id=str(refresh_token_instance.pk),
+        )
+
+    def revoke_token(self, token, token_type_hint, request, *args, **kwargs):
+        """
+        Sweep the full ``(user, application)`` access-token family when a
+        non-rotating refresh token is revoked via RFC 7009.
+
+        Upstream's ``RefreshToken.revoke()`` only deletes the AT linked via the
+        OneToOne ``RefreshToken.access_token`` FK. Refresh-issued rows from our
+        non-rotating ``_save_bearer_token`` branch carry
+        ``source_refresh_token=None`` so they would survive that path and stay
+        valid until expiry. ``revoke_oauth_session`` deletes by
+        ``(user, application)``, which is the same semantics the UI revoke flow
+        in ``connected_apps`` uses.
+
+        ``token_type_hint`` is OPTIONAL per RFC 7009 §2.1 and the server MUST
+        fall back to searching all token types when the hint doesn't locate the
+        token. We always probe the refresh-token table so the sweep fires for
+        omitted, ``refresh_token``, and (incorrect) ``access_token`` hints
+        alike; a single indexed lookup is cheap and the cost of getting this
+        wrong is leaving compromised tokens valid.
+
+        The sweep only fires when the presented token belongs to the
+        authenticated client (RFC 7009 §2.1: the server verifies the token was
+        issued to the requesting client). Without that binding, any dynamic
+        client that learned another app's refresh token could revoke that
+        app's entire ``(user, application)`` session instead of just the one
+        token upstream would revoke.
+        """
+        rt = OAuthRefreshToken.objects.filter(token=token, revoked__isnull=True).first()
+        if rt and self._is_dynamic_client(request) and rt.application_id == getattr(request.client, "pk", None):
+            revoke_oauth_session(refresh_token=rt)
+            return
+        return super().revoke_token(token, token_type_hint, request, *args, **kwargs)
+
     def get_additional_claims(self, request):
         return {
             "given_name": request.user.first_name,
@@ -311,13 +598,84 @@ class OAuthValidator(OAuth2Validator):
             "sub": str(request.user.uuid),
         }
 
-    def _create_access_token(self, expires, request, token, source_refresh_token=None):
+    def _sessions_revoked_at(self, application_id: uuid.UUID) -> datetime | None:
+        return OAuthApplication.objects.filter(pk=application_id).values_list("sessions_revoked_at", flat=True).first()
+
+    def _reject_refresh_racing_revoke(self, request, source_refresh_token):
+        """Reject a refresh that races an app-wide session revoke.
+
+        DOT validates the refresh token in autocommit, before `save_bearer_token` opens the
+        transaction that locks the row, so a refresh that already passed validation can reach
+        here after `revoke_application_sessions` committed. This runs inside that transaction,
+        so re-reading `sessions_revoked_at` sees the committed revoke: if the presented refresh
+        token predates it, the bulk revoke missed the tokens we're about to mint, so reject and
+        force re-authorization. The token's own `revoked` flag can't be used here — DOT sets it
+        on every rotation, so it doesn't distinguish an admin revoke from a normal refresh.
+        """
+        revoked_at = self._sessions_revoked_at(source_refresh_token.application_id)
+        if revoked_at is not None and source_refresh_token.created < revoked_at:
+            raise InvalidGrantError(
+                description="Application sessions were revoked; re-authorize.",
+                request=request,
+            )
+
+    def _reject_code_exchange_racing_revoke(self, request):
+        """Reject an authorization-code exchange that races an app-wide session revoke.
+
+        Same race as `_reject_refresh_racing_revoke`, on the code path: oauthlib validates the
+        grant in autocommit before `save_bearer_token` opens its transaction, so the revoke can
+        commit in between and the exchange would mint tokens that postdate `sessions_revoked_at`
+        and survive every later refresh. Unlike the refresh path, where DOT's `select_for_update`
+        on the refresh-token row serializes the mint against the revoke's bulk update, nothing
+        locks the grant — so take the row lock here. If the revoke committed first, the grant is
+        gone (`revoke_application_sessions` deletes grants before sweeping tokens) or predates
+        the stamp; if the mint wins the lock, the revoke blocks on its grant delete and its token
+        sweep re-snapshots after our commit, catching the tokens minted here.
+        """
+        if getattr(request, "grant_type", None) != "authorization_code":
+            return
+        grant_created = (
+            OAuthGrant.objects.select_for_update()
+            .filter(code=request.code, application=request.client)
+            .values_list("created", flat=True)
+            .first()
+        )
+        revoked_at = self._sessions_revoked_at(request.client.pk)
+        if revoked_at is not None and (grant_created is None or grant_created < revoked_at):
+            raise InvalidGrantError(
+                description="Application sessions were revoked; re-authorize.",
+                request=request,
+            )
+
+    def _create_access_token(
+        self,
+        expires,
+        request,
+        token,
+        source_refresh_token=None,
+        scope_source_refresh_token=None,
+    ):
+        # A refresh reaches here with the presented token in either ``source_refresh_token``
+        # (rotating) or ``scope_source_refresh_token`` (non-rotating, where the OneToOne FK is
+        # left null so sibling rows stay addressable) — both must be checked against an app-wide
+        # revoke, or a non-rotating refresh could race the revoke and mint a surviving token.
+        # Only a true authorization-code exchange reaches here with neither.
+        refresh_token = source_refresh_token or scope_source_refresh_token
+        if refresh_token is not None:
+            self._reject_refresh_racing_revoke(request, refresh_token)
+        else:
+            self._reject_code_exchange_racing_revoke(request)
         id_token = token.get("id_token", None)
         if id_token:
             id_token = self._load_id_token(id_token)
 
+        # ``scope_source_refresh_token`` lets the caller inherit scopes from a
+        # refresh_token without taking the OneToOne ``source_refresh_token`` FK
+        # (needed by the non-rotating refresh path, where multiple rows share
+        # one RT but only the original can hold the back-reference).
+        scope_refresh_token = scope_source_refresh_token or source_refresh_token
         scoped_teams, scoped_organizations = self._get_scoped_teams_and_organizations(
-            request, access_token=None, grant=None, refresh_token=source_refresh_token
+            request, access_token=None, grant=None, refresh_token=scope_refresh_token
         )
 
         return OAuthAccessToken.objects.create(
@@ -330,6 +688,7 @@ class OAuthValidator(OAuth2Validator):
             source_refresh_token=source_refresh_token,
             scoped_teams=scoped_teams,
             scoped_organizations=scoped_organizations,
+            impersonated_by_id=self._get_impersonator_id(request, refresh_token=source_refresh_token),
         )
 
     def _create_authorization_code(self, request, code, expires=None):
@@ -352,6 +711,7 @@ class OAuthValidator(OAuth2Validator):
             claims=json.dumps(request.claims or {}),
             scoped_teams=scoped_teams,
             scoped_organizations=scoped_organizations,
+            impersonated_by_id=self._get_impersonator_id(request),
         )
 
     def _create_refresh_token(self, request, refresh_token_code, access_token, previous_refresh_token):
@@ -372,7 +732,51 @@ class OAuthValidator(OAuth2Validator):
             token_family=token_family,
             scoped_teams=scoped_teams,
             scoped_organizations=scoped_organizations,
+            # access_token already has impersonated_by computed via _create_access_token above —
+            # propagate it so the refresh token is revoked alongside its access token.
+            impersonated_by_id=access_token.impersonated_by_id if access_token else None,
         )
+
+    def _get_impersonator_id(self, request, refresh_token: OAuthRefreshToken | None = None):
+        """Resolve the impersonator (staff user) that should be tagged on a newly-minted token.
+
+        Priority:
+        1. `impersonated_by_id` attribute set on the oauthlib request — populated from the
+           `credentials` dict during `/oauth/authorize` POST and GET auto-approval paths.
+        2. The previous refresh token (token rotation inherits the tag).
+        3. The authorization code grant referenced in the request body (code-exchange flow at
+           `/oauth/token`, where there is no impersonated session to read from).
+
+        Returns the staff user's id, or None if not impersonator-issued.
+        """
+        impersonator_id = getattr(request, "impersonated_by_id", None)
+        if impersonator_id:
+            return impersonator_id
+
+        if refresh_token and refresh_token.impersonated_by_id:
+            return refresh_token.impersonated_by_id
+
+        # Code-exchange path: look up the grant via the `code` body param (same pattern
+        # as `_get_scoped_teams_and_organizations`). `save_bearer_token` triggers up to
+        # three calls per code exchange (`_get_token_expires_in`,
+        # `_should_skip_refresh_token`, `_create_access_token`), so the grant lookup is
+        # memoized on the oauthlib request.
+        cached = getattr(request, "_posthog_impersonator_id", _IMPERSONATOR_CACHE_UNSET)
+        if cached is not _IMPERSONATOR_CACHE_UNSET:
+            return cached
+
+        resolved: int | None = None
+        if request.decoded_body:
+            try:
+                code = dict(request.decoded_body).get("code", None)
+                if code:
+                    grant = OAuthGrant.objects.only("impersonated_by_id").get(code=code)
+                    resolved = grant.impersonated_by_id
+            except OAuthGrant.DoesNotExist:
+                pass
+
+        request._posthog_impersonator_id = resolved
+        return resolved
 
     def _get_scoped_teams_and_organizations(
         self,
@@ -442,6 +846,12 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             return [IsAuthenticated()]
         return []
 
+    @staticmethod
+    def _registration_type(application: OAuthApplication) -> str:
+        if application.is_cimd_client:
+            return "cimd"
+        return "dcr" if application.is_dcr_client else "manual"
+
     @method_decorator(login_required)
     def get(self, request, *args, **kwargs):
         # Rate-limit new CIMD application creation by IP.
@@ -449,7 +859,8 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         # only receives an oauthlib Request which lacks request.META for IP extraction.
         client_id = request.query_params.get("client_id")
         if is_cimd_client_id(client_id) and not OAuthApplication.objects.filter(cimd_metadata_url=client_id).exists():
-            for throttle in CIMD_THROTTLES:
+            for throttle_cls in CIMD_THROTTLE_CLASSES:
+                throttle = throttle_cls()
                 if not throttle.allow_request(request, view=self):
                     logger.warning("cimd_rate_limited", client_id=client_id, scope=throttle.scope, wait=throttle.wait())
                     return Response(
@@ -485,7 +896,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             return Response({"error": "Invalid client_id"}, status=status.HTTP_400_BAD_REQUEST)
 
         # Track OAuth authorization attempts with the authenticated user
-        registration_type = "cimd" if application.is_cimd_client else ("dcr" if application.is_dcr_client else "manual")
+        registration_type = self._registration_type(application)
         posthoganalytics.capture(
             distinct_id=str(request.user.distinct_id),
             event="oauth_authorization_requested",
@@ -499,21 +910,24 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             },
         )
 
+        impersonator_id = _impersonator_id_for_request(request)
+        credentials["impersonated_by_id"] = impersonator_id
+
+        scope_str = " ".join(scopes)
+        if is_read_only_impersonation(request):
+            scope_str = downgrade_scopes_to_read_only(scope_str)
+
         # First-party apps skip consent screen entirely
         if application.is_first_party:
+            if block := _impersonation_ai_processing_block(request):
+                return block
             try:
-                # Auto-approve with all user's accessible organizations.
                 org_ids = request.user.organizations.values_list("id", flat=True)
                 credentials["scoped_organizations"] = [str(org_id) for org_id in org_ids]
-
-                # TODO(charlesvien): Populate scoped_teams for backwards compat with old
-                # Code clients that throw "No team found in OAuth scopes" when
-                # scoped_teams is empty. Remove once Code reads scoped_organizations.
-                team_ids = Team.objects.filter(organization__members=request.user).values_list("pk", flat=True)
-                credentials["scoped_teams"] = list(team_ids)
+                credentials["scoped_teams"] = []
 
                 uri, headers, body, status_code = self.create_authorization_response(
-                    request=request, scopes=" ".join(scopes), credentials=credentials, allow=True
+                    request=request, scopes=scope_str, credentials=credentials, allow=True
                 )
                 return self.redirect(uri, application)
             except OAuthToolkitError as error:
@@ -526,10 +940,19 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                     user=request.user, application=application, expires__gt=timezone.now()
                 ).all()
 
+                # `scope_str` already reflects the read-only downgrade applied above (when
+                # impersonating), so its split form is the effective set we need to match.
                 for token in tokens:
-                    if token.allow_scopes(scopes):
+                    if token.allow_scopes(scope_str.split()):
+                        # Conservative fallback: check every org the impersonated user belongs to,
+                        # not just the existing token's scope. Auto-approval during impersonation
+                        # is a near-dead path (those tokens are short-lived, refresh-less, and
+                        # revoked on logout), so the broader check isn't worth threading the
+                        # matched token's scope through — the precise check lives in the POST path.
+                        if block := _impersonation_ai_processing_block(request):
+                            return block
                         uri, headers, body, status_code = self.create_authorization_response(
-                            request=request, scopes=" ".join(scopes), credentials=credentials, allow=True
+                            request=request, scopes=scope_str, credentials=credentials, allow=True
                         )
                         return self.redirect(uri, application)
             except OAuthToolkitError as error:
@@ -569,6 +992,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             "state": serializer.validated_data.get("state"),
             "scoped_organizations": serializer.validated_data.get("scoped_organizations"),
             "scoped_teams": serializer.validated_data.get("scoped_teams"),
+            "impersonated_by_id": _impersonator_id_for_request(request),
         }
 
         # Add optional fields if present
@@ -576,10 +1000,23 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             if serializer.validated_data.get(field):
                 credentials[field] = serializer.validated_data[field]
 
+        scopes = serializer.validated_data.get("scope", "")
+        if is_read_only_impersonation(request):
+            scopes = downgrade_scopes_to_read_only(scopes)
+
+        if serializer.validated_data["allow"]:
+            if block := _impersonation_ai_processing_block(
+                request,
+                access_level=serializer.validated_data.get("access_level"),
+                scoped_organization_ids=serializer.validated_data.get("scoped_organizations"),
+                scoped_team_ids=serializer.validated_data.get("scoped_teams"),
+            ):
+                return block
+
         try:
             uri, headers, body, status_code = self.create_authorization_response(
                 request=request,
-                scopes=serializer.validated_data.get("scope", ""),
+                scopes=scopes,
                 credentials=credentials,
                 allow=serializer.validated_data["allow"],
             )
@@ -622,6 +1059,33 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         error details or providing an error response
         """
         redirect, error_response = super().error_response(error, **kwargs)
+
+        # Surface scope-ceiling rejections so on-call can alert on /authorize failing with invalid_scope.
+        if getattr(error_response["error"], "error", None) == "invalid_scope" and application is not None:
+            distinct_id = getattr(getattr(self.request, "user", None), "distinct_id", None) or application.client_id
+            # invalid_scope only reaches error_response from the GET authorize request, where
+            # oauthlib raises it pre-consent (the consent POST returns it as a redirect, not a
+            # raise), so the requested scope is always in the query string here.
+            requested_scope = self.request.query_params.get("scope") or ""
+            rejected_scopes = scopes_outside_ceiling(
+                requested_scope.split(),
+                application.scopes or [],
+                allow_wildcard_under_empty_ceiling=True,
+            )
+            posthoganalytics.capture(
+                distinct_id=str(distinct_id),
+                event="oauth_authorization_rejected",
+                properties={
+                    "reason": "invalid_scope",
+                    "client_name": application.name,
+                    "app_id": str(application.pk),
+                    "registration_type": self._registration_type(application),
+                    "is_verified": application.is_verified,
+                    "is_first_party": application.is_first_party,
+                    "requested_scopes": requested_scope,
+                    "rejected_scopes": rejected_scopes,
+                },
+            )
 
         if redirect:
             if no_redirect:
@@ -679,18 +1143,53 @@ class OAuthTokenView(TokenView):
         grant_type = request.POST.get("grant_type", "unknown")
         client_id = request.POST.get("client_id", "")
         client_id_prefix = client_id[:8] if client_id else "unknown"
+        redirect_uri = request.POST.get("redirect_uri", "")
         logger.info(
             "oauth_token_request",
             grant_type=grant_type,
             client_id_prefix=client_id_prefix,
+            redirect_uri=redirect_uri,
         )
 
-        response = super().post(request, *args, **kwargs)
+        try:
+            response = super().post(request, *args, **kwargs)
+        except OAuthAccessToken.DoesNotExist:
+            # django-oauth-toolkit's token response path re-reads the access token it
+            # just issued; concurrent requests racing on the same authorization code
+            # can surface this as DoesNotExist. Map to the standard 400 invalid_grant.
+            logger.warning(
+                "oauth_token_access_token_missing",
+                grant_type=grant_type,
+                client_id_prefix=client_id_prefix,
+                redirect_uri=redirect_uri,
+            )
+            return JsonResponse(
+                {
+                    "error": "invalid_grant",
+                    "error_description": "Authorization code is invalid or has already been used",
+                },
+                status=400,
+            )
+        except OperationalError as e:
+            # PgBouncer kills queries that wait too long for a backend connection with
+            # `query_wait_timeout`. The resulting OperationalError otherwise bubbles up
+            # as an unhandled 500 — translate it into a retryable response.
+            if "query_wait_timeout" not in str(e):
+                raise
+            logger.warning(
+                "oauth_token_db_pool_pressure",
+                grant_type=grant_type,
+                client_id_prefix=client_id_prefix,
+                redirect_uri=redirect_uri,
+                error=str(e),
+            )
+            return _temporarily_unavailable_response()
 
         logger.info(
             "oauth_token_response",
             grant_type=grant_type,
             client_id_prefix=client_id_prefix,
+            redirect_uri=redirect_uri,
             status=response.status_code,
         )
 
@@ -701,14 +1200,46 @@ class OAuthTokenView(TokenView):
 
                 if access_token_value:
                     access_token = OAuthAccessToken.objects.get(token=access_token_value)
-                    response_data["scoped_teams"] = access_token.scoped_teams or []
-                    response_data["scoped_organizations"] = access_token.scoped_organizations or []
+                    scoped_teams = list(access_token.scoped_teams or [])
+                    scoped_organizations = list(access_token.scoped_organizations or [])
+
+                    # First-party clients (PostHog Code) read scoped_teams from /oauth/token
+                    # to populate the project selector. When the app is org-scoped only,
+                    # access_token.scoped_teams is empty in the DB by design — derive teams
+                    # from scoped_organizations so clients keep working without weakening
+                    # the stored token scope.
+                    # TODO(@charlesvien): remove this after a migration period in PostHog Code.
+                    if (
+                        not scoped_teams
+                        and scoped_organizations
+                        and access_token.application
+                        and access_token.application.is_first_party
+                    ):
+                        scoped_teams = list(
+                            Team.objects.filter(organization_id__in=scoped_organizations).values_list("pk", flat=True)
+                        )
+
+                    response_data["scoped_teams"] = scoped_teams
+                    response_data["scoped_organizations"] = scoped_organizations
 
                     if region_info := get_region_info():
                         response_data.update(region_info)
                     return JsonResponse(response_data)
             except (json.JSONDecodeError, OAuthAccessToken.DoesNotExist) as e:
                 logger.warning(f"Error adding scoped fields to token response: {e}")
+
+        # An OAuth2Error raised from save_bearer_token (e.g. the mint-time app-revoke check)
+        # escapes oauthlib's validate_token_request try/except and is serialized by DOT's
+        # backend handler instead, which ships oauthlib's empty header dict — so the JSON
+        # error body lands with Django's default text/html. Restore the RFC 6749 §5.2
+        # application/json header so clients (and DRF's test client) can parse the error.
+        if response.status_code != 200 and response.get("Content-Type", "").startswith("text/html"):
+            try:
+                json.loads(response.content)
+            except (json.JSONDecodeError, ValueError):
+                pass
+            else:
+                response["Content-Type"] = "application/json"
 
         return response
 
@@ -904,10 +1435,7 @@ class OAuthAuthorizationServerMetadataView(APIView):
         # Build base URL from request
         base_url = request.build_absolute_uri("/").rstrip("/")
 
-        # Get all available scopes
-        oidc_scopes = ["openid", "profile", "email"]
-        resource_scopes = list(get_scope_descriptions().keys())
-        all_scopes = oidc_scopes + resource_scopes
+        all_scopes = get_oauth_scopes_supported()
 
         metadata = {
             # Required by RFC 8414

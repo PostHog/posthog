@@ -2,6 +2,38 @@
 
 const fs = require('fs')
 
+// Tunable knobs for how aggressively we trim the reviewer list. Kept in one
+// place so adjusting noise levels doesn't require re-reading the logic. All
+// "lines" values are GitHub's `changes` (additions + deletions) for the files
+// an owner actually owns in this diff.
+const CONFIG = {
+    // Files whose changes are generated or mechanical. They never count toward
+    // ownership matching or footprint. A team gains nothing from reviewing a
+    // regenerated client or a lockfile bump.
+    excludedPatterns: [
+        'frontend/src/generated/**',
+        'products/*/frontend/generated/**',
+        'services/mcp/src/**/generated/**',
+        'pnpm-lock.yaml',
+        'Cargo.lock',
+        'uv.lock',
+        '**/*.lock',
+        '**/*.snap',
+        '**/*.ambr',
+    ],
+    // An owner is formally requested for review only if their footprint clears
+    // one of these bars; otherwise they are demoted to the explanation comment
+    // (still visible, can self-assign, but no review request / queue entry).
+    substantiveLines: 10,
+    substantiveFiles: 3,
+    // Hard ceiling on teams formally requested. If more clear the bar, the
+    // smallest-footprint teams are demoted to the comment so a sweeping change
+    // can never request a wall of teams.
+    maxTeamsRequested: 5,
+    // Marker so we update our own comment in place instead of stacking copies.
+    commentMarker: '<!-- auto-assign-reviewers -->',
+}
+
 function parseCodeowners(codeownersPath) {
     if (!fs.existsSync(codeownersPath)) {
         throw new Error(`No CODEOWNERS file found at "${codeownersPath}"`)
@@ -31,6 +63,90 @@ function parseCodeowners(codeownersPath) {
     return rules
 }
 
+// Minimal parser for the `owners:` list in products/<name>/product.yaml.
+// We don't depend on a YAML library because this script runs from a bare CI
+// checkout; the schema is simple and validated elsewhere by hogli.
+function parseOwnersFromProductYaml(content) {
+    const owners = []
+    let inOwners = false
+
+    for (const rawLine of content.split('\n')) {
+        const line = rawLine.replace(/\s+#.*$/, '').trimEnd()
+
+        // Skip blank lines and full-line comments; neither should terminate the
+        // owners block. Inline comments are already stripped above; the regex
+        // requires preceding whitespace, so we handle column-0 comments here.
+        if (!line.trim() || /^\s*#/.test(rawLine)) {
+            continue
+        }
+
+        if (/^owners\s*:\s*$/.test(line)) {
+            inOwners = true
+            continue
+        }
+
+        if (!inOwners) {
+            continue
+        }
+
+        const listMatch = line.match(/^\s+-\s+(.+?)$/)
+        if (listMatch) {
+            owners.push(listMatch[1].replace(/^["']|["']$/g, '').trim())
+            continue
+        }
+
+        // A new top-level key terminates the owners block.
+        if (/^\S/.test(rawLine)) {
+            inOwners = false
+        }
+    }
+
+    return owners
+}
+
+function loadProductYamlRules(productsDir = 'products') {
+    const rules = []
+
+    if (!fs.existsSync(productsDir)) {
+        return rules
+    }
+
+    const entries = fs.readdirSync(productsDir, { withFileTypes: true })
+
+    for (const entry of entries) {
+        if (!entry.isDirectory()) {
+            continue
+        }
+
+        const yamlPath = `${productsDir}/${entry.name}/product.yaml`
+        if (!fs.existsSync(yamlPath)) {
+            continue
+        }
+
+        const content = fs.readFileSync(yamlPath, 'utf8')
+        const slugs = parseOwnersFromProductYaml(content)
+
+        const owners = []
+        for (const slug of slugs) {
+            // Guard against slugs that already include an `@` prefix, otherwise
+            // we'd build `@PostHog/@PostHog/team-foo`, which GitHub silently
+            // refuses to resolve and reviewer assignment is dropped.
+            if (!slug || slug === 'team-CHANGEME' || slug.startsWith('@')) {
+                continue
+            }
+            owners.push(`@PostHog/${slug}`)
+        }
+
+        if (owners.length === 0) {
+            continue
+        }
+
+        rules.push({ pattern: `${productsDir}/${entry.name}/**`, owners })
+    }
+
+    return rules
+}
+
 function globToRegex(pattern) {
     let regex = pattern
         .replace(/[.+^${}()|[\]\\]/g, '\\$&')
@@ -38,8 +154,12 @@ function globToRegex(pattern) {
         .replace(/\*/g, '[^/]*')
         .replace(/__DOUBLESTAR__/g, '.*')
 
+    // A trailing-slash pattern is a directory: keep the slash so it matches only
+    // files inside the directory, not sibling paths sharing the name as a prefix
+    // (e.g. `models/ai/` must not match `models/ai_events/`). Mirrors GitHub's
+    // own CODEOWNERS semantics, where `dir/` is a directory boundary.
     if (pattern.endsWith('/')) {
-        regex = regex.slice(0, -1) + '.*'
+        regex = regex + '.*'
     }
 
     return new RegExp(`^${regex}$`)
@@ -48,6 +168,10 @@ function globToRegex(pattern) {
 function fileMatchesPattern(filePath, pattern) {
     const regex = globToRegex(pattern)
     return regex.test(filePath)
+}
+
+function isExcludedFile(filePath, excludedPatterns = CONFIG.excludedPatterns) {
+    return excludedPatterns.some((pattern) => fileMatchesPattern(filePath, pattern))
 }
 
 function getNextPageUrl(linkHeader) {
@@ -85,7 +209,12 @@ async function getChangedFiles() {
 
         const data = await response.json()
         for (const file of data.files || []) {
-            allFiles.push(file.filename)
+            allFiles.push({
+                filename: file.filename,
+                // Binary files and pure renames report null counts; treat as 0.
+                additions: file.additions || 0,
+                deletions: file.deletions || 0,
+            })
         }
 
         url = getNextPageUrl(response.headers.get('Link'))
@@ -94,75 +223,164 @@ async function getChangedFiles() {
     return allFiles
 }
 
-function parseOwners(owners) {
-    const teams = new Set()
-    const users = new Set()
-
-    for (const owner of owners) {
-        if (owner.startsWith('@PostHog/')) {
-            const teamName = owner.replace('@PostHog/', '')
-            teams.add(teamName)
-        } else if (owner.startsWith('@')) {
-            const username = owner.replace('@', '')
-            users.add(username)
-        }
+// Resolve a raw CODEOWNERS owner token to a kind we can act on, or null if it's
+// something we don't assign (e.g. a malformed entry).
+function classifyOwner(owner) {
+    if (owner.startsWith('@PostHog/')) {
+        return { type: 'team', name: owner.replace('@PostHog/', ''), owner }
     }
-
-    return {
-        teams: Array.from(teams),
-        users: Array.from(users),
+    if (owner.startsWith('@')) {
+        return { type: 'user', name: owner.replace('@', ''), owner }
     }
+    return null
 }
 
-async function getReviewersForChangedFiles() {
-    const codeownersPath = '.github/CODEOWNERS-soft'
-    const rules = parseCodeowners(codeownersPath)
-    const changedFiles = await getChangedFiles()
-
-    console.info(`Found ${changedFiles.length} changed files:`)
-    changedFiles.forEach((file) => console.info(`  ${file}`))
-    console.info()
-
-    const allTeams = new Set()
-    const allUsers = new Set()
-
-    console.info('Processing CODEOWNERS rules...')
+// Build a footprint per owner: which rule patterns matched, which (non-excluded)
+// files they own in this diff, and the total lines changed across those files.
+// Pure function; takes already-fetched files so it's trivially testable.
+function computeOwnerFootprints(rules, changedFiles, config = CONFIG) {
+    const relevantFiles = changedFiles.filter((file) => !isExcludedFile(file.filename, config.excludedPatterns))
+    const footprints = new Map()
 
     for (const rule of rules) {
-        const { pattern, owners } = rule
-        console.info(`Checking pattern: ${pattern}`)
+        const matched = relevantFiles.filter((file) => fileMatchesPattern(file.filename, rule.pattern))
+        if (matched.length === 0) {
+            continue
+        }
 
-        let patternMatches = false
+        for (const owner of rule.owners) {
+            const resolved = classifyOwner(owner)
+            if (!resolved) {
+                continue
+            }
 
-        for (const file of changedFiles) {
-            if (fileMatchesPattern(file, pattern)) {
-                console.info(`  ✓ File ${file} matches pattern ${pattern}`)
-                patternMatches = true
-                break
+            let footprint = footprints.get(owner)
+            if (!footprint) {
+                footprint = {
+                    owner,
+                    type: resolved.type,
+                    name: resolved.name,
+                    patterns: new Set(),
+                    files: new Map(), // filename -> changed lines, deduped across rules
+                }
+                footprints.set(owner, footprint)
+            }
+
+            footprint.patterns.add(rule.pattern)
+            for (const file of matched) {
+                footprint.files.set(file.filename, file.additions + file.deletions)
             }
         }
+    }
 
-        if (patternMatches) {
-            const { teams, users } = parseOwners(owners)
+    return Array.from(footprints.values()).map((footprint) => ({
+        owner: footprint.owner,
+        type: footprint.type,
+        name: footprint.name,
+        patterns: Array.from(footprint.patterns),
+        fileCount: footprint.files.size,
+        lines: Array.from(footprint.files.values()).reduce((sum, n) => sum + n, 0),
+    }))
+}
 
-            console.info(`  Adding owners: ${owners.join(', ')}`)
+function isSubstantive(footprint, config = CONFIG) {
+    return footprint.lines >= config.substantiveLines || footprint.fileCount >= config.substantiveFiles
+}
 
-            teams.forEach((team) => {
-                allTeams.add(team)
-                console.info(`    Team: ${team}`)
-            })
+// Split matched owners into those we formally request review from vs those we
+// only mention in the comment. Rules:
+//  - a single matched owner is always requested (never go from 1 owner to 0)
+//  - otherwise only owners with a substantive footprint are requested
+//  - at least one owner (the largest footprint) is always requested
+//  - teams are capped at maxTeamsRequested; the smallest overflow is demoted
+function classifyOwners(footprints, config = CONFIG) {
+    if (footprints.length === 0) {
+        return { requested: [], demoted: [] }
+    }
 
-            users.forEach((user) => {
-                allUsers.add(user)
-                console.info(`    User: ${user}`)
-            })
+    const byFootprintDesc = (a, b) => b.lines - a.lines || b.fileCount - a.fileCount
+
+    if (footprints.length === 1) {
+        return { requested: [...footprints], demoted: [] }
+    }
+
+    const requested = []
+    const demoted = []
+    for (const footprint of footprints) {
+        if (isSubstantive(footprint, config)) {
+            requested.push(footprint)
+        } else {
+            demoted.push({ ...footprint, reason: 'minor' })
         }
     }
 
-    return {
-        teams: Array.from(allTeams),
-        users: Array.from(allUsers),
+    // Guarantee at least one reviewer: promote the largest demoted owner.
+    if (requested.length === 0) {
+        demoted.sort(byFootprintDesc)
+        const { reason, ...promoted } = demoted.shift()
+        requested.push(promoted)
     }
+
+    // Cap teams: keep the largest, demote the rest. Users are explicit, rare,
+    // and intentional, so they're never capped.
+    const requestedTeams = requested.filter((f) => f.type === 'team').sort(byFootprintDesc)
+    if (requestedTeams.length > config.maxTeamsRequested) {
+        const overflow = requestedTeams.slice(config.maxTeamsRequested)
+        const overflowOwners = new Set(overflow.map((f) => f.owner))
+        for (let i = requested.length - 1; i >= 0; i--) {
+            if (overflowOwners.has(requested[i].owner)) {
+                demoted.push({ ...requested.splice(i, 1)[0], reason: 'capped' })
+            }
+        }
+    }
+
+    requested.sort(byFootprintDesc)
+    demoted.sort(byFootprintDesc)
+    return { requested, demoted }
+}
+
+function formatPatterns(patterns, max = 3) {
+    const shown = patterns.slice(0, max).map((p) => `\`${p}\``)
+    if (patterns.length > max) {
+        shown.push(`(+${patterns.length - max} more)`)
+    }
+    return shown.join(', ')
+}
+
+// One bullet per skipped owner: the owner (inline code so it doesn't fire an
+// @-mention) followed by the matched rule, the one locator worth showing since
+// it tells the owner which area pulled them in. Raw file/line counts are
+// omitted: without the actual file list (too long to include) a bare "10 files"
+// tells the reader nothing actionable.
+function formatSkippedOwner(footprint) {
+    return `- \`${footprint.owner}\` (${formatPatterns(footprint.patterns, 2)})`
+}
+
+// Produce the explanation comment body, or null if no owner was dropped. We
+// only post when we actually skipped someone GitHub's "Reviewers" sidebar would
+// otherwise have hidden, so the comment carries signal, not noise.
+function buildReviewerComment(requested, demoted, config = CONFIG) {
+    if (demoted.length === 0) {
+        return null
+    }
+
+    const allMinor = demoted.every((f) => f.reason === 'minor')
+    const reason = allMinor
+        ? 'they only have minor changes here'
+        : 'their changes are minor, or the reviewer list was getting long'
+
+    return [
+        config.commentMarker,
+        '### 👀 Auto-assigned reviewers',
+        '',
+        `These soft owners were skipped because ${reason}. Nothing blocks merge, so self-assign if you'd like a look:`,
+        '',
+        ...demoted.map(formatSkippedOwner),
+        '',
+        'Soft owners come from ' +
+            '[`CODEOWNERS-soft`](https://github.com/PostHog/posthog/blob/master/.github/CODEOWNERS-soft) ' +
+            "and each product's `product.yaml`. Generated files and lockfiles are ignored when deciding ownership.",
+    ].join('\n')
 }
 
 async function assignReviewers(teams, users) {
@@ -185,18 +403,56 @@ async function assignReviewers(teams, users) {
 
     console.info('Assigning reviewers with payload:', JSON.stringify(payload, null, 2))
 
-    const response = await fetch(
-        `https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/requested_reviewers`,
-        {
+    const post = (body) =>
+        fetch(`https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/requested_reviewers`, {
             method: 'POST',
             headers: {
                 Authorization: `token ${GITHUB_TOKEN}`,
                 Accept: 'application/vnd.github.v3+json',
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify(payload),
+            body: JSON.stringify(body),
+        })
+
+    const response = await post(payload)
+
+    // GitHub returns 422 for the whole batch if *any* requested team isn't a
+    // collaborator on the repo (teams get renamed, deleted, or never set up,
+    // CODEOWNERS-soft and product.yaml drift). Salvage by retrying users +
+    // each team independently so valid entries still land, and log the bad
+    // slugs so they're visible in the action log as cleanup nudges.
+    if (response.status === 422 && teams.length > 0) {
+        const errorText = await response.text()
+        console.warn(`⚠️  422 on bulk request, retrying individually:\n${errorText}`)
+
+        if (users.length > 0) {
+            const r = await post({ reviewers: users })
+            if (!r.ok) {
+                throw new Error(`GitHub API error assigning users: ${r.status} ${r.statusText}\n${await r.text()}`)
+            }
         }
-    )
+
+        const dropped = []
+        for (const team of teams) {
+            const r = await post({ team_reviewers: [team] })
+            if (r.status === 422) {
+                dropped.push(team)
+            } else if (!r.ok) {
+                throw new Error(
+                    `GitHub API error assigning team '${team}': ${r.status} ${r.statusText}\n${await r.text()}`
+                )
+            }
+        }
+
+        if (dropped.length > 0) {
+            console.warn(
+                `⚠️  Dropped ${dropped.length} stale team(s): ${dropped.join(', ')}. ` +
+                    `Fix product.yaml / CODEOWNERS-soft so these get assigned next time.`
+            )
+        }
+        console.info('✅ Reviewers assigned (with fallback)')
+        return
+    }
 
     if (!response.ok) {
         const errorText = await response.text()
@@ -206,9 +462,84 @@ async function assignReviewers(teams, users) {
     console.info('✅ Reviewers assigned successfully')
 }
 
+async function findExistingComment(marker) {
+    const { GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER } = process.env
+    let url = `https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments?per_page=100`
+
+    while (url) {
+        const response = await fetch(url, {
+            headers: {
+                Authorization: `token ${GITHUB_TOKEN}`,
+                Accept: 'application/vnd.github.v3+json',
+            },
+        })
+        if (!response.ok) {
+            throw new Error(`GitHub API error listing comments: ${response.status} ${response.statusText}`)
+        }
+
+        const comments = await response.json()
+        const existing = comments.find((comment) => comment.body && comment.body.includes(marker))
+        if (existing) {
+            return existing
+        }
+
+        url = getNextPageUrl(response.headers.get('Link'))
+    }
+
+    return null
+}
+
+// Best-effort: posts/updates the explanation comment. Never throws, since the
+// reviewer assignment is the critical path and must not fail because the app
+// token lacks `issues: write` or the comments API hiccups.
+async function upsertReviewerComment(body) {
+    const { GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER } = process.env
+
+    try {
+        const existing = await findExistingComment(CONFIG.commentMarker)
+        const url = existing
+            ? `https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/comments/${existing.id}`
+            : `https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments`
+
+        const method = existing ? 'PATCH' : 'POST'
+        const response = await fetch(url, {
+            method,
+            headers: {
+                Authorization: `token ${GITHUB_TOKEN}`,
+                Accept: 'application/vnd.github.v3+json',
+                'Content-Type': 'application/json',
+            },
+            // oxlint-disable-next-line no-invalid-fetch-options -- method is always PATCH/POST, never GET
+            body: JSON.stringify({ body }),
+        })
+
+        if (response.status === 403) {
+            console.warn(
+                '⚠️  Could not post the reviewer explanation comment (403). ' +
+                    'The assign-reviewers GitHub App needs `issues: write` permission.'
+            )
+            return
+        }
+        if (!response.ok) {
+            console.warn(`⚠️  Could not post reviewer comment: ${response.status} ${response.statusText}`)
+            return
+        }
+
+        console.info(existing ? '✅ Reviewer comment updated' : '✅ Reviewer comment posted')
+    } catch (error) {
+        console.warn(`⚠️  Skipping reviewer comment: ${error.message}`)
+    }
+}
+
 async function main() {
     const { BASE_SHA, HEAD_SHA, GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER } = process.env
-    const requiredEnvVars = { BASE_SHA, HEAD_SHA, GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER }
+    const requiredEnvVars = {
+        BASE_SHA,
+        HEAD_SHA,
+        GITHUB_TOKEN,
+        GITHUB_REPOSITORY,
+        PR_NUMBER,
+    }
     const missing = Object.entries(requiredEnvVars)
         .filter(([, value]) => !value)
         .map(([name]) => name)
@@ -219,18 +550,51 @@ async function main() {
     }
 
     try {
-        const { teams, users } = await getReviewersForChangedFiles()
+        const codeownersPath = '.github/CODEOWNERS-soft'
+        // products/<name>/product.yaml is the source of truth for product team
+        // ownership; we layer those rules on top of CODEOWNERS-soft so the file
+        // only needs to carry sub-folder overrides and secondary reviewers.
+        const rules = [...parseCodeowners(codeownersPath), ...loadProductYamlRules()]
+        const changedFiles = await getChangedFiles()
 
+        console.info(`Found ${changedFiles.length} changed files:`)
+        changedFiles.forEach((file) => console.info(`  ${file.filename} (+${file.additions} -${file.deletions})`))
         console.info()
-        console.info(`Teams to add: ${teams.join(', ') || 'none'}`)
-        console.info(`Users to add: ${users.join(', ') || 'none'}`)
+
+        const footprints = computeOwnerFootprints(rules, changedFiles)
+        const { requested, demoted } = classifyOwners(footprints)
+
+        const teams = requested.filter((f) => f.type === 'team').map((f) => f.name)
+        const users = requested.filter((f) => f.type === 'user').map((f) => f.name)
+
+        console.info(`Teams to request: ${teams.join(', ') || 'none'}`)
+        console.info(`Users to request: ${users.join(', ') || 'none'}`)
+        console.info(`Demoted to comment: ${demoted.map((f) => f.owner).join(', ') || 'none'}`)
         console.info()
 
         await assignReviewers(teams, users)
+
+        const commentBody = buildReviewerComment(requested, demoted)
+        if (commentBody) {
+            await upsertReviewerComment(commentBody)
+        }
     } catch (error) {
         console.error('Error:', error.message)
         process.exit(1)
     }
 }
 
-main()
+if (require.main === module) {
+    main()
+}
+
+module.exports = {
+    CONFIG,
+    isExcludedFile,
+    classifyOwner,
+    computeOwnerFootprints,
+    isSubstantive,
+    classifyOwners,
+    buildReviewerComment,
+    fileMatchesPattern,
+}

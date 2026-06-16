@@ -47,7 +47,7 @@ export const getActionsListUrl = (projectId: string, params?: ActionsListParams)
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -74,7 +74,7 @@ export const getActionsCreateUrl = (projectId: string, params?: ActionsCreatePar
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -87,7 +87,7 @@ export const getActionsCreateUrl = (projectId: string, params?: ActionsCreatePar
 
 export const actionsCreate = async (
     projectId: string,
-    actionApi: NonReadonly<ActionApi>,
+    actionApi?: NonReadonly<ActionApi>,
     params?: ActionsCreateParams,
     options?: RequestInit
 ): Promise<ActionApi> => {
@@ -104,7 +104,7 @@ export const getActionsRetrieveUrl = (projectId: string, id: number, params?: Ac
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -132,7 +132,7 @@ export const getActionsUpdateUrl = (projectId: string, id: number, params?: Acti
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -146,7 +146,7 @@ export const getActionsUpdateUrl = (projectId: string, id: number, params?: Acti
 export const actionsUpdate = async (
     projectId: string,
     id: number,
-    actionApi: NonReadonly<ActionApi>,
+    actionApi?: NonReadonly<ActionApi>,
     params?: ActionsUpdateParams,
     options?: RequestInit
 ): Promise<ActionApi> => {
@@ -163,7 +163,7 @@ export const getActionsPartialUpdateUrl = (projectId: string, id: number, params
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -177,7 +177,7 @@ export const getActionsPartialUpdateUrl = (projectId: string, id: number, params
 export const actionsPartialUpdate = async (
     projectId: string,
     id: number,
-    patchedActionApi: NonReadonly<PatchedActionApi>,
+    patchedActionApi?: NonReadonly<PatchedActionApi>,
     params?: ActionsPartialUpdateParams,
     options?: RequestInit
 ): Promise<ActionApi> => {
@@ -189,15 +189,12 @@ export const actionsPartialUpdate = async (
     })
 }
 
-/**
- * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
- */
 export const getActionsDestroyUrl = (projectId: string, id: number, params?: ActionsDestroyParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -208,6 +205,9 @@ export const getActionsDestroyUrl = (projectId: string, id: number, params?: Act
         : `/api/projects/${projectId}/actions/${id}/`
 }
 
+/**
+ * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
+ */
 export const actionsDestroy = async (
     projectId: string,
     id: number,
@@ -225,7 +225,7 @@ export const getActionsReferencesListUrl = (projectId: string, id: number, param
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -248,23 +248,12 @@ export const actionsReferencesList = async (
     })
 }
 
-/**
- * Bulk update tags on multiple objects.
-
-Accepts:
-- {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
-
-Actions:
-- "add": Add tags to existing tags on each object
-- "remove": Remove specific tags from each object
-- "set": Replace all tags on each object with the provided list
- */
 export const getActionsBulkUpdateTagsCreateUrl = (projectId: string, params?: ActionsBulkUpdateTagsCreateParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -275,6 +264,25 @@ export const getActionsBulkUpdateTagsCreateUrl = (projectId: string, params?: Ac
         : `/api/projects/${projectId}/actions/bulk_update_tags/`
 }
 
+/**
+ * Bulk update tags on multiple objects.
+ *
+ * PAT access: this action has no ``required_scopes=`` on the decorator —
+ * inheriting viewsets must add ``"bulk_update_tags"`` to their
+ * ``scope_object_write_actions`` list to accept personal API keys.
+ * Without that opt-in, ``APIScopePermission`` rejects PAT requests with
+ * "This action does not support personal API key access". Done per-viewset
+ * so granting ``<scope>:write`` for one resource doesn't leak access to
+ * sibling resources that share this mixin.
+ *
+ * Accepts:
+ * - {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
+ *
+ * Actions:
+ * - "add": Add tags to existing tags on each object
+ * - "remove": Remove specific tags from each object
+ * - "set": Replace all tags on each object with the provided list
+ */
 export const actionsBulkUpdateTagsCreate = async (
     projectId: string,
     bulkUpdateTagsRequestApi: BulkUpdateTagsRequestApi,
