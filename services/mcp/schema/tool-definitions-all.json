@@ -5261,6 +5261,36 @@
         "requires_ai_consent": true,
         "feature_flag": "mcp-analytics"
     },
+    "mcp-feedback-submit": {
+        "description": "Submit qualitative feedback about the current MCP workflow, tool result, or product experience. Use this when the available tools worked but the experience was confusing, incomplete, or could be improved.",
+        "category": "MCP analytics",
+        "feature": "mcp_analytics",
+        "summary": "Submit MCP feedback",
+        "title": "Submit MCP feedback",
+        "required_scopes": ["mcp_analytics:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "mcp-analytics"
+    },
+    "mcp-missing-capability-report": {
+        "description": "Report that the current MCP tools are insufficient for the user's goal. Use this when a missing tool, missing workflow support, or missing explanation blocks progress.",
+        "category": "MCP analytics",
+        "feature": "mcp_analytics",
+        "summary": "Report missing capability",
+        "title": "Report missing capability",
+        "required_scopes": ["mcp_analytics:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "mcp-analytics"
+    },
     "notebook-edit": {
         "description": "Edit part of a notebook's content. Use this for any change inside a notebook — text, headings, attributes, whole paragraphs. Call `notebooks-retrieve` first to see what to target.\n\nMatching is by content. The tool finds `old_value` anywhere in the notebook and swaps it for `new_value` in place.\n\nOn success, returns the updated notebook with the new content and bumped version. On a 409 or 410 error, the notebook has changed since you loaded it — call `notebooks-retrieve` and re-apply your edit against the latest content.",
         "category": "Notebooks",
