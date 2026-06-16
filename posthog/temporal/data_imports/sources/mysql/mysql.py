@@ -805,7 +805,30 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                 return None
 
             columns = [row[0] for row in rows]
-            length_sum = " + ".join(f"LENGTH(COALESCE({_IDENTIFIER_QUOTER.quote(col)}, ''))" for col in columns)
+            # Column names come from the DB catalog and can legitimately contain
+            # characters the identifier allowlist rejects (e.g. `:` or spaces in
+            # `Ach:CompanyId`). Row-size estimation is best-effort, so skip any
+            # column we can't safely quote rather than abandoning the whole
+            # estimate. The allowlist stays the hard boundary for user-supplied
+            # identifiers elsewhere.
+            quoted_columns = []
+            skipped_columns = []
+            for col in columns:
+                try:
+                    quoted_columns.append(_IDENTIFIER_QUOTER.quote(col))
+                except InvalidIdentifierError:
+                    skipped_columns.append(col)
+
+            if skipped_columns:
+                logger.debug(
+                    f"fetch_average_row_size: skipping {len(skipped_columns)} unquotable column(s): {skipped_columns}."
+                )
+
+            if not quoted_columns:
+                logger.debug("fetch_average_row_size: No quotable columns found.")
+                return None
+
+            length_sum = " + ".join(f"LENGTH(COALESCE({quoted}, ''))" for quoted in quoted_columns)
             # length_sum and inner_query are built from sanitized identifiers;
             # no user-supplied values are interpolated into the SQL itself.
             size_query = "SELECT AVG(" + length_sum + ") as avg_row_size FROM (" + inner_query + " LIMIT 1000) as t"
@@ -884,8 +907,13 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
             explain_lines = [str(dict(zip(column_names, row))) for row in rows]
             logger.debug(f"EXPLAIN result: {' | '.join(explain_lines) if explain_lines else '(empty)'}")
         except Exception as e:
+            # EXPLAIN is best-effort diagnostics; its failure never affects the
+            # sync (the streaming query runs right after regardless). Capturing
+            # here just floods error tracking with benign, non-actionable noise —
+            # e.g. MySQL 1345 when EXPLAINing a view whose underlying tables the
+            # connected user lacks SHOW VIEW on. Debug-log only, like
+            # `find_index_for_cursor`.
             logger.debug(f"EXPLAIN raised an exception: {e}", exc_info=e)
-            capture_exception(e)
 
     # ------------------------------------------------------------------
     # Pipeline build — the dlt `SourceResponse` for a single table

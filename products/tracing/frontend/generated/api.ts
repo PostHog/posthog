@@ -18,6 +18,7 @@ import type {
     _TracingCountRequestApi,
     _TracingCountResponseApi,
     _TracingQueryRequestApi,
+    _TracingTimeseriesRequestApi,
     _TracingTraceRequestApi,
     _TracingTreeRequestApi,
 } from './api.schemas'
@@ -109,14 +110,14 @@ export const getTracingSpansDurationHistogramCreateUrl = (projectId: string) => 
 
 export const tracingSpansDurationHistogramCreate = async (
     projectId: string,
-    _tracingQueryRequestApi: _TracingQueryRequestApi,
+    _tracingTimeseriesRequestApi: _TracingTimeseriesRequestApi,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getTracingSpansDurationHistogramCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(_tracingQueryRequestApi),
+        body: JSON.stringify(_tracingTimeseriesRequestApi),
     })
 }
 
@@ -187,14 +188,14 @@ export const getTracingSpansSparklineCreateUrl = (projectId: string) => {
 
 export const tracingSpansSparklineCreate = async (
     projectId: string,
-    _tracingQueryRequestApi: _TracingQueryRequestApi,
+    _tracingTimeseriesRequestApi: _TracingTimeseriesRequestApi,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getTracingSpansSparklineCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(_tracingQueryRequestApi),
+        body: JSON.stringify(_tracingTimeseriesRequestApi),
     })
 }
 

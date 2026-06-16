@@ -54,6 +54,8 @@ from posthog.temporal.session_replay.delete_recordings.metrics import (
 
 from products.batch_exports.backend.temporal.metrics import BatchExportsMetricsInterceptor
 from products.experiments.backend.temporal.recalculation_metrics import (
+    EXPERIMENT_METRICS_RECALCULATION_ATTEMPT_HISTOGRAM_BUCKETS,
+    EXPERIMENT_METRICS_RECALCULATION_ATTEMPT_HISTOGRAM_METRICS,
     EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_BUCKETS,
     EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_METRICS,
     ExperimentsRecalculationMetricsInterceptor,
@@ -274,6 +276,12 @@ async def create_worker(
             zip(
                 EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_METRICS,
                 itertools.repeat(EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_BUCKETS),
+            )
+        )
+        | dict(
+            zip(
+                EXPERIMENT_METRICS_RECALCULATION_ATTEMPT_HISTOGRAM_METRICS,
+                itertools.repeat(EXPERIMENT_METRICS_RECALCULATION_ATTEMPT_HISTOGRAM_BUCKETS),
             )
         )
         | {"batch_exports_activity_attempt": [1.0, 5.0, 10.0, 100.0]}
