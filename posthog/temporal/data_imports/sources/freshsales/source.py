@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -39,6 +40,7 @@ class FreshsalesSource(ResumableSource[FreshsalesSourceConfig, FreshsalesResumeC
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.FRESHSALES,
+            category=DataWarehouseSourceCategory.CRM,
             label="Freshsales",
             caption="""Enter your Freshsales domain and API key to pull your Freshsales (Freshworks CRM) data into the PostHog Data warehouse.
 

@@ -36,4 +36,4 @@ def _discover_migrations():
             LATEST_VERSIONS[kind] = new_version
 
     _migrations_discovered = True
-    logger.info("migrations_discovered", latest_versions={str(k): v for k, v in LATEST_VERSIONS.items()})
+    logger.debug("migrations_discovered", latest_versions={str(k): v for k, v in LATEST_VERSIONS.items()})

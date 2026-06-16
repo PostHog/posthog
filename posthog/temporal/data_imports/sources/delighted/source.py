@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -40,6 +41,7 @@ class DelightedSource(ResumableSource[DelightedSourceConfig, DelightedResumeConf
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.DELIGHTED,
+            category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             label="Delighted",
             caption="""Enter your Delighted API key to pull your survey data into the PostHog Data warehouse.
 
