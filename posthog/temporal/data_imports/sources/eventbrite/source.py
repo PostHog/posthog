@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -38,6 +39,7 @@ class EventbriteSource(ResumableSource[EventbriteSourceConfig, EventbriteResumeC
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.EVENTBRITE,
+            category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Eventbrite",
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your Eventbrite private token to automatically pull your Eventbrite data into the PostHog Data warehouse.
