@@ -14,6 +14,7 @@ import {
     LemonTextArea,
 } from '@posthog/lemon-ui'
 
+import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -41,10 +42,15 @@ export interface SourceFormProps {
     showPrefix?: boolean
     showDescription?: boolean
     showAccessMethodSelector?: boolean
+    showCdcConfig?: boolean
     jobInputs?: Record<string, any>
     initialAccessMethod?: 'warehouse' | 'direct'
     setSourceConfigValue?: (key: FieldName, value: any) => void
     sourceWizardLogicProps?: SourceWizardLogicProps
+    /** Override the form value setter — for hosts other than the wizard (e.g. the connect page). */
+    setSourceConnectionDetailsValue?: (key: FieldName, value: any) => void
+    /** Where the OAuth authorize flow returns to — for hosts other than the wizard (e.g. the connect page). */
+    oauthRedirectUrl?: string
 }
 
 export function SourceAccessMethodSelector({
@@ -100,7 +106,8 @@ export const sourceFieldToElement = (
     sourceConfig: SourceConfig,
     lastValue?: any,
     isUpdateMode?: boolean,
-    setSourceConnectionDetailsValue?: (key: FieldName, value: any) => void
+    setSourceConnectionDetailsValue?: (key: FieldName, value: any) => void,
+    oauthRedirectUrl?: string
 ): JSX.Element => {
     // It doesn't make sense for this to show on an update to an existing connection since we likely just want to change
     // a field or two. There is also some divergence in creates vs. updates that make this a bit more complex to handle.
@@ -164,7 +171,8 @@ export const sourceFieldToElement = (
                                             sourceConfig,
                                             lastValue?.[field.name],
                                             isUpdateMode,
-                                            setSourceConnectionDetailsValue
+                                            setSourceConnectionDetailsValue,
+                                            oauthRedirectUrl
                                         )
                                     )}
                                 </Group>
@@ -188,7 +196,8 @@ export const sourceFieldToElement = (
                         sourceConfig,
                         lastValue?.[optionField.name],
                         isUpdateMode,
-                        setSourceConnectionDetailsValue
+                        setSourceConnectionDetailsValue,
+                        oauthRedirectUrl
                     )
                 )
 
@@ -236,17 +245,30 @@ export const sourceFieldToElement = (
         return (
             <div key={field.name} id={`source-field-${field.name}`}>
                 <LemonField name={field.name} label={field.label}>
-                    {({ value, onChange }) => (
-                        <SourceIntegrationChoice
-                            key={field.name}
-                            sourceConfig={sourceConfig}
-                            value={value}
-                            onChange={onChange}
-                            integration={field.kind}
-                            autoSelectFirstIntegration={!isUpdateMode}
-                            schema={field.requiredScopes ? { requiredScopes: field.requiredScopes } : undefined}
-                        />
-                    )}
+                    {({ value, onChange }) =>
+                        // SourceIntegrationChoice is wizard-bound (mounts sourceWizardLogic and redirects the
+                        // OAuth flow back to the wizard) — hosts like the connect page override the redirect.
+                        oauthRedirectUrl ? (
+                            <IntegrationChoice
+                                key={field.name}
+                                value={value}
+                                onChange={onChange}
+                                integration={field.kind}
+                                redirectUrl={oauthRedirectUrl}
+                                schema={field.requiredScopes ? { requiredScopes: field.requiredScopes } : undefined}
+                            />
+                        ) : (
+                            <SourceIntegrationChoice
+                                key={field.name}
+                                sourceConfig={sourceConfig}
+                                value={value}
+                                onChange={onChange}
+                                integration={field.kind}
+                                autoSelectFirstIntegration={!isUpdateMode}
+                                schema={field.requiredScopes ? { requiredScopes: field.requiredScopes } : undefined}
+                            />
+                        )
+                    }
                 </LemonField>
             </div>
         )
@@ -275,7 +297,8 @@ export const sourceFieldToElement = (
             sourceConfig,
             lastValue,
             isUpdateMode,
-            setSourceConnectionDetailsValue
+            setSourceConnectionDetailsValue,
+            oauthRedirectUrl
         )
     }
 
@@ -645,16 +668,21 @@ export function SourceFormComponent({
     showPrefix = true,
     showDescription,
     showAccessMethodSelector = true,
+    showCdcConfig = true,
     jobInputs,
     initialAccessMethod,
     setSourceConfigValue,
     sourceWizardLogicProps,
+    setSourceConnectionDetailsValue: setSourceConnectionDetailsValueOverride,
+    oauthRedirectUrl,
 }: SourceFormProps): JSX.Element {
     const { availableSources, availableSourcesLoading } = useValues(availableSourcesLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const setSourceConnectionDetailsValue = sourceWizardLogicProps
-        ? sourceWizardLogic(sourceWizardLogicProps).actions.setSourceConnectionDetailsValue
-        : undefined
+    const setSourceConnectionDetailsValue =
+        setSourceConnectionDetailsValueOverride ??
+        (sourceWizardLogicProps
+            ? sourceWizardLogic(sourceWizardLogicProps).actions.setSourceConnectionDetailsValue
+            : undefined)
 
     // Default showDescription to same as showPrefix for backward compatibility
     const shouldShowDescription = showDescription ?? showPrefix
@@ -775,12 +803,14 @@ export function SourceFormComponent({
                                 sourceConfig,
                                 jobInputs?.[field.name],
                                 isUpdateMode,
-                                setSourceConnectionDetailsValue
+                                setSourceConnectionDetailsValue,
+                                oauthRedirectUrl
                             )
                         )
                 )}
             </Group>
             {!isUpdateMode &&
+                showCdcConfig &&
                 sourceConfig.name === 'Postgres' &&
                 featureFlags[FEATURE_FLAGS.DWH_POSTGRES_CDC] &&
                 selectedAccessMethod === 'warehouse' && <CDCConfigSection />}

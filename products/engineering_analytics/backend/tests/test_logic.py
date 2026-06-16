@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
 from freezegun import freeze_time
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest import mock
@@ -115,7 +116,7 @@ class TestPRLifecycleMapping(BaseTest):
 
     def test_assembles_ordered_events_and_marks_partial(self) -> None:
         header = _header("merged", merged_at=_dt("2026-01-12T15:00:00"))
-        runs = [("CI", "completed", "success", _dt("2026-01-11T09:00:00"), _dt("2026-01-11T12:00:00"))]
+        runs = [(2001, "CI", "completed", "success", _dt("2026-01-11T09:00:00"), _dt("2026-01-11T12:00:00"))]
         with mock.patch(_RUN_QUERY, side_effect=[_resp([header]), _resp(runs)]):
             lifecycle = build_pr_lifecycle(team=self.team, pr_number=10, repo="PostHog/posthog")
 
@@ -131,6 +132,7 @@ class TestPRLifecycleMapping(BaseTest):
             PRLifecycleEventKind.CI_FINISHED,
             PRLifecycleEventKind.MERGED,
         ]
+        assert [e.run_id for e in lifecycle.events] == [None, 2001, 2001, None]
 
     def test_returns_none_when_not_found(self) -> None:
         with mock.patch(_RUN_QUERY, return_value=_resp([])):
@@ -244,14 +246,22 @@ class TestEndpointMapping(BaseTest):
 
     def test_workflow_health_maps_and_nulls_empty_window(self) -> None:
         rows = [
-            ("CI", 10, 0.9, 120.0, 600.0, _dt("2026-01-20T00:00:00")),
+            ("PostHog", "posthog", "CI", 10, 0.9, 120.0, 600.0, _dt("2026-01-20T00:00:00")),
             # No completed runs: success_rate is NULL and quantileIf returns NaN — both map to None.
-            ("Deploy", 2, None, float("nan"), float("nan"), None),
+            ("PostHog", "posthog", "Deploy", 2, None, float("nan"), float("nan"), None),
         ]
-        with mock.patch(_RUN_QUERY, return_value=_resp(rows)):
+        # Must be inside the -30d window, which is relative to now.
+        daily_rows = [("PostHog", "posthog", "CI", datetime.now(tz=UTC).date() - timedelta(days=1), 10, 8, 7)]
+        with mock.patch(_RUN_QUERY, side_effect=[_resp(rows), _resp(daily_rows)]):
             items = build_workflow_health(team=self.team, date_from="-30d", date_to=None)
 
         assert items[0].workflow_name == "CI" and items[0].success_rate == 0.9
+        assert items[0].repo.owner == "PostHog" and items[0].repo.name == "posthog"
+        # The daily series spans the whole window, zero-filled except the day with runs.
+        assert len(items[0].daily) >= 30
+        seeded_day = next(entry for entry in items[0].daily if entry.run_count > 0)
+        assert (seeded_day.completed, seeded_day.successes) == (8, 7)
+        assert all(entry.run_count == 0 for entry in items[1].daily)
         assert items[0].p50_seconds == 120.0 and items[0].p95_seconds == 600.0
         assert items[1].success_rate is None
         assert items[1].p50_seconds is None and items[1].p95_seconds is None
@@ -313,6 +323,14 @@ class TestPRLifecycleWarehouse(_WarehouseMixin, BaseTest):
             PRLifecycleEventKind.CI_FINISHED,
             PRLifecycleEventKind.MERGED,
         ]
+        assert [e.run_id for e in lifecycle.events] == [None, 2001, 2001, None]
+
+
+class TestWorkflowHealthWindowCap(BaseTest):
+    @parameterized.expand(["2000-01-01", "-500d"])
+    def test_rejects_windows_beyond_a_year(self, date_from: str) -> None:
+        with pytest.raises(ValueError, match="the maximum is 366"):
+            build_workflow_health(team=self.team, date_from=date_from)
 
 
 class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
@@ -333,6 +351,8 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
                 _pr_row(12, "carol", "open", 1, _ago(30), head_sha="sha12"),
                 # open bot -> not stuck
                 _pr_row(13, "dependabot[bot]", "open", 0, _ago(30), head_sha="sha13"),
+                # open allowlisted bot (no [bot] suffix) -> is_bot, not stuck
+                _pr_row(16, "renovate", "open", 0, _ago(30), head_sha="sha16"),
                 # merged within the default 30d window -> in the list, not open
                 _pr_row(14, "alice", "closed", 0, _ago(40), merged_at=_ago(5), head_sha="sha14"),
                 # merged long ago -> outside the window, excluded from the list
@@ -351,9 +371,9 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
     def test_ci_cards_counts(self) -> None:
         self._seed()
         cards = api.get_ci_cards(team=self.team)
-        assert cards.open_prs == 4  # 10, 11, 12, 13
+        assert cards.open_prs == 5  # 10, 11, 12, 13, 16
         assert cards.repos == 1  # all PostHog/posthog
-        assert cards.stuck == 1  # only 11 (10 recent, 12 draft, 13 bot)
+        assert cards.stuck == 1  # only 11 (10 recent, 12 draft, 13 and 16 bots)
         assert cards.failing_ci == 1  # only 10 has a failing latest run
 
     def test_pull_request_list_window_and_rollup(self) -> None:
@@ -361,10 +381,11 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
         result = api.list_pull_requests(team=self.team)
         assert result.truncated is False
         by_number = {item.number: item for item in result.items}
-        assert set(by_number) == {10, 11, 12, 13, 14}  # 15 merged before the window
+        assert set(by_number) == {10, 11, 12, 13, 14, 16}  # 15 merged before the window
         assert by_number[10].ci.failing == 1
         assert by_number[11].ci.passing == 1
-        assert by_number[13].author.is_bot is True
+        assert by_number[13].author.is_bot is True  # '[bot]' suffix branch
+        assert by_number[16].author.is_bot is True  # KNOWN_BOT_HANDLES allowlist branch
 
     def test_workflow_health_aggregates(self) -> None:
         self._seed()

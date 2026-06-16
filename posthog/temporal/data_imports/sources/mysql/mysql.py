@@ -8,7 +8,7 @@ thin PostHog-layer wrapper that just holds an instance and validates
 credentials.
 
 Module-level free helpers (`_build_query`, `_sanitize_identifier`,
-`_safe_convert_date`, `_safe_convert_datetime`, `_is_bad_plan_timeout`)
+`_safe_convert_date`, `_safe_convert_datetime`, `_is_bad_plan_error`)
 are pure functions used by `MySQLImplementation` and exercised directly
 by unit tests. They take no MySQL-driver state and are fine as
 module-scope primitives.
@@ -79,6 +79,15 @@ STATEMENT_TIMEOUT_SECONDS = 600  # 10 mins
 # the filesort preparation exceeds a middlebox / server-side query timeout
 # before any rows stream back.
 _LOST_CONNECTION_DURING_QUERY_CODE = 2013
+
+# pymysql error code for "Out of sort memory, consider increasing server sort
+# buffer size" — the same bad plan (full scan + filesort over the incremental
+# field) seen from the other side: the filesort completes its planning but the
+# server's `sort_buffer_size` is too small to hold the sort, so MySQL aborts
+# before streaming. Forcing the incremental-field index lets MySQL read rows in
+# index order and skip the filesort entirely, so the same FORCE INDEX fallback
+# resolves it.
+_OUT_OF_SORT_MEMORY_CODE = 1038
 
 
 def _safe_convert_date(obj: Any) -> datetime.date | None:
@@ -196,14 +205,44 @@ def _build_query(
     return result.sql, params
 
 
-def _is_bad_plan_timeout(e: pymysql.err.OperationalError) -> bool:
-    """Return True if the error suggests we hit a bad-plan-induced query timeout.
+def _is_bad_plan_error(e: pymysql.err.OperationalError) -> bool:
+    """Return True if the error is a symptom of MySQL filesorting the incremental
+    `ORDER BY` instead of using an index — recoverable via the FORCE INDEX fallback.
 
-    Narrowly matches `OperationalError(2013, ...)`. Other `OperationalError`s
-    (access denied, table missing, etc.) should propagate untouched.
+    Matches two codes, both signalling the optimizer picked a full scan + filesort
+    over the incremental field:
+
+    - `2013` (lost connection during query): the filesort preparation outran a
+      middlebox / server-side query timeout before any rows streamed back.
+    - `1038` (out of sort memory): the filesort itself overran the server's
+      `sort_buffer_size`.
+
+    Forcing the incremental-field index makes MySQL read rows in index order and
+    skip the filesort, resolving both. Other `OperationalError`s (access denied,
+    table missing, etc.) should propagate untouched.
     """
     code = e.args[0] if e.args else None
-    return code == _LOST_CONNECTION_DURING_QUERY_CODE
+    return code in (_LOST_CONNECTION_DURING_QUERY_CODE, _OUT_OF_SORT_MEMORY_CODE)
+
+
+def _release_streaming_cursor(cursor: SSCursor) -> None:
+    """Detach an unbuffered cursor from its connection without draining it.
+
+    PyMySQL's `SSCursor.close()` (and its `__del__`) finishes the unbuffered
+    query by reading every outstanding row packet from the server via
+    `_finish_unbuffered_query`. When we abandon a stream early — a cancelled
+    Temporal activity injects `GeneratorExit`, or the FORCE INDEX fallback
+    restarts the query — that drain runs against a connection that is already
+    going away and raises `OperationalError(2013, 'Lost connection to MySQL
+    server during query')` from inside the teardown path, masking the real
+    reason iteration stopped. Clearing the connection reference is exactly what
+    PyMySQL does once a query is fully consumed, so the cursor's later
+    `close`/`__del__` becomes a no-op and the owning `with self.connect(...)`
+    block closes the socket cleanly.
+    """
+    # PyMySQL clears this same attribute once a query is fully consumed; the
+    # stub types it non-optional, so we mirror that runtime behaviour here.
+    cursor.connection = None  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
 
 class MySQLColumn(Column):
@@ -786,7 +825,8 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                         )
                 except Exception as e:
                     logger.warning(f"Failed to set session timeouts on MySQL sync connection: {e}")
-                with streaming_connection.cursor(SSCursor) as ss_cursor:
+                ss_cursor = streaming_connection.cursor(SSCursor)
+                try:
                     query, args = _build_query(
                         schema,
                         table_name,
@@ -819,6 +859,12 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                             break
 
                         yield table_from_iterator((dict(zip(column_names, row)) for row in batch), arrow_schema)
+                finally:
+                    # Tear the streaming cursor down without draining the rest of
+                    # the unbuffered result set — see `_release_streaming_cursor`.
+                    # Closing it normally here would reissue the lost-connection
+                    # error over a cancellation or the FORCE INDEX restart.
+                    _release_streaming_cursor(ss_cursor)
 
         def get_rows() -> Iterator[Any]:
             # Track whether any batch reached the pipeline. If one did,
@@ -837,22 +883,22 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                     yield chunk
                 return
             except pymysql.err.OperationalError as e:
-                if not _is_bad_plan_timeout(e):
+                if not _is_bad_plan_error(e):
                     raise
                 if yielded_any:
                     logger.warning(
-                        f"Streaming query died with bad-plan timeout (error {e.args[0] if e.args else '?'}) "
+                        f"Streaming query died with a bad query plan (error {e.args[0] if e.args else '?'}) "
                         f"after already yielding rows — skipping FORCE INDEX fallback to avoid duplicates."
                     )
                     raise
                 logger.warning(
-                    f"Streaming query died with bad-plan timeout (error {e.args[0] if e.args else '?'}). "
+                    f"Streaming query died with a bad query plan (error {e.args[0] if e.args else '?'}). "
                     f"Attempting FORCE INDEX fallback."
                 )
                 if not should_use_incremental_field or not incremental_field:
                     # Without an incremental field there's no cursor to force an index on.
                     logger.warning(
-                        "Bad-plan timeout hit, but sync has no incremental field — cannot apply FORCE INDEX fallback."
+                        "Bad query plan hit, but sync has no incremental field — cannot apply FORCE INDEX fallback."
                     )
                     raise
 
@@ -864,13 +910,13 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
 
                 if not force_index_name:
                     logger.warning(
-                        f"Bad-plan timeout hit and no usable index on "
+                        f"Bad query plan hit and no usable index on "
                         f"{schema}.{table_name}.{incremental_field} — cannot apply FORCE INDEX fallback. "
                         f"Customer should add an index on the incremental field."
                     )
                     raise
 
-                logger.warning(f"Retrying streaming query with FORCE INDEX ({force_index_name}) after bad-plan timeout")
+                logger.warning(f"Retrying streaming query with FORCE INDEX ({force_index_name}) after bad query plan")
                 yield from _stream_with_optional_force_index(force_index_name)
 
         name = NamingConvention.normalize_identifier(table_name)

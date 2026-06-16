@@ -2478,6 +2478,8 @@ export interface FunnelsQueryApi {
     aggregation_group_type_index?: number | null
     /** Breakdown of the events and actions */
     breakdownFilter?: BreakdownFilterApi | null
+    /** Compare to date range */
+    compareFilter?: CompareFilterApi | null
     /** Colors used in the insight's visualization */
     dataColorTheme?: number | null
     /** Date range for the query */
@@ -6817,7 +6819,7 @@ export interface ErrorTrackingQueryApi {
     orderBy: ErrorTrackingOrderByApi
     /** Sort direction. */
     orderDirection?: OrderDirection2Api | null
-    /** Pending fingerprint issue state updates UNIONed into the fingerprint issue state subquery (V3 only). The backend caps the list at 50 entries; extras are dropped silently. */
+    /** Pending fingerprint issue state updates UNIONed into the fingerprint issue state subquery. The backend caps the list at 50 entries; extras are dropped silently. */
     pendingFingerprintIssueStateUpdates?: ErrorTrackingPendingFingerprintIssueStateUpdateApi[] | null
     personId?: string | null
     response?: ErrorTrackingQueryResponseApi | null
@@ -6826,9 +6828,7 @@ export interface ErrorTrackingQueryApi {
     /** Filter by issue status. */
     status?: ErrorTrackingIssueStatusApi | string | null
     tags?: QueryLogTagsApi | null
-    /** Use V2 query path (ClickHouse postgres connector join instead of separate Postgres queries) */
     useQueryV2?: boolean | null
-    /** Use V3 query path (denormalized ClickHouse table, no Postgres joins) */
     useQueryV3?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
@@ -7192,6 +7192,8 @@ export interface AccountsQueryApi {
     /** Match accounts whose account owner is any of these user ids (OR semantics). */
     accountOwner?: number[] | null
     allRolesUnassigned?: boolean | null
+    /** Match accounts where any of these user ids is the CSM or the account executive (OR over both roles). Drives the "My accounts" shortcut (the current user's id) and the shareable "Assigned to" filter — the ids are explicit so a shared URL resolves identically for every viewer. */
+    assignedToUserIds?: number[] | null
     /** Match accounts whose CSM is any of these user ids (OR semantics). */
     csm?: number[] | null
     /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */

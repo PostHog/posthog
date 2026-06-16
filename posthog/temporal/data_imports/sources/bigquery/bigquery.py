@@ -84,14 +84,34 @@ def build_destination_table_prefix(schema_id: str | None) -> str:
     return f"__posthog_import_{schema_id.replace('-', '_') if schema_id else ''}"
 
 
+def _normalize_identifier(value: str) -> str:
+    """Trim whitespace from a user-supplied BigQuery identifier.
+
+    Project and dataset IDs are pasted into the source form by hand, so a stray
+    leading or trailing space slips in easily. BigQuery then rejects every
+    request with an opaque `BadRequest: Invalid project ID ' ...'` /
+    `Invalid dataset ID ' ...'` that no amount of retrying can fix. Trimming
+    here keeps the sync working instead of failing on a copy-paste artifact.
+    """
+    return value.strip()
+
+
+def _resolve_project_id(config: BigQuerySourceConfig) -> str:
+    return _normalize_identifier(config.key_file.project_id)
+
+
+def _resolve_dataset_id(config: BigQuerySourceConfig) -> str:
+    return _normalize_identifier(config.dataset_id)
+
+
 def _resolve_region(config: BigQuerySourceConfig) -> str | None:
     if (
         config.use_custom_region
         and config.use_custom_region.enabled
         and config.use_custom_region.region is not None
-        and config.use_custom_region.region != ""
+        and _normalize_identifier(config.use_custom_region.region) != ""
     ):
-        return config.use_custom_region.region
+        return _normalize_identifier(config.use_custom_region.region)
     return None
 
 
@@ -100,9 +120,9 @@ def _resolve_dataset_project_id(config: BigQuerySourceConfig) -> str | None:
         config.dataset_project
         and config.dataset_project.enabled
         and config.dataset_project.dataset_project_id is not None
-        and config.dataset_project.dataset_project_id != ""
+        and _normalize_identifier(config.dataset_project.dataset_project_id) != ""
     ):
-        return config.dataset_project.dataset_project_id
+        return _normalize_identifier(config.dataset_project.dataset_project_id)
     return None
 
 
@@ -199,6 +219,24 @@ def _resolve_auth_from_key_file(config: BigQuerySourceConfig) -> BigQueryAuthInf
     if not project_id or not private_key or not private_key_id or not client_email or not token_uri:
         raise ValueError("Missing required fields in BigQuery key_file configuration")
 
+def _resolve_query_project(config: BigQuerySourceConfig) -> str:
+    """Project used to run INFORMATION_SCHEMA discovery queries.
+
+    Prefers the (optional) dataset project over the service account project,
+    mirroring the routing the rest of the source uses.
+    """
+    dataset_project_id = _resolve_dataset_project_id(config)
+    return dataset_project_id if dataset_project_id is not None else _resolve_project_id(config)
+
+
+@contextlib.contextmanager
+def bigquery_client(
+    project_id: str,
+    location: str | None,
+    credentials: google_auth_credentials.Credentials,
+) -> typing.Iterator[bigquery.Client]:
+    """Manage a BigQuery client."""
+    project_id = _normalize_identifier(project_id)
     credentials = service_account.Credentials.from_service_account_info(
         {
             "private_key": private_key,
@@ -248,6 +286,9 @@ def bigquery_client(
 @contextlib.contextmanager
 def bigquery_storage_read_client(credentials: google_auth_credentials.Credentials):
     """Manage a BigQuery Storage client."""
+    # The credentials are now passed as an argument to bigquery_client,
+    # so the service_account.Credentials.from_service_account_info block is no longer needed here.
+    # The project_id normalization was already handled in Conflict 1.
     # Build the credential-bearing gRPC channel ourselves, wrap it in the tracked
     # interceptors, then hand it to the transport. Passing a `channel` makes the
     # transport ignore credentials, so they must already be baked into the channel
@@ -341,6 +382,11 @@ def validate_bigquery_credentials(
     dataset_project_id: str | None,
     location: str | None,
 ) -> tuple[bool, str | None]:
+    # Apply normalizations from incoming branch for relevant identifiers
+    dataset_id = _normalize_identifier(dataset_id)
+    dataset_project_id = _normalize_identifier(dataset_project_id) if dataset_project_id else dataset_project_id
+    location = _normalize_identifier(location) if location else location
+
     resolved_dataset_project_id = dataset_project_id or project_id
     with bigquery_client(project_id, location, credentials) as bq:
         try:
@@ -530,7 +576,16 @@ def _get_query(
         else:
             last_value = db_incremental_field_last_value
 
-        if isinstance(last_value, datetime) or isinstance(last_value, date):
+        if isinstance(last_value, datetime):
+            # BigQuery DATETIME columns are timezone-naive and reject a literal that carries
+            # a UTC offset (e.g. `1970-01-01T00:00:00+00:00`), failing with "Could not cast
+            # literal ... to type DATETIME". The shared initial cursor value is tz-aware UTC,
+            # so drop the offset for DATETIME fields. TIMESTAMP columns are timezone-aware and
+            # keep it.
+            if incremental_field_type == IncrementalFieldType.DateTime and last_value.tzinfo is not None:
+                last_value = last_value.replace(tzinfo=None)
+            last_value = f"'{last_value.isoformat()}'"
+        elif isinstance(last_value, date):
             last_value = f"'{last_value.isoformat()}'"
 
         operator = incremental_type_to_operator(incremental_field_type)
@@ -586,10 +641,8 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
         schema_list: dict[str, list[tuple[str, str, bool]]] = collections.defaultdict(list)
 
         query = conn.query(
-            f"SELECT table_name, column_name, data_type, is_nullable FROM `{config.dataset_id}.INFORMATION_SCHEMA.COLUMNS` ORDER BY table_name ASC",
-            project=config.dataset_project.dataset_project_id
-            if config.dataset_project and config.dataset_project.enabled
-            else conn.project,
+            f"SELECT table_name, column_name, data_type, is_nullable FROM `{_resolve_dataset_id(config)}.INFORMATION_SCHEMA.COLUMNS` ORDER BY table_name ASC",
+            project=_resolve_query_project(config),
         )
         try:
             rows = query.result()
@@ -625,11 +678,8 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
         if not tables:
             return {}
 
-        project = (
-            config.dataset_project.dataset_project_id
-            if config.dataset_project and config.dataset_project.enabled
-            else conn.project
-        )
+        project = _resolve_query_project(config)
+        dataset_id = _resolve_dataset_id(config)
 
         # Join against INFORMATION_SCHEMA.COLUMNS so a PK constraint that
         # references a column already dropped (stale metadata between
@@ -643,10 +693,10 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
         # half the rows get dropped.
         query = f"""
         SELECT tc.table_name, kcu.column_name
-        FROM `{config.dataset_id}`.INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
-        JOIN `{config.dataset_id}`.INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu
+        FROM `{dataset_id}`.INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
+        JOIN `{dataset_id}`.INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu
         ON tc.constraint_name = kcu.constraint_name
-        JOIN `{config.dataset_id}`.INFORMATION_SCHEMA.COLUMNS c
+        JOIN `{dataset_id}`.INFORMATION_SCHEMA.COLUMNS c
         ON kcu.table_name = c.table_name
         AND (
             kcu.column_name = c.column_name
@@ -693,15 +743,11 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
         try:
             result: dict[str, set[str]] = {table: set() for table in tables}
 
-            project = (
-                config.dataset_project.dataset_project_id
-                if config.dataset_project and config.dataset_project.enabled
-                else conn.project
-            )
+            project = _resolve_query_project(config)
 
             query = f"""
             SELECT table_name, column_name
-            FROM `{config.dataset_id}`.INFORMATION_SCHEMA.COLUMNS
+            FROM `{_resolve_dataset_id(config)}`.INFORMATION_SCHEMA.COLUMNS
             WHERE is_partitioning_column = 'YES'
                OR clustering_ordinal_position = 1
             """
@@ -728,15 +774,16 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
         auth = resolve_bigquery_auth(config, inputs.team_id)
         region = _resolve_region(config)
         dataset_project_id = _resolve_dataset_project_id(config)
-        destination_table_dataset_id = config.dataset_id
+        project_id = _resolve_project_id(config)
+        destination_table_dataset_id = _resolve_dataset_id(config)
 
         if (
             config.temporary_dataset
             and config.temporary_dataset.enabled
             and config.temporary_dataset.temporary_dataset_id is not None
-            and config.temporary_dataset.temporary_dataset_id != ""
+            and _normalize_identifier(config.temporary_dataset.temporary_dataset_id) != ""
         ):
-            destination_table_dataset_id = config.temporary_dataset.temporary_dataset_id
+            destination_table_dataset_id = _normalize_identifier(config.temporary_dataset.temporary_dataset_id)
 
         # Including the schema ID in table prefix ensures we only delete tables
         # from this schema, and that if we fail we will clean up any previous
@@ -810,7 +857,7 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
 
         project_id_for_dataset = dataset_project_id or project_id
         name = NamingConvention.normalize_identifier(table_name)
-        fully_qualified_table_name = f"{project_id_for_dataset}.{config.dataset_id}.{table_name}"
+        fully_qualified_table_name = f"{project_id_for_dataset}.{_resolve_dataset_id(config)}.{table_name}"
 
         with bigquery_client(project_id=project_id, location=location, credentials=credentials) as bq_client:
             bq_table = bq_client.get_table(fully_qualified_table_name)

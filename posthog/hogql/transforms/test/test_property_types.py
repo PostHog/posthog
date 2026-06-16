@@ -18,10 +18,11 @@ from django.test import override_settings
 
 from parameterized import parameterized
 
+from posthog.schema import HogQLQueryModifiers
+
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
-from posthog.hogql.modifiers import HogQLQueryModifiers
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.property_planner import (
@@ -372,7 +373,7 @@ class TestPropertyTypes(BaseTest):
         )
         assert printed == self.snapshot
         assert (
-            "SELECT ifNull(equals(toBool(transform(toString(events__group_0.properties___group_boolean), hogvar, hogvar, NULL)), 1), 0), ifNull(equals(toBool(transform(toString(events__group_0.properties___group_boolean), hogvar, hogvar, NULL)), 0), 0), isNull(toBool(transform(toString(events__group_0.properties___group_boolean), hogvar, hogvar, NULL)))"
+            "SELECT ifNull(equals(accurateCastOrNull(transform(toString(events__group_0.properties___group_boolean), hogvar, hogvar, NULL), hogvar), 1), 0), ifNull(equals(accurateCastOrNull(transform(toString(events__group_0.properties___group_boolean), hogvar, hogvar, NULL), hogvar), 0), 0), isNull(accurateCastOrNull(transform(toString(events__group_0.properties___group_boolean), hogvar, hogvar, NULL), hogvar))"
             in re.sub(r"%\(hogql_val_\d+\)s", "hogvar", printed)
         )
 

@@ -68,14 +68,14 @@ import { LogEntry, parseLogEvent } from 'products/tasks/frontend/lib/parse-logs'
 
 import { handsFreeLogic } from './handsFreeLogic'
 import { summariseAssistantThread } from './handsFreeUtils'
-import { MODE_DEFINITIONS, ToolRegistration } from './max-constants'
+import { EnhancedToolCall, MODE_DEFINITIONS, ToolRegistration } from './max-constants'
 import { MaxBillingContext, MaxBillingContextSubscriptionLevel, maxBillingContextLogic } from './maxBillingContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { SIDE_PANEL_PANEL_ID, maxLogic } from './maxLogic'
 import type { maxThreadLogicType } from './maxThreadLogicType'
 import { MaxUIContext } from './maxTypes'
 import { MAX_SLASH_COMMANDS, SlashCommand } from './slash-commands'
-import { EnhancedToolCall, getToolCallDescriptionAndWidget } from './Thread'
+import { getToolCallDescriptionAndWidgetDef } from './toolCallDisplay'
 import {
     getAgentModeForScene,
     isAssistantMessage,
@@ -88,6 +88,12 @@ import { getRandomThinkingMessage } from './utils/thinkingMessages'
 
 /** Key for persisting pending AI prompts across page reloads (e.g., OAuth redirects) */
 export const PENDING_AI_PROMPT_KEY = 'posthog_ai_pending_prompt'
+
+// On a dashboard, the first message can fire before the dashboard has loaded, when
+// dashboardLogic.maxContext still returns []. askMax waits (bounded) for the load so the
+// dashboard context is included. Bounded so a stuck/failed load never blocks sending.
+export const MAX_DASHBOARD_CONTEXT_WAIT_MS = 8000
+const DASHBOARD_CONTEXT_POLL_INTERVAL_MS = 100
 
 export type MessageStatus = 'loading' | 'completed' | 'error'
 
@@ -418,7 +424,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     const newMap = new Map(value)
                     let newValue: string
                     if (isSubagentUpdateEvent(update)) {
-                        const [description, _] = getToolCallDescriptionAndWidget(
+                        const [description, _] = getToolCallDescriptionAndWidgetDef(
                             update.content as unknown as EnhancedToolCall,
                             toolMap
                         )
@@ -997,10 +1003,46 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 actions.clearQueuedMessages()
             }
         },
-        askMax: async ({ prompt, addToThread = true, uiContext }) => {
+        askMax: async ({ prompt, addToThread = true, uiContext }, breakpoint) => {
             // Only process if this thread is the currently active one
             if (values.conversationId !== values.activeThreadKey) {
                 return
+            }
+            // Wait for the open dashboard to finish loading before collecting context (see the
+            // constants above for why). The scene is re-read every tick, so the gate releases the
+            // moment the dashboard's metadata lands — and immediately if the user navigates away
+            // mid-wait (no longer on a dashboard, or onto a different one that's already loaded).
+            const isDashboardSceneLoading = (): boolean => {
+                if (sceneLogic.values.activeSceneId !== Scene.Dashboard) {
+                    return false
+                }
+                const activeSceneLogic = sceneLogic.values.activeSceneLogic
+                if (!activeSceneLogic || !('maxContext' in activeSceneLogic.selectors)) {
+                    return false
+                }
+                return !(activeSceneLogic.values as { dashboard?: unknown }).dashboard
+            }
+            // Measure real elapsed time, not tick count: breakpoint() only guarantees a *minimum*
+            // delay, so a busy event loop would make a tick counter under-report the wait — letting
+            // it run past the cap and skewing the telemetry below. performance.now() is monotonic.
+            const dashboardWaitStart = performance.now()
+            while (
+                isDashboardSceneLoading() &&
+                performance.now() - dashboardWaitStart < MAX_DASHBOARD_CONTEXT_WAIT_MS
+            ) {
+                await breakpoint(DASHBOARD_CONTEXT_POLL_INTERVAL_MS)
+            }
+            if (isDashboardSceneLoading()) {
+                // We hit the wait cap while the dashboard was still loading, so the message ships
+                // without dashboard context (the original "Max can't see this dashboard" symptom).
+                // Capture it so we can tell whether the cap is ever the binding constraint in prod.
+                const activeLoadedScene = sceneLogic.values.activeLoadedScene
+                const sceneProps = activeLoadedScene?.paramsToProps?.(activeLoadedScene?.sceneParams) || {}
+                posthog.capture('max dashboard context wait timed out', {
+                    waited_ms: Math.round(performance.now() - dashboardWaitStart),
+                    dashboard_id: (sceneProps as { id?: number | string }).id,
+                    conversation_id: values.conversation?.id || values.conversationId,
+                })
             }
             const contextualTools = Object.fromEntries(values.tools.map((tool) => [tool.identifier, tool.context]))
             // Always send voice_mode as an explicit boolean when handsFreeLogic is mounted,

@@ -322,6 +322,103 @@ export const funnelResultTrends = {
 }
 
 // 1. Add step "Pageview"
+// 2. Select graph type "Trends"
+// 3. Toggle "Compare to previous"
+// Note: the runner tags rows with `compare_label` but does not set `compare: true` —
+// indexedSteps normalizes that so LineGraph dims the previous-period series.
+export const funnelResultTrendsCompare = {
+    result: [
+        {
+            count: 31,
+            data: [74.12, 68.67, 71.05, 72.06, 69.33, 70.83, 72.37],
+            days: ['2023-02-01', '2023-02-02', '2023-02-03', '2023-02-04', '2023-02-05', '2023-02-06', '2023-02-07'],
+            labels: ['1-Feb-2023', '2-Feb-2023', '3-Feb-2023', '4-Feb-2023', '5-Feb-2023', '6-Feb-2023', '7-Feb-2023'],
+            compare_label: 'current',
+        },
+        {
+            count: 18,
+            data: [55.2, 60.1, 58.9, 61.0, 56.4, 59.8, 57.3],
+            days: ['2023-01-25', '2023-01-26', '2023-01-27', '2023-01-28', '2023-01-29', '2023-01-30', '2023-01-31'],
+            labels: [
+                '25-Jan-2023',
+                '26-Jan-2023',
+                '27-Jan-2023',
+                '28-Jan-2023',
+                '29-Jan-2023',
+                '30-Jan-2023',
+                '31-Jan-2023',
+            ],
+            compare_label: 'previous',
+        },
+    ],
+    timezone: 'UTC',
+    last_refresh: '2023-03-03T18:55:57.840129Z',
+    is_cached: false,
+}
+
+// 1. Add step "Pageview"
+// 2. Select graph type "Trends"
+// 3. Break down by country
+// 4. Toggle "Compare to previous"
+// Note: the runner tags rows with `compare_label` but does not set `compare: true` —
+// indexedSteps normalizes that so LineGraph dims the previous-period series.
+export const funnelResultTrendsCompareWithBreakdown = {
+    result: [
+        {
+            count: 31,
+            data: [74.12, 68.67, 71.05, 72.06, 69.33, 70.83, 72.37],
+            days: ['2023-02-01', '2023-02-02', '2023-02-03', '2023-02-04', '2023-02-05', '2023-02-06', '2023-02-07'],
+            labels: ['1-Feb-2023', '2-Feb-2023', '3-Feb-2023', '4-Feb-2023', '5-Feb-2023', '6-Feb-2023', '7-Feb-2023'],
+            breakdown_value: 'us',
+            compare_label: 'current',
+        },
+        {
+            count: 24,
+            data: [62.5, 64.1, 60.0, 65.2, 63.4, 61.9, 66.1],
+            days: ['2023-02-01', '2023-02-02', '2023-02-03', '2023-02-04', '2023-02-05', '2023-02-06', '2023-02-07'],
+            labels: ['1-Feb-2023', '2-Feb-2023', '3-Feb-2023', '4-Feb-2023', '5-Feb-2023', '6-Feb-2023', '7-Feb-2023'],
+            breakdown_value: 'uk',
+            compare_label: 'current',
+        },
+        {
+            count: 18,
+            data: [55.2, 60.1, 58.9, 61.0, 56.4, 59.8, 57.3],
+            days: ['2023-01-25', '2023-01-26', '2023-01-27', '2023-01-28', '2023-01-29', '2023-01-30', '2023-01-31'],
+            labels: [
+                '25-Jan-2023',
+                '26-Jan-2023',
+                '27-Jan-2023',
+                '28-Jan-2023',
+                '29-Jan-2023',
+                '30-Jan-2023',
+                '31-Jan-2023',
+            ],
+            breakdown_value: 'us',
+            compare_label: 'previous',
+        },
+        {
+            count: 15,
+            data: [48.0, 51.3, 50.2, 52.7, 49.8, 53.1, 50.6],
+            days: ['2023-01-25', '2023-01-26', '2023-01-27', '2023-01-28', '2023-01-29', '2023-01-30', '2023-01-31'],
+            labels: [
+                '25-Jan-2023',
+                '26-Jan-2023',
+                '27-Jan-2023',
+                '28-Jan-2023',
+                '29-Jan-2023',
+                '30-Jan-2023',
+                '31-Jan-2023',
+            ],
+            breakdown_value: 'uk',
+            compare_label: 'previous',
+        },
+    ],
+    timezone: 'UTC',
+    last_refresh: '2023-03-03T18:55:57.840129Z',
+    is_cached: false,
+}
+
+// 1. Add step "Pageview"
 // 2. Add "Pageview" as exclusion step
 export const funnelInvalidExclusionError = {
     type: 'validation_error',

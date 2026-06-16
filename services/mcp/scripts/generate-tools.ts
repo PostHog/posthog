@@ -377,12 +377,22 @@ function escapeForDescribe(desc: string): string {
  * that return {results: [...]} with no top-level id) — the URL is built from the
  * request params instead of the response body.
  */
-function parseEnrichUrl(enrichUrl: string): { prefix: string; field: string; source: 'result' | 'params' } {
-    const match = enrichUrl.match(/^(.*?)\{(?:(params)\.)?(\w+)\}$/)
+function parseEnrichUrl(enrichUrl: string): {
+    prefix: string
+    field: string
+    suffix: string
+    source: 'result' | 'params'
+} {
+    const match = enrichUrl.match(/^(.*?)\{(?:(params)\.)?(\w+)\}(.*)$/)
     if (!match) {
         throw new Error(`Invalid enrich_url format: ${enrichUrl}`)
     }
-    return { prefix: match[1]!, field: match[3]!, source: match[2] === 'params' ? 'params' : 'result' }
+    return {
+        prefix: match[1]!,
+        field: match[3]!,
+        suffix: match[4] ?? '',
+        source: match[2] === 'params' ? 'params' : 'result',
+    }
 }
 
 /** Convert operationId (snake_case) to PascalCase for Orval schema names */
@@ -810,7 +820,7 @@ function buildEnrichment(config: ToolConfig, category: CategoryConfig, resultVar
     const baseUrl = config.url_prefix ?? category.url_prefix
 
     if (config.list && config.enrich_url) {
-        const { prefix, field, source } = parseEnrichUrl(config.enrich_url)
+        const { prefix, field, suffix, source } = parseEnrichUrl(config.enrich_url)
         // For list endpoints, 'params.x' is not meaningful (items come from the response
         // array, not request params), so force 'result' source here.
         if (source === 'params') {
@@ -821,7 +831,7 @@ function buildEnrichment(config: ToolConfig, category: CategoryConfig, resultVar
         return [
             `        return await withPostHogUrl(context, {`,
             `            ...${resultVar},`,
-            `            results: await Promise.all((${resultVar}.results ?? []).map((item) => withPostHogUrl(context, item, \`${baseUrl}/${prefix}\${item.${field}}\`))),`,
+            `            results: await Promise.all((${resultVar}.results ?? []).map((item) => withPostHogUrl(context, item, \`${baseUrl}/${prefix}\${item.${field}}${suffix}\`))),`,
             `        }, '${baseUrl}')`,
             ``,
         ].join('\n')
@@ -832,10 +842,10 @@ function buildEnrichment(config: ToolConfig, category: CategoryConfig, resultVar
     }
 
     if (config.enrich_url) {
-        const { prefix, field, source } = parseEnrichUrl(config.enrich_url)
+        const { prefix, field, suffix, source } = parseEnrichUrl(config.enrich_url)
         const sourceExpr = source === 'params' ? `params.${field}` : `${resultVar}.${field}`
 
-        return `        return await withPostHogUrl(context, ${resultVar}, \`${baseUrl}/${prefix}\${${sourceExpr}}\`)\n`
+        return `        return await withPostHogUrl(context, ${resultVar}, \`${baseUrl}/${prefix}\${${sourceExpr}}${suffix}\`)\n`
     }
 
     return `        return ${resultVar}\n`
@@ -1598,6 +1608,11 @@ function generateDefinitionsJson(
             const baseDescription = resolveDescription(toolConfig, yamlDir, opDescription)
             const baseTitle = toolConfig.title || resolved.operation.summary || name
             const baseSummary = toolConfig.title || opDescription.split('.')[0] || name
+            // Per-tool feature_flag wins; otherwise inherit the category-level
+            // gate (lets one line gate a whole not-yet-GA product).
+            const featureFlag = toolConfig.feature_flag ?? category.feature_flag
+            const featureFlagBehavior = toolConfig.feature_flag_behavior ?? category.feature_flag_behavior
+            const featureFlagVariant = toolConfig.feature_flag_variant ?? category.feature_flag_variant
 
             if (toolConfig.confirmed_action) {
                 // Two-tool typed-confirm paradigm: emit `<name>-prepare` and
@@ -1622,13 +1637,9 @@ function generateDefinitionsJson(
                         readOnlyHint: true,
                     },
                     ...(toolConfig.requires_ai_consent ? { requires_ai_consent: true } : {}),
-                    ...(toolConfig.feature_flag ? { feature_flag: toolConfig.feature_flag } : {}),
-                    ...(toolConfig.feature_flag_behavior
-                        ? { feature_flag_behavior: toolConfig.feature_flag_behavior }
-                        : {}),
-                    ...(toolConfig.feature_flag_variant
-                        ? { feature_flag_variant: toolConfig.feature_flag_variant }
-                        : {}),
+                    ...(featureFlag ? { feature_flag: featureFlag } : {}),
+                    ...(featureFlagBehavior ? { feature_flag_behavior: featureFlagBehavior } : {}),
+                    ...(featureFlagVariant ? { feature_flag_variant: featureFlagVariant } : {}),
                     ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
                 }
                 definitions[`${name}-execute`] = {
@@ -1649,13 +1660,9 @@ function generateDefinitionsJson(
                         readOnlyHint: toolConfig.annotations.readOnly,
                     },
                     ...(toolConfig.requires_ai_consent ? { requires_ai_consent: true } : {}),
-                    ...(toolConfig.feature_flag ? { feature_flag: toolConfig.feature_flag } : {}),
-                    ...(toolConfig.feature_flag_behavior
-                        ? { feature_flag_behavior: toolConfig.feature_flag_behavior }
-                        : {}),
-                    ...(toolConfig.feature_flag_variant
-                        ? { feature_flag_variant: toolConfig.feature_flag_variant }
-                        : {}),
+                    ...(featureFlag ? { feature_flag: featureFlag } : {}),
+                    ...(featureFlagBehavior ? { feature_flag_behavior: featureFlagBehavior } : {}),
+                    ...(featureFlagVariant ? { feature_flag_variant: featureFlagVariant } : {}),
                     ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
                 }
             } else {
@@ -1673,13 +1680,9 @@ function generateDefinitionsJson(
                         readOnlyHint: toolConfig.annotations.readOnly,
                     },
                     ...(toolConfig.requires_ai_consent ? { requires_ai_consent: true } : {}),
-                    ...(toolConfig.feature_flag ? { feature_flag: toolConfig.feature_flag } : {}),
-                    ...(toolConfig.feature_flag_behavior
-                        ? { feature_flag_behavior: toolConfig.feature_flag_behavior }
-                        : {}),
-                    ...(toolConfig.feature_flag_variant
-                        ? { feature_flag_variant: toolConfig.feature_flag_variant }
-                        : {}),
+                    ...(featureFlag ? { feature_flag: featureFlag } : {}),
+                    ...(featureFlagBehavior ? { feature_flag_behavior: featureFlagBehavior } : {}),
+                    ...(featureFlagVariant ? { feature_flag_variant: featureFlagVariant } : {}),
                     ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
                 }
             }

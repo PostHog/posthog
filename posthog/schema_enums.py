@@ -410,6 +410,7 @@ class AssistantTool(StrEnum):
     MARKETING_SUGGEST_UTM_MAPPINGS = "marketing_suggest_utm_mappings"
     SUMMARIZE_REPLAY_VISION_SUMMARIES = "summarize_replay_vision_summaries"
     DRAFT_REPLAY_VISION_SCANNER_PROMPT = "draft_replay_vision_scanner_prompt"
+    SEARCH_REPLAY_VISION_OBSERVATIONS = "search_replay_vision_observations"
     UPSERT_ACCOUNT = "upsert_account"
     UPSERT_ACCOUNT_NOTEBOOK = "upsert_account_notebook"
     OPEN_ACCOUNT = "open_account"
@@ -797,6 +798,24 @@ class DataWarehouseSavedQueryOrigin(StrEnum):
     DATA_WAREHOUSE = "data_warehouse"
     ENDPOINT = "endpoint"
     MANAGED_VIEWSET = "managed_viewset"
+
+
+class DataWarehouseSourceCategory(StrEnum):
+    DATABASES = "Databases"
+    FILE_STORAGE = "File storage"
+    ADVERTISING = "Advertising"
+    MARKETING___EMAIL = "Marketing & email"
+    CRM = "CRM"
+    SALES = "Sales"
+    CUSTOMER_SUPPORT = "Customer support"
+    PAYMENTS___BILLING = "Payments & billing"
+    FINANCE___ACCOUNTING = "Finance & accounting"
+    ANALYTICS = "Analytics"
+    ENGINEERING___MONITORING = "Engineering & monitoring"
+    PRODUCTIVITY = "Productivity"
+    HR___RECRUITING = "HR & recruiting"
+    COMMUNICATION = "Communication"
+    E_COMMERCE = "E-commerce"
 
 
 class DatabaseSchemaManagedViewTableKind(StrEnum):
@@ -1342,6 +1361,12 @@ class ExternalDataSourceType(StrEnum):
     SAP_SUCCESS_FACTORS = "SapSuccessFactors"
     ORACLE_EBS = "OracleEbs"
     ORACLE_FUSION = "OracleFusion"
+    AMAZON_SNS = "AmazonSNS"
+    AMAZON_EVENT_BRIDGE = "AmazonEventBridge"
+    AMAZON_SQS = "AmazonSQS"
+    AMAZON_KINESIS = "AmazonKinesis"
+    AMAZON_CLOUD_WATCH = "AmazonCloudWatch"
+    OPEN_AI_ADS = "OpenAIAds"
     CUSTOM = "Custom"
 
 
@@ -2007,6 +2032,7 @@ class NodeKind(StrEnum):
     TRACE_SPANS_QUERY = "TraceSpansQuery"
     TRACE_SPANS_AGGREGATION_QUERY = "TraceSpansAggregationQuery"
     TRACE_SPANS_TREE_QUERY = "TraceSpansTreeQuery"
+    TRACE_SPANS_ATTRIBUTE_BREAKDOWN_QUERY = "TraceSpansAttributeBreakdownQuery"
     SESSION_BATCH_EVENTS_QUERY = "SessionBatchEventsQuery"
     DATA_TABLE_NODE = "DataTableNode"
     DATA_VISUALIZATION_NODE = "DataVisualizationNode"
@@ -2214,6 +2240,7 @@ class ProductKey(StrEnum):
     DATA_WAREHOUSE_SAVED_QUERIES = "data_warehouse_saved_queries"
     EARLY_ACCESS_FEATURES = "early_access_features"
     ENDPOINTS = "endpoints"
+    ENGINEERING_ANALYTICS = "engineering_analytics"
     ERROR_TRACKING = "error_tracking"
     EXPERIMENTS = "experiments"
     FEATURE_FLAGS = "feature_flags"
@@ -2244,6 +2271,7 @@ class ProductKey(StrEnum):
     SESSION_REPLAY = "session_replay"
     REPLAY_VISION = "replay_vision"
     SITE_APPS = "site_apps"
+    SKILLS = "skills"
     SUBSCRIPTIONS = "subscriptions"
     STREAMLIT_APPS = "streamlit_apps"
     SURVEYS = "surveys"
@@ -2790,6 +2818,16 @@ class TikTokAdsTableKeywords(StrEnum):
 class TraceOrderColumn(StrEnum):
     TIMESTAMP = "timestamp"
     DURATION = "duration"
+
+
+class TraceSpanBreakdownOrderBy(StrEnum):
+    COUNT = "count"
+    ERROR_COUNT = "error_count"
+
+
+class TraceSpanBreakdownType(StrEnum):
+    SPAN_ATTRIBUTE = "span_attribute"
+    SPAN_RESOURCE_ATTRIBUTE = "span_resource_attribute"
 
 
 class DetailedResultsAggregationType(StrEnum):

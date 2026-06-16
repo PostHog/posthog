@@ -35,10 +35,12 @@ PRODUCTS_APPS = [
     "products.early_access_features.backend.apps.EarlyAccessFeaturesConfig",
     "products.tasks.backend.apps.TasksConfig",
     "products.links.backend.apps.LinksConfig",
+    "products.field_notes.backend.apps.FieldNotesConfig",
     "products.revenue_analytics.backend.apps.RevenueAnalyticsConfig",
     "products.user_interviews.backend.apps.UserInterviewsConfig",
     "products.ai_observability.backend.apps.AIObservabilityConfig",
     "products.llm_analytics.backend.apps.LlmAnalyticsConfig",
+    "products.skills.backend.apps.SkillsConfig",
     "products.endpoints.backend.apps.EndpointsConfig",
     "products.marketing_analytics.backend.apps.MarketingAnalyticsConfig",
     "products.error_tracking.backend.apps.ErrorTrackingConfig",
@@ -75,6 +77,7 @@ PRODUCTS_APPS = [
     "products.access_control.backend.apps.AccessControlConfig",
     "products.warehouse_sources_queue.backend.apps.WarehouseSourcesQueueConfig",
     "products.business_knowledge.backend.apps.BusinessKnowledgeConfig",
+    "products.agent_platform.backend.apps.AgentPlatformConfig",
     "products.web_analytics.backend.apps.WebAnalyticsConfig",
     "products.warehouse_sources.backend.apps.WarehouseSourcesConfig",
     "products.data_tools.backend.apps.DataToolsConfig",
@@ -148,6 +151,9 @@ MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
     "posthog.middleware.CSPMiddleware",
     "django.middleware.common.CommonMiddleware",
+    # Below CorsMiddleware so redirects get CORS headers; above auth/CSRF since a
+    # redirect needs neither — clients re-send credentials to the rewritten path.
+    "posthog.middleware.EnvironmentsRedirectMiddleware",
     "posthog.middleware.CsrfOrKeyViewMiddleware",
     "posthog.middleware.QueryTimeCountingMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
@@ -517,7 +523,12 @@ SPECTACULAR_SETTINGS = {
             "workflow_variable",
         ],
         "AssigneeTypeEnum": ["user", "role"],
+        "AgentSessionStateEnum": ["queued", "running", "completed", "closed", "cancelled", "failed"],
+        "ScoutOriginEnum": ["canonical", "custom"],
         "FileFormatEnum": ["Parquet", "JSONLines"],
+        "MetricAttributeScopeEnum": ["resource", "attribute", "auto"],
+        "MetricQueryIntervalEnum": ["second", "minute", "minute_5", "minute_15", "hour", "hour_6", "day", "week"],
+        "BatchExportIntervalEnum": ["hour", "day", "week", "every 5 minutes", "every 15 minutes"],
         "ErrorTrackingIssueOrderByEnum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
         "ErrorTrackingIssueStatusEnum": ["archived", "active", "resolved", "pending_release", "suppressed", "all"],
         # Dashboard widget polymorphic OpenAPI: each per-type serializer uses a singleton
@@ -698,6 +709,16 @@ KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS = int(os.getenv("KAFKA_PRODUCE_ACK_TIMEOUT_SEC
 # if `true` we highly increase the rate limit on /query endpoint and limit the number of concurrent queries
 API_QUERIES_ENABLED = get_from_env("API_QUERIES_ENABLED", False, type_cast=str_to_bool)
 
+####
+# /api/environments deprecation
+
+# Requests to /api/environments/* get a method-preserving 307 redirect to the equivalent
+# /api/projects/* path, gated by the `api-environments-redirect` feature flag — see
+# posthog.middleware.EnvironmentsRedirectMiddleware.
+# ISO date announced to integrators via the `Sunset` response header (RFC 8594) on
+# /api/environments/* responses. Empty string omits the header.
+API_ENVIRONMENTS_SUNSET_DATE = get_from_env("API_ENVIRONMENTS_SUNSET_DATE", "2026-07-31")
+
 # Query service SLO sampling rate. Each QueryRunner.run() call emits two events
 # (slo_operation_started + slo_operation_completed); unsampled, that's many millions of
 # events per day. The chosen rate is stamped on each event as `properties.sample_rate`
@@ -840,6 +861,8 @@ TOOLBAR_OAUTH_SCOPES = [
     "uploaded_media:write",
     "survey:read",
     "survey:write",
+    "field_note:read",
+    "field_note:write",
 ]
 
 ELEMENT_STATS_DEFAULT_LIMIT = get_from_env("ELEMENT_STATS_DEFAULT_LIMIT", 50_000, type_cast=int)
