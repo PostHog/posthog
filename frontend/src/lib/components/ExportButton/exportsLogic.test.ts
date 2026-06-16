@@ -1,7 +1,20 @@
+import { expectLogic } from 'kea-test-utils'
+
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+
 import { initKeaTests } from '~/test/init'
 import { ExportedAssetType, ExporterFormat } from '~/types'
 
+import { downloadExportedAsset } from './exporter'
 import { exportsLogic, pickPollDelayMs } from './exportsLogic'
+
+jest.mock('lib/lemon-ui/LemonToast', () => ({
+    lemonToast: { info: jest.fn(), success: jest.fn(), error: jest.fn(), dismiss: jest.fn() },
+}))
+jest.mock('./exporter', () => ({
+    ...jest.requireActual('./exporter'),
+    downloadExportedAsset: jest.fn(),
+}))
 
 const asset = (overrides: Partial<ExportedAssetType> = {}): ExportedAssetType => ({
     id: 1,
@@ -71,5 +84,49 @@ describe('exportsLogic', () => {
             expect(startExportSpy).toHaveBeenCalledTimes(1)
             expect(startExportSpy.mock.calls[0][0].export_context?.skip_inactivity).toBe(expected)
         })
+    })
+
+    describe('async export toast resolution', () => {
+        let logic: ReturnType<typeof exportsLogic.build>
+
+        beforeEach(() => {
+            jest.clearAllMocks()
+            initKeaTests()
+            logic = exportsLogic()
+            logic.mount()
+        })
+
+        it.each([
+            {
+                label: 'success',
+                finishedAsset: asset({ id: 5, export_format: ExporterFormat.MP4, has_content: true }),
+                expectedToast: { fn: 'success' as const, message: 'Export complete!' },
+                expectsDownload: true,
+            },
+            {
+                label: 'error',
+                finishedAsset: asset({ id: 7, export_format: ExporterFormat.MP4, exception: 'boom' }),
+                expectedToast: { fn: 'error' as const, message: 'Export failed: boom' },
+                expectsDownload: false,
+            },
+        ])(
+            'resolves the per-export toast to $label once a tracked async export finishes',
+            async ({ finishedAsset, expectedToast, expectsDownload }) => {
+                logic.actions.addFresh(asset({ id: finishedAsset.id, export_format: ExporterFormat.MP4 }))
+
+                await expectLogic(logic, () => {
+                    logic.actions.loadExportsSuccess([finishedAsset])
+                }).toFinishAllListeners()
+
+                if (expectsDownload) {
+                    expect(downloadExportedAsset).toHaveBeenCalledWith(finishedAsset)
+                } else {
+                    expect(downloadExportedAsset).not.toHaveBeenCalled()
+                }
+                expect(lemonToast.dismiss).toHaveBeenCalledWith(`export-${finishedAsset.id}`)
+                expect(lemonToast[expectedToast.fn]).toHaveBeenCalledWith(expectedToast.message)
+                expect(logic.values.freshUndownloadedExports).toEqual([])
+            }
+        )
     })
 })

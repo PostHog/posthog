@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { roundToDecimal } from 'lib/utils'
+import { roundToDecimal } from 'lib/utils/numbers'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { TrendsFilter } from '~/queries/schema/schema-general'

@@ -971,7 +971,7 @@ def background_delete_model_task(
     import structlog
 
     logger = structlog.get_logger(__name__)
-    logger.setLevel(logging.INFO)
+    logging.getLogger(__name__).setLevel(logging.INFO)
 
     try:
         # Parse model name

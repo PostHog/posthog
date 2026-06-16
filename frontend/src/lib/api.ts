@@ -7,7 +7,8 @@ import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { assertNotReadOnly } from 'lib/readOnlyGuard'
-import { objectClean, toParams } from 'lib/utils'
+import { objectClean } from 'lib/utils/objects'
+import { toParams } from 'lib/utils/url'
 import { CohortCalculationHistoryResponse } from 'scenes/cohorts/cohortCalculationHistorySceneLogic'
 import { EventSchema } from 'scenes/data-management/events/eventDefinitionSchemaLogic'
 import { SchemaPropertyGroup } from 'scenes/data-management/schema/schemaManagementLogic'
@@ -95,17 +96,12 @@ import {
     DataModelingEdge,
     DataModelingJob,
     DataModelingNode,
-    DataWarehouseActivityRecord,
-    DataWarehouseJobStats,
-    DataWarehouseJobStatsRequestPayload,
     DataWarehouseManagedViewsetSavedQuery,
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryDependencies,
     DataWarehouseSavedQueryDraft,
     DataWarehouseSavedQueryFolder,
     DataWarehouseSavedQueryRunHistory,
-    DataWarehouseProvisioningStatus,
-    DataWarehouseSourceRowCount,
     DataWarehouseTable,
     DataWarehouseViewLink,
     DataWarehouseViewLinkValidation,
@@ -1759,10 +1755,6 @@ export class ApiRequest {
 
     public externalDataSourceConnections(teamId?: TeamType['id']): ApiRequest {
         return this.externalDataSources(teamId).addPathComponent('connections')
-    }
-
-    public dataWarehouse(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('data_warehouse')
     }
 
     public externalDataSchemas(teamId?: TeamType['id']): ApiRequest {
@@ -5712,106 +5704,6 @@ const api = {
             data: Partial<ExternalDataSourceRevenueAnalyticsConfig>
         ): Promise<ExternalDataSource> {
             return await new ApiRequest().externalDataSourceRevenueAnalyticsConfig(sourceId).update({ data })
-        },
-    },
-
-    dataWarehouse: {
-        async totalRowsStats(options?: ApiMethodOptions): Promise<DataWarehouseSourceRowCount> {
-            return await new ApiRequest().dataWarehouse().withAction('total_rows_stats').get(options)
-        },
-
-        async runningActivity(
-            options?: ApiMethodOptions & {
-                limit?: number
-                offset?: number
-                cutoff_days?: number
-            }
-        ): Promise<PaginatedResponse<DataWarehouseActivityRecord>> {
-            return await new ApiRequest()
-                .dataWarehouse()
-                .withAction('running_activity')
-                .withQueryString({
-                    limit: options?.limit,
-                    offset: options?.offset,
-                    cutoff_days: options?.cutoff_days,
-                })
-                .get(options)
-        },
-
-        async completedActivity(
-            options?: ApiMethodOptions & {
-                limit?: number
-                offset?: number
-                cutoff_days?: number
-            }
-        ): Promise<PaginatedResponse<DataWarehouseActivityRecord>> {
-            return await new ApiRequest()
-                .dataWarehouse()
-                .withAction('completed_activity')
-                .withQueryString({
-                    limit: options?.limit,
-                    offset: options?.offset,
-                    cutoff_days: options?.cutoff_days,
-                })
-                .get(options)
-        },
-
-        async jobStats(
-            options?: ApiMethodOptions & DataWarehouseJobStatsRequestPayload
-        ): Promise<DataWarehouseJobStats> {
-            return await new ApiRequest()
-                .dataWarehouse()
-                .withAction('job_stats')
-                .withQueryString({ days: options?.days })
-                .get(options)
-        },
-
-        async dataOpsDashboard(options?: ApiMethodOptions): Promise<{ dashboard_id: number }> {
-            return await new ApiRequest().dataWarehouse().withAction('data_ops_dashboard').get(options)
-        },
-
-        async provisionWarehouse(
-            databaseName: string,
-            options?: ApiMethodOptions
-        ): Promise<{
-            status: string
-            org: string
-            username: string
-            password: string
-        }> {
-            return await new ApiRequest()
-                .dataWarehouse()
-                .withAction('provision')
-                .create({
-                    data: { database_name: databaseName },
-                    ...options,
-                } as any)
-        },
-
-        async deprovisionWarehouse(options?: ApiMethodOptions): Promise<{ status: string; org: string }> {
-            return await new ApiRequest()
-                .dataWarehouse()
-                .withAction('deprovision')
-                .create(options as any)
-        },
-
-        async warehouseStatus(options?: ApiMethodOptions): Promise<DataWarehouseProvisioningStatus> {
-            return await new ApiRequest().dataWarehouse().withAction('warehouse_status').get(options)
-        },
-
-        async checkDatabaseName(name: string): Promise<{ name: string; available: boolean }> {
-            return await new ApiRequest()
-                .dataWarehouse()
-                .withAction('check-database-name')
-                .withQueryString({ name })
-                .get()
-        },
-
-        async resetPassword(): Promise<{ username: string; password: string }> {
-            return await new ApiRequest()
-                .dataWarehouse()
-                .withAction('reset_password')
-                .create({} as any)
         },
     },
 

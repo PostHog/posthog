@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { dayjs } from 'lib/dayjs'
-import { DATE_TIME_FORMAT, formatDateRange } from 'lib/utils'
+import { DATE_TIME_FORMAT, formatDateRange } from 'lib/utils/datetime'
 
 import { DateMappingOption } from '~/types'
 

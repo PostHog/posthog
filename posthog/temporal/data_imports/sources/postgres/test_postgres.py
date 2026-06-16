@@ -72,6 +72,7 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     _is_read_replica,
     _is_unsupported_function_error,
     _normalize_function_names,
+    _raise_if_setup_connection_broken,
     _rls_active_from_conn,
     _role_subject_to_rls,
     _statement_timeout_as_non_retryable,
@@ -567,6 +568,33 @@ class TestIsConnectionDroppedError:
     )
     def test_unrelated_errors_are_not_detected(self, error):
         assert _is_connection_dropped_error(error) is False
+
+
+class TestRaiseIfSetupConnectionBroken:
+    """A connection dropped mid-discovery must surface as a retryable error, not the masked
+    `ProgrammingError: Explicit commit() forbidden within a Transaction context` that psycopg's
+    implicit `with connection:` exit-commit raises when a savepoint teardown leaks the
+    transaction-nesting counter on a no-longer-OK connection."""
+
+    def test_broken_connection_raises_retryable_dropped_error(self):
+        connection = mock.MagicMock()
+        connection.broken = True
+
+        with pytest.raises(psycopg.OperationalError) as exc_info:
+            _raise_if_setup_connection_broken(cast(Any, connection))
+
+        # Classified as a transient drop, so the activity keeps retrying...
+        assert _is_connection_dropped_error(exc_info.value) is True
+        # ...and the message is not matched by any NonRetryableErrors substring.
+        message = str(exc_info.value)
+        assert not any(key in message for key in PostgresSource().get_non_retryable_errors())
+
+    def test_healthy_connection_is_a_noop(self):
+        connection = mock.MagicMock()
+        connection.broken = False
+
+        # A healthy connection must not raise.
+        _raise_if_setup_connection_broken(cast(Any, connection))
 
 
 class TestConnectWithDroppedRetry:
