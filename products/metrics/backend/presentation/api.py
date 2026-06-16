@@ -68,9 +68,16 @@ class _MetricQueryBodySerializer(serializers.Serializer):
         help_text="Exact metric name to query (e.g. 'http.server.duration').",
     )
     aggregation = serializers.ChoiceField(
-        choices=["sum", "avg", "count", "p95", "rate", "increase"],
+        choices=["sum", "avg", "count", "p95", "rate", "increase", "histogram_quantile"],
         default="sum",
-        help_text="Aggregation applied per time bucket. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is).",
+        help_text="Aggregation applied per time bucket. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'.",
+    )
+    quantile = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        min_value=0.0,
+        max_value=1.0,
+        help_text="Quantile in (0, 1) for 'histogram_quantile' (e.g. 0.95). Ignored for other aggregations.",
     )
     filters = _MetricFilterSerializer(
         many=True,
@@ -210,11 +217,14 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         body.is_valid(raise_exception=True)
         query_data = body.validated_data["query"]
 
-        # The wire aggregation "p95" is contract QUANTILE(0.95); the richer
-        # request fields (filters, group_by, formula) arrive in later PRs.
+        # The wire aggregation "p95" is contract QUANTILE(0.95).
         aggregation_raw: str = query_data["aggregation"]
         if aggregation_raw == "p95":
             aggregation, quantile = MetricAggregation.QUANTILE, 0.95
+        elif aggregation_raw == "histogram_quantile":
+            aggregation, quantile = MetricAggregation.HISTOGRAM_QUANTILE, query_data.get("quantile")
+            if quantile is None:
+                raise ParseError("histogram_quantile requires 'quantile'")
         else:
             aggregation, quantile = MetricAggregation(aggregation_raw), None
 
