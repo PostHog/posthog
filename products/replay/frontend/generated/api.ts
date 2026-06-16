@@ -40,26 +40,6 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-export const getCreateSessionSummariesIndividuallyUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/session_summaries/create_session_summaries_individually/`
-}
-
-/**
- * Generate AI individual summary for each session, without grouping.
- */
-export const createSessionSummariesIndividually = async (
-    projectId: string,
-    sessionSummariesApi: SessionSummariesApi,
-    options?: RequestInit
-): Promise<SessionSummariesApi> => {
-    return apiMutator<SessionSummariesApi>(getCreateSessionSummariesIndividuallyUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(sessionSummariesApi),
-    })
-}
-
 export const getSessionRecordingPlaylistsListUrl = (
     projectId: string,
     params?: SessionRecordingPlaylistsListParams
@@ -326,6 +306,26 @@ export const sessionRecordingsDestroy = async (projectId: string, id: string, op
     return apiMutator<void>(getSessionRecordingsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getCreateSessionSummariesIndividuallyUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/session_summaries/create_session_summaries_individually/`
+}
+
+/**
+ * Generate AI individual summary for each session, without grouping.
+ */
+export const createSessionSummariesIndividually = async (
+    projectId: string,
+    sessionSummariesApi: SessionSummariesApi,
+    options?: RequestInit
+): Promise<SessionSummariesApi> => {
+    return apiMutator<SessionSummariesApi>(getCreateSessionSummariesIndividuallyUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sessionSummariesApi),
     })
 }
 

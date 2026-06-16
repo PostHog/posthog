@@ -39,18 +39,32 @@ class TestValidateCredentials:
         assert called_url == f"{REVENUECAT_API_BASE_URL}/projects"
 
     @patch("posthog.temporal.data_imports.sources.revenuecat.revenuecat._session")
-    def test_also_checks_project_when_id_provided(self, mock_session):
-        mock_session.return_value.get.side_effect = [
-            _ok_json_response({"items": []}),
-            _ok_json_response({"id": "proj_test"}),
-        ]
+    def test_accepts_project_id_found_in_projects_list(self, mock_session):
+        # The project check is a membership test against `GET /projects` — the
+        # v2 API has no `GET /projects/{id}` endpoint (probing it 404s even for
+        # a valid id, which used to fail every connection attempt).
+        mock_session.return_value.get.return_value = _ok_json_response({"items": [{"id": "proj_test"}]})
 
-        success, _ = api_client.validate_credentials("sk_test", project_id="proj_test")
+        success, error = api_client.validate_credentials("sk_test", project_id="proj_test")
 
         assert success is True
-        # Second call hits the project-specific endpoint.
-        second_call_url = mock_session.return_value.get.call_args_list[1].args[0]
-        assert second_call_url == f"{REVENUECAT_API_BASE_URL}/projects/proj_test"
+        assert error is None
+        assert mock_session.return_value.get.call_count == 1
+        called_url = mock_session.return_value.get.call_args.args[0]
+        assert called_url == f"{REVENUECAT_API_BASE_URL}/projects"
+
+    @patch("posthog.temporal.data_imports.sources.revenuecat.revenuecat._session")
+    def test_follows_pagination_when_project_is_on_a_later_page(self, mock_session):
+        mock_session.return_value.get.side_effect = [
+            _ok_json_response({"items": [{"id": "proj_a"}], "next_page": "/v2/projects?starting_after=proj_a"}),
+            _ok_json_response({"items": [{"id": "proj_b"}], "next_page": None}),
+        ]
+
+        success, error = api_client.validate_credentials("sk_test", project_id="proj_b")
+
+        assert success is True
+        assert error is None
+        assert mock_session.return_value.get.call_count == 2
 
     @parameterized.expand(
         [
@@ -81,32 +95,6 @@ class TestValidateCredentials:
         assert error is not None
         assert "Could not reach RevenueCat" in error
 
-    @parameterized.expand(
-        [
-            (401, "rejected the API key"),
-            (403, "denied"),
-            (404, "could not find"),
-            (429, "rate-limited"),
-            (500, "RevenueCat API error"),
-        ]
-    )
-    @patch("posthog.temporal.data_imports.sources.revenuecat.revenuecat._session")
-    def test_returns_false_when_project_specific_call_fails(self, status_code, expected_substring, mock_session):
-        # The first call (`GET /projects`) succeeds, but the per-project follow-up
-        # (`GET /projects/{id}`) fails. `_format_http_error` is shared between
-        # both call sites, so without this branch a regression in the per-project
-        # path would go unnoticed.
-        mock_session.return_value.get.side_effect = [
-            _ok_json_response({"items": []}),
-            _http_error_response(status_code),
-        ]
-
-        success, error = api_client.validate_credentials("sk_test", project_id="proj_test")
-
-        assert success is False
-        assert error is not None
-        assert expected_substring.lower() in error.lower()
-
     @patch("posthog.temporal.data_imports.sources.revenuecat.revenuecat._session")
     def test_skips_project_check_when_id_normalizes_to_empty(self, mock_session):
         # A whitespace-only id is truthy as a raw string but empty once trimmed,
@@ -120,15 +108,12 @@ class TestValidateCredentials:
         assert mock_session.return_value.get.call_count == 1
 
     @patch("posthog.temporal.data_imports.sources.revenuecat.revenuecat._session")
-    def test_tolerates_invalid_json_on_projects_list(self, mock_session):
-        # If `GET /projects` returns a 200 with an unparseable body, we should
-        # still run the per-project check rather than crashing on `.json()`.
+    def test_fails_open_on_invalid_json_on_projects_list(self, mock_session):
+        # If `GET /projects` returns a 200 with an unparseable body, the key is
+        # good but we can't run the membership check — accept rather than block.
         bad_list = _ok_json_response({"items": []})
         bad_list.json.side_effect = requests.exceptions.JSONDecodeError("boom", "", 0)
-        mock_session.return_value.get.side_effect = [
-            bad_list,
-            _ok_json_response({"id": "proj_test"}),
-        ]
+        mock_session.return_value.get.return_value = bad_list
 
         success, error = api_client.validate_credentials("sk_test", project_id="proj_test")
 
@@ -508,13 +493,12 @@ class TestAccessibleProjectIds:
 
 class TestValidateCredentialsProjectSuggestions:
     @patch("posthog.temporal.data_imports.sources.revenuecat.revenuecat._session")
-    def test_404_lists_single_accessible_project(self, mock_session):
+    def test_miss_lists_single_accessible_project(self, mock_session):
         # The key works (it can list projects) but the entered id doesn't exist.
         # The error should name the one project the key can actually reach.
-        mock_session.return_value.get.side_effect = [
-            _ok_json_response({"items": [{"id": "proj_real", "name": "My App"}]}),
-            _http_error_response(404),
-        ]
+        mock_session.return_value.get.return_value = _ok_json_response(
+            {"items": [{"id": "proj_real", "name": "My App"}]}
+        )
 
         success, error = api_client.validate_credentials("sk_test", project_id="proj_typo")
 
@@ -526,11 +510,8 @@ class TestValidateCredentialsProjectSuggestions:
         assert "My App" not in error
 
     @patch("posthog.temporal.data_imports.sources.revenuecat.revenuecat._session")
-    def test_404_lists_multiple_accessible_projects(self, mock_session):
-        mock_session.return_value.get.side_effect = [
-            _ok_json_response({"items": [{"id": "proj_a"}, {"id": "proj_b"}]}),
-            _http_error_response(404),
-        ]
+    def test_miss_lists_multiple_accessible_projects(self, mock_session):
+        mock_session.return_value.get.return_value = _ok_json_response({"items": [{"id": "proj_a"}, {"id": "proj_b"}]})
 
         success, error = api_client.validate_credentials("sk_test", project_id="proj_typo")
 
@@ -539,11 +520,8 @@ class TestValidateCredentialsProjectSuggestions:
         assert "proj_a" in error and "proj_b" in error
 
     @patch("posthog.temporal.data_imports.sources.revenuecat.revenuecat._session")
-    def test_404_with_no_accessible_projects_falls_back_to_generic_message(self, mock_session):
-        mock_session.return_value.get.side_effect = [
-            _ok_json_response({"items": []}),
-            _http_error_response(404),
-        ]
+    def test_miss_with_no_accessible_projects_falls_back_to_generic_message(self, mock_session):
+        mock_session.return_value.get.return_value = _ok_json_response({"items": []})
 
         success, error = api_client.validate_credentials("sk_test", project_id="proj_typo")
 
@@ -553,12 +531,9 @@ class TestValidateCredentialsProjectSuggestions:
 
     @patch("posthog.temporal.data_imports.sources.revenuecat.revenuecat._session")
     def test_normalizes_pasted_url_before_checking_project(self, mock_session):
-        # A user pastes the whole dashboard URL — we should look up the bare id,
-        # so the per-project request must hit `/projects/proj_real`, not the URL.
-        mock_session.return_value.get.side_effect = [
-            _ok_json_response({"items": [{"id": "proj_real"}]}),
-            _ok_json_response({"id": "proj_real"}),
-        ]
+        # A user pastes the whole dashboard URL — the bare id pulled out of it
+        # must match against the accessible-projects list.
+        mock_session.return_value.get.return_value = _ok_json_response({"items": [{"id": "proj_real"}]})
 
         success, error = api_client.validate_credentials(
             "sk_test", project_id="https://app.revenuecat.com/projects/proj_real/overview"
@@ -566,23 +541,6 @@ class TestValidateCredentialsProjectSuggestions:
 
         assert success is True
         assert error is None
-        second_call_url = mock_session.return_value.get.call_args_list[1].args[0]
-        assert second_call_url == f"{REVENUECAT_API_BASE_URL}/projects/proj_real"
-
-    @patch("posthog.temporal.data_imports.sources.revenuecat.revenuecat._session")
-    def test_non_404_project_error_still_uses_generic_formatter(self, mock_session):
-        # A 403 on the per-project call isn't a "wrong id" problem, so it should
-        # not be reworded into a project-suggestion message.
-        mock_session.return_value.get.side_effect = [
-            _ok_json_response({"items": [{"id": "proj_real"}]}),
-            _http_error_response(403),
-        ]
-
-        success, error = api_client.validate_credentials("sk_test", project_id="proj_real")
-
-        assert success is False
-        assert error is not None
-        assert "denied" in error.lower()
 
 
 class TestIterateListEndpointNormalization:

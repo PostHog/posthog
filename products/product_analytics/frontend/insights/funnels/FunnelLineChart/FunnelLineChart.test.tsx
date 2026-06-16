@@ -155,6 +155,66 @@ describe('FunnelLineChart', () => {
         })
     })
 
+    describe('legend', () => {
+        it('shows a legend item per breakdown series when showLegend is enabled', async () => {
+            renderInsight({
+                query: buildFunnelsQuery({
+                    breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
+                    funnelsFilter: { showLegend: true },
+                }),
+                featureFlags: HOG_CHARTS_FUNNEL_FLAG,
+            })
+
+            await screen.findByRole('img', { name: /chart with/i })
+            const legend = await screen.findByTestId('funnel-line-legend')
+            const labels = Array.from(legend.children).map((el) => el.textContent?.trim())
+            expect(labels).toEqual(['Spike', 'Bramble'])
+        })
+
+        it.each([
+            {
+                desc: 'showLegend is unset (off by default)',
+                query: buildFunnelsQuery({
+                    breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
+                }),
+            },
+            {
+                desc: 'showLegend is false',
+                query: buildFunnelsQuery({
+                    breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
+                    funnelsFilter: { showLegend: false },
+                }),
+            },
+            {
+                desc: 'there is only a single series, even when showLegend is true',
+                query: buildFunnelsQuery({ funnelsFilter: { showLegend: true } }),
+            },
+        ])('omits the legend when $desc', async ({ query }) => {
+            renderInsight({ query, featureFlags: HOG_CHARTS_FUNNEL_FLAG })
+
+            await screen.findByRole('img', { name: /chart with/i })
+            expect(screen.queryByTestId('funnel-line-legend')).not.toBeInTheDocument()
+        })
+
+        it('assigns a distinct color to each breakdown series', async () => {
+            renderInsight({
+                query: buildFunnelsQuery({
+                    breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
+                    funnelsFilter: { showLegend: true },
+                }),
+                featureFlags: HOG_CHARTS_FUNNEL_FLAG,
+            })
+
+            await screen.findByRole('img', { name: /chart with/i })
+            const legend = await screen.findByTestId('funnel-line-legend')
+            const swatchColors = Array.from(legend.querySelectorAll<HTMLElement>('span[style]')).map(
+                (el) => el.style.backgroundColor
+            )
+            expect(swatchColors).toHaveLength(2)
+            expect(new Set(swatchColors).size).toBe(2)
+        })
+    })
+
     describe('annotations', () => {
         it.each([
             { inSharedMode: false, expectsBadges: true },

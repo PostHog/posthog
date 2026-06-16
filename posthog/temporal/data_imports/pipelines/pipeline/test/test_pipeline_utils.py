@@ -66,6 +66,39 @@ def test_table_from_py_list_inconsistent_other_types():
     )
 
 
+def test_table_from_py_list_numeric_column_with_non_numeric_value_raises_named_error():
+    with pytest.raises(TypeError) as exc_info:
+        table_from_py_list([{"revenue": 1.5}, {"revenue": "N/A"}, {"revenue": ""}])
+
+    message = str(exc_info.value)
+    # Preserves the original phrase so source non-retryable matching still fires
+    assert "must be real number, not str" in message
+    # Names the column and shows the offending text and blank cells
+    assert "revenue" in message
+    assert "N/A" in message
+    assert "<blank>" in message
+
+
+@pytest.mark.parametrize(
+    "values,expected,type_check",
+    [
+        # Single float type -> float path
+        ([1.5, None, 2.5, None], [1.5, None, 2.5, None], pa.types.is_floating),
+        # Mixed numeric types -> decimal conversion path (len(unique_types_in_column) > 1)
+        (
+            [1.5, None, decimal.Decimal("2.5"), None],
+            [decimal.Decimal("1.5"), None, decimal.Decimal("2.5"), None],
+            pa.types.is_decimal,
+        ),
+    ],
+)
+def test_table_from_py_list_numeric_column_with_none_gaps(values, expected, type_check):
+    table = table_from_py_list([{"column": value} for value in values])
+
+    assert table.column("column").to_pylist() == expected
+    assert type_check(table.schema.field("column").type)
+
+
 def test_table_from_py_list_inconsistent_types_with_none():
     table = table_from_py_list([{"column": None}, {"column": "hello"}, {"column": 12}, {"column": None}])
 

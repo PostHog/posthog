@@ -9,6 +9,7 @@ if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
@@ -91,6 +92,8 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.POSTGRES,
+            category=DataWarehouseSourceCategory.DATABASES,
+            keywords=["postgresql"],
             caption="Enter your Postgres credentials to automatically pull your Postgres data into the PostHog Data warehouse",
             iconPath="/static/services/postgres.png",
             docsUrl="https://posthog.com/docs/cdp/sources/postgres",
@@ -110,7 +113,13 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                         label="Host",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
-                        placeholder="localhost",
+                        placeholder="db.example.com",
+                        caption=(
+                            "Must be reachable from the public internet. Add PostHog's egress IP addresses to your "
+                            "firewall allowlist (see the docs above) and use a public host — `localhost` and private "
+                            "IPs (10.x, 172.16–31.x, 192.168.x) can't be reached. For a database that can't be "
+                            "exposed publicly, enable the SSH tunnel below."
+                        ),
                         secret=False,
                     ),
                     SourceFieldInputConfig(
@@ -188,6 +197,22 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             "SSLRequiredError": None,
             "SSL/TLS connection is required": None,
             "Could not establish session to SSH gateway": None,
+            # `offset_chunking` retries a Postgres standby recovery conflict ("canceling statement
+            # due to conflict with recovery") 30 times in-process with backoff + chunk-size
+            # reduction before raising this. The conflict comes from the customer's read replica
+            # applying WAL that removes row versions our long-running read still needs
+            # (max_standby_streaming_delay exceeded). Once those in-process retries are exhausted the
+            # condition is sustained, not a transient blip — retrying the whole activity just
+            # re-reads from offset 0 into the same wall, so stop and surface an actionable message.
+            # Matched substring excludes the volatile retry count and is distinct from the
+            # connection-dropped abort ("successive connection-dropped errors"), which stays retryable.
+            "successive SerializationFailure errors. Aborting.": (
+                "PostHog repeatedly hit Postgres recovery conflicts while reading from your read replica "
+                '("canceling statement due to conflict with recovery"). This happens when the replica must '
+                "apply changes from the primary that remove rows the sync is still reading. Increase "
+                "max_standby_streaming_delay on the replica, enable hot_standby_feedback, or point the "
+                "connection at the primary database, then re-enable the sync."
+            ),
             "DiskFull": "Source database ran out of disk space. Free up disk space on your database server or add an index on your incremental field to reduce temp file usage.",
             "No space left on device": "Source database ran out of disk space. Free up disk space on your database server or add an index on your incremental field to reduce temp file usage.",
             # Raised when a Postgres numeric value cannot be represented in any Delta-compatible
@@ -265,15 +290,24 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 schema=config.schema,
                 names=names,
             )
-            db_foreign_keys = get_postgres_foreign_keys(
-                host=host,
-                port=port,
-                user=config.user,
-                password=config.password,
-                database=config.database,
-                schema=config.schema,
-                names=names,
-            )
+            # Foreign keys are advisory metadata (they pre-populate relationship hints in the
+            # table picker). The discovery query joins three `information_schema` views, which
+            # can be expensive enough to OOM the source database on schemas with many
+            # constraints. Degrade gracefully on any failure — like PK and index discovery
+            # below — so optional metadata never breaks schema listing or the import.
+            try:
+                db_foreign_keys = get_postgres_foreign_keys(
+                    host=host,
+                    port=port,
+                    user=config.user,
+                    password=config.password,
+                    database=config.database,
+                    schema=config.schema,
+                    names=names,
+                )
+            except Exception as e:
+                structlog.get_logger().warning("Failed to detect foreign keys for Postgres schemas", exc_info=e)
+                db_foreign_keys = {}
 
             if with_counts:
                 row_counts = get_postgres_row_count(

@@ -7,6 +7,8 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 
+from rest_framework.exceptions import ValidationError
+
 from posthog.schema import BreakdownValue, DateRange, ErrorTrackingBreakdownsQuery
 
 from products.error_tracking.backend.hogql_queries.error_tracking_breakdowns_query_runner import (
@@ -72,6 +74,18 @@ class TestErrorTrackingBreakdownsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert browser_data.values[1].count == 8
         assert browser_data.values[2].value == "C"
         assert browser_data.values[2].count == 6
+
+    def test_rejects_malformed_issue_id(self):
+        with self.assertRaises(ValidationError):
+            ErrorTrackingBreakdownsQueryRunner(
+                team=self.team,
+                query=ErrorTrackingBreakdownsQuery(
+                    kind="ErrorTrackingBreakdownsQuery",
+                    issueId="test-distinct-id",
+                    breakdownProperties=["$browser"],
+                    dateRange=DateRange(date_from="-7d"),
+                ),
+            )
 
     @freeze_time("2024-01-10T12:00:00Z")
     @snapshot_clickhouse_queries

@@ -1,6 +1,7 @@
 import type { BarRect, BarRoundedCorners } from './canvas-renderer'
 import { type BarScaleSet, groupedBandSlot, type StackedBand } from './scales'
 import type { Series } from './types'
+import { DEFAULT_Y_AXIS_ID } from './types'
 
 /** Brand for the BarChart `ChartScales._private` slot — populated by BarChart and
  *  narrowed by its draw callbacks. */
@@ -163,14 +164,22 @@ export function computeBarAtIndex({
     const shouldRoundBaseline = isGrouped ? false : (baseRounded ?? false)
     const bandWidth = scales.band.bandwidth()
 
+    // Grouped multi-axis: each series scales against its own value axis. Falls back to the
+    // shared `value` scale when only one axis is present (`yAxes` unset).
+    const valueScale = scales.yAxes?.[series.yAxisId ?? DEFAULT_Y_AXIS_ID]?.scale ?? scales.value
+
     if (isGrouped) {
         const slot = groupedBandSlot(scales, label, series.key)
-        const valuePixel = scales.value(raw)
+        const valuePixel = valueScale(raw)
         if (!slot || !isFinite(valuePixel)) {
             return null
         }
         const corners = cornersFor(isHorizontal, raw >= 0, shouldRoundCap)
-        return makeBarRect(isHorizontal, slot.x, slot.width, scales.value(0), valuePixel, corners, dataIndex)
+        // A fixed `valueDomain` (e.g. [50, 100]) makes `valueScale(0)` extrapolate outside the
+        // plot, so the bar would bleed through the axis. Clamp the baseline to the scale's range.
+        const [r0, r1] = valueScale.range()
+        const baseline = Math.min(Math.max(valueScale(0), Math.min(r0, r1)), Math.max(r0, r1))
+        return makeBarRect(isHorizontal, slot.x, slot.width, baseline, valuePixel, corners, dataIndex)
     }
 
     const topPixel = scales.value(stackedBand!.top[dataIndex])

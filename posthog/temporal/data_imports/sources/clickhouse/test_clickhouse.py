@@ -522,6 +522,7 @@ class TestClickHouseSourceNonRetryableErrors:
             "Could not resolve the ClickHouse host",
             "Connection refused",
             "certificate verify failed",
+            "HTTPDriver for https://example.ngrok-free.dev:443 returned response code 404",
         ],
     )
     def test_permanent_errors_are_non_retryable(self, source, error_msg):
@@ -535,6 +536,9 @@ class TestClickHouseSourceNonRetryableErrors:
             "Code: 159. DB::Exception: Timeout exceeded",  # query timeout — could be retried
             "Code: 999. DB::Exception: Keeper exception",  # transient zookeeper-style errors
             "Code: 209. DB::Exception: Socket timeout",
+            # Transient gateway errors must stay retryable — only 404 is permanent.
+            "HTTPDriver for https://example.ngrok-free.dev:443 returned response code 502",
+            "HTTPDriver for https://example.ngrok-free.dev:443 returned response code 503",
         ],
     )
     def test_transient_errors_are_retryable(self, source, error_msg):

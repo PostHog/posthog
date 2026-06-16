@@ -1,4 +1,6 @@
-import { getKafkaConfigFromEnv } from './config'
+import { ConsumerGlobalConfig } from 'node-rdkafka'
+
+import { getKafkaConfigFromEnv, stripClassicProtocolConfig } from './config'
 
 describe('getKafkaConfigFromEnv', () => {
     const OLD_ENV = process.env
@@ -56,5 +58,46 @@ describe('getKafkaConfigFromEnv', () => {
               "valid.setting": "value",
             }
         `)
+    })
+})
+
+describe('stripClassicProtocolConfig', () => {
+    it('leaves config untouched for the classic protocol', () => {
+        const config: ConsumerGlobalConfig = {
+            'group.id': 'test-group',
+            'session.timeout.ms': 30_000,
+            'partition.assignment.strategy': 'cooperative-sticky',
+        }
+
+        expect(stripClassicProtocolConfig(config)).toEqual(config)
+    })
+
+    it('strips classic-only keys when group.protocol is consumer', () => {
+        const config: ConsumerGlobalConfig = {
+            'group.id': 'test-group',
+            'group.protocol': 'consumer',
+            'session.timeout.ms': 30_000,
+            'heartbeat.interval.ms': 3_000,
+            'partition.assignment.strategy': 'cooperative-sticky',
+            'group.protocol.type': 'consumer',
+            'max.poll.interval.ms': 300_000,
+        }
+
+        expect(stripClassicProtocolConfig(config)).toEqual({
+            'group.id': 'test-group',
+            'group.protocol': 'consumer',
+            'max.poll.interval.ms': 300_000,
+        })
+    })
+
+    it('does not mutate the input config', () => {
+        const config: ConsumerGlobalConfig = {
+            'group.protocol': 'consumer',
+            'session.timeout.ms': 30_000,
+        }
+
+        stripClassicProtocolConfig(config)
+
+        expect(config['session.timeout.ms']).toBe(30_000)
     })
 })

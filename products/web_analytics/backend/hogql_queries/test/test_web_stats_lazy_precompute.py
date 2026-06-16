@@ -39,6 +39,7 @@ PARITY_BREAKDOWNS = [
     ("initial_referring_domain", WebStatsBreakdown.INITIAL_REFERRING_DOMAIN),
     ("initial_referring_url", WebStatsBreakdown.INITIAL_REFERRING_URL),
     ("language", WebStatsBreakdown.LANGUAGE),
+    ("exit_page", WebStatsBreakdown.EXIT_PAGE),
 ]
 
 

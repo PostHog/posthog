@@ -2,17 +2,25 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 import enum
 import time
 import shutil
 import signal
+import hashlib
+import platform
+import importlib
 import subprocess
 from collections.abc import Callable, Iterable, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
+from typing import Protocol
 
+import yaml
 import click
+from hogli.manifest import REPO_ROOT, get_manifest
 
 from . import hints
 
@@ -137,8 +145,6 @@ def doctor_disk(
     specific categories. Use --dry-run to preview what would be removed and
     --yes to skip prompts.
     """
-
-    from hogli.manifest import REPO_ROOT
 
     click.echo("🔍 PostHog Disk Space Cleanup\n")
 
@@ -991,8 +997,6 @@ class DevProcess:
 def doctor_zombies(dry_run: bool, yes: bool, include_all: bool) -> None:
     """Find and kill orphaned PostHog dev processes left behind after an unclean shutdown."""
 
-    from hogli.manifest import REPO_ROOT
-
     def _record() -> None:
         if not dry_run:
             hints.record_check_run("doctor:zombies")
@@ -1081,38 +1085,39 @@ def _scan_posthog_processes(repo_root: Path) -> list[DevProcess]:
         click.echo("Failed to run ps command.")
         return []
 
+    parsed = [p for line in result.stdout.strip().splitlines() if (p := _parse_ps_line(line)) is not None]
+
     # Build a full PID→(PPID, args) map for ancestor lookups
-    all_procs: dict[int, tuple[int, str]] = {}
-    for line in result.stdout.strip().splitlines():
-        parsed = _parse_ps_line(line)
-        if parsed is not None:
-            pid, ppid, _, _, _, args = parsed
-            all_procs[pid] = (ppid, args)
+    all_procs: dict[int, tuple[int, str]] = {pid: (ppid, args) for pid, ppid, _, _, _, args in parsed}
 
     own_tree = _get_own_process_tree()
     repo_str = str(repo_root)
     repo_prefix = repo_str + "/"
+
+    # Cheap first pass: keep processes that either name the repo path directly, or
+    # are a known dev executable whose cwd still needs checking. Defer the cwd
+    # lookups so they resolve in a single batched lsof call below instead of
+    # spawning lsof once per process — the dominant cost on a busy machine.
+    candidates: list[tuple[_PsLine, bool]] = []
+    cwd_pids: list[int] = []
+    for entry in parsed:
+        pid, _, _, _, _, args = entry
+        if pid in own_tree or _is_excluded(args):
+            continue
+        if _matches_repo_path(args, repo_str, repo_prefix):
+            candidates.append((entry, True))
+        elif _has_known_executable(args):
+            candidates.append((entry, False))
+            cwd_pids.append(pid)
+
+    cwd_by_pid = _get_process_cwds(cwd_pids)
+
     processes: list[DevProcess] = []
+    for entry, repo_match in candidates:
+        pid, ppid, cpu, rss, start_time, args = entry
 
-    for line in result.stdout.strip().splitlines():
-        parsed = _parse_ps_line(line)
-        if parsed is None:
-            continue
-
-        pid, ppid, cpu, rss, start_time, args = parsed
-
-        if pid in own_tree:
-            continue
-
-        if _is_excluded(args):
-            continue
-
-        # Primary check: repo root appears in the command line as an exact path
-        if not _matches_repo_path(args, repo_str, repo_prefix):
-            # Secondary check: cwd is under repo root (for known executable types)
-            if not _has_known_executable(args):
-                continue
-            cwd = _get_process_cwd(pid)
+        if not repo_match:
+            cwd = cwd_by_pid.get(pid)
             if cwd is None or not (cwd == repo_str or cwd.startswith(repo_prefix)):
                 continue
 
@@ -1198,7 +1203,10 @@ def _identify_manager(args: str) -> str | None:
     return None
 
 
-def _parse_ps_line(line: str) -> tuple[int, int, float, int, str, str] | None:
+_PsLine = tuple[int, int, float, int, str, str]
+
+
+def _parse_ps_line(line: str) -> _PsLine | None:
     """Parse a single ps output line into (pid, ppid, cpu%, rss_kb, start_time, args)."""
 
     parts = line.split()
@@ -1277,25 +1285,39 @@ def _has_known_executable(args: str) -> bool:
     return first_word in known
 
 
-def _get_process_cwd(pid: int) -> str | None:
-    """Get the working directory of a process via lsof."""
+def _get_process_cwds(pids: Sequence[int]) -> dict[int, str]:
+    """Map each pid to its working directory via a single lsof call.
+
+    ``-a`` ANDs the ``-p`` (pid set) and ``-d cwd`` (fd) selectors; without it
+    lsof ORs them and reports *every* process's cwd — slow (a full-system scan
+    per pid) and wrong (attributing the first process's cwd to the queried pid).
+    ``-Fpn`` emits pid/name fields so each cwd attributes back to its pid; with
+    ``-d cwd`` each process yields exactly one name line.
+    """
+    if not pids:
+        return {}
 
     try:
         result = subprocess.run(
-            ["lsof", "-p", str(pid), "-d", "cwd", "-Fn"],
+            ["lsof", "-a", "-p", ",".join(str(pid) for pid in pids), "-d", "cwd", "-Fpn"],
             capture_output=True,
             text=True,
             check=False,
         )
     except FileNotFoundError:
-        return None
-    if result.returncode != 0:
-        return None
+        return {}
 
+    # lsof exits non-zero when any queried pid has vanished, but still emits valid
+    # records for the survivors — parse whatever stdout we got.
+    cwds: dict[int, str] = {}
+    current: int | None = None
     for line in result.stdout.splitlines():
-        if line.startswith("n"):
-            return line[1:]
-    return None
+        tag, value = line[:1], line[1:]
+        if tag == "p":
+            current = int(value) if value.isdigit() else None
+        elif tag == "n" and current is not None:
+            cwds[current] = value
+    return cwds
 
 
 def _extract_process_name(args: str) -> str:
@@ -1717,43 +1739,47 @@ def _print_check_result(result: CheckResult) -> None:
         click.echo(f"{'':>30}{result.remediation}")
 
 
-@click.command(name="doctor", help="Quick health check for your dev environment")
-def doctor() -> None:
-    """Run non-destructive checks and print a status summary."""
-    from hogli.manifest import REPO_ROOT
-
-    click.echo("\nhogli doctor\n")
-
+def _run_checks(repo_root: Path) -> list[CheckResult]:
+    """Run all health checks concurrently and return results in declared order."""
     checks: list[Callable[[], CheckResult]] = [
-        lambda: _check_disk(REPO_ROOT),
-        lambda: _check_zombies(REPO_ROOT),
-        lambda: _check_docker(),
-        lambda: _check_migrations(),
+        lambda: _check_disk(repo_root),
+        lambda: _check_zombies(repo_root),
+        _check_docker,
+        _check_migrations,
     ]
 
-    # Run all checks concurrently — each is I/O-bound and independent.
+    # Each check is I/O-bound and independent, so fan them out across threads.
     results: list[CheckResult | None] = [None] * len(checks)
     with ThreadPoolExecutor(max_workers=len(checks)) as pool:
         future_to_idx = {pool.submit(fn): i for i, fn in enumerate(checks)}
         for future in as_completed(future_to_idx):
+            idx = future_to_idx[future]
             try:
-                results[future_to_idx[future]] = future.result()
+                results[idx] = future.result()
             except Exception as e:
-                idx = future_to_idx[future]
                 results[idx] = CheckResult(
                     name=f"Check {idx + 1}",
                     status=CheckStatus.ERROR,
                     summary=f"Check failed with error: {str(e)}",
                 )
 
+    return [r for r in results if r is not None]
+
+
+@click.command(name="doctor", help="Quick health check for your dev environment")
+def doctor() -> None:
+    """Run non-destructive checks and print a status summary."""
+    click.echo("\nhogli doctor\n")
+
+    results = _run_checks(REPO_ROOT)
+
     for result in results:
-        assert result is not None
         _print_check_result(result)
 
     click.echo()
 
-    warnings = sum(1 for r in results if r is not None and r.status == CheckStatus.WARNING)
-    errors = sum(1 for r in results if r is not None and r.status == CheckStatus.ERROR)
+    warnings = sum(1 for r in results if r.status == CheckStatus.WARNING)
+    errors = sum(1 for r in results if r.status == CheckStatus.ERROR)
     if warnings == 0 and errors == 0:
         click.secho("  All checks passed.", fg="green")
     else:
@@ -1767,3 +1793,384 @@ def doctor() -> None:
     click.echo()
 
     hints.record_check_run("doctor")
+
+
+# ---------------------------------------------------------------------------
+# doctor:report — paste-ready diagnostics dump for devex triage
+# ---------------------------------------------------------------------------
+
+
+def _run_output(cmd: Sequence[str], timeout: float = 5.0) -> str | None:
+    """Run a command and return its trimmed stdout, or None on any failure."""
+    try:
+        result = subprocess.run(list(cmd), capture_output=True, text=True, timeout=timeout, check=False)
+    except (FileNotFoundError, OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip() or None
+
+
+def _format_kv_block(pairs: Sequence[tuple[str, str]]) -> list[str]:
+    """Render label/value pairs as left-aligned ``label  value`` lines."""
+    width = max((len(label) for label, _ in pairs), default=0)
+    return [f"{label.ljust(width)}  {value}" for label, value in pairs]
+
+
+def _system_info() -> list[tuple[str, str]]:
+    """Collect OS, shell, and terminal context (terminal matters for TUI bugs)."""
+    if platform.system() == "Darwin":
+        mac_ver = platform.mac_ver()[0]
+        os_desc = f"macOS {mac_ver} (Darwin {platform.release()})" if mac_ver else f"Darwin {platform.release()}"
+    else:
+        os_desc = platform.platform()
+    return [
+        ("os", os_desc),
+        ("arch", platform.machine()),
+        ("shell", os.environ.get("SHELL", "unknown")),
+        ("term", os.environ.get("TERM", "unset")),
+        ("term_program", os.environ.get("TERM_PROGRAM", "unset")),
+        ("locale", os.environ.get("LANG", "unset")),
+    ]
+
+
+def _repo_info(repo_root: Path) -> list[tuple[str, str]]:
+    """Collect git branch, HEAD, and working-tree dirtiness."""
+    repo_str = str(repo_root)
+    git = ["git", "-C", repo_str]
+    branch = _run_output([*git, "rev-parse", "--abbrev-ref", "HEAD"]) or "unknown"
+    commit = _run_output([*git, "log", "-1", "--format=%h %s"]) or "unknown"
+    status = _run_output([*git, "status", "--porcelain"])
+    dirty_count = len(status.splitlines()) if status else 0
+
+    pairs = [
+        ("path", repo_str),
+        ("branch", branch),
+        ("commit", commit),
+        ("dirty", "clean" if dirty_count == 0 else f"{dirty_count} uncommitted file(s)"),
+    ]
+    if ".claude/worktrees/" in repo_str:
+        pairs.append(("worktree", "yes"))
+    return pairs
+
+
+def _normalize_arch(value: str) -> str:
+    """Map the many spellings of an architecture to a canonical token."""
+    v = value.lower()
+    if v in {"arm64", "aarch64"}:
+        return "arm64"
+    if v in {"x86_64", "x86-64", "amd64"}:
+        return "x86_64"
+    return v
+
+
+def _binary_arches(path: str) -> set[str]:
+    """Best-effort set of architectures a binary contains, via ``file``.
+
+    Empty when ``file`` is unavailable or the arch is indeterminate — callers
+    must treat empty as "unknown", not "mismatch", to avoid false alarms.
+    """
+    out = _run_output(["file", "-b", path])
+    if not out:
+        return set()
+    lowered = out.lower()
+    return {_normalize_arch(token) for token in ("arm64", "aarch64", "x86_64", "x86-64", "amd64") if token in lowered}
+
+
+def _phrocs_info() -> tuple[str, str]:
+    """Diagnose phrocs, which powers the ``hogli start`` TUI.
+
+    A blank ``hogli start`` screen most often traces back to phrocs being
+    missing, present-but-unrunnable, or built for the wrong architecture
+    (e.g. an x86_64 binary under Rosetta on Apple Silicon), so surface all
+    three explicitly rather than just the version.
+    """
+    path = shutil.which("phrocs")
+    if not path:
+        return ("phrocs", "MISSING — `hogli start` TUI needs it (see tools/phrocs/install.sh)")
+
+    version = _run_output([path, "--version"]) or "installed (--version failed — binary may be broken)"
+
+    arches = _binary_arches(path)
+    host = _normalize_arch(platform.machine())
+    arch_label = f" [{'/'.join(sorted(arches))}]" if arches else ""
+    mismatch = f" — ARCH MISMATCH vs host {host}; likely blank-TUI cause" if arches and host not in arches else ""
+
+    return ("phrocs", f"{version}{arch_label} ({path}){mismatch}")
+
+
+def _toolchain_info(repo_root: Path) -> list[tuple[str, str]]:
+    """Collect runtime/toolchain versions relevant to running the dev stack."""
+    pairs: list[tuple[str, str]] = [("python", f"{platform.python_version()} ({sys.executable})")]
+
+    node = _run_output(["node", "--version"])
+    if node:
+        nvmrc = repo_root / ".nvmrc"
+        expected = nvmrc.read_text().strip() if nvmrc.exists() else ""
+        suffix = ""
+        if expected:
+            actual_major = node.lstrip("v").split(".")[0]
+            expected_major = expected.lstrip("v").split(".")[0]
+            suffix = " (.nvmrc ok)" if actual_major == expected_major else f" (.nvmrc wants {expected})"
+        pairs.append(("node", f"{node}{suffix}"))
+    else:
+        pairs.append(("node", "not found"))
+
+    pairs.append(("pnpm", _run_output(["pnpm", "--version"]) or "not found"))
+
+    flox_ver = _run_output(["flox", "--version"])
+    if os.environ.get("FLOX_ENV_DESCRIPTION") or os.environ.get("FLOX_ENV"):
+        pairs.append(("flox", f"active — {flox_ver}" if flox_ver else "active"))
+    elif flox_ver:
+        pairs.append(("flox", f"not active ({flox_ver} on PATH)"))
+    else:
+        pairs.append(("flox", "not on PATH"))
+
+    docker_ver = _run_output(["docker", "version", "--format", "{{.Server.Version}}"], timeout=3.0)
+    pairs.append(("docker", f"{docker_ver} (daemon running)" if docker_ver else "daemon not responding"))
+
+    pairs.append(_phrocs_info())
+
+    return pairs
+
+
+def _checks_info(repo_root: Path) -> list[tuple[str, str]]:
+    """Run the doctor health checks and flatten them into label/value pairs."""
+    pairs: list[tuple[str, str]] = []
+    for result in _run_checks(repo_root):
+        value = f"{_STATUS_LABELS[result.status]} ({result.summary})"
+        if result.remediation:
+            value += f" → {result.remediation}"
+        pairs.append((result.name.lower().replace(" ", "_"), value))
+    return pairs
+
+
+def _generated_config_path(repo_root: Path) -> Path:
+    """Resolve the generated mprocs config phrocs renders, read-only.
+
+    Mirrors ``hogli``'s lookup (the ``HOGLI_MPROCS_PATH`` override, else
+    ``.posthog/.generated/mprocs.yaml`` at the repo root) without the worktree
+    symlink-creating fallback — a diagnostic must not mutate the workspace.
+    """
+    override = os.environ.get("HOGLI_MPROCS_PATH")
+    if override:
+        return Path(override)
+    return repo_root / ".posthog" / ".generated" / "mprocs.yaml"
+
+
+def _phrocs_socket_path(repo_root: Path) -> Path:
+    """Replicate phrocs' per-workspace IPC socket path (ipc.SocketPathFor):
+    ``/tmp/phrocs-<first 4 bytes of sha256(real absolute cwd)>.sock``.
+    """
+    real = os.path.realpath(repo_root)
+    digest = hashlib.sha256(real.encode()).digest()[:4].hex()
+    return Path(f"/tmp/phrocs-{digest}.sock")
+
+
+def _config_procs(config: Path) -> str:
+    """Summarize a generated mprocs config's proc set; a parse failure is itself
+    the diagnosis, since phrocs can't render an unparseable config."""
+    try:
+        data = yaml.safe_load(config.read_text())
+    except (OSError, yaml.YAMLError) as exc:
+        return f"unparseable: {str(exc)[:60]}"
+    procs = data.get("procs") if isinstance(data, dict) else None
+    if not isinstance(procs, dict):
+        return "no procs"
+    return f"{len(procs)} procs"
+
+
+def _tail(path: Path, lines: int) -> list[str]:
+    """Last ``lines`` lines of a text file, or [] if it can't be read."""
+    try:
+        content = path.read_text(errors="replace")
+    except OSError:
+        return []
+    return content.splitlines()[-lines:]
+
+
+def _iso_mtime(path: Path) -> str:
+    # Diagnostics run when the env misbehaves, so the file can vanish between an
+    # exists() check and this stat() — degrade instead of sinking the report.
+    try:
+        return datetime.fromtimestamp(path.stat().st_mtime, UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    except OSError:
+        return "unavailable"
+
+
+def _phrocs_runtime_pairs(repo_root: Path) -> list[tuple[str, str]]:
+    """phrocs/start runtime state — the layer past the binary that explains a
+    blank or broken ``hogli start`` TUI: the generated config phrocs renders,
+    its IPC socket, and the terminal it draws into.
+    """
+    config = _generated_config_path(repo_root)
+    pairs: list[tuple[str, str]] = []
+
+    if config.exists():
+        pairs.append(("generated_config", f"{config} ({_config_procs(config)}, {_iso_mtime(config)})"))
+    else:
+        pairs.append(("generated_config", f"MISSING ({config}) — run `hogli dev:generate`"))
+
+    log = config.parent / "logs" / "phrocs.log"
+    pairs.append(("phrocs_log", f"{log} ({_iso_mtime(log)})" if log.exists() else f"absent ({log})"))
+
+    socket = _phrocs_socket_path(repo_root)
+    pairs.append(
+        ("ipc_socket", f"present ({socket}) — stale if no phrocs running" if socket.exists() else f"none ({socket})")
+    )
+
+    pairs.append(("stdout_tty", "yes" if sys.stdout.isatty() else "no — phrocs opens /dev/tty as a fallback"))
+    try:
+        size = os.get_terminal_size()
+        pairs.append(("terminal_size", f"{size.columns}x{size.lines}"))
+    except OSError:
+        pairs.append(("terminal_size", "unavailable (no controlling terminal)"))
+
+    return pairs
+
+
+def _phrocs_runtime_block(repo_root: Path) -> list[str]:
+    """The full verbose ``phrocs runtime`` section body: state pairs plus a tail
+    of phrocs' own log (the highest-signal evidence when it started then died)."""
+    block = _format_kv_block(_phrocs_runtime_pairs(repo_root))
+    tail = _tail(_generated_config_path(repo_root).parent / "logs" / "phrocs.log", 15)
+    if tail:
+        block.append("")
+        block.append("phrocs.log (last 15 lines):")
+        block.extend(f"  {line}" for line in tail)
+    return block
+
+
+class _ManifestLike(Protocol):
+    """The slice of ``hogli.manifest.Manifest`` the import probe relies on."""
+
+    config: dict
+
+    def get_all_commands(self) -> list[str]: ...
+
+    def get_command_config(self, command_name: str) -> dict | None: ...
+
+
+def _collect_import_targets(manifest: _ManifestLike) -> list[tuple[str, str, str | None]]:
+    """Enumerate ``(label, module_path, attr)`` for every importable command + boot module.
+
+    ``attr`` is the click command symbol for ``click:`` entries, or ``None`` for
+    boot modules (which we only need to import, not resolve an attribute on).
+    Command discovery and the metadata/config skip rules are delegated to the
+    manifest API so this stays in lockstep with the framework's schema.
+    """
+    targets: list[tuple[str, str, str | None]] = []
+
+    for cmd_name in manifest.get_all_commands():
+        click_str = (manifest.get_command_config(cmd_name) or {}).get("click")
+        if isinstance(click_str, str) and click_str.count(":") == 1:
+            module_path, attr = click_str.split(":", 1)
+            if module_path and attr:
+                targets.append((cmd_name, module_path, attr))
+
+    for module_path in manifest.config.get("boot_modules", []) or []:
+        if isinstance(module_path, str) and module_path:
+            targets.append((module_path, module_path, None))
+
+    return targets
+
+
+def _probe_command_imports(manifest: _ManifestLike) -> tuple[int, list[tuple[str, str]]]:
+    """Import every command + boot module, returning ``(probed, failures)``.
+
+    Surfaces broken modules that would otherwise fail opaquely at invoke time —
+    a common cause of confusing ``hogli`` startup behaviour.
+    """
+    targets = _collect_import_targets(manifest)
+    module_cache: dict[str, object] = {}
+    failures: list[tuple[str, str]] = []
+
+    for label, module_path, attr in targets:
+        if module_path not in module_cache:
+            try:
+                module_cache[module_path] = importlib.import_module(module_path)
+            except Exception as exc:
+                module_cache[module_path] = exc
+        module = module_cache[module_path]
+        if isinstance(module, Exception):
+            failures.append((label, f"{type(module).__name__}: {str(module)[:120]}"))
+        elif attr is not None and not hasattr(module, attr):
+            failures.append((label, f"missing attribute '{attr}'"))
+
+    return len(targets), failures
+
+
+def _build_report(repo_root: Path, manifest: _ManifestLike) -> str:
+    """Assemble the full diagnostics report body (no surrounding code fence)."""
+    timestamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    lines: list[str] = [f"hogli doctor:report — {timestamp}"]
+
+    # Each collector shells out to independent binaries (git, node, docker, …),
+    # so gather them concurrently — a single hung tool can't serialize the whole
+    # report, which matters since this runs precisely when the env misbehaves.
+    sections: list[tuple[str, Callable[[], list[tuple[str, str]]]]] = [
+        ("System", _system_info),
+        ("Repo", lambda: _repo_info(repo_root)),
+        ("Toolchain", lambda: _toolchain_info(repo_root)),
+        ("Checks", lambda: _checks_info(repo_root)),
+    ]
+    collected: list[list[tuple[str, str]]] = [[] for _ in sections]
+    with ThreadPoolExecutor(max_workers=len(sections) + 1) as pool:
+        # The import probe is independent of the section collectors, so run it in
+        # the same batch rather than serially afterwards — it overlaps with the
+        # slowest section instead of adding its cost on top.
+        probe_future = pool.submit(_probe_command_imports, manifest)
+        futures = {pool.submit(collect): i for i, (_, collect) in enumerate(sections)}
+        for future in as_completed(futures):
+            idx = futures[future]
+            try:
+                collected[idx] = future.result()
+            except Exception as exc:
+                # A diagnostic is run precisely when the env misbehaves — one
+                # collector blowing up must not sink the whole report.
+                collected[idx] = [("error", f"{type(exc).__name__}: {str(exc)[:120]}")]
+        try:
+            probed, failures = probe_future.result()
+        except Exception as exc:
+            # Same invariant as the section collectors above: the import probe
+            # blowing up must not sink the whole report.
+            probed, failures = 0, [("import probe", f"{type(exc).__name__}: {str(exc)[:120]}")]
+
+    for (title, _), pairs in zip(sections, collected):
+        lines.append("")
+        lines.append(f"== {title} ==")
+        lines.extend(_format_kv_block(pairs))
+
+    # phrocs is the headline failure mode (blank `hogli start`), so group its
+    # runtime state right after the toolchain/health sections.
+    lines.append("")
+    lines.append("== phrocs runtime ==")
+    lines.extend(_phrocs_runtime_block(repo_root))
+
+    lines.append("")
+    lines.append("== Command imports ==")
+    if not failures:
+        lines.append(f"probed {probed} target(s): all import OK")
+    else:
+        lines.append(f"probed {probed} target(s): {len(failures)} FAILED")
+        lines.extend(f"  {label}: {error}" for label, error in failures)
+
+    return "\n".join(lines)
+
+
+@click.command(
+    name="doctor:report",
+    help="Dump a paste-ready dev-environment diagnostics report for devex triage",
+)
+def doctor_report() -> None:
+    """Collect environment, toolchain, health-check, command-import, and phrocs
+    runtime diagnostics into a single copy-paste block to share with the devex team."""
+    click.echo("\nGathering diagnostics…\n")
+    report = _build_report(REPO_ROOT, get_manifest())
+
+    click.echo("```text")
+    click.echo(report)
+    click.echo("```")
+    click.echo()
+
+    hints.record_check_run("doctor:report")

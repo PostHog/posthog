@@ -22,18 +22,18 @@ export const HogFlowTemplateScopeEnumApi = {
 
 export interface HogFlowMaskingApi {
     /**
-     * Hash TTL in seconds (60 to ~94M / 3y).
+     * Seconds (60 to ~94M / 3y) to suppress repeat firings of the same hash.
      * @minimum 60
      * @maximum 94608000
      * @nullable
      */
     ttl?: number | null
     /**
-     * Min matching events before triggering (k-anonymity).
+     * Fire once per N matches of the same hash within ttl — a sampler: N=3 fires on the 1st, 4th, 7th… match. Omit to fire on the first match, then suppress repeats within ttl.
      * @nullable
      */
     threshold?: number | null
-    /** HogQL template, e.g. '{person.properties.email}'. */
+    /** HogQL template defining the dedup/grouping key, e.g. '{person.id}' (once per person) within ttl. */
     hash: string
     /** Auto-compiled from hash. Do not set. */
     bytecode?: unknown
@@ -57,16 +57,12 @@ export const ExitConditionEnumApi = {
 /**
  * * `continue` - continue
  * * `abort` - abort
- * * `complete` - complete
- * * `branch` - branch
  */
 export type OnErrorEnumApi = (typeof OnErrorEnumApi)[keyof typeof OnErrorEnumApi]
 
 export const OnErrorEnumApi = {
     Continue: 'continue',
     Abort: 'abort',
-    Complete: 'complete',
-    Branch: 'branch',
 } as const
 
 /**
@@ -112,6 +108,10 @@ export interface HogFlowTemplateActionApi {
     /** @maxLength 400 */
     name: string
     description?: string
+    /** On failure: continue (skip the action and proceed) or abort (stop the run).
+     *
+     * * `continue` - continue
+     * * `abort` - abort */
     on_error?: OnErrorEnumApi | null
     created_at?: number
     updated_at?: number
@@ -358,12 +358,10 @@ export interface HogFlowActionApi {
     name: string
     /** Optional description. */
     description?: string
-    /** On failure: continue (skip), abort (stop), complete (mark done), branch (follow error edge).
+    /** On failure: continue (skip the action and proceed) or abort (stop the run).
      *
      * * `continue` - continue
-     * * `abort` - abort
-     * * `complete` - complete
-     * * `branch` - branch */
+     * * `abort` - abort */
     on_error?: OnErrorEnumApi | null
     /** Created at (epoch ms). Frontend-managed. */
     created_at?: number
@@ -372,11 +370,11 @@ export interface HogFlowActionApi {
     /** Property filters gating this action. */
     filters?: HogFunctionFiltersApi | null
     /**
-     * trigger | function | function_email | function_sms | function_push | delay | conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit.
+     * trigger | function | function_email | function_sms | delay | conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit.
      * @maxLength 100
      */
     type: string
-    /** Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, max_wait_duration: <duration>} (same rules as delay). exit: {reason}. */
+    /** Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, max_wait_duration: <duration>} (same rules as delay). exit: {reason}. */
     config: unknown
     /** Output variable definition for downstream actions. */
     output_variable?: unknown
@@ -445,7 +443,7 @@ export interface HogFlowApi {
     readonly created_by: UserBasicApi
     readonly updated_at: string
     readonly trigger: unknown
-    /** Optional dedup: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Server compiles bytecode from hash. Omit to disable. */
+    /** Optional dedup/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable. */
     trigger_masking?: HogFlowMaskingApi | null
     /** Conversion goal: {filters: [<cond>, ...], window_minutes}. <cond>: {key, value, operator, type: event|person|group}. Empty filters = any event in window. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
     conversion?: unknown
@@ -495,7 +493,7 @@ export interface PatchedHogFlowApi {
     readonly created_by?: UserBasicApi
     readonly updated_at?: string
     readonly trigger?: unknown
-    /** Optional dedup: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Server compiles bytecode from hash. Omit to disable. */
+    /** Optional dedup/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable. */
     trigger_masking?: HogFlowMaskingApi | null
     /** Conversion goal: {filters: [<cond>, ...], window_minutes}. <cond>: {key, value, operator, type: event|person|group}. Empty filters = any event in window. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
     conversion?: unknown

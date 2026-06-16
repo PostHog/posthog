@@ -9,6 +9,7 @@ from rest_framework import status
 
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.cdp.templates.slack.template_slack import template as template_slack
+from posthog.event_usage import EventSource
 from posthog.models import Organization, Team, User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
@@ -17,6 +18,7 @@ from posthog.test.fixtures import create_app_metric2
 from products.actions.backend.models.action import Action
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.cohorts.backend.models.cohort import Cohort
+from products.workflows.backend.api.hog_flow import _should_validate_strictly
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 webhook_template = MOCK_NODE_TEMPLATES[0]
@@ -1316,6 +1318,52 @@ class TestHogFlowAPI(APIBaseTest):
         cohort = self._make_cohort(behavioral=True)
         response = self._post_batch_with_cohort(cohort.pk, status="draft")
         assert response.status_code == 201, response.json()
+
+    def _post_event_trigger_with_cohort(self, cohort_id: int, *, status: str = "draft", **extra):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {
+                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                    "properties": [{"key": "id", "type": "cohort", "value": cohort_id, "operator": "in"}],
+                },
+            },
+        }
+        hog_flow = {"name": "Test Event Flow", "status": status, "actions": [trigger_action]}
+        return self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow, **extra)
+
+    def test_hog_flow_event_trigger_cohort_filter_rejected_for_mcp_draft(self):
+        # Cohorts can't be evaluated in real-time event filters. Generalized strict validation rejects this
+        # at create for programmatic callers, instead of silently storing a filter that won't compile and
+        # only surfacing the failure at enable (which reads to the caller as a successful create).
+        cohort = self._make_cohort(behavioral=True)
+        response = self._post_event_trigger_with_cohort(cohort.pk, HTTP_X_POSTHOG_CLIENT="mcp")
+        assert response.status_code == 400, response.json()
+        assert "cohort" in str(response.json()).lower()
+
+    def test_hog_flow_event_trigger_cohort_filter_allowed_for_web_draft(self):
+        # Web builder drafts stay lenient so incomplete graphs can be saved mid-edit.
+        cohort = self._make_cohort(behavioral=True)
+        response = self._post_event_trigger_with_cohort(cohort.pk)
+        assert response.status_code == 201, response.json()
+
+    @parameterized.expand(
+        [
+            # (name, is_draft, event_source, expected_strict)
+            ("active_no_source", False, None, True),
+            ("active_web", False, EventSource.WEB, True),
+            ("draft_no_source", True, None, False),  # internal re-saves (e.g. refresh command) stay lenient
+            ("draft_web", True, EventSource.WEB, False),
+            ("draft_mcp", True, EventSource.MCP, True),
+            ("draft_api", True, EventSource.API, True),
+        ]
+    )
+    def test_should_validate_strictly(self, _name, is_draft, event_source, expected_strict):
+        context = {} if event_source is None else {"event_source": event_source}
+        assert _should_validate_strictly(context, is_draft) is expected_strict
 
     def test_hog_flow_user_blast_radius_requires_filters(self):
         with patch("products.workflows.backend.api.hog_flow.get_user_blast_radius") as mock_get_user_blast_radius:

@@ -51,7 +51,9 @@ export function seriesValueRange(series: Series[]): SeriesValueRange {
         if (s.visibility?.excluded) {
             continue
         }
-        for (const v of s.data) {
+        // A confidence ribbon's lower bound (`fill.lowerData`) is part of the data's visible
+        // extent, so it must widen the axis too — otherwise the band clips at the top series.
+        for (const v of s.fill?.lowerData ? [...s.data, ...s.fill.lowerData] : s.data) {
             if (v == null || !isFinite(v)) {
                 continue
             }
@@ -167,8 +169,16 @@ export function createYScale(
 
     if (scaleType === 'log') {
         if (!isFinite(range.minPositive)) {
+            // No positive values for a log scale (e.g. all-zero data). Fall back to linear, and
+            // bracket a degenerate `min === max` domain so it doesn't collapse to NaN.
+            let logMin = min
+            let logMax = max
+            if (logMin === logMax) {
+                logMin = Math.min(0, logMin)
+                logMax = Math.max(0, logMax, logMin + 1)
+            }
             return scaleLinear()
-                .domain([min, max])
+                .domain([logMin, logMax])
                 .nice(tickCount)
                 .range([dimensions.plotTop + dimensions.plotHeight, dimensions.plotTop])
         }
@@ -205,6 +215,40 @@ export function createYScale(
         .range([dimensions.plotTop + dimensions.plotHeight, dimensions.plotTop])
 }
 
+/** Order the visible series' axis ids — DEFAULT_Y_AXIS_ID first (when present), then the
+ *  remaining ids in first-encountered order — and assign alternating positions starting on the
+ *  left: index 0 left, 1 right, 2 left, 3 right, … Each side stacks its gutters outward in this
+ *  order. Mirrors the legacy multi-axis trends rendering and is shared by the scale builders and
+ *  the margin/axis-label layout so they agree on how many gutters sit on each side. */
+export function orderedAxisPositions(series: Series[]): { axisId: string; position: 'left' | 'right' }[] {
+    const axisIds = new Set(series.filter((s) => !s.visibility?.excluded).map((s) => s.yAxisId ?? DEFAULT_Y_AXIS_ID))
+    const ordered = [
+        ...(axisIds.has(DEFAULT_Y_AXIS_ID) ? [DEFAULT_Y_AXIS_ID] : []),
+        ...Array.from(axisIds).filter((id) => id !== DEFAULT_Y_AXIS_ID),
+    ]
+    return ordered.map((axisId, i) => ({ axisId, position: i % 2 === 0 ? 'left' : 'right' }))
+}
+
+/** Bucket visible series by axis id in a single O(series) pass so per-axis scale builders look
+ *  their series up instead of re-filtering the whole list per axis (which is O(series²) when each
+ *  series has its own axis, as in `showMultipleYAxes`). */
+export function groupVisibleSeriesByAxis(series: Series[]): Map<string, Series[]> {
+    const byAxis = new Map<string, Series[]>()
+    for (const s of series) {
+        if (s.visibility?.excluded) {
+            continue
+        }
+        const id = s.yAxisId ?? DEFAULT_Y_AXIS_ID
+        const bucket = byAxis.get(id)
+        if (bucket) {
+            bucket.push(s)
+        } else {
+            byAxis.set(id, [s])
+        }
+    }
+    return byAxis
+}
+
 export function createScales(
     series: Series[],
     labels: string[],
@@ -219,8 +263,8 @@ export function createScales(
 ): ScaleSet {
     const x = createXScale(labels, dimensions)
 
-    const axisIds = new Set(series.filter((s) => !s.visibility?.excluded).map((s) => s.yAxisId ?? DEFAULT_Y_AXIS_ID))
-    const hasMultipleAxes = axisIds.size > 1
+    const positions = orderedAxisPositions(series)
+    const hasMultipleAxes = positions.length > 1
 
     if (!hasMultipleAxes) {
         const y = createYScale(series, dimensions, {
@@ -231,25 +275,18 @@ export function createScales(
         return { x, y }
     }
 
-    // DEFAULT_Y_AXIS_ID is always the left axis when present, regardless of series order.
-    // Remaining axis ids keep their first-encountered order and take the right position.
-    const orderedAxisIds = [
-        ...(axisIds.has(DEFAULT_Y_AXIS_ID) ? [DEFAULT_Y_AXIS_ID] : []),
-        ...Array.from(axisIds).filter((id) => id !== DEFAULT_Y_AXIS_ID),
-    ]
-
+    const byAxis = groupVisibleSeriesByAxis(series)
     const yAxes: Record<string, { scale: D3YScale; position: 'left' | 'right' }> = {}
-    orderedAxisIds.forEach((axisId, axisIndex) => {
-        const axisSeries = series.filter((s) => !s.visibility?.excluded && (s.yAxisId ?? DEFAULT_Y_AXIS_ID) === axisId)
-        const scale = createYScale(axisSeries, dimensions, {
+    positions.forEach(({ axisId, position }, axisIndex) => {
+        const scale = createYScale(byAxis.get(axisId) ?? [], dimensions, {
             scaleType: options.scaleType,
             percentStack: options.percentStack,
             valueDomain: axisIndex === 0 ? options.valueDomain : undefined,
         })
-        yAxes[axisId] = { scale, position: axisIndex === 0 ? 'left' : 'right' }
+        yAxes[axisId] = { scale, position }
     })
 
-    const primaryAxis = yAxes[DEFAULT_Y_AXIS_ID] ?? yAxes[orderedAxisIds[0]]
+    const primaryAxis = yAxes[DEFAULT_Y_AXIS_ID] ?? yAxes[positions[0].axisId]
 
     return { x, y: primaryAxis.scale, yAxes }
 }
@@ -375,6 +412,10 @@ export interface BarScaleSet {
     value: D3YScale
     /** Sub-band for grouped layout — maps a series key to its offset inside a band. */
     group?: ScaleBand<string>
+    /** Per-axis value scales keyed by axis id. Only populated for grouped layouts with
+     *  more than one axis id across the visible series (`showMultipleYAxes`). `value` is
+     *  the primary (left) axis scale. */
+    yAxes?: Record<string, { scale: D3YScale; position: 'left' | 'right' }>
 }
 
 /** Band-axis slot of one series's bar within a grouped band: `{ x, width }` along the band axis.
@@ -410,6 +451,8 @@ export function createBarScales(
         minBandSize?: number
         /** Fixed `[min, max]` or `{ include }` extra values the value axis must cover. */
         valueDomain?: ValueDomain
+        /** Px reserved past the bars at the value-axis data end(s) — see {@link BarsConfig.valuePadding}. */
+        valuePadding?: number
     } = {}
 ): BarScaleSet {
     const {
@@ -423,6 +466,7 @@ export function createBarScales(
         fitToHeight,
         minBandSize,
         valueDomain,
+        valuePadding = 0,
     } = options
 
     const isHorizontal = axisOrientation === 'horizontal'
@@ -467,6 +511,31 @@ export function createBarScales(
     const valueSeries = series.map(restrictToKept)
     const valueStackedSeries = stackedSeries?.map(restrictToKept)
 
+    // Multiple y-axes only make sense for grouped bars — each series keeps its own scale so
+    // series of different magnitudes are individually comparable. Stacked/percent layouts share
+    // one axis (stacking values on different scales is meaningless).
+    const visibleSeries = valueSeries.filter((s) => !s.visibility?.excluded)
+    const positions = orderedAxisPositions(visibleSeries)
+    if (barLayout === 'grouped' && positions.length > 1) {
+        const byAxis = groupVisibleSeriesByAxis(visibleSeries)
+        const yAxes: Record<string, { scale: D3YScale; position: 'left' | 'right' }> = {}
+        positions.forEach(({ axisId, position }, axisIndex) => {
+            const scale = buildBarValueScale(
+                byAxis.get(axisId) ?? [],
+                valueRange,
+                tickCount,
+                'grouped',
+                scaleType,
+                undefined,
+                axisIndex === 0 ? valueDomain : undefined,
+                valuePadding
+            )
+            yAxes[axisId] = { scale, position }
+        })
+        const primary = yAxes[DEFAULT_Y_AXIS_ID] ?? yAxes[positions[0].axisId]
+        return { band, value: primary.scale, group, yAxes }
+    }
+
     return {
         band,
         value: buildBarValueScale(
@@ -476,7 +545,8 @@ export function createBarScales(
             barLayout,
             scaleType,
             valueStackedSeries,
-            valueDomain
+            valueDomain,
+            valuePadding
         ),
         group,
     }
@@ -489,7 +559,8 @@ function buildBarValueScale(
     barLayout: 'stacked' | 'grouped' | 'percent',
     scaleType: 'linear' | 'log',
     stackedSeries: Series[] | undefined,
-    valueDomain: ValueDomain | undefined
+    valueDomain: ValueDomain | undefined,
+    valuePadding: number
 ): D3YScale {
     const { fixed, include } = resolveValueDomain(valueDomain)
     if (fixed) {
@@ -513,7 +584,26 @@ function buildBarValueScale(
     if (min === max) {
         max = min + 1
     }
-    return scaleLinear().domain([min, max]).nice(tickCount).range(valueRange)
+    const scale = scaleLinear().domain([min, max]).nice(tickCount)
+    return scale.range(padValueRange(valueRange, scale.domain() as [number, number], valuePadding))
+}
+
+// Hold back `paddingPx` of the value axis's pixel range at the data-extent end(s), so the bars stop
+// short of the edge and an overlay (e.g. a value label) has room beyond the bar tip. Reserving range
+// rather than extending the domain keeps the gap exactly `paddingPx` regardless of the data scale.
+// Only the end(s) the bars actually reach are padded — the zero baseline stays pinned to the edge.
+function padValueRange(
+    [start, end]: [number, number],
+    [min, max]: [number, number],
+    paddingPx: number
+): [number, number] {
+    const span = Math.abs(end - start)
+    if (paddingPx <= 0 || span === 0) {
+        return [start, end]
+    }
+    // Cap each reserved end at a third of the axis so padding can't swallow the plot.
+    const reserve = Math.min(paddingPx, span / 3) * Math.sign(start - end || 1)
+    return [min < 0 ? start - reserve : start, max > 0 ? end + reserve : end]
 }
 
 export function autoFormatYTick(value: number, domainMax: number): string {

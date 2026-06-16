@@ -1,7 +1,8 @@
 import { createBarScales } from '../../core/scales'
 import type { ChartDimensions } from '../../core/types'
 import { makeSeries } from '../../testing'
-import { computeBoxRect, computeSeriesBoxes, type BoxPlotDatum } from './computeBoxLayout'
+import { computeBoxRect, computeSeriesBoxes } from './computeBoxLayout'
+import type { BoxPlotDatum } from './types'
 
 const PIXEL_TEST_DIMENSIONS: ChartDimensions = {
     width: 400,

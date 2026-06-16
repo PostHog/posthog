@@ -46,7 +46,7 @@ class TestFreshsalesSource:
     def test_source_config_fields(self) -> None:
         config = FreshsalesSource().get_source_config
         assert config.label == "Freshsales"
-        assert config.unreleasedSource is True
+        assert not config.unreleasedSource
         assert config.releaseStatus == ReleaseStatus.ALPHA
 
         fields = {f.name: f for f in config.fields}

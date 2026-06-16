@@ -504,12 +504,12 @@ def sample_generation_details(
         FROM posthog.ai_events AS ai_events
         WHERE event = '$ai_generation'
             AND trace_id IN {trace_ids}
-            AND toString(uuid) IN {ids}
+            AND uuid IN {ids}
         LIMIT {limit}
         """,
         placeholders={
-            "ids": ast.Array(exprs=[ast.Constant(value=gid) for gid in ids_to_fetch]),
-            "trace_ids": ast.Array(exprs=[ast.Constant(value=tid) for tid in trace_ids]),
+            "ids": ast.Tuple(exprs=[ast.Constant(value=gid) for gid in ids_to_fetch]),
+            "trace_ids": ast.Tuple(exprs=[ast.Constant(value=tid) for tid in trace_ids]),
             "limit": ast.Constant(value=len(ids_to_fetch)),
         },
     )
@@ -620,7 +620,7 @@ def get_generation_detail(
         FROM posthog.ai_events AS ai_events
         WHERE event = '$ai_generation'
             AND trace_id = {trace_id}
-            AND toString(uuid) = {generation_id}
+            AND uuid = {generation_id}
         LIMIT 1
         """,
         placeholders=gen_placeholders,
@@ -747,7 +747,7 @@ def get_generation_text_repr(
         FROM posthog.ai_events AS ai_events
         WHERE event = '$ai_generation'
             AND trace_id = {trace_id}
-            AND toString(uuid) = {generation_id}
+            AND uuid = {generation_id}
         LIMIT 1
         """,
         placeholders={

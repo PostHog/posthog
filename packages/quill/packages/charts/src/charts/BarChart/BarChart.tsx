@@ -26,6 +26,7 @@ import type {
     ResolvedSeries,
     Series,
     TooltipContext,
+    YAxisScale,
 } from '../../core/types'
 import { DEFAULT_Y_AXIS_ID } from '../../core/types'
 import { BarTooltip } from './BarTooltip'
@@ -86,6 +87,7 @@ function BarChartInner<Meta = unknown>({
         minBandSize,
         fitToHeight = false,
         valueDomain,
+        valuePadding,
         roundStackEnds = false,
         fillStyle: barFillStyle = 'flat',
     } = config?.bars ?? {}
@@ -172,10 +174,25 @@ function BarChartInner<Meta = unknown>({
                 fitToHeight,
                 minBandSize: resolvedMinBandSize,
                 valueDomain,
+                valuePadding,
             })
 
             const tickAxisLength = isHorizontal ? dimensions.plotWidth : dimensions.plotHeight
             const yTickCount = yTickCountForHeight(tickAxisLength)
+
+            // Expose per-axis scales so AxisLabels renders the right-hand axis and the tooltip /
+            // value-label overlays resolve each series against its own axis.
+            let yAxes: Record<string, YAxisScale> | undefined
+            if (d3Scales.yAxes) {
+                yAxes = {}
+                for (const [axisId, { scale, position }] of Object.entries(d3Scales.yAxes)) {
+                    yAxes[axisId] = {
+                        scale: (value: number) => scale(value),
+                        ticks: () => scale.ticks?.(yTickCount) ?? [],
+                        position,
+                    }
+                }
+            }
 
             // Stash the raw d3 scales in the private slot so drawStatic/drawHover/click routing
             // can read them from the committed ChartScales — every render gets a self-contained
@@ -197,6 +214,7 @@ function BarChartInner<Meta = unknown>({
                 },
                 y: (value: number) => d3Scales.value(value),
                 yTicks: () => d3Scales.value.ticks?.(yTickCount) ?? [],
+                yAxes,
                 // Width of the rendered bar content within the band. In grouped mode the
                 // bars sit inside group outer padding, so `band.bandwidth()` overshoots
                 // the rightmost bar's right edge and anchors the tooltip in empty space.
@@ -239,6 +257,7 @@ function BarChartInner<Meta = unknown>({
             fitToHeight,
             resolvedMinBandSize,
             valueDomain,
+            valuePadding,
         ]
     )
 

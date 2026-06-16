@@ -12,35 +12,14 @@ from posthog.session_recordings.session_recording_api import run_recordings_list
 from posthog.session_recordings.utils import filter_from_params_to_query
 
 from products.dashboards.backend.constants import MAX_WIDGET_RESULT_LIMIT
-from products.dashboards.backend.widgets.config import (
-    merge_base_widget_config_fields,
-    resolve_filter_test_accounts,
-    validate_widget_list_date_range_if_present,
-    validate_widget_list_limit,
-    validate_widget_list_order_by,
-    validate_widget_list_order_direction,
-)
-from products.dashboards.backend.widgets.widget_config_types import (
-    SessionReplayListWidgetConfig,
-    SessionReplayListWidgetConfigInput,
-)
-from products.dashboards.backend.widgets.widget_filters import (
-    build_event_property_filters_from_widget_filters,
-    validate_widget_filters,
-)
+from products.dashboards.backend.widget_specs.configs import SESSION_REPLAY_LIST_WIDGET_TYPE
+from products.dashboards.backend.widget_specs.registry import validate_widget_config
+from products.dashboards.backend.widgets.config import resolve_filter_test_accounts
+from products.dashboards.backend.widgets.widget_filters import build_event_property_filters_from_widget_filters
 
 logger = logging.getLogger(__name__)
 
-SESSION_REPLAY_ORDER_BY = frozenset(
-    {
-        "start_time",
-        "activity_score",
-        "recording_duration",
-        "duration",
-        "click_count",
-        "console_error_count",
-    }
-)
+ValidatedSessionReplayListWidgetConfig = dict[str, Any]
 
 ORDER_BY_TO_RECORDING_ORDER: dict[str, RecordingOrder] = {
     "start_time": RecordingOrder.START_TIME,
@@ -52,29 +31,7 @@ ORDER_BY_TO_RECORDING_ORDER: dict[str, RecordingOrder] = {
 }
 
 
-def validate_session_replay_list_config(config: SessionReplayListWidgetConfigInput) -> SessionReplayListWidgetConfig:
-    limit = validate_widget_list_limit(config)
-    order_by = validate_widget_list_order_by(config, allowed=SESSION_REPLAY_ORDER_BY, default="start_time")
-    order_direction = validate_widget_list_order_direction(config)
-    validated_date_range = validate_widget_list_date_range_if_present(config)
-    validated_widget_filters = validate_widget_filters(config)
-
-    validated: SessionReplayListWidgetConfig = {
-        "limit": limit,
-        "orderBy": order_by,
-        "orderDirection": order_direction,
-    }
-    if validated_date_range is not None:
-        validated["dateRange"] = validated_date_range
-    if validated_widget_filters is not None:
-        validated["widgetFilters"] = validated_widget_filters
-    base_fields = merge_base_widget_config_fields(config)
-    if "filterTestAccounts" in base_fields:
-        validated["filterTestAccounts"] = base_fields["filterTestAccounts"]
-    return validated
-
-
-def _build_recordings_query(team: Team, config: SessionReplayListWidgetConfig):
+def _build_recordings_query(team: Team, config: ValidatedSessionReplayListWidgetConfig):
     date_range_raw = config.get("dateRange")
     date_from = "-7d"
     if date_range_raw is not None:
@@ -99,7 +56,7 @@ def _build_recordings_query(team: Team, config: SessionReplayListWidgetConfig):
 
 def _run_session_replay_list_query(
     team: Team,
-    config: SessionReplayListWidgetConfig,
+    config: ValidatedSessionReplayListWidgetConfig,
     user: User | None,
 ) -> dict[str, Any]:
     query = _build_recordings_query(team, config)
@@ -114,13 +71,12 @@ def _run_session_replay_list_query(
 
 def _count_matching_session_recordings(
     team: Team,
-    config: SessionReplayListWidgetConfig,
+    config: ValidatedSessionReplayListWidgetConfig,
     user: User | None,
     *,
     cap: int = MAX_WIDGET_RESULT_LIMIT,
 ) -> tuple[int, bool]:
-    """Return how many recordings match the widget filters, and whether the count hit the cap."""
-    count_config = cast(SessionReplayListWidgetConfig, {**config, "limit": cap})
+    count_config = cast(ValidatedSessionReplayListWidgetConfig, {**config, "limit": cap})
     data = _run_session_replay_list_query(team, count_config, user)
     raw_results_value = data.get("results")
     raw_results = raw_results_value if isinstance(raw_results_value, list) else []
@@ -129,12 +85,12 @@ def _count_matching_session_recordings(
 
 def run_session_replay_list_widget(
     team: Team,
-    config: SessionReplayListWidgetConfigInput,
+    config: dict[str, Any],
     user: User | None = None,
     *,
     include_total_count: bool = True,
 ) -> dict[str, Any]:
-    typed_config = validate_session_replay_list_config(config)
+    typed_config = validate_widget_config(SESSION_REPLAY_LIST_WIDGET_TYPE, config)
     limit = typed_config["limit"]
     data = _run_session_replay_list_query(team, typed_config, user)
     raw_results_value = data.get("results")

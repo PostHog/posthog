@@ -181,6 +181,8 @@ export function getWidgetOverviewDemoState(catalogKey: DashboardWidgetCatalogKey
                     results: sessionReplaySampleRecordings,
                     hasMore: true,
                     limit: 10,
+                    totalCount: 25,
+                    totalCountCapped: true,
                 },
             }
         default: {

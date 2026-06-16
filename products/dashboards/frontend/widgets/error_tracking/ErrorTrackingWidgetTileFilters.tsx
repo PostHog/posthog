@@ -13,7 +13,7 @@ import {
     type ErrorTrackingStatusSelectValue,
 } from 'products/error_tracking/frontend/components/IssueFilters/Status'
 
-import { WIDGET_DATE_RANGE_SELECT_OPTIONS, type WidgetDateFromValue } from '../../widget_types/configSchemas'
+import { WIDGET_DATE_RANGE_SELECT_OPTIONS, type WidgetDateFromValue } from '../../widget_types/widgetConfigShared'
 import type { DashboardWidgetTileFiltersProps } from '../registry'
 import { WidgetPropertyFiltersSection } from '../WidgetPropertyFiltersSection'
 import { getWidgetTileFiltersSetup, useWidgetTileConfigPersist } from '../widgetTileFiltersHooks'

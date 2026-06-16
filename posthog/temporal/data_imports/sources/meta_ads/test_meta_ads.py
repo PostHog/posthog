@@ -192,6 +192,88 @@ class TestSimplePagination:
         assert mock_get.return_value.get.call_args_list[0].kwargs["params"] == {"access_token": "tok"}
 
 
+class TestSimplePaginationLimitFallback:
+    INITIAL_URL = "https://graph.facebook.com/v20/act_123/campaigns"
+    # Mirrors production params from `meta_ads_source`: a default page limit is always set.
+    PARAMS: dict[str, Any] = {"fields": "id,name", "limit": 500, "access_token": "tok"}
+    REDUCE_BODY: dict[str, Any] = {
+        "error": {"code": 1, "message": "Please reduce the amount of data you're asking for, then retry your request"}
+    }
+
+    def test_initial_too_much_data_retries_with_smaller_limit(self) -> None:
+        manager = _build_manager()
+        responses = [
+            # Initial request at the default limit is rejected as too large.
+            _mock_response(500, self.REDUCE_BODY),
+            # Retry at the next-smaller limit succeeds.
+            _mock_response(200, {"data": [{"id": "1"}], "paging": {}}),
+        ]
+
+        with mock.patch("posthog.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session") as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            batches = list(_iter_simple_pagination(self.INITIAL_URL, self.PARAMS, None, manager))
+
+        assert batches == [[{"id": "1"}]]
+        # First attempt used the default 500 limit.
+        assert mock_get.return_value.get.call_args_list[0].args[0] == self.INITIAL_URL
+        assert mock_get.return_value.get.call_args_list[0].kwargs["params"]["limit"] == 500
+        # Retry re-issues the same initial URL with the limit reduced to the next rung (100).
+        assert mock_get.return_value.get.call_args_list[1].args[0] == self.INITIAL_URL
+        assert mock_get.return_value.get.call_args_list[1].kwargs["params"]["limit"] == 100
+
+    def test_cursor_too_much_data_retries_with_smaller_limit(self) -> None:
+        manager = _build_manager()
+        responses = [
+            # Page 1 succeeds and hands back a cursor.
+            _mock_response(
+                200,
+                {"data": [{"id": "1"}], "paging": {"next": "https://graph.facebook.com/v20/next?after=p1"}},
+            ),
+            # The cursor request is rejected as too large at the default limit.
+            _mock_response(500, self.REDUCE_BODY),
+            # Retry of the SAME cursor at a smaller limit succeeds; no more pages.
+            _mock_response(200, {"data": [{"id": "2"}], "paging": {}}),
+        ]
+
+        with mock.patch("posthog.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session") as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            batches = list(_iter_simple_pagination(self.INITIAL_URL, self.PARAMS, None, manager))
+
+        assert batches == [[{"id": "1"}], [{"id": "2"}]]
+        # Cursor first tried without a limit override (still at the default).
+        assert mock_get.return_value.get.call_args_list[1].args[0] == "https://graph.facebook.com/v20/next?after=p1"
+        # Retry uses the SAME cursor with the limit reduced to 100.
+        assert (
+            mock_get.return_value.get.call_args_list[2].args[0]
+            == "https://graph.facebook.com/v20/next?after=p1&limit=100"
+        )
+
+    def test_exhausting_limit_ladder_raises(self) -> None:
+        manager = _build_manager()
+        # Every rung in PAGE_LIMIT_FALLBACK_SIZES returns the too-much-data error.
+        responses = [_mock_response(500, self.REDUCE_BODY) for _ in PAGE_LIMIT_FALLBACK_SIZES]
+
+        with mock.patch("posthog.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session") as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            with pytest.raises(Exception, match="Meta API request failed: 500"):
+                list(_iter_simple_pagination(self.INITIAL_URL, self.PARAMS, None, manager))
+
+        # One attempt per rung, then it gives up.
+        assert mock_get.return_value.get.call_count == len(PAGE_LIMIT_FALLBACK_SIZES)
+
+    def test_non_timeout_error_does_not_retry(self) -> None:
+        manager = _build_manager()
+        # Transient service error (code 2) — not a too-much-data error, so no limit fallback.
+        responses = [_mock_response(500, {"error": {"message": "Service temporarily unavailable", "code": 2}})]
+
+        with mock.patch("posthog.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session") as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            with pytest.raises(Exception, match="Meta API request failed: 500"):
+                list(_iter_simple_pagination(self.INITIAL_URL, self.PARAMS, None, manager))
+
+        assert mock_get.return_value.get.call_count == 1
+
+
 class TestTimeRangePagination:
     URL = "https://graph.facebook.com/v20/act_1/insights"
     PARAMS: dict[str, Any] = {"fields": "ad_id", "limit": 500, "level": "ad", "access_token": "tok"}

@@ -1522,3 +1522,186 @@ describe('path parameter encoding', () => {
         expect(result.code).not.toMatch(/\$\{id\}[^)]/)
     })
 })
+
+// ------------------------------------------------------------------
+// confirmed_action — schema validation
+// ------------------------------------------------------------------
+
+describe('ToolConfigSchema confirmed_action', () => {
+    const base = {
+        operation: 'organizations_partial_update',
+        enabled: true,
+    } as const
+
+    it('accepts a minimal confirmed_action block', () => {
+        const result = ToolConfigSchema.safeParse({
+            ...base,
+            confirmed_action: { message: 'Confirm action on {orgId}?' },
+        })
+        expect(result.success).toBe(true)
+    })
+
+    it('accepts an action_label override', () => {
+        const result = ToolConfigSchema.safeParse({
+            ...base,
+            confirmed_action: { message: 'Confirm', action_label: 'enforce 2FA' },
+        })
+        expect(result.success).toBe(true)
+    })
+
+    it('rejects missing message', () => {
+        const result = ToolConfigSchema.safeParse({
+            ...base,
+            confirmed_action: { action_label: 'foo' },
+        })
+        expect(result.success).toBe(false)
+    })
+
+    it('rejects confirmed_action combined with ui_app (silent UI-app drop)', () => {
+        const result = ToolConfigSchema.safeParse({
+            ...base,
+            ui_app: 'org-2fa',
+            confirmed_action: { message: 'x' },
+        })
+        expect(result.success).toBe(false)
+        if (!result.success) {
+            expect(result.error.issues[0]!.message).toContain('ui_app')
+        }
+    })
+
+    it('rejects unknown keys inside the confirmed_action object', () => {
+        const result = ToolConfigSchema.safeParse({
+            ...base,
+            confirmed_action: { message: 'x', bogus: true },
+        })
+        expect(result.success).toBe(false)
+    })
+})
+
+// ------------------------------------------------------------------
+// generateToolCode — confirmed_action codegen
+// ------------------------------------------------------------------
+
+describe('generateToolCode with confirmed_action', () => {
+    function makeConfirmedConfig(): ToolConfig {
+        return {
+            operation: 'organizations_partial_update',
+            enabled: true,
+            title: 'Enforce 2FA',
+            confirmed_action: {
+                message: 'About to enable enforce 2FA on organization {id}.',
+                action_label: 'enforce 2FA',
+            },
+        }
+    }
+
+    function makePatchResolved(): ResolvedOperation {
+        return {
+            method: 'PATCH',
+            path: '/api/organizations/{id}/',
+            operation: { operationId: 'organizations_partial_update', parameters: [] },
+        }
+    }
+
+    it('emits TWO factories (prepare and execute), not the base factory', () => {
+        const result = generateToolCode(
+            'organization-enforce-2fa-update',
+            makeConfirmedConfig(),
+            makePatchResolved(),
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+        expect(result.code).toContain('organizationEnforce2faUpdatePrepare')
+        expect(result.code).toContain('organizationEnforce2faUpdateExecute')
+        // No base factory of the original name should be emitted.
+        expect(result.code).not.toMatch(/const organizationEnforce2faUpdate\s*=/)
+    })
+
+    it('extends the base schema for the execute variant with confirmation fields', () => {
+        const result = generateToolCode(
+            'organization-enforce-2fa-update',
+            makeConfirmedConfig(),
+            makePatchResolved(),
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+        expect(result.code).toContain('OrganizationEnforce2faUpdateSchemaExecute')
+        expect(result.code).toContain('.extend({')
+        expect(result.code).toContain('confirmation_hash')
+        expect(result.code).toContain('confirmation:')
+    })
+
+    it('wires prepare into prepareConfirmedAction with the messageTemplate', () => {
+        const result = generateToolCode(
+            'organization-enforce-2fa-update',
+            makeConfirmedConfig(),
+            makePatchResolved(),
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+        expect(result.code).toContain('await prepareConfirmedAction')
+        expect(result.code).toContain('purpose: "organization-enforce-2fa-update"')
+        expect(result.code).toContain('actionLabel: "enforce 2FA"')
+        expect(result.code).toContain('messageTemplate: "About to enable enforce 2FA on organization {id}."')
+    })
+
+    it('wires execute into executeConfirmedAction and falls through to the original API call', () => {
+        const result = generateToolCode(
+            'organization-enforce-2fa-update',
+            makeConfirmedConfig(),
+            makePatchResolved(),
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+        expect(result.code).toContain('await executeConfirmedAction')
+        expect(result.code).toContain('if (!__guard.ok)')
+        // After the guard, the handler runs the original API request.
+        expect(result.code).toContain('await context.api.request')
+        expect(result.code).toContain("method: 'PATCH'")
+    })
+
+    it('REPLACES params with verifiedArgs (never merges) so unsigned extras cannot survive', () => {
+        // The generated handler must not preserve incoming params alongside
+        // verifiedArgs — only the signed payload is authorized. A merge
+        // would let the model slip an unsigned base-schema field (e.g. an
+        // extra 'name') into the downstream API body without it ever being
+        // shown to the user at prepare time.
+        const result = generateToolCode(
+            'organization-enforce-2fa-update',
+            makeConfirmedConfig(),
+            makePatchResolved(),
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+        expect(result.code).toContain('params = { ...__guard.verifiedArgs }')
+        expect(result.code).not.toMatch(/params\s*=\s*\{\s*\.\.\.params\s*,\s*\.\.\.__guard\.verifiedArgs/)
+    })
+
+    it('uses the tool title as the fallback action_label when none is set', () => {
+        const config: ToolConfig = {
+            ...makeConfirmedConfig(),
+            title: 'Enforce 2FA',
+            confirmed_action: { message: 'msg' },
+        }
+        const result = generateToolCode(
+            'organization-enforce-2fa-update',
+            config,
+            makePatchResolved(),
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+        expect(result.code).toContain('actionLabel: "Enforce 2FA"')
+    })
+})
