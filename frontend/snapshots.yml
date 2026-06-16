@@ -6426,6 +6426,14 @@ snapshots:
         hash: v1.k794b7964.c78db80aa95fa6ee6990de27483c09be58a2250025d7ede30d03edae433b929d.ecGZ7E8Kep7cytqUM1a_ylLvTsWewvJIKaGKDX4CO10
     scenes-other-billing-product--billing-product-without-addons--light:
         hash: v1.k794b7964.3455fe6bd5eb074408ff091675444e597f9c7a34d232faa0f392a3fcb4f6e021.2FmYvUHcc47NK-z0ntILzg44Any6Y947VSerITyrL6k
+    scenes-other-integration-landing-page--connected--dark:
+        hash: v1.k794b7964.c3f38cb69619148711f73cbd2358e9879a628dedce0133ddf4a55c909eb74023.TKSLIKWkZhyP9yVqCUNnOWE-phlM8jkN2hg7yhVk-x8
+    scenes-other-integration-landing-page--connected--light:
+        hash: v1.k794b7964.75ccf59d3aeba8ec4f6036dacc9812fad6ac24ebcc8988f74c0de3b4d0ae2ffb.NXnkDcwqc_lAqnRMFjZA4hgi6DiLOx_pL6TfEKmzK7s
+    scenes-other-integration-landing-page--not-connected--dark:
+        hash: v1.k794b7964.cbc1efc83f9f31ee7ed22a7da2be3ec19e7e6f6568a5b43ade5f75ee4aaccbc5.u1nKAJkTALr_RPPMm4EA68pFFF4JE03AJBqWleTvbJk
+    scenes-other-integration-landing-page--not-connected--light:
+        hash: v1.k794b7964.4647e2369579daae32034bfc8c2673e622185f0c3e46037bc6b317831487655f.i1sSGZFaLb8f7J2y6QO3Bkb3_Ul2xmRKglsiSOdKQOc
     scenes-other-invitesignup--cloud--dark:
         hash: v1.k794b7964.083cd7b2744570c08e0c7462cd02d0343eb0e7452e8519ec24a71b28c987af24.G7jLEfOSKD64Fa9awkHNTACr_6yIKpLKEaWFR3C3sxs
     scenes-other-invitesignup--cloud--light:
