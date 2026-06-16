@@ -2,6 +2,7 @@
 import type { ToolBase, ZodObjectAny } from '@/tools/types'
 
 import { GENERATED_TOOLS as actions } from './actions'
+import { GENERATED_TOOLS as agent_platform } from './agent_platform'
 import { GENERATED_TOOLS as ai_observability } from './ai_observability'
 import { GENERATED_TOOLS as alerts } from './alerts'
 import { GENERATED_TOOLS as annotations } from './annotations'
@@ -28,6 +29,7 @@ import { GENERATED_TOOLS as health_issues } from './health_issues'
 import { GENERATED_TOOLS as integrations } from './integrations'
 import { GENERATED_TOOLS as logs } from './logs'
 import { GENERATED_TOOLS as marketing_analytics } from './marketing_analytics'
+import { GENERATED_TOOLS as mcp_analytics } from './mcp_analytics'
 import { GENERATED_TOOLS as notebooks } from './notebooks'
 import { GENERATED_TOOLS as persons } from './persons'
 import { GENERATED_TOOLS as platform_features } from './platform_features'
@@ -49,6 +51,7 @@ import { GENERATED_TOOLS as workflows } from './workflows'
 
 export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     ...actions,
+    ...agent_platform,
     ...ai_observability,
     ...alerts,
     ...annotations,
@@ -75,6 +78,7 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...integrations,
     ...logs,
     ...marketing_analytics,
+    ...mcp_analytics,
     ...notebooks,
     ...persons,
     ...platform_features,
