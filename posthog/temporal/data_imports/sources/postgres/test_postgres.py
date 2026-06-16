@@ -1,3 +1,4 @@
+from collections.abc import Iterable
 from contextlib import contextmanager
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, cast
@@ -3340,7 +3341,7 @@ class TestGetRowsInitialConnectRetry:
                     side_effect=flaky_connect,
                 ),
             ):
-                tables = list(response.items())
+                tables = list(cast(Iterable[Any], response.items()))
 
             assert connect_calls["n"] >= 2, "initial connect should have been retried after the transient drop"
             assert sum(table.num_rows for table in tables) == 5
