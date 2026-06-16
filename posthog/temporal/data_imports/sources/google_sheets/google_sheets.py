@@ -125,7 +125,19 @@ def get_schema_incremental_fields(config: GoogleSheetsSourceConfig, worksheet_na
 
     worksheet = _get_worksheet(config.spreadsheet_url, worksheet_id)
 
-    rows = worksheet.get_all_values("1:2")  # Get the first two rows
+    try:
+        rows = worksheet.get_all_values("1:2")  # Get the first two rows
+    except gspread.exceptions.APIError as e:
+        # Google rejects the unbounded "1:2" row range with a 400 "Unable to parse range" for
+        # some worksheets (e.g. empty sheets, or sheets resized to have no columns). This is
+        # deterministic, so retrying never helps. We're only probing the first rows to detect an
+        # incremental "id" column here, so a worksheet we can't read simply has no detectable
+        # incremental field — return [] rather than letting one odd sheet break schema discovery
+        # for the entire spreadsheet. Other API errors (e.g. transient 5xx) still propagate so
+        # they can be retried.
+        if e.code == 400 and "Unable to parse range" in str(e):
+            return []
+        raise
 
     if len(rows) > 1 and "id" in rows[0]:
         index_of_id = rows[0].index("id")
