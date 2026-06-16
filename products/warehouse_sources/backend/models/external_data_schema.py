@@ -88,6 +88,17 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     class Meta:
         db_table = "posthog_externaldataschema"
 
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        # Populate the S3 folder on first write so the column is always authoritative for new rows.
+        # Legacy/qualified rows set it explicitly before renaming (see `_qualify_legacy_row`); this
+        # only fills it when empty, so an existing folder is never overwritten by a later rename.
+        if not self.s3_folder_name and self.name and self.name.strip():
+            self.s3_folder_name = NamingConvention.normalize_identifier(self.resolved_s3_folder_name or self.name)
+            update_fields = kwargs.get("update_fields")
+            if update_fields is not None:
+                kwargs["update_fields"] = {*update_fields, "s3_folder_name"}
+        super().save(*args, **kwargs)
+
     def folder_path(self) -> str:
         return f"team_{self.team_id}_{self.source.source_type}_{str(self.id)}".lower().replace("-", "_")
 
