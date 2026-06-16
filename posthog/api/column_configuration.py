@@ -5,7 +5,7 @@ from django.db.models import Q, QuerySet
 
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.permissions import SAFE_METHODS
 from rest_framework.response import Response
 
@@ -87,7 +87,12 @@ class ColumnConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return queryset.order_by("visibility", "-created_at")
 
     def safely_get_object(self, queryset: QuerySet) -> Any:
-        object = queryset.get(pk=self.kwargs["pk"])
+        try:
+            object = queryset.get(pk=self.kwargs["pk"])
+        except ColumnConfiguration.DoesNotExist:
+            # The queryset is visibility-scoped, so a row outside it (another user's private
+            # view, or a wrong id) is a 404 — not an unhandled 500.
+            raise NotFound("View not found")
 
         if self.request.method not in SAFE_METHODS and object.created_by != self.request.user:
             raise PermissionDenied("You do not have permission to change this view")

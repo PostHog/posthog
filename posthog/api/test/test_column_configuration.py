@@ -424,7 +424,7 @@ class TestColumnConfigurationAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json() == {
             "type": "validation_error",
-            "code": "invalid",
+            "code": "invalid_input",
             "detail": "properties must be an object",
             "attr": "properties",
         }
