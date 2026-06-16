@@ -147,9 +147,12 @@ def _parse_canonical_skill(skill_dir: Path) -> CanonicalSkill:
         raise CanonicalSkillParseError(f"SKILL.md frontmatter missing 'name': {skill_file}")
     if not isinstance(description, str) or not description:
         raise CanonicalSkillParseError(f"SKILL.md frontmatter missing 'description': {skill_file}")
-    if len(description.strip()) > _MAX_SKILL_DESCRIPTION_LENGTH:
+    # Strip once here so the length check measures exactly what gets seeded (the folded-scalar
+    # `description: >` form yields a trailing newline) — `CanonicalSkill` reuses this value.
+    description = description.strip()
+    if len(description) > _MAX_SKILL_DESCRIPTION_LENGTH:
         raise CanonicalSkillParseError(
-            f"SKILL.md frontmatter 'description' is {len(description.strip())} characters, exceeding the "
+            f"SKILL.md frontmatter 'description' is {len(description)} characters, exceeding the "
             f"{_MAX_SKILL_DESCRIPTION_LENGTH}-character agentskills.io spec limit: {skill_file}"
         )
     if not name.startswith(SIGNALS_SCOUT_SKILL_PREFIX):
@@ -219,7 +222,7 @@ def _parse_canonical_skill(skill_dir: Path) -> CanonicalSkill:
 
     return CanonicalSkill(
         name=name,
-        description=description.strip(),
+        description=description,
         body=body,
         allowed_tools=tuple(raw_allowed),
         files=tuple(files),

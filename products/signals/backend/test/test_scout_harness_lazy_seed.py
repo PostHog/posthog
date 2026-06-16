@@ -271,23 +271,33 @@ class TestDiscoverCanonicalSkills:
         with pytest.raises(CanonicalSkillParseError, match="byte limit"):
             discover_canonical_skills(tmp_path)
 
-    def test_oversized_description_raises(self, tmp_path: Path) -> None:
-        # Description length cap mirrors the agentskills.io spec limit (1024 chars). An
-        # overrun should fail at parse time, not silently ship a spec-violating skill.
-        oversized_description = "x" * 1025
+    @pytest.mark.parametrize(
+        "length,should_raise",
+        [
+            # At the agentskills.io cap (1024 chars) — must pass, locking the boundary off-by-one.
+            (1024, False),
+            # One over the cap — must fail at parse time, not silently ship a spec-violating skill.
+            (1025, True),
+        ],
+    )
+    def test_description_length_boundary(self, tmp_path: Path, length: int, should_raise: bool) -> None:
         _write_canonical_skill(
             tmp_path,
-            dir_name="signals-scout-big-description",
+            dir_name="signals-scout-bounded-description",
             frontmatter=f"""
                 ---
-                name: signals-scout-big-description
-                description: {oversized_description}
+                name: signals-scout-bounded-description
+                description: {"x" * length}
                 ---
             """,
             body="# Body\n",
         )
-        with pytest.raises(CanonicalSkillParseError, match="agentskills.io spec limit"):
-            discover_canonical_skills(tmp_path)
+        if should_raise:
+            with pytest.raises(CanonicalSkillParseError, match="agentskills.io spec limit"):
+                discover_canonical_skills(tmp_path)
+        else:
+            skills = discover_canonical_skills(tmp_path)
+            assert len(skills[0].description) == length
 
     def test_oversized_bundled_file_raises(self, tmp_path: Path) -> None:
         # Per-file byte limit mirrors MAX_SKILL_FILE_BYTES (1 MB).
