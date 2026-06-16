@@ -1,4 +1,5 @@
 import pytest
+
 import requests
 
 from posthog.temporal.data_imports.sources.shopify.shopify import SHOPIFY_PAYMENT_REQUIRED_ERROR_MATCH
