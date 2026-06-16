@@ -54,6 +54,10 @@ export const REALTIME_NOTIFICATION_TYPE_META: Record<string, { label: string; de
         label: 'Web analytics digest',
         description: 'Your weekly Web analytics summary is ready!',
     },
+    achievement_unlocked: {
+        label: 'Achievements unlocked',
+        description: 'When you unlock a new Web analytics achievement',
+    },
 }
 
 export function NotificationRow({
