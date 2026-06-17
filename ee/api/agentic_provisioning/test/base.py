@@ -56,8 +56,12 @@ class ProvisioningTestBase(APIBaseTest):
         body: bytes
         if content_type == "application/json":
             body = json.dumps(data or {}).encode()
+        elif isinstance(data, bytes):
+            body = data
+        elif data is not None:
+            body = urlencode(data).encode()
         else:
-            body = data if isinstance(data, bytes) else b""
+            body = b""
         sig = self._sign_body(body)
         return self.client.post(
             url,

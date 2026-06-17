@@ -38,6 +38,7 @@ from posthog.models.integration import StripeIntegration
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken, find_oauth_access_token
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team.team import Team
+from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.user import User
 from posthog.models.utils import (
     generate_random_oauth_access_token,
@@ -1141,6 +1142,8 @@ def _exchange_authorization_code(request: Request) -> Response:
             else ACCESS_TOKEN_EXPIRY_SECONDS
         )
 
+        scoped_teams = _compute_partner_scoped_teams(oauth_app, user, team_id)
+
         access_token_value = generate_random_oauth_access_token(None)
         access_token = OAuthAccessToken.objects.create(
             application=oauth_app,
@@ -1148,7 +1151,7 @@ def _exchange_authorization_code(request: Request) -> Response:
             user=user,
             expires=timezone.now() + timedelta(seconds=token_expiry),
             scope=scope_str,
-            scoped_teams=[team_id],
+            scoped_teams=scoped_teams,
         )
 
         refresh_token_value = generate_random_oauth_refresh_token(None)
@@ -1157,14 +1160,22 @@ def _exchange_authorization_code(request: Request) -> Response:
             token=refresh_token_value,
             user=user,
             access_token=access_token,
-            scoped_teams=[team_id],
+            scoped_teams=scoped_teams,
         )
 
     account_id = str(code_data.get("org_id", ""))
 
     available_teams = _get_available_teams_for_user(user)
 
-    _capture_provisioning_event("token_exchange", "success", partner=oauth_app, grant_type="authorization_code")
+    _capture_provisioning_event(
+        "token_exchange",
+        "success",
+        partner=oauth_app,
+        grant_type="authorization_code",
+        team_id=team_id,
+        user_id=user.id,
+        granted_team_count=len(scoped_teams),
+    )
 
     return Response(
         {
@@ -1213,7 +1224,12 @@ def _exchange_refresh_token(request: Request) -> Response:
 
         oauth_app = locked_app
         user = old_refresh.user
-        scoped_teams = old_refresh.scoped_teams
+        old_scoped_teams = old_refresh.scoped_teams or []
+        # base_team_id at refresh: the first team in the prior scope. If the prior
+        # token was somehow empty-scoped, fall back to zero so the helper short-
+        # circuits cleanly without claiming any team.
+        base_team_id = old_scoped_teams[0] if old_scoped_teams else 0
+        scoped_teams = _compute_partner_scoped_teams(oauth_app, user, base_team_id)
         old_scope = old_refresh.access_token.scope if old_refresh.access_token else StripeIntegration.SCOPES
 
         sessions_revoked_at = locked_app.sessions_revoked_at if locked_app else None
@@ -1281,7 +1297,15 @@ def _exchange_refresh_token(request: Request) -> Response:
             scoped_teams=scoped_teams,
         )
 
-    _capture_provisioning_event("token_exchange", "success", partner=oauth_app, grant_type="refresh_token")
+    _capture_provisioning_event(
+        "token_exchange",
+        "success",
+        partner=oauth_app,
+        grant_type="refresh_token",
+        team_id=base_team_id,
+        user_id=user.id if user else None,
+        granted_team_count=len(scoped_teams),
+    )
 
     return Response(
         {
@@ -1485,11 +1509,10 @@ def _resolve_or_create_project_team(
     authenticated user lacks team-level access (honors advanced permissions
     / access controls on top of org membership).
     """
-    from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
-
     existing = (
         TeamProvisioningConfig.objects.filter(
             stripe_project_id=project_id,
+            application=access_token.application,
             team__organization_id__in=Team.objects.filter(id__in=scoped_teams).values("organization_id"),
         )
         .select_related("team")
@@ -1514,13 +1537,14 @@ def _resolve_or_create_project_team(
     try:
         TeamProvisioningConfig.objects.update_or_create(
             team=new_team,
-            defaults={"stripe_project_id": project_id},
+            defaults={"stripe_project_id": project_id, "application": access_token.application},
         )
     except IntegrityError:
         new_team.delete()
         race_winner = (
             TeamProvisioningConfig.objects.filter(
                 stripe_project_id=project_id,
+                application=access_token.application,
                 team__organization_id__in=Team.objects.filter(id__in=scoped_teams).values("organization_id"),
             )
             .select_related("team")
@@ -1550,6 +1574,66 @@ def _ensure_team_in_token_scopes(
         return team, scoped_teams
     _add_team_to_token_scopes(access_token, team.id)
     return team, [*scoped_teams, team.id]
+
+
+def _compute_partner_scoped_teams(
+    application: OAuthApplication | None,
+    user: User,
+    base_team_id: int,
+) -> list[int]:
+    """Compute the durable scope for a partner OAuth token at issuance/refresh.
+
+    Returns the set of every team where ``TeamProvisioningConfig.application ==
+    application`` (i.e. this partner provisioned the team for this user, attributed
+    at create time) AND the team lives in the same organization as ``base_team_id``
+    AND the user still has team-level access. This is partner-agnostic, not
+    Stripe-specific: ``stripe_project_id`` is the (legacily named) external project
+    id every partner sets, always written alongside ``application`` in
+    ``_resolve_or_create_project_team``, so the ``application`` filter already
+    implies a provisioned team. The organization filter pins the token to the
+    authorization context:
+    a partner with OAuth grants in multiple orgs for the same user must not be
+    able to reach an org-B team via an org-A token just because the user happens
+    to be a member of both.
+
+    Returns ``[]`` when ``application`` is None (legacy refresh tokens with no
+    app binding). A partner-unattributed token cannot be safely scoped, so it
+    gets no teams and the holder must re-authorize. Falling through would let
+    ``filter(application=None)`` match every TPC row with NULL application
+    across every partner.
+
+    Returns ``[]`` if ``base_team_id`` no longer resolves to a team the user
+    can access; stale scope must not grant ongoing access after ACL revocation
+    or org removal.
+    """
+    if application is None:
+        return []
+
+    try:
+        base_team = Team.objects.select_related("organization").get(id=base_team_id)
+    except Team.DoesNotExist:
+        return []
+    if not _user_can_access_team(user, base_team):
+        return []
+
+    candidate_team_ids = set(
+        TeamProvisioningConfig.objects.filter(
+            application=application,
+            team__organization_id=base_team.organization_id,
+        ).values_list("team_id", flat=True)
+    )
+    candidate_team_ids.add(base_team_id)
+
+    granted: set[int] = {base_team_id}
+    other_teams = Team.objects.select_related("organization").filter(
+        id__in=candidate_team_ids - {base_team_id},
+    )
+    for team in other_teams:
+        if _user_can_access_team(user, team):
+            granted.add(team.id)
+
+    # sorted() only for deterministic test assertions and log diffs; scope order is not a correctness requirement
+    return sorted(granted)
 
 
 def _user_can_access_team(user: User, team: Team) -> bool:
@@ -1583,8 +1667,6 @@ def _add_team_to_token_scopes(access_token: OAuthAccessToken, team_id: int) -> N
 
 
 def _get_provisioning_service_id(team: Team) -> str:
-    from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
-
     try:
         config = TeamProvisioningConfig.objects.get(team=team)
         return config.service_id
@@ -1593,8 +1675,6 @@ def _get_provisioning_service_id(team: Team) -> str:
 
 
 def _set_provisioning_service_id(team: Team, service_id: str) -> None:
-    from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
-
     TeamProvisioningConfig.objects.update_or_create(
         team=team,
         defaults={"service_id": service_id},
@@ -1880,6 +1960,17 @@ def provisioning_update_service(request: Request, resource_id: str) -> Response:
     except Team.DoesNotExist:
         return _error_response("not_found", "Resource not found", resource_id=resource_id, status=404)
 
+    # A config with a non-null application belongs to the partner that provisioned
+    # it; a null application is unclaimed (every team gets one by default) and is
+    # mutable by any in-scope caller. Reject only a cross-partner mutation.
+    owning_application_id = (
+        TeamProvisioningConfig.objects.filter(team_id=team_id).values_list("application_id", flat=True).first()
+    )
+    if owning_application_id is not None and owning_application_id != access_token.application_id:
+        return _error_response(
+            "forbidden", "Resource owned by a different provisioning partner", resource_id=resource_id, status=403
+        )
+
     service_id = request.data.get("service_id", "")
     if not service_id:
         return _error_response("missing_service_id", "service_id is required", resource_id=resource_id)
@@ -1987,10 +2078,13 @@ def provisioning_resource_remove(request: Request, resource_id: str) -> Response
             status=403,
         )
 
-    from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
-
     try:
-        TeamProvisioningConfig.objects.filter(team_id=team_id).delete()
+        # Clear the mapping only if it is unclaimed or owned by the caller's
+        # application; an in-scope partner must not delete another partner's
+        # provisioning mapping for the same team.
+        config = TeamProvisioningConfig.objects.filter(team_id=team_id).first()
+        if config is not None and config.application_id in (None, access_token.application_id):
+            config.delete()
     except Exception:
         capture_exception(additional_properties={"team_id": team_id, "step": "remove_provisioning_config"})
         _capture_provisioning_event("resource_removed", "error", team_id=team_id, error_code="remove_config_failed")
@@ -2011,25 +2105,61 @@ def provisioning_resource_remove(request: Request, resource_id: str) -> Response
 
 
 def _remove_team_from_token_scopes(access_token: OAuthAccessToken, team_id: int) -> None:
-    remaining = [t for t in (access_token.scoped_teams or []) if t != team_id]
+    """Strip ``team_id`` from every access/refresh token for this partner+user combo.
 
-    # Atomic so a refresh token can never be left with the removed team still in
-    # scope while the access token has it stripped — otherwise the orchestrator
-    # could refresh and replay the removed team right back into scope.
+    Removing a resource has to revoke access for any *other* live token the same
+    partner installation might be holding for the same user (e.g. a separate
+    bearer issued via a prior OAuth grant that still has the team in scope).
+    Touching only the calling ``access_token`` would let the partner continue
+    operating on the team via a sibling token after `remove` returned, since
+    operational endpoints accept any team currently in ``scoped_teams``.
+
+    Atomic so a refresh token can never be left with the removed team still in
+    scope while the access token has it stripped — otherwise the orchestrator
+    could refresh and replay the removed team right back into scope.
+    """
+    application = access_token.application
+    user = access_token.user
+    if application is None or user is None:
+        # Defensive: a provisioning bearer token without an app/user shouldn't
+        # exist in practice, but fall back to the single-token strip if it does.
+        application_filter: dict[str, object] = {"pk": access_token.pk}
+        user_filter: dict[str, object] = {}
+    else:
+        application_filter = {"application": application, "user": user}
+        user_filter = {"application": application, "user": user}
+
     with transaction.atomic():
-        refresh_tokens = OAuthRefreshToken.objects.filter(access_token=access_token)
+        access_tokens = list(
+            OAuthAccessToken.objects.select_for_update()
+            .filter(scoped_teams__contains=[team_id], **application_filter)
+            .order_by("pk")
+        )
+        for at in access_tokens:
+            remaining = [t for t in (at.scoped_teams or []) if t != team_id]
+            refresh_tokens = OAuthRefreshToken.objects.select_for_update().filter(access_token=at)
+            if not remaining:
+                refresh_tokens.update(access_token=None, revoked=timezone.now(), scoped_teams=[])
+                at.delete()
+                continue
+            at.scoped_teams = remaining
+            at.save(update_fields=["scoped_teams"])
+            for rt in refresh_tokens:
+                rt.scoped_teams = [t for t in (rt.scoped_teams or []) if t != team_id]
+                rt.save(update_fields=["scoped_teams"])
 
-        if not remaining:
-            refresh_tokens.update(access_token=None, revoked=timezone.now(), scoped_teams=[])
-            access_token.delete()
-            return
-
-        access_token.scoped_teams = remaining
-        access_token.save(update_fields=["scoped_teams"])
-
-        for rt in refresh_tokens:
-            rt.scoped_teams = [t for t in (rt.scoped_teams or []) if t != team_id]
-            rt.save(update_fields=["scoped_teams"])
+        if user_filter:
+            # Orphan refresh tokens (where the access token was already rotated
+            # or deleted) still carry scope. Strip the team from those too.
+            orphan_refresh = OAuthRefreshToken.objects.select_for_update().filter(
+                scoped_teams__contains=[team_id],
+                access_token__isnull=True,
+                revoked__isnull=True,
+                **user_filter,
+            )
+            for rt in orphan_refresh:
+                rt.scoped_teams = [t for t in (rt.scoped_teams or []) if t != team_id]
+                rt.save(update_fields=["scoped_teams"])
 
 
 def _resolve_resource_response(request: Request, resource_id: str) -> Response:
