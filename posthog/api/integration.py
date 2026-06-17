@@ -79,6 +79,9 @@ logger = structlog.get_logger(__name__)
 
 GITHUB_REPOSITORY_NAME_RE = re.compile(r"[A-Za-z0-9_.\-]+")
 
+# Short TTL for the Search Console sites dropdown — just enough to dedupe repeated UI loads.
+GSC_AUTOCOMPLETE_CACHE_TTL_SECONDS = 60
+
 
 def validate_github_repository_name(repo: str) -> str:
     """Validate repository paths accepted by GitHub integration endpoints."""
@@ -903,7 +906,7 @@ class IntegrationViewSet(
         session = google_search_console_session(instance.id, instance.team_id)
         sites = list_sites(session)
         response_data = {"sites": sites}
-        cache.set(cache_key, response_data, 60)
+        cache.set(cache_key, response_data, GSC_AUTOCOMPLETE_CACHE_TTL_SECONDS)
         return Response(response_data)
 
     @action(methods=["GET"], detail=True, url_path="linkedin_ads_conversion_rules")
