@@ -583,7 +583,6 @@ describe('EmailService', () => {
                 properties: {
                     $workflow_id: invocation.functionId,
                     $workflow_action_id: invocation.state.actionId,
-                    $messaging_source: 'direct',
                     $email_to: 'test@example.com',
                     $email_subject: 'Test Subject',
                 },
