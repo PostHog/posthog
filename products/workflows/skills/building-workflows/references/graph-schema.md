@@ -41,6 +41,15 @@ Use **only** these `type` values — they are the complete supported set. An unk
 | `function_sms`           | `{ "template_id": "template-twilio", "inputs": { ... }, "message_category_type?": "..." }`. `template_id` is the **literal** `template-twilio`.                                             |
 | `exit`                   | `{ "reason?": "Done" }`. Usually one terminal exit node.                                                                                                                                    |
 
+### Branch and wait condition filters (the `filters` wrapper is mandatory)
+
+`conditional_branch` and `wait_until_condition` gate on a **`filters` object**, the action-filter shape (`{properties?, events?, actions?, source?, filter_test_accounts?}`). The wrapper is not optional:
+
+- Write `{ "filters": { "properties": [<cond>] } }` on each condition, **never** `{ "properties": [<cond>] }` directly on the condition object. The bare form saves but the visual editor flags it and the branch compiles to a constant, so it never evaluates your condition.
+- `conditional_branch` conditions are **property-only** (person/group `<cond>`s). Event/action filters are rejected here ("Event filters are not allowed in conditionals").
+- `wait_until_condition` is event-aware: its `condition.filters` and each `events?[].filters` may also carry `events`/`actions`. An entry naming neither an event nor an action is dropped (it would match everything).
+- `source` is optional (defaults to `events`). Never send `bytecode`; the server compiles it from `properties`.
+
 ### Trigger `config` (the `trigger` node)
 
 Discriminated on `config.type`:
@@ -125,5 +134,6 @@ Must match `^\d*\.?\d+[dhm]$` — a number plus unit `m` | `h` | `d`. Examples: 
 - [ ] `on_error` is only `continue` or `abort`.
 - [ ] `function_email.template_id == "template-email"`, `function_sms.template_id == "template-twilio"`.
 - [ ] Every non-exit node has an outgoing edge; `branch` edges have an `index` matching a condition.
+- [ ] Every `conditional_branch` / `wait_until_condition` condition is wrapped: `{filters: {properties: [...]}}`, not `{properties: [...]}`.
 - [ ] All durations match `^\d*\.?\d+[dhm]$` and dodge the silent per-unit clamp.
 - [ ] Function inputs are `{key: {value: ...}}`; no hand-written `bytecode` anywhere; no top-level `trigger` field set.

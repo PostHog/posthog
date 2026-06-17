@@ -7,7 +7,8 @@ The MCP tools for the workflows product, grouped by job, and the loops that stri
 **Author & lifecycle**
 
 - `workflows-create` — create a workflow. Always created as a `draft`.
-- `workflows-update` — partial update. **Drafts only**; active workflows are read-only over MCP. To change a live one, create a new draft.
+- `workflows-patch-graph` — **the way to edit a draft's graph.** An ordered, id-addressed op list (`update_action`, `add_action`, `remove_action`, `add_edge`, `remove_edge`, `replace_action_edges`) applied atomically; `update_action` deep-merges (a `null` leaf deletes a key). Returns the full updated graph, so no re-fetch. **Drafts only.**
+- `workflows-update` — **last resort, metadata only.** Use only for top-level fields a graph patch can't express (e.g. renaming). Anything touching `actions`/`edges` goes through `workflows-patch-graph`. **Drafts only**; active workflows are read-only over MCP, so to change a live one create a new draft.
 - `workflows-enable` — draft → `active`.
 - `workflows-archive` — retire a workflow.
 - `workflows-get` — full definition: trigger, edges, actions, exit condition, variables, and read-only `schedules` (any recurring schedules attached to the workflow; there's no separate list-schedules tool).
@@ -15,7 +16,7 @@ The MCP tools for the workflows product, grouped by job, and the loops that stri
 
 **Test & inspect**
 
-- `workflows-test-run` — runs **one step at a time** against test `globals` (`{event, person, groups}`). Omit `current_action_id` (or set it to the trigger) to run the first step; the result gives you the next step's id, which you pass as `current_action_id` on the next call. Walk the workflow step by step this way. Async actions (HTTP/email/SMS) mocked by default; `mock_async_functions=false` fires real side effects. Returns the step's execution trace.
+- `workflows-test-run` — runs **one step at a time**, it does not traverse the whole graph in one call. Omit `current_action_id` (or set it to the trigger) to run the first step; the result gives you `nextActionId`, which you pass as `current_action_id` on the next call. Walk the workflow step by step this way; to test a specific branch, set `current_action_id` to that node. Skip `delay` nodes by jumping to the action after them (delays aren't simulated). Pass test data via `globals` (`{event, person, groups}`). Async actions (HTTP/email/SMS) mocked by default; `mock_async_functions=false` fires real side effects. Returns the step's execution trace.
 - `workflows-logs` — execution log entries (timestamp, level DEBUG/LOG/INFO/WARN/ERROR, message). Filter by level, text, time range, limit.
 
 **Batch & schedules**
@@ -40,14 +41,15 @@ The MCP tools for the workflows product, grouped by job, and the loops that stri
 
 **Email templates** (compose with the `designing-email-templates` skill)
 
-- `workflows-create-email-template`, `workflows-update-email-template`, `workflows-list-email-templates`, `workflows-get-email-template` / `workflows-show-email-template`.
+- `workflows-patch-email-template` — **the way to edit a template's design.** Id-addressed ops over the Unlayer blocks, applied atomically; same shape as `workflows-patch-graph`. Use this for any change to an existing design.
+- `workflows-create-email-template`, `workflows-update-email-template` (full-replace, last resort), `workflows-list-email-templates`, `workflows-get-email-template` / `workflows-show-email-template`.
 
 ## The build/test loop
 
 1. `workflows-create` (draft) → note the returned `id` and edit URL.
-2. `workflows-test-run` from the first step with representative `globals`, then follow the returned next-step id through each step. Read each trace: did it take the path you expected, and is the next step the one you intended?
+2. `workflows-test-run` from the first step with representative `globals`, then follow the returned `nextActionId` through each step (skipping `delay` nodes). Read each trace: did it take the path you expected, and is the next step the one you intended?
 3. If a step misbehaved, `workflows-logs` for that workflow — the per-step messages say why a step skipped, branched, or errored (bad filter, missing input, clamped delay).
-4. Fix the graph, `workflows-update` (still a draft), repeat.
+4. Fix the graph with `workflows-patch-graph` (still a draft), then **re-test the path you changed** — a patch invalidates the previous run. Repeat until the trace is right.
 5. When the trace is right, `workflows-enable`.
 6. For batch/schedule: it won't fire on enable — `workflows-run-batch` (one-off) or `workflows-schedule-create` (recurring). `workflows-blast-radius` first if you want to know the audience size.
 
