@@ -30700,6 +30700,7 @@ export namespace Schemas {
      * * `logs` - Logs
      * * `health_checks` - Health checks
      * * `endpoints` - Endpoints
+     * * `replay_vision` - Replay Vision
      */
     export type SourceProductEnum = typeof SourceProductEnum[keyof typeof SourceProductEnum];
 
@@ -30717,6 +30718,7 @@ export namespace Schemas {
       Logs: 'logs',
       HealthChecks: 'health_checks',
       Endpoints: 'endpoints',
+      ReplayVision: 'replay_vision',
     } as const;
 
     /**
@@ -30732,6 +30734,7 @@ export namespace Schemas {
      * * `health_issue` - Health issue
      * * `endpoint_execution_failed` - Endpoint execution failed
      * * `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded
+     * * `scanner_finding` - Scanner finding
      */
     export type SignalSourceConfigSourceTypeEnum = typeof SignalSourceConfigSourceTypeEnum[keyof typeof SignalSourceConfigSourceTypeEnum];
 
@@ -30749,6 +30752,7 @@ export namespace Schemas {
       HealthIssue: 'health_issue',
       EndpointExecutionFailed: 'endpoint_execution_failed',
       EndpointBreakdownLimitExceeded: 'endpoint_breakdown_limit_exceeded',
+      ScannerFinding: 'scanner_finding',
     } as const;
 
     export interface SignalSourceConfig {
