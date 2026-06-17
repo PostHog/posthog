@@ -93,7 +93,9 @@ tools:
         enrich_url: '{id}/workflow'
         title: Create workflow
         description: >
-            Create a workflow (always created as a draft; activate with workflows-enable). Provide an actions array with
+            Create a workflow. It is created as a draft and does NOT run until enabled: test it with workflows-test-run
+            first, then enable (workflows-enable) only with the user's explicit approval — enabling is a one-way door,
+            since live workflows can't be edited over MCP. Provide an actions array with
             exactly one type='trigger' (config.type: event|webhook|manual|batch|tracking_pixel) plus action nodes
             (function/function_email/function_sms, delay, conditional_branch, wait_until_condition, ...) connected by
             edges. Read the building-workflows skill for node shapes before composing: a node that mismatches the
