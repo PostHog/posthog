@@ -144,6 +144,11 @@ on every iteration.
 
 ## Phased checklist (progress tracker)
 
+**Per-phase exit gate:** no phase is done until `pnpm test:full` (the full suite — see "Running the
+full test suite" above) is green. It needs a Docker daemon, so it runs in CI on push, or on a
+devbox / local — not in the agent sandbox. Each phase's final box is this gate; tick it only once
+the full suite passes (Phase 0 moved no production code, so it is guard-only and has no gate).
+
 ### Phase 0 — scaffold + guard
 
 - [x] Boundary guard script + baseline (`bin/check-ingestion-boundaries.mjs`).
@@ -176,6 +181,8 @@ on every iteration.
 - [x] CDP no longer imports ingestion and vice versa (production): cdp->ingestion = 0,
       cdp->worker/ingestion = 0, ingestion->cdp = 0. Test-only edges remain (Phase 3). Intra-ingestion
       baseline now 2 (the ai<->analytics composition), to be resolved with lane structure in Phase 2.
+- [ ] **Exit gate:** `pnpm test:full` green (verify in CI on push — full suite not runnable in the
+      agent sandbox).
 
 ### Phase 2 — consolidate into lanes
 
@@ -190,19 +197,21 @@ on every iteration.
       separate lanes in the long run, but the split is still mid-migration so the boundary is blurry
       today — lean toward separation (e.g. wire the AI sub-pipeline at the composition root rather
       than the analytics lane importing it) without forcing a premature clean break.
+- [ ] **Exit gate:** `pnpm test:full` green.
 
 ### Phase 3 — split mixed tests
 
 - [ ] Find test files mixing CDP and ingestion logic.
 - [ ] Split ingestion logic into its own test (no tests removed).
 - [ ] Move integration/e2e tests into their dedicated folders; keep unit tests beside source.
+- [ ] **Exit gate:** `pnpm test:full` green.
 
 ### Phase 4 — wire CI test selection
 
 - [ ] Extend `dorny/paths-filter` to emit per-lane + common + cdp flags.
 - [ ] Gate jest runs by changed area; verify the rules table.
 - [ ] Update scripts/docs to the new layout.
-- [ ] Full suite green in CI.
+- [ ] **Exit gate:** `pnpm test:full` green in CI (full suite).
 
 ## Status log
 
