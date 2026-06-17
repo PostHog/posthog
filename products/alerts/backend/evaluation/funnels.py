@@ -100,6 +100,18 @@ def _breakdown_label(steps: list[dict[str, Any]]) -> str:
     return ", ".join(str(v) for v in breakdown) if isinstance(breakdown, list) else str(breakdown)
 
 
+def _step_count(steps: list[dict[str, Any]], index: int) -> float:
+    # Route a malformed step shape to the errored-alert path (like the SQL extractor's _numeric_cell)
+    # rather than letting a raw KeyError/TypeError surface as an internal crash.
+    step = steps[index]
+    if not isinstance(step, dict):
+        raise AlertExtractionError(f"Funnel step {index} is malformed (expected an object, got {type(step).__name__}).")
+    count = step.get("count")
+    if isinstance(count, bool) or not isinstance(count, int | float):
+        raise AlertExtractionError(f"Funnel step {index} has a non-numeric count: {count!r}.")
+    return count
+
+
 def _conversion_rate(steps: list[dict[str, Any]], config: FunnelsAlertConfig) -> float:
     """Conversion rate (0–100) at the configured step.
 
@@ -121,7 +133,7 @@ def _conversion_rate(steps: list[dict[str, Any]], config: FunnelsAlertConfig) ->
     else:
         base_index = 0
 
-    base = steps[base_index]["count"]
+    base = _step_count(steps, base_index)
     if base == 0:
         return 0.0
-    return steps[step_index]["count"] / base * 100
+    return _step_count(steps, step_index) / base * 100

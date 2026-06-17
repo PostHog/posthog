@@ -78,6 +78,8 @@ def test_result_is_unframed_single_series():
         (_steps(100, 40), None, None, AlertConditionType.RELATIVE_INCREASE, "absolute value conditions"),
         (_steps(100, 40), None, None, AlertConditionType.RELATIVE_DECREASE, "absolute value conditions"),
         ([], None, None, AlertConditionType.ABSOLUTE_VALUE, "no steps"),
+        ([{"order": 0}, {"order": 1}], None, None, AlertConditionType.ABSOLUTE_VALUE, "non-numeric count"),
+        ([{"order": 0, "count": 100}, "broken"], None, None, AlertConditionType.ABSOLUTE_VALUE, "malformed"),
     ],
 )
 def test_extract_raises_extraction_error(result, config, viz, condition_type, match):
