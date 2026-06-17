@@ -973,6 +973,10 @@ export const CreatedViaEnumApi = {
  * * `Clarifai` - Clarifai
  * * `Adapty` - Adapty
  * * `Braintrust` - Braintrust
+ * * `StreamElements` - StreamElements
+ * * `Streamlabs` - Streamlabs
+ * * `Datorama` - Datorama
+ * * `Ahrefs` - Ahrefs
  * * `Custom` - Custom
  */
 export type ExternalDataSourceTypeEnumApi =
@@ -1600,6 +1604,10 @@ export const ExternalDataSourceTypeEnumApi = {
     Clarifai: 'Clarifai',
     Adapty: 'Adapty',
     Braintrust: 'Braintrust',
+    StreamElements: 'StreamElements',
+    Streamlabs: 'Streamlabs',
+    Datorama: 'Datorama',
+    Ahrefs: 'Ahrefs',
     Custom: 'Custom',
 } as const
 
@@ -1617,12 +1625,14 @@ export const AccessMethodEnumApi = {
 /**
  * * `duckdb` - duckdb
  * * `postgres` - postgres
+ * * `mysql` - mysql
  */
 export type EngineEnumApi = (typeof EngineEnumApi)[keyof typeof EngineEnumApi]
 
 export const EngineEnumApi = {
     Duckdb: 'duckdb',
     Postgres: 'postgres',
+    Mysql: 'mysql',
 } as const
 
 export interface ExternalDataSourceRevenueAnalyticsConfigApi {
@@ -1666,7 +1676,8 @@ export interface ExternalDataSourceSerializersApi {
     /** Backend engine detected for the direct connection.
      *
      * * `duckdb` - duckdb
-     * * `postgres` - postgres */
+     * * `postgres` - postgres
+     * * `mysql` - mysql */
     readonly engine: EngineEnumApi | null
     /** @nullable */
     readonly last_run_at: string | null
@@ -2321,6 +2332,10 @@ export interface ExternalDataSourceCreateApi {
      * * `Clarifai` - Clarifai
      * * `Adapty` - Adapty
      * * `Braintrust` - Braintrust
+     * * `StreamElements` - StreamElements
+     * * `Streamlabs` - Streamlabs
+     * * `Datorama` - Datorama
+     * * `Ahrefs` - Ahrefs
      * * `Custom` - Custom */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
@@ -2386,7 +2401,8 @@ export interface PatchedExternalDataSourceSerializersApi {
     /** Backend engine detected for the direct connection.
      *
      * * `duckdb` - duckdb
-     * * `postgres` - postgres */
+     * * `postgres` - postgres
+     * * `mysql` - mysql */
     readonly engine?: EngineEnumApi | null
     /** @nullable */
     readonly last_run_at?: string | null
@@ -2499,7 +2515,8 @@ export interface ExternalDataSourceConnectionOptionApi {
     /** Backend engine detected for the direct connection.
      *
      * * `duckdb` - duckdb
-     * * `postgres` - postgres */
+     * * `postgres` - postgres
+     * * `mysql` - mysql */
     readonly engine: EngineEnumApi | null
 }
 
@@ -3143,6 +3160,10 @@ export interface DatabaseSchemaRequestApi {
      * * `Clarifai` - Clarifai
      * * `Adapty` - Adapty
      * * `Braintrust` - Braintrust
+     * * `StreamElements` - StreamElements
+     * * `Streamlabs` - Streamlabs
+     * * `Datorama` - Datorama
+     * * `Ahrefs` - Ahrefs
      * * `Custom` - Custom */
     source_type: ExternalDataSourceTypeEnumApi
 }
@@ -3776,6 +3797,10 @@ export interface SourceSetupApi {
      * * `Clarifai` - Clarifai
      * * `Adapty` - Adapty
      * * `Braintrust` - Braintrust
+     * * `StreamElements` - StreamElements
+     * * `Streamlabs` - Streamlabs
+     * * `Datorama` - Datorama
+     * * `Ahrefs` - Ahrefs
      * * `Custom` - Custom */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
@@ -4447,6 +4472,10 @@ export interface SourceCredentialCreateApi {
      * * `Clarifai` - Clarifai
      * * `Adapty` - Adapty
      * * `Braintrust` - Braintrust
+     * * `StreamElements` - StreamElements
+     * * `Streamlabs` - Streamlabs
+     * * `Datorama` - Datorama
+     * * `Ahrefs` - Ahrefs
      * * `Custom` - Custom */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
