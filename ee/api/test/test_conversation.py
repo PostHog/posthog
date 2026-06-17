@@ -5,11 +5,15 @@ from typing import Any, cast
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
+from django.db import connection
 from django.http import StreamingHttpResponse
 from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from rest_framework import status
+from rest_framework.exceptions import Throttled
+from rest_framework.test import APIRequestFactory
 
 from posthog.schema import (
     AgentMode,
@@ -27,10 +31,13 @@ from posthog.schema import (
 
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.rate_limit import AIBurstRateThrottle
 from posthog.temporal.ai.chat_agent import ChatAgentWorkflow, ChatAgentWorkflowInputs
 from posthog.temporal.ai.research_agent import ResearchAgentWorkflow, ResearchAgentWorkflowInputs
 
+from products.posthog_ai.backend.message_routing import SandboxRouteResult
 from products.posthog_ai.backend.models.assistant import Conversation
+from products.tasks.backend.models import Task, TaskRun
 
 from ee.api.conversation import ConversationViewSet
 
@@ -1246,3 +1253,544 @@ class TestConversationSoftDelete(APIBaseTest):
         still_deleted = Conversation.objects.get(pk=conversation.pk)
         self.assertTrue(still_deleted.deleted)
         self.assertEqual(Conversation.objects.filter(pk=conversation.pk).count(), 1)
+
+
+class TestConversationSandboxRoute(APIBaseTest):
+    def _sandbox_conversation(self) -> Conversation:
+        return Conversation.objects.create(
+            user=self.user,
+            team=self.team,
+            title="A chat",
+            type=Conversation.Type.ASSISTANT,
+            agent_runtime=Conversation.AgentRuntime.SANDBOX,
+        )
+
+    def test_open_with_content_reachable_and_delegates_to_session(self):
+        conversation = self._sandbox_conversation()
+        sentinel = SandboxRouteResult(
+            task_id="t",
+            run_id="r",
+            trace_id=None,
+            run_status="queued",
+            just_created_run=True,
+            attached_context_count=2,
+        )
+        with (
+            patch("ee.api.conversation.SandboxSession") as m_session,
+            patch("ee.api.conversation.report_user_action") as m_telemetry,
+        ):
+            m_session.return_value.open.return_value = sentinel
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/conversations/{conversation.id}/open/",
+                {"content": "hello", "trace_id": str(uuid.uuid4())},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # attached_context_count is internal telemetry plumbing, excluded from the response body.
+        self.assertEqual(response.json(), sentinel.model_dump(exclude={"attached_context_count"}))
+        m_session.return_value.open.assert_called_once()
+        # The session receives the resolved conversation, not just an id.
+        passed_conversation = m_session.call_args[0][0]
+        self.assertEqual(passed_conversation.id, conversation.id)
+        # Telemetry fires once at the API boundary with sandbox-path field parity, derived
+        # from the routing result.
+        m_telemetry.assert_called_once()
+        props = m_telemetry.call_args[0][2]
+        self.assertEqual(props["execution_type"], "sandbox")
+        self.assertEqual(props["agent_runtime"], "sandbox")
+        self.assertTrue(props["has_attached_context"])
+        self.assertEqual(props["attached_context_count"], 2)
+
+    def test_open_with_content_creates_new_conversation_row(self):
+        # `open` is create-or-resume — a brand-new conversation has no row yet; the first message
+        # creates it (origin product posthog_ai, born sandbox under the flag) and returns the handle.
+        conversation_id = str(uuid.uuid4())
+        sentinel = SandboxRouteResult(
+            task_id="t", run_id="r", trace_id=None, run_status="queued", just_created_run=True
+        )
+        with (
+            patch("ee.api.conversation.has_sandbox_mode_feature_flag", return_value=True),
+            patch("ee.api.conversation.SandboxSession") as m_session,
+            patch("ee.api.conversation.report_user_action"),
+        ):
+            m_session.return_value.open.return_value = sentinel
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/conversations/{conversation_id}/open/",
+                {"content": "first message please", "trace_id": str(uuid.uuid4())},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), sentinel.model_dump(exclude={"attached_context_count"}))
+        conversation = Conversation.objects.get(id=conversation_id)
+        self.assertEqual(conversation.user, self.user)
+        self.assertEqual(conversation.team, self.team)
+        self.assertEqual(conversation.agent_runtime, Conversation.AgentRuntime.SANDBOX)
+        # The first message stamps the title from the content.
+        self.assertEqual(conversation.title, "first message please")
+        passed_conversation = m_session.call_args[0][0]
+        self.assertEqual(str(passed_conversation.id), str(conversation.id))
+
+    def test_open_without_content_warms(self):
+        # A null/absent content warms a sandbox; the session returns a fresh warm handle (200), or
+        # None (204) when the pool provisioned nothing.
+        conversation = self._sandbox_conversation()
+        sentinel = SandboxRouteResult(
+            task_id="t", run_id="r", trace_id=None, run_status="queued", just_created_run=True
+        )
+        with (
+            patch("ee.api.conversation.SandboxSession") as m_session,
+            patch("ee.api.conversation.report_user_action") as m_telemetry,
+        ):
+            m_session.return_value.open.return_value = sentinel
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/conversations/{conversation.id}/open/",
+                {"content": None},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), sentinel.model_dump(exclude={"attached_context_count"}))
+        m_session.return_value.open.assert_called_once()
+        # A warm carries no message, so it must not fire "prompt sent" telemetry.
+        m_telemetry.assert_not_called()
+
+    def test_open_warm_provisioning_nothing_returns_204(self):
+        # When the warm pool is full, the session returns None — the action surfaces a 204.
+        conversation = self._sandbox_conversation()
+        with (
+            patch("ee.api.conversation.SandboxSession") as m_session,
+            patch("ee.api.conversation.report_user_action") as m_telemetry,
+        ):
+            m_session.return_value.open.return_value = None
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/conversations/{conversation.id}/open/",
+                {},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        m_session.return_value.open.assert_called_once()
+        m_telemetry.assert_not_called()
+        # An existing conversation is never dropped by a no-op warm — only rows created this request are.
+        self.assertTrue(Conversation.objects.filter(id=conversation.id).exists())
+
+    def test_open_new_conversation_without_flag_is_rejected_without_creating_row(self):
+        # A caller without the sandbox flag must not be able to spam orphaned rows by POSTing `open`
+        # with random ids — first-use creation is gated on eligibility, so no row is persisted.
+        conversation_id = str(uuid.uuid4())
+        with (
+            patch("ee.api.conversation.has_sandbox_mode_feature_flag", return_value=False),
+            patch("ee.api.conversation.SandboxSession") as m_session,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/conversations/{conversation_id}/open/",
+                {"content": "hello", "trace_id": str(uuid.uuid4())},
+                format="json",
+            )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        m_session.assert_not_called()
+        self.assertFalse(Conversation.objects.filter(id=conversation_id).exists())
+
+    def test_open_new_conversation_warm_provisioning_nothing_drops_created_row(self):
+        # A content-less warm on a brand-new id creates the row, but if the pool provisions nothing the
+        # action returns 204 and removes the row it created — no orphaned conversations accumulate.
+        conversation_id = str(uuid.uuid4())
+        with (
+            patch("ee.api.conversation.has_sandbox_mode_feature_flag", return_value=True),
+            patch("ee.api.conversation.SandboxSession") as m_session,
+        ):
+            m_session.return_value.open.return_value = None
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/conversations/{conversation_id}/open/",
+                {"content": None},
+                format="json",
+            )
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        m_session.return_value.open.assert_called_once()
+        self.assertFalse(Conversation.objects.filter(id=conversation_id).exists())
+
+    def test_open_blocked_when_quota_limited(self):
+        conversation = self._sandbox_conversation()
+        with (
+            patch("ee.api.conversation.is_team_limited", return_value=True),
+            patch("ee.api.conversation.SandboxSession") as m_session,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/conversations/{conversation.id}/open/",
+                {"content": "hello"},
+                format="json",
+            )
+        self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
+        m_session.assert_not_called()
+
+    def test_open_validates_request_body(self):
+        conversation = self._sandbox_conversation()
+        bad_payloads = [
+            {"content": "x" * 40001},  # over the content length cap
+            {"content": "hello", "trace_id": "not-a-uuid"},  # malformed trace id
+        ]
+        for payload in bad_payloads:
+            with patch("ee.api.conversation.SandboxSession") as m_session:
+                response = self.client.post(
+                    f"/api/environments/{self.team.id}/conversations/{conversation.id}/open/",
+                    payload,
+                    format="json",
+                )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, payload)
+            m_session.assert_not_called()
+
+    def test_open_rejects_other_users_conversation(self):
+        other_user = User.objects.create_and_join(
+            organization=self.organization,
+            email="other-open@posthog.com",
+            password="password",
+            first_name="Other",
+        )
+        conversation = Conversation.objects.create(
+            user=other_user,
+            team=self.team,
+            title="A chat",
+            type=Conversation.Type.ASSISTANT,
+            agent_runtime=Conversation.AgentRuntime.SANDBOX,
+        )
+        with patch("ee.api.conversation.SandboxSession") as m_session:
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/conversations/{conversation.id}/open/",
+                {"content": "hello"},
+                format="json",
+            )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        m_session.assert_not_called()
+
+    @override_settings(DEBUG=False)
+    def test_get_throttles_returns_empty_for_open_action(self):
+        # Like create, the open action's AI throttles are applied conditionally in check_throttles().
+        viewset = ConversationViewSet()
+        viewset.action = "open"
+        viewset.team_id = self.team.id
+        viewset.organization = self.organization
+        self.assertEqual(viewset.get_throttles(), [])
+
+    def test_open_rejects_langgraph_conversation_not_converting(self):
+        # A non-sandbox LangGraph conversation that isn't converting (no flag) is rejected.
+        conversation = Conversation.objects.create(
+            user=self.user,
+            team=self.team,
+            title="A chat",
+            type=Conversation.Type.ASSISTANT,
+            agent_runtime=Conversation.AgentRuntime.LANGGRAPH,
+        )
+        with (
+            patch("ee.api.conversation.has_sandbox_mode_feature_flag", return_value=False),
+            patch("ee.api.conversation.SandboxSession") as m_session,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/conversations/{conversation.id}/open/",
+                {"content": "hello"},
+                format="json",
+            )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        m_session.assert_not_called()
+
+    def _idle_langgraph_conversation(self) -> Conversation:
+        return Conversation.objects.create(
+            user=self.user,
+            team=self.team,
+            title="A chat",
+            type=Conversation.Type.ASSISTANT,
+            agent_runtime=Conversation.AgentRuntime.LANGGRAPH,
+            status=Conversation.Status.IDLE,
+        )
+
+    def test_open_converts_idle_langgraph_thread_on_first_message(self):
+        # A reopened idle LangGraph thread converts to sandbox on its first message via `open`:
+        # the legacy window is read into resumed_context and routed with convert_to_acp=True.
+        conversation = self._idle_langgraph_conversation()
+        block = "<posthog_context>This session was resumed from the legacy implementation.</posthog_context>"
+        sentinel = SandboxRouteResult(
+            task_id="t", run_id="r", trace_id=None, run_status="queued", just_created_run=True
+        )
+        with (
+            patch("ee.api.conversation.has_sandbox_mode_feature_flag", return_value=True),
+            patch("ee.api.conversation.ContextService") as m_ctx,
+            patch("ee.api.conversation.SandboxSession") as m_session,
+            patch("ee.api.conversation.report_user_action"),
+        ):
+            m_ctx.return_value.abuild_resumed_legacy_context = AsyncMock(return_value=block)
+            m_session.return_value.open.return_value = sentinel
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/conversations/{conversation.id}/open/",
+                {"content": "convert me", "trace_id": str(uuid.uuid4())},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        kwargs = m_session.return_value.open.call_args.kwargs
+        self.assertTrue(kwargs["convert_to_acp"])
+        self.assertEqual(kwargs["resumed_context"], block)
+
+    def test_open_conversion_context_read_failure_degrades(self):
+        # A failed legacy read must not block the conversion — route with convert_to_acp but no context.
+        conversation = self._idle_langgraph_conversation()
+        sentinel = SandboxRouteResult(
+            task_id="t", run_id="r", trace_id=None, run_status="queued", just_created_run=True
+        )
+        with (
+            patch("ee.api.conversation.has_sandbox_mode_feature_flag", return_value=True),
+            patch("ee.api.conversation.ContextService") as m_ctx,
+            patch("ee.api.conversation.SandboxSession") as m_session,
+            patch("ee.api.conversation.capture_exception") as m_capture,
+            patch("ee.api.conversation.report_user_action"),
+        ):
+            m_ctx.return_value.abuild_resumed_legacy_context = AsyncMock(side_effect=RuntimeError("boom"))
+            m_session.return_value.open.return_value = sentinel
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/conversations/{conversation.id}/open/",
+                {"content": "convert me", "trace_id": str(uuid.uuid4())},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        m_capture.assert_called_once()
+        kwargs = m_session.return_value.open.call_args.kwargs
+        self.assertTrue(kwargs["convert_to_acp"])
+        self.assertIsNone(kwargs["resumed_context"])
+
+    @override_settings(DEBUG=False)
+    def test_open_applies_ai_throttles(self):
+        # `open` provisions a sandbox Run whether or not it carries a message, so it takes the
+        # AI-throttle branch and is rejected once the burst throttle denies.
+        viewset = ConversationViewSet()
+        viewset.action = "open"
+        viewset.team_id = self.team.id
+        viewset.organization = self.organization
+
+        request = APIRequestFactory().post("/")
+        with (
+            patch.object(ConversationViewSet, "_is_research_request", return_value=False) as m_research,
+            patch.object(AIBurstRateThrottle, "allow_request", return_value=False),
+            patch.object(AIBurstRateThrottle, "wait", return_value=30),
+        ):
+            with self.assertRaises(Throttled):
+                viewset.check_throttles(request)
+        m_research.assert_called_once()
+
+
+class TestConversationListTaskHandle(APIBaseTest):
+    def _task(self) -> Task:
+        return Task.objects.create(
+            team=self.team,
+            title="t",
+            description="d",
+            origin_product=Task.OriginProduct.POSTHOG_AI,
+            created_by=self.user,
+        )
+
+    def _sandbox_conversation(self, title: str) -> TaskRun:
+        task = self._task()
+        latest = task.create_run(mode="interactive")
+        Conversation.objects.create(
+            user=self.user,
+            team=self.team,
+            title=title,
+            type=Conversation.Type.ASSISTANT,
+            agent_runtime=Conversation.AgentRuntime.SANDBOX,
+            task=task,
+        )
+        return latest
+
+    def test_list_surfaces_task_latest_run_id(self):
+        latest = self._sandbox_conversation("Sandbox chat")
+
+        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock):
+            response = self.client.get(f"/api/environments/{self.team.id}/conversations/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["task"]["id"], str(latest.task_id))
+        # The full Task is serialized, but latest_run is just the newest run's id.
+        self.assertEqual(results[0]["task"]["latest_run"], str(latest.id))
+
+    def test_list_reports_null_task_for_langgraph(self):
+        Conversation.objects.create(
+            user=self.user,
+            team=self.team,
+            title="LangGraph chat",
+            type=Conversation.Type.ASSISTANT,
+            agent_runtime=Conversation.AgentRuntime.LANGGRAPH,
+        )
+
+        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock):
+            response = self.client.get(f"/api/environments/{self.team.id}/conversations/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)
+        self.assertIsNone(results[0]["task"])
+
+    def test_retrieve_surfaces_task_latest_run_id(self):
+        # A sandbox conversation backed by a Task with runs, and one with no Task at all.
+        latest = self._sandbox_conversation("With task")
+        with_task = Conversation.objects.get(task_id=latest.task_id)
+        without_task = Conversation.objects.create(
+            user=self.user,
+            team=self.team,
+            title="No task",
+            type=Conversation.Type.ASSISTANT,
+            agent_runtime=Conversation.AgentRuntime.SANDBOX,
+        )
+
+        base = f"/api/environments/{self.team.id}/conversations/"
+        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock):
+            r_with = self.client.get(f"{base}{with_task.id}/")
+            r_without = self.client.get(f"{base}{without_task.id}/")
+
+        self.assertEqual(r_with.status_code, status.HTTP_200_OK)
+        self.assertEqual(r_without.status_code, status.HTTP_200_OK)
+        self.assertEqual(r_with.json()["task"]["id"], str(latest.task_id))
+        self.assertEqual(r_with.json()["task"]["latest_run"], str(latest.id))
+        self.assertIsNone(r_without.json()["task"])
+
+    def test_list_query_count_does_not_scale_with_conversation_count(self):
+        url = f"/api/environments/{self.team.id}/conversations/"
+
+        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock):
+            # One sandbox conversation establishes the baseline query count. Warm the request
+            # first so one-time session/auth queries don't skew the comparison.
+            self._sandbox_conversation("Chat 1")
+            self.client.get(url)
+            with CaptureQueriesContext(connection) as ctx:
+                response = self.client.get(url)
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            baseline = len(ctx.captured_queries)
+
+            # More sandbox conversations (each with its own Task + runs) must not add per-row
+            # queries — the backing tasks load via a single prefetch carrying the latest-run-id
+            # subquery, not a per-row task/run lookup.
+            self._sandbox_conversation("Chat 2")
+            self._sandbox_conversation("Chat 3")
+
+            with self.assertNumQueries(baseline):
+                response = self.client.get(url)
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(len(response.json()["results"]), 3)
+
+
+class TestConversationCreateRuntime(APIBaseTest):
+    """`POST /conversations` is LangGraph-only — it never serves or converts to the sandbox runtime."""
+
+    def _langgraph_conversation(self, **overrides) -> Conversation:
+        defaults: dict[str, Any] = {
+            "user": self.user,
+            "team": self.team,
+            "title": "A chat",
+            "type": Conversation.Type.ASSISTANT,
+            "agent_runtime": Conversation.AgentRuntime.LANGGRAPH,
+            "status": Conversation.Status.IDLE,
+        }
+        defaults.update(overrides)
+        return Conversation.objects.create(**defaults)
+
+    def _send(self, conversation: Conversation, content: str = "resume on sandbox"):
+        return self.client.post(
+            f"/api/environments/{self.team.id}/conversations/",
+            {"content": content, "trace_id": str(uuid.uuid4()), "conversation": str(conversation.id)},
+        )
+
+    def _mock_streaming_response(self, streaming_content: Any, *args: Any, **kwargs: Any) -> StreamingHttpResponse:
+        return StreamingHttpResponse([b""], content_type="text/event-stream")
+
+    def test_retrieve_does_not_convert(self):
+        # Opening a conversation never converts — conversion only fires on a new message.
+        conversation = self._langgraph_conversation()
+        with (
+            patch("ee.api.conversation.has_sandbox_mode_feature_flag", return_value=True),
+            patch("ee.api.conversation.SandboxSession") as m_routing,
+            patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock),
+        ):
+            response = self.client.get(f"/api/environments/{self.team.id}/conversations/{conversation.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        m_routing.assert_not_called()
+        conversation.refresh_from_db()
+        self.assertEqual(conversation.agent_runtime, Conversation.AgentRuntime.LANGGRAPH)
+        self.assertIsNone(conversation.task_id)
+
+    def test_create_new_conversation_is_langgraph_even_with_sandbox_flag(self):
+        # `open` owns sandbox creation, so a conversation born via create is always LangGraph —
+        # even for a user on the sandbox flag — and never touches the sandbox router.
+        conversation_id = str(uuid.uuid4())
+        with (
+            patch("ee.api.conversation.has_sandbox_mode_feature_flag", return_value=True),
+            patch("ee.api.conversation.SandboxSession") as m_routing,
+            patch("ee.hogai.core.executor.AgentExecutor.astream", return_value=_async_generator()),
+            patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._mock_streaming_response),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/conversations/",
+                {"content": "hello", "trace_id": str(uuid.uuid4()), "conversation": conversation_id},
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        m_routing.assert_not_called()
+        self.assertEqual(
+            Conversation.objects.get(id=conversation_id).agent_runtime, Conversation.AgentRuntime.LANGGRAPH
+        )
+
+    def test_create_rejects_sandbox_signalling_body(self):
+        # A sandbox-signalling body is refused — sandbox conversations must use `open`.
+        conversation = self._langgraph_conversation()
+        for body in ({"is_sandbox": True}, {"agent_mode": "sandbox"}):
+            with patch("ee.api.conversation.SandboxSession") as m_routing:
+                response = self.client.post(
+                    f"/api/environments/{self.team.id}/conversations/",
+                    {
+                        "content": "hi",
+                        "trace_id": str(uuid.uuid4()),
+                        "conversation": str(conversation.id),
+                        **body,
+                    },
+                )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, body)
+            m_routing.assert_not_called()
+
+    def test_create_rejects_existing_sandbox_conversation(self):
+        # A sandbox conversation that reaches create is refused outright — it must go through `open`,
+        # never fall through to the LangGraph workflow.
+        conversation = self._langgraph_conversation(agent_runtime=Conversation.AgentRuntime.SANDBOX)
+        with patch("ee.api.conversation.SandboxSession") as m_routing:
+            response = self._send(conversation)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        m_routing.assert_not_called()
+
+    def test_create_no_sandbox_flag_streams_langgraph(self):
+        # Without the sandbox flag, a reopened LangGraph thread stays LangGraph and the message
+        # takes the streaming path — never the sandbox router.
+        conversation = self._langgraph_conversation()
+        with (
+            patch("ee.api.conversation.has_sandbox_mode_feature_flag", return_value=False),
+            patch("ee.api.conversation.SandboxSession") as m_routing,
+            patch("ee.hogai.core.executor.AgentExecutor.astream", return_value=_async_generator()),
+            patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._mock_streaming_response),
+        ):
+            response = self._send(conversation, content="keep me on langgraph")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        m_routing.assert_not_called()
+        conversation.refresh_from_db()
+        self.assertEqual(conversation.agent_runtime, Conversation.AgentRuntime.LANGGRAPH)
+
+    def test_create_non_idle_langgraph_does_not_convert(self):
+        # Conversion requires an idle conversation; a non-idle LangGraph thread getting a new
+        # message hits the existing "cannot resume streaming" conflict instead.
+        conversation = self._langgraph_conversation(status=Conversation.Status.IN_PROGRESS)
+        with (
+            patch("ee.api.conversation.has_sandbox_mode_feature_flag", return_value=True),
+            patch("ee.api.conversation.SandboxSession") as m_routing,
+        ):
+            response = self._send(conversation)
+
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        m_routing.assert_not_called()
