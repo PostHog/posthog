@@ -367,6 +367,30 @@ async fn wait_for(what: &str, deadline: Duration, mut condition: impl FnMut() ->
     }
 }
 
+/// Poll the FULL shadow topic until a change matching `predicate` appears, or `deadline` elapses.
+/// Content-based, not count-based: the target change may not be among the first N messages, so each
+/// poll rescans every message currently on the topic (live watermark). Returns whether it was found
+/// so the caller keeps its own assertion message.
+async fn wait_for_shadow_change(
+    topic: &str,
+    deadline: Duration,
+    what: &str,
+    predicate: impl Fn(&CohortMembershipChange) -> bool,
+) -> bool {
+    let start = Instant::now();
+    loop {
+        let total = topic_message_count(topic) as usize;
+        if total > 0 && shadow_changes(topic, total).await.iter().any(&predicate) {
+            return true;
+        }
+        if start.elapsed() >= deadline {
+            eprintln!("timed out after {deadline:?} waiting for {what}");
+            return false;
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+}
+
 fn part(person: Uuid) -> u16 {
     partition_of(TeamId(TEAM), &person, COHORT_PARTITION_COUNT) as u16
 }
@@ -1077,21 +1101,23 @@ async fn merge_and_cascade_state_survive_an_s3_disaster_restore() {
             &instance, &murmur2_producer(), &topics, &groups, single_lsk, daily_lsk, p_old, p_new, 0,
         )
         .await;
-        // Three shadow changes: direct flips for cohorts 1 + 2, plus the cascade re-evaluating B
-        // (cohort 3) into P_new. Wait on the cheap watermark count, then scan once — never a full
-        // broker scan inside a poll loop.
-        wait_for(
-            "all three shadow changes for the cross-partition merge (single + daily + B cascade)",
+        // The cascade re-evaluating B (cohort 3) into P_new is NOT among the first shadow messages:
+        // P_old's flips for cohorts 1, 2, and its B cascade land first. So poll the FULL shadow topic
+        // (live watermark, not a fixed prefix) for the specific P_new change rather than reading a
+        // fixed count.
+        let cascade_into_p_new = wait_for_shadow_change(
+            &topics.shadow,
             Duration::from_secs(60),
-            || topic_message_count(&topics.shadow) >= 3,
-        )
-        .await;
-        assert!(
-            shadow_changes(&topics.shadow, 3).await.iter().any(|change| {
+            "the cascade to re-evaluate B (cohort 3, a pure ref to cohort 2) into P_new's membership",
+            |change| {
                 change.cohort_id == COHORT_REF
                     && change.person_id == p_new.to_string()
                     && change.status == MembershipStatus::Entered
-            }),
+            },
+        )
+        .await;
+        assert!(
+            cascade_into_p_new,
             "the cascade re-evaluated B (cohort 3, a pure ref to cohort 2) into P_new's membership",
         );
 

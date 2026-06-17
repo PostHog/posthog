@@ -159,12 +159,20 @@ impl CheckpointSweeper {
             CheckpointMetadata::generate_id(attempt_timestamp)
         );
         let attempt_dir = self.attempt_parent().join(&checkpoint_id);
-        if let Err(e) = tokio::fs::create_dir_all(&attempt_dir).await {
-            warn!(error = %e, dir = %attempt_dir.display(), "checkpoint tick: cannot create attempt dir; skipping tick");
+        // Create only the parent; RocksDB's create_checkpoint requires the leaf to NOT exist (it
+        // creates it, and errors `Invalid argument: Directory exists` otherwise).
+        if let Err(e) = tokio::fs::create_dir_all(self.attempt_parent()).await {
+            warn!(error = %e, dir = %self.attempt_parent().display(), "checkpoint tick: cannot create attempt parent dir; skipping tick");
             return;
         }
         let checkpoint_store = self.store.clone();
         let checkpoint_dir = attempt_dir.clone();
+        // create_checkpoint rejects a pre-existing leaf; guard the invariant before handing it over.
+        debug_assert!(
+            !attempt_dir.exists(),
+            "checkpoint attempt dir must not exist before create_checkpoint: {}",
+            attempt_dir.display(),
+        );
         let create_result = tokio::task::spawn_blocking(move || {
             checkpoint_store.create_checkpoint(&checkpoint_dir)
         })

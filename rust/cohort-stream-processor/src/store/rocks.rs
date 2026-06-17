@@ -874,6 +874,59 @@ mod tests {
         );
     }
 
+    // RocksDB's Checkpoint::create_checkpoint creates the destination dir itself and requires it to
+    // NOT already exist: the parent must exist, the leaf must not. This pins the contract the
+    // checkpoint sweeper violated by pre-creating the leaf (every S3 upload silently skipped).
+    #[test]
+    fn create_checkpoint_succeeds_when_only_the_parent_exists_and_the_leaf_does_not() {
+        let dir = TempDir::new().unwrap();
+        let store = CohortStore::open(&StoreConfig {
+            path: dir.path().join("db"),
+            ..StoreConfig::default()
+        })
+        .unwrap();
+        let key = stage1_key();
+        store
+            .write_batch(|b| b.put_stage1(&key, b"snapshot"))
+            .unwrap();
+
+        // Parent exists (as the sweeper's attempt-parent does), leaf does not — the correct usage.
+        let parent = dir.path().join("attempts");
+        std::fs::create_dir_all(&parent).unwrap();
+        let checkpoint = parent.join("attempt-0");
+        store.create_checkpoint(&checkpoint).unwrap();
+
+        let restored = CohortStore::open(&StoreConfig {
+            path: checkpoint,
+            wipe_on_start: false,
+            ..StoreConfig::default()
+        })
+        .unwrap();
+        assert_eq!(
+            restored.get_stage1(&key).unwrap().as_deref(),
+            Some(b"snapshot".as_slice()),
+        );
+    }
+
+    #[test]
+    fn create_checkpoint_errors_when_the_destination_dir_already_exists() {
+        let dir = TempDir::new().unwrap();
+        let store = CohortStore::open(&StoreConfig {
+            path: dir.path().join("db"),
+            ..StoreConfig::default()
+        })
+        .unwrap();
+
+        // Pre-create the leaf — the bug that made every checkpoint tick skip the upload.
+        let checkpoint = dir.path().join("attempt-0");
+        std::fs::create_dir_all(&checkpoint).unwrap();
+        let err = store.create_checkpoint(&checkpoint).unwrap_err();
+        assert!(
+            matches!(err, StoreError::Backend { op, .. } if op == OP_CHECKPOINT),
+            "pre-existing checkpoint dir must surface a backend checkpoint error, got: {err}",
+        );
+    }
+
     #[test]
     fn scan_stage1_resumes_after_the_cursor_and_honors_the_limit_and_partition_bounds() {
         let dir = TempDir::new().unwrap();
