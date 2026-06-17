@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { IconChevronRight, IconSparkles } from '@posthog/icons'
 
@@ -13,6 +14,7 @@ import {
     DropdownMenuSubContent,
     DropdownMenuSubTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
+import { runBlankDashboardFlow } from 'scenes/dashboard/dashboards/templates/dashboardTemplateCreationFlows'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 
@@ -54,6 +56,10 @@ function sortByPriority(a: TreeDataItem, b: TreeDataItem): number {
     return rankDiff !== 0 ? rankDiff : labelFor(a).localeCompare(labelFor(b), undefined, { sensitivity: 'accent' })
 }
 
+function captureItemClicked(item: string): void {
+    posthog.capture('nav create menu item clicked', { item })
+}
+
 function pushHref(item: TreeDataItem): void {
     if (item.record?.href) {
         router.actions.push(
@@ -64,8 +70,9 @@ function pushHref(item: TreeDataItem): void {
 
 export function CreateMenu(): JSX.Element {
     const { treeItemsNew } = useValues(projectTreeDataLogic)
+    const { isLoading } = useValues(newDashboardLogic)
     const { openSidePanelMax } = useActions(maxGlobalLogic)
-    const { addDashboard } = useActions(newDashboardLogic)
+    const { addDashboard, setIsLoading } = useActions(newDashboardLogic)
 
     const items = treeItemsNew.filter((item) => !HIDDEN.has(keyOf(item))).sort(sortByPriority)
 
@@ -75,6 +82,7 @@ export function CreateMenu(): JSX.Element {
                 asChild
                 onClick={(e) => {
                     e.stopPropagation()
+                    captureItemClicked('Create with AI')
                     openSidePanelMax()
                 }}
                 data-attr="create-menu-with-ai-button"
@@ -90,7 +98,7 @@ export function CreateMenu(): JSX.Element {
                     return (
                         <DropdownMenuSub key={item.id}>
                             <DropdownMenuSubTrigger asChild>
-                                <ButtonPrimitive menuItem data-attr="create-menu-sub-menu-button">
+                                <ButtonPrimitive menuItem data-attr={`create-menu-sub-menu-${keyOf(item)}-button`}>
                                     {item.icon}
                                     {labelFor(item)}
                                     <IconChevronRight className="ml-auto size-3" />
@@ -102,11 +110,8 @@ export function CreateMenu(): JSX.Element {
                                         asChild
                                         onClick={(e) => {
                                             e.stopPropagation()
-                                            addDashboard({
-                                                name: 'New Dashboard',
-                                                show: true,
-                                                _create_in_folder: 'Unfiled/Dashboards',
-                                            })
+                                            captureItemClicked('Dashboard (blank)')
+                                            runBlankDashboardFlow({ isLoading, setIsLoading, addDashboard })
                                         }}
                                         data-attr="create-menu-dashboard-blank"
                                     >
@@ -116,6 +121,7 @@ export function CreateMenu(): JSX.Element {
                                         asChild
                                         onClick={(e) => {
                                             e.stopPropagation()
+                                            captureItemClicked('Dashboard (templates)')
                                             pushHref(item)
                                         }}
                                         data-attr="create-menu-dashboard-templates"
@@ -132,7 +138,7 @@ export function CreateMenu(): JSX.Element {
                     return (
                         <DropdownMenuSub key={item.id}>
                             <DropdownMenuSubTrigger asChild>
-                                <ButtonPrimitive menuItem data-attr="create-menu-sub-menu-button">
+                                <ButtonPrimitive menuItem data-attr={`create-menu-sub-menu-${keyOf(item)}-button`}>
                                     {groupIcon ? iconForType(groupIcon) : item.icon}
                                     {labelFor(item)}
                                     <IconChevronRight className="ml-auto size-3" />
@@ -146,6 +152,7 @@ export function CreateMenu(): JSX.Element {
                                             asChild
                                             onClick={(e) => {
                                                 e.stopPropagation()
+                                                captureItemClicked(keyOf(child))
                                                 pushHref(child)
                                             }}
                                             data-attr={`create-menu-sub-menu-${keyOf(child)}-button`}
@@ -167,6 +174,7 @@ export function CreateMenu(): JSX.Element {
                         asChild
                         onClick={(e) => {
                             e.stopPropagation()
+                            captureItemClicked(keyOf(item))
                             pushHref(item)
                         }}
                     >

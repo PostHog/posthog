@@ -248,7 +248,13 @@ export function Nav(): JSX.Element {
                 {showCreateButton && (
                     <div className={cn('px-2 py-1', isLayoutNavCollapsed && 'flex justify-center px-0')}>
                         <CreateMenuLogics />
-                        <DropdownMenu>
+                        <DropdownMenu
+                            onOpenChange={(open) => {
+                                if (open) {
+                                    posthog.capture('nav create button clicked')
+                                }
+                            }}
+                        >
                             <DropdownMenuTrigger asChild>
                                 <LemonButton
                                     type="primary"
