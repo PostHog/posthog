@@ -2089,13 +2089,18 @@ describe('experimentLogic', () => {
             expected: MultivariateFlagVariant[]
         }>([
             {
-                desc: 'prefers parameters.feature_flag_variants when present',
+                desc: 'prefers the linked flag variants over the parameters mirror',
                 parameterVariants,
                 flagVariants,
+                expected: flagVariants,
+            },
+            {
+                desc: 'falls back to parameters.feature_flag_variants when the flag has no variants (creation flow)',
+                parameterVariants,
                 expected: parameterVariants,
             },
             {
-                desc: 'falls back to the linked flag variants when parameters.feature_flag_variants is absent',
+                desc: 'reads the linked flag variants when parameters has no mirror',
                 flagVariants,
                 expected: flagVariants,
             },

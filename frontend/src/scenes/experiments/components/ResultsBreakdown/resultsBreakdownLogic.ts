@@ -24,6 +24,7 @@ import {
     getInsight,
     getQuery,
 } from '~/scenes/experiments/metricQueryUtils'
+import { getExperimentVariants } from '~/scenes/experiments/utils'
 import type { Experiment, FunnelStep } from '~/types'
 import {
     BreakdownAttributionType,
@@ -90,7 +91,7 @@ export const resultsBreakdownLogic = kea<resultsBreakdownLogicType>([
                     experiment.exposure_criteria?.exposure_config as ExperimentEventExposureConfig,
                     {
                         featureFlagKey: experiment.feature_flag_key,
-                        featureFlagVariants: experiment.parameters.feature_flag_variants,
+                        featureFlagVariants: getExperimentVariants(experiment),
                     }
                 )
 
@@ -198,7 +199,7 @@ export const resultsBreakdownLogic = kea<resultsBreakdownLogicType>([
                         /**
                          * we need to filter the results to remove any non-variant breakdown
                          */
-                        const variants = experiment.parameters.feature_flag_variants.map(({ key }) => key)
+                        const variants = getExperimentVariants(experiment).map(({ key }) => key)
 
                         results = match(results)
                             /**
