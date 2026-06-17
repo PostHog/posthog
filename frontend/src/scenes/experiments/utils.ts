@@ -711,10 +711,10 @@ export const isLegacyExperimentQuery = (query: unknown): query is ExperimentTren
  */
 export const isLegacyExperiment = ({ metrics, metrics_secondary, saved_metrics }: Experiment): boolean => {
     // saved_metrics has a different structure and so we need to check for it separately
-    if (saved_metrics.some(isLegacySharedMetric)) {
+    if ((saved_metrics ?? []).some(isLegacySharedMetric)) {
         return true
     }
-    return [...metrics, ...metrics_secondary].some(isLegacyExperimentQuery)
+    return [...(metrics ?? []), ...(metrics_secondary ?? [])].some(isLegacyExperimentQuery)
 }
 
 export const isLegacySharedMetric = ({ query }: SharedMetric): boolean => isLegacyExperimentQuery(query)

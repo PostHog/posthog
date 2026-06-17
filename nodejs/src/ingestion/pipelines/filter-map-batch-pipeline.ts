@@ -1,4 +1,5 @@
 import { BatchPipeline, BatchPipelineResultWithContext } from './batch-pipeline.interface'
+import { InterleavingBatchPipeline, PullOutcome } from './interleaving-batch-pipeline'
 import { OkResultWithContext, PipelineResultWithContext } from './pipeline.interface'
 import { isOkResult } from './results'
 
@@ -15,6 +16,15 @@ export type FilterMapMappingFunction<TInput, TOutput, CInput, COutput> = (
  *
  * Non-OK results are returned immediately without buffering, which may break
  * ordering relative to OK results that go through the subpipeline.
+ *
+ * Failures poison the pipeline: if the upstream, the mapping function, or the
+ * subpipeline throws, results already in flight still drain, then next() rejects
+ * with that error permanently.
+ *
+ * Synchronization (pulling upstream, feeding the subpipeline, draining it, and
+ * staying responsive to concurrent feeds so a parked subpipeline can't strand
+ * newly fed input) is handled by {@link InterleavingBatchPipeline}. This class
+ * only supplies the filter/map/route policy via the onSourcePull callback.
  */
 export class FilterMapBatchPipeline<
     TInput,
@@ -29,63 +39,65 @@ export class FilterMapBatchPipeline<
     RSub extends string = never,
 > implements BatchPipeline<TInput, TOutput, CInput, COutput | CIntermediate, RPrev | RSub>
 {
+    private inner: InterleavingBatchPipeline<TInput, TOutput, CInput, COutput | CIntermediate, RPrev | RSub>
+
     constructor(
         private previousPipeline: BatchPipeline<TInput, TIntermediate, CInput, CIntermediate, RPrev>,
         private mappingFn: FilterMapMappingFunction<TIntermediate, TMapped, CIntermediate, CMapped>,
         private subPipeline: BatchPipeline<TMapped, TOutput, CMapped, COutput, RSub>
-    ) {}
-
-    feed(elements: OkResultWithContext<TInput, CInput>[]): void {
-        this.previousPipeline.feed(elements)
+    ) {
+        this.inner = new InterleavingBatchPipeline<TInput, TOutput, CInput, COutput | CIntermediate, RPrev | RSub>({
+            onFeed: (elements) => this.previousPipeline.feed(elements),
+            onSourcePull: () => this.pullAndRoute(),
+            onProcessPull: () => this.subPipeline.next(),
+        })
     }
 
-    async next(): Promise<BatchPipelineResultWithContext<TOutput, COutput | CIntermediate, RPrev | RSub> | null> {
-        // Try subpipeline first (drains any pending results)
-        const subPipelineResults = await this.subPipeline.next()
-        if (subPipelineResults !== null) {
-            return subPipelineResults
-        }
+    feed(elements: OkResultWithContext<TInput, CInput>[]): void {
+        this.inner.feed(elements)
+    }
 
-        // Get results from previous pipeline
+    next(): Promise<BatchPipelineResultWithContext<TOutput, COutput | CIntermediate, RPrev | RSub> | null> {
+        return this.inner.next()
+    }
+
+    /**
+     * Pull one batch from the previous pipeline, feed mapped OK results into the
+     * subpipeline, and report what to do next: emit non-OK (or empty) batches
+     * immediately, drain the subpipeline for the OK results, or signal that the
+     * previous pipeline is empty.
+     */
+    private async pullAndRoute(): Promise<PullOutcome<TOutput, COutput | CIntermediate, RPrev | RSub>> {
         const previousResults = await this.previousPipeline.next()
         if (previousResults === null) {
-            return null
+            return { kind: 'drained' }
         }
 
-        // Separate OK and non-OK results
         const okResults: OkResultWithContext<TIntermediate, CIntermediate>[] = []
         const nonOkResults: PipelineResultWithContext<TOutput, CIntermediate, RPrev | RSub>[] = []
 
         for (const element of previousResults) {
             if (isOkResult(element.result)) {
-                okResults.push({
-                    result: element.result,
-                    context: element.context,
-                })
+                okResults.push({ result: element.result, context: element.context })
             } else {
-                nonOkResults.push({
-                    result: element.result,
-                    context: element.context,
-                })
+                nonOkResults.push({ result: element.result, context: element.context })
             }
         }
 
-        // Map OK results and feed to subpipeline
         if (okResults.length > 0) {
-            const mappedResults = okResults.map((element) => this.mappingFn(element))
-            this.subPipeline.feed(mappedResults)
+            this.subPipeline.feed(okResults.map((element) => this.mappingFn(element)))
         }
 
-        // Return non-OK results immediately if any
         if (nonOkResults.length > 0) {
-            return nonOkResults
+            return { kind: 'emit', batch: nonOkResults }
         }
 
-        // No OK results were fed to subpipeline, return empty batch
+        // A non-null empty batch surfaces as [] (a valid empty batch, distinct
+        // from null = end of stream), matching the previous pipeline 1:1.
         if (okResults.length === 0) {
-            return []
+            return { kind: 'emit', batch: [] }
         }
 
-        return this.subPipeline.next()
+        return { kind: 'drain' }
     }
 }

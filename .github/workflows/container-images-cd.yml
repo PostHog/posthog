@@ -349,7 +349,7 @@ jobs:
             - name: Check for changes that affect Tasks Agent Temporal worker
               id: check_changes_tasks_agent_temporal_worker
               run: |
-                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/common|^products/tasks/backend|^posthog/tasks/|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
+                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/common|^posthog/temporal/ai/posthog_code_slack_|^posthog/temporal/ai/slack_app/|^products/slack_app/backend|^products/tasks/backend|^posthog/tasks/|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
                       echo "changed=true" >> $GITHUB_OUTPUT
                   else
                       echo "changed=false" >> $GITHUB_OUTPUT

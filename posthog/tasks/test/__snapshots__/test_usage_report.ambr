@@ -682,6 +682,8 @@
   WHERE (type = 'QueryFinish'
          OR type = 'ExceptionWhileProcessing')
     AND is_initial_query = 1
+    AND event_time >= 'today 00:00:00'
+    AND event_time < '2022-01-11 05:59:59'
     AND query_start_time >= '2022-01-10 00:00:00'
     AND query_start_time < '2022-01-10 23:59:59'
     AND access_method = ''
@@ -715,6 +717,8 @@
   WHERE (type = 'QueryFinish'
          OR type = 'ExceptionWhileProcessing')
     AND is_initial_query = 1
+    AND event_time >= 'today 00:00:00'
+    AND event_time < '2022-01-11 05:59:59'
     AND query_start_time >= '2022-01-10 00:00:00'
     AND query_start_time < '2022-01-10 23:59:59'
     AND access_method = ''
@@ -732,6 +736,8 @@
   WHERE (type = 'QueryFinish'
          OR type = 'ExceptionWhileProcessing')
     AND is_initial_query = 1
+    AND event_time >= 'today 00:00:00'
+    AND event_time < '2022-01-11 05:59:59'
     AND query_start_time >= '2022-01-10 00:00:00'
     AND query_start_time < '2022-01-10 23:59:59'
     AND access_method = ''
@@ -749,6 +755,8 @@
   WHERE (type = 'QueryFinish'
          OR type = 'ExceptionWhileProcessing')
     AND is_initial_query = 1
+    AND event_time >= 'today 00:00:00'
+    AND event_time < '2022-01-11 05:59:59'
     AND query_start_time >= '2022-01-10 00:00:00'
     AND query_start_time < '2022-01-10 23:59:59'
     AND access_method = 'personal_api_key'
@@ -766,6 +774,8 @@
   WHERE (type = 'QueryFinish'
          OR type = 'ExceptionWhileProcessing')
     AND is_initial_query = 1
+    AND event_time >= 'today 00:00:00'
+    AND event_time < '2022-01-11 05:59:59'
     AND query_start_time >= '2022-01-10 00:00:00'
     AND query_start_time < '2022-01-10 23:59:59'
     AND access_method = 'personal_api_key'
@@ -783,6 +793,8 @@
   WHERE (type = 'QueryFinish'
          OR type = 'ExceptionWhileProcessing')
     AND is_initial_query = 1
+    AND event_time >= 'today 00:00:00'
+    AND event_time < '2022-01-11 05:59:59'
     AND query_start_time >= '2022-01-10 00:00:00'
     AND query_start_time < '2022-01-10 23:59:59'
     AND access_method = 'personal_api_key'
@@ -801,6 +813,8 @@
          OR type = 'ExceptionWhileProcessing')
     AND is_initial_query = 1
     AND query_type IN (['EventsQuery'])
+    AND event_time >= 'today 00:00:00'
+    AND event_time < '2022-01-11 05:59:59'
     AND query_start_time >= '2022-01-10 00:00:00'
     AND query_start_time < '2022-01-10 23:59:59'
     AND access_method = ''
@@ -819,6 +833,8 @@
          OR type = 'ExceptionWhileProcessing')
     AND is_initial_query = 1
     AND query_type IN (['EventsQuery'])
+    AND event_time >= 'today 00:00:00'
+    AND event_time < '2022-01-11 05:59:59'
     AND query_start_time >= '2022-01-10 00:00:00'
     AND query_start_time < '2022-01-10 23:59:59'
     AND access_method = ''
@@ -837,6 +853,8 @@
          OR type = 'ExceptionWhileProcessing')
     AND is_initial_query = 1
     AND query_type IN (['EventsQuery'])
+    AND event_time >= 'today 00:00:00'
+    AND event_time < '2022-01-11 05:59:59'
     AND query_start_time >= '2022-01-10 00:00:00'
     AND query_start_time < '2022-01-10 23:59:59'
     AND access_method = ''
@@ -855,6 +873,8 @@
          OR type = 'ExceptionWhileProcessing')
     AND is_initial_query = 1
     AND query_type IN (['EventsQuery'])
+    AND event_time >= 'today 00:00:00'
+    AND event_time < '2022-01-11 05:59:59'
     AND query_start_time >= '2022-01-10 00:00:00'
     AND query_start_time < '2022-01-10 23:59:59'
     AND access_method = 'personal_api_key'
@@ -873,6 +893,8 @@
          OR type = 'ExceptionWhileProcessing')
     AND is_initial_query = 1
     AND query_type IN (['EventsQuery'])
+    AND event_time >= 'today 00:00:00'
+    AND event_time < '2022-01-11 05:59:59'
     AND query_start_time >= '2022-01-10 00:00:00'
     AND query_start_time < '2022-01-10 23:59:59'
     AND access_method = 'personal_api_key'
@@ -907,6 +929,8 @@
          OR type = 'ExceptionWhileProcessing')
     AND is_initial_query = 1
     AND query_type IN (['EventsQuery'])
+    AND event_time >= 'today 00:00:00'
+    AND event_time < '2022-01-11 05:59:59'
     AND query_start_time >= '2022-01-10 00:00:00'
     AND query_start_time < '2022-01-10 23:59:59'
     AND access_method = 'personal_api_key'

@@ -3372,6 +3372,26 @@
             "required": ["type", "id"],
             "type": "object"
         },
+        "AssistantRetentionActorsQuery": {
+            "additionalProperties": false,
+            "description": "Drills into a retention insight to list the persons in one acquisition cohort and show, for each, which subsequent intervals they came back in. Returned rows are `distinct_id`, `email`, `name`, followed by one column per retention interval (`<period>_0` … `<period>_N`, e.g. `day_0`, `day_1`, … for a daily insight). Each interval column is `1` when the actor was active in that interval and `0` otherwise; `<period>_0` is the acquisition interval and is always `1`. Rows are ordered by how many intervals each actor returned in (most-retained first).\n\nThe number and name of the interval columns are derived from the source — `retentionFilter.period` sets the prefix and `retentionFilter.totalIntervals` (or `retentionCustomBrackets.length + 1` when custom brackets are set) sets the count.\n\nRetention drilldown has no per-cell `day` / `series` / `compare` selectors and no matched-recordings column — its persons output is appearance-based.",
+            "properties": {
+                "interval": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Which acquisition cohort to drill into, 0-based. `0` is the acquisition interval itself (every actor who entered the cohort); `1` is the cohort that entered one interval later, and so on. Defaults to `0` when omitted."
+                },
+                "kind": {
+                    "const": "InsightActorsQuery",
+                    "type": "string"
+                },
+                "source": {
+                    "$ref": "#/definitions/AssistantRetentionQuery",
+                    "description": "The source retention insight query whose cohort we are drilling into."
+                }
+            },
+            "required": ["kind", "source"],
+            "type": "object"
+        },
         "AssistantRetentionEntity": {
             "anyOf": [
                 {
@@ -3454,6 +3474,7 @@
                     "items": {
                         "type": "number"
                     },
+                    "maxItems": 31,
                     "type": "array"
                 },
                 "retentionReference": {
@@ -10128,6 +10149,98 @@
             },
             "required": [
                 "cache_key",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone"
+            ],
+            "type": "object"
+        },
+        "CachedTraceSpansSymbolStatsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "granularity": {
+                    "$ref": "#/definitions/SymbolStatsGranularity",
+                    "description": "Which bucketing was applied: `line` when no symbols were supplied, `symbol` otherwise."
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "query_metadata": {
+                    "type": "object"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_compare_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The resolved previous/comparison period date range, when comparing against another period"
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "description": "One row per bucket, ordered by line ascending.",
+                    "items": {
+                        "$ref": "#/definitions/SymbolStatsRow"
+                    },
+                    "type": "array"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSyncWarning"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
+                "granularity",
                 "is_cached",
                 "last_refresh",
                 "next_allowed_client_refresh",
@@ -29048,6 +29161,7 @@
                 "TraceSpansAggregationQuery",
                 "TraceSpansTreeQuery",
                 "TraceSpansAttributeBreakdownQuery",
+                "TraceSpansSymbolStatsQuery",
                 "SessionBatchEventsQuery",
                 "DataTableNode",
                 "DataVisualizationNode",
@@ -40836,6 +40950,26 @@
             },
             "type": "object"
         },
+        "SourceSymbol": {
+            "additionalProperties": false,
+            "description": "A source symbol (typically a function) the client wants production latency for, identified by its declaration line range. The client supplies these from its own AST/LSP — the server does not infer function boundaries (OTel `code.function.name` is frequently absent, and `code.line.number` may be a call site inside the body rather than the declaration line).",
+            "properties": {
+                "endLine": {
+                    "$ref": "#/definitions/positive_integer",
+                    "description": "Last line of the symbol's range, inclusive (1-based)."
+                },
+                "name": {
+                    "description": "Opaque identifier (e.g. the function name) echoed back on the matching result row.",
+                    "type": "string"
+                },
+                "startLine": {
+                    "$ref": "#/definitions/positive_integer",
+                    "description": "First line of the symbol's range, inclusive (1-based)."
+                }
+            },
+            "required": ["startLine", "endLine"],
+            "type": "object"
+        },
         "SpanPropertyFilter": {
             "additionalProperties": false,
             "properties": {
@@ -41678,6 +41812,157 @@
         "SurveyWidgetType": {
             "enum": ["button", "tab", "selector"],
             "type": "string"
+        },
+        "SymbolStatsGranularity": {
+            "description": "Bucketing applied to a symbol-stats result: per source line, or per requested symbol range.",
+            "enum": ["line", "symbol"],
+            "type": "string"
+        },
+        "SymbolStatsPeriod": {
+            "additionalProperties": false,
+            "description": "Aggregated metrics for a symbol over a single time period. Used for the prior-period comparison.",
+            "properties": {
+                "busy_count": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Spans in the period carrying an active/busy time attribute. 0 means busy_* are not meaningful."
+                },
+                "count": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Number of spans attributed to this symbol in the period."
+                },
+                "error_count": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Spans whose OTel status is Error (`status_code = 2`)."
+                },
+                "p50_busy_nano": {
+                    "description": "Median active (busy) time, in nanoseconds. Excludes time awaiting children.",
+                    "type": "number"
+                },
+                "p50_duration_nano": {
+                    "description": "Median wall-clock span duration, in nanoseconds.",
+                    "type": "number"
+                },
+                "p95_busy_nano": {
+                    "description": "95th-percentile active (busy) time, in nanoseconds.",
+                    "type": "number"
+                },
+                "p95_duration_nano": {
+                    "description": "95th-percentile wall-clock span duration, in nanoseconds.",
+                    "type": "number"
+                },
+                "p99_busy_nano": {
+                    "description": "99th-percentile active (busy) time, in nanoseconds.",
+                    "type": "number"
+                },
+                "p99_duration_nano": {
+                    "description": "99th-percentile wall-clock span duration, in nanoseconds.",
+                    "type": "number"
+                },
+                "sum_duration_nano": {
+                    "description": "Total wall-clock span duration in the period, in nanoseconds (additive across spans).",
+                    "type": "number"
+                }
+            },
+            "required": [
+                "count",
+                "error_count",
+                "sum_duration_nano",
+                "p50_duration_nano",
+                "p95_duration_nano",
+                "p99_duration_nano",
+                "busy_count",
+                "p50_busy_nano",
+                "p95_busy_nano",
+                "p99_busy_nano"
+            ],
+            "type": "object"
+        },
+        "SymbolStatsRow": {
+            "additionalProperties": false,
+            "description": "Production latency for one bucket of a source file: spans carrying OpenTelemetry `code.*` location attributes, aggregated by line (no `symbols`) or into a symbol's line range (`symbols` supplied). The flat fields are the current period; `previous` is the immediately-preceding equal-length window. One row per bucket with spans in either period.",
+            "properties": {
+                "busy_count": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Spans in this symbol carrying an active/busy time attribute. 0 means busy_* are not meaningful."
+                },
+                "count": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Number of spans attributed to this bucket."
+                },
+                "count_pct_change": {
+                    "description": "Percentage change in count vs the previous period (180 = +180%). Null when there is no baseline (previous count 0); use `previous.count`, not a null here, to detect a brand-new symbol.",
+                    "type": ["number", "null"]
+                },
+                "end_line": {
+                    "$ref": "#/definitions/integer",
+                    "description": "`endLine` of the matched symbol's range. Symbol mode only."
+                },
+                "error_count": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Spans whose OTel status is Error (`status_code = 2`)."
+                },
+                "line": {
+                    "$ref": "#/definitions/integer",
+                    "description": "The bucket's anchor line: the source line in line mode, or the symbol's `startLine` in symbol mode."
+                },
+                "name": {
+                    "description": "Echoed `name` from the requested symbol. Symbol mode only.",
+                    "type": "string"
+                },
+                "p50_busy_nano": {
+                    "description": "Median active (busy) time, in nanoseconds. Excludes time awaiting children.",
+                    "type": "number"
+                },
+                "p50_duration_nano": {
+                    "description": "Median wall-clock span duration, in nanoseconds.",
+                    "type": "number"
+                },
+                "p95_busy_nano": {
+                    "description": "95th-percentile active (busy) time, in nanoseconds.",
+                    "type": "number"
+                },
+                "p95_duration_nano": {
+                    "description": "95th-percentile wall-clock span duration, in nanoseconds.",
+                    "type": "number"
+                },
+                "p95_duration_pct_change": {
+                    "description": "Percentage change in p95 duration vs the previous period (180 = +180%). Null when the previous p95 is 0 (no comparable baseline), which can happen even when previous.count > 0 — do not read null as \"new\".",
+                    "type": ["number", "null"]
+                },
+                "p99_busy_nano": {
+                    "description": "99th-percentile active (busy) time, in nanoseconds.",
+                    "type": "number"
+                },
+                "p99_duration_nano": {
+                    "description": "99th-percentile wall-clock span duration, in nanoseconds.",
+                    "type": "number"
+                },
+                "previous": {
+                    "$ref": "#/definitions/SymbolStatsPeriod",
+                    "description": "The same metrics over the immediately-preceding equal-length period."
+                },
+                "sum_duration_nano": {
+                    "description": "Total wall-clock span duration in this symbol, in nanoseconds (additive across spans).",
+                    "type": "number"
+                }
+            },
+            "required": [
+                "line",
+                "count",
+                "error_count",
+                "sum_duration_nano",
+                "p50_duration_nano",
+                "p95_duration_nano",
+                "p99_duration_nano",
+                "busy_count",
+                "p50_busy_nano",
+                "p95_busy_nano",
+                "p99_busy_nano",
+                "previous",
+                "count_pct_change",
+                "p95_duration_pct_change"
+            ],
+            "type": "object"
         },
         "TableSettings": {
             "additionalProperties": false,
@@ -42713,6 +42998,101 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "TraceSpansSymbolStatsQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "filePath": {
+                    "description": "Repo-relative path of the source file to aggregate (e.g. `src/flags/flag_matching.rs`). Matched as a path suffix against the recorded `code.file.path` / `code.filepath`, so a recorded path carrying an extra crate/workspace prefix still matches.",
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "TraceSpansSymbolStatsQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "$ref": "#/definitions/TraceSpansSymbolStatsQueryResponse"
+                },
+                "symbols": {
+                    "description": "Optional symbol (function) ranges to aggregate spans into. When supplied, each span is attributed to the smallest range that encloses its recorded line (one row per symbol). When omitted (or an empty list), spans are aggregated per source line (one row per instrumented line) — pass a single whole-file range for a file-level total.",
+                    "items": {
+                        "$ref": "#/definitions/SourceSymbol"
+                    },
+                    "type": "array"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["dateRange", "filePath", "kind"],
+            "type": "object"
+        },
+        "TraceSpansSymbolStatsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "granularity": {
+                    "$ref": "#/definitions/SymbolStatsGranularity",
+                    "description": "Which bucketing was applied: `line` when no symbols were supplied, `symbol` otherwise."
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_compare_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The resolved previous/comparison period date range, when comparing against another period"
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "description": "One row per bucket, ordered by line ascending.",
+                    "items": {
+                        "$ref": "#/definitions/SymbolStatsRow"
+                    },
+                    "type": "array"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSyncWarning"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["granularity", "results"],
             "type": "object"
         },
         "TraceSpansTreeQuery": {
