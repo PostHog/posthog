@@ -991,6 +991,42 @@ describe('Hog Executor', () => {
             const result = await executor.execute(createAccountInvocation())
             expect(result.error).toContain('has no secret API token configured')
         })
+
+        it('postHogUpdateAccount queues a PATCH with external_id merged into the body', async () => {
+            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                id: 1,
+                secret_api_token: 'test-secret-token',
+            } as any)
+
+            mockExecHogForAsyncFunction('postHogUpdateAccount', [
+                { external_id: 'acme-1', updates: { tags: ['enterprise'], tags_mode: 'add' } },
+            ])
+
+            const result = await executor.execute(createAccountInvocation())
+
+            expect(result.invocation.queueParameters).toEqual({
+                type: 'fetch',
+                url: `${hub.SITE_URL}/api/customer_analytics/external/account`,
+                method: 'PATCH',
+                body: JSON.stringify({ external_id: 'acme-1', tags: ['enterprise'], tags_mode: 'add' }),
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: 'Bearer test-secret-token',
+                },
+            })
+        })
+
+        it('postHogUpdateAccount errors when external_id is missing', async () => {
+            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                id: 1,
+                secret_api_token: 'test-secret-token',
+            } as any)
+
+            mockExecHogForAsyncFunction('postHogUpdateAccount', [{ updates: { tags: ['enterprise'] } }])
+
+            const result = await executor.execute(createAccountInvocation())
+            expect(result.error).toContain("missing 'external_id'")
+        })
     })
 
     describe('produceToWarehouseWebhooks', () => {

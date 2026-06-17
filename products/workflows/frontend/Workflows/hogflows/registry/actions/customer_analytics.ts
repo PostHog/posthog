@@ -15,5 +15,12 @@ registerActionNodeCategory({
             // names, so it can't flatten an account. Store the whole object in one variable instead.
             output_variable: { key: 'account', result_path: null },
         },
+        {
+            type: 'function',
+            name: 'Update account',
+            description: 'Assign role contacts or tag a Customer analytics account.',
+            config: { template_id: 'template-posthog-update-account', inputs: {} },
+            output_variable: { key: 'account', result_path: null },
+        },
     ],
 })

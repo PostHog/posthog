@@ -29,4 +29,12 @@ describe('customer analytics action registry', () => {
         const node = getCategory().nodes.find((n) => n.name === 'Get account')
         expect(node?.output_variable).toEqual({ key: 'account', result_path: null })
     })
+
+    it('wires the Update account node to its hog function template', () => {
+        const node = getCategory().nodes.find((n) => n.name === 'Update account')
+        expect(node).toMatchObject({
+            type: 'function',
+            config: { template_id: 'template-posthog-update-account' },
+        })
+    })
 })

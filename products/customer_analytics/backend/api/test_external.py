@@ -5,7 +5,7 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from posthog.models import Team
+from posthog.models import Organization, Team, User
 from posthog.models.utils import generate_random_token_secret
 
 from products.customer_analytics.backend.models.account import AccountAssignment, AccountProperties
@@ -33,6 +33,9 @@ class TestExternalAccountAPI(APIBaseTest):
 
     def _get(self, external_id="acme-1", token=None):
         return self.client.get(self.url, data={"external_id": external_id}, **self._auth_headers(token))
+
+    def _patch(self, payload, token=None):
+        return self.client.patch(self.url, data=payload, format="json", **self._auth_headers(token))
 
     # -- Authentication ---------------------------------------------------
 
@@ -108,3 +111,90 @@ class TestExternalAccountAPI(APIBaseTest):
 
         response = self._get(token=other_team.secret_api_token)
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    # -- PATCH account ----------------------------------------------------
+
+    def test_patch_requires_auth(self):
+        response = self.client.patch(self.url, data={"external_id": "acme-1"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_patch_requires_external_id(self):
+        response = self._patch({"tags": ["enterprise"]})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_patch_account_not_found(self):
+        response = self._patch({"external_id": "does-not-exist", "tags": ["enterprise"]})
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_patch_assigns_role_and_resolves_email(self):
+        response = self._patch({"external_id": "acme-1", "csm": {"type": "user", "id": self.user.id}})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.account.refresh_from_db()
+        self.assertEqual(self.account.properties.csm.id, self.user.id)
+        self.assertEqual(self.account.properties.csm.email, self.user.email)
+
+    def test_patch_clears_role_with_null(self):
+        self.account.properties = AccountProperties(csm=AccountAssignment(id=self.user.id, email=self.user.email))
+        self.account.save(update_fields=["_properties"])
+
+        response = self._patch({"external_id": "acme-1", "csm": None})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.account.refresh_from_db()
+        self.assertIsNone(self.account.properties.csm)
+
+    def test_patch_preserves_unmentioned_properties(self):
+        self.account.properties = AccountProperties(stripe_customer_id="cus_123")
+        self.account.save(update_fields=["_properties"])
+
+        response = self._patch({"external_id": "acme-1", "csm": {"type": "user", "id": self.user.id}})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.account.refresh_from_db()
+        self.assertEqual(self.account.properties.stripe_customer_id, "cus_123")
+        self.assertEqual(self.account.properties.csm.id, self.user.id)
+
+    def test_patch_rejects_role_assignee(self):
+        response = self._patch({"external_id": "acme-1", "csm": {"type": "role", "id": "some-role-uuid"}})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_patch_rejects_non_member_user(self):
+        other_org = Organization.objects.create(name="Outsiders")
+        outsider = User.objects.create_and_join(other_org, "outsider@example.com", None)
+        response = self._patch({"external_id": "acme-1", "csm": {"type": "user", "id": outsider.id}})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.account.refresh_from_db()
+        self.assertIsNone(self.account.properties.csm)
+
+    def test_patch_adds_tags_by_default(self):
+        self._patch({"external_id": "acme-1", "tags": ["enterprise"]})
+        response = self._patch({"external_id": "acme-1", "tags": ["priority"]})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["tags"], ["enterprise", "priority"])
+
+    def test_patch_sets_tags_replacing_existing(self):
+        self._patch({"external_id": "acme-1", "tags": ["enterprise"]})
+        response = self._patch({"external_id": "acme-1", "tags": ["priority"], "tags_mode": "set"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["tags"], ["priority"])
+
+    def test_patch_removes_tags(self):
+        self._patch({"external_id": "acme-1", "tags": ["enterprise", "priority"]})
+        response = self._patch({"external_id": "acme-1", "tags": ["priority"], "tags_mode": "remove"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["tags"], ["enterprise"])
+
+    def test_patch_does_not_update_other_team_account(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        other_team.secret_api_token = generate_random_token_secret()
+        other_team.save(update_fields=["secret_api_token"])
+
+        response = self._patch({"external_id": "acme-1", "tags": ["enterprise"]}, token=other_team.secret_api_token)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_patch_cannot_change_external_id_or_name(self):
+        # external_id only identifies the account; renaming/rebinding is not exposed to workflows.
+        response = self._patch({"external_id": "acme-1", "name": "Renamed", "new_external_id": "acme-2", "csm": None})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.account.refresh_from_db()
+        self.assertEqual(self.account.external_id, "acme-1")
+        self.assertEqual(self.account.name, "Acme Corp")
