@@ -643,152 +643,11 @@ class TestOauthIntegrationModel(BaseTest):
     def test_stripe_authorize_url_uses_live_client_id_by_default(self):
         with self.settings(
             STRIPE_APP_CLIENT_ID="ca_live_clientid",
-            STRIPE_APP_SANDBOX_CLIENT_ID="ca_sandbox_clientid",
             STRIPE_APP_SECRET_KEY="sk_live_secret",
-            STRIPE_APP_SANDBOX_SECRET_KEY="sk_test_sandbox_secret",
             STRIPE_APP_OVERRIDE_AUTHORIZE_URL="",
         ):
             url = OauthIntegration.authorize_url("stripe", token="state_token", next="/projects/test")
             assert "client_id=ca_live_clientid" in url
-            assert "client_id=ca_sandbox_clientid" not in url
-
-    def test_stripe_authorize_url_uses_sandbox_client_id_when_is_sandbox(self):
-        with self.settings(
-            STRIPE_APP_CLIENT_ID="ca_live_clientid",
-            STRIPE_APP_SANDBOX_CLIENT_ID="ca_sandbox_clientid",
-            STRIPE_APP_SECRET_KEY="sk_live_secret",
-            STRIPE_APP_SANDBOX_SECRET_KEY="sk_test_sandbox_secret",
-            STRIPE_APP_OVERRIDE_AUTHORIZE_URL="",
-        ):
-            url = OauthIntegration.authorize_url("stripe", token="state_token", next="/projects/test", is_sandbox=True)
-            assert "client_id=ca_sandbox_clientid" in url
-            assert "client_id=ca_live_clientid" not in url
-
-    def test_stripe_oauth_config_uses_sandbox_secret_when_is_sandbox(self):
-        with self.settings(
-            STRIPE_APP_CLIENT_ID="ca_live_clientid",
-            STRIPE_APP_SANDBOX_CLIENT_ID="ca_sandbox_clientid",
-            STRIPE_APP_SECRET_KEY="sk_live_secret",
-            STRIPE_APP_SANDBOX_SECRET_KEY="sk_test_sandbox_secret",
-        ):
-            live_cfg = OauthIntegration.oauth_config_for_kind("stripe")
-            sandbox_cfg = OauthIntegration.oauth_config_for_kind("stripe", is_sandbox=True)
-            assert live_cfg.client_secret == "sk_live_secret"
-            assert sandbox_cfg.client_secret == "sk_test_sandbox_secret"
-
-    def test_stripe_authorize_url_raises_when_sandbox_requested_but_not_configured(self):
-        with self.settings(
-            STRIPE_APP_CLIENT_ID="ca_live_clientid",
-            STRIPE_APP_SANDBOX_CLIENT_ID="",
-            STRIPE_APP_SANDBOX_SECRET_KEY="",
-            STRIPE_APP_SECRET_KEY="sk_live_secret",
-        ):
-            with pytest.raises(NotImplementedError, match="sandbox"):
-                OauthIntegration.authorize_url("stripe", token="state_token", is_sandbox=True)
-
-    def test_stripe_authorize_url_raises_when_sandbox_secret_missing(self):
-        with self.settings(
-            STRIPE_APP_CLIENT_ID="ca_live_clientid",
-            STRIPE_APP_SANDBOX_CLIENT_ID="ca_sandbox_clientid",
-            STRIPE_APP_SANDBOX_SECRET_KEY="",
-            STRIPE_APP_SECRET_KEY="sk_live_secret",
-        ):
-            with pytest.raises(NotImplementedError, match="sandbox"):
-                OauthIntegration.authorize_url("stripe", token="state_token", is_sandbox=True)
-
-    @patch("posthog.models.integration.requests.post")
-    def test_stripe_token_exchange_falls_back_to_sandbox_on_does_not_belong_error(self, mock_post):
-        # First call (live secret) returns 400 with the marker error - second call should
-        # retry with sandbox config and succeed.
-        first_response = MagicMock(
-            status_code=400,
-            text='{"error":"invalid_grant","error_description":"Authorization code provided does not belong to you"}',
-        )
-        first_response.json.return_value = {
-            "error": "invalid_grant",
-            "error_description": "Authorization code provided does not belong to you",
-        }
-        second_response = MagicMock(status_code=200)
-        second_response.json.return_value = {
-            "access_token": "FAKE_SANDBOX_ACCESS",
-            "refresh_token": "FAKE_SANDBOX_REFRESH",
-            "stripe_user_id": "acct_sandbox_123",
-            "account_name": "Sandbox Account",
-            "expires_in": 3600,
-        }
-        mock_post.side_effect = [first_response, second_response]
-
-        with self.settings(
-            STRIPE_APP_CLIENT_ID="ca_live_clientid",
-            STRIPE_APP_SANDBOX_CLIENT_ID="ca_sandbox_clientid",
-            STRIPE_APP_SECRET_KEY="sk_live_secret",
-            STRIPE_APP_SANDBOX_SECRET_KEY="sk_test_sandbox_secret",
-        ):
-            OauthIntegration.integration_from_oauth_response(
-                "stripe",
-                self.team.id,
-                self.user,
-                {"code": "ac_sandbox_code"},
-            )
-
-        assert mock_post.call_count == 2
-        first_call_secret = mock_post.call_args_list[0].kwargs["auth"].username
-        second_call_secret = mock_post.call_args_list[1].kwargs["auth"].username
-        assert first_call_secret == "sk_live_secret"
-        assert second_call_secret == "sk_test_sandbox_secret"
-
-    @patch("posthog.models.integration.requests.post")
-    def test_stripe_token_exchange_does_not_retry_when_sandbox_secret_unset(self, mock_post):
-        first_response = MagicMock(
-            status_code=400,
-            text='{"error":"invalid_grant","error_description":"Authorization code provided does not belong to you"}',
-        )
-        first_response.json.return_value = {"error": "invalid_grant"}
-        mock_post.return_value = first_response
-
-        with self.settings(
-            STRIPE_APP_CLIENT_ID="ca_live_clientid",
-            STRIPE_APP_SANDBOX_CLIENT_ID="",
-            STRIPE_APP_SECRET_KEY="sk_live_secret",
-            STRIPE_APP_SANDBOX_SECRET_KEY="",
-        ):
-            with pytest.raises(ValidationError, match="OAuth failed"):
-                OauthIntegration.integration_from_oauth_response(
-                    "stripe",
-                    self.team.id,
-                    self.user,
-                    {"code": "ac_some_code"},
-                )
-
-        assert mock_post.call_count == 1
-
-    @patch("posthog.models.integration.requests.post")
-    def test_stripe_token_exchange_does_not_retry_when_only_sandbox_secret_set(self, mock_post):
-        # If the sandbox secret is set but the sandbox client_id is not, the retry guard
-        # must fail closed - oauth_config_for_kind would otherwise raise NotImplementedError
-        # and mask the original Stripe error.
-        first_response = MagicMock(
-            status_code=400,
-            text='{"error":"invalid_grant","error_description":"Authorization code provided does not belong to you"}',
-        )
-        first_response.json.return_value = {"error": "invalid_grant"}
-        mock_post.return_value = first_response
-
-        with self.settings(
-            STRIPE_APP_CLIENT_ID="ca_live_clientid",
-            STRIPE_APP_SANDBOX_CLIENT_ID="",
-            STRIPE_APP_SECRET_KEY="sk_live_secret",
-            STRIPE_APP_SANDBOX_SECRET_KEY="sk_test_sandbox_secret",
-        ):
-            with pytest.raises(ValidationError, match="OAuth failed"):
-                OauthIntegration.integration_from_oauth_response(
-                    "stripe",
-                    self.team.id,
-                    self.user,
-                    {"code": "ac_some_code"},
-                )
-
-        assert mock_post.call_count == 1
 
     @patch("posthog.models.integration.reload_integrations_on_workers")
     @patch("posthog.models.integration.requests.post")
@@ -813,7 +672,7 @@ class TestOauthIntegrationModel(BaseTest):
         mock_reload.assert_called_once_with(self.team.id, [integration.id])
 
     @patch("posthog.models.integration.requests.post")
-    def test_stripe_oauth_persists_is_sandbox_false_for_live_install(self, mock_post):
+    def test_stripe_oauth_does_not_persist_is_sandbox(self, mock_post):
         mock_post.return_value.status_code = 200
         mock_post.return_value.json.return_value = {
             "access_token": "FAKE_ACCESS",
@@ -834,57 +693,7 @@ class TestOauthIntegrationModel(BaseTest):
                 {"code": "ac_live_code"},
             )
 
-        assert integration.config.get("is_sandbox") is False
-
-    @patch("posthog.models.integration.requests.post")
-    def test_stripe_oauth_persists_is_sandbox_true_after_sandbox_fallback(self, mock_post):
-        first_response = MagicMock(
-            status_code=400,
-            text='{"error":"invalid_grant","error_description":"Authorization code provided does not belong to you"}',
-        )
-        first_response.json.return_value = {"error": "invalid_grant"}
-        second_response = MagicMock(status_code=200)
-        second_response.json.return_value = {
-            "access_token": "FAKE_SANDBOX_ACCESS",
-            "refresh_token": "FAKE_SANDBOX_REFRESH",
-            "stripe_user_id": "acct_sandbox_1",
-            "account_name": "Sandbox Account",
-            "expires_in": 3600,
-        }
-        mock_post.side_effect = [first_response, second_response]
-
-        with self.settings(
-            STRIPE_APP_CLIENT_ID="ca_live_clientid",
-            STRIPE_APP_SANDBOX_CLIENT_ID="ca_sandbox_clientid",
-            STRIPE_APP_SECRET_KEY="sk_live_secret",
-            STRIPE_APP_SANDBOX_SECRET_KEY="sk_test_sandbox_secret",
-        ):
-            integration = OauthIntegration.integration_from_oauth_response(
-                "stripe",
-                self.team.id,
-                self.user,
-                {"code": "ac_sandbox_code"},
-            )
-
-        assert integration.config.get("is_sandbox") is True
-
-    @patch("posthog.models.integration.reload_integrations_on_workers")
-    @patch("posthog.models.integration.requests.post")
-    def test_stripe_refresh_access_token_uses_sandbox_secret_when_flag_set(self, mock_post, mock_reload):
-        mock_post.return_value.status_code = 200
-        mock_post.return_value.json.return_value = {"access_token": "REFRESHED", "expires_in": 1000}
-
-        integration = self.create_integration(kind="stripe", config={"expires_in": 1000, "is_sandbox": True})
-
-        with self.settings(
-            STRIPE_APP_CLIENT_ID="ca_live_clientid",
-            STRIPE_APP_SANDBOX_CLIENT_ID="ca_sandbox_clientid",
-            STRIPE_APP_SECRET_KEY="sk_live_secret",
-            STRIPE_APP_SANDBOX_SECRET_KEY="sk_test_sandbox_secret",
-        ):
-            OauthIntegration(integration).refresh_access_token()
-
-        assert mock_post.call_args.kwargs["auth"].username == "sk_test_sandbox_secret"
+        assert "is_sandbox" not in integration.config
 
 
 class TestGoogleCloudIntegrationModel(BaseTest):

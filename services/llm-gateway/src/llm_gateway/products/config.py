@@ -42,7 +42,6 @@ _POSTHOG_CODE_AGENT_MODELS: Final[frozenset[str]] = frozenset(
         "claude-opus-4-6",
         "claude-opus-4-7",
         "claude-opus-4-8",
-        "claude-fable-5",
         "claude-sonnet-4-5",
         "claude-sonnet-4-6",
         "claude-haiku-4-5",
@@ -73,7 +72,6 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
                 "claude-opus-4-6",
                 "claude-opus-4-7",
                 "claude-opus-4-8",
-                "claude-fable-5",
                 "claude-sonnet-4-5",
                 "claude-haiku-4-5",
                 "gpt-5.4",
@@ -152,6 +150,12 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allowed_application_ids=None,
         allowed_models=frozenset({"gpt-4.1-mini"}),
         allow_api_keys=True,
+    ),
+    "conversations": ProductConfig(
+        allowed_application_ids=None,
+        allowed_models=frozenset({"claude-haiku-4-5"}),
+        allow_api_keys=True,
+        billable=False,
     ),
 }
 

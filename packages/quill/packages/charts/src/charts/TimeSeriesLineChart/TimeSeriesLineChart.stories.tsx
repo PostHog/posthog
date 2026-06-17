@@ -1,4 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
+import { useState } from 'react'
 
 import type { Series } from '../../core/types'
 import { Stage, useReactiveTheme } from '../../story-helpers'
@@ -43,6 +44,30 @@ export const Basic: Story = {
                     config={{ yAxis: { showGrid: true } }}
                 />
             </Stage>
+        )
+    },
+}
+
+export const DragToZoom: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        const [range, setRange] = useState<[string, string] | null>(null)
+        return (
+            // eslint-disable-next-line react/forbid-dom-props
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <span className="text-xs text-muted">
+                    {range ? `Selected: ${range[0]} → ${range[1]}` : 'Drag a horizontal range to zoom'}
+                </span>
+                <Stage>
+                    <TimeSeriesLineChart
+                        series={SERIES}
+                        labels={DAYS}
+                        theme={theme}
+                        config={{ yAxis: { showGrid: true } }}
+                        onDateRangeZoom={({ startLabel, endLabel }) => setRange([startLabel, endLabel])}
+                    />
+                </Stage>
+            </div>
         )
     },
 }

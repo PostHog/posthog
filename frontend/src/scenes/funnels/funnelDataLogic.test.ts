@@ -12,8 +12,11 @@ import { FunnelConversionWindowTimeUnit, FunnelVizType, InsightLogicProps, Insig
 import {
     funnelResult,
     funnelResultTimeToConvert,
+    funnelResultTimeToConvertCompare,
     funnelResultTimeToConvertWithoutConversions,
     funnelResultTrends,
+    funnelResultTrendsCompare,
+    funnelResultTrendsCompareWithBreakdown,
     funnelResultWithBreakdown,
     funnelResultWithMultiBreakdown,
 } from './__mocks__/funnelDataLogicMocks'
@@ -939,6 +942,64 @@ describe('funnelDataLogic', () => {
                     ],
                 })
             })
+
+            it('splits the current and previous periods when comparing', async () => {
+                const query: FunnelsQuery = {
+                    kind: NodeKind.FunnelsQuery,
+                    series: [],
+                    funnelsFilter: {
+                        funnelVizType: FunnelVizType.TimeToConvert,
+                    },
+                    compareFilter: { compare: true },
+                }
+                const insight: Partial<InsightModel> = {
+                    filters: {
+                        insight: InsightType.FUNNELS,
+                    },
+                    result: funnelResultTimeToConvertCompare.result,
+                }
+
+                await expectLogic(logic, () => {
+                    logic.actions.updateQuerySource(query)
+                    builtDataNodeLogic.actions.loadDataSuccess(insight)
+                }).toMatchValues({
+                    // Current period: the 'current'-tagged bins, on the shared boundaries.
+                    histogramGraphData: [
+                        expect.objectContaining({ bin0: 4, count: 74 }),
+                        expect.objectContaining({ bin0: 73591, count: 24 }),
+                        expect.objectContaining({ bin0: 147178, count: 10 }),
+                    ],
+                    // Previous period: the 'previous'-tagged bins, on the same boundaries.
+                    histogramGraphDataPrevious: [
+                        expect.objectContaining({ bin0: 4, count: 52 }),
+                        expect.objectContaining({ bin0: 73591, count: 31 }),
+                        expect.objectContaining({ bin0: 147178, count: 17 }),
+                    ],
+                })
+            })
+
+            it('has no previous-period data when not comparing', async () => {
+                const query: FunnelsQuery = {
+                    kind: NodeKind.FunnelsQuery,
+                    series: [],
+                    funnelsFilter: {
+                        funnelVizType: FunnelVizType.TimeToConvert,
+                    },
+                }
+                const insight: Partial<InsightModel> = {
+                    filters: {
+                        insight: InsightType.FUNNELS,
+                    },
+                    result: funnelResultTimeToConvert.result,
+                }
+
+                await expectLogic(logic, () => {
+                    logic.actions.updateQuerySource(query)
+                    builtDataNodeLogic.actions.loadDataSuccess(insight)
+                }).toMatchValues({
+                    histogramGraphDataPrevious: null,
+                })
+            })
         })
     })
 
@@ -1309,6 +1370,73 @@ describe('funnelDataLogic', () => {
             }).toMatchValues({
                 incompletenessOffsetFromEnd: -3,
             })
+        })
+    })
+
+    describe('indexedSteps colorIndex pairing', () => {
+        const trendsQuery: FunnelsQuery = {
+            kind: NodeKind.FunnelsQuery,
+            series: [],
+            funnelsFilter: {
+                funnelVizType: FunnelVizType.Trends,
+            },
+        }
+
+        async function loadResult(result: unknown): Promise<void> {
+            const insight: Partial<InsightModel> = {
+                filters: { insight: InsightType.FUNNELS },
+                result: result as InsightModel['result'],
+            }
+            await expectLogic(logic, () => {
+                builtDataNodeLogic.actions.loadDataSuccess(insight)
+                logic.actions.updateQuerySource(trendsQuery)
+            }).toFinishAllListeners()
+        }
+
+        it('assigns colorIndex 0 to a single-period trends result', async () => {
+            await loadResult(funnelResultTrends.result)
+            const steps = logic.values.indexedSteps as Array<Record<string, unknown>>
+            expect(steps).toHaveLength(1)
+            expect(steps[0].colorIndex).toBe(0)
+            expect(steps[0].seriesIndex).toBe(0)
+        })
+
+        it('pairs current and previous on the same colorIndex without a breakdown', async () => {
+            await loadResult(funnelResultTrendsCompare.result)
+            const steps = logic.values.indexedSteps as Array<Record<string, unknown>>
+            expect(steps).toHaveLength(2)
+            expect(steps[0].colorIndex).toBe(0)
+            expect(steps[1].colorIndex).toBe(0)
+            expect(steps[0].seriesIndex).toBe(0)
+            expect(steps[1].seriesIndex).toBe(1)
+            expect(steps[0].compare_label).toBe('current')
+            expect(steps[1].compare_label).toBe('previous')
+            // The runner only sets `compare_label`; `indexedSteps` normalizes `compare: true`
+            // so LineGraph.processDataset dims the previous-period series.
+            expect(steps[0].compare).toBe(true)
+            expect(steps[1].compare).toBe(true)
+        })
+
+        it('pairs current and previous per breakdown value', async () => {
+            await loadResult(funnelResultTrendsCompareWithBreakdown.result)
+            const steps = logic.values.indexedSteps as Array<Record<string, unknown>>
+            expect(steps).toHaveLength(4)
+
+            const byKey = (label: string, breakdownValue: string): Record<string, unknown> => {
+                const found = steps.find((s) => s.compare_label === label && s.breakdown_value === breakdownValue)
+                if (!found) {
+                    throw new Error(`missing row ${label}/${breakdownValue}`)
+                }
+                return found
+            }
+            const currentUs = byKey('current', 'us')
+            const previousUs = byKey('previous', 'us')
+            const currentUk = byKey('current', 'uk')
+            const previousUk = byKey('previous', 'uk')
+
+            expect(currentUs.colorIndex).toBe(previousUs.colorIndex)
+            expect(currentUk.colorIndex).toBe(previousUk.colorIndex)
+            expect(currentUs.colorIndex).not.toBe(currentUk.colorIndex)
         })
     })
 })

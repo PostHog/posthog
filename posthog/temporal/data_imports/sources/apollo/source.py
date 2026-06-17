@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -40,6 +41,7 @@ class ApolloSource(ResumableSource[ApolloSourceConfig, ApolloResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.APOLLO,
+            category=DataWarehouseSourceCategory.CRM,
             label="Apollo",
             caption="""Enter your Apollo API key to pull your saved contacts, accounts, and deals into the PostHog Data warehouse.
 

@@ -74,6 +74,9 @@ describe('wizardLogic', () => {
                 view: 'pending',
                 wizardHash: MOCK_HASH,
             })
+            // Drain the auto-triggered authenticate request: its trailing setView would
+            // otherwise dispatch into the next test's store and flip its view.
+            await expectLogic(logic).toFinishAllListeners()
         })
     })
 

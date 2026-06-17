@@ -4,6 +4,7 @@ Business logic for business_knowledge.
 All ORM access, chunking, quota enforcement, and search queries.
 """
 
+import re
 import uuid
 import datetime
 from collections import defaultdict
@@ -25,12 +26,17 @@ from django.utils import timezone
 
 import structlog
 import posthoganalytics
+from langchain_core.messages import HumanMessage, SystemMessage
 
 from posthog.api.embedding_worker import generate_embedding
 from posthog.helpers.full_text_search import process_query
+from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import with_team_scope
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.security.url_validation import is_url_allowed
+
+from ee.hogai.llm import MaxChatAnthropic
 
 from . import crawl, discover, file_parse, html_parse, url_fetch
 from .constants import (
@@ -39,6 +45,8 @@ from .constants import (
     BK_EMBEDDING_DOCUMENT_TYPE,
     BK_EMBEDDING_MODEL,
     BK_EMBEDDING_PRODUCT,
+    BK_RERANK_MODEL,
+    BK_RERANK_SNIPPET_CHARS,
     BK_RRF_K,
     BK_RRF_SCORE_FLOOR,
     BK_SEMANTIC_DISTANCE_CUTOFF,
@@ -1849,6 +1857,115 @@ def search_knowledge_for_team(
     return search_knowledge(team.id, query, limit=limit, use_semantic=embedding is not None, query_embedding=embedding)
 
 
+_RERANK_CHUNK_ID_PATTERN = re.compile(
+    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+    re.IGNORECASE,
+)
+_RERANK_SYSTEM_PROMPT = """You rerank knowledge-base search results for relevance to a user query.
+Return ONLY chunk_id UUIDs in order from most to least relevant, one UUID per line.
+Do not include any other text."""
+
+
+def _resolve_active_org_user(team: Team) -> User:
+    membership = (
+        OrganizationMembership.objects.select_related("user")
+        .filter(organization=team.organization, user__is_active=True)
+        .order_by("id")
+        .first()
+    )
+    if not membership:
+        raise RuntimeError(f"No active users in organization '{team.organization.name}' (team {team.id})")
+    return membership.user
+
+
+def _build_rerank_user_prompt(query: str, results: list[KnowledgeSearchResult]) -> str:
+    lines = [f"Query: {query}", "", "Candidates:"]
+    for index, result in enumerate(results, start=1):
+        snippet = result.content[:BK_RERANK_SNIPPET_CHARS]
+        lines.append(
+            f"{index}. chunk_id={result.chunk_id} document={result.document_title!r} heading={result.heading_path!r}"
+        )
+        lines.append(f"   {snippet}")
+    lines.extend(["", "Most relevant chunk_ids first, one per line:"])
+    return "\n".join(lines)
+
+
+def _parse_reranked_chunk_ids(response_text: str, valid_ids: set[UUID]) -> list[UUID] | None:
+    parsed: list[UUID] = []
+    seen: set[UUID] = set()
+    for match in _RERANK_CHUNK_ID_PATTERN.finditer(response_text):
+        chunk_id = UUID(match.group())
+        if chunk_id not in valid_ids or chunk_id in seen:
+            continue
+        parsed.append(chunk_id)
+        seen.add(chunk_id)
+    if not parsed:
+        return None
+    return parsed
+
+
+def rerank_chunks(
+    team: Team,
+    query: str,
+    results: list[KnowledgeSearchResult],
+    *,
+    top_k: int,
+) -> list[KnowledgeSearchResult]:
+    """
+    Listwise LLM rerank over BK search candidates. On any model/parse failure,
+    returns the input order (RRF order from ``search_knowledge``) trimmed to
+    ``top_k``.
+    """
+    if not results:
+        return []
+
+    top_k = max(1, top_k)
+    original_order = results
+    if len(results) == 1:
+        return original_order[:top_k]
+
+    if not team.organization.is_ai_data_processing_approved:
+        return original_order[:top_k]
+
+    valid_ids = {result.chunk_id for result in results}
+    id_to_result = {result.chunk_id: result for result in results}
+
+    try:
+        user = _resolve_active_org_user(team)
+        llm = MaxChatAnthropic(
+            model=BK_RERANK_MODEL,
+            streaming=False,
+            user=user,
+            team=team,
+            max_tokens=1024,
+            billable=False,
+            inject_context=False,
+        )
+        response = llm.invoke(
+            [
+                SystemMessage(content=_RERANK_SYSTEM_PROMPT),
+                HumanMessage(content=_build_rerank_user_prompt(query, results)),
+            ]
+        )
+        content = response.content
+        if isinstance(content, list):
+            content = "".join(str(item) for item in content)
+        ranked_ids = _parse_reranked_chunk_ids(str(content), valid_ids)
+        if ranked_ids is None:
+            return original_order[:top_k]
+
+        ranked_set = set(ranked_ids)
+        for result in original_order:
+            if result.chunk_id not in ranked_set:
+                ranked_ids.append(result.chunk_id)
+
+        reranked = [id_to_result[chunk_id] for chunk_id in ranked_ids]
+        return reranked[:top_k]
+    except Exception:
+        logger.warning("bk_rerank_failed", team_id=team.id, exc_info=True)
+        return original_order[:top_k]
+
+
 # ---------------------------------------------------------------------------
 # Drill-down: wider context window for a single document
 # ---------------------------------------------------------------------------
@@ -1904,6 +2021,55 @@ def get_document_window(
             content=c.content,
         )
         for c in chunks
+    ]
+
+
+@with_team_scope(canonical=True)
+def get_chunks_by_ids(team_id: int, chunk_ids: list[UUID]) -> list[KnowledgeSearchResult]:
+    """
+    Rehydrate full chunk content + source context for a set of chunk ids,
+    preserving the order of ``chunk_ids`` and dropping any id that no longer
+    resolves (unsafe/tombstoned/deleted). Applies the same safety filters as
+    ``search_knowledge``.
+
+    Lets callers pass chunk ids across a process/serialization boundary (e.g.
+    between Temporal activities) and re-fetch content on demand — deterministic
+    retrieval — instead of shipping the content itself through workflow history.
+    """
+    if not chunk_ids:
+        return []
+
+    chunks = (
+        _safe_chunks_qs(team_id)
+        .filter(id__in=chunk_ids)
+        .select_related("source", "document")
+        .only(
+            "id",
+            "source_id",
+            "document_id",
+            "heading_path",
+            "ordinal",
+            "content",
+            "source__name",
+            "source__source_type",
+            "document__title",
+        )
+    )
+    by_id = {c.id: c for c in chunks}
+    return [
+        KnowledgeSearchResult(
+            chunk_id=c.id,
+            source_id=c.source_id,
+            source_name=c.source.name,
+            source_type=c.source.source_type,
+            document_id=c.document_id,
+            document_title=c.document.title,
+            heading_path=c.heading_path,
+            ordinal=c.ordinal,
+            content=c.content,
+        )
+        for chunk_id in chunk_ids
+        if (c := by_id.get(chunk_id)) is not None
     ]
 
 

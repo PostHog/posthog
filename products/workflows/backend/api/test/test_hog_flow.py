@@ -4,6 +4,8 @@ from typing import Optional
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
+
 from parameterized import parameterized
 from rest_framework import status
 
@@ -452,6 +454,54 @@ class TestHogFlowAPI(APIBaseTest):
         assert "filters" in conditions[0]
         assert "bytecode" in conditions[0]["filters"], conditions[0]["filters"]
         assert conditions[0]["filters"]["bytecode"] == ["_H", 1, 32, "custom_event", 32, "event", 1, 1, 11]
+
+    def test_hog_flow_conditional_branch_condition_missing_filters_rejected(self):
+        # A bare {properties: [...]} (no 'filters' wrapper) compiles to always-false; reject it in strict mode.
+        conditional_action = {
+            "id": "cond_1",
+            "name": "cond_1",
+            "type": "conditional_branch",
+            "config": {
+                "conditions": [
+                    {"properties": [{"key": "plan", "type": "person", "value": "enterprise", "operator": "exact"}]}
+                ]
+            },
+        }
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]},
+            },
+        }
+        hog_flow = {"name": "Test Flow", "status": "active", "actions": [trigger_action, conditional_action]}
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 400, response.json()
+        assert "filters" in response.json()["detail"]
+
+    def test_hog_flow_conditional_branch_missing_filters_allowed_for_web_draft(self):
+        # Web-builder drafts stay lenient — an incomplete condition mid-edit must still save.
+        conditional_action = {
+            "id": "cond_1",
+            "name": "cond_1",
+            "type": "conditional_branch",
+            "config": {"conditions": [{"properties": []}]},
+        }
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]},
+            },
+        }
+        # Default test client uses session auth → EventSource.WEB → lenient draft validation.
+        hog_flow = {"name": "Test Flow", "status": "draft", "actions": [trigger_action, conditional_action]}
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
 
     def test_hog_flow_single_condition_field(self):
         trigger_action = {
@@ -1013,6 +1063,169 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 400, response.json()
         assert response.json()["attr"] == "edges"
 
+    def _create_draft_flow_with_graph(self) -> str:
+        # trigger -> action_1 (webhook) -> exit, created as a draft so the graph endpoint can edit it.
+        trigger = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]},
+            },
+        }
+        action = {
+            "id": "action_1",
+            "name": "action_1",
+            "type": "function",
+            "config": {"template_id": "template-webhook", "inputs": {"url": {"value": "https://old.example.com"}}},
+        }
+        exit_action = {"id": "exit_1", "name": "exit_1", "type": "exit", "config": {}}
+        flow = {
+            "name": "Test Flow",
+            "status": "draft",
+            "actions": [trigger, action, exit_action],
+            "edges": [
+                {"from": "trigger_node", "to": "action_1", "type": "continue"},
+                {"from": "action_1", "to": "exit_1", "type": "continue"},
+            ],
+        }
+        create = self.client.post(f"/api/projects/{self.team.id}/hog_flows", flow)
+        assert create.status_code == 201, create.json()
+        return create.json()["id"]
+
+    def _patch_graph(self, flow_id: str, operations: list[dict], **extra):
+        return self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",
+            {"operations": operations},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+            **extra,
+        )
+
+    def test_graph_update_action_changes_single_field(self):
+        flow_id = self._create_draft_flow_with_graph()
+        response = self._patch_graph(
+            flow_id,
+            [
+                {
+                    "op": "update_action",
+                    "id": "action_1",
+                    "patch": {"config": {"inputs": {"url": {"value": "https://new.example.com"}}}},
+                }
+            ],
+        )
+        assert response.status_code == 200, response.json()
+        actions = {a["id"]: a for a in response.json()["actions"]}
+        assert actions["action_1"]["config"]["inputs"]["url"]["value"] == "https://new.example.com"
+        # The rest of the graph is intact.
+        assert actions["trigger_node"]["type"] == "trigger"
+        assert "exit_1" in actions
+
+    def test_graph_response_echoes_full_graph(self):
+        flow_id = self._create_draft_flow_with_graph()
+        response = self._patch_graph(flow_id, [{"op": "update_action", "id": "action_1", "patch": {"name": "renamed"}}])
+        assert response.status_code == 200, response.json()
+        body = response.json()
+        assert {"actions", "edges", "trigger"} <= set(body.keys())
+        assert len(body["actions"]) == 3
+        assert body["edges"] == [
+            {"from": "trigger_node", "to": "action_1", "type": "continue"},
+            {"from": "action_1", "to": "exit_1", "type": "continue"},
+        ]
+
+    def test_graph_remove_action_reconnects_edges(self):
+        flow_id = self._create_draft_flow_with_graph()
+        response = self._patch_graph(flow_id, [{"op": "remove_action", "id": "action_1"}])
+        assert response.status_code == 200, response.json()
+        body = response.json()
+        assert sorted(a["id"] for a in body["actions"]) == ["exit_1", "trigger_node"]
+        assert body["edges"] == [{"from": "trigger_node", "to": "exit_1", "type": "continue"}]
+
+    def test_graph_dangling_edge_rejected_with_no_partial_write(self):
+        flow_id = self._create_draft_flow_with_graph()
+        response = self._patch_graph(
+            flow_id, [{"op": "add_edge", "edge": {"from": "action_1", "to": "ghost", "type": "continue"}}]
+        )
+        assert response.status_code == 400, response.json()
+        assert "unknown target action 'ghost'" in str(response.json())
+        # Atomicity: the workflow's edges are unchanged on disk.
+        flow = HogFlow.objects.get(pk=flow_id)
+        assert flow.edges == [
+            {"from": "trigger_node", "to": "action_1", "type": "continue"},
+            {"from": "action_1", "to": "exit_1", "type": "continue"},
+        ]
+
+    def test_graph_empty_operations_rejected(self):
+        flow_id = self._create_draft_flow_with_graph()
+        response = self._patch_graph(flow_id, [])
+        assert response.status_code == 400, response.json()
+
+    def test_graph_mcp_cannot_edit_active_workflow(self):
+        flow_id = self._create_active_hog_flow()
+        response = self._patch_graph(flow_id, [{"op": "update_action", "id": "action_1", "patch": {"name": "x"}}])
+        assert response.status_code == 400, response.json()
+        assert "active workflow isn't supported via MCP" in response.json()["detail"]
+
+    def test_graph_non_mcp_can_edit_active_workflow(self):
+        flow_id = self._create_active_hog_flow()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",
+            {"operations": [{"op": "update_action", "id": "action_1", "patch": {"name": "Renamed via UI"}}]},
+        )
+        assert response.status_code == 200, response.json()
+        assert {a["id"]: a for a in response.json()["actions"]}["action_1"]["name"] == "Renamed via UI"
+
+    def _flow_with_dangling_edge(self, status: str) -> dict:
+        # A structurally-invalid graph: an edge pointing at an action that doesn't exist. Mirrors the
+        # pre-existing corruption real workflows carry (stale edges from removed nodes/conditions).
+        return {
+            "name": "Dangling Flow",
+            "status": status,
+            "actions": [
+                {
+                    "id": "trigger_node",
+                    "name": "t",
+                    "type": "trigger",
+                    "config": {
+                        "type": "event",
+                        "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]},
+                    },
+                },
+                {"id": "exit_1", "name": "exit", "type": "exit", "config": {}},
+            ],
+            "edges": [
+                {"from": "trigger_node", "to": "exit_1", "type": "continue"},
+                {"from": "trigger_node", "to": "ghost", "type": "continue"},
+            ],
+        }
+
+    def test_create_active_flow_with_invalid_graph_is_lenient(self):
+        # Option B: the full create/PATCH path no longer hard-blocks on graph structure — only the surgical
+        # /graph endpoint enforces. A dangling edge is logged, not rejected, so callers (incl. the web UI on
+        # an active save) aren't trapped by pre-existing corruption.
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", self._flow_with_dangling_edge("active"))
+        assert response.status_code == 201, response.json()
+
+    def test_full_patch_with_invalid_graph_is_lenient(self):
+        create = self.client.post(f"/api/projects/{self.team.id}/hog_flows", self._flow_with_dangling_edge("draft"))
+        assert create.status_code == 201, create.json()
+        flow_id = create.json()["id"]
+        # Re-saving the (already structurally-broken) flow as active must succeed — the user isn't blocked
+        # from editing a workflow whose graph corruption they didn't introduce.
+        response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"status": "active"})
+        assert response.status_code == 200, response.json()
+        assert HogFlow.objects.get(pk=flow_id).status == "active"
+
+    def test_graph_endpoint_still_enforces_on_draft(self):
+        # The new surgical endpoint is where corruption would be newly introduced, so it stays strict even
+        # though the full-PATCH path is lenient.
+        flow_id = self._create_draft_flow_with_graph()
+        response = self._patch_graph(
+            flow_id, [{"op": "add_edge", "edge": {"from": "action_1", "to": "ghost", "type": "continue"}}]
+        )
+        assert response.status_code == 400, response.json()
+        assert "unknown target action 'ghost'" in str(response.json())
+
     def test_can_call_a_test_invocation(self):
         hog_flow, _ = self._create_hog_flow_with_action(
             {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
@@ -1270,7 +1483,12 @@ class TestHogFlowAPI(APIBaseTest):
                     }
                 ],
             }
-        filters = {} if static else {"properties": properties}
+        # A static cohort keeps its original filter definition (behavioral/property/nested) even though
+        # membership is frozen — only a plain static cohort with no source criteria has empty filters.
+        if static and not (behavioral or nested_cohort_id is not None):
+            filters = {}
+        else:
+            filters = {"properties": properties}
         return Cohort.objects.create(team=self.team, name="c", filters=filters, is_static=static)
 
     def _post_batch_with_cohort(self, cohort_id: int, *, status: str = "active", trigger_type: str = "batch", **extra):
@@ -1304,6 +1522,20 @@ class TestHogFlowAPI(APIBaseTest):
     def test_hog_flow_batch_trigger_allows_non_behavioral_cohort(self, _name, cohort_kwargs):
         cohort = self._make_cohort(**cohort_kwargs)
         response = self._post_batch_with_cohort(cohort.pk)
+        assert response.status_code == 201, response.json()
+
+    @parameterized.expand(["batch", "schedule"])
+    def test_hog_flow_audience_allows_behavioral_static_cohort(self, trigger_type: str):
+        # A static cohort built from behavioral criteria keeps its behavioral filter definition, but its
+        # membership is frozen and precalculated, so it's a valid audience — the error even recommends it.
+        cohort = self._make_cohort(behavioral=True, static=True)
+        response = self._post_batch_with_cohort(cohort.pk, trigger_type=trigger_type)
+        assert response.status_code == 201, response.json()
+
+    def test_hog_flow_batch_trigger_allows_wrapper_of_static_behavioral_cohort(self):
+        behavioral_static = self._make_cohort(behavioral=True, static=True)
+        wrapper = self._make_cohort(nested_cohort_id=behavioral_static.pk)
+        response = self._post_batch_with_cohort(wrapper.pk)
         assert response.status_code == 201, response.json()
 
     def test_hog_flow_batch_trigger_behavioral_cohort_rejected_for_mcp_draft(self):
@@ -1421,6 +1653,61 @@ class TestHogFlowAPI(APIBaseTest):
             )
         assert response.status_code == 200, response.json()
         assert response.json() == {"affected": 1, "total": 10}
+
+    @parameterized.expand(
+        [
+            ("flag_only", [{"key": "my-other-flag", "type": "flag", "value": "true", "operator": "exact"}]),
+            (
+                "flag_mixed_with_person",
+                [
+                    {"key": "email", "type": "person", "value": "a@b.com", "operator": "exact"},
+                    {"key": "my-other-flag", "type": "flag", "value": "true", "operator": "exact"},
+                ],
+            ),
+        ]
+    )
+    def test_hog_flow_user_blast_radius_rejects_flag_condition(self, _name, properties):
+        # Feature flags can't be sized as a static batch audience — reject with a clean 400 before
+        # the condition reaches the blast-radius query (where it would otherwise 500).
+        with patch("products.workflows.backend.api.hog_flow.get_user_blast_radius") as mock_get_user_blast_radius:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
+                {"filters": {"properties": properties}},
+            )
+
+        assert response.status_code == 400, response.json()
+        assert "Feature flags can't be used as a batch audience condition" in response.json().get("detail", "")
+        mock_get_user_blast_radius.assert_not_called()
+
+    @override_settings(INTERNAL_API_SECRET="test-secret-123")
+    def test_internal_user_blast_radius_rejects_flag_condition(self):
+        with patch("products.workflows.backend.api.hog_flow.get_user_blast_radius") as mock_get_user_blast_radius:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/internal/hog_flows/user_blast_radius",
+                {"filters": {"properties": [{"key": "my-other-flag", "type": "flag", "value": "true"}]}},
+                format="json",
+                headers={"x-internal-api-secret": "test-secret-123"},
+            )
+
+        assert response.status_code == 400, response.json()
+        assert "Feature flags can't be used as a batch audience condition" in response.json().get("error", "")
+        mock_get_user_blast_radius.assert_not_called()
+
+    @override_settings(INTERNAL_API_SECRET="test-secret-123")
+    def test_internal_user_blast_radius_persons_rejects_flag_condition(self):
+        with patch(
+            "products.workflows.backend.api.hog_flow.get_user_blast_radius_persons"
+        ) as mock_get_user_blast_radius_persons:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/internal/hog_flows/user_blast_radius_persons",
+                {"filters": {"properties": [{"key": "my-other-flag", "type": "flag", "value": "true"}]}},
+                format="json",
+                headers={"x-internal-api-secret": "test-secret-123"},
+            )
+
+        assert response.status_code == 400, response.json()
+        assert "Feature flags can't be used as a batch audience condition" in response.json().get("error", "")
+        mock_get_user_blast_radius_persons.assert_not_called()
 
     def test_billable_action_types_computed_correctly(self):
         """Test that billable_action_types is computed correctly and cannot be overridden by clients"""
