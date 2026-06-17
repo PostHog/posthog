@@ -618,6 +618,30 @@ class TestDataDeletionRequestAdminChangeViewStatsAndLock(BaseTest):
         self.assertIn("fetch_stats_url", ctx)
         self.assertIn("preview_stats_url", ctx)
 
+    def test_admin_can_open_request_whose_team_was_deleted(self):
+        """A deletion request can outlive its team (its team_id is a plain int, not an FK).
+        Opening it must not 500: the change page's only compile path (rendered_count_query)
+        degrades to a message because compile_hogql_predicate raises ValidationError rather
+        than Team.DoesNotExist.
+        """
+        request = DataDeletionRequest.objects.create(
+            team_id=2**31 - 1,  # no such team — models a request that outlived its team
+            request_type=RequestType.EVENT_REMOVAL,
+            events=["$pageview"],
+            hogql_predicate="person.properties.isEnterprise = 'yes'",
+            start_time=datetime.now() - timedelta(days=7),
+            end_time=datetime.now(),
+            status=RequestStatus.DRAFT,
+        )
+
+        # change_view assembles its context without touching the team or the compiler.
+        ctx = self._change_context(request)
+        self.assertIn("fetch_stats_url", ctx)
+
+        # The "ready to paste" count query degrades gracefully instead of raising.
+        rendered = self.admin.rendered_count_query(request)
+        self.assertIn("Could not render query", rendered)
+
     def test_change_view_is_clickhouse_team_flag(self):
         request = self._make_request()
         self.assertTrue(self._change_context(request, in_clickhouse_team=True)["is_clickhouse_team"])
