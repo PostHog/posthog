@@ -370,10 +370,6 @@
     );
 }
 
-.MarkdownNotebook__row:has(.MarkdownNotebook__line-insert-menu-hit-area) .MarkdownNotebook__block-comment-button {
-    transform: translateX(var(--markdown-notebook-inline-control-width));
-}
-
 .MarkdownNotebook__row--dragging {
     opacity: 0.4;
 }

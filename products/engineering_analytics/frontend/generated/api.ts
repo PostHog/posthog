@@ -10,6 +10,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     CICardSummaryApi,
+    EngineeringAnalyticsCiCardsParams,
     EngineeringAnalyticsPrLifecycleParams,
     EngineeringAnalyticsPullRequestsParams,
     EngineeringAnalyticsWorkflowHealthParams,
@@ -18,8 +19,20 @@ import type {
     WorkflowHealthItemApi,
 } from './api.schemas'
 
-export const getEngineeringAnalyticsCiCardsUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/engineering_analytics/ci_cards/`
+export const getEngineeringAnalyticsCiCardsUrl = (projectId: string, params?: EngineeringAnalyticsCiCardsParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/ci_cards/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/ci_cards/`
 }
 
 /**
@@ -27,9 +40,10 @@ export const getEngineeringAnalyticsCiCardsUrl = (projectId: string) => {
  */
 export const engineeringAnalyticsCiCards = async (
     projectId: string,
+    params?: EngineeringAnalyticsCiCardsParams,
     options?: RequestInit
 ): Promise<CICardSummaryApi> => {
-    return apiMutator<CICardSummaryApi>(getEngineeringAnalyticsCiCardsUrl(projectId), {
+    return apiMutator<CICardSummaryApi>(getEngineeringAnalyticsCiCardsUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

@@ -21,16 +21,17 @@ from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+from posthog.hogql_queries.utils.person_display_name import person_display_name_property_exprs
 from posthog.models import Person
-from posthog.models.person.person import get_distinct_ids_for_subquery
+from posthog.models.person.person import MAX_LIMIT_DISTINCT_IDS, get_distinct_ids_for_subquery
 from posthog.models.person.util import get_person_by_pk_or_uuid
 from posthog.models.property import Property
+from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.utils import relative_date_parse
 
 from products.actions.backend.models.action import Action
 
 COLUMN_COMMENT_SEPARATOR = " -- "
-VALID_IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z_$][A-Za-z0-9_$]*$")
 SUPPORTED_PERSON_PROPERTY_OPERATORS = frozenset(
     {
         "exact",
@@ -97,14 +98,7 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
     def _build_person_display_name_expr(self) -> str:
         """Build the HogQL expression for person_display_name using a subquery join."""
         property_keys = self.team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
-        # Build coalesce expression for person properties
-        props = []
-        for key in property_keys:
-            if VALID_IDENTIFIER_PATTERN.match(key):
-                props.append(f"toString(__person_lookup.properties.{key})")
-            else:
-                props.append(f"toString(__person_lookup.properties.`{key}`)")
-
+        props = person_display_name_property_exprs(property_keys, "__person_lookup.properties")
         # Create a tuple with (display_name, person_id, distinct_id)
         # Use sessions.distinct_id to avoid ambiguity with pdi.distinct_id
         coalesce_expr = f"coalesce({', '.join([*props, 'sessions.distinct_id'])})"
@@ -329,8 +323,10 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
                             for property in self.query.fixedProperties
                         )
                 if self.query.personId:
-                    with self.timings.measure("person_id"):
-                        person: Optional[Person] = get_person_by_pk_or_uuid(self.team.pk, self.query.personId)
+                    with self.timings.measure("person_id"), personhog_caller_tag("persons/sessions-query"):
+                        person: Optional[Person] = get_person_by_pk_or_uuid(
+                            self.team.pk, self.query.personId, distinct_id_limit=MAX_LIMIT_DISTINCT_IDS
+                        )
                         # Qualify distinct_id with sessions. when person join is present to avoid ambiguity
                         distinct_id_chain: list[str | int] = (
                             ["sessions", "distinct_id"] if self._needs_person_join() else ["distinct_id"]
@@ -534,12 +530,7 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
                             property_keys = (
                                 self.team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
                             )
-                            props = []
-                            for key in property_keys:
-                                if VALID_IDENTIFIER_PATTERN.match(key):
-                                    props.append(f"toString(__person_lookup.properties.{key})")
-                                else:
-                                    props.append(f"toString(__person_lookup.properties.`{key}`)")
+                            props = person_display_name_property_exprs(property_keys, "__person_lookup.properties")
                             expr = f"(coalesce({', '.join([*props, 'sessions.distinct_id'])}), toString(__person_lookup.id))"
                             new_col = re.sub(r"person_display_name -- Person\s*", expr, col)
                             order_columns.append(new_col)

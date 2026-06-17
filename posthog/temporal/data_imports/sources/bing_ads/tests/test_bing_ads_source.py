@@ -276,6 +276,14 @@ class TestBingAdsSource:
             # Integration deleted/disconnected — OAuthMixin.get_oauth_integration raises
             # `ValueError("Integration not found: <id>")`; match only the volatile-id-free prefix.
             ("Integration not found", "Integration not found: 160672"),
+            # Non-numeric Account ID — raised by bing_ads_source.get_rows. The matched phrase
+            # precedes the volatile account id in the message.
+            (
+                "Bing Ads Account ID must be numeric",
+                "Bing Ads Account ID must be numeric. The configured Account ID 'F118FDGN' is not a number — "
+                "you may have entered your alphanumeric Account Number instead. Update the Account ID in the "
+                "source settings and try again.",
+            ),
             # Deterministic credential/config errors raised in source_for_pipeline.
             ("Bing Ads access token not found", "Bing Ads access token not found for job abc"),
             ("Bing Ads refresh token not found", "Bing Ads refresh token not found for job abc"),

@@ -78,6 +78,10 @@ Filter to a specific trace ID (hex string). Use this when you already know the t
 
 Set `true` to return **only root spans** — one entry span per matching trace, which collapses each trace to a single row. Useful for "list the traces matching X" without sifting through `matched_filter`. Leave unset (or `false`) to get all spans of matching traces, where you read `matched_filter` to find the ones that matched. The frontend leaves this unset.
 
+## query.flatSpans
+
+Set `true` to return **the matching spans themselves, one row per span** (root and child), rather than collapsing to traces. This is the way to search by a child-span attribute (e.g. `code.filepath`) — the result is the matching child spans directly, not the traces that contain them. Streams under `ORDER BY … LIMIT`, so it stays bounded on hot child attributes where the whole-trace grouping would not. Distinct from `rootSpans` (which scopes whole-trace selection); `prefetchSpans` is ignored. Defaults to false.
+
 ## query.limit
 
 Maximum number of results (1-1000). Defaults to 100.

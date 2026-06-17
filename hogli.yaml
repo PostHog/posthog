@@ -743,6 +743,9 @@ tests:
     test:e2e:
         bin_script: e2e-test-runner
         description: Set up test databases and run Playwright E2E tests
+    test:quarantine:
+        click: hogli_commands.quarantine.cli:quarantine
+        description: Manage .test_quarantine.json — quarantine flaky tests so they stop blocking CI
 quality:
     lint:
         cmd: ./bin/ruff.sh check . && pnpm --filter=@posthog/frontend run lint
@@ -1021,10 +1024,16 @@ environment:
         bin_script: rust-jumphost
         description: 'Shell into the flags-cache-jumphost pod (uses $KUBE_NAMESPACE, defaults to posthog)'
         hidden: true
+    run:agent:
+        bin_script: run-agent
+        description: 'POST a demo /run to local agent-ingress and tail /listen SSE events — exercises the full ingress → queue → runner path'
     wait:for:postgres:tables:
         bin_script: wait-for-postgres-tables
         description: 'Block until the named Postgres tables exist'
         hidden: true
+    agent:tunnel:
+        bin_script: agent-tunnel
+        description: 'Expose local agent-ingress on a public cloudflared URL and wire AGENT_INGRESS_PUBLIC_URL into .env.local so Slack/webhooks can reach your dev box'
     dev:sandbox:
         bin_script: dev-sandbox
         description: 'Run a command inside the dev filesystem sandbox (internal; used by hogli dev:generate when POSTHOG_DEV_SANDBOX=1)'
@@ -1036,6 +1045,14 @@ environment:
     build:dashboard:widget:types:
         bin_script: build-dashboard-widget-types.py
         description: Widget enum preflight, date options, and form-field manifest codegen
+        hidden: true
+    start:ai:gateway:
+        bin_script: start-ai-gateway
+        description: 'Bring up the local Go ai-gateway via docker compose and top up the anonymous-team ledger for AGENT_USE_AI_GATEWAY dev'
+        hidden: true
+    dockerignore:drop:check:
+        bin_script: dockerignore-drop-check
+        description: List files an .dockerignore change drops from the image build context
         hidden: true
     verify:metrics:pipe:
         bin_script: verify-metrics-pipe

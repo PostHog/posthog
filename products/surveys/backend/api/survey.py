@@ -17,9 +17,10 @@ from django.views.decorators.csrf import csrf_exempt
 
 import nh3
 import structlog
+import django_filters
 import posthoganalytics
 from axes.decorators import axes_dispatch
-from django_filters.rest_framework import DjangoFilterBackend
+from django_filters.rest_framework import DjangoFilterBackend, FilterSet
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiParameter,
@@ -1170,13 +1171,14 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                     else:
                         cleaned_translation[field] = translation_data[field]
 
-            # Validate and sanitize link field
-            if "link" in translation_data:
-                if not isinstance(translation_data["link"], str):
+            # Empty link is treated as absent rather than rejected, mirroring the base question.
+            link = translation_data.get("link")
+            if link:
+                if not isinstance(link, str):
                     raise serializers.ValidationError(
                         f"Question {question_num}: Translation '{raw_lang_code}' field 'link' must be a string"
                     )
-                cleaned_translation["link"] = self._validate_and_sanitize_link(translation_data["link"])
+                cleaned_translation["link"] = self._validate_and_sanitize_link(link)
 
             # Validate and sanitize choices array
             if "choices" in translation_data:
@@ -1997,6 +1999,21 @@ class SurveySerializerCreateUpdateOnlySchema(SurveySerializerCreateUpdateOnly):
         }
 
 
+class UUIDInFilter(django_filters.BaseInFilter, django_filters.UUIDFilter):
+    pass
+
+
+class SurveyFilterSet(FilterSet):
+    ids = UUIDInFilter(
+        field_name="id",
+        label="Filter to a comma-separated list of survey IDs. IDs that don't exist are silently omitted rather than erroring.",
+    )
+
+    class Meta:
+        model = Survey
+        fields = ["archived", "type"]
+
+
 @extend_schema_view(
     create=extend_schema(request=SurveySerializerCreateUpdateOnlySchema),
     partial_update=extend_schema(request=SurveySerializerCreateUpdateOnlySchema),
@@ -2016,7 +2033,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         "linked_flag", "linked_insight", "targeting_flag", "internal_targeting_flag"
     ).all()
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ["archived", "type"]
+    filterset_class = SurveyFilterSet
 
     def get_serializer_class(self) -> type[serializers.Serializer]:
         if self.request.method == "POST" or self.request.method == "PATCH":

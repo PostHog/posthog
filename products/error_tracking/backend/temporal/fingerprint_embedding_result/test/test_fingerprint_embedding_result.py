@@ -207,17 +207,18 @@ class TestFingerprintEmbeddingResultActivity:
         assert result.query_duration_ms is not None
         assert result.closest_fingerprints == closest_fingerprints
 
-    def test_merge_fingerprint_skips_teams_without_rollout(self) -> None:
-        result = _merge_fingerprint_into_closest_issue(
-            team=MagicMock(id=1),
-            fingerprint="test-fingerprint",
-            closest_fingerprints=[SimilarFingerprintDistance(fingerprint="fingerprint-1", distance=0.01)],
-        )
+    def test_merge_fingerprint_skips_when_auto_merge_disabled(self) -> None:
+        with override_settings(ERROR_TRACKING_AUTO_MERGE_ENABLED=False):
+            result = _merge_fingerprint_into_closest_issue(
+                team=MagicMock(id=1),
+                fingerprint="test-fingerprint",
+                closest_fingerprints=[SimilarFingerprintDistance(fingerprint="fingerprint-1", distance=0.01)],
+            )
 
         assert result == 0
 
     def test_merge_fingerprint_skips_distances_above_threshold(self) -> None:
-        with override_settings(ERROR_TRACKING_AUTO_MERGE_FINGERPRINT_TEAM_IDS=[2]):
+        with override_settings(ERROR_TRACKING_AUTO_MERGE_ENABLED=True):
             result = _merge_fingerprint_into_closest_issue(
                 team=MagicMock(id=2),
                 fingerprint="test-fingerprint",
@@ -232,7 +233,7 @@ class TestFingerprintEmbeddingResultActivity:
         fingerprint_query.filter.return_value.select_related.return_value.order_by.return_value = []
 
         with (
-            override_settings(ERROR_TRACKING_AUTO_MERGE_FINGERPRINT_TEAM_IDS=[2]),
+            override_settings(ERROR_TRACKING_AUTO_MERGE_ENABLED=True),
             patch(
                 "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.ErrorTrackingIssueFingerprintV2.objects.select_for_update",
                 return_value=fingerprint_query,
@@ -263,7 +264,7 @@ class TestFingerprintEmbeddingResultActivity:
         capture_context.__enter__.return_value = capture
 
         with (
-            override_settings(ERROR_TRACKING_AUTO_MERGE_FINGERPRINT_TEAM_IDS=[2]),
+            override_settings(ERROR_TRACKING_AUTO_MERGE_ENABLED=True),
             patch(
                 "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.ErrorTrackingIssueFingerprintV2.objects.select_for_update",
                 return_value=fingerprint_query,
@@ -312,7 +313,7 @@ class TestMergeFingerprintCrossTeamIsolation(BaseTest):
         capture_context.__enter__.return_value = MagicMock()
 
         with (
-            override_settings(ERROR_TRACKING_AUTO_MERGE_FINGERPRINT_TEAM_IDS=[self.team.id]),
+            override_settings(ERROR_TRACKING_AUTO_MERGE_ENABLED=True),
             patch(
                 "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.ph_scoped_capture",
                 return_value=capture_context,

@@ -116,7 +116,11 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
         return {
             "Can't connect to MySQL server on": None,
             "No primary key defined for table": None,
-            "Access denied for user": None,
+            # MySQL/MariaDB error 1045 (ER_ACCESS_DENIED_ERROR): the user/password (or the
+            # user's host grant) is wrong. Surface it as an auth failure — mirroring the Postgres
+            # source — so the user fixes credentials instead of the generic "check connection
+            # details" message sending them to check the host/port.
+            "Access denied for user": "Invalid user or password",
             "sqlstate 42S02": None,  # Table not found error
             "ProgrammingError: (1146": None,  # Table not found error
             "OperationalError: (1356": None,  # View not found error
@@ -179,6 +183,20 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
                 or f"Could not connect to {self.get_source_config.name} via the SSH tunnel. Please check all connection details are valid.",
             )
         except Exception as e:
+            # Connection/credential failures we already classify as non-retryable during sync
+            # (an unreachable host, a refused connection, a blocked host, an SSL mismatch, ...)
+            # are expected user/upstream errors, not bugs on our side. Surface the friendly
+            # message without reporting them to error tracking — only genuinely unexpected
+            # failures get captured. Mirrors the Postgres and MSSQL `validate_credentials` handling.
+            error_msg = " ".join(str(arg) for arg in e.args) if e.args else str(e)
+            for pattern, friendly_error in self.get_non_retryable_errors().items():
+                if pattern in error_msg:
+                    return (
+                        False,
+                        friendly_error
+                        or f"Could not connect to {self.get_source_config.name}. Please check all connection details are valid.",
+                    )
+
             capture_exception(e)
             return (
                 False,

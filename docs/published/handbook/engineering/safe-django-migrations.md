@@ -12,6 +12,7 @@ This guide explains how to safely perform dangerous Django migration operations 
 
 ## Table of Contents
 
+- [Altering Hot Tables](#altering-hot-tables)
 - [Dropping Tables](#dropping-tables)
 - [Dropping Columns](#dropping-columns)
 - [Renaming Tables](#renaming-tables)
@@ -22,6 +23,26 @@ This guide explains how to safely perform dangerous Django migration operations 
 - [Running Data Migrations](#running-data-migrations)
 - [Using SeparateDatabaseAndState](#using-separatedatabaseandstate)
 - [General Best Practices](#general-best-practices)
+
+## Altering Hot Tables
+
+**Problem:** `posthog_team`, `posthog_user`, `posthog_organization`, and `posthog_project` are read on virtually every request. Every `ALTER TABLE` — including the "safe" patterns elsewhere in this guide, like adding a nullable column — needs an `ACCESS EXCLUSIVE` lock. The danger is not the ALTER itself (a nullable `ADD COLUMN` is metadata-only and takes milliseconds once it runs); it's the **lock queue**: while the ALTER waits behind in-flight queries, Postgres queues every later query on the table behind it. On a hot table that means site-wide request pile-ups and 5xx errors until `lock_timeout` cancels the ALTER — and since `bin/migrate` retries with exponential backoff, the stall repeats in waves until the ALTER finally wins the race.
+
+This is not theoretical: a plain nullable `AddField` on `Team` — exactly what this guide's NOT NULL section recommends as the safe pattern — has caused roughly an hour of recurring 5xx waves in production while it lost the lock race retry after retry.
+
+### Safe Approach: Don't Alter the Table
+
+For `Team`, most new fields shouldn't be on the table at all. Domain-specific fields belong on a **Team extension model** (see `posthog/models/team/README.md`) — that's a `CREATE TABLE`, which takes no lock on `posthog_team` whatsoever.
+
+`CREATE INDEX CONCURRENTLY` (via `CreateIndexConcurrently`, see [Adding Indexes](#adding-indexes)) is also fine: it only takes `SHARE UPDATE EXCLUSIVE`, which doesn't block reads or writes.
+
+### If You Genuinely Must Alter a Hot Table
+
+The migration analyzer (`HotTableAlterPolicy`) blocks any DDL on these tables in CI. To accept the risk:
+
+1. Confirm the field really is core (team identity, cross-product settings, SDK config) and not a candidate for an extension model.
+2. Add `<app_label>.<migration_name>` to `posthog/management/migration_analysis/hot_table_acknowledged_migrations.txt` — this is the explicit "I accept the risk" act, and it's visible in review.
+3. Coordinate the deploy with #team-infrastructure for a low-traffic window.
 
 ## Dropping Tables
 
@@ -199,6 +220,8 @@ This gives you a clean Python API without the risk of renaming the database colu
 1. Add column as nullable
 2. Backfill data
 3. Add NOT NULL constraint
+
+> **Note:** "safe" here means no table rewrite. On [hot tables](#altering-hot-tables) even a nullable `ADD COLUMN` can stall traffic while it waits for its lock.
 
 **Step 1: Add column as nullable**
 

@@ -57,6 +57,10 @@ export interface Series<Meta = unknown> {
             fromIndex?: number
             /** Index up to which the partial pattern applies (inclusive). Clamped to [0, data.length-1]. */
             toIndex?: number
+            /** Split the *final* segment at this fraction (0–1) of its length and dash only the part
+             *  beyond it — everything before stays solid. Lets a two-point line dash just its second
+             *  half without a phantom interior point. Takes precedence over `fromIndex`/`toIndex`. */
+            fromFraction?: number
             /** Dash pattern for the partial range. Defaults to [10, 10]. */
             pattern?: number[]
         }
@@ -326,6 +330,22 @@ export interface ChartDrawArgs {
     /** Restart the hover-fade at progress 0; returns the new value to use this frame.
      *  Call when the chart type detects a visible-state change at the same hoverIndex. */
     resetHoverFade: () => number
+    /** Live pixel range of an in-progress drag-to-zoom selection, x-axis only. Null when
+     *  no drag is active. Only the hover overlay reads this — the static layer ignores it. */
+    dragRect?: DragRect | null
+}
+
+// x0/x1 are canvas pixels, not necessarily ordered.
+export interface DragRect {
+    x0: number
+    x1: number
+}
+
+export interface DateRangeZoomData {
+    startLabel: string
+    endLabel: string
+    startIndex: number
+    endIndex: number
 }
 
 /** `true` = drew a visible highlight; `false` = nothing visible (freeze the fade timer). */
