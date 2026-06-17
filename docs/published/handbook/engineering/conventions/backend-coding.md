@@ -100,17 +100,9 @@ A good test should:
 
 #### No live network calls in the default suite
 
-The default test suite must not make live outbound calls to third-party services — they
-make CI slow, flaky, and dependent on an external provider's uptime and behavior. Mock the
-call (mock the SDK's own transport, not just `requests` — a transitive call through a
-vendor SDK still escapes), or move a genuine integration test to a tagged external suite
-that runs in a separate, non-merge-blocking job.
+The default test suite must not make live outbound calls to third-party services — they make CI slow, flaky, and dependent on an external provider's uptime and behavior. Mock the call (mock the SDK's own transport, not just `requests` — a transitive call through a vendor SDK still escapes), or move a genuine integration test to a tagged external suite that runs in a separate, non-merge-blocking job.
 
-A socket-level gate enforces this in CI (`tools/network-audit`): it flags any connection to
-a public IP, attributed to the triggering test, and fails the run on a host not in
-`tools/network-audit/baseline.json`. The baseline lists the current known offenders so CI
-fails only on a _new_ external dependency; if your test legitimately needs one, mock it or
-get the host added to the baseline with an owner on the hook to remove it.
+A socket-level gate enforces this in CI (`tools/network-audit`): it flags any connection to a public IP, attributed to the triggering test, and fails the run on a host not in `tools/network-audit/baseline.json`. The baseline lists the current known offenders so CI fails only on a _new_ external dependency; if your test legitimately needs one, mock it or get the host added to the baseline with an owner on the hook to remove it.
 
 ### Querying ClickHouse
 
