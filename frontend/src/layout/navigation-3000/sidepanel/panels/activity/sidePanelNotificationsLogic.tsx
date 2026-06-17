@@ -46,11 +46,11 @@ const SSE_RETRY_ATTEMPTS = 3
 const SSE_RETRY_INITIAL_DELAY_MS = 30000
 const SSE_RETRY_BACKOFF_MULTIPLIER = 4
 
-// Types whose canonical URL is reconstructed from source_id alone. Types absent
-// here fall through to the backend-provided source_url — used by customer_analytics,
-// whose notifications carry a precise account deep-link (account + tab) that a
-// source_id→path mapping can't build.
-const SOURCE_TYPE_TO_PATH: Partial<Record<NotificationEventSourceTypeEnumApi, (id: string) => string>> = {
+// Maps each source type to a path builder from `source_id`, or `null` to fall through to the
+// backend-provided `source_url` (customer_analytics carries a precise account deep-link a
+// source_id→path mapping can't build). Kept as a full `Record` — not `Partial` — so adding a
+// `NotificationEventSourceTypeEnumApi` value fails the build until it's handled here.
+const SOURCE_TYPE_TO_PATH: Record<NotificationEventSourceTypeEnumApi, ((id: string) => string) | null> = {
     replay: (id) => urls.replaySingle(id),
     notebook: (id) => urls.notebook(id),
     insight: (id) => urls.insightView(id as InsightShortId),
@@ -59,6 +59,7 @@ const SOURCE_TYPE_TO_PATH: Partial<Record<NotificationEventSourceTypeEnumApi, (i
     survey: (id) => urls.survey(id),
     experiment: (id) => urls.experiment(id),
     error_tracking: (id) => urls.errorTrackingIssue(id),
+    customer_analytics: null,
 }
 
 export interface NotificationGroup {
