@@ -5,6 +5,7 @@ from functools import cached_property
 from typing import TYPE_CHECKING, Any, Optional, cast
 from uuid import uuid4
 
+import posthoganalytics
 from langchain_core.prompts import PromptTemplate
 from langchain_core.runnables import RunnableConfig
 from posthoganalytics import capture_exception
@@ -23,6 +24,7 @@ from posthog.schema import (
 )
 
 from posthog.constants import AvailableFeature
+from posthog.event_usage import groups
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -184,6 +186,26 @@ class AssistantContextManager(AssistantContextMixin):
 
         return await _get_group_names_sync()
 
+    def _capture_dashboard_budget_exceeded(self, fallbacks: dict[str, list[int]]) -> None:
+        overflowed = fallbacks["schema"] + fallbacks["truncated"]
+        if not overflowed:
+            return
+        distinct_id = self._get_user_distinct_id(self._config)
+        if not distinct_id:
+            return
+        posthoganalytics.capture(
+            distinct_id=distinct_id,
+            event="posthog ai dashboard context budget exceeded",
+            properties={
+                **self._get_debug_props(self._config),
+                "dashboard_ids": overflowed,
+                "budget_chars": DASHBOARD_CONTEXT_CHAR_BUDGET,
+                # "truncated" means schema itself didn't fit — the more-degraded outcome.
+                "fallback": "truncated" if fallbacks["truncated"] else "schema",
+            },
+            groups=groups(None, self._team),
+        )
+
     async def _format_ui_context(self, ui_context: MaxUIContext | None) -> str | None:
         """
         Format UI context into template variables for the prompt.
@@ -204,6 +226,8 @@ class AssistantContextManager(AssistantContextMixin):
             # Budget across ALL attached dashboards, not per dashboard, so several attached
             # dashboards can't collectively overflow the window even if each one fits on its own.
             remaining_char_budget = DASHBOARD_CONTEXT_CHAR_BUDGET
+            # Dashboard ids that overflowed the budget, keyed by fallback kind — emitted as one event below.
+            budget_fallbacks: dict[str, list[int]] = {"schema": [], "truncated": []}
             for dashboard in ui_context.dashboards:
                 dashboard_filters = (
                     dashboard.filters.model_dump(exclude_none=True)
@@ -250,12 +274,16 @@ class AssistantContextManager(AssistantContextMixin):
                         # names + queries, no result tables) so it survives un-summarized; Max keeps
                         # the read_data tool for specific numbers. format_schema runs no queries.
                         dashboard_text = await dashboard_ctx.format_schema()
+                        fallback = "schema"
                         if len(dashboard_text) > remaining_char_budget:
+                            fallback = "truncated"
                             marker = "\n\n…(dashboard context truncated)"
                             # No room for even the marker — stop here so the budget can't go negative.
                             if remaining_char_budget <= len(marker):
+                                budget_fallbacks[fallback].append(dashboard.id)
                                 break
                             dashboard_text = dashboard_text[: remaining_char_budget - len(marker)] + marker
+                        budget_fallbacks[fallback].append(dashboard.id)
                     remaining_char_budget -= len(dashboard_text)
                     dashboard_contexts.append(
                         format_prompt_string(ROOT_DASHBOARD_CONTEXT_PROMPT, content=dashboard_text)
@@ -267,6 +295,8 @@ class AssistantContextManager(AssistantContextMixin):
                         properties=self._get_debug_props(self._config),
                     )
                     continue
+
+            self._capture_dashboard_budget_exceeded(budget_fallbacks)
 
             if dashboard_contexts:
                 joined_dashboards = "\n\n".join(dashboard_contexts)

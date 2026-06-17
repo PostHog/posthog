@@ -306,6 +306,39 @@ class TestAssistantContextManager(BaseTest):
         self.assertNotIn("…(dashboard context truncated)", result)
         self.assertLessEqual(result.count("Q"), DASHBOARD_CONTEXT_CHAR_BUDGET)
 
+    @patch("ee.hogai.context.context.posthoganalytics.capture")
+    @patch("ee.hogai.context.context.DashboardContext")
+    async def test_dashboard_context_budget_exceeded_emits_diagnostic_event(self, MockDashboardContext, mock_capture):
+        # Over budget => one diagnostic event so the threshold can be tuned and silent degradation is visible.
+        inst = MockDashboardContext.return_value
+        inst.execute_and_format = AsyncMock(return_value="x" * (DASHBOARD_CONTEXT_CHAR_BUDGET + 5000))
+        inst.format_schema = AsyncMock(return_value="SCHEMA")
+
+        config = RunnableConfig(configurable={"distinct_id": "user-123"})
+        context_manager = AssistantContextManager(self.team, self.user, config)
+        result = await context_manager._format_ui_context(self._dashboard_ui_context(1))
+
+        assert result is not None
+        mock_capture.assert_called_once()
+        kwargs = mock_capture.call_args.kwargs
+        self.assertEqual(kwargs["event"], "posthog ai dashboard context budget exceeded")
+        self.assertEqual(kwargs["distinct_id"], "user-123")
+        self.assertEqual(kwargs["properties"]["dashboard_ids"], [1])
+        self.assertEqual(kwargs["properties"]["fallback"], "schema")
+        self.assertEqual(kwargs["properties"]["budget_chars"], DASHBOARD_CONTEXT_CHAR_BUDGET)
+
+    @patch("ee.hogai.context.context.posthoganalytics.capture")
+    @patch("ee.hogai.context.context.DashboardContext")
+    async def test_dashboard_context_under_budget_emits_no_event(self, MockDashboardContext, mock_capture):
+        inst = MockDashboardContext.return_value
+        inst.execute_and_format = AsyncMock(return_value="small results")
+
+        config = RunnableConfig(configurable={"distinct_id": "user-123"})
+        context_manager = AssistantContextManager(self.team, self.user, config)
+        await context_manager._format_ui_context(self._dashboard_ui_context(1))
+
+        mock_capture.assert_not_called()
+
     @patch("ee.hogai.context.notebook.context.NotebookContext.from_short_id")
     async def test_format_ui_context_with_markdown_notebook_insertion_context(self, mock_from_short_id):
         ui_context = MaxUIContext(
