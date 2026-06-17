@@ -401,17 +401,11 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             OpenApiParameter("pr_number", int, required=False, description="Filter by GitHub PR number"),
             OpenApiParameter("commit_sha", str, required=False, description="Filter by full commit SHA"),
             OpenApiParameter("branch", str, required=False, description="Filter by branch name"),
-            OpenApiParameter(
-                "search",
-                str,
-                required=False,
-                description="Free-text search over branch, commit SHA, run type, and PR number",
-            ),
         ],
         responses={200: RunSerializer(many=True)},
     )
     def list(self, request: Request, **kwargs) -> Response:
-        """List runs for the team, optionally filtered by review state, PR number, commit SHA, branch, or search."""
+        """List runs for the team, optionally filtered by review state, PR number, commit SHA, or branch."""
         pr_number_raw = request.query_params.get("pr_number")
         try:
             pr_number = int(pr_number_raw) if pr_number_raw is not None else None
@@ -423,7 +417,6 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             pr_number=pr_number,
             commit_sha=request.query_params.get("commit_sha"),
             branch=request.query_params.get("branch"),
-            search=request.query_params.get("search"),
         )
         page = self.paginate_queryset(runs)
         if page is not None:

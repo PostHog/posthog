@@ -266,10 +266,10 @@ REVIEW_STATE_FILTERS: dict[str, Q] = {
 }
 
 
-def _run_search_filter(search: str) -> Q:
+def _run_search_filter(term: str) -> Q:
     """Free-text filter over the run fields a reviewer can see in the list:
-    branch, commit SHA, run type, and PR number (when the term is numeric)."""
-    term = search.strip()
+    branch, commit SHA, run type, and PR number (when the term is numeric).
+    Expects an already-stripped, non-empty term."""
     q = Q(branch__icontains=term) | Q(commit_sha__icontains=term) | Q(run_type__icontains=term)
     if term.isdigit():
         q |= Q(pr_number=int(term))
@@ -296,8 +296,8 @@ def list_runs_for_team(
         qs = qs.filter(commit_sha=commit_sha)
     if branch:
         qs = qs.filter(branch=branch)
-    if search and search.strip():
-        qs = qs.filter(_run_search_filter(search))
+    if search and (term := search.strip()):
+        qs = qs.filter(_run_search_filter(term))
     return qs
 
 

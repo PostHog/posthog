@@ -1,6 +1,6 @@
 """Integration tests for visual_review DRF views."""
 
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
@@ -535,8 +535,7 @@ class TestRepoRunsSearch(VisualReviewTeamScopedTestMixin, APIBaseTest):
         base = f"/api/projects/{self.team.id}/visual_review/repos/{self.vr_project.id}/runs/"
         if not params:
             return base
-        query = "&".join(f"{key}={value}" for key, value in params.items())
-        return f"{base}?{query}"
+        return f"{base}?{urlencode(params)}"
 
     def _branches(self, response_json: dict) -> set[str]:
         return {run["branch"] for run in response_json["results"]}
