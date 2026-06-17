@@ -1,16 +1,16 @@
 import { HogFunctionInputSchemaType, HogFunctionTemplate } from '~/cdp/types'
 
-// Based on https://learn.microsoft.com/en-us/advertising/campaign-management-service/applyofflineconversions?view=bingads-13
-// (REST endpoint: POST /CampaignManagement/v13/OfflineConversions/Apply)
+// Based on https://learn.microsoft.com/en-us/advertising/guides/uet-conversion-api-integration?view=bingads-13
+// Sends server-to-server conversion events to the Microsoft Advertising Conversions API (CAPI).
 
 const build_inputs = (): HogFunctionInputSchemaType[] => {
     return [
         {
-            key: 'conversionName',
+            key: 'eventName',
             type: 'string',
-            label: 'Conversion name',
+            label: 'Event name',
             description:
-                'The name of the offline conversion goal configured in Microsoft Advertising. Conversions are matched to this goal by name, so it must match exactly. Wait at least two hours after creating the goal before sending conversions.',
+                'The event action used to match a custom conversion goal in Microsoft Advertising. Must match the event configured on your conversion goal.',
             secret: false,
             required: true,
         },
@@ -18,36 +18,65 @@ const build_inputs = (): HogFunctionInputSchemaType[] => {
             key: 'microsoftClickId',
             type: 'string',
             label: 'Microsoft Click ID (msclkid)',
-            description: 'The Microsoft click ID (msclkid) associated with this conversion.',
+            description:
+                'The Microsoft click ID (msclkid) associated with this conversion. Required for click attribution.',
             default: '{person.properties.msclkid ?? person.properties.$initial_msclkid}',
             secret: false,
             required: true,
         },
         {
-            key: 'conversionTime',
+            key: 'eventTime',
             type: 'string',
-            label: 'Conversion time',
+            label: 'Event time',
             description:
-                'The date and time at which the conversion occurred, in UTC. Must be after the click time. The format is ISO 8601, e.g. "2019-01-01T12:32:45Z".',
-            default: "{formatDateTime(toDateTime(event.timestamp), '%Y-%m-%dT%H:%i:%SZ')}",
+                'The time the event occurred, as a UNIX timestamp in seconds (UTC). Must be within the last 7 days.',
+            default: '{toInt(toUnixTimestamp(event.timestamp))}',
             secret: false,
             required: true,
+        },
+        {
+            key: 'eventId',
+            type: 'string',
+            label: 'Event ID',
+            description: 'A unique ID for the event, used for deduplication against UET tag events.',
+            default: '{event.uuid}',
+            secret: false,
+            required: false,
         },
         {
             key: 'conversionValue',
             type: 'string',
             label: 'Conversion value',
-            description: 'The value of the conversion for the advertiser.',
+            description: 'The revenue value of the conversion.',
             default: '',
             secret: false,
             required: false,
         },
         {
-            key: 'conversionCurrencyCode',
+            key: 'currency',
             type: 'string',
             label: 'Currency code',
+            description: 'Currency of the conversion value as an ISO 4217 3-character code. For example: USD, EUR.',
+            default: '',
+            secret: false,
+            required: false,
+        },
+        {
+            key: 'email',
+            type: 'string',
+            label: 'Email address',
             description:
-                'Currency associated with the conversion value. This is the ISO 4217 3-character currency code. For example: USD, EUR. If empty, the conversion goal default is used.',
+                'Email address for enhanced conversions. Sent SHA-256 hashed; leave blank to omit. Normalize (lowercase, trimmed) for best match rates.',
+            default: '{person.properties.email}',
+            secret: false,
+            required: false,
+        },
+        {
+            key: 'phone',
+            type: 'string',
+            label: 'Phone number',
+            description:
+                'Phone number for enhanced conversions. Sent SHA-256 hashed; leave blank to omit. Normalize to E.164 format (e.g. +14255551234) for best match rates.',
             default: '',
             secret: false,
             required: false,
@@ -61,7 +90,7 @@ export const template: HogFunctionTemplate = {
     type: 'destination',
     id: 'template-microsoft-ads',
     name: 'Microsoft Ads Conversions',
-    description: 'Send offline conversion events to Microsoft Advertising (Bing Ads)',
+    description: 'Send conversion events to the Microsoft Advertising Conversions API (CAPI)',
     icon_url: '/static/services/bing-ads.svg',
     category: ['Advertisement'],
     code_language: 'hog',
@@ -71,64 +100,69 @@ if (empty(inputs.microsoftClickId)) {
     return
 }
 
+let userData := {
+    'msclkid': inputs.microsoftClickId
+}
+if (not empty(inputs.email)) {
+    userData.em := sha256Hex(lower(trim(inputs.email)))
+}
+if (not empty(inputs.phone)) {
+    userData.ph := sha256Hex(lower(trim(inputs.phone)))
+}
+
 let conversion := {
-    'MicrosoftClickId': inputs.microsoftClickId,
-    'ConversionName': inputs.conversionName,
-    'ConversionTime': inputs.conversionTime
+    'eventType': 'custom',
+    'eventName': inputs.eventName,
+    'eventTime': inputs.eventTime,
+    'userData': userData
+}
+if (not empty(inputs.eventId)) {
+    conversion.eventId := inputs.eventId
 }
 
+let customData := {}
 if (not empty(inputs.conversionValue)) {
-    conversion.ConversionValue := toFloat(inputs.conversionValue)
+    customData.value := toFloat(inputs.conversionValue)
 }
-if (not empty(inputs.conversionCurrencyCode)) {
-    conversion.ConversionCurrencyCode := inputs.conversionCurrencyCode
+if (not empty(inputs.currency)) {
+    customData.currency := inputs.currency
+}
+if (length(keys(customData)) > 0) {
+    conversion.customData := customData
 }
 
-let res := fetch('https://campaign.api.bingads.microsoft.com/CampaignManagement/v13/OfflineConversions/Apply', {
+let res := fetch(f'https://capi.uet.microsoft.com/v1/{inputs.tagId}/events', {
     'method': 'POST',
     'headers': {
-        'Authorization': f'Bearer {inputs.oauth.access_token}',
-        'Content-Type': 'application/json',
-        'CustomerId': inputs.customerId,
-        'CustomerAccountId': inputs.customerAccountId
+        'Authorization': f'Bearer {inputs.apiToken}',
+        'Content-Type': 'application/json'
     },
     'body': {
-        'OfflineConversions': [conversion]
+        'data': [conversion]
     }
 })
 
 if (res.status >= 400) {
-    throw Error(f'Error from campaign.api.bingads.microsoft.com (status {res.status}): {res.body}')
-} else if (not empty(res.body.PartialErrors)) {
-    throw Error(f'Error from campaign.api.bingads.microsoft.com (status {res.status}): {res.body.PartialErrors}')
+    throw Error(f'Error from capi.uet.microsoft.com (status {res.status}): {res.body}')
 }
 `,
     inputs_schema: [
         {
-            key: 'oauth',
-            type: 'integration',
-            integration: 'bing-ads',
-            label: 'Microsoft Ads account',
-            requiredScopes: 'https://ads.microsoft.com/msads.manage offline_access openid profile',
+            key: 'tagId',
+            type: 'string',
+            label: 'UET Tag ID',
+            description:
+                'The UET tag ID that conversions are sent to. Find it under Tools > UET tag in Microsoft Advertising.',
             secret: false,
             required: true,
         },
         {
-            key: 'customerId',
+            key: 'apiToken',
             type: 'string',
-            label: 'Customer ID',
+            label: 'Conversions API token',
             description:
-                'The identifier of the manager account (customer) that the account belongs to. Find it under Settings > Accounts and Billing in Microsoft Advertising.',
-            secret: false,
-            required: true,
-        },
-        {
-            key: 'customerAccountId',
-            type: 'string',
-            label: 'Account ID',
-            description:
-                'The identifier of the ad account that owns the conversion goal. Find it under Settings > Accounts and Billing in Microsoft Advertising.',
-            secret: false,
+                'The Conversions API auth token for your UET tag. Obtain it in Microsoft Advertising by selecting "Use Conversions API" on the UET tag (pilot program — contact your account manager to enable).',
+            secret: true,
             required: true,
         },
     ],

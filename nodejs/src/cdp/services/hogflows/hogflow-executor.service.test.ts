@@ -77,7 +77,6 @@ describe('Hogflow Executor', () => {
             {
                 hogCostTimingUpperMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
                 googleAdwordsDeveloperToken: hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
-                bingAdsDeveloperToken: hub.CDP_BING_ADS_DEVELOPER_TOKEN,
                 fetchRetries: hub.CDP_FETCH_RETRIES,
                 fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
                 fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
@@ -1862,7 +1861,6 @@ describe('Hogflow Executor', () => {
                         {
                             hogCostTimingUpperMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
                             googleAdwordsDeveloperToken: hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
-                            bingAdsDeveloperToken: hub.CDP_BING_ADS_DEVELOPER_TOKEN,
                             fetchRetries: hub.CDP_FETCH_RETRIES,
                             fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
                             fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
@@ -2061,7 +2059,6 @@ describe('Hogflow Executor', () => {
                         {
                             hogCostTimingUpperMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
                             googleAdwordsDeveloperToken: hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
-                            bingAdsDeveloperToken: hub.CDP_BING_ADS_DEVELOPER_TOKEN,
                             fetchRetries: hub.CDP_FETCH_RETRIES,
                             fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
                             fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
@@ -2096,7 +2093,6 @@ describe('Hogflow Executor', () => {
                         {
                             hogCostTimingUpperMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
                             googleAdwordsDeveloperToken: hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
-                            bingAdsDeveloperToken: hub.CDP_BING_ADS_DEVELOPER_TOKEN,
                             fetchRetries: hub.CDP_FETCH_RETRIES,
                             fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
                             fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,

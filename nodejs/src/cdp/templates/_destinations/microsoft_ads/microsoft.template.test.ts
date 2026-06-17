@@ -19,62 +19,46 @@ describe('microsoft template', () => {
     it('works with conversion value and currency', async () => {
         const response = await tester.invokeMapping(
             'Conversion',
-            {
-                oauth: { access_token: 'access-token' },
-                customerId: '1231231234',
-                customerAccountId: '5675675678',
-                conversionName: 'Purchase',
-            },
-            createAdDestinationPayload({
-                event: { properties: { currency: 'USD', value: '100' } },
-            }),
-            { conversionCurrencyCode: '{event.properties.currency}', conversionValue: '{event.properties.value}' }
+            { tagId: '12345678', apiToken: 'api-token', eventName: 'purchase' },
+            createAdDestinationPayload({ event: { properties: { currency: 'USD', value: '100' } } }),
+            { currency: '{event.properties.currency}', conversionValue: '{event.properties.value}' }
         )
         expect(response.error).toBeUndefined()
         expect(response.finished).toEqual(false)
         expect(response.invocation.queueParameters).toMatchInlineSnapshot(`
             {
-              "body": "{"OfflineConversions":[{"MicrosoftClickId":"microsoft-id","ConversionName":"Purchase","ConversionTime":"2025-01-01T00:00:00Z","ConversionValue":100,"ConversionCurrencyCode":"USD"}]}",
+              "body": "{"data":[{"eventType":"custom","eventName":"purchase","eventTime":1735689600,"userData":{"msclkid":"microsoft-id","em":"3d4eee8538a4bbbe2ef7912f90ee494c1280f74dd7fd81232e58deb9cb9997e3"},"eventId":"event-id","customData":{"value":100,"currency":"USD"}}]}",
               "headers": {
-                "Authorization": "Bearer access-token",
+                "Authorization": "Bearer api-token",
                 "Content-Type": "application/json",
-                "CustomerAccountId": "5675675678",
-                "CustomerId": "1231231234",
               },
               "method": "POST",
               "type": "fetch",
-              "url": "https://campaign.api.bingads.microsoft.com/CampaignManagement/v13/OfflineConversions/Apply",
+              "url": "https://capi.uet.microsoft.com/v1/12345678/events",
             }
         `)
         const fetchResponse = await tester.invokeFetchResponse(response.invocation, { status: 200, body: {} })
         expect(fetchResponse.finished).toBe(true)
         expect(fetchResponse.error).toBeUndefined()
     })
-    it('works with empty optional properties', async () => {
+    it('works with minimal inputs and hashes the email', async () => {
         const response = await tester.invokeMapping(
             'Conversion',
-            {
-                oauth: { access_token: 'access-token' },
-                customerId: '1231231234',
-                customerAccountId: '5675675678',
-                conversionName: 'Purchase',
-            },
+            { tagId: '12345678', apiToken: 'api-token', eventName: 'purchase' },
             createAdDestinationPayload()
         )
         expect(response.error).toBeUndefined()
         expect(response.finished).toEqual(false)
         expect(response.invocation.queueParameters).toMatchInlineSnapshot(`
             {
-              "body": "{"OfflineConversions":[{"MicrosoftClickId":"microsoft-id","ConversionName":"Purchase","ConversionTime":"2025-01-01T00:00:00Z"}]}",
+              "body": "{"data":[{"eventType":"custom","eventName":"purchase","eventTime":1735689600,"userData":{"msclkid":"microsoft-id","em":"3d4eee8538a4bbbe2ef7912f90ee494c1280f74dd7fd81232e58deb9cb9997e3"},"eventId":"event-id"}]}",
               "headers": {
-                "Authorization": "Bearer access-token",
+                "Authorization": "Bearer api-token",
                 "Content-Type": "application/json",
-                "CustomerAccountId": "5675675678",
-                "CustomerId": "1231231234",
               },
               "method": "POST",
               "type": "fetch",
-              "url": "https://campaign.api.bingads.microsoft.com/CampaignManagement/v13/OfflineConversions/Apply",
+              "url": "https://capi.uet.microsoft.com/v1/12345678/events",
             }
         `)
         const fetchResponse = await tester.invokeFetchResponse(response.invocation, { status: 200, body: {} })
@@ -84,63 +68,33 @@ describe('microsoft template', () => {
     it('handles error responses', async () => {
         const response = await tester.invokeMapping(
             'Conversion',
-            {
-                oauth: { access_token: 'access-token' },
-                customerId: '1231231234',
-                customerAccountId: '5675675678',
-                conversionName: 'Purchase',
-            },
+            { tagId: '12345678', apiToken: 'api-token', eventName: 'purchase' },
             createAdDestinationPayload()
         )
         expect(response.error).toBeUndefined()
         expect(response.finished).toEqual(false)
         const fetchResponse = await tester.invokeFetchResponse(response.invocation, {
-            status: 400,
-            body: { Message: 'Invalid conversion' },
+            status: 401,
+            body: { error: { code: 'Unauthorized', message: 'You are not authorized to access this resource.' } },
         })
         expect(fetchResponse.finished).toBe(true)
         expect(fetchResponse.error).toMatchInlineSnapshot(
-            `"Error from campaign.api.bingads.microsoft.com (status 400): {'Message': 'Invalid conversion'}"`
-        )
-    })
-    it('handles partial errors', async () => {
-        const response = await tester.invokeMapping(
-            'Conversion',
-            {
-                oauth: { access_token: 'access-token' },
-                customerId: '1231231234',
-                customerAccountId: '5675675678',
-                conversionName: 'Purchase',
-            },
-            createAdDestinationPayload()
-        )
-        expect(response.error).toBeUndefined()
-        expect(response.finished).toEqual(false)
-        const fetchResponse = await tester.invokeFetchResponse(response.invocation, {
-            status: 200,
-            body: { PartialErrors: [{ Code: 1, Message: 'ClickId not found' }] },
-        })
-        expect(fetchResponse.finished).toBe(true)
-        expect(fetchResponse.error).toMatchInlineSnapshot(
-            `"Error from campaign.api.bingads.microsoft.com (status 200): [{'Code': 1, 'Message': 'ClickId not found'}]"`
+            `"Error from capi.uet.microsoft.com (status 401): {'error': {'code': 'Unauthorized', 'message': 'You are not authorized to access this resource.'}}"`
         )
     })
     it('skips when microsoftClickId is missing', async () => {
         const response = await tester.invokeMapping(
             'Conversion',
-            {
-                oauth: { access_token: 'access-token' },
-                customerId: '1231231234',
-                customerAccountId: '5675675678',
-                conversionName: 'Purchase',
-            },
+            { tagId: '12345678', apiToken: 'api-token', eventName: 'purchase' },
             createAdDestinationPayload({ person: { properties: { msclkid: null } } })
         )
-        expect(response.logs.filter((log) => log.level === 'info').map((log) => log.message)).toMatchInlineSnapshot(`
+        expect(response.logs.filter((log) => log.level === 'info').map((log) => log.message)).toMatchInlineSnapshot(
+            `
             [
               "Empty \`microsoftClickId\`. Skipping...",
             ]
-        `)
+        `
+        )
         expect(response.finished).toEqual(true)
     })
 })
