@@ -52,6 +52,8 @@ class ScoreSessionsBatchWorkflow(PostHogWorkflow):
     """One tick of the scoring pipeline."""
 
     inputs_cls = ScoreSessionsBatchInputs
+    # Input dataclass is empty, so allow starting with no inputs.
+    inputs_optional = True
 
     @workflow.run
     async def run(self, inputs: ScoreSessionsBatchInputs) -> ScoreSessionsBatchResult:

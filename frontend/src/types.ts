@@ -5501,6 +5501,7 @@ export type APIScopeObject =
     | 'account'
     | 'activity_log'
     | 'agents'
+    | 'agent_approvals'
     | 'alert'
     | 'annotation'
     | 'approvals'
