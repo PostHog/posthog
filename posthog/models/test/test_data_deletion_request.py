@@ -218,6 +218,19 @@ def test_compile_hogql_predicate_emits_unqualified_materialized_column(team, sna
     assert sql == snapshot
 
 
+def test_compile_hogql_predicate_missing_team_raises_validation_error(db):
+    """If the team no longer exists, compilation must raise ``ValidationError`` (not
+    ``Team.DoesNotExist``) so ``Model.clean()`` callers keep their contract.
+    """
+    from posthog.models.data_deletion_request import compile_hogql_predicate
+
+    request = DataDeletionRequest(
+        **_base_kwargs(team_id=2**31 - 1, events=["$pageview"], hogql_predicate="properties.$browser = 'Chrome'")
+    )
+    with pytest.raises(ValidationError, match="team no longer exists"):
+        compile_hogql_predicate(request)
+
+
 def test_compile_hogql_predicate_boolean_person_property_not_coerced(team):
     """A boolean-typed person property compared to a non-``true``/``false`` string must not be
     coerced to Bool. The coercion (``accurateCastOrNull(transform(...), 'Bool')``) maps the

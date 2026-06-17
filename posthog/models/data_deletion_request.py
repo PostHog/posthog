@@ -79,7 +79,10 @@ def compile_hogql_predicate(obj) -> tuple[str, dict]:
     # ``person.properties`` must read the on-events ``person_properties`` column — a joined
     # persons table (the ``..._joined`` / ``disabled`` modes) would reference an alias that does
     # not exist in either splice site.
-    team = Team.objects.get(id=obj.team_id)
+    try:
+        team = Team.objects.get(id=obj.team_id)
+    except Team.DoesNotExist as exc:
+        raise ValidationError({"hogql_predicate": "team no longer exists; cannot validate the predicate."}) from exc
     modifiers = create_default_modifiers_for_team(team)
     modifiers.personsOnEventsMode = PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
     context = HogQLContext(
