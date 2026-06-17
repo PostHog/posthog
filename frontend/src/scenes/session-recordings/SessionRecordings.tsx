@@ -210,7 +210,7 @@ function MainPanel(): JSX.Element {
     }
 
     return (
-        <div className={cn('flex flex-col gap-y-4', ReplayTabs.Home === tab && 'grow')}>
+        <div className={cn('flex flex-col gap-y-4', ReplayTabs.Home === tab && 'grow min-h-0')}>
             <Warnings />
 
             {!tab ? (
@@ -286,7 +286,7 @@ export function SessionRecordingsPageTabs(): JSX.Element {
 export function SessionsRecordings(): JSX.Element {
     return (
         <BindLogic logic={sessionReplaySceneLogic} props={{}}>
-            <SceneContent className="h-full">
+            <SceneContent className="h-full min-h-0">
                 <SceneTitleSection
                     name={sceneConfigurations[Scene.Replay].name}
                     resourceType={{
