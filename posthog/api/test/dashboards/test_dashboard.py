@@ -446,24 +446,31 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         # Dashboards created without an explicit folder land in the default unfiled folder
         assert results_by_id[unfiled_id]["folder"] == "Unfiled/Dashboards"
 
-    def test_list_filters_by_folder(self):
-        in_folder_id, _ = self.dashboard_api.create_dashboard(
-            {"name": "In folder", "_create_in_folder": "Marketing/Website"}
-        )
-        nested_id, _ = self.dashboard_api.create_dashboard(
-            {"name": "Nested deeper", "_create_in_folder": "Marketing/Website/Landing"}
-        )
-        other_id, _ = self.dashboard_api.create_dashboard({"name": "Other folder", "_create_in_folder": "Product"})
+    @parameterized.expand(
+        [
+            # The named folder matches only the dashboard filed directly in it — nested sub-folders excluded
+            ("named_folder", "Marketing/Website", "in_folder"),
+            # The empty string is the project root (the `depth=1`, no-prefix branch of _apply_folder_filter)
+            ("project_root", "", "root"),
+        ]
+    )
+    def test_list_filters_by_folder(self, _name: str, folder: str, expected_key: str):
+        ids = {
+            "in_folder": self.dashboard_api.create_dashboard(
+                {"name": "In folder", "_create_in_folder": "Marketing/Website"}
+            )[0],
+            "nested": self.dashboard_api.create_dashboard(
+                {"name": "Nested deeper", "_create_in_folder": "Marketing/Website/Landing"}
+            )[0],
+            "other": self.dashboard_api.create_dashboard({"name": "Other folder", "_create_in_folder": "Product"})[0],
+            "root": self.dashboard_api.create_dashboard({"name": "Root dashboard", "_create_in_folder": ""})[0],
+        }
 
-        response = self.dashboard_api.list_dashboards(
-            parent="environment", query_params={"folder": "Marketing/Website"}
-        )
+        response = self.dashboard_api.list_dashboards(parent="environment", query_params={"folder": folder})
         result_ids = {dashboard["id"] for dashboard in response["results"]}
 
-        # Only the dashboard filed directly in the folder matches — nested sub-folders and other folders are excluded
-        assert result_ids == {in_folder_id}
-        assert nested_id not in result_ids
-        assert other_id not in result_ids
+        # Set equality asserts the match is exact — every other dashboard (nested, other folder, root/named) is excluded
+        assert result_ids == {ids[expected_key]}
 
     @snapshot_postgres_queries
     def test_retrieve_dashboard(self):
