@@ -683,7 +683,9 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                 try {
                     let importantChangesHumanized = humanize(importantChanges?.results || [], describerFor, true)
 
-                    const flagPayload = posthog.getFeatureFlagPayload('changelog-notification')
+                    const flagPayload = posthog.getFeatureFlagResult('changelog-notification', {
+                        send_event: false,
+                    })?.payload
                     const changelogNotifications = flagPayload
                         ? (flagPayload as JsonRecord[]).map(
                               (notification) =>
