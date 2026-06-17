@@ -15,7 +15,7 @@ import { universalFiltersLogic } from 'lib/components/UniversalFilters/universal
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { dayjs } from 'lib/dayjs'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { DATE_TIME_FORMAT, formatDateRange } from 'lib/utils'
+import { DATE_TIME_FORMAT, formatDateRange } from 'lib/utils/datetime'
 
 import { DateRange } from '~/queries/schema/schema-general'
 import {

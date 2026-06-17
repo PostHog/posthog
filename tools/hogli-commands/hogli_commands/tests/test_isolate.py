@@ -224,6 +224,22 @@ def test_detect_viewset_modules_includes_api_subpackage(tmp_path: Path) -> None:
     assert [p.name for p in detect_viewset_modules(backend, include_api=True)] == ["views.py"]
 
 
+def test_find_views_path_accepts_presentation_views_package(tmp_path: Path) -> None:
+    from hogli_commands.product.paths import find_views_path
+
+    backend = tmp_path / "backend"
+    views_pkg = backend / "presentation" / "views"
+    views_pkg.mkdir(parents=True)
+    (views_pkg / "__init__.py").write_text("")
+    (views_pkg / "issues.py").write_text(
+        "from rest_framework import viewsets\nclass IssueViewSet(viewsets.ViewSet):\n    pass\n"
+    )
+
+    path, correct_location = find_views_path(backend)
+    assert path == views_pkg
+    assert correct_location is True
+
+
 def test_module_dotted_keeps_intermediate_package() -> None:
     assert _module_dotted("wa", Path("api/heatmaps_api.py")) == "products.wa.backend.api.heatmaps_api"
     assert _module_dotted("wa", Path("views.py")) == "products.wa.backend.views"

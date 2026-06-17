@@ -2,6 +2,7 @@ from django.conf import settings
 
 import requests
 import structlog
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.temporal.data_imports.sources.common.http import make_tracked_session
 
@@ -22,6 +23,16 @@ def _error_message_from_response(res: requests.Response) -> str:
         return res.text
 
 
+@retry(
+    # A 429/5xx from HubSpot's OAuth token endpoint is transient. The data-fetch paths already
+    # back off and retry on HubspotRetryableError; this refresh is also reached at source-setup
+    # time (and from helpers.fetch_data), where no surrounding retry exists — so back off here too
+    # instead of failing the whole sync on a momentary rate limit.
+    retry=retry_if_exception_type((HubspotRetryableError, requests.ReadTimeout, requests.ConnectionError)),
+    stop=stop_after_attempt(5),
+    wait=wait_exponential_jitter(initial=1, max=30),
+    reraise=True,
+)
 def hubspot_refresh_access_token(refresh_token: str, source_id: str | None = None) -> str:
     res = make_tracked_session().post(
         "https://api.hubapi.com/oauth/v1/token",

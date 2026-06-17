@@ -376,7 +376,7 @@ class WriteToolRequestSerializer(serializers.Serializer):
 
 class WriteTypedBundleRequestSerializer(serializers.Serializer):
     """Body shape for PUT /revisions/<id>/bundle/ — the full-replace typed
-    payload. See docs/agent-platform/plans/typed-bundle-authoring-api.md §3."""
+    payload."""
 
     agent_md = serializers.CharField(allow_blank=True, trim_whitespace=False)
     skills = serializers.ListField(child=WriteSkillRequestSerializer(), required=False, default=list)
@@ -422,9 +422,7 @@ class NewDraftRevisionRequestSerializer(serializers.Serializer):
 
 
 class DecideApprovalRequestSerializer(serializers.Serializer):
-    """Body shape for POST /agent_applications/<id>/approvals/<approval_id>/decide/.
-
-    See docs/agent-platform/plans/approval-gated-tools.md."""
+    """Body shape for POST /agent_applications/<id>/approvals/<approval_id>/decide/."""
 
     decision = serializers.ChoiceField(
         choices=["approve", "reject"],

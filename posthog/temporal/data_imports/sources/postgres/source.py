@@ -198,6 +198,18 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             "could not translate host name": None,
             "timeout expired connection to server at": None,
             "password authentication failed for user": None,
+            # AWS RDS Proxy reports bad credentials with its own wording instead of PostgreSQL's
+            # "password authentication failed for user" — it validates against Secrets Manager and
+            # returns "The password that was provided for the role <role> is wrong." None of the
+            # password keys above substring-match this, so without its own key Temporal keeps
+            # retrying a credential mismatch that can only be fixed on the customer's side. Match the
+            # stable prefix and exclude the volatile role name.
+            "The password that was provided for the role": (
+                "Your database proxy (for example AWS RDS Proxy) rejected the credentials "
+                '("the password that was provided for the role is wrong"). Check that the username '
+                "and password configured for this source match what the proxy expects, then "
+                "re-enable the sync."
+            ),
             "No primary key defined for table": None,
             "failed: timeout expired": None,
             # NOTE: "SSL connection has been closed unexpectedly" is intentionally NOT listed here.
@@ -238,18 +250,26 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             "No route to host": None,
             "password authentication failed connection": None,
             "connection timeout expired": None,
+            # TLS ALPN alert (RFC 7301 "no_application_protocol", alert 120) sent by the server
+            # during the TLS handshake. libpq (Postgres 17+) offers the "postgresql" ALPN protocol;
+            # an endpoint that negotiates ALPN but doesn't accept it rejects the handshake outright.
+            # In practice this means the configured host/port isn't a PostgreSQL server speaking TLS
+            # — it's an HTTP/proxy/edge endpoint, or simply the wrong port — so retrying re-runs into
+            # the same rejection. The raw psycopg message ("... SSL error: tlsv1 alert no application
+            # protocol") only matches when require_ssl=False leaves it unwrapped; with require_ssl=True
+            # it's surfaced as SSLRequiredError below instead. Match the stable alert text and exclude
+            # the volatile host/port so the condition is caught on both paths. Placed before the
+            # generic SSL entries so its accurate message wins if both happen to match.
+            "no application protocol": (
+                "PostHog couldn't complete a TLS handshake with the host and port you configured — "
+                'the server rejected the connection during TLS negotiation ("no application '
+                "protocol\"). This usually means the host and port don't point at a PostgreSQL server "
+                "speaking TLS (for example an HTTP, proxy, or edge endpoint, or the wrong port). "
+                "Check your host and port, then re-enable the sync."
+            ),
             "SSLRequiredError": None,
             "SSL/TLS connection is required": None,
             "Could not establish session to SSH gateway": None,
-            # Surfaced by a connection pooler (e.g. PgBouncer) as a psycopg ProtocolViolation when
-            # the pooler has *repeatedly* failed to log in to the backend database within its
-            # server_login_retry window (full message: "server login has been failing, cached
-            # error: <reason> (server_login_retry)"). By the time this is returned the backend is in
-            # a sustained failure state — unreachable, refusing connections, or rejecting the
-            # pooler's credentials — so it is not a one-off transient blip; retrying the whole sync
-            # just hits the same wall. Matches the stable pooler signature; the cached <reason>
-            # ("connect timeout", etc.) and the trailing "(server_login_retry)" suffix vary and are
-            # excluded.
             "server login has been failing": (
                 "Your database's connection pooler (for example PgBouncer) reported that it has "
                 'repeatedly failed to connect to the backend database ("server login has been '
@@ -257,16 +277,17 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "the pooler's credentials for the database are wrong. Check that the database is "
                 "running and reachable from your pooler, then re-enable the sync."
             ),
-            # `offset_chunking` retries a Postgres standby recovery conflict ("canceling statement
-            # due to conflict with recovery") 30 times in-process with backoff + chunk-size
-            # reduction before raising this. The conflict comes from the customer's read replica
-            # applying WAL that removes row versions our long-running read still needs
-            # (max_standby_streaming_delay exceeded). Once those in-process retries are exhausted the
-            # condition is sustained, not a transient blip — retrying the whole activity just
-            # re-reads from offset 0 into the same wall, so stop and surface an actionable message.
-            # Matched substring excludes the volatile retry count and is distinct from the
-            # connection-dropped abort ("successive connection-dropped errors"), which stays retryable.
-            "successive SerializationFailure errors. Aborting.": (
+            "exceeded the compute time quota": (
+                "Your database provider has suspended the database because the account or project "
+                'exceeded its compute-time quota ("exceeded the compute time quota"). PostHog can\'t '
+                "connect until the database is available again. Upgrade your provider's plan or wait "
+                "for the quota to reset, then re-enable the sync."
+            ),
+            # A single recovery conflict ("conflict with recovery") is transient and retried in-process,
+            # so it stays retryable. This abort is only raised once those retries are exhausted — by then
+            # the condition is sustained and a whole-activity retry just re-reads from offset 0 into the
+            # same wall, so it's non-retryable. Substring excludes the volatile retry count.
+            "kept canceling reads due to conflict with recovery": (
                 "PostHog repeatedly hit Postgres recovery conflicts while reading from your read replica "
                 '("canceling statement due to conflict with recovery"). This happens when the replica must '
                 "apply changes from the primary that remove rows the sync is still reading. Increase "
@@ -703,10 +724,10 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             require_ssl=require_ssl,
             is_initial_sync=not schema.initial_sync_complete,
             enabled_columns=inputs.enabled_columns,
+            row_filters=inputs.row_filters,
         )
         # `SourceResponse.name` must match `DataWarehouseTable.url_pattern` (both derived from the
         # storage key when present, otherwise the row name) so HogQL reads from where we wrote.
-        storage_key = (schema.sync_type_config or {}).get("dwh_storage_key")
-        storage_schema_name = storage_key if isinstance(storage_key, str) and storage_key else inputs.schema_name
+        storage_schema_name = schema.resolved_s3_folder_name or inputs.schema_name
         response.name = NamingConvention.normalize_identifier(storage_schema_name)
         return response

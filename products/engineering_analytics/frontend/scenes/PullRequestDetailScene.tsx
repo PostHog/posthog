@@ -14,8 +14,9 @@ import {
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
-import { capitalizeFirstLetter, humanFriendlyDuration, pluralize } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
+import { humanFriendlyDuration } from 'lib/utils/durations'
+import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -29,10 +30,11 @@ import { PullRequestDetailLogicProps, pullRequestDetailLogic } from './pullReque
 export const scene: SceneExport<PullRequestDetailLogicProps> = {
     component: PullRequestDetailScene,
     logic: pullRequestDetailLogic,
-    paramsToProps: ({ params: { repoOwner, repoName, number } }) => ({
+    paramsToProps: ({ params: { repoOwner, repoName, number }, searchParams: { source } }) => ({
         repoOwner: decodeURIComponent(repoOwner),
         repoName: decodeURIComponent(repoName),
         number: parseInt(number, 10),
+        sourceId: source ?? null,
     }),
 }
 

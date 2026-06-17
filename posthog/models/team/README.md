@@ -2,6 +2,12 @@
 
 This directory contains the core `Team` model and its extension models.
 
+## Why this matters: availability, not just hygiene
+
+`posthog_team` is read on virtually every request, so any `ALTER TABLE` on it — even adding a nullable column, which is metadata-only — needs an `ACCESS EXCLUSIVE` lock and can stall site-wide traffic while it waits in the lock queue behind in-flight queries. This has caused production 5xx incidents. An extension model only does a `CREATE TABLE`, which takes no lock on `posthog_team` at all.
+
+The migration analyzer (`HotTableAlterPolicy`) blocks unacknowledged DDL on `posthog_team` in CI; fields that genuinely belong on `Team` need an entry in `posthog/management/migration_analysis/hot_table_acknowledged_migrations.txt`. See the [Altering Hot Tables](../../../docs/published/handbook/engineering/safe-django-migrations.md#altering-hot-tables) guide.
+
 ## When to add fields to Team vs create an extension
 
 **Add to Team directly** when the field is:

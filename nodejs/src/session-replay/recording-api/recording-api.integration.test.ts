@@ -66,6 +66,16 @@ const KEYS_TABLE_NAME = 'session-recording-keys'
 const KMS_KEY_ALIAS = 'alias/session-replay-master-key'
 const shouldRunLocalstackTests = process.env.LOCALSTACK_DISABLED !== '1'
 
+const isResourceNotFoundException = (error: unknown): boolean => {
+    return (
+        error instanceof ResourceNotFoundException ||
+        (typeof error === 'object' &&
+            error !== null &&
+            'name' in error &&
+            (error as { name?: unknown }).name === 'ResourceNotFoundException')
+    )
+}
+
 // Helper functions shared across all tests
 const createBlockData = async (events: unknown[]): Promise<Buffer> => {
     const jsonlContent = events.map((event) => JSON.stringify(['window1', event])).join('\n')
@@ -482,13 +492,10 @@ describe('Recording API encryption integration', () => {
 
         async function setupDynamoDBTable(): Promise<void> {
             try {
-                await dynamoDBClient.send(new DescribeTableCommand({ TableName: KEYS_TABLE_NAME }))
                 await dynamoDBClient.send(new DeleteTableCommand({ TableName: KEYS_TABLE_NAME }))
                 await waitForTableDeletion()
-            } catch (error) {
-                if (!(error instanceof ResourceNotFoundException)) {
-                    throw error
-                }
+            } catch {
+                // Best-effort cleanup: table absence and Localstack's modeled errors vary in CI.
             }
 
             await dynamoDBClient.send(
@@ -529,7 +536,7 @@ describe('Recording API encryption integration', () => {
                 try {
                     await dynamoDBClient.send(new DescribeTableCommand({ TableName: KEYS_TABLE_NAME }))
                 } catch (error) {
-                    if (error instanceof ResourceNotFoundException) {
+                    if (isResourceNotFoundException(error)) {
                         return
                     }
                 }

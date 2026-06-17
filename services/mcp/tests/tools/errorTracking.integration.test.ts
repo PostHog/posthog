@@ -384,6 +384,82 @@ describe('Error Tracking', { concurrent: false }, () => {
         })
     })
 
+    describe('settings tools', () => {
+        const settingsGetTool = GENERATED_TOOLS['error-tracking-settings-get']!()
+        const settingsUpdateTool = GENERATED_TOOLS['error-tracking-settings-update']!()
+
+        type ErrorTrackingSettingsResult = {
+            project_rate_limit_value?: number | null
+            project_rate_limit_bucket_size_minutes?: number | null
+            per_issue_rate_limit_value?: number | null
+            per_issue_rate_limit_bucket_size_minutes?: number | null
+        }
+
+        // Settings are a single per-team row, so snapshot the originals and restore them after each test
+        // to keep the shared project's rate limits untouched.
+        let originalSettings: ErrorTrackingSettingsResult
+
+        beforeAll(async () => {
+            originalSettings = (await settingsGetTool.handler(context, {})) as ErrorTrackingSettingsResult
+        })
+
+        afterEach(async () => {
+            await settingsUpdateTool.handler(context, {
+                project_rate_limit_value: originalSettings.project_rate_limit_value ?? null,
+                project_rate_limit_bucket_size_minutes: originalSettings.project_rate_limit_bucket_size_minutes ?? null,
+                per_issue_rate_limit_value: originalSettings.per_issue_rate_limit_value ?? null,
+                per_issue_rate_limit_bucket_size_minutes:
+                    originalSettings.per_issue_rate_limit_bucket_size_minutes ?? null,
+            })
+        })
+
+        it('should get the current settings', async () => {
+            const result = (await settingsGetTool.handler(context, {})) as ErrorTrackingSettingsResult
+
+            expect(result).toBeTruthy()
+            expect('project_rate_limit_value' in result).toBe(true)
+            expect('per_issue_rate_limit_value' in result).toBe(true)
+        })
+
+        it('should update the project and per-issue rate limits', async () => {
+            const result = (await settingsUpdateTool.handler(context, {
+                project_rate_limit_value: 5000,
+                project_rate_limit_bucket_size_minutes: 60,
+                per_issue_rate_limit_value: 100,
+                per_issue_rate_limit_bucket_size_minutes: 15,
+            })) as ErrorTrackingSettingsResult
+
+            expect(result.project_rate_limit_value).toBe(5000)
+            expect(result.project_rate_limit_bucket_size_minutes).toBe(60)
+            expect(result.per_issue_rate_limit_value).toBe(100)
+            expect(result.per_issue_rate_limit_bucket_size_minutes).toBe(15)
+        })
+
+        it('should clear a rate limit when set to null', async () => {
+            await settingsUpdateTool.handler(context, { project_rate_limit_value: 1000 })
+
+            const result = (await settingsUpdateTool.handler(context, {
+                project_rate_limit_value: null,
+            })) as ErrorTrackingSettingsResult
+
+            expect(result.project_rate_limit_value).toBeNull()
+        })
+
+        it('should only update the fields provided', async () => {
+            await settingsUpdateTool.handler(context, {
+                project_rate_limit_value: 2000,
+                per_issue_rate_limit_value: 50,
+            })
+
+            const result = (await settingsUpdateTool.handler(context, {
+                per_issue_rate_limit_value: 75,
+            })) as ErrorTrackingSettingsResult
+
+            expect(result.per_issue_rate_limit_value).toBe(75)
+            expect(result.project_rate_limit_value).toBe(2000)
+        })
+    })
+
     describe('symbol-sets list tool', () => {
         const symbolSetsListTool = GENERATED_TOOLS['error-tracking-symbol-sets-list']!()
 
