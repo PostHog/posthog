@@ -44,7 +44,8 @@ export interface ReferenceLineProps {
     yAxisId?: string
     /** Chart axis orientation. When `'horizontal'`, a `'horizontal'`-orientation reference
      *  line at a numeric value is drawn as a vertical stripe at `scales.y(value)` — matching
-     *  the value axis of horizontal bar charts. Defaults to `'vertical'`. */
+     *  the value axis of horizontal bar charts. Defaults to the chart's own axis orientation
+     *  (from context), so it's correct without the caller having to thread it through. */
     axisOrientation?: ReferenceLineOrientation
 }
 
@@ -90,7 +91,8 @@ export function ReferenceLines({ lines }: { lines: ReferenceLineProps[] }): Reac
  *  type narrowing, scale lookup, and bounds check, then hands pre-computed styles to
  *  {@link ReferenceLineView}. */
 export function ReferenceLine(props: ReferenceLineProps): React.ReactElement | null {
-    const { orientation = 'horizontal', variant = 'goal', style, axisOrientation = 'vertical' } = props
+    const { axis } = useChartLayout()
+    const { orientation = 'horizontal', variant = 'goal', style, axisOrientation = axis.orientation } = props
     const resolved = useMemo(
         () => resolveStyle(variant, style),
         // eslint-disable-next-line react-hooks/exhaustive-deps

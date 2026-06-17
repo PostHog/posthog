@@ -33,6 +33,7 @@ export const TableDisplay = ({ disabledReason }: TableDisplayProps): JSX.Element
         [ChartDisplayType.CalendarHeatmap]: 'Calendar heatmap',
         [ChartDisplayType.TwoDimensionalHeatmap]: '2d heatmap',
         [ChartDisplayType.BoxPlot]: 'Box plot',
+        [ChartDisplayType.SlopeGraph]: 'Slope graph',
     }
 
     const renderDisplayTypeLabel = (displayType: ChartDisplayType): string => {

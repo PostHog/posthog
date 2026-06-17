@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -48,6 +49,7 @@ class CoupaSource(ResumableSource[CoupaSourceConfig, CoupaResumeConfig], Validat
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.COUPA,
+            category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Coupa",
             caption="""Connect your Coupa instance to pull your spend management data into the PostHog Data warehouse.
 

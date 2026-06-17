@@ -54,6 +54,7 @@ const businessKnowledgeDocumentsSearch = (): ToolBase<
             query: {
                 limit: params.limit,
                 query: params.query,
+                rerank: params.rerank,
             },
         })
         return result

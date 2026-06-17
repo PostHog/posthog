@@ -18,10 +18,10 @@ import {
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconQuestionAnswer, IconRobot } from 'lib/lemon-ui/icons'
+import { isObject } from 'lib/utils/guards'
 import { Scene } from 'scenes/sceneTypes'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
-import { isObject } from '~/lib/utils'
 import {
     AgentMode,
     AssistantTool,
@@ -80,6 +80,11 @@ export interface ToolDefinition<N extends string = string> {
     alpha?: boolean
     /** Agent modes this tool is available in (defined in backend presets) */
     modes?: AgentMode[]
+    /**
+     * Set for tools using ToolRegistration.clientExecution, so a pending call is resumed with
+     * a refusal (instead of stranded) after the owning view deregistered the handler.
+     */
+    clientExecuted?: boolean
 }
 
 /** Active instance of a tool. */
@@ -117,6 +122,13 @@ export interface ToolRegistration extends Pick<ToolDefinition, 'name' | 'descrip
     suggestions?: string[]
     /** The callback function that will be executed with the LLM's tool call output */
     callback?: (toolOutput: any, conversationId: string) => void | Promise<void>
+    /**
+     * Optional: executes part of the tool client-side. Runs with the tool call's arguments when
+     * the backend pauses via `MaxTool.request_client_execution()`; the returned result resumes
+     * the conversation and becomes that call's return value. Keep results small (verdicts, ids):
+     * they ride a Temporal resume payload capped at ~2MiB.
+     */
+    clientExecution?: (args: Record<string, any>) => Promise<Record<string, unknown>>
 }
 
 export interface RecordingsWidgetDef {
@@ -764,6 +776,18 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
                 return 'Drafted scanner prompt'
             }
             return 'Drafting scanner prompt...'
+        },
+    },
+    search_replay_vision_observations: {
+        name: 'Search observations',
+        description: "Search observations by the meaning of a Replay Vision scanner's model reasoning",
+        icon: iconForType('session_replay'),
+        modes: [AgentMode.SessionReplay],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Searched observations'
+            }
+            return 'Searching observations...'
         },
     },
     create_survey: {

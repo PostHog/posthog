@@ -1,5 +1,7 @@
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
+import { MessageRejected, SendingPausedException, TooManyRequestsException } from '@aws-sdk/client-sesv2'
+
 import { createExampleInvocation, insertIntegration } from '~/cdp/_tests/fixtures'
 import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
 import { CyclotronInvocationQueueParametersEmailType } from '~/schema/cyclotron'
@@ -10,6 +12,13 @@ import { closeHub, createHub } from '~/utils/db/hub'
 import { Hub, Team } from '../../../types'
 import { EmailService, parseAddressList, sanitizeEmailSubject } from './email.service'
 import { MailDevAPI } from './helpers/maildev'
+
+class ThrottlingException extends Error {
+    constructor(message: string) {
+        super(message)
+        this.name = 'ThrottlingException'
+    }
+}
 
 describe('sanitizeEmailSubject', () => {
     it.each([
@@ -245,6 +254,73 @@ describe('EmailService', () => {
                 })
             })
         })
+        describe('SES throttle handling', () => {
+            // SES throttle responses become reschedule-with-backoff rather than
+            // permanent failures. The local Valkey bucket already gates dequeue;
+            // this path is the safety net for when SES disagrees with our estimate.
+            // Retryable: TooManyRequestsException (SES v2's rate-limit class) and
+            // ThrottlingException (generic AWS SDK throttle name surfaced from
+            // the transport layer). SendingPausedException is *not* retryable —
+            // it signals a reputation/account-state issue that needs operator
+            // attention, not a 500ms reschedule.
+            const throttleCases: Array<[string, () => Error]> = [
+                [
+                    'TooManyRequestsException',
+                    () => new TooManyRequestsException({ $metadata: {}, message: 'Too many requests' }),
+                ],
+                ['ThrottlingException', () => new ThrottlingException('Rate exceeded')],
+            ]
+            it.each(throttleCases)('reschedules instead of failing when SES returns %s', async (_name, makeError) => {
+                sendEmailSpy.mockRejectedValueOnce(makeError())
+
+                const before = Date.now()
+                const result = await service.executeSendEmail(invocation)
+
+                expect(result.error).toBeUndefined()
+                expect(result.finished).toBe(false)
+                expect(result.invocation.queueScheduledAt).toBeDefined()
+                const scheduledMs = result.invocation.queueScheduledAt!.toMillis()
+                // Jittered 500–1000ms retry: must land in the future but never further
+                // than the upper bound + scheduler overhead.
+                expect(scheduledMs).toBeGreaterThanOrEqual(before + 400)
+                expect(scheduledMs).toBeLessThan(before + 2000)
+                // No business metric emitted on throttle — the eventual retry
+                // will produce email_sent.
+                expect(result.metrics ?? []).toEqual([])
+            })
+
+            it('hard-fails (not retry) when SES returns SendingPausedException', async () => {
+                // Reputation/account-state pause won't recover in 500ms; retrying
+                // just burns reschedules. Hard-fail so the failure surfaces via
+                // email_failed and an operator can investigate.
+                sendEmailSpy.mockRejectedValueOnce(
+                    new SendingPausedException({ $metadata: {}, message: 'Sending paused' })
+                )
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(result.finished).toBe(true)
+                expect(result.error).toMatch(/Failed to send email via SES: Sending paused/)
+                expect(result.metrics).toEqual(
+                    expect.arrayContaining([expect.objectContaining({ metric_name: 'email_failed' })])
+                )
+            })
+
+            it('still fails the job for non-throttle SES errors', async () => {
+                sendEmailSpy.mockRejectedValueOnce(
+                    new MessageRejected({ $metadata: {}, message: 'something else broke' })
+                )
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(result.finished).toBe(true)
+                expect(result.error).toMatch(/Failed to send email via SES: something else broke/)
+                // Business metric should record the failure.
+                expect(result.metrics).toEqual(
+                    expect.arrayContaining([expect.objectContaining({ metric_name: 'email_failed' })])
+                )
+            })
+        })
     })
     describe('native email sending with maildev', () => {
         let invocation: CyclotronJobInvocationHogFunction
@@ -295,8 +371,10 @@ describe('EmailService', () => {
             await waitForExpect(async () => expect(mailDevAPI.getEmails()).resolves.toHaveLength(1))
             const emails = await mailDevAPI.getEmails()
             expect(emails).toHaveLength(1)
-            expect(emails[0].html).toEqual(
-                `<body>Hi! <a href="http://localhost:8010/public/m/redirect?ph_id=ZnVuY3Rpb24tMTppbnZvY2F0aW9uLTE6Mjo6&target=https%3A%2F%2Fexample.com">Click me</a><img src="http://localhost:8010/public/m/pixel?ph_id=ZnVuY3Rpb24tMTppbnZvY2F0aW9uLTE6Mjo6" style="display: none;" /></body>`
+            // ph_id may be unsigned (base64url only) or signed (base64url + `.` + signature) depending on
+            // ENCRYPTION_SALT_KEYS. Match the structure, not the exact value.
+            expect(emails[0].html).toMatch(
+                /^<body>Hi! <a href="http:\/\/localhost:8010\/public\/m\/redirect\?ph_id=[A-Za-z0-9._-]+&target=https%3A%2F%2Fexample\.com">Click me<\/a><img src="http:\/\/localhost:8010\/public\/m\/pixel\?ph_id=[A-Za-z0-9._-]+" style="display: none;" \/><\/body>$/
             )
         })
     })
@@ -345,42 +423,33 @@ describe('EmailService', () => {
             expect(result.error).toBeUndefined()
             expect(sendEmailSpy).toHaveBeenCalledTimes(1)
             const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-            expect(sentCommand.input).toMatchInlineSnapshot(`
-                {
-                  "ConfigurationSetName": "posthog-messaging",
-                  "Content": {
-                    "Simple": {
-                      "Body": {
-                        "Html": {
-                          "Charset": "UTF-8",
-                          "Data": "Test HTML",
+            // The SES tag carries the short unsigned code (no dot); the signed code rides in the header.
+            expect(sentCommand.input).toMatchObject({
+                ConfigurationSetName: 'posthog-messaging',
+                Content: {
+                    Simple: {
+                        Body: {
+                            Html: { Charset: 'UTF-8', Data: 'Test HTML' },
+                            Text: { Charset: 'UTF-8', Data: 'Test Text' },
                         },
-                        "Text": {
-                          "Charset": "UTF-8",
-                          "Data": "Test Text",
-                        },
-                      },
-                      "Subject": {
-                        "Charset": "UTF-8",
-                        "Data": "Test Subject",
-                      },
+                        Subject: { Charset: 'UTF-8', Data: 'Test Subject' },
                     },
-                  },
-                  "Destination": {
-                    "ToAddresses": [
-                      "\"Test User\" <test@example.com>",
-                    ],
-                  },
-                  "EmailTags": [
-                    {
-                      "Name": "ph_id",
-                      "Value": "ZnVuY3Rpb24tMTppbnZvY2F0aW9uLTE6Mjo6",
-                    },
-                  ],
-                  "FeedbackForwardingEmailAddress": "test@posthog-test.com",
-                  "FromEmailAddress": "\"Test User\" <test@posthog-test.com>",
-                }
-            `)
+                },
+                Destination: { ToAddresses: ['"Test User" <test@example.com>'] },
+                EmailTags: [{ Name: 'ph_id', Value: expect.stringMatching(/^[A-Za-z0-9_-]+$/) }],
+                FeedbackForwardingEmailAddress: 'test@posthog-test.com',
+                FromEmailAddress: '"Test User" <test@posthog-test.com>',
+            })
+        })
+
+        it('records a send-time metric for normal sends but not for test sends', async () => {
+            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+
+            const normal = await service.executeSendEmail(invocation)
+            expect(normal.metrics.map((m) => m.metric_name)).toContain('email_sent')
+
+            const testSend = await service.executeSendEmail(invocation, true)
+            expect(testSend.metrics).toEqual([])
         })
 
         it('should include cc addresses in SES destination', async () => {
@@ -532,13 +601,30 @@ describe('EmailService', () => {
             )
         })
 
-        it('should not include unsubscribe headers for transactional emails', async () => {
+        it('should not include unsubscribe headers for transactional emails (but tracking-code header is still set)', async () => {
             sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
             invocation.hogFunction.metadata = { message_category_type: 'transactional' }
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toBeUndefined()
             const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-            expect(sentCommand.input.Content.Simple.Headers).toBeUndefined()
+            const headerNames = (sentCommand.input.Content.Simple.Headers ?? []).map((h: { Name: string }) => h.Name)
+            expect(headerNames).not.toContain('List-Unsubscribe')
+            expect(headerNames).not.toContain('List-Unsubscribe-Post')
+            expect(headerNames).toContain('X-PostHog-Tracking-Code')
+        })
+
+        it('attaches the X-PostHog-Tracking-Code header carrying the full signed code', async () => {
+            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+            invocation.hogFunction.metadata = { message_category_type: 'transactional' }
+            const result = await service.executeSendEmail(invocation)
+            expect(result.error).toBeUndefined()
+            const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
+            const trackingHeader = sentCommand.input.Content.Simple.Headers.find(
+                (h: { Name: string }) => h.Name === 'X-PostHog-Tracking-Code'
+            )
+            expect(trackingHeader).toBeDefined()
+            // The SES tag carries a different (shorter, unsigned) code so it stays under the 256-char cap.
+            expect(sentCommand.input.EmailTags[0].Value).not.toEqual(trackingHeader.Value)
         })
 
         it('should report a missing message id', async () => {

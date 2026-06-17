@@ -78,7 +78,7 @@ async def _run_sampler_with_mock_activity(
     """Run AIObservabilityEvaluationSamplerWorkflow end-to-end with the sample activity mocked out.
 
     Returns the SamplerActivityInputs that the workflow dispatched, so callers can assert
-    against the derived window, run_ts, and forwarded fields without touching ClickHouse.
+    against the derived window and forwarded fields without touching ClickHouse.
     """
     captured: dict[str, SamplerActivityInputs] = {}
 
@@ -125,20 +125,18 @@ class TestSamplerWorkflowWindowMath:
             window_end   = workflow.now() - SAMPLER_WINDOW_OFFSET_MINUTES
             window_start = window_end     - SAMPLER_WINDOW_MINUTES
 
-        Pins on workflow.run_ts (stamped from the same workflow.now() call) so the
-        assertion is independent of wall-clock time, and asserts against the offset
-        and window constants directly so a future accidental swap is caught.
+        Asserts the derived window spans exactly SAMPLER_WINDOW_MINUTES; the absolute offset
+        from workflow.now() is pinned separately by TestWindowMathFormula. (Independent of
+        wall-clock because it only checks the span between the two derived bounds.)
         """
         inputs = SamplerWorkflowInputs(team_id=7, job_id="j-derived", job_name="derived window")
 
         activity_inputs = await _run_sampler_with_mock_activity(inputs)
 
-        run_ts = _parse_z(activity_inputs.run_ts)
         window_end = _parse_z(activity_inputs.window_end)
         window_start = _parse_z(activity_inputs.window_start)
 
-        assert window_end == run_ts - timedelta(minutes=SAMPLER_WINDOW_OFFSET_MINUTES)
-        assert window_start == window_end - timedelta(minutes=SAMPLER_WINDOW_MINUTES)
+        assert window_end - window_start == timedelta(minutes=SAMPLER_WINDOW_MINUTES)
 
     @pytest.mark.asyncio
     async def test_honours_explicit_window_override(self):
