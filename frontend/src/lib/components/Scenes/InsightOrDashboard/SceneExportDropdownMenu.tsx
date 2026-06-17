@@ -1,3 +1,5 @@
+import { useActions } from 'kea'
+
 import { IconDownload } from '@posthog/icons'
 
 import { ButtonPrimitive, DisabledReasonsObject } from 'lib/ui/Button/ButtonPrimitives'
@@ -32,10 +34,10 @@ export function SceneExportDropdownMenu({
     dropdownMenuItems,
     disabledReasons,
 }: SceneExportDropdownMenuProps): JSX.Element | null {
-    const { actions } = exportsLogic
+    const { startExport } = useActions(exportsLogic)
 
     const onExportClick = async (triggerExportProps: TriggerExportProps): Promise<void> => {
-        actions.startExport(triggerExportProps)
+        startExport(triggerExportProps)
     }
 
     const isDisabled = disabledReasons ? Object.values(disabledReasons).some(Boolean) : false

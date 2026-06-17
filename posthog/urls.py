@@ -32,6 +32,7 @@ from posthog.api import (
 from posthog.api.github_callback.personal_finish import github_link_complete
 from posthog.api.id_jag import IdJagViewSet
 from posthog.api.oauth.connected_apps import ConnectedAppsViewSet
+from posthog.api.oauth.raycast_metadata import RAYCAST_METADATA_PATH, RaycastClientMetadataView
 from posthog.api.oauth.wizard_metadata import WIZARD_METADATA_PATH, WizardClientMetadataView
 from posthog.api.query import progress
 from posthog.api.sdk_health import sdk_health
@@ -134,6 +135,11 @@ def github_webhook(request: HttpRequest) -> HttpResponse:
         from products.tasks.backend.webhooks import handle_pull_request_event
 
         return handle_pull_request_event(payload)
+
+    if event_type == "installation":
+        from posthog.api.github_callback.installation_events import handle_installation_event
+
+        return handle_installation_event(payload)
 
     return HttpResponse(status=200)
 
@@ -273,12 +279,21 @@ urlpatterns = [
     ),
     path("api/sdk_health/", sdk_health),
     path("api/conversations/", include("products.conversations.backend.api.urls")),
+    path("api/customer_analytics/", include("products.customer_analytics.backend.api.urls")),
     path(
         "api/environments/<int:parent_lookup_team_id>/mcp_analytics/",
         include("products.mcp_analytics.backend.presentation.urls"),
     ),
     path(
+        "api/projects/<int:parent_lookup_team_id>/mcp_analytics/",
+        include("products.mcp_analytics.backend.presentation.urls"),
+    ),
+    path(
         "api/environments/<int:parent_lookup_team_id>/property_access_controls/",
+        include("products.access_control.backend.presentation.urls"),
+    ),
+    path(
+        "api/projects/<int:parent_lookup_team_id>/property_access_controls/",
         include("products.access_control.backend.presentation.urls"),
     ),
     opt_slash_path("api/support/ensure-zendesk-organization", csrf_exempt(ensure_zendesk_organization)),
@@ -354,6 +369,11 @@ urlpatterns = [
         WIZARD_METADATA_PATH,
         WizardClientMetadataView.as_view(),
         name="wizard-client-metadata",
+    ),
+    path(
+        RAYCAST_METADATA_PATH,
+        RaycastClientMetadataView.as_view(),
+        name="raycast-client-metadata",
     ),
     re_path(r"^api.+", api_not_found),
     path("authorize_and_redirect/", login_required(authorize_and_redirect)),
@@ -487,6 +507,9 @@ frontend_unauthenticated_routes = [
     "unsubscribe",
     "verify_email",
     r"agentic/account-mismatch",
+    # OAuth redirect target when logging the local frontend into a remote cloud region;
+    # the SPA handles the code→token exchange client-side, so it must load without auth.
+    r"^oauth/callback",
 ]
 for route in frontend_unauthenticated_routes:
     urlpatterns.append(re_path(route, home))

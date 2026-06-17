@@ -6,6 +6,7 @@ import structlog
 from prometheus_client import Counter
 from requests import Response
 from requests.adapters import HTTPAdapter, Retry
+from requests.exceptions import RequestException
 
 from posthog.logging.timing import timed
 from posthog.security.outbound_proxy import internal_requests_session
@@ -30,6 +31,11 @@ CAPTURE_INTERNAL_EVENT_SUBMITTED_COUNTER = Counter(
     "capture_internal_event_submitted",
     "Events received by capture_internal, tagged by source.",
     labelnames=["event_source"],  # which internal codepath submitted this event
+)
+CAPTURE_INTERNAL_REQUEST_FAILED = Counter(
+    "capture_internal_request_failed",
+    "Failures from legacy capture_internal, tagged by source and status.",
+    labelnames=["event_source", "status_code"],
 )
 
 
@@ -112,11 +118,20 @@ def capture_internal(
         )
 
         CAPTURE_INTERNAL_EVENT_SUBMITTED_COUNTER.labels(event_source=event_source).inc()
-        return s.post(
-            resolved_capture_url,
-            json=event_payload,
-            timeout=2,
-        )
+        try:
+            resp = s.post(
+                resolved_capture_url,
+                json=event_payload,
+                timeout=2,
+            )
+        except RequestException:
+            CAPTURE_INTERNAL_REQUEST_FAILED.labels(event_source=event_source, status_code="transport").inc()
+            raise
+
+        if resp.status_code >= 400:
+            CAPTURE_INTERNAL_REQUEST_FAILED.labels(event_source=event_source, status_code=str(resp.status_code)).inc()
+
+        return resp
 
 
 def capture_batch_internal(

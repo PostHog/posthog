@@ -3,6 +3,7 @@ from typing import Optional, cast
 from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
@@ -48,7 +49,30 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # hostname is wrong), not a momentary blip, so retrying the job won't recover it.
             "Adaptive Server is unavailable or does not exist": "Could not reach your SQL Server. Check that the server is running and reachable, and that PostHog's IP addresses are allowed through its firewall / security group.",
             "Login failed for user": None,
+            # SQL Server error 229 — the login PostHog connects with was authenticated but lacks
+            # SELECT permission on a table/view being synced. This is a server-side GRANT the
+            # customer has to make (db_datareader or an explicit GRANT SELECT); retrying with the
+            # same login can never succeed. Match the stable message text, not the object/database
+            # names that follow it.
+            "The SELECT permission was denied on the object": "Your SQL Server login doesn't have permission to read one of the tables or views being synced. Grant it SELECT access (for example via the db_datareader role or an explicit GRANT SELECT) on the objects you want to import, then re-enable the sync.",
+            # SQL Server error 208 — the SELECT we run during the sync references an object the
+            # server can't resolve. Either the table/view we're syncing was dropped or renamed
+            # after schema discovery, or (as seen in practice) the view we select from has a body
+            # that references another object the login can't reach (a cross-database table, or one
+            # the login lost permission to). Our query is built from validated identifiers
+            # discovered via information_schema, so this is the customer's schema/permissions, not
+            # a momentary blip — retrying replays the identical 208. Match the stable error text,
+            # not the volatile object name / procedure / line number in the rest of the message.
+            "Invalid object name": "One of the tables or views you're syncing references a database object that no longer exists or that this login can't access (SQL Server error 208). Check that the object still exists and that the connection user has permission to read it (including any tables a view depends on), then re-sync.",
             "Cannot find the CREDENTIAL": "Cannot find the credential - check that it exists and you have permission to access it",
+            # Raised by the `sshtunnel` library (via the shared `open_ssh_tunnel` helper) when the
+            # SSH tunnel can't be brought up — the bastion host is unreachable, the host/port is
+            # wrong, the SSH key/credentials are rejected, or a firewall blocks PostHog's IPs. This
+            # is the customer's gateway configuration, not a momentary blip; the import retried it
+            # across attempts and never recovered. `handle_non_retryable_error` still re-tries a few
+            # times across runs before giving up, so a genuinely transient gateway reboot is
+            # absorbed. Postgres already treats this identical error as non-retryable.
+            "Could not establish session to SSH gateway": "Could not connect to your SSH tunnel. Check that the SSH host, port, and credentials are correct, the bastion host is running and reachable, and that PostHog's IP addresses are allowed through its firewall.",
             # Raised from the shared `_decimal_array_from_values` fallback in
             # `pipelines/pipeline/utils.py` when a numeric/decimal/money value exceeds Delta
             # Lake's decimal budget (precision > 76 or scale > 32). Fixed source-data shape —
@@ -66,10 +90,12 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.MSSQL,
+            category=DataWarehouseSourceCategory.DATABASES,
+            keywords=["sql server"],
             label="Microsoft SQL Server",
             caption="Enter your Microsoft SQL Server/Azure SQL Server credentials to automatically pull your SQL data into the PostHog Data warehouse.",
             iconPath="/static/services/sql-azure.png",
-            docsUrl="https://posthog.com/docs/cdp/sources/azure-db",
+            docsUrl="https://posthog.com/docs/cdp/sources/microsoft-sql-server",
             fields=cast(
                 list[FieldType],
                 [
@@ -125,8 +151,8 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
                         name="schema",
                         label="Schema",
                         type=SourceFieldInputConfigType.TEXT,
-                        required=True,
-                        placeholder="dbo",
+                        required=False,
+                        placeholder="Leave blank to import all schemas",
                         secret=False,
                     ),
                     SourceFieldSSHTunnelConfig(name="ssh_tunnel", label="Use SSH tunnel?"),

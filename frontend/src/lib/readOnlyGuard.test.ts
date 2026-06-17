@@ -100,6 +100,9 @@ describe('readOnlyGuard', () => {
                 ['AI conversation queue clear', 'POST', '/api/environments/2/conversations/abc-123/queue/clear'],
                 ['AI conversation append message', 'POST', '/api/environments/2/conversations/abc-123/append_message'],
                 ['AI conversation cancel', 'PATCH', '/api/environments/2/conversations/abc-123/cancel/'],
+                ['session replay export create', 'POST', '/api/environments/2/exports/'],
+                ['session replay export create (projects)', 'POST', '/api/projects/2/exports/'],
+                ['export create with query string', 'POST', '/api/environments/2/exports/?export_format=video/mp4'],
             ] as const)('lets %s through (%s %s)', (_label, method, url) => {
                 const notifier = jest.fn()
                 setReadOnlyNotifier(notifier)
@@ -130,6 +133,8 @@ describe('readOnlyGuard', () => {
                     '/api/environments/2/conversations/tickets/',
                 ],
                 ['conversations-like prefix blocked', 'POST', '/api/environments/2/conversationsfoo/'],
+                ['export detail write blocked', 'DELETE', '/api/environments/2/exports/123/'],
+                ['exports-like prefix blocked', 'POST', '/api/environments/2/exportsfoo/'],
             ] as const)('still blocks %s (%s %s) — only allowlisted paths pass', (_l, method, url) => {
                 expect(() => assertNotReadOnly(method, url)).toThrow(ReadOnlyModeError)
             })

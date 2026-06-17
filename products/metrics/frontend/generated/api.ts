@@ -13,6 +13,8 @@ import type {
     AppMetricsTotalsResponseApi,
     MetricsHasMetricsRetrieve200,
     MetricsValuesRetrieveParams,
+    _MetricAnomalyReportApi,
+    _MetricAnomalyRequestApi,
     _MetricNamesResponseApi,
     _MetricQueryRequestApi,
     _MetricQueryResponseApi,
@@ -24,10 +26,10 @@ export const getEventFilterMetricsRetrieveUrl = (projectId: string) => {
 
 /**
  * Single event filter per team.
-GET  /event_filter/ — returns the config (or null if not yet created)
-POST /event_filter/ — creates or updates the config (upsert)
-GET  /event_filter/metrics/ — time-series metrics
-GET  /event_filter/metrics/totals/ — aggregate totals
+ * GET  /event_filter/ — returns the config (or null if not yet created)
+ * POST /event_filter/ — creates or updates the config (upsert)
+ * GET  /event_filter/metrics/ — time-series metrics
+ * GET  /event_filter/metrics/totals/ — aggregate totals
  */
 export const eventFilterMetricsRetrieve = async (
     projectId: string,
@@ -45,10 +47,10 @@ export const getEventFilterMetricsTotalsRetrieveUrl = (projectId: string) => {
 
 /**
  * Single event filter per team.
-GET  /event_filter/ — returns the config (or null if not yet created)
-POST /event_filter/ — creates or updates the config (upsert)
-GET  /event_filter/metrics/ — time-series metrics
-GET  /event_filter/metrics/totals/ — aggregate totals
+ * GET  /event_filter/ — returns the config (or null if not yet created)
+ * POST /event_filter/ — creates or updates the config (upsert)
+ * GET  /event_filter/metrics/ — time-series metrics
+ * GET  /event_filter/metrics/totals/ — aggregate totals
  */
 export const eventFilterMetricsTotalsRetrieve = async (
     projectId: string,
@@ -57,6 +59,27 @@ export const eventFilterMetricsTotalsRetrieve = async (
     return apiMutator<AppMetricsTotalsResponseApi>(getEventFilterMetricsTotalsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getMetricsCharacterizeCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/metrics/characterize/`
+}
+
+/**
+ * Characterize a metric anomaly: compare an anomaly window against a
+ * baseline, find the onset, and rank which label values moved.
+ */
+export const metricsCharacterizeCreate = async (
+    projectId: string,
+    _metricAnomalyRequestApi: _MetricAnomalyRequestApi,
+    options?: RequestInit
+): Promise<_MetricAnomalyReportApi> => {
+    return apiMutator<_MetricAnomalyReportApi>(getMetricsCharacterizeCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_metricAnomalyRequestApi),
     })
 }
 
@@ -96,7 +119,7 @@ export const getMetricsValuesRetrieveUrl = (projectId: string, params?: MetricsV
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 

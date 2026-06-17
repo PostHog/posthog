@@ -177,6 +177,22 @@ describe('KafkaConsumerV2', () => {
         await delay(2)
     }
 
+    // auto.offset.reset is a topic-level librdkafka property — a value only in the global config
+    // is ignored, so the override must be mirrored into the topic config (2nd ctor arg).
+    it.each([
+        [
+            'mirrors an auto.offset.reset override into the topic config',
+            { 'auto.offset.reset': 'latest' } as any,
+            'latest',
+        ],
+        ['defaults the topic-config auto.offset.reset to earliest with no override', undefined, 'earliest'],
+    ])('%s', (_label, overrides, expected) => {
+        const RdKafkaCtor = jest.mocked(RdKafkaConsumer)
+        new KafkaConsumerV2({ groupId: 'g', topic: 't' }, overrides)
+        const topicConfig = RdKafkaCtor.mock.calls.at(-1)![1] as any
+        expect(topicConfig['auto.offset.reset']).toBe(expected)
+    })
+
     it('Smoke: connect → consume → eachBatch → offsets stored', async () => {
         const eachBatch = jest.fn(() => Promise.resolve({}))
         await startConsuming(eachBatch)

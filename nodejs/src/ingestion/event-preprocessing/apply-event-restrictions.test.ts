@@ -3,7 +3,11 @@ import { EventHeaders } from '../../types'
 import { EventIngestionRestrictionManager, Restriction } from '../../utils/event-ingestion-restrictions'
 import { OVERFLOW_OUTPUT } from '../common/outputs'
 import { dlq, drop, ok, redirect } from '../pipelines/results'
-import { RoutingConfig, createApplyEventRestrictionsStep } from './apply-event-restrictions'
+import {
+    RoutingConfig,
+    createApplyBasicEventRestrictionsStep,
+    createApplyEventRestrictionsStep,
+} from './apply-event-restrictions'
 
 describe('createApplyEventRestrictionsStep', () => {
     let eventIngestionRestrictionManager: EventIngestionRestrictionManager
@@ -380,6 +384,179 @@ describe('createApplyEventRestrictionsStep', () => {
             const result = await step(input)
 
             expect(result).toEqual(dlq('restricted_to_dlq'))
+        })
+
+        it('returns ok when nothing matches', async () => {
+            const input = {
+                message: {} as any,
+                headers: createTestEventHeaders({
+                    token: 'token',
+                    distinct_id: 'user',
+                }),
+            }
+
+            const result = await step(input)
+
+            expect(result).toEqual(ok(input))
+        })
+    })
+
+    describe('edge cases', () => {
+        it('handles undefined headers', async () => {
+            const input = {
+                message: {} as any,
+                headers: {} as EventHeaders,
+            }
+
+            const result = await step(input)
+
+            expect(result).toEqual(ok(input))
+            expect(eventIngestionRestrictionManager.getAppliedRestrictions).toHaveBeenCalledWith(undefined, {})
+        })
+
+        it('handles empty headers', async () => {
+            const input = {
+                message: {} as any,
+                headers: createTestEventHeaders(),
+            }
+
+            const result = await step(input)
+
+            expect(result).toEqual(ok(input))
+        })
+    })
+})
+
+describe('createApplyBasicEventRestrictionsStep', () => {
+    let eventIngestionRestrictionManager: EventIngestionRestrictionManager
+    let step: ReturnType<typeof createApplyBasicEventRestrictionsStep>
+
+    beforeEach(() => {
+        eventIngestionRestrictionManager = {
+            getAppliedRestrictions: jest.fn().mockReturnValue(new Set()),
+        } as unknown as EventIngestionRestrictionManager
+
+        step = createApplyBasicEventRestrictionsStep(eventIngestionRestrictionManager)
+    })
+
+    describe('header passing', () => {
+        it('passes token and distinct_id correctly', async () => {
+            const input = {
+                message: {} as any,
+                headers: createTestEventHeaders({
+                    token: 'test-token',
+                    distinct_id: 'test-user',
+                }),
+            }
+
+            await step(input)
+
+            expect(eventIngestionRestrictionManager.getAppliedRestrictions).toHaveBeenCalledWith(
+                'test-token',
+                expect.objectContaining({ distinct_id: 'test-user' })
+            )
+        })
+
+        it('passes all headers correctly', async () => {
+            const input = {
+                message: {} as any,
+                headers: createTestEventHeaders({
+                    token: 'test-token',
+                    distinct_id: 'test-user',
+                    session_id: 'session-123',
+                    event: '$pageview',
+                    uuid: 'event-uuid-123',
+                }),
+            }
+
+            await step(input)
+
+            expect(eventIngestionRestrictionManager.getAppliedRestrictions).toHaveBeenCalledWith(
+                'test-token',
+                expect.objectContaining({
+                    distinct_id: 'test-user',
+                    session_id: 'session-123',
+                    event: '$pageview',
+                    uuid: 'event-uuid-123',
+                })
+            )
+        })
+    })
+
+    describe('drop events', () => {
+        it('returns drop when DROP_EVENT restriction is applied', async () => {
+            const input = {
+                message: {} as any,
+                headers: createTestEventHeaders({
+                    token: 'blocked-token',
+                    distinct_id: 'user-123',
+                }),
+            }
+            jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue(
+                new Set([Restriction.DROP_EVENT])
+            )
+
+            const result = await step(input)
+
+            expect(result).toEqual(drop('blocked_token'))
+        })
+    })
+
+    describe('DLQ redirect', () => {
+        it('returns dlq when REDIRECT_TO_DLQ restriction is applied', async () => {
+            const input = {
+                message: {} as any,
+                headers: createTestEventHeaders({
+                    token: 'dlq-token',
+                    distinct_id: 'user-123',
+                }),
+            }
+            jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue(
+                new Set([Restriction.REDIRECT_TO_DLQ])
+            )
+
+            const result = await step(input)
+
+            expect(result).toEqual(dlq('restricted_to_dlq'))
+        })
+    })
+
+    describe('overflow is not handled', () => {
+        it('returns ok when only FORCE_OVERFLOW restriction is applied', async () => {
+            const input = {
+                message: {} as any,
+                headers: createTestEventHeaders({
+                    token: 'overflow-token',
+                    distinct_id: 'user-123',
+                }),
+            }
+            jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue(
+                new Set([Restriction.FORCE_OVERFLOW])
+            )
+
+            const result = await step(input)
+
+            expect(result).toEqual(ok(input))
+        })
+    })
+
+    describe('priority ordering', () => {
+        it('drop takes priority over DLQ', async () => {
+            const input = {
+                message: {} as any,
+                headers: createTestEventHeaders({
+                    token: 'token',
+                    distinct_id: 'user',
+                }),
+            }
+
+            jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue(
+                new Set([Restriction.DROP_EVENT, Restriction.REDIRECT_TO_DLQ])
+            )
+
+            const result = await step(input)
+
+            expect(result).toEqual(drop('blocked_token'))
         })
 
         it('returns ok when nothing matches', async () => {

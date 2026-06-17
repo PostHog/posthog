@@ -11,7 +11,11 @@ import { RecipientManagerRecipient } from '../managers/recipients-manager.servic
 import { addTrackingToEmail } from './email-tracking.service'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { maybeAddPreheaderToEmail } from './helpers/preheader'
-import { generateEmailTrackingCode } from './helpers/tracking-code'
+import {
+    TRACKING_CODE_HEADER_NAME,
+    generateEmailTrackingCode,
+    generateShortEmailTrackingCode,
+} from './helpers/tracking-code'
 import { RecipientTokensService } from './recipient-tokens.service'
 
 export interface EmailServiceConfig {
@@ -63,9 +67,11 @@ export class EmailService {
         this.recipientTokensService = new RecipientTokensService(encryptionSaltKeys, siteUrl)
     }
 
-    // Send email
+    // Send email. `isTest` flags sends from the editor's "Run test" path so the tracking code
+    // embedded in the email tells the SES webhook to skip recording metrics for test traffic.
     public async executeSendEmail(
-        invocation: CyclotronJobInvocationHogFunction
+        invocation: CyclotronJobInvocationHogFunction,
+        isTest = false
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         if (invocation.queueParameters?.type !== 'email') {
             throw new Error('Invocation passed to sendEmail is not an email function')
@@ -86,18 +92,26 @@ export class EmailService {
         let success: boolean = false
 
         try {
-            if (!integration || integration.kind !== 'email' || integration.team_id !== invocation.teamId) {
-                throw new Error('Email integration not found')
+            // Wrong-team references deliberately read as not-found so an ID's existence on another team can't be probed
+            if (!integration || integration.team_id !== invocation.teamId) {
+                throw new Error(
+                    "Email integration not found. The sender configured for this step no longer exists — select a new sender in the workflow's email step."
+                )
+            }
+            if (integration.kind !== 'email') {
+                throw new Error(
+                    "The integration configured for this step is not an email channel — select an email sender in the workflow's email step."
+                )
             }
 
             const from = this.resolveFromSender(integration)
 
             switch (integration.config.provider ?? 'ses') {
                 case 'maildev':
-                    await this.sendEmailWithMaildev(result, params, from)
+                    await this.sendEmailWithMaildev(result, params, from, isTest)
                     break
                 case 'ses':
-                    await this.sendEmailWithSES(result, params, from)
+                    await this.sendEmailWithSES(result, params, from, isTest)
                     break
 
                 case 'unsupported':
@@ -117,14 +131,18 @@ export class EmailService {
             success,
         })
 
-        result.metrics.push({
-            team_id: invocation.teamId,
-            app_source_id: invocation.parentRunId ?? invocation.functionId,
-            instance_id: invocation.state.actionId || invocation.id,
-            metric_kind: 'email',
-            metric_name: success ? 'email_sent' : 'email_failed',
-            count: 1,
-        })
+        // Test sends (from the editor's "Run test") must not record metrics — keep them out of the
+        // workflow's Metrics tab, mirroring the isTest skip the SES webhook applies to delivery/open/click.
+        if (!isTest) {
+            result.metrics.push({
+                team_id: invocation.teamId,
+                app_source_id: invocation.parentRunId ?? invocation.functionId,
+                instance_id: invocation.state.actionId || invocation.id,
+                metric_kind: 'email',
+                metric_name: success ? 'email_sent' : 'email_failed',
+                count: 1,
+            })
+        }
 
         return result
     }
@@ -145,7 +163,8 @@ export class EmailService {
     private async sendEmailWithMaildev(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
         params: CyclotronInvocationQueueParametersEmailType,
-        from: { email: string; name: string }
+        from: { email: string; name: string },
+        isTest = false
     ): Promise<void> {
         // This can timeout but there is no native timeout so we do our own one
         const mailOptions: SendMailOptions = {
@@ -153,7 +172,7 @@ export class EmailService {
             to: params.to.name ? `"${params.to.name}" <${params.to.email}>` : params.to.email,
             subject: sanitizeEmailSubject(params.subject),
             text: params.text,
-            ...(params.html ? { html: addTrackingToEmail(params.html, result.invocation) } : {}),
+            ...(params.html ? { html: addTrackingToEmail(params.html, result.invocation, isTest) } : {}),
         }
 
         const ccAddresses = parseAddressList(params.cc)
@@ -178,18 +197,23 @@ export class EmailService {
     private async sendEmailWithSES(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
         params: CyclotronInvocationQueueParametersEmailType,
-        from: { email: string; name: string }
+        from: { email: string; name: string },
+        isTest = false
     ): Promise<void> {
         if (!this.sesV2Client) {
             throw new Error('SES is not configured - set SES_REGION and AWS credentials')
         }
-        const trackingCode = generateEmailTrackingCode(result.invocation)
+        const trackingCode = generateEmailTrackingCode(result.invocation, isTest)
+        // Short carrier (unsigned) for the SES EmailTag — guaranteed under the 256-char tag-value
+        // limit. Legacy backwards-compat carrier only; the full signed code (with isTest) rides in
+        // the header below, which the webhook reads first.
+        const shortTrackingCode = generateShortEmailTrackingCode(result.invocation)
 
         const htmlBody = params.html
             ? {
                   Html: {
                       Data: maybeAddPreheaderToEmail(
-                          addTrackingToEmail(params.html, result.invocation),
+                          addTrackingToEmail(params.html, result.invocation, isTest),
                           params.preheader
                       ),
                       Charset: 'UTF-8',
@@ -218,17 +242,27 @@ export class EmailService {
                 },
             },
             ConfigurationSetName: 'posthog-messaging',
-            EmailTags: [{ Name: 'ph_id', Value: trackingCode }],
+            // Short unsigned tag kept as a backwards-compat carrier for in-flight messages and
+            // environments where the configuration set isn't yet emitting original headers.
+            EmailTags: [{ Name: 'ph_id', Value: shortTrackingCode }],
             FeedbackForwardingEmailAddress: from.email,
         }
 
+        // Authoritative tracking-code carrier: a custom MIME header. Header values aren't
+        // 256-char-bounded the way SES tag values are, so they fit the signed code. The
+        // configuration set's event destination needs `IncludeOriginalHeaders: true` for the
+        // webhook to surface this header.
+        const trackingHeader: MessageHeader = { Name: TRACKING_CODE_HEADER_NAME, Value: trackingCode }
+
         const isTransactionalEmail = result.invocation.hogFunction?.metadata?.message_category_type === 'transactional'
-        // Automatically add unsubscribe headers for non-transactional emails
-        if (sendEmailParams.Content?.Simple && !isTransactionalEmail) {
-            sendEmailParams.Content.Simple.Headers = this.generateUnsubscribeHeaders({
-                team_id: result.invocation.teamId,
-                identifier: params.to.email,
-            })
+        if (sendEmailParams.Content?.Simple) {
+            const unsubscribeHeaders = !isTransactionalEmail
+                ? this.generateUnsubscribeHeaders({
+                      team_id: result.invocation.teamId,
+                      identifier: params.to.email,
+                  })
+                : []
+            sendEmailParams.Content.Simple.Headers = [...unsubscribeHeaders, trackingHeader]
         }
 
         const replyToAddresses = parseAddressList(params.replyTo)

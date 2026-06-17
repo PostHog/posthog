@@ -2,6 +2,8 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
+import type { SubscriptionApi } from '@posthog/products-subscriptions/frontend/generated/api.schemas'
+import { ResourceTypeEnumApi } from '@posthog/products-subscriptions/frontend/generated/api.schemas'
 
 import { NotFound } from 'lib/components/NotFound'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
@@ -9,7 +11,6 @@ import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import type { SubscriptionApi } from '~/generated/core/api.schemas'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
@@ -80,8 +81,11 @@ export function SubscriptionScene(): JSX.Element {
         deliveriesPageLoading,
         deliveringSubscriptionId,
         deliveryStatusFilter,
+        deliveryFeedback,
+        recentlyThankedDeliveries,
     } = useValues(subscriptionSceneLogic)
-    const { loadDeliveriesPage, deliverSubscription, setDeliveryStatusFilter } = useActions(subscriptionSceneLogic)
+    const { loadDeliveriesPage, deliverSubscription, setDeliveryStatusFilter, submitDeliveryFeedback } =
+        useActions(subscriptionSceneLogic)
 
     const showNotFound = !subscriptionLoading && !subscription
 
@@ -114,6 +118,13 @@ export function SubscriptionScene(): JSX.Element {
                             onDeliveryStatusFilterChange={setDeliveryStatusFilter}
                             onTestDelivery={subscription ? () => deliverSubscription(subscription.id) : undefined}
                             testDeliveryLoading={Boolean(subscription && deliveringSubscriptionId === subscription.id)}
+                            onDeliveryFeedback={
+                                subscription?.resource_type === ResourceTypeEnumApi.AiPrompt
+                                    ? (deliveryId, feedback) => submitDeliveryFeedback(deliveryId, feedback, 'in_app')
+                                    : undefined
+                            }
+                            deliveryFeedback={deliveryFeedback}
+                            recentlyThankedDeliveries={recentlyThankedDeliveries}
                         />
                     ) : null}
                 </div>

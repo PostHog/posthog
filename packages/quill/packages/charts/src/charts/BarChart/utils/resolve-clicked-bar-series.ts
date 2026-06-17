@@ -3,9 +3,9 @@ import type { PointClickData, Series } from '../../../core/types'
 import {
     type BarLayout,
     barContainsPointOnBandAxis,
+    barsAtCursor,
     cursorOutsideBarFillExtent,
     findVisibleStackedSegment,
-    iterBarsAtCursor,
 } from './bars-under-cursor'
 
 export interface ResolveClickedBarSeriesArgs<Meta> {
@@ -53,7 +53,7 @@ export function resolveClickedBarSeries<Meta>({
     })
 
     if (barLayout === 'grouped') {
-        for (const { series: s, bar } of iterBarsAtCursor({
+        for (const { series: s, bar } of barsAtCursor({
             series: crossSeriesData.map((d) => d.series),
             label,
             dataIndex,

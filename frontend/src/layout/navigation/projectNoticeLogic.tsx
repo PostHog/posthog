@@ -432,19 +432,15 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                         }
                     case 'missing_reverse_proxy':
                         return {
-                            message: (
-                                <>
-                                    Ad blockers can silently drop 10-25% of your events. Set up a{' '}
-                                    <Link
-                                        to={urls.settings('organization-proxy')}
-                                        data-attr="missing-reverse-proxy-settings_link"
-                                    >
-                                        reverse proxy
-                                    </Link>{' '}
-                                    to route data through your own domain and prevent this.
-                                </>
-                            ),
+                            message:
+                                'Ad blockers can silently drop 10-25% of your events. Set up a reverse proxy to route data through your own domain and prevent this.',
                             type: 'info',
+                            action: {
+                                to: urls.settings('organization-proxy'),
+                                'data-attr': 'missing-reverse-proxy-settings_link',
+                                icon: <IconGear />,
+                                children: 'Set up reverse proxy',
+                            },
                             onClose: dismiss,
                         }
                     default:

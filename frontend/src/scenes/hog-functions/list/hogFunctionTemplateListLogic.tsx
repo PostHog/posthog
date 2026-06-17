@@ -9,8 +9,8 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { objectsEqual } from 'lib/utils'
 import { createFuse } from 'lib/utils/fuseSearch'
+import { objectsEqual } from 'lib/utils/objects'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -302,6 +302,10 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
             posthog.capture('notify_me_pipeline', {
                 name: template.name,
                 type: template.type,
+                // Canonical template id (e.g. "managed-<SourceType>" for coming-soon
+                // warehouse sources) so consumers can match requests exactly instead
+                // of via the free-text display name.
+                template_id: template.id,
                 email: values.user?.email,
             })
 

@@ -1,9 +1,19 @@
 import { randomString } from '../../utils'
-import { expect, test } from '../../utils/playwright-test-base'
+import { PlaywrightWorkspaceSetupResult, expect, test } from '../../utils/workspace-test-base'
 
 test.describe('Batch export configuration', () => {
-    test('Create new S3 batch export', async ({ page }) => {
-        const name = randomString('S3 Export')
+    let workspace: PlaywrightWorkspaceSetupResult | null = null
+
+    test.beforeAll(async ({ playwrightSetup }) => {
+        workspace = await playwrightSetup.createWorkspace({ skip_onboarding: true, no_demo_data: true })
+    })
+
+    test.beforeEach(async ({ page, playwrightSetup }) => {
+        await playwrightSetup.login(page, workspace!)
+    })
+
+    test('Create new AWS S3 batch export', async ({ page }) => {
+        const name = randomString('AWS S3 Export')
         const mockId = '01234567-0123-0123-0123-0123456789ab'
 
         // Mock the batch export creation endpoint (requires Temporal in real env)
@@ -19,7 +29,7 @@ test.describe('Batch export configuration', () => {
                         name: body.name,
                         model: 'events',
                         destination: {
-                            type: 'S3',
+                            type: 'AwsS3',
                             config: {
                                 bucket_name: body.destination.config.bucket_name,
                                 region: body.destination.config.region,
@@ -43,8 +53,8 @@ test.describe('Batch export configuration', () => {
             }
         })
 
-        await page.goto('/pipeline/batch-exports/new/s3')
-        await expect(page.locator('.scene-name')).toContainText('S3')
+        await page.goto('/pipeline/batch-exports/new/awss3')
+        await expect(page.locator('.scene-name')).toContainText('AWS S3')
 
         // Edit the name of the batch export
         await page.click('.scene-name button')
@@ -74,8 +84,8 @@ test.describe('Batch export configuration', () => {
     })
 
     test('Validate required fields prevent save', async ({ page }) => {
-        await page.goto('/pipeline/batch-exports/new/s3')
-        await expect(page.locator('.scene-name')).toContainText('S3')
+        await page.goto('/pipeline/batch-exports/new/awss3')
+        await expect(page.locator('.scene-name')).toContainText('AWS S3')
 
         // Create button should be disabled when required fields are empty
         await expect(page.locator('form').getByRole('button', { name: 'Create' })).toBeDisabled()

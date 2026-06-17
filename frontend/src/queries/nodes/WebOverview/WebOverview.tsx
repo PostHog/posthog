@@ -5,7 +5,7 @@ import { reverseProxyCheckerLogic } from 'lib/components/ReverseProxyChecker/rev
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import { OverviewGrid } from '~/queries/nodes/OverviewGrid/OverviewGrid'
 import { OverviewMetricCardGrid, OverviewMetricCardItem } from '~/queries/nodes/OverviewGrid/OverviewMetricCardGrid'
@@ -78,6 +78,7 @@ export function WebOverview(props: {
                 samplingRate={samplingRate}
                 usedPreAggregatedTables={usedWebAnalyticsPreAggregatedTables}
                 usedLazyPrecompute={usedWebAnalyticsLazyPrecompute}
+                onDisablePrecompute={props.context.onDisableWebAnalyticsPrecompute}
                 labelFromKey={labelFromKey}
             />
         )
@@ -91,6 +92,7 @@ export function WebOverview(props: {
             samplingRate={samplingRate}
             usedPreAggregatedTables={usedWebAnalyticsPreAggregatedTables}
             usedLazyPrecompute={usedWebAnalyticsLazyPrecompute}
+            onDisablePrecompute={props.context.onDisableWebAnalyticsPrecompute}
             labelFromKey={labelFromKey}
         />
     )

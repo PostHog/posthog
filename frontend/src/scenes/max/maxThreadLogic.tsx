@@ -24,7 +24,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { uuid } from 'lib/utils'
+import { uuid } from 'lib/utils/dom'
 import { maxContextLogic } from 'scenes/max/maxContextLogic'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { NotebookTarget } from 'scenes/notebooks/types'
@@ -68,14 +68,14 @@ import { LogEntry, parseLogEvent } from 'products/tasks/frontend/lib/parse-logs'
 
 import { handsFreeLogic } from './handsFreeLogic'
 import { summariseAssistantThread } from './handsFreeUtils'
-import { MODE_DEFINITIONS, ToolRegistration } from './max-constants'
+import { EnhancedToolCall, MODE_DEFINITIONS, ToolRegistration } from './max-constants'
 import { MaxBillingContext, MaxBillingContextSubscriptionLevel, maxBillingContextLogic } from './maxBillingContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
-import { maxLogic } from './maxLogic'
+import { SIDE_PANEL_PANEL_ID, maxLogic } from './maxLogic'
 import type { maxThreadLogicType } from './maxThreadLogicType'
 import { MaxUIContext } from './maxTypes'
 import { MAX_SLASH_COMMANDS, SlashCommand } from './slash-commands'
-import { EnhancedToolCall, getToolCallDescriptionAndWidget } from './Thread'
+import { getToolCallDescriptionAndWidgetDef } from './toolCallDisplay'
 import {
     getAgentModeForScene,
     isAssistantMessage,
@@ -88,6 +88,12 @@ import { getRandomThinkingMessage } from './utils/thinkingMessages'
 
 /** Key for persisting pending AI prompts across page reloads (e.g., OAuth redirects) */
 export const PENDING_AI_PROMPT_KEY = 'posthog_ai_pending_prompt'
+
+// On a dashboard, the first message can fire before the dashboard has loaded, when
+// dashboardLogic.maxContext still returns []. askMax waits (bounded) for the load so the
+// dashboard context is included. Bounded so a stuck/failed load never blocks sending.
+export const MAX_DASHBOARD_CONTEXT_WAIT_MS = 8000
+const DASHBOARD_CONTEXT_POLL_INTERVAL_MS = 100
 
 export type MessageStatus = 'loading' | 'completed' | 'error'
 
@@ -102,17 +108,18 @@ const FAILURE_MESSAGE: FailureMessage & ThreadMessage = {
 }
 
 export interface MaxThreadLogicProps {
-    tabId: string // used to refer back to MaxLogic
+    panelId?: string // identifies the MaxLogic instance backing this panel (scene tab id or side panel)
     conversationId: string
     conversation?: ConversationDetail | null
+    skipInitialLoad?: boolean
 }
 
 export const maxThreadLogic = kea<maxThreadLogicType>([
     key((props) => {
-        if (!props.tabId) {
-            throw new Error('Max thread logic must have a tabId prop')
+        if (!props.panelId) {
+            throw new Error('Max thread logic must have a panelId prop')
         }
-        return `${props.conversationId}-${props.tabId}`
+        return `${props.conversationId}-${props.panelId}`
     }),
 
     path((key) => ['scenes', 'max', 'maxThreadLogic', key]),
@@ -140,11 +147,11 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         }
     }),
 
-    connect(({ tabId }: MaxThreadLogicProps) => ({
+    connect(({ panelId }: MaxThreadLogicProps) => ({
         values: [
             maxGlobalLogic,
             ['dataProcessingAccepted', 'toolMap', 'tools', 'availableStaticTools'],
-            maxLogic({ tabId }),
+            maxLogic({ panelId }),
             [
                 'question',
                 'autoRun',
@@ -162,7 +169,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             ['sceneId'],
         ],
         actions: [
-            maxLogic({ tabId }),
+            maxLogic({ panelId }),
             [
                 'askMax',
                 'setQuestion',
@@ -417,7 +424,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     const newMap = new Map(value)
                     let newValue: string
                     if (isSubagentUpdateEvent(update)) {
-                        const [description, _] = getToolCallDescriptionAndWidget(
+                        const [description, _] = getToolCallDescriptionAndWidgetDef(
                             update.content as unknown as EnhancedToolCall,
                             toolMap
                         )
@@ -996,17 +1003,53 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 actions.clearQueuedMessages()
             }
         },
-        askMax: async ({ prompt, addToThread = true, uiContext }) => {
+        askMax: async ({ prompt, addToThread = true, uiContext }, breakpoint) => {
             // Only process if this thread is the currently active one
             if (values.conversationId !== values.activeThreadKey) {
                 return
+            }
+            // Wait for the open dashboard to finish loading before collecting context (see the
+            // constants above for why). The scene is re-read every tick, so the gate releases the
+            // moment the dashboard's metadata lands — and immediately if the user navigates away
+            // mid-wait (no longer on a dashboard, or onto a different one that's already loaded).
+            const isDashboardSceneLoading = (): boolean => {
+                if (sceneLogic.values.activeSceneId !== Scene.Dashboard) {
+                    return false
+                }
+                const activeSceneLogic = sceneLogic.values.activeSceneLogic
+                if (!activeSceneLogic || !('maxContext' in activeSceneLogic.selectors)) {
+                    return false
+                }
+                return !(activeSceneLogic.values as { dashboard?: unknown }).dashboard
+            }
+            // Measure real elapsed time, not tick count: breakpoint() only guarantees a *minimum*
+            // delay, so a busy event loop would make a tick counter under-report the wait — letting
+            // it run past the cap and skewing the telemetry below. performance.now() is monotonic.
+            const dashboardWaitStart = performance.now()
+            while (
+                isDashboardSceneLoading() &&
+                performance.now() - dashboardWaitStart < MAX_DASHBOARD_CONTEXT_WAIT_MS
+            ) {
+                await breakpoint(DASHBOARD_CONTEXT_POLL_INTERVAL_MS)
+            }
+            if (isDashboardSceneLoading()) {
+                // We hit the wait cap while the dashboard was still loading, so the message ships
+                // without dashboard context (the original "Max can't see this dashboard" symptom).
+                // Capture it so we can tell whether the cap is ever the binding constraint in prod.
+                const activeLoadedScene = sceneLogic.values.activeLoadedScene
+                const sceneProps = activeLoadedScene?.paramsToProps?.(activeLoadedScene?.sceneParams) || {}
+                posthog.capture('max dashboard context wait timed out', {
+                    waited_ms: Math.round(performance.now() - dashboardWaitStart),
+                    dashboard_id: (sceneProps as { id?: number | string }).id,
+                    conversation_id: values.conversation?.id || values.conversationId,
+                })
             }
             const contextualTools = Object.fromEntries(values.tools.map((tool) => [tool.identifier, tool.context]))
             // Always send voice_mode as an explicit boolean when handsFreeLogic is mounted,
             // not just when active. Otherwise a typed turn following a spoken one inherits
             // the earlier <voice_mode> system instruction from conversation history and
             // keeps formatting for speech (no markdown, spelled-out numbers).
-            const handsFree = handsFreeLogic.findMounted({ tabId: props.tabId })
+            const handsFree = handsFreeLogic.findMounted({ panelId: props.panelId })
             const voiceMode = handsFree ? { voice_mode: handsFree.values.isActive } : undefined
             const mergedUiContext =
                 uiContext || voiceMode
@@ -1036,7 +1079,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     agentMode: values.agentMode,
                 })
                 actions.setQuestion('')
-                if (props.tabId === 'sidepanel' && sidePanelStateLogic.isMounted()) {
+                if (props.panelId === SIDE_PANEL_PANEL_ID && sidePanelStateLogic.isMounted()) {
                     sidePanelStateLogic.actions.setSidePanelOptions(null)
                 }
                 return
@@ -1087,7 +1130,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             // Clear the question
             actions.setQuestion('')
             // Drop #panel=max:… options so reload doesn't re-run auto-send from the hash
-            if (props.tabId === 'sidepanel' && sidePanelStateLogic.isMounted()) {
+            if (props.panelId === SIDE_PANEL_PANEL_ID && sidePanelStateLogic.isMounted()) {
                 sidePanelStateLogic.actions.setSidePanelOptions(null)
             }
             // For a new conversations, set the frontend conversation ID
@@ -1173,7 +1216,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         },
 
         completeThreadGeneration: () => {
-            const handsFree = handsFreeLogic.findMounted({ tabId: props.tabId })
+            const handsFree = handsFreeLogic.findMounted({ panelId: props.panelId })
             if (handsFree?.values.isActive) {
                 handsFree.actions.speakAssistantResponse(summariseAssistantThread(values.threadRaw))
             }
@@ -1223,7 +1266,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             // payload is an object with doNotUpdateCurrentThread for loadConversationHistory,
             // but it's a string (conversationId) for loadConversation
             const doNotUpdate = typeof payload === 'object' && payload?.doNotUpdateCurrentThread
-            if (doNotUpdate || values.autoRun || values.streamingActive) {
+            if (props.skipInitialLoad || doNotUpdate || values.autoRun || values.streamingActive) {
                 return
             }
             // Don't auto-reconnect if there's a pending form
@@ -1744,7 +1787,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         cache.lastConversationId = props.conversationId
         for (const l of maxThreadLogic.findAllMounted()) {
             if (l !== logic && l.props.conversationId === props.conversationId) {
-                // We found a logic with the same conversationId, but a different tabId
+                // We found a logic with the same conversationId, but a different panelId
                 if (l.values.conversation) {
                     actions.setConversation(l.values.conversation)
                 }
@@ -1764,7 +1807,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         // Check for URL-based mode from side panel options (e.g., #panel=max:mode=research:question)
         // This must be done in maxThreadLogic's afterMount to ensure the correct instance sets the mode
         if (
-            props.tabId === 'sidepanel' &&
+            props.panelId === SIDE_PANEL_PANEL_ID &&
             !values.agentMode &&
             sidePanelStateLogic.isMounted() &&
             sidePanelStateLogic.values.selectedTab === SidePanelTab.Max &&
@@ -1808,6 +1851,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         if (values.autoRun && values.question) {
             actions.askMax(values.question)
             actions.setAutoRun(false)
+            return
+        }
+
+        if (props.skipInitialLoad) {
             return
         }
 

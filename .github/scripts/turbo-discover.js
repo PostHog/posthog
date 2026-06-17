@@ -12,6 +12,7 @@
 // Products under SMALL_THRESHOLD duration get grouped into one matrix entry
 // to avoid spinning up a full Docker stack for a handful of tests.
 // Durations come from .test_durations (maintained by pytest-split).
+// DEDICATED_BUCKET_PRODUCTS opt out of grouping and always run alone.
 //
 // Input:  LEGACY_CHANGED env var ("true"/"false")
 //         SCHEMA_CHANGED env var ("true"/"false") — when set and LEGACY_CHANGED
@@ -22,7 +23,7 @@
 
 const { execFileSync } = require('child_process')
 const fs = require('fs')
-const { analyzeSchemaImpact } = require('./schema-impact')
+const { analyzeSchemaImpact, readBaseSchema } = require('./schema-impact')
 
 // --- Product shard sizing (same Amdahl shape as Django below) ---
 // Each product is atomic for packing, but unlike Django the test pool isn't
@@ -40,6 +41,10 @@ const PRODUCT_SAFETY_FACTOR = 1.3
 // Tests under these paths need special infrastructure (Temporal server, etc.)
 // and are handled by Django CI's dedicated segments — exclude from duration estimates
 const EXCLUDED_PATH_SEGMENTS = ['/temporal/']
+// Products that always get their own matrix entry instead of being packed with
+// others — isolates a flaky/hang-prone product so it can't cancel bucket-mates
+// at the job timeout. Trade-off: a dedicated runner.
+const DEDICATED_BUCKET_PRODUCTS = new Set(['batch-exports'])
 
 // --- Django shard auto-sizing (Amdahl's law) ---
 // wall_clock = overhead + (total_from_durations_file / shards)
@@ -128,6 +133,67 @@ function logAffectedReasons(label, tasks) {
         reasons[reason] = (reasons[reason] || 0) + 1
     }
     console.error(`${label} affected reasons: ${JSON.stringify(reasons)}`)
+}
+
+// --- Test quarantine (.test_quarantine.json) ---
+// Schema contract: tools/hogli-commands/hogli_commands/quarantine/core.py.
+// This script consumes a deliberately trivial subset of it: pytest entries
+// with an explicit `product:<dashed-name>` selector and `mode: "skip"` drop
+// the whole product from the matrix (mode "run" entries need no matrix change
+// — their tests xfail in-shard). ISO date strings compare lexicographically;
+// an entry is active while today <= expires.
+const QUARANTINE_FILE = '.test_quarantine.json'
+
+function quarantinedSkipProducts(jsonText, todayISO) {
+    const parsed = JSON.parse(jsonText)
+    if (parsed?.version !== 1 || !Array.isArray(parsed.entries)) {
+        return new Set()
+    }
+    const products = new Set()
+    for (const entry of parsed.entries) {
+        if (typeof entry?.id !== 'string' || !entry.id.startsWith('product:')) continue
+        if ((entry.runner ?? 'pytest') !== 'pytest' || entry.mode !== 'skip') continue
+        if (typeof entry.expires !== 'string' || entry.expires < todayISO) continue
+        products.add(entry.id.slice('product:'.length))
+    }
+    return products
+}
+
+function loadQuarantinedSkipProducts(todayISO) {
+    try {
+        return quarantinedSkipProducts(fs.readFileSync(QUARANTINE_FILE, 'utf-8'), todayISO)
+    } catch (e) {
+        // Fail-open: a missing or malformed file means no quarantine, never a blocked matrix.
+        console.error(`Warning: could not read ${QUARANTINE_FILE} (${e.message}) — quarantine ignored`)
+        return new Set()
+    }
+}
+
+function loadBaseQuarantinedSkipProducts(base, todayISO) {
+    // Fail-open: file absent at base (or unreadable ref) means nothing was quarantined there.
+    try {
+        const raw = readBaseSchema(base, QUARANTINE_FILE)
+        return raw === null ? new Set() : quarantinedSkipProducts(raw, todayISO)
+    } catch {
+        return new Set()
+    }
+}
+
+// Warn on names matching no real product (catches the dash/underscore mixup:
+// the dir is batch_exports but the product is batch-exports), then drop the
+// rest from the matrix.
+function dropProducts(products, allProducts, names, label) {
+    const allProductSet = new Set(allProducts)
+    for (const name of names) {
+        if (!allProductSet.has(name)) {
+            console.error(
+                `::warning::${label}: unknown product '${name}' — use the dashed name (e.g. 'batch-exports'), not the directory form`
+            )
+        }
+    }
+    const remaining = products.filter((p) => !names.has(p))
+    console.error(`${label}: ${[...names].join(',')} — dropped ${products.length - remaining.length} product(s)`)
+    return remaining
 }
 
 function loadTestDurations() {
@@ -296,6 +362,13 @@ function buildMatrix(products, durations) {
                     pytest_args: `-- --splits ${shards} --group ${i} --splitting-algorithm duration_based_chunks`,
                 })
             }
+        } else if (DEDICATED_BUCKET_PRODUCTS.has(product)) {
+            console.error(`  ${product}: ${(raw / 60).toFixed(1)} min raw → dedicated bucket (never packed)`)
+            matrix.push({
+                group: product,
+                filters: `--filter=@posthog/products-${product}`,
+                pytest_args: '',
+            })
         } else {
             packable.push(product)
         }
@@ -405,6 +478,38 @@ if (legacyChanged) {
             runLegacy = true
         }
     }
+}
+
+// Kill switch: products named in the SKIP_PRODUCT_TESTS repo variable (comma-
+// separated) are dropped from the matrix without a code change — use it to stop
+// running, and blocking on, a product whose tests are temporarily too flaky.
+const skipProducts = new Set((process.env.SKIP_PRODUCT_TESTS || '').split(',').map((p) => p.trim()).filter(Boolean))
+if (skipProducts.size > 0) {
+    products = dropProducts(products, allProducts, skipProducts, 'SKIP_PRODUCT_TESTS')
+}
+
+const todayISO = new Date().toISOString().slice(0, 10)
+const quarantinedProducts = loadQuarantinedSkipProducts(todayISO)
+if (quarantinedProducts.size > 0) {
+    products = dropProducts(products, allProducts, quarantinedProducts, 'Quarantined products (mode: skip)')
+}
+
+// Un-quarantining must re-run the suite. Today the ci-backend `legacy` paths-
+// filter already forces a full run on any PR touching the quarantine file, so
+// this diff against the merge base rarely changes the outcome — it is the
+// backstop that keeps product re-runs correct if that coarse trigger is ever
+// narrowed (Turbo itself never sees .test_quarantine.json as a product input).
+if (process.env.TURBO_SCM_BASE) {
+    const baseQuarantined = loadBaseQuarantinedSkipProducts(process.env.TURBO_SCM_BASE, todayISO)
+    const allProductSet = new Set(allProducts)
+    const productSet = new Set(products)
+    for (const name of baseQuarantined) {
+        if (quarantinedProducts.has(name) || skipProducts.has(name)) continue
+        if (!allProductSet.has(name) || productSet.has(name)) continue
+        console.error(`Quarantine lifted for '${name}' since ${process.env.TURBO_SCM_BASE} — forced into matrix`)
+        products.push(name)
+    }
+    products.sort()
 }
 
 console.error(`Products to test: ${JSON.stringify(products)}`)

@@ -50,7 +50,7 @@ export const getVisionObservationsListUrl = (projectId: string, params: VisionOb
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -112,7 +112,7 @@ export const getVisionScannersListUrl = (projectId: string, params?: VisionScann
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -240,7 +240,7 @@ export const getVisionScannersObservationsListUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -297,7 +297,7 @@ export const getVisionScannersObservationsStatsRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 

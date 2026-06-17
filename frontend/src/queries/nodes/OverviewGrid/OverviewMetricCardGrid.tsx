@@ -8,7 +8,7 @@ import { MetricCard, type MetricChange } from '@posthog/quill-charts'
 
 import { PreAggregatedBadge } from 'lib/components/PreAggregatedBadge'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { range } from 'lib/utils'
+import { range } from 'lib/utils/arrays'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { formatItem, NO_BASELINE_CHANGE_SENTINEL, OverviewItem, SamplingNotice, SamplingRate } from './OverviewGrid'
@@ -25,6 +25,7 @@ interface OverviewMetricCardGridProps {
     samplingRate?: SamplingRate
     usedPreAggregatedTables?: boolean
     usedLazyPrecompute?: boolean
+    onDisablePrecompute?: () => void
     labelFromKey: (key: string) => string
 }
 
@@ -35,6 +36,7 @@ export function OverviewMetricCardGrid({
     samplingRate,
     usedPreAggregatedTables = false,
     usedLazyPrecompute = false,
+    onDisablePrecompute,
     labelFromKey,
 }: OverviewMetricCardGridProps): JSX.Element {
     return (
@@ -48,6 +50,7 @@ export function OverviewMetricCardGrid({
                               item={item}
                               usedPreAggregatedTables={usedPreAggregatedTables}
                               usedLazyPrecompute={usedLazyPrecompute}
+                              onDisablePrecompute={onDisablePrecompute}
                               labelFromKey={labelFromKey}
                           />
                       ))}
@@ -61,11 +64,13 @@ function MetricCardCell({
     item,
     usedPreAggregatedTables,
     usedLazyPrecompute,
+    onDisablePrecompute,
     labelFromKey,
 }: {
     item: OverviewMetricCardItem
     usedPreAggregatedTables: boolean
     usedLazyPrecompute: boolean
+    onDisablePrecompute?: () => void
     labelFromKey: (key: string) => string
 }): JSX.Element {
     const { baseCurrency } = useValues(teamLogic)
@@ -103,9 +108,9 @@ function MetricCardCell({
             aria-pressed={clickable ? !!item.selected : undefined}
         >
             {usedLazyPrecompute ? (
-                <PreAggregatedBadge variant="precomputed" />
+                <PreAggregatedBadge variant="precomputed" position="bottom-right" onDisable={onDisablePrecompute} />
             ) : usedPreAggregatedTables ? (
-                <PreAggregatedBadge variant="preagg" />
+                <PreAggregatedBadge variant="preagg" position="bottom-right" />
             ) : null}
             <MetricCard
                 title={<MetricCardTitle label={labelFromKey(item.key)} item={item} />}

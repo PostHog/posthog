@@ -17,6 +17,8 @@ from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_NULL_STRIN
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.utils import relative_date_parse
 
+from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_utils import validate_uuid_param
+
 logger = structlog.get_logger(__name__)
 
 
@@ -26,6 +28,7 @@ class ErrorTrackingBreakdownsQueryRunner(AnalyticsQueryRunner[ErrorTrackingBreak
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.query.issueId = validate_uuid_param(self.query.issueId, "issueId")
         self.date_from = self.parse_relative_date_from(self.query.dateRange.date_from if self.query.dateRange else None)
         self.date_to = self.parse_relative_date_to(self.query.dateRange.date_to if self.query.dateRange else None)
 

@@ -2,6 +2,7 @@ from datetime import UTC, datetime, timedelta
 from typing import cast
 
 from posthog.test.base import _create_event, _create_person
+from unittest.mock import patch
 
 from django.test import override_settings
 
@@ -50,11 +51,13 @@ class TestExperimentFunnelMetricEventsPreaggregation(ExperimentQueryRunnerBaseTe
         runner = ExperimentQueryRunner(query=query, team=self.team)
         return cast(ExperimentQueryResponse, runner.calculate())
 
-    def _build_lazy_computation_builder(self, experiment, feature_flag, metric) -> ExperimentQueryBuilder:
+    def _build_lazy_computation_builder(
+        self, experiment, feature_flag, metric, override_end_date: datetime | None = None
+    ) -> ExperimentQueryBuilder:
         exposure_config, multiple_variant_handling, filter_test_accounts = get_exposure_config_params_for_builder(
             experiment.exposure_criteria
         )
-        date_range = get_experiment_date_range(experiment, self.team, None)
+        date_range = get_experiment_date_range(experiment, self.team, override_end_date)
         return ExperimentQueryBuilder(
             team=self.team,
             feature_flag_key=feature_flag.key,
@@ -63,11 +66,20 @@ class TestExperimentFunnelMetricEventsPreaggregation(ExperimentQueryRunnerBaseTe
             multiple_variant_handling=multiple_variant_handling,
             variants=[v["key"] for v in feature_flag.variants],
             date_range_query=QueryDateRange(
-                date_range=date_range, team=self.team, interval=IntervalType.DAY, now=datetime.now()
+                date_range=date_range,
+                team=self.team,
+                interval=IntervalType.DAY,
+                now=override_end_date or datetime.now(),
             ),
             entity_key=get_entity_key(feature_flag.filters.get("aggregation_group_type_index")),
             metric=metric,
         )
+
+    def _build_runner(
+        self, experiment, metric: ExperimentFunnelMetric, override_end_date: datetime | None = None
+    ) -> ExperimentQueryRunner:
+        query = ExperimentQuery(experiment_id=experiment.id, kind="ExperimentQuery", metric=metric)
+        return ExperimentQueryRunner(query=query, team=self.team, override_end_date=override_end_date)
 
     def _precompute_and_compare(
         self, experiment, feature_flag, metric
@@ -125,6 +137,35 @@ class TestExperimentFunnelMetricEventsPreaggregation(ExperimentQueryRunnerBaseTe
             assert direct_result.variant_results[i].sum == precomputed_result.variant_results[i].sum
 
         return direct_result, precomputed_result
+
+    @patch("products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute")
+    def test_metric_events_precomputation_hash_ignores_moving_experiment_end(self, mock_sync_execute):
+        feature_flag = self.create_feature_flag(key="stable-metric-events-hash")
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2024, 1, 1),
+            end_date=datetime(2024, 1, 5),
+        )
+        metric = ExperimentFunnelMetric(series=[EventsNode(event="purchase")])
+
+        first_end = datetime(2024, 1, 5, 12, 0, tzinfo=UTC)
+        second_end = datetime(2024, 1, 5, 12, 30, tzinfo=UTC)
+
+        first_result = self._build_runner(
+            experiment, metric, override_end_date=first_end
+        )._ensure_metric_events_precomputed(
+            self._build_lazy_computation_builder(experiment, feature_flag, metric, override_end_date=first_end)
+        )
+        second_result = self._build_runner(
+            experiment, metric, override_end_date=second_end
+        )._ensure_metric_events_precomputed(
+            self._build_lazy_computation_builder(experiment, feature_flag, metric, override_end_date=second_end)
+        )
+
+        assert first_result.ready is True
+        assert second_result.ready is True
+        assert first_result.job_ids == second_result.job_ids
+        assert mock_sync_execute.call_count == len(first_result.job_ids)
 
     def test_basic_two_step_funnel(self):
         feature_flag = self.create_feature_flag()

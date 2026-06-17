@@ -328,6 +328,9 @@ tools:
     organizations-update:
         operation: update
         enabled: false
+    personal-api-keys-list:
+        operation: personal_api_keys_list
+        enabled: false
     promoted-product-intent-get:
         operation: environments_promoted_product_intent_retrieve
         enabled: true

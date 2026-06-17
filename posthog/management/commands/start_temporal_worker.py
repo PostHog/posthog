@@ -58,6 +58,10 @@ from posthog.temporal.delete_persons import (
     ACTIVITIES as DELETE_PERSONS_ACTIVITIES,
     WORKFLOWS as DELETE_PERSONS_WORKFLOWS,
 )
+from posthog.temporal.delete_teams import (
+    ACTIVITIES as DELETE_TEAMS_ACTIVITIES,
+    WORKFLOWS as DELETE_TEAMS_WORKFLOWS,
+)
 from posthog.temporal.dlq_replay import (
     ACTIVITIES as DLQ_REPLAY_ACTIVITIES,
     WORKFLOWS as DLQ_REPLAY_WORKFLOWS,
@@ -142,6 +146,10 @@ from posthog.temporal.session_replay.summarization_sweep import (
     SUMMARIZATION_SWEEP_ACTIVITIES,
     SUMMARIZATION_SWEEP_WORKFLOWS,
 )
+from posthog.temporal.session_replay.surfacing_scoring_sweep import (
+    SURFACING_SCORING_SWEEP_ACTIVITIES,
+    SURFACING_SCORING_SWEEP_WORKFLOWS,
+)
 from posthog.temporal.sync_person_distinct_ids import (
     ACTIVITIES as SYNC_PERSON_DISTINCT_IDS_ACTIVITIES,
     WORKFLOWS as SYNC_PERSON_DISTINCT_IDS_WORKFLOWS,
@@ -174,6 +182,10 @@ from products.business_knowledge.backend.temporal import (
 from products.error_tracking.backend.temporal import (
     ACTIVITIES as ERROR_TRACKING_ACTIVITIES,
     WORKFLOWS as ERROR_TRACKING_WORKFLOWS,
+)
+from products.experiments.backend.temporal import (
+    ACTIVITIES as EXPERIMENTS_RECALCULATION_ACTIVITIES,
+    WORKFLOWS as EXPERIMENTS_RECALCULATION_WORKFLOWS,
 )
 from products.exports.backend.temporal.subscriptions import (
     ACTIVITIES as SUBSCRIPTION_ACTIVITIES,
@@ -232,17 +244,20 @@ _task_queue_specs = [
         settings.GENERAL_PURPOSE_TASK_QUEUE,
         PROXY_SERVICE_WORKFLOWS
         + DELETE_PERSONS_WORKFLOWS
+        + DELETE_TEAMS_WORKFLOWS
         + SALESFORCE_ENRICHMENT_WORKFLOWS
         + PRODUCT_ANALYTICS_WORKFLOWS
         + LLM_ANALYTICS_WORKFLOWS
         + DLQ_REPLAY_WORKFLOWS
         + SYNC_PERSON_DISTINCT_IDS_WORKFLOWS
         + EXPERIMENTS_WORKFLOWS
+        + EXPERIMENTS_RECALCULATION_WORKFLOWS
         + CLEANUP_PROPDEFS_WORKFLOWS
         + INGESTION_ACCEPTANCE_TEST_WORKFLOWS
         + WAREHOUSE_SOURCES_QUEUE_PARTITION_WORKFLOWS,
         PROXY_SERVICE_ACTIVITIES
         + DELETE_PERSONS_ACTIVITIES
+        + DELETE_TEAMS_ACTIVITIES
         + QUOTA_LIMITING_ACTIVITIES
         + SALESFORCE_ENRICHMENT_ACTIVITIES
         + PRODUCT_ANALYTICS_ACTIVITIES
@@ -250,6 +265,7 @@ _task_queue_specs = [
         + DLQ_REPLAY_ACTIVITIES
         + SYNC_PERSON_DISTINCT_IDS_ACTIVITIES
         + EXPERIMENTS_ACTIVITIES
+        + EXPERIMENTS_RECALCULATION_ACTIVITIES
         + CLEANUP_PROPDEFS_ACTIVITIES
         + INGESTION_ACCEPTANCE_TEST_ACTIVITIES
         + WAREHOUSE_SOURCES_QUEUE_PARTITION_ACTIVITIES,
@@ -373,6 +389,11 @@ _task_queue_specs = [
         settings.LOGS_ALERTING_TASK_QUEUE,
         LOGS_ALERTING_WORKFLOWS,
         LOGS_ALERTING_ACTIVITIES,
+    ),
+    (
+        settings.SURFACING_SCORING_SWEEP_TASK_QUEUE,
+        SURFACING_SCORING_SWEEP_WORKFLOWS,
+        SURFACING_SCORING_SWEEP_ACTIVITIES,
     ),
 ]
 
@@ -617,6 +638,15 @@ class Command(BaseCommand):
                 combined_metrics_server_enabled=not disable_combined_metrics_server,
             )
             logger.info("Starting Temporal Worker")
+
+            if task_queue == settings.SURFACING_SCORING_SWEEP_TASK_QUEUE:
+                from posthog.temporal.session_replay.surfacing_scoring_sweep.scorer import warmup_best_effort
+
+                # Best-effort: surfacing shares this queue with the rest of the
+                # session-replay worker, so a model problem must not crash the
+                # pod. It logs and continues; scoring activities retry until the
+                # model is fixed.
+                warmup_best_effort()
 
             worker = runner.run(
                 create_worker(

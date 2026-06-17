@@ -12,7 +12,6 @@ export {
     getPublicBaseUrl,
     getAuthorizationServerUrl,
     MCP_DOCS_URL,
-    OAUTH_PROXY_URL,
     OAUTH_SCOPES_SUPPORTED,
 } from '@/lib/constants'
 

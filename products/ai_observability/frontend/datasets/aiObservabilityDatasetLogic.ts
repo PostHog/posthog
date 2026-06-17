@@ -3,11 +3,12 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { combineUrl, router, urlToAction } from 'kea-router'
 
+import { objectsEqual } from 'lib/utils/objects'
+
 import api, { CountedPaginatedResponse } from '~/lib/api'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
 import { PaginationManual } from '~/lib/lemon-ui/PaginationControl'
 import { trackedActionToUrl } from '~/lib/logic/scenes/trackedActionToUrl'
-import { objectsEqual } from '~/lib/utils'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { sceneLogic } from '~/scenes/sceneLogic'
 import { teamLogic } from '~/scenes/teamLogic'
@@ -21,7 +22,6 @@ import { EMPTY_JSON, coerceJsonToObject, isStringJsonObject, prettifyJson } from
 
 export interface DatasetLogicProps {
     datasetId: string | 'new'
-    tabId?: string
 }
 
 export enum DatasetTab {
@@ -58,7 +58,7 @@ export const aiObservabilityDatasetLogic = kea<aiObservabilityDatasetLogicType>(
 
     props({ datasetId: 'new' } as DatasetLogicProps),
 
-    key(({ datasetId, tabId }) => `dataset-${datasetId}::${tabId ?? 'default'}`),
+    key(({ datasetId }) => `dataset-${datasetId}`),
 
     connect(() => ({
         actions: [teamLogic, ['addProductIntent']],
