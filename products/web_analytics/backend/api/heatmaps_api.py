@@ -1,14 +1,18 @@
 from datetime import date, datetime, timedelta
 from json import JSONDecodeError, loads
+from time import perf_counter
 from typing import Any, List, Literal, cast  # noqa: UP035
 
 from django.core.exceptions import FieldError
 from django.db.models import Q
 from django.http import HttpResponse
 
+import structlog
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_field
+from opentelemetry import trace
+from prometheus_client import Counter, Histogram
 from rest_framework import request, response, serializers, status, viewsets
 
 from posthog.schema import DateRange, HogQLFilters, HogQLQueryResponse, ProductKey
@@ -47,6 +51,21 @@ from products.web_analytics.backend.tasks.heatmap_screenshot import generate_hea
 STALE_PROCESSING_THRESHOLD = timedelta(minutes=10)
 
 HEATMAPS_COHORT_FILTER_FLAG = "heatmaps-cohort-filter"
+
+logger = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
+
+HEATMAP_CONTENT_REQUESTS = Counter(
+    "heatmap_screenshot_content_requests",
+    "Heatmap screenshot content endpoint responses",
+    labelnames=["outcome"],
+)
+HEATMAP_CONTENT_SERVE_SECONDS = Histogram(
+    "heatmap_screenshot_content_serve_duration_seconds",
+    "Time to read and serve a heatmap screenshot content response",
+    labelnames=["outcome"],
+    buckets=(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, float("inf")),
+)
 
 
 def _heatmaps_cohort_filter_enabled(user: User, team: Team) -> bool:
@@ -823,47 +842,96 @@ class HeatmapScreenshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(methods=["GET"], detail=True)
     def content(self, request: request.Request, *args: Any, **kwargs: Any) -> HttpResponse:
-        screenshot = self.get_object()
-        if screenshot.deleted:
-            return response.Response(status=status.HTTP_404_NOT_FOUND)
+        started = perf_counter()
+        with tracer.start_as_current_span("heatmap.serve_content") as span:
+            screenshot = self.get_object()
+            span.set_attribute("heatmap.screenshot_id", str(screenshot.id))
+            span.set_attribute("team_id", screenshot.team_id)
 
-        # Pick requested width or default
-        try:
-            requested_width = int(request.query_params.get("width", 1024))
-        except (ValueError, TypeError):
-            return response.Response(
-                {"error": "Invalid width parameter, must be an integer"}, status=status.HTTP_400_BAD_REQUEST
-            )
+            def _finish(resp: HttpResponse, outcome: str, **attrs: Any) -> HttpResponse:
+                elapsed = perf_counter() - started
+                HEATMAP_CONTENT_REQUESTS.labels(outcome=outcome).inc()
+                HEATMAP_CONTENT_SERVE_SECONDS.labels(outcome=outcome).observe(elapsed)
+                span.set_attribute("heatmap.outcome", outcome)
+                for key, value in attrs.items():
+                    span.set_attribute(f"heatmap.{key}", value)
+                log = logger.warning if outcome in ("bad_request", "not_implemented") else logger.info
+                log(
+                    "heatmap_screenshot.content_request",
+                    screenshot_id=str(screenshot.id),
+                    team_id=screenshot.team_id,
+                    outcome=outcome,
+                    status_code=resp.status_code,
+                    duration_ms=round(elapsed * 1000),
+                    **attrs,
+                )
+                return resp
 
-        # Try exact match snapshot
-        snapshot = screenshot.snapshots.filter(width=requested_width).first()
+            if screenshot.deleted:
+                return _finish(response.Response(status=status.HTTP_404_NOT_FOUND), "not_found")
 
-        # If not found, pick closest by absolute difference among available snapshots
-        if not snapshot:
-            all_snaps = list(screenshot.snapshots.all())
-            if all_snaps:
-                snapshot = min(all_snaps, key=lambda s: abs(s.width - requested_width))
+            try:
+                requested_width = int(request.query_params.get("width", 1024))
+            except (ValueError, TypeError):
+                return _finish(
+                    response.Response(
+                        {"error": "Invalid width parameter, must be an integer"}, status=status.HTTP_400_BAD_REQUEST
+                    ),
+                    "bad_request",
+                )
 
-        if not snapshot:
-            # Nothing generated yet
-            response_serializer = HeatmapScreenshotResponseSerializer(screenshot)
-            return response.Response(response_serializer.data, status=status.HTTP_202_ACCEPTED)
+            snapshot = screenshot.snapshots.filter(width=requested_width).first()
+            exact = snapshot is not None
 
-        if snapshot.content:
-            http_response = HttpResponse(snapshot.content, content_type="image/jpeg")
-            http_response["Content-Disposition"] = (
-                f'attachment; filename="screenshot-{screenshot.id}-{snapshot.width}.jpg"'
-            )
-            return http_response
-        elif snapshot.content_location:
-            response_serializer = HeatmapScreenshotResponseSerializer(screenshot)
-            return response.Response(
-                {**response_serializer.data, "error": "Content location not implemented yet"},
-                status=status.HTTP_501_NOT_IMPLEMENTED,
-            )
-        else:
-            response_serializer = HeatmapScreenshotResponseSerializer(screenshot)
-            return response.Response(response_serializer.data, status=status.HTTP_202_ACCEPTED)
+            if not snapshot:
+                all_snaps = list(screenshot.snapshots.all())
+                if all_snaps:
+                    snapshot = min(all_snaps, key=lambda s: abs(s.width - requested_width))
+
+            if not snapshot:
+                response_serializer = HeatmapScreenshotResponseSerializer(screenshot)
+                return _finish(
+                    response.Response(response_serializer.data, status=status.HTTP_202_ACCEPTED),
+                    "generating",
+                    requested_width=requested_width,
+                    reason="no_snapshot",
+                    screenshot_status=screenshot.status,
+                )
+
+            if snapshot.content:
+                http_response = HttpResponse(snapshot.content, content_type="image/jpeg")
+                http_response["Content-Disposition"] = (
+                    f'attachment; filename="screenshot-{screenshot.id}-{snapshot.width}.jpg"'
+                )
+                return _finish(
+                    http_response,
+                    "served",
+                    requested_width=requested_width,
+                    served_width=snapshot.width,
+                    bytes=len(snapshot.content),
+                    exact=exact,
+                )
+            elif snapshot.content_location:
+                response_serializer = HeatmapScreenshotResponseSerializer(screenshot)
+                return _finish(
+                    response.Response(
+                        {**response_serializer.data, "error": "Content location not implemented yet"},
+                        status=status.HTTP_501_NOT_IMPLEMENTED,
+                    ),
+                    "not_implemented",
+                    requested_width=requested_width,
+                    served_width=snapshot.width,
+                )
+            else:
+                response_serializer = HeatmapScreenshotResponseSerializer(screenshot)
+                return _finish(
+                    response.Response(response_serializer.data, status=status.HTTP_202_ACCEPTED),
+                    "generating",
+                    requested_width=requested_width,
+                    served_width=snapshot.width,
+                    reason="content_pending",
+                    screenshot_status=screenshot.status,
+                )
 
 
 _URL_PATTERN_CHARS = set("*+?^${}()|[]\\")
