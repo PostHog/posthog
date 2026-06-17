@@ -69,7 +69,8 @@ function FunnelAlertPreviewBanner({ preview }: { preview: FunnelAlertPreview | n
     if (preview.status === 'no-data') {
         return (
             <LemonBanner type="info" className="w-full">
-                This funnel has no data for the selected steps yet — the alert evaluates 0% until it does.
+                This funnel has no data for the selected steps yet, so the alert can't evaluate a conversion rate until
+                it does.
             </LemonBanner>
         )
     }

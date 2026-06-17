@@ -156,7 +156,9 @@ def _validate_funnels_alert_config(ctx: _AlertConfigValidationContext) -> None:
         if step < 0:
             raise ValueError(f"funnel_step must be >= 0, got {step}")
         # The funnel's step count is known from the query at config time, so reject an out-of-range
-        # step now rather than letting the alert fail on its first check.
+        # step now rather than letting the alert fail on its first check. The series count is the
+        # result step count for a STEPS funnel (the only kind funnel alerts support) — exclusion
+        # nodes are filtered out before the result, so this matches the extractor's eval-time check.
         try:
             funnels_query = FunnelsQuery.model_validate(ctx.query)
         except Exception as e:
