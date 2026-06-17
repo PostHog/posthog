@@ -262,6 +262,7 @@ class TestScopesWithinCeiling(SimpleTestCase):
             ),
             ("wildcard_rejected_under_default_sentinel", ["*"], ["@default"], False),
             ("sentinel_itself_not_grantable", ["@default"], ["@default"], False),
+            ("default_sentinel_tolerates_whitespace", ["query:read", "insight:write"], [" @default "], True),
         ]
     )
     def test_resolution(self, _name: str, requested: list[str], app_scopes: list[str], expected: bool) -> None:
@@ -291,6 +292,11 @@ class TestScopesWithinCeiling(SimpleTestCase):
             (
                 "default_sentinel_expands_to_unprivileged_plus_extras",
                 ["@default", "llm_gateway:read"],
+                UNPRIVILEGED_SCOPES | {"llm_gateway:read"},
+            ),
+            (
+                "sentinel_and_extras_tolerate_whitespace",
+                [" @default ", "llm_gateway:read "],
                 UNPRIVILEGED_SCOPES | {"llm_gateway:read"},
             ),
         ]

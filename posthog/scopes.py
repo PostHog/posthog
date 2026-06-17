@@ -288,8 +288,10 @@ def resolve_ceiling(app_scopes: Iterable[str]) -> frozenset[str] | None:
     """An app's explicit scope ceiling, or `None` when it has none (empty `scopes`,
     which falls back to the `UNPRIVILEGED_SCOPES` default). A `@default` sentinel
     expands to `UNPRIVILEGED_SCOPES` unioned with the other listed scopes; without it,
-    a non-empty ceiling stays an exhaustive allow-list."""
-    app = set(app_scopes or [])
+    a non-empty ceiling stays an exhaustive allow-list. Entries are stripped so a
+    fat-fingered `" @default"` still resolves (real scopes never have whitespace)."""
+    app = {s.strip() for s in (app_scopes or [])}
+    app.discard("")
     if not app:
         return None
     if DEFAULT_CEILING_SENTINEL in app:
