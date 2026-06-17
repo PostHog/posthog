@@ -1217,7 +1217,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
     queryset = ExternalDataSource.objects.all()
     serializer_class = ExternalDataSourceSerializers
     filter_backends = [filters.SearchFilter]
-    search_fields = ["source_id"]
+    # `source_id` is an opaque internal connection UUID — useless to search by. Callers
+    # (the in-app sources list, the MCP tool) narrow by what they can actually see: the
+    # source type ("Stripe", "Postgres") and the HogQL table prefix.
+    search_fields = ["source_type", "prefix"]
     ordering = "-created_at"
 
     def get_serializer_class(self) -> type[serializers.Serializer]:
