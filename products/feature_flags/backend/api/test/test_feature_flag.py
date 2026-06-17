@@ -46,7 +46,7 @@ from products.cohorts.backend.models.util import CohortErrorCode, get_friendly_e
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.models.experiment import Experiment
-from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
+from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer, parse_created_by_ids
 from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE, get_decrypted_flag_payload
 from products.feature_flags.backend.flag_status import FeatureFlagStatus
 from products.feature_flags.backend.models.feature_flag import (
@@ -2059,12 +2059,17 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         self.client.logout()
 
+        client = redis.get_client()
+        client.delete(f"posthog:remote_config_requests:{self.team.pk}")
+
         response = self.client.get(
             f"/api/projects/{self.team.id}/feature_flags/my-remote-config-flag/remote_config",
             headers={"authorization": f"Bearer {personal_api_key}"},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), '{"test": true}')
+        # Personal-key requests are the app's preview feature, not SDK usage, so they aren't counted.
+        self.assertEqual(client.hgetall(f"posthog:remote_config_requests:{self.team.pk}"), {})
 
     def test_remote_config_with_project_secret_api_key(self):
         self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
@@ -2091,6 +2096,89 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), '{"test": true}')
+
+    @parameterized.expand([("plaintext_payloads", False), ("encrypted_payloads", True)])
+    def test_remote_config_increments_remote_config_bucket_by_one_per_request(
+        self, _name: str, has_encrypted_payloads: bool
+    ):
+        self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="my-remote-config-flag",
+            name="Remote Config Flag",
+            active=True,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "payloads": {"true": '{"test": true}'},
+            },
+            is_remote_configuration=True,
+            has_encrypted_payloads=has_encrypted_payloads,
+        )
+        self.client.logout()
+
+        client = redis.get_client()
+        client.delete(f"posthog:remote_config_requests:{self.team.pk}")
+        client.delete(f"posthog:decide_requests:{self.team.pk}")
+
+        with freeze_time("2022-05-07 12:23:07"):
+            for _ in range(3):
+                response = self.client.get(
+                    f"/api/projects/{self.team.id}/feature_flags/my-remote-config-flag/remote_config",
+                    headers={"authorization": f"Bearer {self.team.secret_api_token}"},
+                )
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Remote config usage is telemetry-only: it accumulates in its own bucket and must
+        # never reach the decide bucket that billing consumes.
+        buckets = client.hgetall(f"posthog:remote_config_requests:{self.team.pk}")
+        self.assertEqual(sum(int(count) for count in buckets.values()), 3)
+        self.assertEqual(client.hgetall(f"posthog:decide_requests:{self.team.pk}"), {})
+
+    def test_remote_config_does_not_count_when_flag_is_not_remote_config(self):
+        self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="not-a-remote-config-flag",
+            name="Regular Flag",
+            active=True,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+            is_remote_configuration=False,
+        )
+        self.client.logout()
+
+        client = redis.get_client()
+        client.delete(f"posthog:remote_config_requests:{self.team.pk}")
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/not-a-remote-config-flag/remote_config",
+            headers={"authorization": f"Bearer {self.team.secret_api_token}"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(client.hgetall(f"posthog:remote_config_requests:{self.team.pk}"), {})
+
+    def test_remote_config_does_not_count_session_authenticated_requests(self):
+        # Only team-secret-token fetches are counted. A session-authenticated GET must not increment
+        # usage, otherwise a logged-in member could be driven to the URL cross-site to inflate the
+        # team's usage telemetry.
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="my-remote-config-flag",
+            name="Remote Config Flag",
+            active=True,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "payloads": {"true": '{"test": true}'},
+            },
+            is_remote_configuration=True,
+        )
+
+        client = redis.get_client()
+        client.delete(f"posthog:remote_config_requests:{self.team.pk}")
+
+        # self.client is still logged in as self.user (session auth), no secret key supplied.
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/my-remote-config-flag/remote_config")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(client.hgetall(f"posthog:remote_config_requests:{self.team.pk}"), {})
 
     def test_remote_config_with_secret_api_key_prevents_cross_team_access(self):
         # Create two teams with different secret keys
@@ -5563,6 +5651,44 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert len(response["results"]) == 1
         assert response["results"][0]["key"] == "green_button"
 
+    @parameterized.expand(
+        [
+            # (name, format_filter, expected_keys)
+            ("json_list", lambda ids: json.dumps([ids[0], ids[1]]), {"red_button", "blue_button"}),
+            ("comma_separated", lambda ids: f"{ids[0]},{ids[2]}", {"red_button", "orange_button"}),
+            ("single_id", lambda ids: str(ids[1]), {"blue_button"}),
+            ("no_match", lambda ids: json.dumps([ids[3]]), set()),
+        ]
+    )
+    def test_get_flags_with_multiple_created_by_id_filter(self, _name, format_filter, expected_keys):
+        another_user = User.objects.create(email="foo@bar.com")
+        third_user = User.objects.create(email="baz@bar.com")
+        unrelated_user = User.objects.create(email="nobody@bar.com")
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
+        FeatureFlag.objects.create(team=self.team, created_by=another_user, key="blue_button")
+        FeatureFlag.objects.create(team=self.team, created_by=third_user, key="orange_button")
+
+        ids = [self.user.id, another_user.id, third_user.id, unrelated_user.id]
+        response = self.client.get(f"/api/projects/@current/feature_flags?created_by_id={format_filter(ids)}")
+        assert {flag["key"] for flag in response.json()["results"]} == expected_keys
+
+    @parameterized.expand(
+        [
+            ("none", None, []),
+            ("bool_true", True, []),
+            ("int", 42, [42]),
+            ("single_str", "42", [42]),
+            ("empty_str", "", []),
+            ("comma_separated", "1,2", [1, 2]),
+            ("comma_with_invalid", "1,abc,3", [1, 3]),
+            ("json_list", "[1, 2]", [1, 2]),
+            ("non_numeric", "abc", []),
+            ("malformed_json", "[5", []),
+        ]
+    )
+    def test_parse_created_by_ids(self, _name, value, expected):
+        assert parse_created_by_ids(value) == expected
+
     def test_get_flags_with_type_filters(self):
         feature_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
         Experiment.objects.create(
@@ -6165,8 +6291,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         FeatureFlag.objects.create(
             team=self.team,
             created_by=self.user,
-            key="both_flag",
-            evaluation_runtime="both",
+            key="all_flag",
+            evaluation_runtime="all",
         )
 
         # Test filtering by server environment
@@ -6181,11 +6307,11 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert len(response["results"]) == 1
         assert response["results"][0]["key"] == "client_flag"
 
-        # Test filtering by both environment
-        filtered_flags_list = self.client.get(f"/api/projects/@current/feature_flags?evaluation_runtime=both")
+        # Test filtering by all environment
+        filtered_flags_list = self.client.get(f"/api/projects/@current/feature_flags?evaluation_runtime=all")
         response = filtered_flags_list.json()
         assert len(response["results"]) == 1
-        assert response["results"][0]["key"] == "both_flag"
+        assert response["results"][0]["key"] == "all_flag"
 
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     def test_flag_is_cached_on_create_and_update(self, mock_on_commit):

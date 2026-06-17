@@ -30,7 +30,8 @@ import { TaxonomicMenuToggle } from 'lib/components/TaxonomicPopover/TaxonomicMe
 import { TaxonomicPopoverMenu } from 'lib/components/TaxonomicPopover/TaxonomicPopoverMenu'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { isOperatorMulti, isOperatorRegex, toParams } from 'lib/utils'
+import { isOperatorMulti, isOperatorRegex } from 'lib/utils/operators'
+import { toParams } from 'lib/utils/url'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { cohortsModel } from '~/models/cohortsModel'

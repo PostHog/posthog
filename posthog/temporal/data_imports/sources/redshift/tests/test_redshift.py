@@ -401,7 +401,21 @@ class TestHasDuplicatePrimaryKeys:
 
     def test_returns_false_on_exception(self, impl, cursor, logger):
         cursor.execute.side_effect = RuntimeError("boom")
-        assert impl.has_duplicate_primary_keys(cursor, "public", "t", ["id"], logger) is False
+        with patch("posthog.temporal.data_imports.sources.redshift.redshift.capture_exception") as mock_capture:
+            assert impl.has_duplicate_primary_keys(cursor, "public", "t", ["id"], logger) is False
+        mock_capture.assert_called_once()
+
+    def test_system_requested_abort_is_not_reported(self, impl, cursor, logger):
+        # Redshift WLM/QMR aborts (code 1020, "system requested abort") surface as `InternalError_`
+        # and are expected, non-actionable noise — skip gracefully without reporting to error tracking.
+        abort_message = (
+            "abort query\nDETAIL:  \n  error:  abort query\n  code:      1020\n"
+            "  context:   system requested abort\n  location:  queryabort.hpp:103\n"
+        )
+        cursor.execute.side_effect = psycopg.errors.InternalError(abort_message)
+        with patch("posthog.temporal.data_imports.sources.redshift.redshift.capture_exception") as mock_capture:
+            assert impl.has_duplicate_primary_keys(cursor, "public", "t", ["id"], logger) is False
+        mock_capture.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -821,7 +835,7 @@ class TestBuildPipeline:
         assert get_meta.call_args.args[2] == "messages"
         assert response.name == "messages"
 
-    def test_dwh_storage_key_preserves_legacy_delta_path(self, build_pipeline_mocks, mocker):
+    def test_s3_folder_name_preserves_legacy_delta_path(self, build_pipeline_mocks, mocker):
         mocker.patch.object(
             RedshiftImplementation,
             "get_table_metadata",
@@ -836,7 +850,7 @@ class TestBuildPipeline:
         inputs = _make_inputs(
             schema_name="analytics.users",
             schema_metadata={"source_schema": "analytics", "source_table_name": "users"},
-            dwh_storage_key="users",
+            s3_folder_name="users",
         )
 
         response = impl.build_pipeline(_make_config(schema=""), inputs)

@@ -6,7 +6,7 @@ import { LemonButton, LemonColorPicker, LemonInput, LemonModal, LemonSelect } fr
 
 import { getSeriesColorPalette } from 'lib/colors'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { downloadFile } from 'lib/utils'
+import { downloadFile } from 'lib/utils/dom'
 
 import { FilmCameraHog } from '../hedgehogs'
 import {

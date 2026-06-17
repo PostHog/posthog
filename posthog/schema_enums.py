@@ -436,6 +436,7 @@ class Display(StrEnum):
     CALENDAR_HEATMAP = "CalendarHeatmap"
     TWO_DIMENSIONAL_HEATMAP = "TwoDimensionalHeatmap"
     BOX_PLOT = "BoxPlot"
+    SLOPE_GRAPH = "SlopeGraph"
 
 
 class YAxisScaleType(StrEnum):
@@ -566,6 +567,7 @@ class ChartDisplayType(StrEnum):
     CALENDAR_HEATMAP = "CalendarHeatmap"
     TWO_DIMENSIONAL_HEATMAP = "TwoDimensionalHeatmap"
     BOX_PLOT = "BoxPlot"
+    SLOPE_GRAPH = "SlopeGraph"
 
 
 class ColorMode(StrEnum):
@@ -1765,6 +1767,7 @@ class ExternalDataSourceType(StrEnum):
     WIKIPEDIA_PAGEVIEWS = "WikipediaPageviews"
     YAHOO_FINANCE = "YahooFinance"
     CLARIFAI = "Clarifai"
+    ADAPTY = "Adapty"
     CUSTOM = "Custom"
 
 
@@ -1936,6 +1939,12 @@ class GoogleAdsTableExclusions(StrEnum):
 
 class GoogleAdsTableKeywords(StrEnum):
     CAMPAIGN = "campaign"
+
+
+class HealthCheckSeverity(StrEnum):
+    CRITICAL = "critical"
+    WARNING = "warning"
+    INFO = "info"
 
 
 class GradientScaleMode(StrEnum):
@@ -2933,6 +2942,7 @@ class SignalSourceProduct(StrEnum):
     PGANALYZE = "pganalyze"
     SIGNALS_SCOUT = "signals_scout"
     LOGS = "logs"
+    HEALTH_CHECKS = "health_checks"
 
 
 class SignalSourceType(StrEnum):
@@ -2948,6 +2958,7 @@ class SignalSourceType(StrEnum):
     ENDPOINT_EXECUTION_FAILED = "endpoint_execution_failed"
     CROSS_SOURCE_ISSUE = "cross_source_issue"
     ALERT_STATE_CHANGE = "alert_state_change"
+    HEALTH_ISSUE = "health_issue"
 
 
 class Severity(StrEnum):

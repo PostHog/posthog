@@ -265,7 +265,7 @@ export const getDataWarehouseDeprovisionCreateUrl = (projectId: string) => {
 }
 
 /**
- * Start deprovisioning the managed warehouse for this team.
+ * Start deprovisioning the organization's managed warehouse. Restricted to organization admins.
  */
 export const dataWarehouseDeprovisionCreate = async (
     projectId: string,
@@ -311,7 +311,7 @@ export const getDataWarehouseProvisionCreateUrl = (projectId: string) => {
 }
 
 /**
- * Start provisioning a managed warehouse for this team.
+ * Start provisioning a managed warehouse for this organization (shared by all its teams).
  */
 export const dataWarehouseProvisionCreate = async (
     projectId: string,

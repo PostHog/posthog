@@ -183,6 +183,26 @@ def _is_connection_dropped_error(error: BaseException) -> bool:
     return False
 
 
+def _raise_if_setup_connection_broken(connection: psycopg.Connection) -> None:
+    """Surface a connection dropped during metadata discovery as a retryable error.
+
+    The best-effort probes run during `postgres_source` setup (`_explain_query`,
+    `_get_table_chunk_size`, and the numeric-scale probe in `_get_table`) isolate their
+    queries in `connection.transaction(savepoint_name=...)`. When the upstream
+    connection drops mid-probe, psycopg's `Transaction.__exit__` skips its savepoint
+    teardown — it early-returns whenever the connection is no longer OK — leaving the
+    connection's transaction-nesting counter incremented. The surrounding helpers then
+    swallow the follow-up "connection closed" errors, so discovery finishes "successfully"
+    and the implicit commit in the enclosing `with connection:` raises a misleading
+    `ProgrammingError: Explicit commit() forbidden within a Transaction context`, burying
+    the real cause. Detect the broken connection first and raise the actual
+    dropped-connection error (transient, so it stays retryable) — the activity then retries
+    on a fresh connection instead of failing on a self-inflicted commit error.
+    """
+    if connection.broken:
+        raise psycopg.OperationalError("connection to server was lost during table metadata discovery")
+
+
 def _connect_with_dropped_retry(
     connect: Callable[[], psycopg.Connection],
     logger: FilteringBoundLogger,
@@ -718,11 +738,20 @@ def _rls_active_from_conn(
                     result[display_name] = bool(rls_active)
             return result
     except Exception as e:
+        # This runs on a connection shared with earlier best-effort metadata lookups (PK + index
+        # discovery). When one of those fails on a non-Postgres engine — e.g. a Redshift-incompatible
+        # `pg_catalog` query — its exception is caught upstream but the connection's transaction is
+        # left in `INERROR`, so our first statement here fails with `InFailedSqlTransaction` purely as
+        # a downstream symptom. That's an already-handled condition, not a bug in this lookup, so
+        # don't re-capture it (mirrors `_get_partition_settings`).
+        #
         # Postgres-wire-compatible engines (DuckDB/Flight-SQL proxies, etc.) accept our connection
         # but don't implement `row_security_active`. RLS is a Postgres-only concept there, so a
         # missing-function error is an expected "no RLS" answer, not a bug — degrade quietly rather
         # than flooding error tracking. Still capture genuinely unexpected failures.
-        if not _is_unsupported_function_error(e, "row_security_active"):
+        if not isinstance(e, psycopg.errors.InFailedSqlTransaction) and not _is_unsupported_function_error(
+            e, "row_security_active"
+        ):
             capture_exception(e)
         return {}
 
@@ -2247,6 +2276,14 @@ def postgres_source(
                             raise
                         except Exception:
                             raise
+
+                    # If a transient drop killed the connection during one of the best-effort
+                    # savepoint probes above, the implicit commit on `with connection:` exit would
+                    # otherwise raise a misleading "Explicit commit() forbidden within a Transaction
+                    # context" (psycopg leaves the transaction-nesting counter incremented when it
+                    # tears a savepoint down on a no-longer-OK connection). Surface the real,
+                    # retryable dropped-connection error instead.
+                    _raise_if_setup_connection_broken(connection)
                 break
             except psycopg.errors.SerializationFailure as e:
                 if "conflict with recovery" not in "".join(e.args):
