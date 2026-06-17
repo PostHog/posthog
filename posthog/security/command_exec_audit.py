@@ -100,8 +100,9 @@ def _scrub_args(tokens: Any) -> list[str]:
         if "=" in token:
             name = token.split("=", 1)[0]
             result.append(f"{name}={_REDACTED}")
-        elif token[:1] in ("-", "/"):
+        elif token.startswith("-"):
             # Sensitive flag whose value is the following token, e.g. ``--password secret``.
+            # Only flags (``-``) carry a value here — a sensitive *path* gets fully redacted below.
             result.append(token)
             redact_next = True
         else:
@@ -192,9 +193,10 @@ def _emit(
             payload["binary"] = binary
             scanned = scrubbed_str
 
-        # Flag command lines carrying shell operators (chaining, pipes, substitution) — the
-        # shape that turns an interpolated value into command injection.
-        if any(char in _SHELL_OPERATORS for char in scanned):
+        # Flag shell command lines carrying operators (chaining, pipes, substitution) — the
+        # shape that turns an interpolated value into command injection. Only meaningful when a
+        # shell interprets the line; in argv form (shell=False) these chars are passed literally.
+        if shell and any(char in _SHELL_OPERATORS for char in scanned):
             payload["has_shell_operators"] = True
 
         if cwd is not None:
@@ -256,11 +258,13 @@ def _spawnvef_wrapper(wrapped, instance, args, kwargs):  # type: ignore[no-untyp
     # _spawnvef(mode, file, args, env, func) — the funnel for every os.spawn* alias.
     try:
         file = _arg(args, kwargs, 1, "file")
+        # args is argv-style: args[0] is already the program name, so log it as-is and
+        # surface the resolved executable via `binary` instead of duplicating it.
         spawn_args = _arg(args, kwargs, 2, "args") or []
         _emit(
             component="os",
             sink="os.spawn",
-            command=[file, *spawn_args],
+            command=list(spawn_args),
             shell=False,
             env=_arg(args, kwargs, 3, "env"),
             binary=_coerce_str(file),

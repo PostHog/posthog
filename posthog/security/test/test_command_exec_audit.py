@@ -56,6 +56,12 @@ class TestCommandExecAuditScrubbing(TestCase):
             ),
             # "auth" must not over-match common non-secret flags like git's --author.
             ("author_not_redacted", ["git", "log", "--author=Jane"], ["git", "log", "--author=Jane"]),
+            # A sensitive *path* is fully redacted and must not consume the following token.
+            (
+                "sensitive_path_does_not_eat_next",
+                ["openssl", "-in", "/etc/ssl/private_key.pem", "-out", "/tmp/cert.pem"],
+                ["openssl", "-in", _R, "-out", "/tmp/cert.pem"],
+            ),
         ]
     )
     def test_scrub_args(self, _name: str, args: list[str], expected: list[str]) -> None:
@@ -161,6 +167,15 @@ class TestCommandExecAuditPatching(TestCase):
             subprocess.run(["true"], check=True)
         entry = self._find(logs, "subprocess.Popen")
         assert entry is not None
+        self.assertNotIn("has_shell_operators", entry)
+
+    def test_operator_chars_in_argv_are_not_flagged(self) -> None:
+        # shell=False: operator chars inside an arg are literal, not injection — must not flag.
+        with structlog.testing.capture_logs() as logs:
+            subprocess.run(["echo", "a > b && c"], check=True)
+        entry = self._find(logs, "subprocess.Popen")
+        assert entry is not None
+        self.assertFalse(entry["shell"])
         self.assertNotIn("has_shell_operators", entry)
 
     def test_audit_does_not_break_command(self) -> None:
