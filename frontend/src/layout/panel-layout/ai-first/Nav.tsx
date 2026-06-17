@@ -28,10 +28,10 @@ import {
     panelLayoutLogic,
 } from '~/layout/panel-layout/panelLayoutLogic'
 
+import { NavSearchButton } from '../../../lib/components/NavSearchButton/NavSearchButton'
 import { navigation3000Logic } from '../../navigation-3000/navigationLogic'
 import { NavBarFooter } from '../NavBarFooter'
 import { PanelLayoutPanels } from './PanelLayoutPanels'
-import { SearchButton } from './SearchButton'
 import { NavTabBrowse } from './tabs/NavTabBrowse'
 const NavTabChat = lazy(() => import('./tabs/NavTabChat').then((m) => ({ default: m.NavTabChat })))
 
@@ -176,7 +176,7 @@ export function Nav(): JSX.Element {
                     >
                         <NewAccountMenu isLayoutNavCollapsed={isLayoutNavCollapsed} />
 
-                        <SearchButton isLayoutNavCollapsed={isLayoutNavCollapsed} toggleCommand={toggleCommand} />
+                        <NavSearchButton isLayoutNavCollapsed={isLayoutNavCollapsed} toggleCommand={toggleCommand} />
 
                         {isLayoutNavCollapsed && (
                             <ButtonPrimitive
