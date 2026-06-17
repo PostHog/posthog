@@ -7,7 +7,7 @@
 category: Agent stack
 feature: agent_platform
 url_prefix: /agent_applications
-feature_flag: agent-platform-mcp
+feature_flag: agent-platform
 ui_apps: {}
 tools:
     agent-applications-approvals-decide:
@@ -102,8 +102,8 @@ tools:
         description: >
             Body `{ value: "…" }`. Merges into the encrypted env without touching siblings. **Disabled for the standard
             MCP surface** — agents should never see raw secret values in their tool-call history. The standard path is
-            to deep-link the user into the agent console's secret editor (see the `secrets-and-integrations` skill for
-            the URL contract and callback flow); this endpoint exists for CI / scripts that already hold the value
+            to deep-link the user into the agent console's secret editor (see the secrets-and-integrations skill for the
+            URL contract and callback flow); this endpoint exists for CI / scripts that already hold the value
             out-of-band.
     agent-applications-list:
         operation: agent_applications_list
@@ -147,7 +147,7 @@ tools:
             (app, revision)), and this proxy mints + attaches the token after authenticating the Django caller. Path
             `rest` is one of `run` (start a new session), `send` (append to an existing one), `cancel` (kill it),
             `listen` (SSE tail). `revision_id` query param is required and must be a non-live revision of this
-            application. See docs/agent-platform/plans/draft-preview-auth.md.
+            application.
     agent-applications-preview-proxy-get:
         operation: agent_applications_preview_proxy_get
         enabled: false
@@ -206,9 +206,9 @@ tools:
         title: Get the typed bundle
         description: >
             Returns `{ agent_md, skills, tools, spec }` — the typed view of the revision. Use this when you want to edit
-            the whole agent locally (pull, mutate in-memory, push back via the bundle PUT). Skills carry `description`,
-            `body`, and optional `files[]`. Tools carry `description`, `args_schema`, `source` (TypeScript). `spec` is
-            the author-facing slice (skills/tools are server-derived at freeze).
+            the whole agent locally (pull, mutate in-memory, push back via the bundle PUT). Skills carry `description`
+            and `body` (stored at `skills/<id>/SKILL.md`). Tools carry `description`, `args_schema`, `source`
+            (TypeScript). `spec` is the author-facing slice (skills/tools are server-derived at freeze).
     agent-applications-revisions-bundle-update:
         operation: agent_applications_revisions_bundle_update
         enabled: true
@@ -382,8 +382,8 @@ tools:
             idempotent: true
         title: Delete one skill
         description: >
-            Removes the skill body + every companion file under `skills/<id>/files/`. Returns 404 if the skill doesn't
-            exist. Draft-only.
+            Removes the skill folder (`skills/<id>/`, holding its `SKILL.md`). Returns 404 if the skill doesn't exist.
+            Draft-only.
     agent-applications-revisions-skills-update:
         operation: agent_applications_revisions_skills_update
         enabled: true
@@ -395,9 +395,8 @@ tools:
             idempotent: true
         title: Upsert one skill
         description: >
-            Body `{ description, body, files? }`. Creates the skill if it doesn't exist, replaces it if it does.
-            `files[]` is the optional list of companion docs (path relative to `skills/<id>/files/`). Skill id comes
-            from the URL. Draft-only.
+            Body `{ description, body }`. Creates the skill if it doesn't exist, replaces it if it does. The `body` is
+            stored at `skills/<skill_id>/SKILL.md`. Skill id comes from the URL. Draft-only.
     agent-applications-revisions-slack-manifest:
         operation: agent_applications_revisions_slack_manifest
         enabled: true
@@ -543,7 +542,7 @@ tools:
             Body `{ env: { KEY: "value", … } }` — the whole env is replaced (not patched). **Disabled for the standard
             MCP surface** — the body carries raw secret values, which would land in the agent's tool-call history. Raw
             secret entry goes through the agent console's secret editor instead (deep-link flow; see the
-            `secrets-and-integrations` skill). Values are encrypted at rest with the team's Fernet keys and never leave
+            secrets-and-integrations skill). Values are encrypted at rest with the team's Fernet keys and never leave
             Django; this endpoint stays available on the REST API for the console / CI that already hold the values.
     agent-applications-stats:
         operation: agent_applications_stats

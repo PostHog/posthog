@@ -1885,7 +1885,7 @@ export interface SavedSessionRecordingPlaylistsFilters {
     page: number
     pinned: boolean
     type?: 'collection' | 'saved_filters'
-    collectionType: 'custom' | 'synthetic' | 'new-urls' | null
+    collectionType: 'custom' | 'synthetic' | null
 }
 
 export interface SavedSessionRecordingPlaylistsResult extends PaginatedResponse<SessionRecordingPlaylistType> {
@@ -2876,6 +2876,7 @@ export enum ChartDisplayType {
     CalendarHeatmap = 'CalendarHeatmap',
     TwoDimensionalHeatmap = 'TwoDimensionalHeatmap',
     BoxPlot = 'BoxPlot',
+    SlopeGraph = 'SlopeGraph',
 }
 export enum ChartDisplayCategory {
     TimeSeries = 'TimeSeries',
@@ -3319,6 +3320,9 @@ export interface TrendResult {
      * formula index for formula results (uniform across a formula's breakdown rows).
      * Unlike `action.order`, this is always populated — formula results carry `action: null`. */
     order?: number
+    /** Slope graph only: whether the last bucket is the current, still-accumulating period. Set by
+     * SlopeGraphTrendsQueryRunner so the insight and MCP dash the provisional end identically. */
+    incomplete_end?: boolean
 }
 
 interface Person {
@@ -4679,6 +4683,20 @@ export enum ExperimentStatsMethod {
     Frequentist = 'frequentist',
 }
 
+export interface ExperimentExposureEstimateConfig {
+    conversionRateInputType: ConversionRateInputType
+    manualMetricType?: 'funnel' | 'mean_count' | 'mean_sum_or_avg'
+    manualBaselineValue?: number
+    manualExposureRate?: number
+}
+
+export interface ExperimentRunningTimeCalculationConfig {
+    minimum_detectable_effect?: number
+    recommended_running_time?: number
+    recommended_sample_size?: number
+    exposure_estimate_config?: ExperimentExposureEstimateConfig | null
+}
+
 export interface Experiment {
     id: ExperimentIdType
     name: string
@@ -4699,15 +4717,6 @@ export interface Experiment {
     }[]
     saved_metrics: any[]
     parameters: {
-        exposure_estimate_config?: {
-            conversionRateInputType: ConversionRateInputType
-            manualMetricType?: 'funnel' | 'mean_count' | 'mean_sum_or_avg'
-            manualBaselineValue?: number
-            manualExposureRate?: number
-        } | null
-        minimum_detectable_effect?: number
-        recommended_running_time?: number
-        recommended_sample_size?: number
         feature_flag_variants: MultivariateFlagVariant[]
         custom_exposure_filter?: FilterType
         aggregation_group_type_index?: integer
@@ -4721,6 +4730,7 @@ export interface Experiment {
             versions: number[]
         }
     }
+    running_time_calculation?: ExperimentRunningTimeCalculationConfig
     start_date?: string | null
     end_date?: string | null
     status?: ExperimentStatus | null
@@ -5244,6 +5254,7 @@ export const INTEGRATION_KINDS = [
     'google-cloud-service-account',
     'google-cloud-storage',
     'google-ads',
+    'google-analytics',
     'google-search-console',
     'google-sheets',
     'linkedin-ads',
@@ -5308,6 +5319,7 @@ export const SLACK_INTEGRATION_SCOPES = Object.values(SlackIntegrationScope)
 // `invalid_scope`. Move entries into SlackIntegrationScope once Slack approves the public app.
 export enum SlackIntegrationScopeInReview {
     ASSISTANT_WRITE = 'assistant:write',
+    CHANNELS_MANAGE = 'channels:manage',
     IM_HISTORY = 'im:history',
     MPIM_READ = 'mpim:read',
 }
@@ -5493,6 +5505,7 @@ export type APIScopeObject =
     | 'account'
     | 'activity_log'
     | 'agents'
+    | 'agent_approvals'
     | 'alert'
     | 'annotation'
     | 'approvals'
@@ -5537,6 +5550,7 @@ export type APIScopeObject =
     | 'llm_skill'
     | 'logs'
     | 'marketing_analytics'
+    | 'mcp_analytics'
     | 'metrics'
     | 'notebook'
     | 'organization'
@@ -5715,6 +5729,7 @@ export enum ActivityScope {
     ANNOTATION = 'Annotation',
     BATCH_EXPORT = 'BatchExport',
     BATCH_IMPORT = 'BatchImport',
+    EXPORTED_ASSET = 'ExportedAsset',
     FEATURE_FLAG = 'FeatureFlag',
     PERSON = 'Person',
     PERSONAL_API_KEY = 'PersonalAPIKey',
@@ -5959,7 +5974,7 @@ export interface ExternalDataSourceCreatePayload {
 export interface ExternalDataSourceConnectionMetadata {
     database?: string | null
     version?: string | null
-    engine?: 'duckdb' | 'postgres' | null
+    engine?: 'duckdb' | 'postgres' | 'mysql' | null
     function_source?: string | null
     available_functions?: string[]
 }
@@ -5967,7 +5982,7 @@ export interface ExternalDataSourceConnectionMetadata {
 export interface ExternalDataSourceConnectionOption {
     id: string
     prefix: string | null
-    engine?: 'duckdb' | 'postgres' | null
+    engine?: 'duckdb' | 'postgres' | 'mysql' | null
 }
 
 export interface ExternalDataSource {
@@ -5980,7 +5995,7 @@ export interface ExternalDataSource {
     description: string | null
     access_method?: 'warehouse' | 'direct'
     created_via: 'web' | 'api' | 'mcp' | null
-    engine?: 'duckdb' | 'postgres' | null
+    engine?: 'duckdb' | 'postgres' | 'mysql' | null
     latest_error: string | null
     last_run_at?: Dayjs
     schemas: ExternalDataSourceSchema[]
@@ -6051,6 +6066,16 @@ export interface AvailableColumn {
     nullable: boolean
 }
 
+/** The comparison operators a row filter may use. Mirrors the backend allowlist. */
+export type RowFilterOperator = '>' | '>=' | '<' | '<=' | '=' | '!=' | 'IN' | 'NOT IN'
+
+/** A `{column, operator, value}` predicate ANDed onto a schema's source query. For `IN` / `NOT IN`, `value` is a comma-separated string. */
+export interface RowFilter {
+    column: string
+    operator: RowFilterOperator
+    value: string | number | boolean
+}
+
 export type SchemaIncrementalFieldsResponse = {
     incremental_fields: IncrementalField[]
     incremental_available: boolean
@@ -6114,6 +6139,11 @@ export interface ExternalDataSourceSyncSchema {
      * PK columns and the active incremental field are always retained server-side.
      */
     enabled_columns?: string[] | null
+    /**
+     * Predicates ANDed onto the source query so only matching rows sync.
+     * `null`/undefined/empty = sync all rows.
+     */
+    row_filters?: RowFilter[] | null
 }
 
 export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema {
@@ -6136,6 +6166,11 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
      */
     enabled_columns?: string[] | null
     available_columns?: { name: string; data_type?: string; is_nullable?: boolean }[]
+    /**
+     * Predicates ANDed onto the source query so only matching rows sync.
+     * `null` means "sync all rows". Applied on the next sync — not retroactive.
+     */
+    row_filters?: RowFilter[] | null
 }
 
 /** Lightweight parent-source summary embedded in the single-schema retrieve endpoint. */
@@ -7360,28 +7395,6 @@ export interface DataWarehouseActivityRecord {
     latest_error: string | null
     workflow_run_id?: string
     origin?: DataWarehouseSavedQueryOrigin | null
-}
-
-export type DataWarehouseProvisioningState = 'pending' | 'provisioning' | 'ready' | 'failed' | 'deleting' | 'deleted'
-
-export interface DataWarehouseProvisioningConnection {
-    host: string
-    port: number
-    database: string
-    username: string
-}
-
-export interface DataWarehouseProvisioningStatus {
-    org_id: string
-    state: DataWarehouseProvisioningState
-    status_message: string
-    s3_state: DataWarehouseProvisioningState
-    metadata_store_state: DataWarehouseProvisioningState
-    identity_state: DataWarehouseProvisioningState
-    secrets_state: DataWarehouseProvisioningState
-    ready_at: string | null
-    failed_at: string | null
-    connection: DataWarehouseProvisioningConnection | null
 }
 
 export type HeatmapType = 'screenshot' | 'iframe' | 'recording'

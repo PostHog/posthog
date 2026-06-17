@@ -9,7 +9,7 @@ import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { getExportDisabledReason, getExportPendingLabel } from 'lib/components/ExportButton/exportStatus'
 import { takeScreenshotLogic } from 'lib/components/TakeScreenshot/takeScreenshotLogic'
 import { dayjs } from 'lib/dayjs'
-import { humanFriendlyNumber } from 'lib/utils'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 

@@ -232,12 +232,37 @@ If automatic creation failed due to a permissions error and you're using a restr
             "403 Client Error: Forbidden for url: https://api.stripe.com": "Your Stripe credentials do not have permissions to access endpoint. Please check your configuration and permissions in Stripe, then try again.",
             "Expired API Key provided": "Your Stripe API key has expired. Please create a new key and reconnect.",
             "Invalid API Key provided": None,
+            # Stripe rejects the request when the restricted key has an IP allowlist that doesn't
+            # include PostHog's egress IPs. This is a customer-side key configuration that retrying
+            # can never satisfy, so stop retrying. Match the stable phrase, not the appended IP.
+            "does not allow requests from your IP address": "Your Stripe API key restricts requests by IP address and is blocking PostHog. Remove the IP restriction on your restricted key in Stripe (or allowlist PostHog's IP addresses), then try again.",
             # Surface Stripe's raw permission message — it names the specific scope that's missing
             # (e.g. "Having the 'rak_payment_method_read' permission would allow this request to
             # continue"), which is more actionable than a generic "check your permissions" toast.
             # `_clean_stripe_error_message` collapses the redacted-key asterisk run before the
             # message reaches this layer, so it stays toast-sized.
+            #
+            # NOTE: this `"PermissionError"` key only matches the refresh-schemas path, which compares
+            # against `f"{type(error).__name__}: {message}"`. The import/sync path compares against
+            # `str(exc)` only — and `StripeError.__str__` returns `"Request <id>: <message>"` with no
+            # class name — so the type-name key never matches a 403 raised mid-sync. Match Stripe's
+            # stable permission-denied message text directly so a misconfigured key stops retrying.
             "PermissionError": None,
+            # Restricted key is missing a read scope for the endpoint being synced (e.g. "Prices Read"
+            # / 'plan_read'). The customer must add the scope in Stripe — retrying won't help. Surface
+            # Stripe's raw message (None) since it names the exact scope to enable.
+            "does not have the required permissions for this endpoint": None,
+            # A non-Connect key was sent with a `stripe_account` header (the source's "Account id"),
+            # so Stripe rejects the whole request for the account rather than a specific scope.
+            "Only Stripe Connect platforms can work with other accounts": "Stripe rejected the request because your API key isn't authorized for the configured Stripe account. The 'Account id' in your source settings only applies to Stripe Connect platform accounts — remove or correct it if your key belongs directly to the account, then reconnect.",
+            # Stripe's `account_invalid` rejection: the key can't reach the configured account (a
+            # `stripe_account` header it isn't authorized for) or the connected application's access
+            # was revoked. Surfaced mid-sync as `stripe.PermissionError` straight out of `get_rows`,
+            # so it never matches the URL-based 403 key. Retrying can't fix a key/account mismatch or
+            # a revoked grant — match Stripe's stable message (the account id and key are redacted out
+            # of the substring). `_is_stripe_account_access_error` classifies the same phrase for the
+            # webhook-creation path.
+            "does not have access to account": "Stripe rejected the request because your API key isn't authorized for the configured Stripe account. Remove or correct the 'Account id' in your source settings if your key belongs directly to the account. If you connected via OAuth, the application access may have been revoked — reconnect your Stripe account.",
             # Deterministic credential/config errors from _get_api_key and OAuthMixin
             "Missing Stripe API key": "Stripe API key is not configured. Please update the source configuration.",
             "Missing Stripe integration ID": "Stripe integration ID is not configured. Please reconnect your Stripe account.",
@@ -344,6 +369,16 @@ If automatic creation failed due to a permissions error and you're using a restr
             if e.missing_permissions:
                 message += f". Additionally lacks permissions for {', '.join(e.missing_permissions.keys())}"
             return False, message
+        except ValueError as e:
+            # `_get_api_key` raises ValueError for deterministic config problems (missing API key,
+            # missing integration ID, missing access token). The user-facing wording already lives
+            # in `get_non_retryable_errors`; reuse it so this path doesn't leak the internal
+            # "Missing Stripe integration ID" string. Fall back to the raw message if unmapped.
+            raw = str(e)
+            for pattern, friendly in self.get_non_retryable_errors().items():
+                if friendly and pattern in raw:
+                    return False, friendly
+            return False, raw
         except Exception as e:
             return False, str(e)
 

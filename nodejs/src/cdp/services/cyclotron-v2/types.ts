@@ -70,6 +70,14 @@ export type CyclotronV2ManagerConfig = {
     depthCheckIntervalMs?: number
 }
 
+/**
+ * Per-poll decision returned by a rate-limited worker's hook.
+ *   `{ limit: 0, sleepMs }` → skip the dequeue and sleep.
+ *   `{ limit: N }`          → dequeue up to `min(N, batchMaxSize)` rows.
+ *   `undefined`             → fall back to the static `batchMaxSize`.
+ */
+export type CyclotronV2BatchLimit = { limit: number; sleepMs?: number }
+
 export type CyclotronV2WorkerConfig = {
     pool: CyclotronV2PoolConfig
     queueName: string

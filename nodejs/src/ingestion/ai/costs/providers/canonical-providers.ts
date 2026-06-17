@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-06-15 20:58:51 UTC
+// Generated at: 2026-06-17 11:32:50 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -42,6 +42,7 @@ export type CanonicalProvider =
     | 'cohere'
     | 'darkbloom'
     | 'decart-fp4'
+    | 'deepinfra'
     | 'deepinfra-base'
     | 'deepinfra-bf16'
     | 'deepinfra-fp16'
@@ -84,6 +85,7 @@ export type CanonicalProvider =
     | 'minimax-highspeed'
     | 'mistral'
     | 'modelrun-fp4'
+    | 'moonshotai-highspeed'
     | 'moonshotai-int4'
     | 'morph'
     | 'nebius-base'

@@ -25,6 +25,7 @@ from posthog.temporal.session_replay.export_recording import EXPORT_RECORDING_WO
 from posthog.temporal.session_replay.import_recording import IMPORT_RECORDING_WORKFLOWS
 from posthog.temporal.session_replay.rasterize_recording import RASTERIZE_RECORDING_WORKFLOWS
 from posthog.temporal.session_replay.summarization_sweep import SUMMARIZATION_SWEEP_WORKFLOWS
+from posthog.temporal.session_replay.surfacing_scoring_sweep import SURFACING_SCORING_SWEEP_WORKFLOWS
 from posthog.temporal.sync_events_retention import SYNC_EVENTS_RETENTION_WORKFLOWS
 from posthog.temporal.tests.utils.workflow import WORKFLOWS as TEST_WORKFLOWS
 from posthog.temporal.usage_report import WORKFLOWS as USAGE_REPORTS_WORKFLOWS
@@ -157,6 +158,7 @@ class Command(BaseCommand):
             + RASTERIZE_RECORDING_WORKFLOWS
             + SUMMARIZATION_SWEEP_WORKFLOWS
             + WA_DIGEST_WORKFLOWS
+            + SURFACING_SCORING_SWEEP_WORKFLOWS
         )
         try:
             workflow = next(workflow for workflow in WORKFLOWS if workflow.is_named(workflow_name))
