@@ -833,6 +833,17 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
             queryset = self._apply_search(queryset, search)
 
+        # Gate on viewer access to the linked insight. Alert read/write access does not imply access
+        # to the insight's results (carried in AlertCheck.triggered_metadata / calculated_value), and
+        # "alert" isn't an access-control resource — so without this an alert leaks a restricted
+        # insight's data via check history, or via a PATCH that omits `insight` (skipping the
+        # create-time check). Filtering here covers list, retrieve, update, delete, and the embedded
+        # checks, since get_object() resolves detail routes from this queryset.
+        viewable_insights = self.user_access_control.filter_queryset_by_access_level(
+            Insight.objects.filter(team_id=self.team_id)
+        )
+        queryset = queryset.filter(insight_id__in=viewable_insights.values("id"))
+
         latest_check = AlertCheck.objects.filter(alert_configuration=OuterRef("pk")).order_by("-created_at")
         queryset = queryset.annotate(last_value=Subquery(latest_check.values("calculated_value")[:1]))
 

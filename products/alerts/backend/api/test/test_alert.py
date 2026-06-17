@@ -128,6 +128,34 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
             assert "access to this insight" in str(response.json())
 
+    def test_existing_alert_hidden_when_insight_viewer_access_is_lost(self) -> None:
+        # An existing alert must not outlive viewer access to its linked insight: otherwise its
+        # check history (breaching rows / values) leaks on read, and a PATCH that omits `insight`
+        # bypasses the create-time check. The queryset gate hides it from list, retrieve, and update.
+        creation_request = {
+            "insight": self.insight["id"],
+            "subscribed_users": [self.user.id],
+            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+            "config": {"type": "TrendsAlertConfig", "series_index": 0},
+            "name": "alert name",
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
+            "calculation_interval": "daily",
+        }
+        alert_id = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()["id"]
+
+        # Deny viewer access to every insight by emptying the viewable-insight queryset.
+        with mock.patch(
+            "posthog.rbac.user_access_control.UserAccessControl.filter_queryset_by_access_level",
+            side_effect=lambda queryset, *args, **kwargs: queryset.none(),
+        ):
+            retrieve = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert_id}")
+            listed = self.client.get(f"/api/projects/{self.team.id}/alerts")
+            update = self.client.patch(f"/api/projects/{self.team.id}/alerts/{alert_id}", {"name": "renamed"})
+
+        assert retrieve.status_code == status.HTTP_404_NOT_FOUND, retrieve.content
+        assert update.status_code == status.HTTP_404_NOT_FOUND, update.content
+        assert [a["id"] for a in listed.json()["results"]] == []
+
     def test_create_threshold_alert_rejects_empty_bounds(self) -> None:
         creation_request = {
             "insight": self.insight["id"],
