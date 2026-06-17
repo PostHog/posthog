@@ -44,7 +44,7 @@ Shipped types (code truth): [architecture.md § Shipped types](references/archit
 
 ### Execute
 
-After spec confirmation → [checklist-new-widget-type.md](references/checklist-new-widget-type.md) **§1 → §8**. §5b after MVP tests green.
+After spec confirmation → [checklist-new-widget-type.md](references/checklist-new-widget-type.md) **§1 → §8**. §5b (dedicated stories — required before the PR, not a follow-up) is sequenced once MVP tests are green.
 
 ## 3. Update a shipped type
 

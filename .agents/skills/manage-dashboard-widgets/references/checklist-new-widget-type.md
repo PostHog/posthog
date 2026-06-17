@@ -4,7 +4,7 @@
 
 1. Complete [widget-intake.md](widget-intake.md) — infer, batched questions, **spec confirmation** (mandatory).
 2. Work **§1 → §8 below in order**. Do not skip step 2 (permissions).
-3. **§5b** after MVP tests green; **skill docs** per [skill-maintenance.md](skill-maintenance.md) if workflow changed.
+3. **§5b** (dedicated stories — required before the PR, not a follow-up) once MVP tests are green; **skill docs** per [skill-maintenance.md](skill-maintenance.md) if workflow changed.
 
 Copy spine: [widget-intake.md § Defaults](widget-intake.md#defaults-and-inference).
 
