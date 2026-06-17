@@ -181,13 +181,14 @@ class HoglandBackend(PreviewBackend):
             r = self._require_box().exec(argv, timeout_seconds=timeout, env={"HOME": "/root"})
         return ExecResult(r.exit_code, r.stdout, r.stderr)
 
-    def write_file(self, remote_path: str, content: str) -> None:
+    def write_file(self, remote_path: str, content: bytes | str) -> None:
+        data = content.encode() if isinstance(content, str) else content
         try:
-            self._require_box().write_file(remote_path, content.encode(), mkdir=True)
+            self._require_box().write_file(remote_path, data, mkdir=True)
         except AuthenticationError:
             if not self._refresh_auth():
                 raise
-            self._require_box().write_file(remote_path, content.encode(), mkdir=True)
+            self._require_box().write_file(remote_path, data, mkdir=True)
 
     @property
     def web_url(self) -> str:

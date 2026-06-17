@@ -21,6 +21,44 @@ jobs:
             pr_number: '${{ github.event.pull_request.number }}'
         secrets: inherit
 
+    cleanup-hogbox-preview:
+        name: Cleanup hogbox preview
+        # Tear down the per-PR hogbox (box + pen) on close. The daily stale-sweep
+        # in pr-cleanup.yml is the backstop; the GitHub Deployment/environment is
+        # reaped there too. Idempotent — a no-op if nothing is up.
+        if: contains(github.event.pull_request.labels.*.name, 'hogbox-preview')
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        permissions:
+            contents: read
+            id-token: write # OIDC for the tailnet join + hogplane token
+        env:
+            HOG_HOST: https://hogland.hedgehog-kitefin.ts.net
+            HOG_OIDC_AUDIENCE: hogland.prod-us.posthog.dev
+            PR: ${{ github.event.pull_request.number }}
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - name: Connect to Tailscale (tag:hogland-ci)
+              uses: tailscale/github-action@306e68a486fd2350f2bfc3b19fcd143891a4a2d8 # v4.1.2
+              with:
+                  oauth-client-id: ${{ vars.TS_HOGLAND_CI_CLIENT_ID }}
+                  audience: ${{ vars.TS_HOGLAND_CI_AUDIENCE }}
+                  tags: tag:hogland-ci
+            - name: Mint hogland OIDC token
+              run: |
+                  token=$(curl -sf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+                    "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${HOG_OIDC_AUDIENCE}" | jq -r '.value')
+                  echo "::add-mask::$token"
+                  echo "HOG_TOKEN=$token" >> "$GITHUB_ENV"
+            - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version: '3.12'
+            - name: Install hogland SDK
+              run: pip install --disable-pip-version-check ./tools/hogbox-preview/vendor/posthog_hogland-0.1.2-py3-none-any.whl
+            - name: Destroy preview box + pen
+              working-directory: tools/hogbox-preview
+              run: python -m hogbox_preview --host "$HOG_HOST" --name "preview-pr-${PR}" destroy
+
     disable-canary-flags:
         name: Disable feature flags canary
         if: contains(github.event.pull_request.labels.*.name, 'canary-flags')

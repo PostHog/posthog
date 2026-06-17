@@ -84,6 +84,7 @@ class PostHogPreviewStack:
         seed_demo_data: bool = True,
         reset_db: bool = False,
         mount: bool = True,
+        frontend_dist_tar: str | None = None,
     ):
         self.backend = backend
         self.branch = branch
@@ -99,6 +100,10 @@ class PostHogPreviewStack:
         # fresh against the built code rather than inheriting a snapshot's
         # drifted DB. Set when baking a golden; a restore-and-delta leaves False.
         self.reset_db = reset_db
+        # Optional gzipped tar of a prebuilt frontend/dist (built in CI with the
+        # Turbo cache). When set, swap_frontend serves the PR's own frontend
+        # instead of the golden image's :master SPA. None => keep :master.
+        self.frontend_dist_tar = frontend_dist_tar
 
     # --- public API ----------------------------------------------------------
     def bring_up(self) -> str:
@@ -127,6 +132,11 @@ class PostHogPreviewStack:
                 self.generate_demo_data()
             except Exception as e:  # noqa: BLE001
                 sys.stderr.write(f"[hogbox-preview] demo-data seeding skipped (preview still usable): {e}\n")
+        if self.frontend_dist_tar:
+            # Serve the PR's frontend (else it's the golden's :master SPA). Must
+            # run before up_web so the fresh web container reads the new index
+            # template + collected statics.
+            self.swap_frontend()
         self.up_web()
         self.wait_for_health()
         return url
@@ -176,7 +186,15 @@ class PostHogPreviewStack:
             # Compose concatenates volume lists across files, so dev-full's
             # .:/app/posthog stays and these are appended.
             lines.append("    volumes:")
-            lines += [f"      - ./{src}:{dst}" for src, dst in self.MOUNTS]
+            mounts = list(self.MOUNTS)
+            if self.frontend_dist_tar:
+                # Serve the PR's frontend too: its built dist (the SPA index
+                # template) + the statics collectstatic writes into staticfiles/.
+                # Both are mounted so swap_frontend's `run` container and the
+                # serving web container share them — static is served by
+                # WhiteNoise from staticfiles/, NOT frontend/dist, hence both.
+                mounts += [("frontend/dist", "/code/frontend/dist"), ("staticfiles", "/code/staticfiles")]
+            lines += [f"      - ./{src}:{dst}" for src, dst in mounts]
         lines += [
             "    environment:",
             # SITE_URL is a cosmetic placeholder (absolute links in emails etc.);
@@ -277,6 +295,30 @@ class PostHogPreviewStack:
             name="seed",
             timeout=1800,
         )
+
+    def swap_frontend(self) -> None:
+        # Serve the PR's OWN frontend. The dist is built in CI (Depot + Turbo
+        # cache) and handed in as a gzipped tar; drop it into the box's
+        # frontend/dist (bind-mounted over /code/frontend/dist by write_override)
+        # and re-run collectstatic so WhiteNoise serves the PR's hashed chunks
+        # from the (also-mounted) staticfiles/. Static is served from
+        # staticfiles/, NOT frontend/dist — so collectstatic is mandatory.
+        # STATIC_COLLECTION=1 skips the prod SECRET_KEY guard; the version skip
+        # mirrors the image's own collectstatic. Deps are already up (up_deps ran)
+        # so settings import is fine; collectstatic itself needs no live DB.
+        import pathlib
+
+        tar = pathlib.Path(self.frontend_dist_tar).read_bytes()
+        self.backend.write_file(f"{self.repo_dir}/frontend/dist.tgz", tar)
+        compose = f"docker compose -f {self.COMPOSE} -f {self.OVERRIDE}"
+        script = (
+            f"cd {self.repo_dir} && "
+            "rm -rf frontend/dist && mkdir -p frontend/dist staticfiles && "
+            "tar xzf frontend/dist.tgz -C frontend/dist && "
+            f"{compose} run --rm -T -e STATIC_COLLECTION=1 -e SKIP_SERVICE_VERSION_REQUIREMENTS=1 "
+            "web python manage.py collectstatic --noinput"
+        )
+        self.backend.run_long(script, name="frontend", timeout=900)
 
     def wait_for_health(self) -> None:
         # Do NOT `restart web` with the pinned image: Nginx Unit binds its :8000

@@ -70,8 +70,8 @@ class PreviewBackend(abc.ABC):
         """Run a shell command in the box and capture its output."""
 
     @abc.abstractmethod
-    def write_file(self, remote_path: str, content: str) -> None:
-        """Write ``content`` to ``remote_path`` in the box."""
+    def write_file(self, remote_path: str, content: bytes | str) -> None:
+        """Write ``content`` (text or raw bytes) to ``remote_path`` in the box."""
 
     @property
     @abc.abstractmethod

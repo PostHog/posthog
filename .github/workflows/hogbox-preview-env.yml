@@ -2,8 +2,8 @@
 #
 # Restores the pre-baked "preview golden" snapshot (PostHog already migrated +
 # seeded on the :master image), mounts the PR's backend source over the image's
-# /code, runs only the delta migrations, and posts the reachable URL on the PR.
-# Tear-down on close.
+# /code, builds the PR's frontend, runs the delta migrations, and posts the
+# reachable URL on the PR (sticky comment + a GitHub Deployment).
 #
 # This is the productionised successor to ci-hogbox-preview.yml (the connectivity
 # probe). It drives tools/hogbox-preview — the layer (hogland) is swappable; the
@@ -17,16 +17,22 @@
 # the BACKEND runs the PR code with NO per-PR build or pull, and runs `migrate` —
 # applying only the PR's *unapplied* migrations on top of the seeded DB. That
 # keeps each preview off both the cold 20-min build and the heavy full-migrate
-# path (the load that destabilised boxes — see hogland
-# docs/agent-memory/observation_box_corruption_under_heavy_io). The frontend stays
-# at the image's version (frontend hot-mount is a later iteration). If a PR's
-# migrations are incompatible with the baseline, fall back to --reset-db.
+# path. The PR's FRONTEND is built in-box from the mounted source and served from
+# frontend/dist. If a PR's migrations are incompatible with the baseline, fall
+# back to --reset-db.
+#
+# --- LIFECYCLE ------------------------------------------------------------------
+#   - build/update: this workflow, on a labeled PR's push (and manual dispatch).
+#   - teardown on PR close + the daily stale-sweep: folded into pr-cleanup.yml
+#     (cleanup-hogbox-preview), invoked from pr-closed.yml — same place hobby's
+#     teardown lives. The GitHub Deployment/environment (preview-pr-<n>) is reaped
+#     by pr-cleanup.yml's existing deployment cleanup.
+#   - teardown on label removal: the teardown job below (fast path; the cron is
+#     the backstop).
 #
 # --- PREREQS (tracked out of band) ----------------------------------------------
 #   - vars.TS_HOGLAND_CI_CLIENT_ID / TS_HOGLAND_CI_AUDIENCE  (tailnet join)
 #   - the golden is referenced by its global alias `posthog-preview-golden`
-#     (hogplane resolves alias:<name> server-side), so the bake re-points the
-#     alias and CI follows automatically — no per-snapshot CI var to keep current
 #   - target hogland deploy has HOG_GITHUB_OIDC_AUDIENCE + a github_oidc
 #     TrustMapping for PostHog/posthog on prod-us
 #   - PRs opt in with the `hogbox-preview` label (mirrors hobby's label gate)
@@ -37,7 +43,7 @@ name: Hogbox Preview Environment
 
 on:
     pull_request:
-        types: [opened, synchronize, reopened, labeled, closed]
+        types: [opened, synchronize, reopened, labeled, unlabeled]
     workflow_dispatch:
         inputs:
             pr_number:
@@ -52,6 +58,7 @@ permissions:
     contents: read
     id-token: write # mint OIDC for the tailnet join AND the hogplane token
     pull-requests: write # sticky preview comment
+    deployments: write # GitHub Deployment for the PR's Environments UI
 
 env:
     # prod-us: the golden lives here and the box edge is live here.
@@ -63,15 +70,52 @@ jobs:
     # ----------------------------------------------------------------------------
     preview:
         name: build preview
-        # Opt-in via label; skip the close event (that's the cleanup job).
+        # Opt-in via label; only build events (skip unlabeled — that's teardown).
         if: >-
-            github.event.action != 'closed' &&
-            (github.event_name == 'workflow_dispatch' ||
+            github.event_name == 'workflow_dispatch' ||
+            (github.event.action != 'unlabeled' &&
              contains(github.event.pull_request.labels.*.name, 'hogbox-preview'))
         runs-on: ubuntu-24.04
         timeout-minutes: 40
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            # Announce immediately: open a GitHub Deployment (in_progress) and a
+            # sticky "building…" comment, so the PR shows activity before the
+            # (multi-minute) bring-up finishes. Runs first so even an early
+            # failure leaves a Deployment to fail + a comment to update.
+            - name: Announce (deployment + building comment)
+              id: start
+              uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+              with:
+                  script: |
+                      const pr = Number(process.env.PR);
+                      let sha = context.payload.pull_request?.head?.sha;
+                      if (!sha) {
+                          const { data } = await github.rest.pulls.get({ ...context.repo, pull_number: pr });
+                          sha = data.head.sha;
+                      }
+                      core.setOutput('sha', sha);
+                      const environment = `preview-pr-${pr}`;
+                      const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+                      const dep = await github.rest.repos.createDeployment({
+                          ...context.repo, ref: sha, environment, auto_merge: false,
+                          required_contexts: [], transient_environment: true, description: 'Hogbox preview',
+                      });
+                      core.setOutput('deployment_id', String(dep.data.id));
+                      await github.rest.repos.createDeploymentStatus({
+                          ...context.repo, deployment_id: dep.data.id, state: 'in_progress',
+                          environment, log_url: runUrl, description: 'Building preview…',
+                      });
+                      const marker = '<!-- hogbox-preview-comment -->';
+                      const body =
+                          `${marker}\n### 🦔 Hogbox preview &middot; 🔧 building…\n\n` +
+                          `Spinning up PostHog for this PR on a hogland hogbox — this comment updates in place when it's ready (usually ~1–2 min).\n\n` +
+                          `<sub>commit \`${sha.slice(0, 7)}\` &middot; <a href="${runUrl}">build log</a></sub>`;
+                      const { data: comments } = await github.rest.issues.listComments({ ...context.repo, issue_number: pr });
+                      const ex = comments.find(c => c.body.includes(marker));
+                      if (ex) await github.rest.issues.updateComment({ ...context.repo, comment_id: ex.id, body });
+                      else await github.rest.issues.createComment({ ...context.repo, issue_number: pr, body });
 
             - name: Connect to Tailscale (tag:hogland-ci)
               uses: tailscale/github-action@306e68a486fd2350f2bfc3b19fcd143891a4a2d8 # v4.1.2
@@ -97,41 +141,143 @@ jobs:
             - name: Install hogland SDK
               run: pip install --disable-pip-version-check ./tools/hogbox-preview/vendor/posthog_hogland-0.1.2-py3-none-any.whl
 
+            # --- Frontend: only build it when the PR actually touches it --------
+            # The golden serves the :master SPA; mounting the backend doesn't
+            # change the frontend. So for FE-touching PRs, build the PR's
+            # frontend here (the canonical Dockerfile build) and hand the dist to
+            # the tool, which lays it in + re-runs collectstatic in-box. Non-FE
+            # PRs skip all of this and keep the ~1-min preview.
+            - name: Detect frontend changes
+              id: fe
+              uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+              with:
+                  script: |
+                      const pr = Number(process.env.PR);
+                      const files = await github.paginate(github.rest.pulls.listFiles, { ...context.repo, pull_number: pr, per_page: 100 });
+                      const changed = files.some(f =>
+                          f.filename.startsWith('frontend/') ||
+                          f.filename.includes('/frontend/') ||
+                          f.filename.startsWith('common/esbuilder/'));
+                      core.info(`frontend changed in PR #${pr}: ${changed}`);
+                      core.setOutput('changed', changed ? 'true' : 'false');
+
+            - name: Install pnpm
+              if: steps.fe.outputs.changed == 'true'
+              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+            - name: Setup Node
+              if: steps.fe.outputs.changed == 'true'
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version: '24'
+                  cache: pnpm
+            - name: Build the PR frontend
+              id: febuild
+              if: steps.fe.outputs.changed == 'true'
+              env:
+                  NODE_OPTIONS: --max-old-space-size=6144
+              run: |
+                  pnpm --filter=@posthog/frontend... install --frozen-lockfile
+                  bin/turbo --filter=@posthog/frontend build
+                  pnpm build:products
+                  tar czf "$RUNNER_TEMP/frontend-dist.tgz" -C frontend dist
+                  echo "dist=$RUNNER_TEMP/frontend-dist.tgz" >> "$GITHUB_OUTPUT"
+
             - name: Bring up preview
               id: build
+              env:
+                  # Path to the built dist when the PR touched the FE; empty
+                  # otherwise → the tool keeps the golden's :master frontend.
+                  FE_DIST: ${{ steps.febuild.outputs.dist }}
               run: |
                   # Restore the golden, check out the PR, mount its backend source
-                  # (posthog/ee/products) over the :master image's /code, delta-migrate.
-                  # No per-PR build or pull — the tool defaults to the :master image and
-                  # the mount swaps the code. (--image "" is the build escape hatch.)
+                  # (posthog/ee/products) over the :master image's /code, swap in
+                  # the PR frontend (when built), delta-migrate. No per-PR image.
+                  t0=$(date +%s)
                   out=$(python -m hogbox_preview \
                     --host "$HOG_HOST" \
                     --name "preview-pr-${PR}" \
                     --snapshot "alias:posthog-preview-golden" \
                     --cpus 8 --memory-mib 16384 --disk-gib 100 \
-                    up --branch "pull/${PR}/head" --no-seed)   # restore -> mount PR -> delta-migrate
+                    up --branch "pull/${PR}/head" --no-seed --frontend-dist "$FE_DIST")
                   echo "$out"
-                  echo "url=$(echo "$out" | sed -n 's/^url=//p')" >> "$GITHUB_OUTPUT"
+                  {
+                    echo "url=$(echo "$out" | sed -n 's/^url=//p')"
+                    echo "box_id=$(echo "$out" | sed -n 's/^box_id=//p')"
+                    echo "secs=$(( $(date +%s) - t0 ))"
+                  } >> "$GITHUB_OUTPUT"
               working-directory: tools/hogbox-preview
 
-            - name: Comment preview URL
+            - name: Report ready (deployment + comment)
+              if: success()
               uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+              env:
+                  URL: ${{ steps.build.outputs.url }}
+                  BOX: ${{ steps.build.outputs.box_id }}
+                  SECS: ${{ steps.build.outputs.secs }}
+                  SHA: ${{ steps.start.outputs.sha }}
+                  DEP: ${{ steps.start.outputs.deployment_id }}
               with:
                   script: |
+                      const pr = Number(process.env.PR);
+                      const url = process.env.URL;
+                      const environment = `preview-pr-${pr}`;
+                      const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+                      if (process.env.DEP) {
+                          await github.rest.repos.createDeploymentStatus({
+                              ...context.repo, deployment_id: Number(process.env.DEP), state: 'success',
+                              environment, environment_url: url, log_url: runUrl, description: 'Preview ready',
+                          });
+                      }
                       const marker = '<!-- hogbox-preview-comment -->';
-                      const url = '${{ steps.build.outputs.url }}';
-                      const body = `${marker}\n### 🦔 Hogbox preview\n\nPostHog for this PR is up at ${url}\n\n` +
-                        `Log in: \`test@posthog.com\` / \`12345678\` (demo data). Tailnet only.`;
-                      const { data: comments } = await github.rest.issues.listComments(
-                        { ...context.repo, issue_number: process.env.PR });
-                      const existing = comments.find(c => c.body.includes(marker));
-                      if (existing) await github.rest.issues.updateComment({ ...context.repo, comment_id: existing.id, body });
-                      else await github.rest.issues.createComment({ ...context.repo, issue_number: process.env.PR, body });
+                      const body =
+                          `${marker}\n### 🦔 Hogbox preview &middot; ✅ ready\n\n` +
+                          `### [▶ Open the preview](${url})\n\n` +
+                          `| | |\n|--|--|\n` +
+                          `| 🔑 **Login** | \`test@posthog.com\` / \`12345678\` (demo data) |\n` +
+                          `| 🧩 **Running** | this PR's backend **and** frontend, on the PostHog \`:master\` base |\n` +
+                          `| 🔗 **Link** | **stable across rebuilds** — a re-push swaps the box underneath, the URL stays |\n` +
+                          `| 🔒 **Access** | tailnet only (PostHog VPN) |\n\n` +
+                          `<sub>commit \`${(process.env.SHA || '').slice(0, 7)}\` &middot; box \`${process.env.BOX}\` &middot; up in ${process.env.SECS}s &middot; ` +
+                          `<a href="${runUrl}">build log</a> &middot; rebuilds on every push, torn down on close</sub>`;
+                      const { data: comments } = await github.rest.issues.listComments({ ...context.repo, issue_number: pr });
+                      const ex = comments.find(c => c.body.includes(marker));
+                      if (ex) await github.rest.issues.updateComment({ ...context.repo, comment_id: ex.id, body });
+                      else await github.rest.issues.createComment({ ...context.repo, issue_number: pr, body });
+
+            - name: Report failure (deployment + comment)
+              if: failure()
+              uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+              env:
+                  SHA: ${{ steps.start.outputs.sha }}
+                  DEP: ${{ steps.start.outputs.deployment_id }}
+              with:
+                  script: |
+                      const pr = Number(process.env.PR);
+                      const environment = `preview-pr-${pr}`;
+                      const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+                      if (process.env.DEP) {
+                          await github.rest.repos.createDeploymentStatus({
+                              ...context.repo, deployment_id: Number(process.env.DEP), state: 'failure',
+                              environment, log_url: runUrl, description: 'Preview build failed',
+                          });
+                      }
+                      const marker = '<!-- hogbox-preview-comment -->';
+                      const body =
+                          `${marker}\n### 🦔 Hogbox preview &middot; ❌ build failed\n\n` +
+                          `The preview didn't come up for commit \`${(process.env.SHA || '').slice(0, 7)}\`. ` +
+                          `See the **[build log](${runUrl})** for the failing step. It'll retry on the next push.`;
+                      const { data: comments } = await github.rest.issues.listComments({ ...context.repo, issue_number: pr });
+                      const ex = comments.find(c => c.body.includes(marker));
+                      if (ex) await github.rest.issues.updateComment({ ...context.repo, comment_id: ex.id, body });
+                      else await github.rest.issues.createComment({ ...context.repo, issue_number: pr, body });
 
     # ----------------------------------------------------------------------------
-    cleanup:
-        name: tear down preview
-        if: github.event.action == 'closed'
+    # Fast-path teardown when the `hogbox-preview` label is removed (the daily
+    # stale-sweep in pr-cleanup.yml is the backstop; PR *close* teardown lives in
+    # pr-cleanup.yml too, via pr-closed.yml).
+    teardown-on-unlabel:
+        name: tear down preview (label removed)
+        if: github.event.action == 'unlabeled' && github.event.label.name == 'hogbox-preview'
         runs-on: ubuntu-24.04
         timeout-minutes: 10
         steps:
@@ -152,7 +298,6 @@ jobs:
                   python-version: '3.12'
             - name: Install hogland SDK
               run: pip install --disable-pip-version-check ./tools/hogbox-preview/vendor/posthog_hogland-0.1.2-py3-none-any.whl
-            - name: Destroy preview box
+            - name: Destroy preview box + pen
               working-directory: tools/hogbox-preview
-              # Resolve the box by its deterministic name and tear it down.
               run: python -m hogbox_preview --host "$HOG_HOST" --name "preview-pr-${PR}" destroy
