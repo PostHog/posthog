@@ -10,7 +10,7 @@ from products.replay_vision.backend.rrule import compute_next_occurrences
 
 
 def default_selection() -> dict[str, Any]:
-    # Past-day summarizer observations — the most common "and then" digest.
+    # Past-day summarizer observations — the most common "and then" summary.
     return {"scanner_type": "summarizer", "window_days": 1}
 
 
@@ -27,7 +27,7 @@ class ActionMode(models.TextChoices):
 class VisionAction(TeamScopedRootMixin, UUIDModel):
     """An "and then…" automation over a scanner's observations: gather, (optionally) synthesize, deliver.
 
-    MVP is schedule-triggered summary digests; the trigger_type/mode enums leave room for
+    MVP is schedule-triggered summaries; the trigger_type/mode enums leave room for
     threshold alerts and per-observation reactions without a schema change.
     """
 
@@ -154,7 +154,7 @@ class VisionActionRunStatus(models.TextChoices):
 
 class VisionActionRun(TeamScopedRootMixin, UUIDModel):
     """History of a single VisionAction execution. The full synthesized report lives here (not on
-    the Temporal wire) and backs the 'view full digest' link."""
+    the Temporal wire) and backs the 'view full summary' link."""
 
     all_teams = models.Manager()  # noqa: DJ012 — escape hatch for cross-team Temporal/admin access
 

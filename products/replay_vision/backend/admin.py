@@ -99,5 +99,5 @@ class VisionActionRunAdmin(admin.ModelAdmin):
     )
 
     def has_add_permission(self, request: HttpRequest) -> bool:
-        # Created by the digest workflow, never via admin.
+        # Created by the vision-action workflow, never via admin.
         return False

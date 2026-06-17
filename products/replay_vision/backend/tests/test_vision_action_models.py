@@ -135,8 +135,8 @@ class TestVisionActionModel(BaseTest):
         self.assertFalse(VisionAction.all_teams.filter(pk=action.pk).exists())
 
     def test_str(self) -> None:
-        action = self._create_action(name="weekly digest")
-        self.assertIn("weekly digest", str(action))
+        action = self._create_action(name="weekly summary")
+        self.assertIn("weekly summary", str(action))
 
 
 class TestVisionActionScoping(BaseTest):
