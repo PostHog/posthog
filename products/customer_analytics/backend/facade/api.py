@@ -17,11 +17,12 @@ Do NOT:
 
 from typing import TYPE_CHECKING
 
-from django.core.exceptions import ObjectDoesNotExist, ValidationError
+from django.core.exceptions import ValidationError
 from django.db.models import Q
 
 from posthog.models.tagged_item import TaggedItem
 
+from products.customer_analytics.backend.account_urls import build_account_deeplink as build_account_deeplink
 from products.customer_analytics.backend.logic.usage_spike_notifications import (
     notify_managers_of_usage_spike as notify_managers_of_usage_spike,
 )
@@ -77,18 +78,11 @@ def _account_notes(account: Account) -> list[contracts.AccountNote]:
     return [contracts.AccountNote(title=link.notebook.title, short_id=link.notebook.short_id) for link in links]
 
 
-def _account_group_type_index(account: Account) -> int | None:
-    try:
-        return account.team.customer_analytics_config.account_group_type_index
-    except ObjectDoesNotExist:
-        return None
-
-
 def get_account_context_data(
     team_id: int, account_id: str | None = None, external_id: str | None = None
 ) -> contracts.AccountContextData | None:
-    """Fetch one account (by id or external_id, scoped to the team) with the tags,
-    internal notes, and configured group-type index the assistant context renders.
+    """Fetch one account (by id or external_id, scoped to the team) with the tags
+    and internal notes the assistant context renders.
 
     Returns None when no account matches or the identifier is malformed.
     """
@@ -103,7 +97,6 @@ def get_account_context_data(
         properties=_to_account_properties(account.properties),
         tags=_account_tags(account),
         notes=_account_notes(account),
-        account_group_type_index=_account_group_type_index(account),
     )
 
 

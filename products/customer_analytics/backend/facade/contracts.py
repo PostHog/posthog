@@ -79,11 +79,11 @@ class AccountNote:
 
 @dataclass(frozen=True)
 class AccountContextData:
-    """Everything the assistant's account-context formatter renders for one account.
+    """The account fields plus cross-cutting reads (tags, internal notes) the
+    assistant's account-context formatter renders for one account.
 
-    Bundles the account fields plus the cross-cutting reads (tags, internal notes)
-    and the configured account group-type index, so the consumer needs no ORM
-    access of its own.
+    The configured group-type index stays with the consumer — it reads the core
+    ``Team.customer_analytics_config`` property, not product internals.
     """
 
     id: UUID
@@ -93,4 +93,3 @@ class AccountContextData:
     properties: AccountProperties
     tags: list[str] = field(default_factory=list)
     notes: list[AccountNote] = field(default_factory=list)
-    account_group_type_index: int | None = None

@@ -1,16 +1,22 @@
 import uuid
+from typing import TYPE_CHECKING
 
 from posthog.test.base import NonAtomicBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.apps import apps
 from django.core.exceptions import ObjectDoesNotExist
 
 from asgiref.sync import sync_to_async
 
 from posthog.api.tagged_item import set_tags_on_object
 
-from products.customer_analytics.backend.models import Account
 from products.notebooks.backend.models import Notebook, ResourceNotebook
+
+if TYPE_CHECKING:
+    from products.customer_analytics.backend.models import Account
+else:
+    Account = apps.get_model("customer_analytics", "Account")
 
 from ee.hogai.context.account.context import AccountContext
 
@@ -48,7 +54,7 @@ class TestAccountContext(NonAtomicBaseTest):
     async def test_format_includes_basics(self):
         account = await self._create_account(name="Acme Corp", external_id="acme-1")
 
-        result = await AccountContext(team=self.team, account_id=str(account.id)).format_account(account)
+        result = await AccountContext(team=self.team, account_id=str(account.id)).execute_and_format()
 
         assert "## Account: Acme Corp" in result
         assert str(account.id) in result
@@ -57,7 +63,7 @@ class TestAccountContext(NonAtomicBaseTest):
     async def test_format_external_id_not_set(self):
         account = await self._create_account(name="Acme Corp")
 
-        result = await AccountContext(team=self.team, account_id=str(account.id)).format_account(account)
+        result = await AccountContext(team=self.team, account_id=str(account.id)).execute_and_format()
 
         assert "**External ID:** Not set" in result
 
@@ -67,7 +73,7 @@ class TestAccountContext(NonAtomicBaseTest):
             _properties={"csm": {"id": 42, "email": "jane@acme.com"}},
         )
 
-        result = await AccountContext(team=self.team, account_id=str(account.id)).format_account(account)
+        result = await AccountContext(team=self.team, account_id=str(account.id)).execute_and_format()
 
         assert "### Roles" in result
         assert "CSM: jane@acme.com (user 42)" in result
@@ -75,7 +81,7 @@ class TestAccountContext(NonAtomicBaseTest):
     async def test_format_includes_external_system_ids(self):
         account = await self._create_account(name="Acme Corp", _properties={"stripe_customer_id": "cus_123"})
 
-        result = await AccountContext(team=self.team, account_id=str(account.id)).format_account(account)
+        result = await AccountContext(team=self.team, account_id=str(account.id)).execute_and_format()
 
         assert "### External-system ids" in result
         assert "Stripe customer id: cus_123" in result
@@ -84,7 +90,7 @@ class TestAccountContext(NonAtomicBaseTest):
         account = await self._create_account(name="Acme Corp")
         await sync_to_async(set_tags_on_object)(["enterprise", "priority"], account)
 
-        result = await AccountContext(team=self.team, account_id=str(account.id)).format_account(account)
+        result = await AccountContext(team=self.team, account_id=str(account.id)).execute_and_format()
 
         assert "### Tags" in result
         assert "enterprise, priority" in result
@@ -100,7 +106,7 @@ class TestAccountContext(NonAtomicBaseTest):
         )
         await ResourceNotebook.objects.acreate(notebook=notebook, account=account)
 
-        result = await AccountContext(team=self.team, account_id=str(account.id)).format_account(account)
+        result = await AccountContext(team=self.team, account_id=str(account.id)).execute_and_format()
 
         assert "### Saved notes" in result
         assert "Q3 kickoff recap" in result
@@ -113,7 +119,7 @@ class TestAccountContext(NonAtomicBaseTest):
             patch.object(AccountContext, "_account_group_type_index", return_value=2),
             patch("ee.hogai.context.account.context.get_group_by_key", return_value=MagicMock()) as mock_lookup,
         ):
-            result = await AccountContext(team=self.team, account_id=str(account.id)).format_account(account)
+            result = await AccountContext(team=self.team, account_id=str(account.id)).execute_and_format()
 
         mock_lookup.assert_called_once()
         assert "<account_analysis_context>" in result
@@ -134,7 +140,7 @@ class TestAccountContext(NonAtomicBaseTest):
             patch.object(AccountContext, "_account_group_type_index", return_value=None),
             patch("ee.hogai.context.account.context.get_group_by_key") as mock_lookup,
         ):
-            result = await AccountContext(team=self.team, account_id=str(account.id)).format_account(account)
+            result = await AccountContext(team=self.team, account_id=str(account.id)).execute_and_format()
 
         mock_lookup.assert_not_called()
         assert "isn't connected to a group type" in result
@@ -146,7 +152,7 @@ class TestAccountContext(NonAtomicBaseTest):
             patch.object(AccountContext, "_account_group_type_index", return_value=2),
             patch("ee.hogai.context.account.context.get_group_by_key") as mock_lookup,
         ):
-            result = await AccountContext(team=self.team, account_id=str(account.id)).format_account(account)
+            result = await AccountContext(team=self.team, account_id=str(account.id)).execute_and_format()
 
         mock_lookup.assert_not_called()
         assert "has no external ID" in result
@@ -158,7 +164,7 @@ class TestAccountContext(NonAtomicBaseTest):
             patch.object(AccountContext, "_account_group_type_index", return_value=2),
             patch("ee.hogai.context.account.context.get_group_by_key", return_value=None),
         ):
-            result = await AccountContext(team=self.team, account_id=str(account.id)).format_account(account)
+            result = await AccountContext(team=self.team, account_id=str(account.id)).execute_and_format()
 
         assert "doesn't match any known group" in result
 
