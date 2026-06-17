@@ -308,24 +308,10 @@ pub fn process_event(
 }
 
 /// The finite eviction deadline to schedule for a just-written state, or [`None`] when it never
-/// evicts (states with `i64::MAX` deadline are left out of the sweep queue).
+/// evicts. The single source of truth for the sweep-scheduling policy: the per-variant deadline from
+/// [`Stage1State::eviction_deadline`], minus the `i64::MAX` permanent-membership sentinel.
 pub(crate) fn schedule_deadline(state: &Stage1State) -> Option<i64> {
-    let deadline = match state {
-        Stage1State::BehavioralSingle {
-            earliest_eviction_at_ms,
-            ..
-        }
-        | Stage1State::BehavioralDailyBuckets {
-            earliest_eviction_at_ms,
-            ..
-        }
-        | Stage1State::BehavioralCompressedHistory {
-            earliest_eviction_at_ms,
-            ..
-        } => *earliest_eviction_at_ms,
-        Stage1State::PersonProperty { .. } => return None,
-    };
-    (deadline != i64::MAX).then_some(deadline)
+    state.eviction_deadline().filter(|&d| d != i64::MAX)
 }
 
 /// Evaluate each conditionHash once and gather the leaves to fold.

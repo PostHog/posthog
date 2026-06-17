@@ -9,7 +9,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 use dashmap::mapref::entry::Entry;
@@ -112,6 +112,11 @@ pub struct EventDispatcher {
     /// rebuild their `EvictionQueue` on spawn and the boot / rebalance-assign paths reclaim stale
     /// on-disk slices.
     durable_restore: AtomicBool,
+    /// Settled boot assignment, recorded once. The assign path consults it and reclaims only
+    /// partitions that move in *after* boot, never the ones the boot sweep keeps. `OnceLock` is
+    /// `Sync`; the only race (get sees `None` before set) resolves to "skip", so a boot partition is
+    /// never wiped.
+    boot_assignment: OnceLock<HashSet<i32>>,
 }
 
 impl EventDispatcher {
@@ -134,6 +139,7 @@ impl EventDispatcher {
             merge,
             draining: AtomicBool::new(false),
             durable_restore: AtomicBool::new(false),
+            boot_assignment: OnceLock::new(),
         }
     }
 
@@ -473,13 +479,19 @@ impl EventDispatcher {
         }
     }
 
-    /// A partition moving in via a rebalance assign has a stale on-disk slice (another pod may have
-    /// advanced it while unowned here), so delete it and let the worker cold-rebuild from the committed
-    /// offset. Skipped when a live worker already owns the partition — continuous ownership across a
-    /// rapid revoke→re-acquire kept its slice current.
+    /// Delete a moving-in partition's stale on-disk slice (another pod may have advanced it while
+    /// unowned here) so the worker cold-rebuilds from the committed offset. Skipped when a live worker
+    /// already owns the partition (its slice is current), and for any partition in the boot snapshot
+    /// (the boot sweep already kept and reopened it) — only genuine post-boot move-ins are reclaimed.
     pub(crate) fn reclaim_stale_partition_on_assign(&self, partition: i32) {
         if self.workers.contains_key(&partition) {
             return;
+        }
+        match self.boot_assignment.get() {
+            // Pre-boot: the sweep hasn't recorded the snapshot yet and is the authority — never wipe.
+            None => return,
+            Some(boot) if boot.contains(&partition) => return,
+            Some(_) => {}
         }
         let Some(partition_id) = partition_to_store_id(partition) else {
             warn!(
@@ -531,6 +543,20 @@ impl EventDispatcher {
         );
     }
 
+    /// Record the boot assignment snapshot, then run the boot staleness sweep. Recording it first
+    /// makes the assign path defer to the boot decision: keep every assigned partition, reclaim only
+    /// post-boot move-ins.
+    pub(crate) fn reconcile_boot_assignment(
+        &self,
+        assignment: &HashSet<i32>,
+        partition_count: usize,
+    ) {
+        if self.boot_assignment.set(assignment.clone()).is_err() {
+            debug!("boot assignment snapshot already recorded; keeping the first");
+        }
+        self.reclaim_unassigned_partitions_on_boot(assignment, partition_count);
+    }
+
     fn tracker(&self) -> &OffsetTracker {
         self.tracker.as_ref()
     }
@@ -571,6 +597,20 @@ struct DispatchStats {
 /// out-of-range values.
 fn partition_to_store_id(partition: i32) -> Option<u16> {
     u16::try_from(partition).ok()
+}
+
+/// Whether the boot assignment has settled: the same non-empty set seen on two consecutive polls.
+/// Empty means the join hasn't landed (sweeping on it would wipe everything); a set differing from the
+/// previous poll re-baselines, so a cooperative-incremental assign settles before the sweep runs.
+fn boot_assignment_settled(assignment: &HashSet<i32>, prev: &mut Option<HashSet<i32>>) -> bool {
+    if assignment.is_empty() {
+        return false;
+    }
+    if prev.as_ref() != Some(assignment) {
+        *prev = Some(assignment.clone());
+        return false;
+    }
+    true
 }
 
 /// The `cohort_stream_events` group consumer: consume, route, commit.
@@ -626,6 +666,7 @@ impl CohortStreamEventsConsumer {
         let mut commit_deadline = tokio::time::Instant::now() + self.offset_commit_interval;
         // One-shot boot staleness sweep; pre-marked done when the gate is off so that path is unchanged.
         let mut boot_sweep_done = !self.dispatcher.durable_restore_enabled();
+        let mut prev_assignment: Option<HashSet<i32>> = None;
 
         loop {
             tokio::select! {
@@ -635,10 +676,9 @@ impl CohortStreamEventsConsumer {
                     break;
                 }
                 outcome = self.consume_batch() => {
-                    // The first poll establishes the assignment; sweep before dispatching, so the
-                    // reclaim never races a worker spawn.
+                    // Sweep before dispatching, so the reclaim never races a worker spawn.
                     if !boot_sweep_done {
-                        boot_sweep_done = self.run_boot_staleness_sweep();
+                        boot_sweep_done = self.run_boot_staleness_sweep(&mut prev_assignment);
                     }
                     self.handle_outcome(outcome).await;
                     let now = tokio::time::Instant::now();
@@ -670,15 +710,15 @@ impl CohortStreamEventsConsumer {
         info!(topic = %self.topic, "cohort_stream_events consume loop stopped");
     }
 
-    /// Run the boot staleness sweep once the assignment has settled. Returns `true` when it ran,
-    /// `false` while the assignment is still empty (join not settled), so the caller keeps retrying.
-    fn run_boot_staleness_sweep(&self) -> bool {
+    /// Reconcile the boot snapshot once the assignment has settled (see [`boot_assignment_settled`]).
+    /// Returns `true` when it reconciled, `false` while still empty or unsettled, so the caller retries.
+    fn run_boot_staleness_sweep(&self, prev: &mut Option<HashSet<i32>>) -> bool {
         let assignment = self.assigned_partitions();
-        if assignment.is_empty() {
+        if !boot_assignment_settled(&assignment, prev) {
             return false;
         }
         self.dispatcher
-            .reclaim_unassigned_partitions_on_boot(&assignment, self.events_partitions);
+            .reconcile_boot_assignment(&assignment, self.events_partitions);
         true
     }
 
@@ -1192,6 +1232,10 @@ mod tests {
         seed_slice(&store, 5, lsk);
         seed_slice(&store, 6, lsk);
 
+        // Snapshot excludes 5 (so it is a move-in); `partition_count` 5 keeps the boot wipe's `0..5`
+        // range off 5 and 6, so the only deletion below is the assign-path reclaim.
+        dispatcher.reconcile_boot_assignment(&[6].into_iter().collect(), 5);
+
         dispatcher.reclaim_stale_partition_on_assign(5);
         assert!(
             !slice_present(&store, 5, lsk),
@@ -1206,6 +1250,24 @@ mod tests {
             slice_present(&store, 6, lsk),
             "a partition with a live worker keeps its (current, not stale) slice",
         );
+    }
+
+    #[test]
+    fn boot_assignment_settled_requires_a_stable_non_empty_assignment() {
+        let mut prev: Option<HashSet<i32>> = None;
+
+        assert!(!boot_assignment_settled(&HashSet::new(), &mut prev));
+        assert_eq!(prev, None);
+
+        let first: HashSet<i32> = [0].into_iter().collect();
+        assert!(!boot_assignment_settled(&first, &mut prev));
+        assert_eq!(prev.as_ref(), Some(&first));
+
+        let second: HashSet<i32> = [0, 1].into_iter().collect();
+        assert!(!boot_assignment_settled(&second, &mut prev));
+        assert_eq!(prev.as_ref(), Some(&second));
+
+        assert!(boot_assignment_settled(&second, &mut prev));
     }
 
     #[tokio::test]

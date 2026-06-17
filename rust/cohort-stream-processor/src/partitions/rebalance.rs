@@ -165,8 +165,8 @@ pub async fn run_rebalance_worker(
                         }
                     }
                     RebalanceEvent::Assign(partitions) => {
-                        // Durable restart: reclaim a stale slice for a partition moving in via a real
-                        // rebalance (a static reclaim fires no assign callback, so its state is kept).
+                        // Durable restart: the rejoining member gets its own initial assign callback,
+                        // so the callee defers to the boot snapshot and reclaims only post-boot move-ins.
                         if dispatcher.durable_restore_enabled() {
                             for &partition in &partitions {
                                 dispatcher.reclaim_stale_partition_on_assign(partition);
@@ -403,19 +403,38 @@ mod tests {
         assert!(!dispatcher.owns(3));
     }
 
-    /// Seed a one-key `cf_stage1` slice for `partition` and return whether it is present.
-    fn seed_and_present(dispatcher: &EventDispatcher, partition: u16) -> impl Fn() -> bool + '_ {
-        let key = Stage1Key {
+    fn slice_key(partition: u16) -> Stage1Key {
+        Stage1Key {
             partition_id: partition,
             team_id: 7,
             leaf_state_key: LeafStateKey([0xAB; 16]),
             person_id: Uuid::from_u128(1),
-        };
+        }
+    }
+
+    fn seed_slice(dispatcher: &EventDispatcher, partition: u16) {
         dispatcher
             .store()
-            .write_batch(|b| b.put_stage1(&key, b"state"))
+            .write_batch(|b| b.put_stage1(&slice_key(partition), b"state"))
             .unwrap();
-        move || dispatcher.store().get_stage1(&key).unwrap().is_some()
+    }
+
+    /// Probe whether `partition`'s slice is present without seeding it, so the caller controls seed
+    /// ordering relative to a boot reconcile.
+    fn present_probe(dispatcher: &EventDispatcher, partition: u16) -> impl Fn() -> bool + '_ {
+        move || {
+            dispatcher
+                .store()
+                .get_stage1(&slice_key(partition))
+                .unwrap()
+                .is_some()
+        }
+    }
+
+    /// Seed a one-key `cf_stage1` slice for `partition` and return whether it is present.
+    fn seed_and_present(dispatcher: &EventDispatcher, partition: u16) -> impl Fn() -> bool + '_ {
+        seed_slice(dispatcher, partition);
+        present_probe(dispatcher, partition)
     }
 
     #[tokio::test]
@@ -430,9 +449,11 @@ mod tests {
         run_worker_to_completion(rx, dispatcher.clone(), mirror).await;
         assert!(present(), "gate off: the assign arm never reclaims a slice");
 
-        // Gate on: the moving-in partition's stale slice is reclaimed.
+        // Gate on: a post-boot move-in's slice is reclaimed. Snapshot excludes 3; seeding *after*
+        // reconcile keeps the boot wipe from deleting it, so the assign path is what wipes it.
         let (_dir, dispatcher, tracker) = test_dispatcher();
         dispatcher.enable_durable_restore();
+        dispatcher.reconcile_boot_assignment(&[0].into_iter().collect(), 64);
         let present = seed_and_present(&dispatcher, 3);
         let (ctx, rx) = CohortConsumerContext::new(dispatcher.clone());
         let mirror = RecordingMirror::new(tracker);
@@ -443,6 +464,68 @@ mod tests {
             !present(),
             "gate on: the moving-in partition's stale slice is reclaimed",
         );
+    }
+
+    #[tokio::test]
+    async fn durable_boot_assign_keeps_restored_slices() {
+        // The pod's own initial assignment routes through the assign path; with the boot snapshot
+        // recorded, the restored slices for the assigned partitions must survive.
+        let (_dir, dispatcher, tracker) = test_dispatcher();
+        dispatcher.enable_durable_restore();
+        seed_slice(&dispatcher, 0);
+        seed_slice(&dispatcher, 1);
+        let present_0 = present_probe(&dispatcher, 0);
+        let present_1 = present_probe(&dispatcher, 1);
+        dispatcher.reconcile_boot_assignment(&[0, 1].into_iter().collect(), 64);
+
+        let (ctx, rx) = CohortConsumerContext::new(dispatcher.clone());
+        let mirror = RecordingMirror::new(tracker);
+        ctx.on_assign(&tpl(&[0, 1]));
+        drop(ctx);
+        run_worker_to_completion(rx, dispatcher.clone(), mirror).await;
+
+        assert!(present_0() && present_1(), "boot-assigned slices survive");
+    }
+
+    #[tokio::test]
+    async fn durable_assign_before_boot_reconcile_keeps_slices() {
+        // The rebalance worker can process the initial Assign before the consume loop records the
+        // snapshot; the assign path sees `None` and skips, so the slices survive until the next sweep.
+        let (_dir, dispatcher, tracker) = test_dispatcher();
+        dispatcher.enable_durable_restore();
+        seed_slice(&dispatcher, 0);
+        seed_slice(&dispatcher, 1);
+        let present_0 = present_probe(&dispatcher, 0);
+        let present_1 = present_probe(&dispatcher, 1);
+
+        let (ctx, rx) = CohortConsumerContext::new(dispatcher.clone());
+        let mirror = RecordingMirror::new(tracker);
+        ctx.on_assign(&tpl(&[0, 1]));
+        drop(ctx);
+        run_worker_to_completion(rx, dispatcher.clone(), mirror).await;
+
+        assert!(
+            present_0() && present_1(),
+            "with no snapshot yet, the assign path skips and the slices survive",
+        );
+    }
+
+    #[tokio::test]
+    async fn durable_post_boot_movein_is_reclaimed() {
+        // After boot reconcile, a partition absent from the snapshot is a genuine move-in: its stale
+        // slice (seeded after reconcile so the boot wipe leaves it) is reclaimed by the assign path.
+        let (_dir, dispatcher, tracker) = test_dispatcher();
+        dispatcher.enable_durable_restore();
+        dispatcher.reconcile_boot_assignment(&[0].into_iter().collect(), 64);
+        let present = seed_and_present(&dispatcher, 2);
+
+        let (ctx, rx) = CohortConsumerContext::new(dispatcher.clone());
+        let mirror = RecordingMirror::new(tracker);
+        ctx.on_assign(&tpl(&[2]));
+        drop(ctx);
+        run_worker_to_completion(rx, dispatcher.clone(), mirror).await;
+
+        assert!(!present(), "a post-boot move-in's stale slice is reclaimed");
     }
 
     #[tokio::test]
