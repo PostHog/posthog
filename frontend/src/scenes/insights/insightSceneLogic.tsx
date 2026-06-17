@@ -593,7 +593,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                         actions.setFreshQuery(true)
                     }
 
-                    eventUsageLogic.actions.reportInsightCreated(query)
+                    eventUsageLogic.actions.reportInsightStarted(query)
                 }
             }
         },
