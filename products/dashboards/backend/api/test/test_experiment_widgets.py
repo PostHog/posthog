@@ -9,7 +9,8 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.api.test.dashboards import DashboardAPI
-from posthog.models import Team, User
+from posthog.constants import AvailableFeature
+from posthog.models import OrganizationMembership, Team, User
 
 from products.dashboards.backend.constants import DEFAULT_WIDGET_LIST_LIMIT
 from products.dashboards.backend.widget_registry import (
@@ -24,6 +25,21 @@ from products.dashboards.backend.widgets.experiment_results import (
 from products.dashboards.backend.widgets.experiments_list import run_experiments_list_widget
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+
+
+def _block_experiment_for_member(team: Team, experiment: Experiment, member: User) -> None:
+    from ee.models.rbac.access_control import AccessControl  # noqa: PLC0415
+
+    team.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL, "name": "Access control"}]
+    team.organization.save()
+    membership = OrganizationMembership.objects.get(organization=team.organization, user=member)
+    AccessControl.objects.create(
+        team=team,
+        resource="experiment",
+        resource_id=str(experiment.id),
+        organization_member=membership,
+        access_level="none",
+    )
 
 
 def _experiment_metric(uuid: str, name: str) -> dict[str, Any]:
@@ -155,6 +171,17 @@ class TestExperimentsListWidget(APIBaseTest):
         assert result["totalCount"] == 3
         assert result["hasMore"] is True
 
+    def test_excludes_experiments_the_user_cannot_access(self) -> None:
+        visible = self._create_experiment("Visible")
+        blocked = self._create_experiment("Blocked")
+        member = User.objects.create_and_join(self.organization, "member@example.test", "pw")
+        _block_experiment_for_member(self.team, blocked, member)
+
+        result = run_experiments_list_widget(self.team, {}, user=member)
+
+        assert {row["name"] for row in result["results"]} == {"Visible"}
+        assert visible.id in {row["id"] for row in result["results"]}
+
 
 class TestExperimentResultsWidget(APIBaseTest):
     def _create_experiment(
@@ -204,6 +231,15 @@ class TestExperimentResultsWidget(APIBaseTest):
         )
 
         result = run_experiment_results_widget(self.team, {"experimentId": experiment.id}, user=self.user)
+
+        assert result == {"experiment": None, "metrics": [], "experimentNotFound": True}
+
+    def test_returns_not_found_for_experiment_the_user_cannot_access(self) -> None:
+        experiment = self._create_experiment(start_date=timezone.now())
+        member = User.objects.create_and_join(self.organization, "member@example.test", "pw")
+        _block_experiment_for_member(self.team, experiment, member)
+
+        result = run_experiment_results_widget(self.team, {"experimentId": experiment.id}, user=member)
 
         assert result == {"experiment": None, "metrics": [], "experimentNotFound": True}
 

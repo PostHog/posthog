@@ -206,7 +206,7 @@ def count_active_widget_filters(widget_type: str, config: dict[str, Any] | None)
     count = 0
     for field in spec.filter_fields:
         value = config.get(field)
-        if isinstance(value, dict | list):
+        if isinstance(value, (dict, list)):
             count += len(value)
         elif field == "status":
             if value not in (None, _STATUS_ANY_SENTINEL):

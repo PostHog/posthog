@@ -4,6 +4,7 @@ from typing import Any
 
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.rbac.user_access_control import UserAccessControl
 
 from products.dashboards.backend.constants import MAX_WIDGET_RESULT_LIMIT
 from products.dashboards.backend.widget_specs.configs import EXPERIMENTS_LIST_WIDGET_TYPE
@@ -61,6 +62,10 @@ def run_experiments_list_widget(
     base_queryset = Experiment.objects.filter(team=team).select_related("created_by", "feature_flag")
     service = ExperimentService(team=team, user=user)
     queryset = service.filter_experiments_queryset(base_queryset, action="list", query_params=query_params)
+
+    if user is not None:
+        # Honor object-level experiment access controls, matching the REST list endpoint.
+        queryset = UserAccessControl(user=user, team=team).filter_queryset_by_access_level(queryset)
 
     def fetch_page(page_limit: int) -> ListWidgetPage:
         rows = list(queryset[: page_limit + 1])

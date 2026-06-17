@@ -17,6 +17,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.rbac.user_access_control import UserAccessControl
 
 from products.dashboards.backend.widget_specs.configs import EXPERIMENT_RESULTS_WIDGET_TYPE
 from products.dashboards.backend.widget_specs.registry import validate_widget_config
@@ -117,13 +118,22 @@ def run_experiment_results_widget(
     typed_config = validate_widget_config(EXPERIMENT_RESULTS_WIDGET_TYPE, config)
     experiment_id = typed_config.get("experimentId")
 
-    if experiment_id is None:
-        has_experiments = Experiment.objects.filter(team=team, deleted=False).exists()
-        return {"experiment": None, "metrics": [], "needsConfiguration": True, "hasExperiments": has_experiments}
+    # Honor object-level experiment access controls, matching the REST endpoint — a user denied
+    # access to a specific experiment must not see it (or its results) through the widget.
+    access_control = UserAccessControl(user=user, team=team) if user is not None else None
 
-    experiment = (
-        Experiment.objects.filter(id=experiment_id, team=team, deleted=False).select_related("feature_flag").first()
+    if experiment_id is None:
+        accessible = Experiment.objects.filter(team=team, deleted=False)
+        if access_control is not None:
+            accessible = access_control.filter_queryset_by_access_level(accessible)
+        return {"experiment": None, "metrics": [], "needsConfiguration": True, "hasExperiments": accessible.exists()}
+
+    experiment_queryset = Experiment.objects.filter(id=experiment_id, team=team, deleted=False).select_related(
+        "feature_flag"
     )
+    if access_control is not None:
+        experiment_queryset = access_control.filter_queryset_by_access_level(experiment_queryset)
+    experiment = experiment_queryset.first()
     if experiment is None:
         return {"experiment": None, "metrics": [], "experimentNotFound": True}
 
