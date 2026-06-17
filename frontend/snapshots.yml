@@ -828,6 +828,10 @@ snapshots:
         hash: v1.k794b7964.02b347a3de6a2bd98a729dc5794e3ccea7849b31d89989736ee3f94d85bfec28.QWtgL8Jb4UfBH7RRRcstUltLDO2tWVRh6l-y7jQnR2M
     components-hogcharts-timeserieslinechart--date-axis--light:
         hash: v1.k794b7964.0af3687a97b0abc64d8fdbea848af397a7cc94471ced1eee07b0af9f8fe9ab24.e9wFTNoOgeFUpucQCL8NkJhY7gjbWzGt8Onwb5WFtJs
+    components-hogcharts-timeserieslinechart--drag-to-zoom--dark:
+        hash: v1.k794b7964.c5a1a997378245bd048d35ff7ab54694c9e333ff6369e5c30d40357df99842fa.xXPbAc4NqAr0LvV-0z_5t3MYqgWR7l0eVtIt35KNfhE
+    components-hogcharts-timeserieslinechart--drag-to-zoom--light:
+        hash: v1.k794b7964.7d8de1c664f78dad36682304cd25c746266b6fb509d28bcaf2d8ae629a808284.eGlPABfqYjC1-H2VGiv5lJxfPOXP5U2fpK2cr7CtOT4
     components-hogcharts-timeserieslinechart--moving-average--dark:
         hash: v1.k794b7964.e332e9beb6b72bee51ab22b8078273883dabe8cd97163f6005a44367378fa8f7.H_JLql_NFDi4zX-Gn0svc0N_NewsyAhqaII4UGIXykg
     components-hogcharts-timeserieslinechart--moving-average--light:
