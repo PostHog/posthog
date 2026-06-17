@@ -8,7 +8,7 @@
 
 use crate::flags::flag_models::HypercacheFlagsWrapper;
 use common_hypercache::writer::HyperCacheWriter;
-use common_hypercache::{HyperCacheConfig, KeyType};
+use common_hypercache::{HyperCacheConfig, HyperCacheError, KeyType};
 use common_types::TeamId;
 
 /// Redis sorted-set key used by Python's `FLAGS_CACHE_EXPIRY_SORTED_SET`. Keeping
@@ -47,12 +47,16 @@ pub fn make_cache_config(
 /// Uses `set_with_etag` (not `set`): `set()` unconditionally DELs the `:etag` key
 /// via `delete_etag`, and `FlagDefinitionsCache` keys on `(team_id, etag)`, so a
 /// missing etag forces the in-memory cache bypass on every `/flags` request.
+///
+/// Returns the typed `HyperCacheError` so callers can attribute a failure to the
+/// Redis vs S3 vs serialization tier (the flags-cache-builder uses this to label
+/// its build-failure metric and DLQ headers for triage).
 pub async fn persist_flags_cache(
     writer: &HyperCacheWriter,
     team_id: TeamId,
     cache: &HypercacheFlagsWrapper,
     ttl_seconds: u64,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<(), HyperCacheError> {
     let key = KeyType::int(team_id);
     let json = serde_json::to_string(cache)?;
     writer.set_with_etag(&key, &json, ttl_seconds).await?;

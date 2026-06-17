@@ -296,7 +296,8 @@ async fn warm_team(
     ttl_seconds: u64,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let cache = build_flags_cache(pg_reader, team_id).await?;
-    persist_flags_cache(writer, team_id, &cache, ttl_seconds).await
+    persist_flags_cache(writer, team_id, &cache, ttl_seconds).await?;
+    Ok(())
 }
 
 /// Validate TTL day range matches Python's warmer (`1..=30`, min <= max).

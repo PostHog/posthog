@@ -25,6 +25,7 @@ use axum::{routing::get, Router};
 use chrono::{DateTime, Utc};
 use common_database::{get_pool, PostgresReader};
 use common_hypercache::writer::HyperCacheWriter;
+use common_hypercache::HyperCacheError;
 use common_kafka::config::{ConsumerConfig, KafkaConfig};
 use common_kafka::kafka_consumer::{Offset, RecvErr, SingleTopicConsumer};
 use common_kafka::kafka_producer::{
@@ -448,13 +449,14 @@ async fn process_team(
                 / 1000.0;
             metrics::histogram!(E2E_LATENCY_SECONDS).record(latency);
         }
-        Err(err) => {
-            metrics::counter!(BUILDS_TOTAL, "result" => "error").increment(1);
-            tracing::error!(team_id, error = %err, "Cache build failed after retries; routing to DLQ");
+        Err(failure) => {
+            metrics::counter!(BUILDS_TOTAL, "result" => "error", "reason" => failure.category)
+                .increment(1);
+            tracing::error!(team_id, category = failure.category, error = %failure.message, "Cache build failed after retries; routing to DLQ");
             // The message is a trigger, not a payload, so reconstruct it for the
             // DLQ from the team and its oldest coalesced timestamp.
             let dlq_message = FlagsCacheInvalidation::new(team_id, team_batch.oldest_emitted_at);
-            dlq_produce(dlq_producer, &cfg.dlq_topic, &dlq_message, &err).await;
+            dlq_produce(dlq_producer, &cfg.dlq_topic, &dlq_message, &failure).await;
         }
     }
 
@@ -469,12 +471,48 @@ async fn process_team(
     team_batch.offsets
 }
 
+/// A terminal build failure tagged with the tier that failed, so the error metric
+/// and DLQ headers can attribute it — that tier (database / redis / s3 / serialize)
+/// is the triage signal the DLQ exists to provide. `category` is a fixed set of
+/// `&'static str`, safe to use as a metric label without cardinality risk.
+struct BuildFailure {
+    category: &'static str,
+    message: String,
+}
+
+impl BuildFailure {
+    /// A failure reading flag/cohort state from Postgres (the `build_flags_cache`
+    /// step). The whole step is DB-bound on this path, so it's attributed wholesale.
+    fn database(err: impl std::fmt::Display) -> Self {
+        Self {
+            category: "database",
+            message: err.to_string(),
+        }
+    }
+
+    /// A failure persisting the built cache, attributed to the HyperCache tier that
+    /// failed. `Timeout`/`CacheMiss`/`Pickle` don't occur on the write path, so they
+    /// fall through to `other`.
+    fn from_persist(err: HyperCacheError) -> Self {
+        let category = match err {
+            HyperCacheError::Redis(_) => "redis",
+            HyperCacheError::S3(_) => "s3",
+            HyperCacheError::Json(_) => "serialize",
+            _ => "other",
+        };
+        Self {
+            category,
+            message: err.to_string(),
+        }
+    }
+}
+
 async fn build_with_retry(
     pg_reader: &PostgresReader,
     writer: &HyperCacheWriter,
     team_id: TeamId,
     cfg: &BuilderConfig,
-) -> Result<(), String> {
+) -> Result<(), BuildFailure> {
     let mut attempt: u32 = 0;
     loop {
         attempt += 1;
@@ -484,16 +522,17 @@ async fn build_with_retry(
                 metrics::histogram!(BUILD_DURATION_SECONDS).record(start.elapsed().as_secs_f64());
                 return Ok(());
             }
-            Err(e) => {
+            Err(failure) => {
                 if attempt >= cfg.build_max_attempts {
-                    return Err(e.to_string());
+                    return Err(failure);
                 }
                 metrics::counter!(BUILD_RETRIES).increment(1);
                 let backoff = retry_backoff(attempt);
                 tracing::warn!(
                     team_id,
                     attempt,
-                    error = %e,
+                    category = failure.category,
+                    error = %failure.message,
                     backoff_ms = backoff.as_millis() as u64,
                     "Cache build attempt failed; retrying"
                 );
@@ -517,9 +556,13 @@ async fn build_once(
     writer: &HyperCacheWriter,
     team_id: TeamId,
     ttl_seconds: u64,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let cache = build_flags_cache(pg_reader.clone(), team_id).await?;
-    persist_flags_cache(writer, team_id, &cache, ttl_seconds).await
+) -> Result<(), BuildFailure> {
+    let cache = build_flags_cache(pg_reader.clone(), team_id)
+        .await
+        .map_err(BuildFailure::database)?;
+    persist_flags_cache(writer, team_id, &cache, ttl_seconds)
+        .await
+        .map_err(BuildFailure::from_persist)
 }
 
 /// Cap an error string to `DLQ_ERROR_HEADER_MAX` bytes for use as a Kafka header
@@ -550,11 +593,12 @@ async fn dlq_produce(
     dlq_producer: &FutureProducer<KafkaContext>,
     topic: &str,
     message: &FlagsCacheInvalidation,
-    error: &str,
+    failure: &BuildFailure,
 ) {
     let failed_at = Utc::now().to_rfc3339();
     let team_key = message.team_id.to_string();
-    let error_header = truncate_for_header(error);
+    let error_header = truncate_for_header(&failure.message);
+    let category = failure.category;
     let results = send_keyed_iter_to_kafka_with_headers(
         dlq_producer,
         topic,
@@ -565,6 +609,13 @@ async fn dlq_produce(
                     .insert(Header {
                         key: "x-dlq-error",
                         value: Some(error_header.as_str()),
+                    })
+                    // The failed tier (database / redis / s3 / serialize / other),
+                    // split out so triage can filter the DLQ by cause without parsing
+                    // the free-form error message.
+                    .insert(Header {
+                        key: "x-dlq-error-category",
+                        value: Some(category),
                     })
                     .insert(Header {
                         key: "x-dlq-failed-at",
@@ -707,7 +758,8 @@ mod tests {
     use chrono::{DateTime, TimeZone, Utc};
 
     use super::{
-        max_per_partition, retry_backoff, truncate_for_header, TeamBatch, DLQ_ERROR_HEADER_MAX,
+        max_per_partition, retry_backoff, truncate_for_header, BuildFailure, TeamBatch,
+        DLQ_ERROR_HEADER_MAX,
     };
 
     // (partition, offset) pairs; keyed and valued by the two fields.
@@ -777,6 +829,40 @@ mod tests {
     #[test]
     fn truncate_for_header_passes_short_errors_through() {
         assert_eq!(truncate_for_header("boom"), "boom");
+    }
+
+    #[test]
+    fn build_failure_attributes_persist_errors_to_their_tier() {
+        use common_hypercache::HyperCacheError;
+        use common_redis::CustomRedisError;
+        use common_s3::S3Error;
+
+        // The category is the triage signal the DLQ exists for, so each HyperCache
+        // tier must map to its own label; unexpected variants degrade to "other"
+        // rather than being mislabelled.
+        let cases = [
+            (HyperCacheError::Redis(CustomRedisError::Timeout), "redis"),
+            (
+                HyperCacheError::S3(S3Error::OperationFailed("boom".into())),
+                "s3",
+            ),
+            (
+                HyperCacheError::Json(serde_json::from_str::<i32>("x").unwrap_err()),
+                "serialize",
+            ),
+            (HyperCacheError::CacheMiss, "other"),
+        ];
+        for (err, expected) in cases {
+            assert_eq!(BuildFailure::from_persist(err).category, expected);
+        }
+    }
+
+    #[test]
+    fn build_failure_attributes_build_step_to_database() {
+        assert_eq!(
+            BuildFailure::database("pg unreachable").category,
+            "database"
+        );
     }
 
     #[test]
