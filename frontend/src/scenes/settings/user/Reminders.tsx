@@ -12,7 +12,8 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
-import { capitalizeFirstLetter, timeZoneLabel } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
+import { timeZoneLabel } from 'lib/utils/timezones'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
@@ -119,7 +120,9 @@ function ReminderModal(): JSX.Element {
                                 onChange={(date) => onChange(date ? date.toISOString() : null)}
                                 granularity="minute"
                                 placeholder="Select date and time"
-                                disabled={!isScheduleEditable}
+                                buttonProps={{
+                                    disabledReason: !isScheduleEditable ? 'This reminder has already fired' : undefined,
+                                }}
                             />
                         )}
                     </LemonField>
@@ -159,7 +162,9 @@ function ReminderModal(): JSX.Element {
                                 granularity="minute"
                                 placeholder="No end date"
                                 clearable
-                                disabled={!isScheduleEditable}
+                                buttonProps={{
+                                    disabledReason: !isScheduleEditable ? 'This reminder has already fired' : undefined,
+                                }}
                             />
                         )}
                     </LemonField>
