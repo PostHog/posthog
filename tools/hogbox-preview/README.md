@@ -64,10 +64,11 @@ hogland's pen-id edge routing (shipped in hogland #319).
   building → ready → failed, with the URL, login, and what's running.
 - **GitHub Deployment** — a `preview-pr-<n>` environment (in_progress → success
   /failure + URL), so the preview shows in the PR's Deployments UI.
-- **Teardown** — on PR close + on `hogbox-preview` label removal (box + pen
-  destroyed); a daily stale-sweep (`cleanup-stale`) reaps previews whose PR is
-  closed. See `.github/workflows/hogbox-preview-env.yml`, `pr-closed.yml`,
-  `pr-cleanup.yml`.
+- **Teardown** — on PR close (`pr-closed.yml`) + on `hogbox-preview` label
+  removal (`hogbox-preview-env.yml`); both destroy box + pen. A daily stale-sweep
+  (`cleanup-stale`) in `hogbox-preview-cleanup.yml` reaps previews whose PR closed
+  but slipped through — its own workflow because the OIDC mint needs
+  `id-token: write`, which can't live in the reusable `pr-cleanup.yml`.
 
 Access is **tailnet-only** (PostHog VPN) — internal reviewers, no public URL.
 
