@@ -3,8 +3,8 @@ import { useActions, useValues } from 'kea'
 import { IconHome, IconInfo, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonDropdown, LemonModal, LemonSelect, Link, Tooltip } from '@posthog/lemon-ui'
 
-import { toSentenceCase } from 'lib/utils'
 import { getAccessControlTooltip } from 'lib/utils/accessControlUtils'
+import { toSentenceCase } from 'lib/utils/strings'
 
 import { accessControlsLogic } from './accessControlsLogic'
 import { groupedAccessControlRuleModalLogic } from './groupedAccessControlRuleModalLogic'

@@ -1853,6 +1853,22 @@ def _image_cell(url: str | None, alt: str) -> str:
 _IMAGE_TABLE_HEADER = "| Snapshot | Before | After |\n| --- | --- | --- |"
 
 
+_REVIEWABLE_RESULTS = (SnapshotResult.CHANGED, SnapshotResult.NEW, SnapshotResult.REMOVED)
+
+
+def _reviewable_snapshot_qs(run: Run) -> db_models.QuerySet[RunSnapshot]:
+    return run.snapshots.using(READER_DB).filter(result__in=_REVIEWABLE_RESULTS)
+
+
+def _postable_snapshot_qs(run: Run) -> db_models.QuerySet[RunSnapshot]:
+    """Reviewable snapshots minus the ones an approval comment should not surface.
+
+    Quarantined snapshots are suppressed by policy and tolerated ones are
+    intentional known drift, so neither belongs in the comment.
+    """
+    return _reviewable_snapshot_qs(run).exclude(is_quarantined=True).exclude(review_state=ReviewState.TOLERATED)
+
+
 def _build_snapshot_image_tables(run: Run, repo: Repo) -> str:
     """Before/after image tables for the approved snapshots.
 
@@ -1863,8 +1879,7 @@ def _build_snapshot_image_tables(run: Run, repo: Repo) -> str:
     resolved (e.g. object storage disabled) so the comment stays text-only.
     """
     snapshots = list(
-        run.snapshots.using(READER_DB)
-        .filter(result__in=(SnapshotResult.CHANGED, SnapshotResult.NEW, SnapshotResult.REMOVED))
+        _postable_snapshot_qs(run)
         .select_related(
             "current_artifact",
             "current_artifact__thumbnail",
@@ -1924,11 +1939,8 @@ def _build_approval_comment_body(run: Run, repo: Repo, approver: _Approver | Non
     reviewer can eyeball them without leaving the PR (omitted when no image can
     be resolved).
     """
-    counts = Counter(
-        run.snapshots.filter(
-            result__in=(SnapshotResult.CHANGED, SnapshotResult.NEW, SnapshotResult.REMOVED)
-        ).values_list("result", flat=True)
-    )
+    counts = Counter(_postable_snapshot_qs(run).values_list("result", flat=True))
+    suppressed_only = not counts and _reviewable_snapshot_qs(run).exists()
 
     if approver is None:
         approver_text = "a reviewer"
@@ -1955,6 +1967,8 @@ def _build_approval_comment_body(run: Run, repo: Repo, approver: _Approver | Non
     ]
     if summary:
         sections.append(f"{summary}.")
+    elif suppressed_only:
+        sections.append("All visual changes in this run were quarantined or tolerated.")
     if add_images:
         tables = _build_snapshot_image_tables(run, repo)
         if tables:

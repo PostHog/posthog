@@ -13,12 +13,11 @@ class DuckLakeCatalogAdmin(admin.ModelAdmin):
         "db_database",
         "bucket",
         "bucket_region",
-        "cross_account_role_arn",
         "created_at",
         "updated_at",
     )
     list_filter = ("bucket_region",)
-    search_fields = ("=team__id", "=organization__id", "db_host", "bucket", "cross_account_role_arn")
+    search_fields = ("=team__id", "=organization__id", "db_host", "bucket")
     readonly_fields = ("id", "created_at", "updated_at")
     raw_id_fields = ("team", "organization")
 
@@ -39,13 +38,6 @@ class DuckLakeCatalogAdmin(admin.ModelAdmin):
             "S3 bucket",
             {
                 "fields": ("bucket", "bucket_region"),
-            },
-        ),
-        (
-            "Cross-account S3 access",
-            {
-                "fields": ("cross_account_role_arn", "cross_account_external_id"),
-                "description": "Required settings for writing to customer-owned S3 buckets via IAM role assumption",
             },
         ),
         (

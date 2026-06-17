@@ -62,7 +62,7 @@ from products.warehouse_sources.backend.models.external_data_schema import Exter
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 logger = structlog.get_logger(__name__)
-logger.setLevel(logging.INFO)
+logging.getLogger(__name__).setLevel(logging.INFO)
 
 # AI events dynamically generated from AIEventType TS enum
 # Changes to the AIEventType enum will impact usage reporting
@@ -933,6 +933,7 @@ def get_teams_with_query_metric(
         # :TRICKY: Inlined into the query below.
         raise ValueError(f"Invalid metric {metric}")
 
+    event_time_end = end + timedelta(hours=6)
     query_types_clause = "AND query_type IN (%(query_types)s)" if query_types and len(query_types) > 0 else ""
 
     query = f"""
@@ -944,6 +945,8 @@ def get_teams_with_query_metric(
         WHERE (type = 'QueryFinish' OR type = 'ExceptionWhileProcessing')
         AND is_initial_query = 1
         {query_types_clause}
+        -- event_time is part of query_log's primary key; query_start_time preserves billing attribution.
+        AND event_time >= %(begin)s AND event_time < %(event_time_end)s
         AND query_start_time >= %(begin)s AND query_start_time < %(end)s
         AND access_method = %(access_method)s
         GROUP BY team_id
@@ -954,6 +957,7 @@ def get_teams_with_query_metric(
             {
                 "begin": begin,
                 "end": end,
+                "event_time_end": event_time_end,
                 "query_types": query_types,
                 "access_method": access_method,
             },

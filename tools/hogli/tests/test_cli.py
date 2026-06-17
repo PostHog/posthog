@@ -494,6 +494,8 @@ class TestApplyEnvConfig:
         )
         for k in ("PRELOADED", "HOGLI_SECRETS_WRAPPED"):
             monkeypatch.delenv(k, raising=False)
+        # Re-exec only fires when hogli owns the process (real CLI entrypoint).
+        monkeypatch.setattr("hogli.cli._is_process_entrypoint", True)
 
         with (
             patch("shutil.which", return_value="/usr/local/bin/op"),
@@ -514,6 +516,46 @@ class TestApplyEnvConfig:
         assert os.environ["PRELOADED"] == "yes"
         # sentinel set to prevent infinite re-exec loop
         assert os.environ["HOGLI_SECRETS_WRAPPED"] == "1"
+
+    def test_embedded_invocation_never_reexecs(self, tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """When hogli is invoked in-process (not the process entrypoint), the
+        wrap must never os.execvp — even with the marker present and the wrap
+        binary installed. execvp would replace and silently kill the host
+        process (e.g. a click CliRunner test runner). Instead it falls through
+        to direct file loading, skipping unresolved refs.
+
+        This is the regression guard for the silent-death bug: any pytest run
+        that drives the CLI through CliRunner on a machine with the wrap binary
+        installed and marker refs in the secrets file would otherwise exec away
+        the test process mid-run.
+        """
+        from hogli.cli import _apply_env_config
+
+        secrets_file = tmp_path / ".env.local"
+        secrets_file.write_text("API_KEY=op://vault/item/credential\nLITERAL=keep_me\n")
+        secrets = {
+            "file": secrets_file,
+            "marker": "op://",
+            "wrap": ["op", "run", "--env-file", "{file}", "--"],
+        }
+        monkeypatch.setattr(
+            "hogli.cli.get_manifest",
+            lambda: self._make_manifest(secrets_config=secrets, needs_secrets_commands={"start"}),
+        )
+        # Embedded, not a real entrypoint: this is what CliRunner / library use sees.
+        monkeypatch.setattr("hogli.cli._is_process_entrypoint", False)
+        for k in ("API_KEY", "LITERAL", "HOGLI_SECRETS_WRAPPED"):
+            monkeypatch.delenv(k, raising=False)
+
+        with (
+            patch("shutil.which", return_value="/usr/local/bin/op"),
+            patch("os.execvp") as mock_exec,
+        ):
+            _apply_env_config("start")
+
+        mock_exec.assert_not_called()
+        assert "API_KEY" not in os.environ  # op:// ref skipped, not leaked as a literal
+        assert os.environ["LITERAL"] == "keep_me"
 
     def test_marker_hit_but_wrap_binary_missing_falls_back_with_warning(
         self, tmp_path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
@@ -543,6 +585,9 @@ class TestApplyEnvConfig:
         )
         for k in ("OPENAI_API_KEY", "LITERAL", "HOGLI_SECRETS_WRAPPED"):
             monkeypatch.delenv(k, raising=False)
+        # The missing-binary warning is only meaningful for a real entrypoint
+        # that would otherwise re-exec; simulate one.
+        monkeypatch.setattr("hogli.cli._is_process_entrypoint", True)
 
         with (
             patch("shutil.which", return_value=None),
@@ -631,6 +676,9 @@ class TestApplyEnvConfig:
             lambda: self._make_manifest(secrets_config=secrets, needs_secrets_commands=opted_in),
         )
         monkeypatch.delenv("HOGLI_SECRETS_WRAPPED", raising=False)
+        # This test exercises the needs_secrets gate, not the entrypoint gate —
+        # run as a real entrypoint so the wrap can fire when the gate opens.
+        monkeypatch.setattr("hogli.cli._is_process_entrypoint", True)
 
         with (
             patch("shutil.which", return_value="/usr/local/bin/op"),

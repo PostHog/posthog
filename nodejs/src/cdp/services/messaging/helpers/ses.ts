@@ -394,7 +394,7 @@ export class SesWebhookHandler {
             if (parsedCode) {
                 trackingCodeFormatCounter.inc({ format: parsedCode.format, source: 'ses' })
             }
-            const { functionId, invocationId, teamId, actionId, parentRunId } = parsedCode || {}
+            const { functionId, invocationId, teamId, actionId, parentRunId, isTest } = parsedCode || {}
 
             if (!functionId && !invocationId) {
                 logger.error('[SesWebhookHandler] handleWebhook: No functionId or invocationId found', { rec })
@@ -402,7 +402,10 @@ export class SesWebhookHandler {
             }
 
             const metricName = EVENT_TYPE_TO_METRIC_NAME[rec.eventType]
-            if (metricName) {
+            // Test sends (from the editor's "Run test") are not production activity, so we skip
+            // their delivery/open/click metrics — otherwise a draft/never-enabled workflow shows
+            // email activity in its Metrics tab. Bounce-driven opt-outs below still apply.
+            if (metricName && !isTest) {
                 metrics.push({ functionId, invocationId, actionId, parentRunId, metricName })
             }
 

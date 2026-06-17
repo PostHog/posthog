@@ -54,13 +54,16 @@ describe('savedInsightsLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/environments/:team_id/insights/': (req) => [
-                    200,
-                    createSavedInsights(
-                        req.url.searchParams.get('search') ?? '',
-                        parseInt(req.url.searchParams.get('offset') ?? '0')
-                    ),
-                ],
+                '/api/environments/:team_id/insights/': ({ request }) => {
+                    const url = new URL(request.url)
+                    return [
+                        200,
+                        createSavedInsights(
+                            url.searchParams.get('search') ?? '',
+                            parseInt(url.searchParams.get('offset') ?? '0')
+                        ),
+                    ]
+                },
                 '/api/environments/:team_id/insights/42': createInsight(42),
                 '/api/environments/:team_id/insights/123': createInsight(123),
             },
@@ -260,8 +263,8 @@ describe('savedInsightsLogic', () => {
 
         useMocks({
             get: {
-                '/api/environments/:team_id/insights/': (req) => {
-                    const search = req.url.searchParams.get('search') ?? ''
+                '/api/environments/:team_id/insights/': ({ request }) => {
+                    const search = new URL(request.url).searchParams.get('search') ?? ''
                     return new Promise<[number, any]>((resolve) => {
                         pendingRequests.push({ resolve, search })
                         onRequestArrived?.()

@@ -245,8 +245,21 @@ def _github_credential_source_extra_state(
 #     task creator's server-side token injected into their sandbox.
 #   - sandbox_id is the credential-propagation target; a caller could otherwise repoint a visible
 #     run at a sandbox they control and capture the run owner's token on the next rotation.
-# All three are written only server-side (run creation + the temporal workflow), never via PATCH.
-_PROTECTED_RUN_STATE_KEYS = frozenset({"github_credential_source", "pr_authorship_mode", "sandbox_id"})
+#   - sandbox_cpu_cores / sandbox_memory_gb / sandbox_ttl_seconds / inactivity_timeout_seconds set
+#     the run's compute and lifetime at creation; a caller could otherwise PATCH a queued run to
+#     provision an oversized or long-lived sandbox beyond what they're entitled to.
+# All are written only server-side (run creation + the temporal workflow), never via PATCH.
+_PROTECTED_RUN_STATE_KEYS = frozenset(
+    {
+        "github_credential_source",
+        "pr_authorship_mode",
+        "sandbox_id",
+        "sandbox_cpu_cores",
+        "sandbox_memory_gb",
+        "sandbox_ttl_seconds",
+        "inactivity_timeout_seconds",
+    }
+)
 
 
 TASK_RUN_ARTIFACT_UPLOAD_FORM_OVERHEAD_BYTES = 64 * 1024

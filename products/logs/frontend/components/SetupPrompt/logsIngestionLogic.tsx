@@ -2,7 +2,7 @@ import { afterMount, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
-import { retryWithBackoff } from 'lib/utils'
+import { retryWithBackoff } from 'lib/utils/async'
 
 import type { logsIngestionLogicType } from './logsIngestionLogicType'
 

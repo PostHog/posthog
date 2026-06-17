@@ -48,6 +48,14 @@ EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_BUCKETS = [
     300_000.0,  # 5m
 ]
 
+# Bucket boundaries for `_activity_success_attempts` (counts the attempt number at which success was reached).
+# With `RetryPolicy(maximum_attempts=2)` today, only buckets [1, 2] are populated, but the wider range survives
+# a future policy change without needing a new histogram.
+EXPERIMENT_METRICS_RECALCULATION_ATTEMPT_HISTOGRAM_METRICS = (
+    "experiment_metrics_recalculation_activity_success_attempts",
+)
+EXPERIMENT_METRICS_RECALCULATION_ATTEMPT_HISTOGRAM_BUCKETS = [1.0, 2.0, 5.0, 10.0]
+
 
 def increment_workflow_finished(status: str) -> None:
     """Workflow-body callsite for the terminal lifecycle counter.
@@ -56,8 +64,12 @@ def increment_workflow_finished(status: str) -> None:
     `status` attribute can be the run's business-level outcome (`"completed"` / `"failed"`, where `"failed"`
     means at least one metric failed). An interceptor-based version would only see exception-vs-no-exception,
     which conflates a 9-of-10-failed run with a healthy one.
+
+    `workflow_type` is attached so dashboards stay scoped when other experiments workflows ship later.
     """
-    workflow.metric_meter().with_additional_attributes({"status": status}).create_counter(
+    workflow.metric_meter().with_additional_attributes(
+        {"status": status, "workflow_type": _RECALCULATION_WORKFLOW_TYPE}
+    ).create_counter(
         "experiment_metrics_recalculation_workflow_finished",
         "Number of experiment metrics recalculation workflows that reached a terminal state.",
     ).add(1)
@@ -65,16 +77,30 @@ def increment_workflow_finished(status: str) -> None:
 
 class _ActivityInboundInterceptor(ActivityInboundInterceptor):
     async def execute_activity(self, input: ExecuteActivityInput) -> typing.Any:
-        activity_type = activity.info().activity_type
+        info = activity.info()
+        activity_type = info.activity_type
         if activity_type not in _RECALCULATION_ACTIVITY_TYPES:
             return await super().execute_activity(input)
 
-        meter = activity.metric_meter().with_additional_attributes({"activity_type": activity_type})
+        meter = activity.metric_meter().with_additional_attributes(
+            {"activity_type": activity_type, "workflow_type": _RECALCULATION_WORKFLOW_TYPE}
+        )
+        # Fires on every attempt (first run + each retry). Comparing this to `_activity_successes` reveals
+        # retry rate; without it a transient ClickHouse blip is indistinguishable from a healthy first-try
+        # success. Pattern mirrors batch_exports' `batch_exports_activity_attempts`.
+        meter.create_counter(
+            "experiment_metrics_recalculation_activity_attempts",
+            "Number of experiment metrics recalculation activity attempts (each retry is one attempt).",
+        ).add(1)
+
         try:
             with ExecutionTimeRecorder(
                 "experiment_metrics_recalculation_activity_execution_latency",
                 description="Execution latency for experiment metrics recalculation activities.",
-                histogram_attributes={"activity_type": activity_type},
+                histogram_attributes={
+                    "activity_type": activity_type,
+                    "workflow_type": _RECALCULATION_WORKFLOW_TYPE,
+                },
             ):
                 result = await super().execute_activity(input)
         except Exception:
@@ -87,6 +113,14 @@ class _ActivityInboundInterceptor(ActivityInboundInterceptor):
             "experiment_metrics_recalculation_activity_successes",
             "Number of successful experiment metrics recalculation activity executions.",
         ).add(1)
+        # Records the attempt-count distribution for successful runs. info.attempt is 1 on a first-try success
+        # and >1 when retries happened before success — `histogram_quantile(0.99, ...)` answers
+        # "how often do we need to retry to succeed?". Matches batch_exports' success_attempts pattern.
+        meter.create_histogram(
+            name="experiment_metrics_recalculation_activity_success_attempts",
+            description="Attempt number at which an activity execution succeeded (1 = first try).",
+            unit="attempts",
+        ).record(info.attempt)
         return result
 
 
@@ -94,7 +128,9 @@ class _WorkflowInboundInterceptor(WorkflowInboundInterceptor):
     async def execute_workflow(self, input: ExecuteWorkflowInput) -> typing.Any:
         if workflow.info().workflow_type != _RECALCULATION_WORKFLOW_TYPE:
             return await super().execute_workflow(input)
-        workflow.metric_meter().create_counter(
+        workflow.metric_meter().with_additional_attributes(
+            {"workflow_type": _RECALCULATION_WORKFLOW_TYPE}
+        ).create_counter(
             "experiment_metrics_recalculation_workflow_started",
             "Number of experiment metrics recalculation workflows started.",
         ).add(1)
@@ -102,6 +138,7 @@ class _WorkflowInboundInterceptor(WorkflowInboundInterceptor):
             with ExecutionTimeRecorder(
                 "experiment_metrics_recalculation_workflow_execution_latency",
                 description="End-to-end execution latency for the experiment metrics recalculation workflow.",
+                histogram_attributes={"workflow_type": _RECALCULATION_WORKFLOW_TYPE},
             ):
                 return await super().execute_workflow(input)
         except BaseException:

@@ -217,6 +217,26 @@ tools:
             Retrieve execution logs for a specific workflow by ID. Returns log entries with timestamp, level (DEBUG,
             LOG, INFO, WARN, ERROR), and message. Use to debug why a workflow is failing or not producing expected
             results. Supports filtering by log level, text search, time range (after/before), and pagination via limit.
+    workflows-patch-graph:
+        operation: hog_flows_graph_partial_update
+        enabled: true
+        scopes:
+            - hog_flow:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        input_schema: WorkflowGraphPatchSchema
+        title: Patch workflow graph
+        description: >
+            Surgically edit a draft workflow's graph by sending a small, ordered list of operations instead of resending
+            every action and edge. Prefer this over workflows-update for any change to an existing draft — to tweak one
+            node's config use update_action with a deep-merge patch (e.g. change just an email subject), and use
+            add_action / remove_action / add_edge / remove_edge / replace_action_edges for structural changes. Reference
+            nodes and edges by id. Operations apply atomically: the graph is read, the ops applied in order, the result
+            fully validated (dangling edges, branch indexes, single trigger), and saved only if valid — otherwise
+            nothing changes. Draft only — active workflows are read-only via MCP. The full updated workflow is returned,
+            so you don't need to re-fetch before the next edit.
     workflows-stats:
         operation: hog_flows_metrics_retrieve
         enabled: true

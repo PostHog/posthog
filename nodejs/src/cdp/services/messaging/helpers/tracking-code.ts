@@ -48,6 +48,7 @@ export type ParsedTrackingCode = {
     teamId: string
     actionId?: string
     parentRunId?: string
+    isTest: boolean
     format: TrackingCodeFormat
 }
 
@@ -110,7 +111,7 @@ export class EmailTrackingCodeSigner {
 
         try {
             const decoded = fromBase64UrlSafe(payloadB64)
-            const [functionId, invocationId, teamId, actionId, parentRunId] = decoded.split(':')
+            const [functionId, invocationId, teamId, actionId, parentRunId, isTest] = decoded.split(':')
             if (!functionId || !invocationId) {
                 return null
             }
@@ -120,6 +121,7 @@ export class EmailTrackingCodeSigner {
                 teamId,
                 actionId: actionId || undefined,
                 parentRunId: parentRunId || undefined,
+                isTest: isTest === '1',
                 format,
             }
         } catch {
@@ -130,11 +132,13 @@ export class EmailTrackingCodeSigner {
     // Full tracking code, HMAC-signed when a signing key is configured. Rides in the custom MIME
     // header and the pixel/link URLs — carriers with no length cap — and the signature lets the
     // public tracking endpoint reject forged `ph_id` values.
-    generate(invocation: TrackingInvocation): string {
+    generate(invocation: TrackingInvocation, isTest = false): string {
         const actionId = invocation.state?.actionId ?? ''
         const parentRunId = invocation.parentRunId ?? ''
+        // isTest marks sends from the editor's "Run test" so the SES webhook can skip recording
+        // their metrics — keeping test traffic out of the production Metrics tab.
         const payload = toBase64UrlSafe(
-            `${invocation.functionId}:${invocation.id}:${invocation.teamId}:${actionId}:${parentRunId}`
+            `${invocation.functionId}:${invocation.id}:${invocation.teamId}:${actionId}:${parentRunId}:${isTest ? '1' : ''}`
         )
         if (this.signingKeys.length === 0) {
             // Fail open while signing rolls out so sends never break; tighten to throw once enforced (#62624).
@@ -146,6 +150,8 @@ export class EmailTrackingCodeSigner {
     // Unsigned tracking code for the SES `EmailTags` carrier. Omitting the signature keeps the
     // value short enough to stay within the 256-char tag cap; the tag arrives via the SNS webhook,
     // which is already integrity-protected by SNS signing, so it does not need its own signature.
+    // This is a legacy backwards-compat carrier only — new fields (e.g. isTest) live on the signed
+    // code in generate, which the webhook reads first.
     generateShort(invocation: TrackingInvocation): string {
         const actionId = invocation.state?.actionId ?? ''
         const parentRunId = invocation.parentRunId ?? ''
@@ -154,11 +160,11 @@ export class EmailTrackingCodeSigner {
         )
     }
 
-    pixelUrl(invocation: TrackingInvocation): string {
-        return `${this.trackingUrl}/public/m/pixel?ph_id=${this.generate(invocation)}`
+    pixelUrl(invocation: TrackingInvocation, isTest = false): string {
+        return `${this.trackingUrl}/public/m/pixel?ph_id=${this.generate(invocation, isTest)}`
     }
 
-    redirectUrl(invocation: TrackingInvocation, targetUrl: string): string {
-        return `${this.trackingUrl}/public/m/redirect?ph_id=${this.generate(invocation)}&target=${encodeURIComponent(targetUrl)}`
+    redirectUrl(invocation: TrackingInvocation, targetUrl: string, isTest = false): string {
+        return `${this.trackingUrl}/public/m/redirect?ph_id=${this.generate(invocation, isTest)}&target=${encodeURIComponent(targetUrl)}`
     }
 }

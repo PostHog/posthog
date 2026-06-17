@@ -49,6 +49,13 @@ export type LogsIngestionConsumerConfig = {
     LOGS_SAMPLING_ENABLED_TEAMS: string
     /** When `true`, sampling always keeps every record (metrics path may still run). */
     LOGS_SAMPLING_KILLSWITCH: boolean
+    /**
+     * When `true`, rows removed by drop rules are credited back to the billed usage metrics
+     * (`bytes_ingested` / `records_ingested`). When `false` (default), the credit is only
+     * computed and observable via the `logs_ingestion_billing_*_credited_total` counters
+     * (shadow mode) — billing is unchanged.
+     */
+    LOGS_BILLING_PRORATE_ENABLED: boolean
     REDIS_URL: string
     REDIS_POOL_MIN_SIZE: number
     REDIS_POOL_MAX_SIZE: number
@@ -75,6 +82,7 @@ export function getDefaultLogsIngestionConsumerConfig(): LogsIngestionConsumerCo
         LOGS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND: '',
         LOGS_SAMPLING_ENABLED_TEAMS: '*',
         LOGS_SAMPLING_KILLSWITCH: false,
+        LOGS_BILLING_PRORATE_ENABLED: false,
         // Overlapping fields with CommonConfig, included for standalone usage
         // ok to connect to localhost over plaintext
         // nosemgrep: trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport

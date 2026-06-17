@@ -5,7 +5,7 @@ import { IconChevronDown } from '@posthog/icons'
 import { LemonButton, LemonInput, Popover } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { humanFriendlyNumber } from 'lib/utils'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { CyclotronJobInputSchemaType } from '~/types'
 

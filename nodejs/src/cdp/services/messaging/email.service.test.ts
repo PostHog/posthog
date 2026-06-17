@@ -1,5 +1,7 @@
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
+import { MessageRejected, SendingPausedException, TooManyRequestsException } from '@aws-sdk/client-sesv2'
+
 import { createExampleInvocation, insertIntegration } from '~/cdp/_tests/fixtures'
 import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
 import { CyclotronInvocationQueueParametersEmailType } from '~/schema/cyclotron'
@@ -11,6 +13,13 @@ import { Hub, Team } from '../../../types'
 import { EmailService, parseAddressList, sanitizeEmailSubject } from './email.service'
 import { MailDevAPI } from './helpers/maildev'
 import { EmailTrackingCodeSigner } from './helpers/tracking-code'
+
+class ThrottlingException extends Error {
+    constructor(message: string) {
+        super(message)
+        this.name = 'ThrottlingException'
+    }
+}
 
 describe('sanitizeEmailSubject', () => {
     it.each([
@@ -248,6 +257,73 @@ describe('EmailService', () => {
                 })
             })
         })
+        describe('SES throttle handling', () => {
+            // SES throttle responses become reschedule-with-backoff rather than
+            // permanent failures. The local Valkey bucket already gates dequeue;
+            // this path is the safety net for when SES disagrees with our estimate.
+            // Retryable: TooManyRequestsException (SES v2's rate-limit class) and
+            // ThrottlingException (generic AWS SDK throttle name surfaced from
+            // the transport layer). SendingPausedException is *not* retryable —
+            // it signals a reputation/account-state issue that needs operator
+            // attention, not a 500ms reschedule.
+            const throttleCases: Array<[string, () => Error]> = [
+                [
+                    'TooManyRequestsException',
+                    () => new TooManyRequestsException({ $metadata: {}, message: 'Too many requests' }),
+                ],
+                ['ThrottlingException', () => new ThrottlingException('Rate exceeded')],
+            ]
+            it.each(throttleCases)('reschedules instead of failing when SES returns %s', async (_name, makeError) => {
+                sendEmailSpy.mockRejectedValueOnce(makeError())
+
+                const before = Date.now()
+                const result = await service.executeSendEmail(invocation)
+
+                expect(result.error).toBeUndefined()
+                expect(result.finished).toBe(false)
+                expect(result.invocation.queueScheduledAt).toBeDefined()
+                const scheduledMs = result.invocation.queueScheduledAt!.toMillis()
+                // Jittered 500–1000ms retry: must land in the future but never further
+                // than the upper bound + scheduler overhead.
+                expect(scheduledMs).toBeGreaterThanOrEqual(before + 400)
+                expect(scheduledMs).toBeLessThan(before + 2000)
+                // No business metric emitted on throttle — the eventual retry
+                // will produce email_sent.
+                expect(result.metrics ?? []).toEqual([])
+            })
+
+            it('hard-fails (not retry) when SES returns SendingPausedException', async () => {
+                // Reputation/account-state pause won't recover in 500ms; retrying
+                // just burns reschedules. Hard-fail so the failure surfaces via
+                // email_failed and an operator can investigate.
+                sendEmailSpy.mockRejectedValueOnce(
+                    new SendingPausedException({ $metadata: {}, message: 'Sending paused' })
+                )
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(result.finished).toBe(true)
+                expect(result.error).toMatch(/Failed to send email via SES: Sending paused/)
+                expect(result.metrics).toEqual(
+                    expect.arrayContaining([expect.objectContaining({ metric_name: 'email_failed' })])
+                )
+            })
+
+            it('still fails the job for non-throttle SES errors', async () => {
+                sendEmailSpy.mockRejectedValueOnce(
+                    new MessageRejected({ $metadata: {}, message: 'something else broke' })
+                )
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(result.finished).toBe(true)
+                expect(result.error).toMatch(/Failed to send email via SES: something else broke/)
+                // Business metric should record the failure.
+                expect(result.metrics).toEqual(
+                    expect.arrayContaining([expect.objectContaining({ metric_name: 'email_failed' })])
+                )
+            })
+        })
     })
     describe('native email sending with maildev', () => {
         let invocation: CyclotronJobInvocationHogFunction
@@ -367,6 +443,16 @@ describe('EmailService', () => {
                 FeedbackForwardingEmailAddress: 'test@posthog-test.com',
                 FromEmailAddress: '"Test User" <test@posthog-test.com>',
             })
+        })
+
+        it('records a send-time metric for normal sends but not for test sends', async () => {
+            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+
+            const normal = await service.executeSendEmail(invocation)
+            expect(normal.metrics.map((m) => m.metric_name)).toContain('email_sent')
+
+            const testSend = await service.executeSendEmail(invocation, true)
+            expect(testSend.metrics).toEqual([])
         })
 
         it('should include cc addresses in SES destination', async () => {

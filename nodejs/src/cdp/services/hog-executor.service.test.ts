@@ -20,6 +20,7 @@ import { compileHog } from '../templates/compiler'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import { createExampleInvocation, createHogExecutionGlobals, createHogFunction } from '../_tests/fixtures'
 import { EXTEND_OBJECT_KEY, isConnectionLevelError } from './hog-executor.service'
+import { selfLoopGuardCounter } from './self-loop-guard'
 
 // Mock before importing fetch
 jest.mock('~/utils/request', () => {
@@ -73,6 +74,7 @@ describe('Hog Executor', () => {
                 fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
                 fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
                 emailQueueRouting: hub.CDP_EMAIL_QUEUE_ROUTING,
+                selfLoopGuardMode: hub.CDP_SELF_LOOP_GUARD_MODE,
             },
             { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
             hogInputsService,
@@ -916,6 +918,83 @@ describe('Hog Executor', () => {
         })
     })
 
+    describe('postHogGetAccount', () => {
+        const mockExecHogForAsyncFunction = (asyncFunctionName: string, asyncFunctionArgs: any[]) => {
+            const hogExecModule = require('../utils/hog-exec')
+            jest.spyOn(hogExecModule, 'execHog').mockResolvedValue({
+                execResult: {
+                    finished: false,
+                    asyncFunctionName,
+                    asyncFunctionArgs,
+                    state: { syncDuration: 1, maxMemUsed: 100, ops: 10, stack: [] },
+                },
+                error: undefined,
+                durationMs: 1,
+            })
+        }
+
+        const createAccountInvocation = () =>
+            createExampleInvocation(
+                createHogFunction({
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    ...HOG_FILTERS_EXAMPLES.no_filters,
+                }),
+                { inputs: {} }
+            )
+
+        it('postHogGetAccount queues internal fetch with the external_id query param', async () => {
+            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                id: 1,
+                secret_api_token: 'test-secret-token',
+            } as any)
+
+            mockExecHogForAsyncFunction('postHogGetAccount', [{ external_id: 'acme corp/1' }])
+
+            const result = await executor.execute(createAccountInvocation())
+
+            expect(result.invocation.queueParameters).toEqual({
+                type: 'fetch',
+                url: `${hub.SITE_URL}/api/customer_analytics/external/account?external_id=acme%20corp%2F1`,
+                method: 'GET',
+                headers: { Authorization: 'Bearer test-secret-token' },
+            })
+        })
+
+        it('postHogGetAccount errors when external_id is missing', async () => {
+            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                id: 1,
+                secret_api_token: 'test-secret-token',
+            } as any)
+
+            mockExecHogForAsyncFunction('postHogGetAccount', [{}])
+
+            const result = await executor.execute(createAccountInvocation())
+            expect(result.error).toContain("missing 'external_id'")
+        })
+
+        it('postHogGetAccount errors when team is not found', async () => {
+            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue(null)
+
+            mockExecHogForAsyncFunction('postHogGetAccount', [{ external_id: 'acme-1' }])
+
+            const result = await executor.execute(createAccountInvocation())
+            expect(result.error).toContain('Team 1 not found')
+        })
+
+        it('postHogGetAccount errors when the team has no secret API token', async () => {
+            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                id: 1,
+                secret_api_token: null,
+            } as any)
+
+            mockExecHogForAsyncFunction('postHogGetAccount', [{ external_id: 'acme-1' }])
+
+            const result = await executor.execute(createAccountInvocation())
+            expect(result.error).toContain('has no secret API token configured')
+        })
+    })
+
     describe('produceToWarehouseWebhooks', () => {
         const buildInvocation = async (code: string): Promise<CyclotronJobInvocationHogFunction> => {
             const bytecode = await compileHog(code)
@@ -1666,6 +1745,95 @@ describe('Hog Executor', () => {
                 expect(result.error.message).toContain('status code 400')
             })
         })
+
+        describe('self-loop guard', () => {
+            const OWN_TOKEN = 'phc_synthetic_own_0000000000000000'
+            const INGEST_URL = 'https://us.i.posthog.com/capture/'
+
+            const mockOwnTeam = (): void => {
+                jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                    id: 1,
+                    api_token: OWN_TOKEN,
+                    secret_api_token: null,
+                } as any)
+            }
+
+            const setMode = (mode: 'disabled' | 'warn'): void => {
+                ;(executor as any).config.selfLoopGuardMode = mode
+            }
+
+            const ownTokenCaptureBody = (): string =>
+                JSON.stringify({ api_key: OWN_TOKEN, event: 'replicated', distinct_id: 'u1', properties: {} })
+
+            // The detected count is the production signal that drives the enforce decision,
+            // so assert it actually moves - not just the human-facing log.
+            const readDetectedCount = async (): Promise<number> => {
+                const metric = await selfLoopGuardCounter.get()
+                return metric.values.find((v) => v.labels.mode === 'warn' && v.labels.action === 'detected')?.value ?? 0
+            }
+
+            it('detects a self-referential ingest fetch and logs + meters it without blocking (warn)', async () => {
+                setMode('warn')
+                mockOwnTeam()
+                const invocation = await createFetchInvocation({
+                    url: INGEST_URL,
+                    method: 'POST',
+                    body: ownTokenCaptureBody(),
+                })
+                ;(fetch as jest.Mock).mockImplementationOnce(() =>
+                    Promise.resolve({ status: 200, headers: {}, text: () => Promise.resolve('ok') })
+                )
+                const detectedBefore = await readDetectedCount()
+
+                const result = await executor.executeFetch(invocation)
+
+                // Observe-only: the fetch still happens and nothing errors.
+                expect(result.error).toBeUndefined()
+                expect(cleanLogs(result.logs.map((l) => l.message))).toEqual(
+                    expect.arrayContaining([expect.stringContaining('can form an event-forwarding loop')])
+                )
+                expect(await readDetectedCount()).toBe(detectedBefore + 1)
+            })
+
+            it('does not flag a normal external fetch even with the project token in the body', async () => {
+                setMode('warn')
+                mockOwnTeam()
+                const invocation = await createFetchInvocation({
+                    url: `${baseUrl}/test`,
+                    method: 'POST',
+                    body: ownTokenCaptureBody(),
+                })
+                mockRequest.mockClear()
+                const detectedBefore = await readDetectedCount()
+
+                const result = await executor.executeFetch(invocation)
+
+                expect(result.error).toBeUndefined()
+                expect(mockRequest).toHaveBeenCalled()
+                expect(cleanLogs(result.logs.map((l) => l.message))).not.toEqual(
+                    expect.arrayContaining([expect.stringContaining('event-forwarding loop')])
+                )
+                expect(await readDetectedCount()).toBe(detectedBefore)
+            })
+
+            it('fails open: a team lookup error never breaks the fetch', async () => {
+                setMode('warn')
+                jest.spyOn(hub.teamManager, 'getTeam').mockRejectedValue(new Error('db unavailable'))
+                const invocation = await createFetchInvocation({
+                    url: INGEST_URL,
+                    method: 'POST',
+                    body: ownTokenCaptureBody(),
+                })
+                ;(fetch as jest.Mock).mockImplementationOnce(() =>
+                    Promise.resolve({ status: 200, headers: {}, text: () => Promise.resolve('ok') })
+                )
+
+                const result = await executor.executeFetch(invocation)
+
+                // Detection failing must not surface as a destination error.
+                expect(result.error).toBeUndefined()
+            })
+        })
     })
 
     describe('isConnectionLevelError', () => {
@@ -1785,6 +1953,7 @@ describe('Hog Executor', () => {
                     fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
                     fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
                     emailQueueRouting,
+                    selfLoopGuardMode: hub.CDP_SELF_LOOP_GUARD_MODE,
                 },
                 { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
                 hogInputsService,

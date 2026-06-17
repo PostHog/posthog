@@ -428,8 +428,8 @@ describe('featureFlagTestingLogic', () => {
             let capturedBody: Record<string, any> = {}
             useMocks({
                 post: {
-                    '/api/projects/:team/feature_flags/1/test_evaluation': async (req) => {
-                        capturedBody = await req.json()
+                    '/api/projects/:team/feature_flags/1/test_evaluation': async ({ request }) => {
+                        capturedBody = (await request.json()) as Record<string, any>
                         return [200, {}]
                     },
                 },

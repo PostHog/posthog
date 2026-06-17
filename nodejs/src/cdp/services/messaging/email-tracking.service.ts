@@ -50,9 +50,10 @@ export const decodeHtmlEntitiesInHref = (value: string): string => {
 export const addTrackingToEmail = (
     html: string,
     invocation: CyclotronJobInvocationHogFunction,
-    signer: EmailTrackingCodeSigner
+    signer: EmailTrackingCodeSigner,
+    isTest = false
 ): string => {
-    const trackingUrl = signer.pixelUrl(invocation)
+    const trackingUrl = signer.pixelUrl(invocation, isTest)
 
     html = html.replace(LINK_REGEX, (m, d, s, u) => {
         const href = decodeHtmlEntitiesInHref(d || s || u || '')
@@ -61,7 +62,7 @@ export const addTrackingToEmail = (
         if (/^\s*javascript:/i.test(href)) {
             return m
         }
-        const tracked = signer.redirectUrl(invocation, href)
+        const tracked = signer.redirectUrl(invocation, href, isTest)
 
         // replace just the href in the original tag to preserve other attributes
         return m.replace(/\bhref\s*=\s*(?:"[^"]*"|'[^']*'|[^'">\s]+)/i, `href="${tracked}"`)
