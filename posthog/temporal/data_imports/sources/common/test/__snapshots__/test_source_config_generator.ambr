@@ -180,6 +180,7 @@
           ExternalDataSourceType.DATABRICKS: DatabricksSourceConfig,
           ExternalDataSourceType.DATADOG: DatadogSourceConfig,
           ExternalDataSourceType.DATASCOPE: DatascopeSourceConfig,
+          ExternalDataSourceType.DATORAMA: DatoramaSourceConfig,
           ExternalDataSourceType.DB2: Db2SourceConfig,
           ExternalDataSourceType.DBT: DbtSourceConfig,
           ExternalDataSourceType.DEEL: DeelSourceConfig,
