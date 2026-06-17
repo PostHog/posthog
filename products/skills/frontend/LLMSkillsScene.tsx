@@ -338,8 +338,8 @@ function MarketplaceCredentialSection(): JSX.Element {
                     {marketplaceCommand}
                 </CodeSnippet>
                 <p className="m-0 text-xs text-secondary">
-                    Paste into Claude Code, then install <b>posthog-skill-store</b> via <code>/plugin</code> — skills
-                    appear as <code>/posthog-skill-store:&lt;name&gt;</code>, auto-updating as you publish.
+                    Run each line in Claude Code — skills then appear as <code>/posthog-skill-store:&lt;name&gt;</code>,
+                    auto-updating as you publish.
                 </p>
             </div>
             <div className="flex flex-col gap-1">

@@ -630,6 +630,11 @@ class LLMSkillViewSet(
         host = request.get_host()
         scheme = request.scheme
 
+        def claude(tok: str | None) -> str:
+            return build_install_command(
+                team_id, host, scheme, tok, plugin_name=PLUGIN_NAME, marketplace_name=MARKETPLACE_NAME
+            )
+
         def codex(tok: str | None) -> str:
             return build_codex_install_command(
                 team_id, host, scheme, tok, plugin_name=PLUGIN_NAME, marketplace_name=MARKETPLACE_NAME
@@ -642,8 +647,8 @@ class LLMSkillViewSet(
             "marketplace_name": MARKETPLACE_NAME,
             "label": marketplace_credential_label(cast(User, request.user).id),
             "repo_url": marketplace_repo_url(team_id, host, scheme),
-            "command": build_install_command(team_id, host, scheme, token) if token else None,
-            "command_template": build_install_command(team_id, host, scheme, None),
+            "command": claude(token) if token else None,
+            "command_template": claude(None),
             "codex_command": codex(token) if token else None,
             "codex_command_template": codex(None),
             "token": token,

@@ -352,6 +352,9 @@ class TestMarketplaceInstallCommand(APIBaseTest):
         assert body["token"] in body["command"]
         assert "x-access-token:" in body["command"]
         assert f"/api/projects/{self.team.id}/llm_skills/marketplace.git" in body["command"]
+        # Claude Code command is two lines: marketplace add, then plugin install.
+        assert "/plugin marketplace add" in body["command"]
+        assert f"/plugin install posthog-skill-store@{body['marketplace_name']}" in body["command"]
 
         # Codex command carries the same token and the two-step add/install sequence.
         assert body["token"] in body["codex_command"]

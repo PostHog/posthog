@@ -89,9 +89,17 @@ def _marketplace_git_url(team_id: int, host: str, scheme: str, token: str | None
     return f"{scheme}://x-access-token:{credential}@{host}/api/projects/{team_id}/llm_skills/marketplace.git"
 
 
-def build_install_command(team_id: int, host: str, scheme: str, token: str | None) -> str:
-    """Claude Code: the ``/plugin marketplace add`` command. Embeds the token, or a placeholder."""
-    return f"/plugin marketplace add {_marketplace_git_url(team_id, host, scheme, token)}"
+def build_install_command(
+    team_id: int, host: str, scheme: str, token: str | None, *, plugin_name: str, marketplace_name: str
+) -> str:
+    """Claude Code: add the marketplace, then install the plugin (two slash commands).
+
+    ``/plugin marketplace add`` only registers the marketplace; ``/plugin install`` is the separate
+    step that actually installs the plugin. Both are entered in Claude Code's prompt.
+    """
+    add = f"/plugin marketplace add {_marketplace_git_url(team_id, host, scheme, token)}"
+    install = f"/plugin install {plugin_name}@{marketplace_name}"
+    return f"{add}\n{install}"
 
 
 def build_codex_install_command(
