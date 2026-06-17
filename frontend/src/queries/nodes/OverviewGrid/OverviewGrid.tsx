@@ -17,7 +17,7 @@ import { formatPercentage, humanFriendlyLargeNumber } from 'lib/utils/numbers'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { EvenlyDistributedRows } from '~/queries/nodes/WebOverview/EvenlyDistributedRows'
-import { WebAnalyticsItemKind } from '~/queries/schema/schema-general'
+import { WebAnalyticsItemKind, WebAnalyticsPreComputeStrategy } from '~/queries/schema/schema-general'
 
 export const NO_BASELINE_CHANGE_SENTINEL = 999999
 
@@ -57,8 +57,7 @@ interface OverviewGridProps {
     loading: boolean
     numSkeletons: number
     samplingRate?: SamplingRate
-    usedPreAggregatedTables?: boolean
-    usedLazyPrecompute?: boolean
+    preComputeStrategy?: WebAnalyticsPreComputeStrategy
     onDisablePrecompute?: () => void
     labelFromKey: (key: string) => string
     filterEmptyItems?: (item: OverviewItem) => boolean
@@ -70,8 +69,7 @@ export function OverviewGrid({
     loading,
     numSkeletons,
     samplingRate,
-    usedPreAggregatedTables = false,
-    usedLazyPrecompute = false,
+    preComputeStrategy,
     onDisablePrecompute,
     labelFromKey,
     filterEmptyItems = () => true,
@@ -96,8 +94,7 @@ export function OverviewGrid({
                           <OverviewItemCell
                               key={item.key}
                               item={item}
-                              usedPreAggregatedTables={usedPreAggregatedTables}
-                              usedLazyPrecompute={usedLazyPrecompute}
+                              preComputeStrategy={preComputeStrategy}
                               onDisablePrecompute={onDisablePrecompute}
                               labelFromKey={labelFromKey}
                               compact={compact}
@@ -149,8 +146,7 @@ const OverviewItemCellSkeleton = ({ compact }: { compact: boolean }): JSX.Elemen
 
 interface OverviewItemCellProps {
     item: OverviewItem
-    usedPreAggregatedTables: boolean
-    usedLazyPrecompute: boolean
+    preComputeStrategy?: WebAnalyticsPreComputeStrategy
     onDisablePrecompute?: () => void
     labelFromKey: (key: string) => string
     compact: boolean
@@ -158,8 +154,7 @@ interface OverviewItemCellProps {
 
 const OverviewItemCell = ({
     item,
-    usedPreAggregatedTables,
-    usedLazyPrecompute,
+    preComputeStrategy,
     onDisablePrecompute,
     labelFromKey,
     compact,
@@ -241,9 +236,9 @@ const OverviewItemCell = ({
         >
             {/* Rendered as a sibling of the Tooltip trigger so hovering the badge
                 does not also surface the cell's metric tooltip. */}
-            {usedLazyPrecompute ? (
+            {preComputeStrategy === WebAnalyticsPreComputeStrategy.LazyPrecompute ? (
                 <PreAggregatedBadge variant="precomputed" onDisable={onDisablePrecompute} />
-            ) : usedPreAggregatedTables ? (
+            ) : preComputeStrategy === WebAnalyticsPreComputeStrategy.PreAggregated ? (
                 <PreAggregatedBadge variant="preagg" />
             ) : null}
             <Tooltip title={tooltip}>

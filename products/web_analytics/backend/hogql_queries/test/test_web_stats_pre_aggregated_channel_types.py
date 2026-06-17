@@ -1,7 +1,14 @@
 from freezegun import freeze_time
 from posthog.test.base import _create_event, _create_person, flush_persons_and_events
 
-from posthog.schema import DateRange, HogQLQueryModifiers, SessionPropertyFilter, WebStatsBreakdown, WebStatsTableQuery
+from posthog.schema import (
+    DateRange,
+    HogQLQueryModifiers,
+    SessionPropertyFilter,
+    WebAnalyticsPreComputeStrategy,
+    WebStatsBreakdown,
+    WebStatsTableQuery,
+)
 
 from posthog.hogql.database.schema.channel_type import DEFAULT_CHANNEL_TYPES
 
@@ -391,8 +398,8 @@ class TestWebStatsPreAggregatedChannelTypes(WebAnalyticsPreAggregatedTestBase):
         regular_response = self._calculate_channel_type_query(use_preagg=False)
 
         # Verify both queries used their respective query engines
-        assert preagg_response.usedPreAggregatedTables
-        assert not regular_response.usedPreAggregatedTables
+        assert preagg_response.preComputeStrategy == WebAnalyticsPreComputeStrategy.PRE_AGGREGATED
+        assert regular_response.preComputeStrategy == WebAnalyticsPreComputeStrategy.LIVE
 
         actual_sorted = sorted(preagg_response.results, key=lambda x: x[0])
         expected_sorted = sorted(regular_response.results, key=lambda x: x[0])
@@ -419,8 +426,8 @@ class TestWebStatsPreAggregatedChannelTypes(WebAnalyticsPreAggregatedTestBase):
         )
 
         # Verify that pre-aggregated tables were used
-        assert preagg_response.usedPreAggregatedTables
-        assert not regular_response.usedPreAggregatedTables
+        assert preagg_response.preComputeStrategy == WebAnalyticsPreComputeStrategy.PRE_AGGREGATED
+        assert regular_response.preComputeStrategy == WebAnalyticsPreComputeStrategy.LIVE
 
         preagg_result = preagg_response.results[0]
         regular_result = regular_response.results[0]
@@ -443,7 +450,7 @@ class TestWebStatsPreAggregatedChannelTypes(WebAnalyticsPreAggregatedTestBase):
         )
         assert len(preagg_response.results) == 1
         assert preagg_response.results[0][1] == (2.0, None)  # 2 visitors
-        assert preagg_response.usedPreAggregatedTables
+        assert preagg_response.preComputeStrategy == WebAnalyticsPreComputeStrategy.PRE_AGGREGATED
 
         # Test "Organic Search" - should get 1 session
         preagg_response = self._calculate_channel_type_query(
@@ -454,7 +461,7 @@ class TestWebStatsPreAggregatedChannelTypes(WebAnalyticsPreAggregatedTestBase):
         )
         assert len(preagg_response.results) == 1
         assert preagg_response.results[0][1] == (1.0, None)  # 1 visitor
-        assert preagg_response.usedPreAggregatedTables
+        assert preagg_response.preComputeStrategy == WebAnalyticsPreComputeStrategy.PRE_AGGREGATED
 
         # Test non-existent channel type - should get no results
         preagg_response = self._calculate_channel_type_query(
@@ -466,4 +473,4 @@ class TestWebStatsPreAggregatedChannelTypes(WebAnalyticsPreAggregatedTestBase):
             ],
         )
         assert len(preagg_response.results) == 0
-        assert preagg_response.usedPreAggregatedTables
+        assert preagg_response.preComputeStrategy == WebAnalyticsPreComputeStrategy.PRE_AGGREGATED
