@@ -15295,6 +15295,7 @@ export namespace Schemas {
      * * `Braintrust` - Braintrust
      * * `StreamElements` - StreamElements
      * * `Streamlabs` - Streamlabs
+     * * `Datorama` - Datorama
      * * `Custom` - Custom
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
@@ -15924,6 +15925,7 @@ export namespace Schemas {
       Braintrust: 'Braintrust',
       StreamElements: 'StreamElements',
       Streamlabs: 'Streamlabs',
+      Datorama: 'Datorama',
       Custom: 'Custom',
     } as const;
 
@@ -16560,6 +16562,7 @@ export namespace Schemas {
        * * `Braintrust` - Braintrust
        * * `StreamElements` - StreamElements
        * * `Streamlabs` - Streamlabs
+       * * `Datorama` - Datorama
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
     }
@@ -21422,6 +21425,7 @@ export namespace Schemas {
        * * `Braintrust` - Braintrust
        * * `StreamElements` - StreamElements
        * * `Streamlabs` - Streamlabs
+       * * `Datorama` - Datorama
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
@@ -44636,7 +44640,7 @@ export namespace Schemas {
       /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true. */
       emit?: boolean;
       /**
-         * Minutes between runs (10–43200). Defaults to 60 (hourly).
+         * Minutes between runs (10–43200). Defaults to 180 (every 3 hours).
          * @minimum 10
          * @maximum 43200
          */
@@ -45723,6 +45727,7 @@ export namespace Schemas {
        * * `Braintrust` - Braintrust
        * * `StreamElements` - StreamElements
        * * `Streamlabs` - Streamlabs
+       * * `Datorama` - Datorama
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
@@ -46385,6 +46390,7 @@ export namespace Schemas {
        * * `Braintrust` - Braintrust
        * * `StreamElements` - StreamElements
        * * `Streamlabs` - Streamlabs
+       * * `Datorama` - Datorama
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */

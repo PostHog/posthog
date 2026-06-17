@@ -174,7 +174,7 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
             .min(signalsScoutConfigCreateBodyRunIntervalMinutesMin)
             .max(signalsScoutConfigCreateBodyRunIntervalMinutesMax)
             .optional()
-            .describe('Minutes between runs (10–43200). Defaults to 60 (hourly).'),
+            .describe('Minutes between runs (10–43200). Defaults to 180 (every 3 hours).'),
     })
     .describe(
         'Request body for registering a scout config without waiting for the coordinator tick.\n\nUpsert keyed on `skill_name`: if the coordinator (or a concurrent caller) already\nregistered the row, the provided tunables are applied to it instead.'
