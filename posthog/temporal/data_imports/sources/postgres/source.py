@@ -274,6 +274,18 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "the pooler's credentials for the database are wrong. Check that the database is "
                 "running and reachable from your pooler, then re-enable the sync."
             ),
+            # Serverless Postgres providers (e.g. Neon) suspend a project's compute once it exhausts
+            # the plan's compute-time quota, and the connection attempt fails at handshake with
+            # "Your account or project has exceeded the compute time quota. Upgrade your plan to
+            # increase limits." The compute stays suspended until the customer upgrades their plan or
+            # the quota resets at the next billing period, so retrying the activity just re-hits the
+            # same wall. Match the stable provider message and exclude the volatile host/IP/port.
+            "exceeded the compute time quota": (
+                "Your database provider has suspended the database because the account or project "
+                'exceeded its compute-time quota ("exceeded the compute time quota"). PostHog can\'t '
+                "connect until the database is available again. Upgrade your provider's plan or wait "
+                "for the quota to reset, then re-enable the sync."
+            ),
             # `offset_chunking` retries a Postgres standby recovery conflict ("canceling statement
             # due to conflict with recovery") 30 times in-process with backoff + chunk-size
             # reduction before raising this. The conflict comes from the customer's read replica
