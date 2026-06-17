@@ -4,7 +4,7 @@
  * them via the `@shared/*` tsconfig alias at bundle time. Called from
  * build-hono.ts / dev-hono.ts before bundling, and standalone in CI.
  */
-import { cpSync, mkdirSync } from 'fs'
+import { cpSync, mkdirSync, rmSync } from 'fs'
 import { dirname, resolve } from 'path'
 
 const ROOT_DIR = resolve(__dirname, '..')
@@ -22,7 +22,10 @@ export function copyInstructions(): void {
         const src = resolve(REPO_ROOT, prompt.src)
         const dest = resolve(ROOT_DIR, prompt.dest)
         mkdirSync(dirname(dest), { recursive: true })
-        // `force: true` so watch-mode rebuilds don't EEXIST when the dest already exists.
+        // Belt-and-braces: Node 24's `cpSync` has been observed to throw EEXIST
+        // even with `force: true` on some platforms (notably macOS). Explicitly
+        // remove the dest first so watch-mode rebuilds always succeed.
+        rmSync(dest, { force: true, recursive: true })
         cpSync(src, dest, { recursive: true, force: true })
     }
 }

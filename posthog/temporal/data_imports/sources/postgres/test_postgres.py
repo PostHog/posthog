@@ -272,6 +272,10 @@ class TestPostgresSourceNonRetryableErrors:
             'connection failed: connection to server at "52.45.94.125", port 6543 failed: FATAL:  (ENOTFOUND) tenant/user postgres.hksbxxtlcfeyyalgveif not found',
             "ProtocolViolation: server login has been failing, cached error: connect timeout (server_login_retry)",
             "server login has been failing, cached error: connection refused (server_login_retry)",
+            # AWS RDS Proxy rejects bad credentials with its own wording (validated against Secrets
+            # Manager), not PostgreSQL's "password authentication failed for user". Newlines are
+            # normalized to spaces upstream, so the real message arrives as the doubled single line.
+            'connection failed: connection to server at "127.0.0.1", port 35425 failed: FATAL:  The password that was provided for the role postgres is wrong. connection to server at "127.0.0.1", port 35425 failed: FATAL:  This RDS Proxy requires TLS connections',
         ],
     )
     def test_permanent_connection_errors_are_non_retryable(self, source, error_msg):
@@ -325,6 +329,22 @@ class TestPostgresSourceNonRetryableErrors:
         friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
         assert friendly, "Exceeded compute-time quota error should surface an actionable message"
         assert "compute-time quota" in friendly[0]
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            'connection failed: connection to server at "127.0.0.1", port 35425 failed: FATAL:  The password that was provided for the role postgres is wrong.',
+            'connection failed: connection to server at "10.0.0.1", port 5432 failed: FATAL:  The password that was provided for the role posthog_readonly is wrong.',
+        ],
+    )
+    def test_rds_proxy_wrong_password_is_non_retryable(self, source, error_msg):
+        # RDS Proxy's wrong-credentials wording isn't covered by the PostgreSQL "password
+        # authentication failed for user" key, so confirm the dedicated role-password key is what
+        # recognises it, independent of the volatile role name.
+        non_retryable = source.get_non_retryable_errors()
+        assert "The password that was provided for the role" in non_retryable
+        assert "password authentication failed for user" not in error_msg
+        assert any(pattern in error_msg for pattern in non_retryable.keys())
 
     def test_supavisor_enotfound_tenant_user_uses_new_key(self, source):
         # The older tenant/user patterns don't cover the newer "(ENOTFOUND) tenant/user" wording,
@@ -1319,6 +1339,64 @@ class TestPostgresSchemaDiscovery:
         connection = mock.MagicMock()
         connection.cursor.return_value = cursor_context
         return connection
+
+    def test_get_schemas_retries_transient_connection_drop_on_connect(self):
+        # A transient drop on the discovery connect ("server closed the connection unexpectedly")
+        # is the same class of error the import read path already recovers from. Discovery must
+        # retry the connect in-process and recover instead of failing the whole run — and surfacing
+        # as captured error-tracking noise — on the first blip.
+        drop = psycopg.OperationalError(
+            'connection failed: connection to server at "66.33.22.246", port 11212 failed: '
+            "server closed the connection unexpectedly"
+        )
+        connection = self._mock_connection(
+            [("public", "users")],
+            [("public", "users", "id", "integer", "NO", 1)],
+        )
+
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
+            side_effect=[drop, connection],
+        ) as connect_mock:
+            with mock.patch("posthog.temporal.data_imports.sources.postgres.postgres.time.sleep"):
+                schemas = get_schemas(
+                    host="localhost",
+                    port=5432,
+                    database="postgres",
+                    user="postgres",
+                    password="postgres",
+                    schema="",
+                )
+
+        # First connect dropped, second succeeded — before the fix the drop escaped on the first
+        # connect (call_count == 1) and failed the discovery activity.
+        assert connect_mock.call_count == 2
+        assert set(schemas.keys()) == {"public.users"}
+        connection.close.assert_called_once()
+
+    def test_get_schemas_does_not_retry_permanent_connect_error(self):
+        # A permanent connect failure (bad password) must propagate on the first attempt — the
+        # dropped-connection retry is scoped strictly to transient drops.
+        err = psycopg.OperationalError(
+            'connection to server at "10.0.0.1" failed: FATAL: password authentication failed for user "postgres"'
+        )
+
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
+            side_effect=err,
+        ) as connect_mock:
+            with mock.patch("posthog.temporal.data_imports.sources.postgres.postgres.time.sleep"):
+                with pytest.raises(psycopg.OperationalError):
+                    get_schemas(
+                        host="localhost",
+                        port=5432,
+                        database="postgres",
+                        user="postgres",
+                        password="postgres",
+                        schema="",
+                    )
+
+        assert connect_mock.call_count == 1
 
     def test_get_schemas_qualifies_table_names_when_schema_is_blank(self):
         connection = self._mock_connection(
