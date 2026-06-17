@@ -53,6 +53,213 @@
                 }
             }
         },
+        "EmailTemplateDesignPatchSchema": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "description": "The email template id to edit."
+                },
+                "operations": {
+                    "minItems": 1,
+                    "type": "array",
+                    "items": {
+                        "oneOf": [
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "op": {
+                                        "type": "string",
+                                        "const": "update_content"
+                                    },
+                                    "id": {
+                                        "type": "string",
+                                        "description": "Id of the content block to update."
+                                    },
+                                    "patch": {
+                                        "type": "object",
+                                        "propertyNames": {
+                                            "type": "string"
+                                        },
+                                        "additionalProperties": {},
+                                        "description": "Partial content-block fields, deep-merged into the existing block; a null leaf deletes that key. e.g. {values: {text: '<p>Hi</p>'}} changes only the block's text."
+                                    }
+                                },
+                                "required": ["op", "id", "patch"]
+                            },
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "op": {
+                                        "type": "string",
+                                        "const": "update_column"
+                                    },
+                                    "id": {
+                                        "type": "string",
+                                        "description": "Id of the column to update."
+                                    },
+                                    "patch": {
+                                        "type": "object",
+                                        "propertyNames": {
+                                            "type": "string"
+                                        },
+                                        "additionalProperties": {},
+                                        "description": "Partial column fields, deep-merged; a null leaf deletes that key."
+                                    }
+                                },
+                                "required": ["op", "id", "patch"]
+                            },
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "op": {
+                                        "type": "string",
+                                        "const": "update_row"
+                                    },
+                                    "id": {
+                                        "type": "string",
+                                        "description": "Id of the row to update."
+                                    },
+                                    "patch": {
+                                        "type": "object",
+                                        "propertyNames": {
+                                            "type": "string"
+                                        },
+                                        "additionalProperties": {},
+                                        "description": "Partial row fields, deep-merged; a null leaf deletes that key."
+                                    }
+                                },
+                                "required": ["op", "id", "patch"]
+                            },
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "op": {
+                                        "type": "string",
+                                        "const": "update_body"
+                                    },
+                                    "patch": {
+                                        "type": "object",
+                                        "propertyNames": {
+                                            "type": "string"
+                                        },
+                                        "additionalProperties": {},
+                                        "description": "Partial body fields, deep-merged. e.g. {values: {backgroundColor: '#ffffff'}}."
+                                    }
+                                },
+                                "required": ["op", "patch"]
+                            },
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "op": {
+                                        "type": "string",
+                                        "const": "add_content"
+                                    },
+                                    "column_id": {
+                                        "type": "string",
+                                        "description": "Id of the column to insert the block into."
+                                    },
+                                    "content": {
+                                        "type": "object",
+                                        "propertyNames": {
+                                            "type": "string"
+                                        },
+                                        "additionalProperties": {},
+                                        "description": "A content block {type, values: {...}}; omit id and values._meta — they are assigned server-side. type is one of text, heading, button, image, divider, html, etc."
+                                    },
+                                    "index": {
+                                        "description": "0-based insert position; omit to append to the end.",
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991
+                                    }
+                                },
+                                "required": ["op", "column_id", "content"]
+                            },
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "op": {
+                                        "type": "string",
+                                        "const": "remove_content"
+                                    },
+                                    "id": {
+                                        "type": "string",
+                                        "description": "Id of the content block to remove."
+                                    }
+                                },
+                                "required": ["op", "id"]
+                            },
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "op": {
+                                        "type": "string",
+                                        "const": "move_content"
+                                    },
+                                    "id": {
+                                        "type": "string",
+                                        "description": "Id of the content block to move."
+                                    },
+                                    "column_id": {
+                                        "type": "string",
+                                        "description": "Id of the destination column."
+                                    },
+                                    "index": {
+                                        "description": "0-based position in the destination column; omit to append.",
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991
+                                    }
+                                },
+                                "required": ["op", "id", "column_id"]
+                            },
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "op": {
+                                        "type": "string",
+                                        "const": "add_row"
+                                    },
+                                    "row": {
+                                        "type": "object",
+                                        "propertyNames": {
+                                            "type": "string"
+                                        },
+                                        "additionalProperties": {},
+                                        "description": "A full row {cells, columns: [{contents: [...], values}], values}; ids and Unlayer numbering are assigned server-side for the row and everything nested in it."
+                                    },
+                                    "index": {
+                                        "description": "0-based insert position; omit to append to the end.",
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991
+                                    }
+                                },
+                                "required": ["op", "row"]
+                            },
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "op": {
+                                        "type": "string",
+                                        "const": "remove_row"
+                                    },
+                                    "id": {
+                                        "type": "string",
+                                        "description": "Id of the row to remove."
+                                    }
+                                },
+                                "required": ["op", "id"]
+                            }
+                        ]
+                    },
+                    "description": "Ordered edits applied atomically to the template's Unlayer design: the stored design is read, the ops are applied in order, the result is validated and re-rendered to HTML, and saved only if valid — otherwise the template is left unchanged. Reference blocks by id so you never resend the whole design."
+                }
+            },
+            "required": ["id", "operations"]
+        },
         "EventDefinitionUpdateInputSchema": {
             "type": "object",
             "properties": {
@@ -126,7 +333,7 @@
                     "type": "boolean"
                 },
                 "connectionId": {
-                    "description": "Optional id of an external data source (e.g. a Postgres or DuckDB direct-query connection). When set, runs the query against that source instead of the ClickHouse catalog. Use external-data-sources-list to discover available connection ids.",
+                    "description": "Optional id of an external data source (e.g. a Postgres, DuckDB, or MySQL direct-query connection). When set, runs the query against that source instead of the ClickHouse catalog. Use external-data-sources-list to discover available connection ids.",
                     "type": "string"
                 }
             },
@@ -622,6 +829,194 @@
                 }
             ],
             "description": "Filter definition. Pick exactly one branch: `data_warehouse` (set `source: \"data_warehouse\"` plus `table_name`/`timestamp_field`/`key_field`) or `events` (HogFunction filter shape with an `events` array)."
+        },
+        "WorkflowGraphPatchSchema": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "description": "The workflow (HogFlow) id to edit. Draft only — active workflows are read-only via MCP."
+                },
+                "operations": {
+                    "minItems": 1,
+                    "type": "array",
+                    "items": {
+                        "oneOf": [
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "op": {
+                                        "type": "string",
+                                        "const": "update_action"
+                                    },
+                                    "id": {
+                                        "type": "string",
+                                        "description": "Id of the action to update."
+                                    },
+                                    "patch": {
+                                        "type": "object",
+                                        "propertyNames": {
+                                            "type": "string"
+                                        },
+                                        "additionalProperties": {},
+                                        "description": "Partial action fields, deep-merged into the existing action; a null leaf deletes that key. e.g. {config: {inputs: {subject: {value: \"Hi\"}}}} changes only that one input."
+                                    }
+                                },
+                                "required": ["op", "id", "patch"]
+                            },
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "op": {
+                                        "type": "string",
+                                        "const": "add_action"
+                                    },
+                                    "action": {
+                                        "type": "object",
+                                        "propertyNames": {
+                                            "type": "string"
+                                        },
+                                        "additionalProperties": {},
+                                        "description": "A full action node {id, name, type, config, ...}; same shape as entries in the workflow actions array."
+                                    }
+                                },
+                                "required": ["op", "action"]
+                            },
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "op": {
+                                        "type": "string",
+                                        "const": "remove_action"
+                                    },
+                                    "id": {
+                                        "type": "string",
+                                        "description": "Id of the action to remove. Its incoming edges reconnect to its first outgoer."
+                                    }
+                                },
+                                "required": ["op", "id"]
+                            },
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "op": {
+                                        "type": "string",
+                                        "const": "add_edge"
+                                    },
+                                    "edge": {
+                                        "type": "object",
+                                        "properties": {
+                                            "from": {
+                                                "type": "string",
+                                                "description": "Source action id."
+                                            },
+                                            "to": {
+                                                "type": "string",
+                                                "description": "Target action id."
+                                            },
+                                            "type": {
+                                                "type": "string",
+                                                "enum": ["continue", "branch"],
+                                                "description": "'continue' = fall-through (sequential or no-match path); 'branch' = a condition/cohort branch (needs index)."
+                                            },
+                                            "index": {
+                                                "description": "Required for type=branch: which condition/cohort slot this branch matches (0-based).",
+                                                "type": "integer",
+                                                "minimum": -9007199254740991,
+                                                "maximum": 9007199254740991
+                                            }
+                                        },
+                                        "required": ["from", "to", "type"],
+                                        "description": "The edge to add."
+                                    }
+                                },
+                                "required": ["op", "edge"]
+                            },
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "op": {
+                                        "type": "string",
+                                        "const": "remove_edge"
+                                    },
+                                    "edge": {
+                                        "type": "object",
+                                        "properties": {
+                                            "from": {
+                                                "type": "string",
+                                                "description": "Source action id."
+                                            },
+                                            "to": {
+                                                "type": "string",
+                                                "description": "Target action id."
+                                            },
+                                            "type": {
+                                                "type": "string",
+                                                "enum": ["continue", "branch"],
+                                                "description": "'continue' = fall-through (sequential or no-match path); 'branch' = a condition/cohort branch (needs index)."
+                                            },
+                                            "index": {
+                                                "description": "Required for type=branch: which condition/cohort slot this branch matches (0-based).",
+                                                "type": "integer",
+                                                "minimum": -9007199254740991,
+                                                "maximum": 9007199254740991
+                                            }
+                                        },
+                                        "required": ["from", "to", "type"],
+                                        "description": "The edge to remove (matched on from/to/type/index)."
+                                    }
+                                },
+                                "required": ["op", "edge"]
+                            },
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "op": {
+                                        "type": "string",
+                                        "const": "replace_action_edges"
+                                    },
+                                    "id": {
+                                        "type": "string",
+                                        "description": "Action id whose outgoing edges are being replaced."
+                                    },
+                                    "edges": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "from": {
+                                                    "type": "string",
+                                                    "description": "Source action id."
+                                                },
+                                                "to": {
+                                                    "type": "string",
+                                                    "description": "Target action id."
+                                                },
+                                                "type": {
+                                                    "type": "string",
+                                                    "enum": ["continue", "branch"],
+                                                    "description": "'continue' = fall-through (sequential or no-match path); 'branch' = a condition/cohort branch (needs index)."
+                                                },
+                                                "index": {
+                                                    "description": "Required for type=branch: which condition/cohort slot this branch matches (0-based).",
+                                                    "type": "integer",
+                                                    "minimum": -9007199254740991,
+                                                    "maximum": 9007199254740991
+                                                }
+                                            },
+                                            "required": ["from", "to", "type"]
+                                        },
+                                        "description": "The complete set of the action's outgoing edges; incoming edges are preserved."
+                                    }
+                                },
+                                "required": ["op", "id", "edges"]
+                            }
+                        ]
+                    },
+                    "description": "Ordered graph edits applied atomically: the stored graph is read, ops are applied in order, the result is fully validated, and it is saved only if valid — otherwise the workflow is left unchanged. Reference nodes/edges by id so you never resend the whole graph. The full updated workflow is returned."
+                }
+            },
+            "required": ["id", "operations"]
         }
     }
 }

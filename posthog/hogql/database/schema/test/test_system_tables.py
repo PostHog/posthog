@@ -68,7 +68,7 @@ class TestSystemTablesTeamScoping(BaseTest):
 
     @parameterized.expand(ALL_SYSTEM_TABLE_NAMES)
     def test_system_table_has_team_id_filter(self, table_name):
-        db = Database.create_for(team=self.team)
+        db = Database.create_for(team=self.team, user=self.user)
         context = HogQLContext(
             team_id=self.team.pk,
             enable_select_queries=True,
@@ -652,7 +652,7 @@ class TestSystemTablesTeamIsolation(NonAtomicBaseTest):
         obj_team1 = factory(self.team, "team1")
         obj_team2 = factory(self.other_team, "team2")
 
-        response = execute_hogql_query(f"SELECT id FROM system.{table_name}", team=self.team)
+        response = execute_hogql_query(f"SELECT id FROM system.{table_name}", team=self.team, user=self.user)
         ids = {str(row[0]) for row in response.results}
 
         assert str(obj_team1.pk) in ids
@@ -664,7 +664,7 @@ class TestSystemTablesSandboxEnvironmentPrivacy(BaseTest):
     mirroring the REST API's per-creator visibility filter and internal-use exclusion."""
 
     def test_generated_sql_includes_private_predicate(self):
-        db = Database.create_for(team=self.team)
+        db = Database.create_for(team=self.team, user=self.user)
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=db)
         query, _ = prepare_and_print_ast(
             parse_select("SELECT id FROM system.sandbox_environments"), context, dialect="clickhouse"
@@ -686,7 +686,7 @@ class TestSystemTablesSandboxEnvironmentPrivacyIsolation(NonAtomicBaseTest):
         public_env = SandboxEnvironment.objects.create(team=self.team, name="public_env", private=False)
         private_env = SandboxEnvironment.objects.create(team=self.team, name="private_env", private=True)
 
-        response = execute_hogql_query("SELECT id FROM system.sandbox_environments", team=self.team)
+        response = execute_hogql_query("SELECT id FROM system.sandbox_environments", team=self.team, user=self.user)
         ids = {str(row[0]) for row in response.results}
 
         assert str(public_env.pk) in ids
@@ -702,7 +702,7 @@ class TestSystemTablesSandboxEnvironmentPrivacyIsolation(NonAtomicBaseTest):
             team=self.team, name="internal_env", private=False, internal=True
         )
 
-        response = execute_hogql_query("SELECT id FROM system.sandbox_environments", team=self.team)
+        response = execute_hogql_query("SELECT id FROM system.sandbox_environments", team=self.team, user=self.user)
         ids = {str(row[0]) for row in response.results}
 
         assert str(regular_env.pk) in ids
@@ -714,7 +714,7 @@ class TestSystemTablesTaskInternalExclusion(BaseTest):
     mirroring the REST API's default filter."""
 
     def test_generated_sql_includes_internal_predicate(self):
-        db = Database.create_for(team=self.team)
+        db = Database.create_for(team=self.team, user=self.user)
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=db)
         query, _ = prepare_and_print_ast(parse_select("SELECT id FROM system.tasks"), context, dialect="clickhouse")
         assert "system__tasks.internal" in query
@@ -744,7 +744,7 @@ class TestSystemTablesTaskInternalExclusionIsolation(NonAtomicBaseTest):
             internal=True,
         )
 
-        response = execute_hogql_query("SELECT id FROM system.tasks", team=self.team)
+        response = execute_hogql_query("SELECT id FROM system.tasks", team=self.team, user=self.user)
         ids = {str(row[0]) for row in response.results}
 
         assert str(regular_task.pk) in ids
@@ -773,6 +773,7 @@ class TestSystemAccountsLazyJoins(NonAtomicBaseTest):
         response = execute_hogql_query(
             "SELECT id, accounts.tags.names FROM system.accounts AS accounts ORDER BY name",
             team=self.team,
+            user=self.user,
         )
         rows_by_id = {str(row[0]): row[1] for row in response.results}
 
@@ -786,6 +787,7 @@ class TestSystemAccountsLazyJoins(NonAtomicBaseTest):
         response = execute_hogql_query(
             "SELECT id, accounts.tags.names FROM system.accounts AS accounts",
             team=self.team,
+            user=self.user,
         )
         assert response.results == []
 
@@ -799,6 +801,7 @@ class TestSystemAccountsLazyJoins(NonAtomicBaseTest):
         response = execute_hogql_query(
             "SELECT id, accounts.notebooks.count FROM system.accounts AS accounts ORDER BY name",
             team=self.team,
+            user=self.user,
         )
         rows_by_id = {str(row[0]): row[1] for row in response.results}
 

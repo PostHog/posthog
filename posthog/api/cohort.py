@@ -62,6 +62,7 @@ from posthog.models.person.util import get_person_by_uuid, validate_person_uuids
 from posthog.models.property.property import Property
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
+from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.queries.actor_base_query import get_serialized_people
 from posthog.queries.base import determine_parsed_date_for_property_matching
 from posthog.queries.person_query import PersonQuery
@@ -1177,6 +1178,11 @@ class CohortSerializer(serializers.ModelSerializer):
         return representation
 
 
+def _used_in_block(page: list[dict], total: int) -> dict[str, Any]:
+    """Build one ``{results, total, has_more}`` block of the used_in response."""
+    return {"results": page, "total": total, "has_more": total > len(page)}
+
+
 def _truncate_used_in_queryset(qs: QuerySet) -> tuple[list[dict], int]:
     """Return up to COHORT_USED_IN_PAGE_SIZE rows plus the total count.
 
@@ -1190,32 +1196,79 @@ def _truncate_used_in_queryset(qs: QuerySet) -> tuple[list[dict], int]:
     return page[:COHORT_USED_IN_PAGE_SIZE], qs.count()
 
 
+def _flags_with_cohort_filters(cohort: Cohort) -> QuerySet[FeatureFlag]:
+    """Return non-deleted flags in the cohort's project whose filters contain any cohort property.
+
+    DB-side pre-filter for the ``get_cohort_ids()`` expansion in the callers below, so
+    only flags that reference some cohort are loaded into Python instead of every flag
+    in the project. Matching any cohort-type property — rather than this specific cohort
+    id — is required for correctness: a flag that only transitively references this
+    cohort (via another cohort) still directly references some cohort, so this predicate
+    is a strict superset of the flags the expansion can match.
+    """
+    return (
+        # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (static predicate, no user input)
+        FeatureFlag.objects.filter(team__project_id=cohort.team.project_id, deleted=False)
+        .extra(where=["""jsonb_path_exists(filters, '$.** ? (@.type == "cohort")')"""])
+        .select_related("team")
+    )
+
+
+def _directly_referenced_cohort_ids(flags: list[FeatureFlag]) -> set[int]:
+    """Cohort ids each flag references directly in its filter conditions.
+
+    Mirrors the cohort-property walk in ``FeatureFlag.get_cohort_ids``, used to bulk-load
+    those cohorts so the expansion doesn't point-query them one at a time.
+    """
+    return {
+        int(prop["value"])
+        for flag in flags
+        for condition in flag.conditions
+        for prop in condition.get("properties", [])
+        if prop.get("type") == "cohort" and str(prop.get("value")).lstrip("-").isdigit()
+    }
+
+
+def _filter_flags_referencing_cohort(flags: QuerySet[FeatureFlag], cohort: Cohort) -> list[FeatureFlag]:
+    """Expand each flag's cohort references in Python and keep flags that reach this cohort.
+
+    The cache is seeded with the target cohort and bulk-loaded with every cohort the
+    flags reference directly, so ``get_cohort_ids()`` only point-queries for cohorts
+    nested behind another cohort's filters. Seeding the target also means a soft-deleted
+    target still resolves: ``used_in`` reports flags referencing a deleted cohort, which
+    matches the insights and cohorts blocks (neither checks the target's deleted state).
+    """
+    flag_list = list(flags)
+    seen_cohorts_cache: dict[int, CohortOrEmpty] = {cohort.id: cohort}
+    direct_ids = _directly_referenced_cohort_ids(flag_list) - seen_cohorts_cache.keys()
+    if direct_ids:
+        for direct_cohort in Cohort.objects.filter(
+            pk__in=direct_ids, team__project_id=cohort.team.project_id, deleted=False
+        ):
+            seen_cohorts_cache[direct_cohort.pk] = direct_cohort
+        for missing_id in direct_ids - seen_cohorts_cache.keys():
+            seen_cohorts_cache[missing_id] = ""
+    return [flag for flag in flag_list if cohort.id in flag.get_cohort_ids(seen_cohorts_cache=seen_cohorts_cache)]
+
+
 def get_active_flags_using_cohort(cohort: Cohort) -> list[FeatureFlag]:
     """Return active, non-deleted feature flags that reference this cohort.
 
-    Used by deletion protection — only live flags should block cohort deletion.
+    Used by deletion protection: only live flags should block cohort deletion.
     """
-    active_flags = FeatureFlag.objects.filter(
-        team__project_id=cohort.team.project_id, active=True, deleted=False
-    ).select_related("team")
-    seen_cohorts_cache: dict[int, CohortOrEmpty] = {}
-    return [flag for flag in active_flags if cohort.id in flag.get_cohort_ids(seen_cohorts_cache=seen_cohorts_cache)]
-
-
-def get_flags_using_cohort(cohort: Cohort) -> list[FeatureFlag]:
-    """Return all non-deleted feature flags (active or inactive) that reference this cohort.
-
-    Used by the informational ``used_in`` endpoint — surfaces inactive flags too so users
-    are aware before flipping one back on. Excludes soft-deleted flags for consistency
-    with ``get_insights_using_cohort`` and ``get_cohorts_using_cohort``.
-    """
-    flags = FeatureFlag.objects.filter(team__project_id=cohort.team.project_id, deleted=False).select_related("team")
-    seen_cohorts_cache: dict[int, CohortOrEmpty] = {}
-    return [flag for flag in flags if cohort.id in flag.get_cohort_ids(seen_cohorts_cache=seen_cohorts_cache)]
+    return _filter_flags_referencing_cohort(_flags_with_cohort_filters(cohort).filter(active=True), cohort)
 
 
 def get_insights_using_cohort(cohort: Cohort) -> QuerySet[Insight]:
-    """Return insights that reference this cohort in their query filters or breakdown."""
+    """Return insights that reference this cohort in their query filters or breakdown.
+
+    The LIKE guard is load-bearing: any insight the jsonpath or breakdown branch can
+    match necessarily contains the literal ``"cohort"`` in its query JSON, so the guard
+    is a strict superset that short-circuits the recursive (un-indexable) jsonpath for
+    insights mentioning no cohort at all. It also keeps the planner's row estimate
+    selective; without it, ORDER BY/LIMIT on large teams degrades to a whole-table
+    primary-key walk.
+    """
     return (
         # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
         Insight.objects.filter(
@@ -1224,11 +1277,16 @@ def get_insights_using_cohort(cohort: Cohort) -> QuerySet[Insight]:
         )
         .extra(
             where=[
-                """jsonb_path_exists(query, '$.** ? (@.type == "cohort" && @.value == %s)', '{"cohort_id": %s}'::jsonb)
-            OR (query->'source'->'breakdownFilter'->>'breakdown_type' = 'cohort'
-                AND query->'source'->'breakdownFilter'->'breakdown' @> '[%s]'::jsonb)"""
+                """query::text LIKE %s
+                AND (
+                    jsonb_path_exists(query, '$.** ? (@.type == "cohort" && @.value == %s)', '{"cohort_id": %s}'::jsonb)
+                    OR (
+                        query->'source'->'breakdownFilter'->>'breakdown_type' = 'cohort'
+                        AND query->'source'->'breakdownFilter'->'breakdown' @> '[%s]'::jsonb
+                    )
+                )"""
             ],
-            params=[cohort.id, cohort.id, cohort.id],
+            params=['%"cohort"%', cohort.id, cohort.id, cohort.id],
         )
         .order_by("id")
     )
@@ -1490,7 +1548,8 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             # workload=Workload.OFFLINE,  # this endpoint is only used by external API requests
         )
         actor_ids = [row[0] for row in raw_result]
-        serialized_actors = get_serialized_people(team, actor_ids, distinct_id_limit=10)
+        with personhog_caller_tag("cohorts/persons"):
+            serialized_actors = get_serialized_people(team, actor_ids, distinct_id_limit=10)
 
         _should_paginate = len(actor_ids) >= filter.limit
 
@@ -1586,8 +1645,10 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         except ValueError:
             raise ValidationError("person_id must be a valid UUID")
 
-        # Check if person exists and belongs to this team
-        person = get_person_by_uuid(team_id=self.team_id, uuid=person_id)
+        # Check if person exists and belongs to this team. Only person.uuid is used, so skip the
+        # distinct-id fetch.
+        with personhog_caller_tag("cohorts/remove-person"):
+            person = get_person_by_uuid(team_id=self.team_id, uuid=person_id, distinct_id_limit=0)
         if person is None:
             raise NotFound("Person with this UUID does not exist in the cohort's team")
         person_uuid = person.uuid
@@ -1672,13 +1733,13 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         # access-level filtering on the flag/insight list endpoints.
         uac = self.user_access_control
 
-        flag_ids = [flag.id for flag in get_flags_using_cohort(cohort)]
+        # Access-filter before the Python-side expansion so denied flags are never
+        # loaded or expanded.
         flags_qs = uac.filter_queryset_by_access_level(
-            # nosemgrep: idor-lookup-without-team (flag_ids are already team-scoped via get_flags_using_cohort)
-            FeatureFlag.objects.filter(id__in=flag_ids),
-            include_all_if_admin=True,
+            _flags_with_cohort_filters(cohort), include_all_if_admin=True
         ).order_by("id")
-        flags_data = [{"id": flag.id, "key": flag.key, "name": flag.name} for flag in flags_qs]
+        flags = _filter_flags_referencing_cohort(flags_qs, cohort)
+        flags_data = [{"id": flag.id, "key": flag.key, "name": flag.name} for flag in flags]
 
         insights_qs = uac.filter_queryset_by_access_level(get_insights_using_cohort(cohort))
         insights_page, insights_total = _truncate_used_in_queryset(
@@ -1699,21 +1760,9 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
         return Response(
             {
-                "feature_flags": {
-                    "results": flags_data[:COHORT_USED_IN_PAGE_SIZE],
-                    "total": len(flags_data),
-                    "has_more": len(flags_data) > COHORT_USED_IN_PAGE_SIZE,
-                },
-                "insights": {
-                    "results": insights_data,
-                    "total": insights_total,
-                    "has_more": insights_total > len(insights_data),
-                },
-                "cohorts": {
-                    "results": cohorts_data,
-                    "total": cohorts_total,
-                    "has_more": cohorts_total > len(cohorts_data),
-                },
+                "feature_flags": _used_in_block(flags_data[:COHORT_USED_IN_PAGE_SIZE], len(flags_data)),
+                "insights": _used_in_block(insights_data, insights_total),
+                "cohorts": _used_in_block(cohorts_data, cohorts_total),
             }
         )
 

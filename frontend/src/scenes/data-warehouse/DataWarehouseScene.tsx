@@ -1,5 +1,4 @@
-import { useValues } from 'kea'
-import { combineUrl, router } from 'kea-router'
+import { useActions, useValues } from 'kea'
 
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -7,16 +6,13 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { DataWarehouseTab, dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
-import { DashboardTab } from './scene/DashboardTab'
 import { DataModelingTab } from './scene/DataModelingTab'
-import { OverviewTab } from './scene/OverviewTab'
 import { SettingsTab } from './scene/SettingsTab'
 
 export const scene: SceneExport = {
@@ -25,12 +21,27 @@ export const scene: SceneExport = {
     productKey: ProductKey.DATA_WAREHOUSE,
 }
 
+const TAB_LABELS: Record<DataWarehouseTab, string> = {
+    [DataWarehouseTab.SETTINGS]: 'Settings',
+    [DataWarehouseTab.MODELING]: 'Modeling',
+}
+
+function tabContent(tab: DataWarehouseTab): JSX.Element {
+    switch (tab) {
+        case DataWarehouseTab.SETTINGS:
+            return <SettingsTab />
+        case DataWarehouseTab.MODELING:
+            return <DataModelingTab />
+    }
+}
+
 export function DataWarehouseScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { activeTab } = useValues(dataWarehouseSceneLogic)
-    const { searchParams } = useValues(router)
+    const { availableTabs, activeTab } = useValues(dataWarehouseSceneLogic)
+    const { setActiveTab } = useActions(dataWarehouseSceneLogic)
 
-    if (!featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_SCENE]) {
+    // Nothing to show without the scene flag, or when no tab's feature flag is enabled.
+    if (!featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_SCENE] || !activeTab) {
         return <NotFound object="Data warehouse" />
     }
 
@@ -43,53 +54,20 @@ export function DataWarehouseScene(): JSX.Element {
                     type: sceneConfigurations[Scene.DataOps].iconType || 'default_icon_type',
                 }}
             />
-            <LemonTabs
-                activeKey={activeTab}
-                sceneInset
-                tabs={[
-                    {
-                        key: DataWarehouseTab.OVERVIEW,
-                        label: 'Overview',
-                        content: <OverviewTab />,
-                        link: urls.dataOps(),
-                    },
-                    {
-                        key: DataWarehouseTab.DASHBOARD,
-                        label: 'Dashboard',
-                        content: <DashboardTab />,
-                        link: combineUrl(urls.dataOps(), {
-                            ...searchParams,
-                            tab: DataWarehouseTab.DASHBOARD,
-                        }).url,
-                    },
-                    ...(featureFlags[FEATURE_FLAGS.DATA_MODELING_TAB]
-                        ? [
-                              {
-                                  key: DataWarehouseTab.MODELING,
-                                  label: 'Modeling',
-                                  content: <DataModelingTab />,
-                                  link: combineUrl(urls.dataOps(), {
-                                      ...searchParams,
-                                      tab: DataWarehouseTab.MODELING,
-                                  }).url,
-                              },
-                          ]
-                        : []),
-                    ...(featureFlags[FEATURE_FLAGS.PROVISION_MANAGED_WAREHOUSE_BETA]
-                        ? [
-                              {
-                                  key: DataWarehouseTab.SETTINGS,
-                                  label: 'Settings',
-                                  content: <SettingsTab />,
-                                  link: combineUrl(urls.dataOps(), {
-                                      ...searchParams,
-                                      tab: DataWarehouseTab.SETTINGS,
-                                  }).url,
-                              },
-                          ]
-                        : []),
-                ]}
-            />
+            {availableTabs.length > 1 ? (
+                <LemonTabs
+                    activeKey={activeTab}
+                    sceneInset
+                    onChange={setActiveTab}
+                    tabs={availableTabs.map((tab) => ({
+                        key: tab,
+                        label: TAB_LABELS[tab],
+                        content: tabContent(tab),
+                    }))}
+                />
+            ) : (
+                tabContent(activeTab)
+            )}
         </SceneContent>
     )
 }

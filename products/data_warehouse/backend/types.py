@@ -659,6 +659,10 @@ class ExternalDataSourceType(models.TextChoices):
     WIKIPEDIAPAGEVIEWS = "WikipediaPageviews", "WikipediaPageviews"
     YAHOOFINANCE = "YahooFinance", "YahooFinance"
     CLARIFAI = "Clarifai", "Clarifai"
+    ADAPTY = "Adapty", "Adapty"
+    BRAINTRUST = "Braintrust", "Braintrust"
+    STREAMELEMENTS = "StreamElements", "StreamElements"
+    STREAMLABS = "Streamlabs", "Streamlabs"
     CUSTOM = "Custom", "Custom"
 
 

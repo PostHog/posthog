@@ -42,10 +42,12 @@ function ConnectionIdModifier<Q extends QueryWithModifiers>({
         }
     }, [dataWarehouseSources, isHogQLQuery, loadSources])
 
-    const directPostgresSources = useMemo(
+    const directSources = useMemo(
         () =>
             (dataWarehouseSources?.results ?? []).filter(
-                (source) => source.access_method === 'direct' && source.source_type.toLowerCase().includes('postgres')
+                (source) =>
+                    source.access_method === 'direct' &&
+                    ['postgres', 'mysql'].some((engine) => source.source_type.toLowerCase().includes(engine))
             ),
         [dataWarehouseSources]
     )
@@ -56,7 +58,7 @@ function ConnectionIdModifier<Q extends QueryWithModifiers>({
 
     const selectedValue = query.connectionId ?? POSTHOG_WAREHOUSE
     const hasSelectedConnection =
-        !!query.connectionId && directPostgresSources.some((source) => source.id === query.connectionId)
+        !!query.connectionId && directSources.some((source) => source.id === query.connectionId)
 
     return (
         <LemonLabel className={labelClassName}>
@@ -67,9 +69,9 @@ function ConnectionIdModifier<Q extends QueryWithModifiers>({
                 fullWidth
                 options={[
                     { value: POSTHOG_WAREHOUSE, label: 'PostHog (ClickHouse)' },
-                    ...directPostgresSources.map((source) => ({
+                    ...directSources.map((source) => ({
                         value: source.id,
-                        label: `${source.prefix ?? source.id} (Postgres)`,
+                        label: `${source.prefix ?? source.id} (${source.source_type})`,
                     })),
                     ...(!hasSelectedConnection && query.connectionId
                         ? [{ value: query.connectionId, label: `${query.connectionId} (Unavailable)` }]

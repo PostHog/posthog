@@ -297,7 +297,7 @@ jobs:
               run: |
                   prefix="posthog/temporal/data_imports/sources/"
                   # Space-separated, double-quoted, single line — parsed by the guard test.
-                  coupled="common postgres salesforce stripe"
+                  coupled="common mysql postgres salesforce stripe"
                   only_sources=false
                   if [ -n "$BACKEND_FILES" ]; then
                       only_sources=true

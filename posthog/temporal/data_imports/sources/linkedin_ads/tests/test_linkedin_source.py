@@ -23,6 +23,7 @@ class TestLinkedInAdsSource:
             'LinkedIn API error (404): {"status":404,"code":"RESOURCE_NOT_FOUND","message":"No virtual resource found"}',
             "REVOKED_ACCESS_TOKEN",
             "The token used in the request has expired",
+            'LinkedIn API error (401): {"status":401,"serviceErrorCode":65608,"code":"RESTRICTED_MEMBER","message":"Member is restricted"}',
         ],
     )
     def test_non_retryable_errors_match_upstream_failures(self, observed_error):

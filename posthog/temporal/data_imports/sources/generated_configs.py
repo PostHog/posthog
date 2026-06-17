@@ -125,6 +125,11 @@ class AdRollSourceConfig(config.Config):
 
 
 @config.config
+class AdaptySourceConfig(config.Config):
+    pass
+
+
+@config.config
 class AdjustSourceConfig(config.Config):
     pass
 
@@ -425,6 +430,11 @@ class BraintreeSourceConfig(config.Config):
     public_key: str
     private_key: str
     environment: Literal["production", "sandbox"] = config.value(default="production")
+
+
+@config.config
+class BraintrustSourceConfig(config.Config):
+    pass
 
 
 @config.config
@@ -1904,8 +1914,8 @@ class MySQLSourceConfig(config.Config):
     database: str
     user: str
     password: str
-    schema: str
     port: int = config.value(converter=int)
+    schema: str | None = None
     using_ssl: bool = config.value(default=config.str_to_bool("true"), converter=config.str_to_bool)
     ssh_tunnel: SSHTunnelConfig | None = None
 
@@ -2888,6 +2898,16 @@ class StravaSourceConfig(config.Config):
 
 
 @config.config
+class StreamElementsSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class StreamlabsSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class StripeSourceConfig(config.Config):
     auth_method: StripeAuthMethodConfig
     stripe_account_id: str | None = None
@@ -2977,6 +2997,7 @@ class TemporalIOSourceConfig(config.Config):
     client_certificate: str
     client_private_key: str
     encryption_key: str | None = None
+    fallback_decryption_keys: str | None = None
 
 
 @config.config
@@ -3409,6 +3430,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.ACTIVECAMPAIGN: ActiveCampaignSourceConfig,
         ExternalDataSourceType.ACUITYSCHEDULING: AcuitySchedulingSourceConfig,
         ExternalDataSourceType.ADROLL: AdRollSourceConfig,
+        ExternalDataSourceType.ADAPTY: AdaptySourceConfig,
         ExternalDataSourceType.ADJUST: AdjustSourceConfig,
         ExternalDataSourceType.ADOBEANALYTICS: AdobeAnalyticsSourceConfig,
         ExternalDataSourceType.ADOBECOMMERCE: AdobeCommerceSourceConfig,
@@ -3466,6 +3488,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.BOLDSIGN: BoldSignSourceConfig,
         ExternalDataSourceType.BOX: BoxSourceConfig,
         ExternalDataSourceType.BRAINTREE: BraintreeSourceConfig,
+        ExternalDataSourceType.BRAINTRUST: BraintrustSourceConfig,
         ExternalDataSourceType.BRANCH: BranchSourceConfig,
         ExternalDataSourceType.BRAZE: BrazeSourceConfig,
         ExternalDataSourceType.BREEZOMETER: BreezometerSourceConfig,
@@ -3931,6 +3954,8 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.STIGG: StiggSourceConfig,
         ExternalDataSourceType.STOCKDATA: StockDataSourceConfig,
         ExternalDataSourceType.STRAVA: StravaSourceConfig,
+        ExternalDataSourceType.STREAMELEMENTS: StreamElementsSourceConfig,
+        ExternalDataSourceType.STREAMLABS: StreamlabsSourceConfig,
         ExternalDataSourceType.STRIPE: StripeSourceConfig,
         ExternalDataSourceType.SUPABASE: SupabaseSourceConfig,
         ExternalDataSourceType.SURVEYMONKEY: SurveyMonkeySourceConfig,
