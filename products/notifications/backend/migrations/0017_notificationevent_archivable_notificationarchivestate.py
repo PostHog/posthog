@@ -9,7 +9,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("notifications", "0015_alter_notificationevent_notification_type"),
+        ("notifications", "0016_alter_notificationevent_notification_type"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

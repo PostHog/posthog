@@ -29553,6 +29553,112 @@ export namespace Schemas {
     }
 
     /**
+     * * `daily` - Daily
+     * * `weekly` - Weekly
+     * * `monthly` - Monthly
+     * * `yearly` - Yearly
+     */
+    export type RecurrenceIntervalEnum = typeof RecurrenceIntervalEnum[keyof typeof RecurrenceIntervalEnum];
+
+
+    export const RecurrenceIntervalEnum = {
+      Daily: 'daily',
+      Weekly: 'weekly',
+      Monthly: 'monthly',
+      Yearly: 'yearly',
+    } as const;
+
+    /**
+     * * `active` - Active
+     * * `completed` - Completed
+     * * `errored` - Errored
+     */
+    export type ReminderStatusEnum = typeof ReminderStatusEnum[keyof typeof ReminderStatusEnum];
+
+
+    export const ReminderStatusEnum = {
+      Active: 'active',
+      Completed: 'completed',
+      Errored: 'errored',
+    } as const;
+
+    export interface Reminder {
+      readonly id: string;
+      /** ID of the organization this reminder belongs to. You must be a member of it. */
+      organization: string;
+      /**
+         * Optional ID of the project this reminder is scoped to. Required when targeting a specific resource. Must belong to the chosen organization.
+         * @nullable
+         */
+      team?: number | null;
+      /**
+         * Short text shown as the notification title when the reminder fires.
+         * @maxLength 255
+         */
+      title: string;
+      /** Optional longer body for the notification. */
+      message?: string;
+      /**
+         * Optional PostHog resource this reminder is about. One of: dashboard, insight, experiment, feature_flag, survey, notebook, replay, error_tracking. Resources are project-scoped, so a team must be set when this is provided.
+         * @maxLength 50
+         * @nullable
+         */
+      resource_type?: string | null;
+      /**
+         * ID of the referenced resource; must exist in the chosen project.
+         * @maxLength 200
+         * @nullable
+         */
+      resource_id?: string | null;
+      /**
+         * For a one-off reminder: when it should fire (ISO 8601, future).
+         * @nullable
+         */
+      scheduled_at?: string | null;
+      /** For a recurring reminder: daily, weekly, monthly, or yearly.
+       *
+       * * `daily` - Daily
+       * * `weekly` - Weekly
+       * * `monthly` - Monthly
+       * * `yearly` - Yearly */
+      recurrence_interval?: RecurrenceIntervalEnum | BlankEnum | null;
+      /**
+         * For a recurring reminder: a 5-field cron expression (e.g. '0 9 * * 1' = Mondays 9am). May fire at most 4 times per day. Mutually exclusive with recurrence_interval.
+         * @maxLength 100
+         * @nullable
+         */
+      cron_expression?: string | null;
+      /**
+         * IANA timezone the schedule resolves in (e.g. 'America/New_York'). Defaults to the project timezone when a team is set, otherwise UTC.
+         * @maxLength 64
+         */
+      timezone?: string;
+      /**
+         * Optional: recurring reminders stop (status=completed) after this time.
+         * @nullable
+         */
+      end_date?: string | null;
+      /** @nullable */
+      readonly next_fire_at: string | null;
+      /** @nullable */
+      readonly last_fired_at: string | null;
+      readonly status: ReminderStatusEnum;
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+    }
+
+    export interface PaginatedReminderList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: Reminder[];
+    }
+
+    /**
      * * `monitor` - Monitor
      * * `classifier` - Classifier
      * * `scorer` - Scorer
@@ -29942,10 +30048,10 @@ export namespace Schemas {
      * * `monthly` - monthly
      * * `yearly` - yearly
      */
-    export type RecurrenceIntervalEnum = typeof RecurrenceIntervalEnum[keyof typeof RecurrenceIntervalEnum];
+    export type ScheduledChangeRecurrenceIntervalEnum = typeof ScheduledChangeRecurrenceIntervalEnum[keyof typeof ScheduledChangeRecurrenceIntervalEnum];
 
 
-    export const RecurrenceIntervalEnum = {
+    export const ScheduledChangeRecurrenceIntervalEnum = {
       Daily: 'daily',
       Weekly: 'weekly',
       Monthly: 'monthly',
@@ -29986,7 +30092,7 @@ export namespace Schemas {
        * * `weekly` - weekly
        * * `monthly` - monthly
        * * `yearly` - yearly */
-      recurrence_interval?: RecurrenceIntervalEnum | null;
+      recurrence_interval?: ScheduledChangeRecurrenceIntervalEnum | null;
       /**
          * @maxLength 100
          * @nullable
@@ -30647,22 +30753,6 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `daily` - Daily
-     * * `weekly` - Weekly
-     * * `monthly` - Monthly
-     * * `yearly` - Yearly
-     */
-    export type SubscriptionFrequencyEnum = typeof SubscriptionFrequencyEnum[keyof typeof SubscriptionFrequencyEnum];
-
-
-    export const SubscriptionFrequencyEnum = {
-      Daily: 'daily',
-      Weekly: 'weekly',
-      Monthly: 'monthly',
-      Yearly: 'yearly',
-    } as const;
-
-    /**
      * * `monday` - Monday
      * * `tuesday` - Tuesday
      * * `wednesday` - Wednesday
@@ -30729,7 +30819,7 @@ export namespace Schemas {
        * * `weekly` - Weekly
        * * `monthly` - Monthly
        * * `yearly` - Yearly */
-      frequency: SubscriptionFrequencyEnum;
+      frequency: RecurrenceIntervalEnum;
       /**
          * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Required on create; must be 1 or greater.
          * @minimum 1
@@ -36976,6 +37066,73 @@ export namespace Schemas {
       readonly updated_at?: string;
     }
 
+    export interface PatchedReminder {
+      readonly id?: string;
+      /** ID of the organization this reminder belongs to. You must be a member of it. */
+      organization?: string;
+      /**
+         * Optional ID of the project this reminder is scoped to. Required when targeting a specific resource. Must belong to the chosen organization.
+         * @nullable
+         */
+      team?: number | null;
+      /**
+         * Short text shown as the notification title when the reminder fires.
+         * @maxLength 255
+         */
+      title?: string;
+      /** Optional longer body for the notification. */
+      message?: string;
+      /**
+         * Optional PostHog resource this reminder is about. One of: dashboard, insight, experiment, feature_flag, survey, notebook, replay, error_tracking. Resources are project-scoped, so a team must be set when this is provided.
+         * @maxLength 50
+         * @nullable
+         */
+      resource_type?: string | null;
+      /**
+         * ID of the referenced resource; must exist in the chosen project.
+         * @maxLength 200
+         * @nullable
+         */
+      resource_id?: string | null;
+      /**
+         * For a one-off reminder: when it should fire (ISO 8601, future).
+         * @nullable
+         */
+      scheduled_at?: string | null;
+      /** For a recurring reminder: daily, weekly, monthly, or yearly.
+       *
+       * * `daily` - Daily
+       * * `weekly` - Weekly
+       * * `monthly` - Monthly
+       * * `yearly` - Yearly */
+      recurrence_interval?: RecurrenceIntervalEnum | BlankEnum | null;
+      /**
+         * For a recurring reminder: a 5-field cron expression (e.g. '0 9 * * 1' = Mondays 9am). May fire at most 4 times per day. Mutually exclusive with recurrence_interval.
+         * @maxLength 100
+         * @nullable
+         */
+      cron_expression?: string | null;
+      /**
+         * IANA timezone the schedule resolves in (e.g. 'America/New_York'). Defaults to the project timezone when a team is set, otherwise UTC.
+         * @maxLength 64
+         */
+      timezone?: string;
+      /**
+         * Optional: recurring reminders stop (status=completed) after this time.
+         * @nullable
+         */
+      end_date?: string | null;
+      /** @nullable */
+      readonly next_fire_at?: string | null;
+      /** @nullable */
+      readonly last_fired_at?: string | null;
+      readonly status?: ReminderStatusEnum;
+      readonly created_by?: UserBasic;
+      readonly created_at?: string;
+      /** @nullable */
+      readonly updated_at?: string | null;
+    }
+
     export interface PatchedRemovePersonRequest {
       /** Person UUID to remove from the cohort */
       person_id?: string;
@@ -37162,7 +37319,7 @@ export namespace Schemas {
        * * `weekly` - weekly
        * * `monthly` - monthly
        * * `yearly` - yearly */
-      recurrence_interval?: RecurrenceIntervalEnum | null;
+      recurrence_interval?: ScheduledChangeRecurrenceIntervalEnum | null;
       /**
          * @maxLength 100
          * @nullable
@@ -37475,7 +37632,7 @@ export namespace Schemas {
        * * `weekly` - Weekly
        * * `monthly` - Monthly
        * * `yearly` - Yearly */
-      frequency?: SubscriptionFrequencyEnum;
+      frequency?: RecurrenceIntervalEnum;
       /**
          * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Required on create; must be 1 or greater.
          * @minimum 1
@@ -60904,6 +61061,17 @@ export namespace Schemas {
      * Comma-separated list of template types to include (e.g. destination,email,sms_provider).
      */
     types?: string;
+    };
+
+    export type RemindersListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type UsersListParams = {
