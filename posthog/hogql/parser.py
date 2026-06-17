@@ -24,8 +24,6 @@ from opentelemetry import trace
 from prometheus_client import Counter, Gauge, Histogram
 from structlog import getLogger
 
-from posthog.schema import ParserMode
-
 from posthog.hogql import ast
 from posthog.hogql.ast import SelectSetNode
 from posthog.hogql.base import AST
@@ -40,6 +38,7 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.visitor import clear_locations
 
 from posthog.exceptions_capture import capture_exception
+from posthog.schema_enums import ParserMode
 
 logger = getLogger(__name__)
 

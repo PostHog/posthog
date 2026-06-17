@@ -139,11 +139,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
- * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
- *
- * This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
- * on serializer methods and converts them into proper HTTP 409 Conflict responses with
- * change request details.
+ * Copy an experiment into another project in the same organization as a new draft.
  */
 export const ExperimentsCopyToProjectCreateBody = /* @__PURE__ */ zod.object({
     target_team_id: zod.number().describe('The team ID to copy the experiment to.'),
@@ -213,6 +209,31 @@ export const ExperimentsEndCreateBody = /* @__PURE__ */ zod.object({
         ),
     conclusion_comment: zod.string().nullish().describe('Optional comment about the experiment conclusion.'),
 })
+
+/**
+ * Trigger a batch recalculation of all metrics for this experiment.
+ *
+ * Returns 201 with the new pending recalculation, or 200 with the active one if a recalculation is
+ * already pending or in progress for this experiment. The response payload intentionally does not
+ * include the `results` array — at POST time the workflow has just been queued and no per-metric
+ * results exist yet. Clients should poll `GET metrics_recalculation/{id}/` for results as the workflow
+ * progresses.
+ */
+export const experimentsMetricsRecalculationCreateBodyTriggerDefault = `manual`
+
+export const ExperimentsMetricsRecalculationCreateBody = /* @__PURE__ */ zod
+    .object({
+        trigger: zod
+            .enum(['manual', 'experiment_launch', 'experiment_stop', 'experiment_update'])
+            .describe(
+                '\* `manual` - manual\n\* `experiment_launch` - experiment_launch\n\* `experiment_stop` - experiment_stop\n\* `experiment_update` - experiment_update'
+            )
+            .default(experimentsMetricsRecalculationCreateBodyTriggerDefault)
+            .describe(
+                'What triggered this recalculation (manual is the default for user-initiated runs)\n\n\* `manual` - manual\n\* `experiment_launch` - experiment_launch\n\* `experiment_stop` - experiment_stop\n\* `experiment_update` - experiment_update'
+            ),
+    })
+    .describe('Request body for triggering a metrics recalculation.')
 
 /**
  * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.

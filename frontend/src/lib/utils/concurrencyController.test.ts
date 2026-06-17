@@ -1,4 +1,6 @@
-import { delay } from 'lib/utils'
+jest.unmock('lib/utils/concurrencyController')
+
+import { delay } from 'lib/utils/async'
 
 import { ConcurrencyController } from './concurrencyController'
 

@@ -37,9 +37,11 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs, now } from 'lib/dayjs'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic, getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
-import { clearDOMTextSelection, getJSHeapMemory, shouldCancelQuery, toParams, uuid } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
+import { clearDOMTextSelection, getJSHeapMemory, uuid } from 'lib/utils/dom'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { shouldCancelQuery } from 'lib/utils/requests'
+import { toParams } from 'lib/utils/url'
 import { BREAKPOINTS, dashboardToSaveableTemplate, getDashboardTileDisplayName } from 'scenes/dashboard/dashboardUtils'
 import { calculateDuplicateLayout, calculateLayouts } from 'scenes/dashboard/tileLayouts'
 import {
@@ -114,11 +116,13 @@ import {
     encodeURLVariables,
     getDashboardWidgetType,
     getInsightWithRetry,
+    isLayoutEditEventSource,
     layoutsByTile,
     parseURLFilters,
     parseURLVariables,
     runWithLimit,
     shouldSharedDashboardAutoForceForStaleTime,
+    shouldSnapshotUrlAtEditModeEntry,
 } from './dashboardUtils'
 import { TileFiltersOverride } from './TileFiltersOverride'
 import { tileLogic } from './tileLogic'
@@ -290,6 +294,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
         toggleAddWidgetSelectedType: (widgetType: string) => ({ widgetType }),
         clearAddWidgetSelectedTypes: true,
         addWidgetTileFinished: true,
+        /** One-shot signal asking the view to scroll the dashboard to the bottom (e.g. after adding tiles). */
+        requestScrollToBottom: true,
         /** Update a single refresh status. */
         setRefreshStatus: (shortId: InsightShortId, loading = false, queued = false) => ({ shortId, loading, queued }),
         /** Update multiple refresh statuses. */
@@ -323,6 +329,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
         saveEditModeChanges: () => true,
         resetUrlFilters: () => true,
         resetIntermittentFilters: () => true,
+        restoreUrlStateAtEditModeEntry: (snapshot: { filters?: unknown; variables?: unknown } | null) => ({
+            snapshot,
+        }),
+        setUrlSearchParamsAtEditModeEntry: (snapshot: { filters?: unknown; variables?: unknown }) => ({ snapshot }),
         applyFilters: true,
         resetUrlVariables: true,
         setInitialVariablesLoaded: (initialVariablesLoaded: boolean) => ({ initialVariablesLoaded }),
@@ -554,6 +564,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     }
                 },
                 removeTile: async ({ tile }) => {
+                    // The reducer drops the tile optimistically; here we only persist and roll back on failure.
                     try {
                         await api.update(`api/environments/${values.currentTeamId}/dashboards/${props.id}`, {
                             tiles: [{ id: tile.id, deleted: true }],
@@ -563,13 +574,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             dashboardId: props.id,
                         })
 
-                        return {
-                            ...values.dashboard,
-                            tiles: values.tiles.filter((t) => t.id !== tile.id),
-                        } as DashboardType<QueryBasedInsightModel>
+                        return values.dashboard
                     } catch (e) {
                         lemonToast.error('Could not remove tile from dashboard: ' + String(e))
-                        return values.dashboard
+                        // Re-insert the tile (its layout puts it back in place) and suppress the undo toast.
+                        cache.removedTileForUndo = undefined
+                        return {
+                            ...values.dashboard,
+                            tiles: [...(values.tiles || []), tile],
+                        } as DashboardType<QueryBasedInsightModel>
                     }
                 },
                 setDashboardMode: async ({ mode, source }) => {
@@ -872,6 +885,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         tiles: state?.tiles?.map((tile) => (tile.id === tileId ? { ...tile, ...properties } : tile)),
                     } as DashboardType<QueryBasedInsightModel>
                 },
+                removeTile: (state, { tile }) => {
+                    // Optimistically drop the tile so the grid reflows immediately; the loader rolls back on failure.
+                    return {
+                        ...state,
+                        tiles: state?.tiles?.filter((t) => t.id !== tile.id),
+                    } as DashboardType<QueryBasedInsightModel>
+                },
                 [dashboardsModel.actionTypes.tileMovedToDashboard]: (state, { tile, dashboardId }) => {
                     if (state?.id === dashboardId) {
                         return {
@@ -1051,6 +1071,34 @@ export const dashboardLogic = kea<dashboardLogicType>([
             null as DashboardMode | null,
             {
                 setDashboardMode: (_, { mode }) => mode,
+            },
+        ],
+        layoutEditMode: [
+            false,
+            {
+                setDashboardMode: (_, { mode, source }) => {
+                    if (mode !== DashboardMode.Edit) {
+                        return false
+                    }
+                    if (isLayoutEditEventSource(source)) {
+                        return true
+                    }
+                    return false
+                },
+            },
+        ],
+        urlSearchParamsAtEditModeEntry: [
+            null as { filters?: unknown; variables?: unknown } | null,
+            {
+                setUrlSearchParamsAtEditModeEntry: (_, { snapshot }) => snapshot,
+                setDashboardMode: (snapshot, { mode, source }) => {
+                    if (mode === null && source !== DashboardEventSource.DashboardHeaderDiscardChanges) {
+                        return null
+                    }
+                    return snapshot
+                },
+                restoreUrlStateAtEditModeEntry: () => null,
+                saveEditModeChangesSuccess: () => null,
             },
         ],
         loadLayoutFromServerOnPreview: [
@@ -1276,6 +1324,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 addWidgetTileFinished: () => false,
             },
         ],
+        // Incremented on each scroll-to-bottom request; the view effects on the change.
+        scrollToBottomSignal: [
+            0,
+            {
+                requestScrollToBottom: (state) => state + 1,
+            },
+        ],
         addWidgetModalOpen: [
             false,
             {
@@ -1308,11 +1363,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         canAutoPreview: [
-            (s) => [s.dashboard],
-            (dashboard) => {
+            (s) => [s.insightTiles],
+            (insightTiles) => {
                 const payload = getFeatureFlagPayload(FEATURE_FLAGS.DASHBOARD_AUTO_PREVIEW_LIMIT)
                 const limit = typeof payload === 'number' ? payload : DEFAULT_AUTO_PREVIEW_TILE_LIMIT
-                return (dashboard?.tiles.length || 0) < limit
+                // The limit is about the number of insights on a dashboard (per the flag's intent),
+                // so count insight tiles only — not text, button, or widget tiles.
+                return insightTiles.length < limit
             },
         ],
         hasIntermittentFilters: [
@@ -2531,6 +2588,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     } as DashboardType<InsightModel>)
                     if (dashboard) {
                         dashboardsModel.actions.updateDashboardSuccess(dashboard)
+
+                        // New tiles are stacked at the bottom (backend), so ask the view to scroll
+                        // down once they've rendered to reveal what was just added.
+                        actions.requestScrollToBottom()
                     }
                 }
 
@@ -2615,13 +2676,29 @@ export const dashboardLogic = kea<dashboardLogicType>([
             })
         },
         setDashboardMode: async ({ mode, source }) => {
-            if (mode === DashboardMode.Edit && source !== DashboardEventSource.DashboardHeaderDiscardChanges) {
+            if (
+                mode === DashboardMode.Edit &&
+                values.urlSearchParamsAtEditModeEntry === null &&
+                shouldSnapshotUrlAtEditModeEntry(source)
+            ) {
+                const encodedFilters = encodeURLFilters(values.urlFilters)
+                actions.setUrlSearchParamsAtEditModeEntry({
+                    filters: encodedFilters[SEARCH_PARAM_FILTERS_KEY],
+                    variables: router.values.searchParams[SEARCH_PARAM_QUERY_VARIABLES_KEY],
+                })
+            }
+
+            if (
+                mode === DashboardMode.Edit &&
+                source !== DashboardEventSource.DashboardHeaderDiscardChanges &&
+                isLayoutEditEventSource(source)
+            ) {
                 clearDOMTextSelection()
                 lemonToast.info('Now editing the dashboard – press E or click Save to persist changes')
             } else if (source === DashboardEventSource.DashboardHeaderDiscardChanges) {
                 // reset filters to that before previewing
                 actions.resetIntermittentFilters()
-                actions.resetUrlVariables()
+                actions.restoreUrlStateAtEditModeEntry(values.urlSearchParamsAtEditModeEntry)
 
                 // reset tile data by reloading dashboard
                 actions.refreshDashboardItems({
@@ -2655,7 +2732,26 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
 
             if (mode || source) {
-                eventUsageLogic.actions.reportDashboardModeToggled(values.dashboard, mode, source, values.layoutZoom)
+                const isFilterOnlyEditEntry =
+                    mode === DashboardMode.Edit && source !== null && !isLayoutEditEventSource(source)
+
+                if (mode === DashboardMode.Edit && source !== null && isLayoutEditEventSource(source)) {
+                    eventUsageLogic.actions.reportDashboardLayoutEditModeEntered(
+                        values.dashboard,
+                        source,
+                        values.layoutEditMode ? values.layoutZoom : null
+                    )
+                }
+
+                if (!isFilterOnlyEditEntry) {
+                    eventUsageLogic.actions.reportDashboardModeToggled(
+                        values.dashboard,
+                        mode,
+                        source,
+                        values.layoutEditMode ? values.layoutZoom : null,
+                        values.layoutEditMode
+                    )
+                }
             }
 
             if (mode !== DashboardMode.Edit) {
@@ -2776,7 +2872,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 forceRefresh: false,
             })
         },
-        setProperties: () => {
+        setProperties: ({ properties }) => {
+            eventUsageLogic.actions.reportDashboardFiltersChanged(values.dashboard, 'properties', {
+                property_count: properties?.length ?? 0,
+            })
+
             if (values.canAutoPreview) {
                 actions.refreshDashboardItems({
                     action: RefreshDashboardItemsAction.Preview,
@@ -2784,7 +2884,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 })
             }
         },
-        setDates: () => {
+        setDates: ({ date_from, date_to }) => {
+            eventUsageLogic.actions.reportDashboardFiltersChanged(values.dashboard, 'date', {
+                date_from,
+                date_to: date_to ?? null,
+            })
+
             if (values.canAutoPreview) {
                 actions.refreshDashboardItems({
                     action: RefreshDashboardItemsAction.Preview,
@@ -2792,7 +2897,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 })
             }
         },
-        setBreakdownFilter: () => {
+        setBreakdownFilter: ({ breakdown_filter }) => {
+            eventUsageLogic.actions.reportDashboardFiltersChanged(values.dashboard, 'breakdown', {
+                breakdown_type: breakdown_filter?.breakdown_type ?? null,
+            })
+
             if (values.canAutoPreview) {
                 actions.refreshDashboardItems({
                     action: RefreshDashboardItemsAction.Preview,
@@ -2808,7 +2917,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 })
             }
         },
-        overrideVariableValue: () => {
+        overrideVariableValue: ({ variableId }) => {
+            eventUsageLogic.actions.reportDashboardFiltersChanged(values.dashboard, 'variable', {
+                variable_id: variableId,
+            })
+
             actions.refreshDashboardItems({
                 action: RefreshDashboardItemsAction.Preview,
                 forceRefresh: false,
@@ -2841,6 +2954,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 }
                 await breakpoint(QUICK_FILTER_DEBOUNCE_MS)
             }
+
+            eventUsageLogic.actions.reportDashboardFiltersChanged(values.dashboard, 'quick_filters', {
+                visible_filter_count: visibleFilterCount,
+            })
 
             actions.refreshDashboardItems({
                 action: RefreshDashboardItemsAction.Preview,
@@ -3059,6 +3176,25 @@ export const dashboardLogic = kea<dashboardLogicType>([
             const newSearchParams = { ...currentLocation.searchParams }
             delete newSearchParams[SEARCH_PARAM_FILTERS_KEY]
             return [currentLocation.pathname, newSearchParams, currentLocation.hashParams]
+        },
+        restoreUrlStateAtEditModeEntry: ({ snapshot }) => {
+            try {
+                const { currentLocation } = router.values
+                const newSearchParams = { ...currentLocation.searchParams }
+                delete newSearchParams[SEARCH_PARAM_FILTERS_KEY]
+                delete newSearchParams[SEARCH_PARAM_QUERY_VARIABLES_KEY]
+
+                if (snapshot?.filters !== undefined) {
+                    newSearchParams[SEARCH_PARAM_FILTERS_KEY] = snapshot.filters
+                }
+                if (snapshot?.variables !== undefined) {
+                    newSearchParams[SEARCH_PARAM_QUERY_VARIABLES_KEY] = snapshot.variables
+                }
+
+                return [currentLocation.pathname, newSearchParams, currentLocation.hashParams]
+            } catch {
+                return undefined
+            }
         },
     })),
 

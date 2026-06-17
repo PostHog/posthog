@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonInputSelect } from '@posthog/lemon-ui'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { fullName } from 'lib/utils'
+import { fullName } from 'lib/utils/strings'
 import { membersLogic } from 'scenes/organization/membersLogic'
 
 import { UserBasicType } from '~/types'

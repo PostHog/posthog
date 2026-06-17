@@ -3902,6 +3902,7 @@
          "posthog_experiment"."secondary_metrics_ordered_uuids",
          "posthog_experiment"."stats_config",
          "posthog_experiment"."scheduling_config",
+         "posthog_experiment"."running_time_calculation",
          "posthog_experiment"."only_count_matured_users",
          "posthog_experiment"."status",
          "posthog_experiment"."conclusion",
@@ -3939,6 +3940,7 @@
          "posthog_experiment"."secondary_metrics_ordered_uuids",
          "posthog_experiment"."stats_config",
          "posthog_experiment"."scheduling_config",
+         "posthog_experiment"."running_time_calculation",
          "posthog_experiment"."only_count_matured_users",
          "posthog_experiment"."status",
          "posthog_experiment"."conclusion",
@@ -4165,7 +4167,8 @@
          "posthog_evaluationcontext"."id",
          "posthog_evaluationcontext"."name",
          "posthog_evaluationcontext"."team_id",
-         "posthog_evaluationcontext"."created_at"
+         "posthog_evaluationcontext"."created_at",
+         "posthog_evaluationcontext"."hidden_from_suggestions"
   FROM "posthog_featureflagevaluationcontext"
   INNER JOIN "posthog_evaluationcontext" ON ("posthog_featureflagevaluationcontext"."evaluation_context_id" = "posthog_evaluationcontext"."id")
   WHERE "posthog_featureflagevaluationcontext"."feature_flag_id" = 99999

@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 18 enabled ops
+ * PostHog API - MCP 20 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -17,6 +17,12 @@ export const SignalsReportsListParams = /* @__PURE__ */ zod.object({
 })
 
 export const SignalsReportsListQueryParams = /* @__PURE__ */ zod.object({
+    has_implementation_pr: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Filter reports by whether a shipped implementation pull request exists. 'true' keeps only reports with a PR; 'false' keeps only those without. Pair with limit=1 to count PR reports cheaply."
+        ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     ordering: zod
@@ -42,7 +48,7 @@ export const SignalsReportsListQueryParams = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe(
-            'Comma-separated list of statuses to include. Valid values: potential, candidate, in_progress, pending_input, ready, failed, suppressed. Defaults to all statuses except suppressed.'
+            'Comma-separated list of statuses to include. Valid values: potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed. Defaults to all statuses except suppressed.'
         ),
     suggested_reviewers: zod
         .string()
@@ -120,7 +126,7 @@ export const SignalsReportsStateCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * List the per-(team, skill) scout configs for this project — schedule (`run_interval_minutes`), `enabled`, and `emit` posture per scout.
+ * List the per-(team, skill) scout configs for this project — schedule (`run_interval_minutes`), `enabled`, and `emit` posture per scout. A freshly authored scout skill appears here once its config is registered, either explicitly via create or by the coordinator's next tick.
  * @summary List scout configs
  */
 export const SignalsScoutConfigListParams = /* @__PURE__ */ zod.object({
@@ -130,6 +136,49 @@ export const SignalsScoutConfigListParams = /* @__PURE__ */ zod.object({
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
 })
+
+/**
+ * Register the config for a `signals-scout-*` skill immediately, without waiting for the coordinator to auto-register it — optionally setting `run_interval_minutes`, `enabled`, and `emit` in the same call. The skill must already exist on this project. Upsert: if a config already exists for the skill, the provided fields are applied to it.
+ * @summary Create a scout config
+ */
+export const SignalsScoutConfigCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const signalsScoutConfigCreateBodySkillNameMax = 200
+
+export const signalsScoutConfigCreateBodyRunIntervalMinutesMin = 10
+export const signalsScoutConfigCreateBodyRunIntervalMinutesMax = 43200
+
+export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
+    .object({
+        skill_name: zod
+            .string()
+            .max(signalsScoutConfigCreateBodySkillNameMax)
+            .describe(
+                'The `signals-scout-*` skill to register a config for. The skill must already exist on this project — author it via the skills store first.'
+            ),
+        enabled: zod.boolean().optional().describe('Whether this scout runs on its schedule. Defaults to true.'),
+        emit: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true.'
+            ),
+        run_interval_minutes: zod
+            .number()
+            .min(signalsScoutConfigCreateBodyRunIntervalMinutesMin)
+            .max(signalsScoutConfigCreateBodyRunIntervalMinutesMax)
+            .optional()
+            .describe('Minutes between runs (10–43200). Defaults to 60 (hourly).'),
+    })
+    .describe(
+        'Request body for registering a scout config without waiting for the coordinator tick.\n\nUpsert keyed on `skill_name`: if the coordinator (or a concurrent caller) already\nregistered the row, the provided tunables are applied to it instead.'
+    )
 
 /**
  * Tune one scout: change its schedule (`run_interval_minutes`), `enabled`, or `emit` (dry-run) posture. `skill_name` is fixed. Enabling records `enabled_by` and is activity-logged since it drives spend.
@@ -269,6 +318,19 @@ export const SignalsScoutRunsRetrieveParams = /* @__PURE__ */ zod.object({
  * @summary List a run's emitted findings
  */
 export const SignalsScoutRunsEmissionsParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    run_id: zod.string().describe('UUID of the `SignalScoutRun` bridge row.'),
+})
+
+/**
+ * Best-effort reverse of the report -> signals link. For each finding the run emitted, resolve the inbox `SignalReport` (if any) its underlying signal grouped into by walking the deterministic `source_id` back through the signal store. `report` is null when the finding hasn't grouped into a report yet, was de-duplicated away, or its signal was deleted. Lets the scout UI surface which inbox report a finding contributed to — the reverse of the report's evidence list. Strictly team-scoped — a run UUID belonging to another team returns 404.
+ * @summary List the inbox reports a run's findings linked to
+ */
+export const SignalsScoutRunsEmissionReportsParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
@@ -510,9 +572,10 @@ export const SignalsSourceConfigsCreateBody = /* @__PURE__ */ zod.object({
             'pganalyze',
             'signals_scout',
             'logs',
+            'health_checks',
         ])
         .describe(
-            '* `session_replay` - Session replay\n* `llm_analytics` - LLM analytics\n* `github` - GitHub\n* `linear` - Linear\n* `zendesk` - Zendesk\n* `conversations` - Conversations\n* `error_tracking` - Error tracking\n* `pganalyze` - pganalyze\n* `signals_scout` - Signals scout\n* `logs` - Logs'
+            '* `session_replay` - Session replay\n* `llm_analytics` - LLM analytics\n* `github` - GitHub\n* `linear` - Linear\n* `zendesk` - Zendesk\n* `conversations` - Conversations\n* `error_tracking` - Error tracking\n* `pganalyze` - pganalyze\n* `signals_scout` - Signals scout\n* `logs` - Logs\n* `health_checks` - Health checks'
         ),
     source_type: zod
         .enum([
@@ -525,9 +588,10 @@ export const SignalsSourceConfigsCreateBody = /* @__PURE__ */ zod.object({
             'issue_spiking',
             'cross_source_issue',
             'alert_state_change',
+            'health_issue',
         ])
         .describe(
-            '* `session_analysis_cluster` - Session analysis cluster\n* `evaluation` - Evaluation\n* `issue` - Issue\n* `ticket` - Ticket\n* `issue_created` - Issue created\n* `issue_reopened` - Issue reopened\n* `issue_spiking` - Issue spiking\n* `cross_source_issue` - Cross source issue\n* `alert_state_change` - Alert state change'
+            '* `session_analysis_cluster` - Session analysis cluster\n* `evaluation` - Evaluation\n* `issue` - Issue\n* `ticket` - Ticket\n* `issue_created` - Issue created\n* `issue_reopened` - Issue reopened\n* `issue_spiking` - Issue spiking\n* `cross_source_issue` - Cross source issue\n* `alert_state_change` - Alert state change\n* `health_issue` - Health issue'
         ),
     enabled: zod.boolean().optional(),
     config: zod.unknown().optional(),
@@ -564,9 +628,10 @@ export const SignalsSourceConfigsUpdateBody = /* @__PURE__ */ zod.object({
             'pganalyze',
             'signals_scout',
             'logs',
+            'health_checks',
         ])
         .describe(
-            '* `session_replay` - Session replay\n* `llm_analytics` - LLM analytics\n* `github` - GitHub\n* `linear` - Linear\n* `zendesk` - Zendesk\n* `conversations` - Conversations\n* `error_tracking` - Error tracking\n* `pganalyze` - pganalyze\n* `signals_scout` - Signals scout\n* `logs` - Logs'
+            '* `session_replay` - Session replay\n* `llm_analytics` - LLM analytics\n* `github` - GitHub\n* `linear` - Linear\n* `zendesk` - Zendesk\n* `conversations` - Conversations\n* `error_tracking` - Error tracking\n* `pganalyze` - pganalyze\n* `signals_scout` - Signals scout\n* `logs` - Logs\n* `health_checks` - Health checks'
         ),
     source_type: zod
         .enum([
@@ -579,9 +644,10 @@ export const SignalsSourceConfigsUpdateBody = /* @__PURE__ */ zod.object({
             'issue_spiking',
             'cross_source_issue',
             'alert_state_change',
+            'health_issue',
         ])
         .describe(
-            '* `session_analysis_cluster` - Session analysis cluster\n* `evaluation` - Evaluation\n* `issue` - Issue\n* `ticket` - Ticket\n* `issue_created` - Issue created\n* `issue_reopened` - Issue reopened\n* `issue_spiking` - Issue spiking\n* `cross_source_issue` - Cross source issue\n* `alert_state_change` - Alert state change'
+            '* `session_analysis_cluster` - Session analysis cluster\n* `evaluation` - Evaluation\n* `issue` - Issue\n* `ticket` - Ticket\n* `issue_created` - Issue created\n* `issue_reopened` - Issue reopened\n* `issue_spiking` - Issue spiking\n* `cross_source_issue` - Cross source issue\n* `alert_state_change` - Alert state change\n* `health_issue` - Health issue'
         ),
     enabled: zod.boolean().optional(),
     config: zod.unknown().optional(),
@@ -609,10 +675,11 @@ export const SignalsSourceConfigsPartialUpdateBody = /* @__PURE__ */ zod.object(
             'pganalyze',
             'signals_scout',
             'logs',
+            'health_checks',
         ])
         .optional()
         .describe(
-            '* `session_replay` - Session replay\n* `llm_analytics` - LLM analytics\n* `github` - GitHub\n* `linear` - Linear\n* `zendesk` - Zendesk\n* `conversations` - Conversations\n* `error_tracking` - Error tracking\n* `pganalyze` - pganalyze\n* `signals_scout` - Signals scout\n* `logs` - Logs'
+            '* `session_replay` - Session replay\n* `llm_analytics` - LLM analytics\n* `github` - GitHub\n* `linear` - Linear\n* `zendesk` - Zendesk\n* `conversations` - Conversations\n* `error_tracking` - Error tracking\n* `pganalyze` - pganalyze\n* `signals_scout` - Signals scout\n* `logs` - Logs\n* `health_checks` - Health checks'
         ),
     source_type: zod
         .enum([
@@ -625,10 +692,11 @@ export const SignalsSourceConfigsPartialUpdateBody = /* @__PURE__ */ zod.object(
             'issue_spiking',
             'cross_source_issue',
             'alert_state_change',
+            'health_issue',
         ])
         .optional()
         .describe(
-            '* `session_analysis_cluster` - Session analysis cluster\n* `evaluation` - Evaluation\n* `issue` - Issue\n* `ticket` - Ticket\n* `issue_created` - Issue created\n* `issue_reopened` - Issue reopened\n* `issue_spiking` - Issue spiking\n* `cross_source_issue` - Cross source issue\n* `alert_state_change` - Alert state change'
+            '* `session_analysis_cluster` - Session analysis cluster\n* `evaluation` - Evaluation\n* `issue` - Issue\n* `ticket` - Ticket\n* `issue_created` - Issue created\n* `issue_reopened` - Issue reopened\n* `issue_spiking` - Issue spiking\n* `cross_source_issue` - Cross source issue\n* `alert_state_change` - Alert state change\n* `health_issue` - Health issue'
         ),
     enabled: zod.boolean().optional(),
     config: zod.unknown().optional(),

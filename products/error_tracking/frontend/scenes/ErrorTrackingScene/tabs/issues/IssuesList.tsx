@@ -3,11 +3,11 @@ import { useMemo } from 'react'
 
 import { Tooltip } from '@posthog/lemon-ui'
 
-import { humanFriendlyLargeNumber } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
+import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 
 import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
-import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
 import { Query } from '~/queries/Query/Query'
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 import {

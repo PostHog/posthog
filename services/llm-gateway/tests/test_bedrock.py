@@ -117,7 +117,6 @@ class TestBedrockSpecific:
             pytest.param("claude-sonnet-4-6", "bedrock/us.anthropic.claude-sonnet-4-6", id="anthropic_name_mapped"),
             pytest.param("claude-opus-4-7", "bedrock/us.anthropic.claude-opus-4-7", id="opus_4_7_inference_profile"),
             pytest.param("claude-opus-4-8", "bedrock/us.anthropic.claude-opus-4-8", id="opus_4_8_inference_profile"),
-            pytest.param("claude-fable-5", "bedrock/us.anthropic.claude-fable-5", id="fable_5_inference_profile"),
             pytest.param(
                 "us.anthropic.claude-sonnet-4-6", "bedrock/us.anthropic.claude-sonnet-4-6", id="already_bedrock_id"
             ),
@@ -399,6 +398,7 @@ class TestBedrockCountTokensViaProvider:
         call_args = mock_count_tokens.call_args
         assert call_args[0][1] == expected_model_id  # second positional arg is model
 
+    @patch.dict("os.environ", {"AWS_REGION": "", "AWS_DEFAULT_REGION": ""}, clear=False)
     @patch("llm_gateway.api.anthropic.get_settings")
     def test_requires_bedrock_region(
         self,

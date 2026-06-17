@@ -1,10 +1,11 @@
-import { LemonSkeleton, Link } from '@posthog/lemon-ui'
+import { Link } from '@posthog/lemon-ui'
 import {
     Badge,
     Card,
     CardFooter,
     CardHeader,
     CardTitle,
+    Skeleton,
     Table,
     TableBody,
     TableCell,
@@ -13,7 +14,7 @@ import {
     TableRow,
 } from '@posthog/quill-primitives'
 
-import { formatPercentage } from 'lib/utils'
+import { formatPercentage } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
 import { type NotableSession } from '../mcpDashboardOverviewLogic'
@@ -48,7 +49,7 @@ function SessionRows({ sessions, loading }: { sessions: NotableSession[]; loadin
                 <TableCell colSpan={5}>
                     <div className="space-y-2 py-1">
                         {Array.from({ length: 4 }).map((_, i) => (
-                            <LemonSkeleton key={i} className="h-3.5 w-full" />
+                            <Skeleton key={i} className="h-3.5 w-full" />
                         ))}
                     </div>
                 </TableCell>
@@ -95,7 +96,7 @@ export function NotableSessionsTable({
     loading: boolean
 }): JSX.Element {
     return (
-        <Card size="sm" className="self-start gap-0">
+        <Card size="sm" className="gap-0">
             <CardHeader className="border-b border-border pb-3">
                 <CardTitle>Sessions flagged for review</CardTitle>
             </CardHeader>

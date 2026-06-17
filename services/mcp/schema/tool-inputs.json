@@ -15,6 +15,35 @@
             },
             "required": ["projectId"]
         },
+        "BusinessKnowledgeUrlSourceCreateSchema": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "maxLength": 255,
+                    "description": "Short human label for the source. Shown in the settings list and in agent citations."
+                },
+                "url": {
+                    "type": "string",
+                    "maxLength": 2048,
+                    "format": "uri",
+                    "description": "Public HTTP(S) URL to fetch. Private or internal hosts are rejected."
+                },
+                "source_type": {
+                    "default": "url",
+                    "description": "Source type. Always \"url\" for this tool.",
+                    "type": "string",
+                    "const": "url"
+                },
+                "refresh_interval": {
+                    "default": "manual",
+                    "description": "How often to auto-refresh this source in the background. Defaults to \"manual\" (no auto-refresh).",
+                    "type": "string",
+                    "enum": ["manual", "1h", "6h", "24h", "7d"]
+                }
+            },
+            "required": ["name", "url"]
+        },
         "DebugMcpUiAppsSchema": {
             "type": "object",
             "properties": {
@@ -23,6 +52,213 @@
                     "type": "string"
                 }
             }
+        },
+        "EmailTemplateDesignPatchSchema": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "description": "The email template id to edit."
+                },
+                "operations": {
+                    "minItems": 1,
+                    "type": "array",
+                    "items": {
+                        "oneOf": [
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "op": {
+                                        "type": "string",
+                                        "const": "update_content"
+                                    },
+                                    "id": {
+                                        "type": "string",
+                                        "description": "Id of the content block to update."
+                                    },
+                                    "patch": {
+                                        "type": "object",
+                                        "propertyNames": {
+                                            "type": "string"
+                                        },
+                                        "additionalProperties": {},
+                                        "description": "Partial content-block fields, deep-merged into the existing block; a null leaf deletes that key. e.g. {values: {text: '<p>Hi</p>'}} changes only the block's text."
+                                    }
+                                },
+                                "required": ["op", "id", "patch"]
+                            },
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "op": {
+                                        "type": "string",
+                                        "const": "update_column"
+                                    },
+                                    "id": {
+                                        "type": "string",
+                                        "description": "Id of the column to update."
+                                    },
+                                    "patch": {
+                                        "type": "object",
+                                        "propertyNames": {
+                                            "type": "string"
+                                        },
+                                        "additionalProperties": {},
+                                        "description": "Partial column fields, deep-merged; a null leaf deletes that key."
+                                    }
+                                },
+                                "required": ["op", "id", "patch"]
+                            },
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "op": {
+                                        "type": "string",
+                                        "const": "update_row"
+                                    },
+                                    "id": {
+                                        "type": "string",
+                                        "description": "Id of the row to update."
+                                    },
+                                    "patch": {
+                                        "type": "object",
+                                        "propertyNames": {
+                                            "type": "string"
+                                        },
+                                        "additionalProperties": {},
+                                        "description": "Partial row fields, deep-merged; a null leaf deletes that key."
+                                    }
+                                },
+                                "required": ["op", "id", "patch"]
+                            },
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "op": {
+                                        "type": "string",
+                                        "const": "update_body"
+                                    },
+                                    "patch": {
+                                        "type": "object",
+                                        "propertyNames": {
+                                            "type": "string"
+                                        },
+                                        "additionalProperties": {},
+                                        "description": "Partial body fields, deep-merged. e.g. {values: {backgroundColor: '#ffffff'}}."
+                                    }
+                                },
+                                "required": ["op", "patch"]
+                            },
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "op": {
+                                        "type": "string",
+                                        "const": "add_content"
+                                    },
+                                    "column_id": {
+                                        "type": "string",
+                                        "description": "Id of the column to insert the block into."
+                                    },
+                                    "content": {
+                                        "type": "object",
+                                        "propertyNames": {
+                                            "type": "string"
+                                        },
+                                        "additionalProperties": {},
+                                        "description": "A content block {type, values: {...}}; omit id and values._meta — they are assigned server-side. type is one of text, heading, button, image, divider, html, etc."
+                                    },
+                                    "index": {
+                                        "description": "0-based insert position; omit to append to the end.",
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991
+                                    }
+                                },
+                                "required": ["op", "column_id", "content"]
+                            },
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "op": {
+                                        "type": "string",
+                                        "const": "remove_content"
+                                    },
+                                    "id": {
+                                        "type": "string",
+                                        "description": "Id of the content block to remove."
+                                    }
+                                },
+                                "required": ["op", "id"]
+                            },
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "op": {
+                                        "type": "string",
+                                        "const": "move_content"
+                                    },
+                                    "id": {
+                                        "type": "string",
+                                        "description": "Id of the content block to move."
+                                    },
+                                    "column_id": {
+                                        "type": "string",
+                                        "description": "Id of the destination column."
+                                    },
+                                    "index": {
+                                        "description": "0-based position in the destination column; omit to append.",
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991
+                                    }
+                                },
+                                "required": ["op", "id", "column_id"]
+                            },
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "op": {
+                                        "type": "string",
+                                        "const": "add_row"
+                                    },
+                                    "row": {
+                                        "type": "object",
+                                        "propertyNames": {
+                                            "type": "string"
+                                        },
+                                        "additionalProperties": {},
+                                        "description": "A full row {cells, columns: [{contents: [...], values}], values}; ids and Unlayer numbering are assigned server-side for the row and everything nested in it."
+                                    },
+                                    "index": {
+                                        "description": "0-based insert position; omit to append to the end.",
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991
+                                    }
+                                },
+                                "required": ["op", "row"]
+                            },
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "op": {
+                                        "type": "string",
+                                        "const": "remove_row"
+                                    },
+                                    "id": {
+                                        "type": "string",
+                                        "description": "Id of the row to remove."
+                                    }
+                                },
+                                "required": ["op", "id"]
+                            }
+                        ]
+                    },
+                    "description": "Ordered edits applied atomically to the template's Unlayer design: the stored design is read, the ops are applied in order, the result is validated and re-rendered to HTML, and saved only if valid — otherwise the template is left unchanged. Reference blocks by id so you never resend the whole design."
+                }
+            },
+            "required": ["id", "operations"]
         },
         "EventDefinitionUpdateInputSchema": {
             "type": "object",

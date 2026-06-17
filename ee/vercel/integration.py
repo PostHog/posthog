@@ -18,8 +18,6 @@ from django.utils.text import slugify
 import structlog
 from rest_framework import exceptions
 
-from posthog.schema import ProductIntentContext, ProductKey
-
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.event_usage import report_user_signed_up
 from posthog.exceptions_capture import capture_exception
@@ -29,6 +27,7 @@ from posthog.models.organization_integration import OrganizationIntegration
 from posthog.models.product_intent import ProductIntent
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.schema_enums import ProductIntentContext, ProductKey
 from posthog.utils import absolute_uri
 
 from products.experiments.backend.models.experiment import Experiment

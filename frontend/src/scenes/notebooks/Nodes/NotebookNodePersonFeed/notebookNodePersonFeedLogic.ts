@@ -1,8 +1,9 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
-import { pluralize } from 'lib/utils'
+import { pluralize } from 'lib/utils/strings'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SessionSummaryContent } from 'scenes/session-recordings/player/player-meta/types'
 
 import { performQuery } from '~/queries/query'
@@ -21,6 +22,10 @@ export const notebookNodePersonFeedLogic = kea<notebookNodePersonFeedLogicType>(
     props({} as NotebookNodePersonFeedLogicProps),
     path((key) => ['scenes', 'notebooks', 'Notebook', 'Nodes', 'notebookNodePersonFeedLogic', key]),
     key(({ personId }) => personId),
+
+    connect(() => ({
+        values: [preflightLogic, ['isCloudOrDev']],
+    })),
 
     actions({
         summarizeSessions: true,
@@ -90,7 +95,8 @@ export const notebookNodePersonFeedLogic = kea<notebookNodePersonFeedLogicType>(
     })),
 
     selectors({
-        canSummarize: [() => [], () => true],
+        // AI session summaries are PostHog Cloud only, so hide the whole block on self-hosted.
+        canSummarize: [(s) => [s.isCloudOrDev], (isCloudOrDev): boolean => !!isCloudOrDev],
         numSessionsWithRecording: [
             (s) => [s.sessionIdsWithRecording],
             (sessionIdsWithRecording) => sessionIdsWithRecording.length,

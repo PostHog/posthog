@@ -10,6 +10,8 @@ import {
     ExperimentSavedMetricsPartialUpdateParams,
     ExperimentSavedMetricsRetrieveParams,
     ExperimentsArchiveCreateParams,
+    ExperimentsCopyToProjectCreateBody,
+    ExperimentsCopyToProjectCreateParams,
     ExperimentsCreateBody,
     ExperimentsDestroyParams,
     ExperimentsDuplicateCreateBody,
@@ -53,9 +55,58 @@ const experimentArchive = (): ToolBase<typeof ExperimentArchiveSchema, WithPostH
         },
     })
 
+const ExperimentCopyToProjectSchema = ExperimentsCopyToProjectCreateParams.omit({ project_id: true })
+    .extend(ExperimentsCopyToProjectCreateBody.shape)
+    .extend({
+        id: z.preprocess(castStringToInt, ExperimentsCopyToProjectCreateParams.shape['id']),
+        target_team_id: z.preprocess(castStringToInt, ExperimentsCopyToProjectCreateBody.shape['target_team_id']),
+    })
+
+const experimentCopyToProject = (): ToolBase<typeof ExperimentCopyToProjectSchema, Schemas.Experiment> => ({
+    name: 'experiment-copy-to-project',
+    schema: ExperimentCopyToProjectSchema,
+    handler: async (context: Context, params: z.infer<typeof ExperimentCopyToProjectSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.target_team_id !== undefined) {
+            body['target_team_id'] = params.target_team_id
+        }
+        if (params.feature_flag_key !== undefined) {
+            body['feature_flag_key'] = params.feature_flag_key
+        }
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        const result = await context.api.request<Schemas.Experiment>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/copy_to_project/`,
+            body,
+        })
+        const filtered = pickResponseFields(result, [
+            'id',
+            'name',
+            'description',
+            'type',
+            'feature_flag_key',
+            'status',
+            'archived',
+            'start_date',
+            'end_date',
+            'created_at',
+            'parameters',
+            'metrics',
+            'metrics_secondary',
+            'conclusion',
+            'conclusion_comment',
+        ]) as typeof result
+        return filtered
+    },
+})
+
 const ExperimentCreateSchema = ExperimentsCreateBody.omit({
     start_date: true,
     end_date: true,
+    running_time_calculation: true,
     secondary_metrics: true,
     saved_metrics_ids: true,
     filters: true,
@@ -126,6 +177,8 @@ const experimentCreate = (): ToolBase<typeof ExperimentCreateSchema, WithPostHog
                 'end_date',
                 'created_at',
                 'parameters',
+                'metrics',
+                'metrics_secondary',
                 'conclusion',
                 'conclusion_comment',
             ]) as typeof result
@@ -182,6 +235,9 @@ const experimentDuplicate = (): ToolBase<typeof ExperimentDuplicateSchema, unkno
         }
         if (params.parameters !== undefined) {
             body['parameters'] = params.parameters
+        }
+        if (params.running_time_calculation !== undefined) {
+            body['running_time_calculation'] = params.running_time_calculation
         }
         if (params.secondary_metrics !== undefined) {
             body['secondary_metrics'] = params.secondary_metrics
@@ -316,6 +372,8 @@ const experimentLaunch = (): ToolBase<typeof ExperimentLaunchSchema, WithPostHog
                 'end_date',
                 'created_at',
                 'parameters',
+                'metrics',
+                'metrics_secondary',
                 'conclusion',
                 'conclusion_comment',
             ]) as typeof result
@@ -329,7 +387,6 @@ const ExperimentListSchema = ExperimentsListQueryParams.extend({
     ),
     limit: z.preprocess(castStringToInt, ExperimentsListQueryParams.shape['limit']).optional(),
     offset: z.preprocess(castStringToInt, ExperimentsListQueryParams.shape['offset']).optional(),
-    created_by_id: z.preprocess(castStringToInt, ExperimentsListQueryParams.shape['created_by_id']).optional(),
     feature_flag_id: z.preprocess(castStringToInt, ExperimentsListQueryParams.shape['feature_flag_id']).optional(),
 })
 
@@ -669,6 +726,7 @@ const ExperimentUpdateSchema = ExperimentsPartialUpdateParams.omit({ project_id:
             start_date: true,
             end_date: true,
             feature_flag_key: true,
+            running_time_calculation: true,
             secondary_metrics: true,
             saved_metrics_ids: true,
             filters: true,
@@ -757,6 +815,7 @@ const experimentUpdate = (): ToolBase<typeof ExperimentUpdateSchema, WithPostHog
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'experiment-archive': experimentArchive,
+    'experiment-copy-to-project': experimentCopyToProject,
     'experiment-create': experimentCreate,
     'experiment-delete': experimentDelete,
     'experiment-duplicate': experimentDuplicate,

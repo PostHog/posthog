@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import {
     LemonBanner,
@@ -88,8 +88,13 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
         isPrivateChannelWithoutAccess,
         getChannelRefreshButtonDisabledReason,
     } = useValues(slackIntegrationLogic({ id: integration.id }))
-    const { loadAllSlackChannels, loadSlackChannelById } = useActions(slackIntegrationLogic({ id: integration.id }))
+    const { loadAllSlackChannels, loadSlackChannelById, loadSlackChannelByIdSuccess } = useActions(
+        slackIntegrationLogic({ id: integration.id })
+    )
     const [localValue, setLocalValue] = useState<string | null>(null)
+    // Gates the empty-val recovery reload: LemonInputSelect's setInputValue('') on blur and
+    // after-select would otherwise flicker the "first page of channels" hint on every focus cycle.
+    const hasActiveSearchRef = useRef(false)
 
     const channelRefreshButtonDisabledReason = getChannelRefreshButtonDisabledReason()
     // 1s tick while the cooldown is active so the countdown updates; otherwise idle the rerender (60s, picker is short-lived).
@@ -150,7 +155,19 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
     return (
         <>
             <LemonInputSelect
-                onChange={(val) => onChange?.(val[0] ?? null)}
+                onChange={(val) => {
+                    const key = val[0] ?? null
+                    if (key) {
+                        // Pin into the by-id slot so the post-select bulk reload can't drop the
+                        // channel from slackChannels and unresolve the label.
+                        const [channelId] = key.split('|')
+                        const channel = slackChannels.find((c: SlackChannelType) => c.id === channelId)
+                        if (channel) {
+                            loadSlackChannelByIdSuccess(channel)
+                        }
+                    }
+                    onChange?.(key)
+                }}
                 onInputChange={(val) => {
                     if (val) {
                         // Slack channel IDs are uppercase; normalize so pasted lowercase IDs still
@@ -167,10 +184,12 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                             // would overwrite the cached list with [], so the bare ID could no longer
                             // resolve to a name after blur.
                             loadAllSlackChannels(false, val)
+                            hasActiveSearchRef.current = true
                         }
                         setLocalValue(val)
-                    } else {
+                    } else if (hasActiveSearchRef.current) {
                         loadAllSlackChannels()
+                        hasActiveSearchRef.current = false
                     }
                 }}
                 value={modifiedValue ? [modifiedValue] : []}

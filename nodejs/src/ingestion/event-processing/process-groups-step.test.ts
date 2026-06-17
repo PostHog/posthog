@@ -5,7 +5,7 @@ import { PreIngestionEvent, ProjectId, Team, TimestampFormat } from '../../types
 import { TeamManager } from '../../utils/team-manager'
 import { castTimestampOrNow } from '../../utils/utils'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
-import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writing-group-store'
+import { GroupStoreForBatch } from '../../worker/ingestion/groups/group-store-for-batch'
 import { PipelineResultType } from '../pipelines/results'
 import { createProcessGroupsStep } from './process-groups-step'
 
@@ -24,12 +24,13 @@ type TestInput = {
     preparedEvent: PreIngestionEvent
     team: Team
     processPerson: boolean
+    groupStoreForBatch: GroupStoreForBatch
 }
 
 describe('createProcessGroupsStep', () => {
     let mockTeamManager: jest.Mocked<Pick<TeamManager, 'setTeamIngestedEvent'>>
     let mockGroupTypeManager: jest.Mocked<Pick<GroupTypeManager, 'fetchGroupTypeIndex'>>
-    let mockGroupStore: jest.Mocked<Pick<BatchWritingGroupStore, 'upsertGroup'>>
+    let mockGroupStore: jest.Mocked<Pick<GroupStoreForBatch, 'upsertGroup'>>
 
     beforeEach(() => {
         jest.clearAllMocks()
@@ -43,6 +44,7 @@ describe('createProcessGroupsStep', () => {
         preparedEvent: createTestPreIngestionEvent(),
         team: createTestTeam(),
         processPerson: true,
+        groupStoreForBatch: mockGroupStore as unknown as GroupStoreForBatch,
         ...overrides,
     })
 
@@ -50,7 +52,6 @@ describe('createProcessGroupsStep', () => {
         createProcessGroupsStep<TestInput>(
             mockTeamManager as unknown as TeamManager,
             mockGroupTypeManager as unknown as GroupTypeManager,
-            mockGroupStore as unknown as BatchWritingGroupStore,
             { SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: skipUpdate }
         )
 

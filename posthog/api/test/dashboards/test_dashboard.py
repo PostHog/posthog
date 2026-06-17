@@ -1412,6 +1412,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             "dashboard created",
             {
                 "created_at": mock.ANY,
+                "creation_mode": "template",
                 "dashboard_id": response["id"],
                 "duplicated": False,
                 "duplicated_from_dashboard_id": None,
@@ -1422,6 +1423,59 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "pinned": False,
                 "tags_count": 0,
                 "template_key": "DEFAULT_APP",
+            },
+            team=ANY,
+            request=ANY,
+        )
+
+    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    def test_soft_delete_reports_dashboard_deleted(self, mock_report_user_action):
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "to delete"})
+        self.dashboard_api.create_insight({"dashboards": [dashboard_id]})
+        self.dashboard_api.create_text_tile(dashboard_id)
+        mock_report_user_action.reset_mock()
+
+        self.dashboard_api.soft_delete(dashboard_id, "dashboards")
+
+        # item_count (insight tiles) and tile_count (all tiles) are snapshotted pre-delete, so they survive
+        # _delete_related_tiles: 1 insight tile, 2 tiles total (insight + text).
+        mock_report_user_action.assert_called_once_with(
+            self.user,
+            "dashboard deleted",
+            {
+                "created_at": mock.ANY,
+                "creation_mode": "default",
+                "dashboard_id": dashboard_id,
+                "has_description": False,
+                "is_shared": False,
+                "item_count": 1,
+                "pinned": False,
+                "tags_count": 0,
+                "tile_count": 2,
+            },
+            team=ANY,
+            request=ANY,
+        )
+
+    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    def test_update_reports_dashboard_updated_with_creation_mode(self, mock_report_user_action):
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "to rename"})
+        mock_report_user_action.reset_mock()
+
+        self.dashboard_api.update_dashboard(dashboard_id, {"name": "renamed"})
+
+        mock_report_user_action.assert_called_once_with(
+            self.user,
+            "dashboard updated",
+            {
+                "created_at": mock.ANY,
+                "creation_mode": "default",
+                "dashboard_id": dashboard_id,
+                "has_description": False,
+                "is_shared": False,
+                "item_count": 0,
+                "pinned": False,
+                "tags_count": 0,
             },
             team=ANY,
             request=ANY,
@@ -2430,6 +2484,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             {
                 "created_at": mock.ANY,
                 "creation_context": "onboarding",
+                "creation_mode": "default",
                 "dashboard_id": dashboard["id"],
                 "duplicated": False,
                 "from_template": True,
