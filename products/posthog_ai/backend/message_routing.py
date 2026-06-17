@@ -1,10 +1,11 @@
-"""In-process routing for sandbox-runtime conversation messages.
+"""In-process session opener for the sandbox runtime.
 
-Entry point for the non-streaming `POST /conversations/{id}/sandbox/` endpoint.
-Wraps + dedupes the user message, then starts a `products/tasks` Run (first
-message), signals a follow-up on the in-progress Run, or resumes into a new Run
-after a terminal Run — all via direct Python calls, never HTTP-to-self and never
-a Django SSE relay.
+`SandboxSession.open()` resolves a sandbox conversation to a `products/tasks`
+`(task, run)` and drives one turn — warming when there's no message, starting the
+first Run, signaling a follow-up onto the live Run, or resuming into a successor
+after a terminal Run — all via direct Python calls, never HTTP-to-self and never a
+Django SSE relay. Control verbs (cancel, permission reply, warm release) go through
+the generic `runs/{run}/command/` relay, not this module.
 """
 
 import json

@@ -306,7 +306,10 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
         return (
             <div className={containerClassName}>
                 {/* Same key maxThreadLogic's connect() uses, so both resolve the same instance */}
-                <BindLogic logic={sandboxStreamLogic} props={{ conversationId: sandboxConversationKey }}>
+                <BindLogic
+                    logic={sandboxStreamLogic}
+                    props={{ streamKey: sandboxConversationKey, conversationId: sandboxConversationKey }}
+                >
                     <SandboxThread />
                 </BindLogic>
             </div>
@@ -323,7 +326,10 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
             <div className={containerClassName}>
                 <LegacyThread showTrailers={false} />
                 <LemonDivider dashed label="Message history was converted to the new format" className="my-3" />
-                <BindLogic logic={sandboxStreamLogic} props={{ conversationId: sandboxConversationKey }}>
+                <BindLogic
+                    logic={sandboxStreamLogic}
+                    props={{ streamKey: sandboxConversationKey, conversationId: sandboxConversationKey }}
+                >
                     <SandboxThread />
                 </BindLogic>
             </div>
@@ -519,7 +525,10 @@ export function SandboxComposerSurfaces(): JSX.Element | null {
     }
 
     return (
-        <BindLogic logic={sandboxStreamLogic} props={{ conversationId: sandboxConversationKey }}>
+        <BindLogic
+            logic={sandboxStreamLogic}
+            props={{ streamKey: sandboxConversationKey, conversationId: sandboxConversationKey }}
+        >
             <div className="w-full max-w-180 self-center mx-auto">
                 <SandboxResourcesBar />
                 <SandboxContextUsage />
