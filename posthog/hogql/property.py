@@ -507,10 +507,16 @@ def _expr_to_compare_op(
         else:
             # Single value (or single-element array): keep existing NOT ILIKE logic for backward compatibility
             single_value = value[0] if isinstance(value, list) and len(value) == 1 else value
-            return ast.CompareOperation(
-                op=ast.CompareOperationOp.NotILike,
-                left=ast.Call(name="toString", args=[expr]),
-                right=ast.Constant(value=f"%{single_value}%"),
+            return ast.Call(
+                name="ifNull",
+                args=[
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.NotILike,
+                        left=ast.Call(name="toString", args=[expr]),
+                        right=ast.Constant(value=f"%{single_value}%"),
+                    ),
+                    ast.Constant(value=1),
+                ],
             )
     elif operator == PropertyOperator.ICONTAINS_MULTI:
         # Always expect multiple values for multi-contains operator

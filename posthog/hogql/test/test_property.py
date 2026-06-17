@@ -198,7 +198,7 @@ class TestProperty(BaseTest):
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "not_icontains"}),
-            self._parse_expr("toString(properties.a) not ilike '%3%'"),
+            self._parse_expr("ifNull(toString(properties.a) not ilike '%3%', 1)"),
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": ".*", "operator": "regex"}),
@@ -525,7 +525,7 @@ class TestProperty(BaseTest):
                 }
             ),
             self._parse_expr(
-                "arrayExists(v -> toString(v) NOT ILIKE '%ValidationError%', JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
+                "arrayExists(v -> ifNull(toString(v) NOT ILIKE '%ValidationError%', 1), JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
             ),
         )
         self.assertEqual(
@@ -590,7 +590,7 @@ class TestProperty(BaseTest):
                 "operator": "not_icontains",
             }
         )
-        expected = self._parse_expr("toString(properties.a) NOT ILIKE '%single%'")
+        expected = self._parse_expr("ifNull(toString(properties.a) NOT ILIKE '%single%', 1)")
         self.assertEqual(result, expected)
 
         # Test non-string values being stringified
