@@ -139,20 +139,22 @@ export function AddWidgetModal({ isOpen, onClose, loading, onAdd }: AddWidgetMod
                         return (
                             <Fragment key={group.groupId}>
                                 {groupIndex > 0 ? <LemonDivider className="col-span-full my-0" /> : null}
-                                <h5 className="col-span-full mx-0 my-0">{group.groupLabel}</h5>
-                                {productIsNew && productIntro ? (
-                                    <div className="col-span-full -mt-2 flex w-fit max-w-full flex-wrap items-center gap-x-2 gap-y-1 rounded bg-accent-highlight-secondary px-3 py-2 text-xs">
-                                        <IconLightBulb className="shrink-0 text-base text-accent" />
-                                        <span className="text-primary">{productIntro.valueProp}</span>
-                                        <Link
-                                            to={productIntro.docsHref}
-                                            target="_blank"
-                                            onClick={() => handleProductIntroClicked(productIntro.productKey)}
-                                        >
-                                            {productIntro.ctaLabel}
-                                        </Link>
-                                    </div>
-                                ) : null}
+                                <div className="col-span-full flex flex-wrap items-center gap-x-3 gap-y-1">
+                                    <h5 className="mx-0 my-0">{group.groupLabel}</h5>
+                                    {productIsNew && productIntro ? (
+                                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded bg-accent-highlight-secondary px-2 py-1 text-xs">
+                                            <IconLightBulb className="shrink-0 text-base text-accent" />
+                                            <span className="text-primary">{productIntro.valueProp}</span>
+                                            <Link
+                                                to={productIntro.docsHref}
+                                                target="_blank"
+                                                onClick={() => handleProductIntroClicked(productIntro.productKey)}
+                                            >
+                                                {productIntro.ctaLabel}
+                                            </Link>
+                                        </div>
+                                    ) : null}
+                                </div>
                                 {group.widgets.map(({ widgetType, entry }) => (
                                     <AddWidgetCatalogPicker
                                         key={widgetType}

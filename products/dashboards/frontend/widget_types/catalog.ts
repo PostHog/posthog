@@ -109,7 +109,7 @@ export const DASHBOARD_WIDGET_GROUP_PRODUCT_INTRO = {
     },
     experiments: {
         productKey: ProductKey.EXPERIMENTS,
-        valueProp: 'See whether a change actually helps your users before rolling it out to everyone.',
+        valueProp: 'Stop guessing — prove a change actually helps your users before you roll it out.',
         ctaLabel: 'Explore experiments',
         docsHref: 'https://posthog.com/docs/experiments',
     },
