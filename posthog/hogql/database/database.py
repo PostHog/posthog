@@ -197,7 +197,6 @@ class HogQLDatabaseSources:
     connection_id: str | None
     modifiers: "HogQLQueryModifiers"
     is_managed_viewset_enabled: bool
-    is_hogql_access_control_enabled: bool
     is_hogql_warehouse_access_control_enabled: bool
     # Userless internal contexts that must resolve every table; skips system + warehouse access control.
     bypass_access_control: bool
@@ -1032,7 +1031,7 @@ class Database(BaseModel):
             team_id,
             team=team,
             user=user,
-            preloaded_user_access_control=user_access_control,
+            user_access_control=user_access_control,
             modifiers=modifiers,
             timings=timings,
             connection_id=connection_id,
@@ -1046,7 +1045,7 @@ class Database(BaseModel):
         *,
         team: Optional["Team"] = None,
         user: Optional["User | SyntheticUser"] = None,
-        preloaded_user_access_control: Optional["UserAccessControl"] = None,
+        user_access_control: Optional["UserAccessControl"] = None,
         modifiers: "HogQLQueryModifiers | None" = None,
         timings: HogQLTimings | None = None,
         connection_id: str | None = None,
@@ -1117,25 +1116,14 @@ class Database(BaseModel):
                     direct_connection_metadata = direct_source.connection_metadata
 
         with timings.measure("filter_system_tables_for_user", emit_span=True):
-            is_hogql_access_control_enabled = posthoganalytics.feature_enabled(
-                "hogql-access-control",
-                str(team.uuid),
-                groups={"organization": str(team.organization_id), "project": str(team.id)},
-                group_properties={
-                    "organization": {"id": str(team.organization_id)},
-                    "project": {"id": str(team.id)},
-                },
-                send_feature_flag_events=False,
-            )
-            user_access_control: Optional[UserAccessControl] = None
             denied_system_table_names: set[str] = set()
             # bypass_access_control skips all HogQL access control (system + warehouse) for userless
             # internal contexts (data modeling, materialization, exports) that must resolve every table.
-            if is_hogql_access_control_enabled and not bypass_access_control:
-                # Reuse the caller's preloaded user_access_control when given,
-                # so the bulk access-control fetch happens once per run
+            if not bypass_access_control:
+                # Pass the caller's user_access_control through: when already preloaded it's reused, so the
+                # bulk access-control fetch happens once per run instead of once per database build.
                 user_access_control, denied_system_table_names = _compute_system_table_access_decision(
-                    team, user, preloaded_user_access_control
+                    team, user, user_access_control
                 )
 
         is_hogql_warehouse_access_control_enabled = posthoganalytics.feature_enabled(
@@ -1273,7 +1261,6 @@ class Database(BaseModel):
             connection_id=connection_id,
             modifiers=modifiers,
             is_managed_viewset_enabled=is_managed_viewset_enabled,
-            is_hogql_access_control_enabled=is_hogql_access_control_enabled,
             is_hogql_warehouse_access_control_enabled=is_hogql_warehouse_access_control_enabled,
             bypass_access_control=bypass_access_control,
             direct_connection_metadata=direct_connection_metadata,

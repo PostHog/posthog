@@ -1,5 +1,6 @@
 from django.core.exceptions import ImproperlyConfigured
 
+from posthog.settings.base_variables import DEBUG
 from posthog.settings.utils import get_from_env, get_list
 
 # Agent janitor service — Django proxies session list/detail/cancel requests here.
@@ -19,8 +20,10 @@ if AGENT_INGRESS_ROUTING_MODE not in ("domain", "path"):
 AGENT_INGRESS_DOMAIN_SUFFIX = get_from_env("AGENT_INGRESS_DOMAIN_SUFFIX", "")
 
 # Public base URL for agent-ingress in "path" mode (Slack callbacks, webhooks);
-# empty → the slack_events_url field is omitted from API responses.
-AGENT_INGRESS_PUBLIC_URL = get_from_env("AGENT_INGRESS_PUBLIC_URL", "")
+# empty → the slack_events_url field is omitted from API responses. In local dev
+# (DEBUG=True) we default to the local agent-ingress port so URLs surface
+# without requiring a tunnel; production must set this explicitly.
+AGENT_INGRESS_PUBLIC_URL = get_from_env("AGENT_INGRESS_PUBLIC_URL", "http://localhost:3030" if DEBUG else "")
 
 # Shared HMAC key for trusted-service JWTs across the agent platform. Empty
 # default fails safe: the janitor client skips the mint and the receiver 401s,

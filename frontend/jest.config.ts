@@ -275,6 +275,8 @@ const config: Config = {
         '/services/mcp/',
         '/products/[^/]+/frontend/e2e/',
         '/products/visual_review/cli/',
+        '/products/agent_platform/services/',
+        '/products/agent_platform/packages/',
     ],
 
     // The regexp pattern or array of patterns that Jest uses to detect test files

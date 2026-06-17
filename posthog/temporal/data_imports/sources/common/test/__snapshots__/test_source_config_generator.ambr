@@ -104,6 +104,7 @@
           ExternalDataSourceType.BOLDSIGN: BoldSignSourceConfig,
           ExternalDataSourceType.BOX: BoxSourceConfig,
           ExternalDataSourceType.BRAINTREE: BraintreeSourceConfig,
+          ExternalDataSourceType.BRAINTRUST: BraintrustSourceConfig,
           ExternalDataSourceType.BRANCH: BranchSourceConfig,
           ExternalDataSourceType.BRAZE: BrazeSourceConfig,
           ExternalDataSourceType.BREEZOMETER: BreezometerSourceConfig,

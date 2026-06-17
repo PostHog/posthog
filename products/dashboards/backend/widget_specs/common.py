@@ -14,7 +14,7 @@ from products.dashboards.backend.constants import (
 
 WIDGET_DATE_FROM_VALUES = frozenset(WIDGET_DATE_FROM_VALUES_ORDERED)
 
-WidgetDateFrom = Literal["-1h", "-3h", "-24h", "-7d", "-14d", "-30d", "-90d"]
+WidgetDateFrom = Literal["-1M", "-30M", "-1h", "-3h", "-24h", "-7d", "-14d", "-30d", "-90d"]
 WidgetOrderDirection = Literal["ASC", "DESC"]
 
 

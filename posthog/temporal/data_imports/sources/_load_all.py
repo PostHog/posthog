@@ -68,6 +68,7 @@ from .bluetally.source import BluetallySource
 from .boldsign.source import BoldSignSource
 from .box.source import BoxSource
 from .braintree.source import BraintreeSource
+from .braintrust.source import BraintrustSource
 from .branch.source import BranchSource
 from .braze.source import BrazeSource
 from .breezometer.source import BreezometerSource
