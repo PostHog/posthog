@@ -9,7 +9,7 @@ import { ScreenShotEditor } from 'lib/components/TakeScreenshot/ScreenShotEditor
 import { takeScreenshotLogic } from 'lib/components/TakeScreenshot/takeScreenshotLogic'
 import { dayjs } from 'lib/dayjs'
 import { IconWithCount } from 'lib/lemon-ui/icons'
-import { humanFriendlyNumber } from 'lib/utils'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { ExportedAssetType, ExporterFormat } from '~/types'
 

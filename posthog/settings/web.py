@@ -546,6 +546,7 @@ SPECTACULAR_SETTINGS = {
         # widget_type ChoiceField (one value). drf-spectacular hashes enum value sets — without
         # a per-type override they all collide into one mangled name. Override key is the
         # stable component name; value is the singleton list even though length is 1.
+        "ActivityEventsListWidgetTypeEnum": ["activity_events_list"],
         "ErrorTrackingListWidgetTypeEnum": ["error_tracking_list"],
         "SessionReplayListWidgetTypeEnum": ["session_replay_list"],
         "OrderByEnum": ["latest", "earliest"],

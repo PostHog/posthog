@@ -238,9 +238,42 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             "No route to host": None,
             "password authentication failed connection": None,
             "connection timeout expired": None,
+            # TLS ALPN alert (RFC 7301 "no_application_protocol", alert 120) sent by the server
+            # during the TLS handshake. libpq (Postgres 17+) offers the "postgresql" ALPN protocol;
+            # an endpoint that negotiates ALPN but doesn't accept it rejects the handshake outright.
+            # In practice this means the configured host/port isn't a PostgreSQL server speaking TLS
+            # — it's an HTTP/proxy/edge endpoint, or simply the wrong port — so retrying re-runs into
+            # the same rejection. The raw psycopg message ("... SSL error: tlsv1 alert no application
+            # protocol") only matches when require_ssl=False leaves it unwrapped; with require_ssl=True
+            # it's surfaced as SSLRequiredError below instead. Match the stable alert text and exclude
+            # the volatile host/port so the condition is caught on both paths. Placed before the
+            # generic SSL entries so its accurate message wins if both happen to match.
+            "no application protocol": (
+                "PostHog couldn't complete a TLS handshake with the host and port you configured — "
+                'the server rejected the connection during TLS negotiation ("no application '
+                "protocol\"). This usually means the host and port don't point at a PostgreSQL server "
+                "speaking TLS (for example an HTTP, proxy, or edge endpoint, or the wrong port). "
+                "Check your host and port, then re-enable the sync."
+            ),
             "SSLRequiredError": None,
             "SSL/TLS connection is required": None,
             "Could not establish session to SSH gateway": None,
+            # Surfaced by a connection pooler (e.g. PgBouncer) as a psycopg ProtocolViolation when
+            # the pooler has *repeatedly* failed to log in to the backend database within its
+            # server_login_retry window (full message: "server login has been failing, cached
+            # error: <reason> (server_login_retry)"). By the time this is returned the backend is in
+            # a sustained failure state — unreachable, refusing connections, or rejecting the
+            # pooler's credentials — so it is not a one-off transient blip; retrying the whole sync
+            # just hits the same wall. Matches the stable pooler signature; the cached <reason>
+            # ("connect timeout", etc.) and the trailing "(server_login_retry)" suffix vary and are
+            # excluded.
+            "server login has been failing": (
+                "Your database's connection pooler (for example PgBouncer) reported that it has "
+                'repeatedly failed to connect to the backend database ("server login has been '
+                'failing"). This usually means the database is unreachable, refusing connections, or '
+                "the pooler's credentials for the database are wrong. Check that the database is "
+                "running and reachable from your pooler, then re-enable the sync."
+            ),
             # `offset_chunking` retries a Postgres standby recovery conflict ("canceling statement
             # due to conflict with recovery") 30 times in-process with backoff + chunk-size
             # reduction before raising this. The conflict comes from the customer's read replica
@@ -690,7 +723,6 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         )
         # `SourceResponse.name` must match `DataWarehouseTable.url_pattern` (both derived from the
         # storage key when present, otherwise the row name) so HogQL reads from where we wrote.
-        storage_key = (schema.sync_type_config or {}).get("dwh_storage_key")
-        storage_schema_name = storage_key if isinstance(storage_key, str) and storage_key else inputs.schema_name
+        storage_schema_name = schema.resolved_s3_folder_name or inputs.schema_name
         response.name = NamingConvention.normalize_identifier(storage_schema_name)
         return response

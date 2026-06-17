@@ -7,10 +7,10 @@ import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { dayjs } from 'lib/dayjs'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { Link } from 'lib/lemon-ui/Link'
+import { isMobile } from 'lib/utils/dom'
 import {
     allOperatorsMapping,
     chooseOperatorMap,
-    isMobile,
     isOperatorCohort,
     isOperatorDate,
     isOperatorFlag,
@@ -18,7 +18,7 @@ import {
     isOperatorRange,
     isOperatorRegex,
     isOperatorSemver,
-} from 'lib/utils'
+} from 'lib/utils/operators'
 import { RE2_DOCS_LINK, formatRE2Error } from 'lib/utils/regexp'
 
 import {
