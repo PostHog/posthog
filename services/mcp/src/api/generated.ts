@@ -8262,6 +8262,7 @@ export namespace Schemas {
       /** @nullable */
       parent_revision?: string | null;
       readonly state: AgentRevisionStateEnum;
+      /** Storage-prefix metadata for the bundle, e.g. `fs://my-agent/`. Optional — leave blank and the server fills `fs://<application-slug>/`. Bundles are addressed by revision id regardless, so this is only a prefix hint. */
       bundle_uri?: string;
       /** @nullable */
       readonly bundle_sha256: string | null;
@@ -33266,6 +33267,7 @@ export namespace Schemas {
       /** @nullable */
       parent_revision?: string | null;
       readonly state?: AgentRevisionStateEnum;
+      /** Storage-prefix metadata for the bundle, e.g. `fs://my-agent/`. Optional — leave blank and the server fills `fs://<application-slug>/`. Bundles are addressed by revision id regardless, so this is only a prefix hint. */
       bundle_uri?: string;
       /** @nullable */
       readonly bundle_sha256?: string | null;
@@ -39702,6 +39704,24 @@ export namespace Schemas {
       emailable: boolean;
       /** Always true — the previewed interview_url is an illustrative placeholder, never a live link. */
       is_preview_link: boolean;
+    }
+
+    /**
+     * Body forwarded verbatim to the agent ingress for a *preview* invoke of a
+     * non-live revision. The meaningful shape depends on the `rest` path segment:
+     *
+     * - `run` — `{ message }`: the user message that starts a new session.
+     * - `send` — `{ session_id, message }`: append a message to a running session.
+     * - `cancel` / `listen` — no body.
+     *
+     * Documents `message` / `session_id` so the generated MCP tool exposes them;
+     * any extra keys are still forwarded as-is to ingress.
+     */
+    export interface PreviewProxyInvokeRequest {
+      /** User message to deliver to the agent. Required for `run` (starts the session) and `send` (appends to it); ignored for `cancel` / `listen`. */
+      message?: string;
+      /** Target session id for `send` — the running session to append the message to. Omit for `run` (a fresh session is created). */
+      session_id?: string;
     }
 
     /**
