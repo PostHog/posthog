@@ -927,3 +927,47 @@ export function composeDrawHoverWithCrosshair(
         return getDrawHover()(args)
     }
 }
+
+// Drag-selection band styling. Intentionally a fixed accent rather than a theme token: there's no
+// selection color in the design tokens yet, and the band is a transient interaction affordance, not
+// chart data. Add a `--color-graph-selection-*` token and thread it through here if it needs theming.
+const SELECTION_FILL = 'rgba(59, 130, 246, 0.15)'
+const SELECTION_STROKE = 'rgba(59, 130, 246, 0.5)'
+const SELECTION_LINE_WIDTH = 1
+
+export function drawSelectionRect(
+    ctx: CanvasRenderingContext2D,
+    rect: { x: number; y: number; width: number; height: number }
+): void {
+    if (rect.width <= 0 || rect.height <= 0) {
+        return
+    }
+    ctx.fillStyle = SELECTION_FILL
+    ctx.fillRect(rect.x, rect.y, rect.width, rect.height)
+    ctx.strokeStyle = SELECTION_STROKE
+    ctx.lineWidth = SELECTION_LINE_WIDTH
+    ctx.strokeRect(rect.x + 0.5, rect.y + 0.5, rect.width - 1, rect.height - 1)
+}
+
+// The selection always spans the full plot height — this is x-axis range selection only.
+export function composeDrawHoverWithSelection(baseDrawHover: DrawHoverFn): DrawHoverFn {
+    return (args) => {
+        const result = baseDrawHover(args)
+        const dragRect = args.dragRect
+        if (!dragRect) {
+            return result
+        }
+        const x0 = Math.max(args.dimensions.plotLeft, Math.min(dragRect.x0, dragRect.x1))
+        const x1 = Math.min(args.dimensions.plotLeft + args.dimensions.plotWidth, Math.max(dragRect.x0, dragRect.x1))
+        if (x1 <= x0) {
+            return result
+        }
+        drawSelectionRect(args.ctx, {
+            x: x0,
+            y: args.dimensions.plotTop,
+            width: x1 - x0,
+            height: args.dimensions.plotHeight,
+        })
+        return result
+    }
+}
