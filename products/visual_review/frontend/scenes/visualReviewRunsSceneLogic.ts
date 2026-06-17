@@ -62,21 +62,24 @@ export const visualReviewRunsSceneLogic = kea<visualReviewRunsSceneLogicType>([
         ],
     }),
 
-    loaders(({ props, values }) => ({
+    loaders(({ props, values, cache }) => ({
         runsResponse: [
             { count: 0, results: [] } as PaginatedRunListApi,
             {
-                loadRuns: async (_, breakpoint) => {
+                loadRuns: async () => {
                     const offset = (values.page - 1) * RUNS_PAGE_SIZE
                     const search = values.searchQuery.trim()
+                    // Tag each request; a slower, superseded one must not overwrite a newer one's results.
+                    const requestId = (cache.loadRunsSeq = (cache.loadRunsSeq ?? 0) + 1)
                     const response = await visualReviewReposRunsList(String(values.currentProjectId), props.repoId, {
                         review_state: values.activeTab,
                         limit: RUNS_PAGE_SIZE,
                         offset,
                         ...(search ? { search } : {}),
                     })
-                    // Discard this response if a newer loadRuns started while it was in flight.
-                    breakpoint()
+                    if (requestId !== cache.loadRunsSeq) {
+                        return values.runsResponse
+                    }
                     return response
                 },
             },
