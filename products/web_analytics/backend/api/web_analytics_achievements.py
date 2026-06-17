@@ -157,8 +157,9 @@ class WebAnalyticsAchievementsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVi
     def overview(self, request: Request, **kwargs: object) -> Response:
         user = cast(User, request.user)
         arm = streak_arm_for_user(user)
-        user_rows = list(WebAnalyticsAchievementProgress.objects.filter(user=user))
-        team_rows = list(WebAnalyticsAchievementProgress.objects.filter(user__isnull=True))
+        canonical_team_id = self.team.parent_team_id or self.team.id
+        user_rows = list(WebAnalyticsAchievementProgress.objects.filter(team_id=canonical_team_id, user=user))
+        team_rows = list(WebAnalyticsAchievementProgress.objects.filter(team_id=canonical_team_id, user__isnull=True))
         payload = {
             "definitions": serialize_definitions(arm),
             "user_progress": [_serialize_progress(row) for row in user_rows],
@@ -208,11 +209,12 @@ class WebAnalyticsAchievementsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVi
         track_key = request_serializer.validated_data["track_key"]
         stage = request_serializer.validated_data["stage"]
         acknowledged = False
+        canonical_team_id = self.team.parent_team_id or self.team.id
         # Lock the rows so this serializes with a concurrent recompute on the same row — neither can
         # clobber the other's state, and an acked celebration can't be resurrected.
         with transaction.atomic():
             rows = (
-                WebAnalyticsAchievementProgress.objects.filter(track_key=track_key)
+                WebAnalyticsAchievementProgress.objects.filter(team_id=canonical_team_id, track_key=track_key)
                 .filter(Q(user=user) | Q(user__isnull=True))
                 .select_for_update()
             )

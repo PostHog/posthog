@@ -73,6 +73,26 @@ class TestAchievementsAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["user_progress"], [])
 
+    def test_acknowledge_celebration_is_team_scoped(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="Other project")
+        WebAnalyticsAchievementProgress(
+            team=other_team,
+            user=self.user,
+            track_key="loyal_hog",
+            current_stage=2,
+            progress_value=15,
+            state={"pending_celebrations": [2], "unlocked_stages": {}},
+        ).save()
+
+        response = self.client.post(self._url("acknowledge_celebration"), {"track_key": "loyal_hog", "stage": 2})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(response.json()["acknowledged"])
+
+        other_row = WebAnalyticsAchievementProgress.objects.for_team(other_team.id).get(
+            user=self.user, track_key="loyal_hog"
+        )
+        self.assertEqual(other_row.state["pending_celebrations"], [2])
+
     def test_team_celebration_is_acknowledged_per_user(self) -> None:
         WebAnalyticsAchievementProgress(
             team=self.team,
