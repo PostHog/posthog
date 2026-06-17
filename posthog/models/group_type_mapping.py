@@ -215,7 +215,7 @@ def _fetch_group_types_via_personhog(client: PersonHogClient, project_id: int) -
     return result
 
 
-def get_group_types_for_project(project_id: int) -> list[dict[str, Any]]:
+def get_group_types_for_project(project_id: int, *, caller_tag: str | None = None) -> list[dict[str, Any]]:
     """Fetch group types from cache, falling back to personhog then ORM, then stale cache, then empty list."""
     cache_key = f"{GROUP_TYPES_CACHE_KEY_PREFIX}{project_id}"
     stale_cache_key = f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}{project_id}"
@@ -226,7 +226,7 @@ def get_group_types_for_project(project_id: int) -> list[dict[str, Any]]:
 
     try:
         result = _personhog_routed(
-            "get_group_types_for_project",
+            caller_tag or "get_group_types_for_project",
             lambda client: _fetch_group_types_via_personhog(client, project_id),
             lambda: list(
                 GroupTypeMapping.objects.filter(project_id=project_id)  # nosemgrep: no-direct-persons-db-orm
@@ -264,11 +264,11 @@ def _fetch_group_types_for_team_via_personhog(client: PersonHogClient, team_id: 
     return result
 
 
-def get_group_types_for_team(team_id: int) -> list[dict[str, Any]]:
+def get_group_types_for_team(team_id: int, *, caller_tag: str | None = None) -> list[dict[str, Any]]:
     """Fetch group types for a team via personhog, falling back to ORM on error."""
     try:
         return _personhog_routed(
-            "get_group_types_for_team",
+            caller_tag or "get_group_types_for_team",
             lambda client: _fetch_group_types_for_team_via_personhog(client, team_id),
             lambda: list(
                 GroupTypeMapping.objects.filter(team_id=team_id)  # nosemgrep: no-direct-persons-db-orm
@@ -384,7 +384,9 @@ def _recover_projects_from_stale_or_fail(project_ids: list[int], exc: DatabaseEr
     return recovered
 
 
-def get_group_types_for_projects(project_ids: list[int]) -> dict[int, list[dict[str, Any]]]:
+def get_group_types_for_projects(
+    project_ids: list[int], *, caller_tag: str | None = None
+) -> dict[int, list[dict[str, Any]]]:
     """Batch fetch group types for multiple projects via personhog, falling back to
     ORM, then to the per-project stale cache on a DB failure.
 
@@ -411,7 +413,9 @@ def get_group_types_for_projects(project_ids: list[int]) -> dict[int, list[dict[
         return result
 
     try:
-        result = _personhog_routed("get_group_types_for_projects", _personhog_fn, _orm_fn, project_ids=project_ids)
+        result = _personhog_routed(
+            caller_tag or "get_group_types_for_projects", _personhog_fn, _orm_fn, project_ids=project_ids
+        )
     except DatabaseError as exc:
         return _recover_projects_from_stale_or_fail(project_ids, exc)
 
@@ -419,13 +423,13 @@ def get_group_types_for_projects(project_ids: list[int]) -> dict[int, list[dict[
     return result
 
 
-def count_group_type_mappings_per_team() -> list[dict[str, int]]:
+def count_group_type_mappings_per_team(*, caller_tag: str | None = None) -> list[dict[str, int]]:
     """Count group type mappings per team via personhog, falling back to ORM."""
     from posthog.personhog_client.proto import CountGroupTypeMappingsRequest
 
     try:
         return _personhog_routed(
-            "count_group_type_mappings_per_team",
+            caller_tag or "count_group_type_mappings_per_team",
             lambda client: [
                 {"team_id": c.team_id, "total": c.count}
                 for c in client.count_group_type_mappings(CountGroupTypeMappingsRequest()).counts
@@ -464,7 +468,9 @@ def project_has_group_types_authoritatively(project_id: int) -> bool:
         return False
 
     try:
-        has_group_types = len(_fetch_group_types_for_project_direct(project_id, "strong")) > 0
+        has_group_types = (
+            len(_fetch_group_types_for_project_direct(project_id, "strong", caller_tag="flags/has-group-types")) > 0
+        )
     except DatabaseError:
         logger.warning("group_types_primary_confirmation_failed", project_id=project_id, exc_info=True)
         return True
@@ -506,6 +512,8 @@ def _dict_to_group_type_mapping_model(
 def _fetch_group_types_for_project_direct(
     project_id: int,
     consistency: ReadConsistency,
+    *,
+    caller_tag: str | None = None,
 ) -> list[dict[str, Any]]:
     """Cache-bypassing read at the requested consistency level."""
     from posthog.personhog_client.converters import proto_group_type_mapping_to_dict
@@ -514,7 +522,7 @@ def _fetch_group_types_for_project_direct(
     db_alias = PERSONS_DB_FOR_WRITE if consistency == "strong" else "default"
 
     return _personhog_routed(
-        "get_group_types_for_project_direct",
+        caller_tag or "get_group_types_for_project_direct",
         lambda client: sorted(
             [
                 proto_group_type_mapping_to_dict(m)
@@ -543,6 +551,7 @@ def get_group_type_mapping_instance(
     *,
     team: Team | None = None,
     consistency: ReadConsistency | None = None,
+    caller_tag: str | None = None,
 ) -> GroupTypeMapping:
     """Fetch a single GroupTypeMapping by (project_id, group_type_index) via personhog.
 
@@ -555,7 +564,7 @@ def get_group_type_mapping_instance(
     on stale data.
     """
     if consistency is not None:
-        rows = _fetch_group_types_for_project_direct(project_id, consistency)
+        rows = _fetch_group_types_for_project_direct(project_id, consistency, caller_tag=caller_tag)
         for row in rows:
             if row["group_type_index"] == group_type_index:
                 return _dict_to_group_type_mapping_model(row, project_id=project_id, team=team)
@@ -563,14 +572,14 @@ def get_group_type_mapping_instance(
             f"GroupTypeMapping matching query does not exist: project_id={project_id}, group_type_index={group_type_index}"
         )
 
-    rows = get_group_types_for_project(project_id)
+    rows = get_group_types_for_project(project_id, caller_tag=caller_tag)
     for row in rows:
         if row["group_type_index"] == group_type_index:
             return _dict_to_group_type_mapping_model(row, project_id=project_id, team=team)
 
     # Cache may be stale — bust it and retry once via the full personhog/ORM chain.
     invalidate_group_types_cache(project_id)
-    rows = get_group_types_for_project(project_id)
+    rows = get_group_types_for_project(project_id, caller_tag=caller_tag)
     for row in rows:
         if row["group_type_index"] == group_type_index:
             return _dict_to_group_type_mapping_model(row, project_id=project_id, team=team)
@@ -584,7 +593,7 @@ def update_group_type_mapping_fields(
     instance: GroupTypeMapping,
     *,
     fields: dict[str, Any],
-    operation: str = "group_type_update",
+    caller_tag: str | None = None,
 ) -> None:
     """Update specific fields on a GroupTypeMapping via personhog, falling back to ORM.
 
@@ -620,7 +629,7 @@ def update_group_type_mapping_fields(
         ).update(**fields)
 
     _personhog_routed(
-        operation,
+        caller_tag or "update_group_type_mapping_fields",
         _personhog_fn,
         _orm_fn,
         project_id=instance.project_id,
@@ -630,12 +639,12 @@ def update_group_type_mapping_fields(
         setattr(instance, field_name, value)
 
 
-def delete_group_type_mapping(instance: GroupTypeMapping) -> None:
+def delete_group_type_mapping(instance: GroupTypeMapping, *, caller_tag: str | None = None) -> None:
     """Delete a GroupTypeMapping via personhog, falling back to ORM."""
     from posthog.personhog_client.proto import DeleteGroupTypeMappingRequest
 
     _personhog_routed(
-        "delete_group_type_mapping",
+        caller_tag or "delete_group_type_mapping",
         lambda client: client.delete_group_type_mapping(
             DeleteGroupTypeMappingRequest(
                 project_id=instance.project_id,
@@ -651,7 +660,9 @@ def delete_group_type_mapping(instance: GroupTypeMapping) -> None:
     )
 
 
-def clear_dashboard_from_group_type_mapping(team_id: int, dashboard_id: int, project_id: int | None = None) -> None:
+def clear_dashboard_from_group_type_mapping(
+    team_id: int, dashboard_id: int, project_id: int | None = None, *, caller_tag: str | None = None
+) -> None:
     """Clear detail_dashboard_id from any GroupTypeMapping referencing this dashboard.
 
     Uses GetGroupTypeMappingByDashboardId to find the mapping, then UpdateGroupTypeMapping to clear it.
@@ -683,7 +694,7 @@ def clear_dashboard_from_group_type_mapping(team_id: int, dashboard_id: int, pro
             invalidate_group_types_cache(project_id)
 
     _personhog_routed(
-        "clear_dashboard_from_group_type_mapping",
+        caller_tag or "clear_dashboard_from_group_type_mapping",
         _personhog_fn,
         _orm_fn,
         team_id=team_id,

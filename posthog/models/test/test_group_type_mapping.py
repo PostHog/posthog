@@ -817,7 +817,7 @@ class TestUpdateGroupTypeMappingFields(SimpleTestCase):
         assert req.name_plural == "Orgs"
         mock_objects.filter.assert_not_called()
         mock_routing_counter.labels.assert_called_with(
-            operation="group_type_update", source="personhog", client_name="posthog-django"
+            operation="update_group_type_mapping_fields", source="personhog", client_name="posthog-django"
         )
 
     @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
@@ -832,7 +832,7 @@ class TestUpdateGroupTypeMappingFields(SimpleTestCase):
         mock_objects.filter.assert_called_once_with(project_id=1, group_type_index=0)
         mock_objects.filter.return_value.update.assert_called_once_with(name_singular="Org")
         mock_routing_counter.labels.assert_called_with(
-            operation="group_type_update", source="django_orm", client_name="posthog-django"
+            operation="update_group_type_mapping_fields", source="django_orm", client_name="posthog-django"
         )
 
     @parameterized.expand(
@@ -859,7 +859,7 @@ class TestUpdateGroupTypeMappingFields(SimpleTestCase):
         mock_objects.filter.assert_called_once_with(project_id=1, group_type_index=0)
         mock_objects.filter.return_value.update.assert_called_once_with(name_singular="Org")
         mock_errors_counter.labels.assert_called_once_with(
-            operation="group_type_update",
+            operation="update_group_type_mapping_fields",
             source="personhog",
             error_type="grpc_error",
             client_name="posthog-django",
@@ -1311,7 +1311,7 @@ class TestProjectHasGroupTypesAuthoritatively(SimpleTestCase):
         mock_fetch.return_value = [self._SAMPLE_ROW]
 
         assert project_has_group_types_authoritatively(123) is True
-        mock_fetch.assert_called_once_with(123, "strong")
+        mock_fetch.assert_called_once_with(123, "strong", caller_tag="flags/has-group-types")
 
     @patch(_DIRECT_PATCH)
     def test_returns_false_when_no_rows(self, mock_fetch):
@@ -1485,7 +1485,7 @@ class TestGetGroupTypeMappingInstance(SimpleTestCase):
         assert result.group_type == "organization"
         assert result.group_type_index == 0
         assert result.project_id == self.project_id
-        mock_get.assert_called_once_with(self.project_id)
+        mock_get.assert_called_once_with(self.project_id, caller_tag=None)
 
     @patch("posthog.models.group_type_mapping.get_group_types_for_project")
     def test_returns_second_index(self, mock_get):

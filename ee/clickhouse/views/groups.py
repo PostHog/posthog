@@ -152,14 +152,18 @@ class GroupsTypesViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @extend_schema(responses={200: GroupTypeSerializer(many=True)})
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        rows = get_group_types_for_project(self.team.project_id)
+        rows = get_group_types_for_project(self.team.project_id, caller_tag="groups/list")
         return response.Response([_group_type_row_to_response(row) for row in rows])
 
     @action(detail=False, methods=["PATCH"], name="Update group types metadata")
     def update_metadata(self, request: request.Request, *args, **kwargs):
         for row in cast(list[dict], request.data):
             instance = get_group_type_mapping_instance(
-                self.team.project_id, row["group_type_index"], team=self.team, consistency="strong"
+                self.team.project_id,
+                row["group_type_index"],
+                team=self.team,
+                consistency="strong",
+                caller_tag="groups/update-metadata",
             )
             serializer = self.get_serializer(instance, data=row)
             serializer.is_valid(raise_exception=True)
@@ -169,7 +173,7 @@ class GroupsTypesViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             if "name_plural" in serializer.validated_data:
                 fields["name_plural"] = serializer.validated_data["name_plural"]
             if fields:
-                update_group_type_mapping_fields(instance, fields=fields, operation="group_type_update_metadata")
+                update_group_type_mapping_fields(instance, fields=fields, caller_tag="groups/update-metadata")
 
         invalidate_group_types_cache(self.team.project_id)
         return self.list(request, *args, **kwargs)
@@ -178,7 +182,11 @@ class GroupsTypesViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def create_detail_dashboard(self, request: request.Request, **kw):
         try:
             group_type_mapping = get_group_type_mapping_instance(
-                self.team.project_id, request.data["group_type_index"], team=self.team, consistency="strong"
+                self.team.project_id,
+                request.data["group_type_index"],
+                team=self.team,
+                consistency="strong",
+                caller_tag="groups/create-detail-dashboard",
             )
         except GroupTypeMapping.DoesNotExist:
             raise NotFound(detail="Group type not found")
@@ -193,7 +201,7 @@ class GroupsTypesViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         update_group_type_mapping_fields(
             group_type_mapping,
             fields={"detail_dashboard_id": dashboard.id},
-            operation="group_type_create_detail_dashboard",
+            caller_tag="groups/create-detail-dashboard",
         )
         invalidate_group_types_cache(self.team.project_id)
         return response.Response(self.get_serializer(group_type_mapping).data)
@@ -202,11 +210,15 @@ class GroupsTypesViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         group_type_index = int(kwargs[self.lookup_field])
         try:
             instance = get_group_type_mapping_instance(
-                self.team.project_id, group_type_index, team=self.team, consistency="strong"
+                self.team.project_id,
+                group_type_index,
+                team=self.team,
+                consistency="strong",
+                caller_tag="groups/destroy",
             )
         except GroupTypeMapping.DoesNotExist:
             raise NotFound(detail="Group type not found")
-        delete_group_type_mapping(instance)
+        delete_group_type_mapping(instance, caller_tag="groups/destroy")
         invalidate_group_types_cache(self.team.project_id)
         return response.Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -214,7 +226,11 @@ class GroupsTypesViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def set_default_columns(self, request: request.Request, **kw):
         try:
             group_type_mapping = get_group_type_mapping_instance(
-                self.team.project_id, request.data["group_type_index"], team=self.team, consistency="strong"
+                self.team.project_id,
+                request.data["group_type_index"],
+                team=self.team,
+                consistency="strong",
+                caller_tag="groups/set-default-columns",
             )
         except GroupTypeMapping.DoesNotExist:
             raise NotFound(detail="Group type not found")
@@ -222,7 +238,7 @@ class GroupsTypesViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         update_group_type_mapping_fields(
             group_type_mapping,
             fields={"default_columns": request.data["default_columns"]},
-            operation="group_type_set_default_columns",
+            caller_tag="groups/set-default-columns",
         )
         invalidate_group_types_cache(self.team.project_id)
         return response.Response(self.get_serializer(group_type_mapping).data)
@@ -296,7 +312,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
         return group
 
     def get_group_type_mapping_or_404(self, group_type_index: GroupTypeIndex) -> GroupTypeMappingResult:
-        for m in get_group_types_for_project(self.team.project_id):
+        for m in get_group_types_for_project(self.team.project_id, caller_tag="groups/group-type-lookup"):
             if m["group_type_index"] == group_type_index:
                 return GroupTypeMappingResult(group_type=m["group_type"], group_type_index=m["group_type_index"])
         raise NotFound()
