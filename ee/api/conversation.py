@@ -430,19 +430,15 @@ class ConversationViewSet(
             # Mark conversation as internal if created during an impersonated session (support agents)
             is_impersonated = is_impersonated_session(request)
             conversation_type = Conversation.Type.DEEP_RESEARCH if is_research else Conversation.Type.ASSISTANT
-            # Stamp the runtime once at create time from the flag; it's never re-evaluated.
-            agent_runtime = (
-                Conversation.AgentRuntime.SANDBOX
-                if has_sandbox_mode_feature_flag(self.team, cast(User, request.user))
-                else Conversation.AgentRuntime.LANGGRAPH
-            )
+            # This endpoint is LangGraph-only — sandbox conversations are created via `open`. New rows
+            # are always LangGraph (the model default), never stamped from the sandbox flag here.
             conversation = Conversation.objects.create(
                 user=cast(User, request.user),
                 team=self.team,
                 id=conversation_id,
                 type=conversation_type,
                 is_internal=is_impersonated,
-                agent_runtime=agent_runtime,
+                agent_runtime=Conversation.AgentRuntime.LANGGRAPH,
             )
             is_new_conversation = True
 
@@ -450,39 +446,16 @@ class ConversationViewSet(
         has_message = serializer.validated_data.get("message") is not None
         has_resume_payload = serializer.validated_data.get("resume_payload") is not None
 
-        # Convert a reopened legacy LangGraph thread on its first new message: read the current
-        # conversation window into a one-time resumed-context block (while still LangGraph), then
-        # route the message through the sandbox path, which flips the runtime + links the Task
-        # atomically. Gated on `phai-sandbox-mode` only; the legacy thread itself is kept and still
-        # rendered (above the conversion divider).
-        resumed_context: str | None = None
-        convert_to_acp = bool(
-            not is_new_conversation
-            and conversation.agent_runtime == Conversation.AgentRuntime.LANGGRAPH
-            and conversation.task_id is None
-            and is_idle
-            and has_message
-            and has_sandbox_mode_feature_flag(self.team, cast(User, request.user))
-        )
-        if convert_to_acp:
-            try:
-                resumed_context = asgi_async_to_sync(ContextService().abuild_resumed_legacy_context)(
-                    conversation, self.team, cast(User, request.user)
-                )
-            except Exception as e:
-                # A failed read must not block the conversion — continue with no resumed context.
-                # The user can still continue, and the legacy thread is rendered by the serializer.
-                capture_exception(e)
-                resumed_context = None
-
-        is_sandbox = (
-            serializer.validated_data.get("is_sandbox", False)
+        # Sandbox conversations — including the legacy LangGraph→sandbox conversion of a reopened
+        # thread — are served exclusively by the `open` endpoint. Reject any that reach this one,
+        # whether an already-sandbox row or a sandbox-signalling body, so a sandbox conversation can
+        # never fall through to the LangGraph workflow below.
+        if (
+            conversation.agent_runtime == Conversation.AgentRuntime.SANDBOX
+            or serializer.validated_data.get("is_sandbox", False)
             or serializer.validated_data.get("agent_mode") == AgentMode.SANDBOX
-            or conversation.agent_runtime == Conversation.AgentRuntime.SANDBOX
-            # A converting thread is still LangGraph here (the flip happens in the routing service),
-            # so route it through the sandbox path explicitly.
-            or convert_to_acp
-        )
+        ):
+            raise exceptions.ValidationError("Sandbox conversations must be opened via the open endpoint.")
 
         if conversation.type == Conversation.Type.DEEP_RESEARCH:
             if not is_new_conversation and is_idle and has_message and not has_resume_payload:
@@ -492,24 +465,13 @@ class ConversationViewSet(
             else:
                 is_research = True
 
-        if has_message and not is_idle and not is_sandbox:
+        if has_message and not is_idle:
             raise Conflict("Cannot resume streaming with a new message")
         # If the frontend is trying to resume streaming for a finished conversation, return a conflict error
         if not has_message and conversation.status == Conversation.Status.IDLE and not has_resume_payload:
             raise exceptions.ValidationError("Cannot continue streaming from an idle conversation")
 
         is_impersonated = is_impersonated_session(request)
-
-        if is_sandbox and has_message:
-            # Sandbox runtime delegates in-process to the posthog_ai product. The handler
-            # is non-streaming and returns the IDs the frontend needs to open SSE directly
-            # against the products/tasks stream endpoint.
-            if is_new_conversation:
-                conversation.title = serializer.validated_data["content"][:80]
-                conversation.save(update_fields=["title"])
-            return self._route_sandbox_message(
-                request, conversation, resumed_context=resumed_context, convert_to_acp=convert_to_acp
-            )
 
         workflow_inputs: ChatAgentWorkflowInputs | ResearchAgentWorkflowInputs
         workflow_class: type[ChatAgentWorkflow] | type[ResearchAgentWorkflow]
@@ -696,7 +658,7 @@ class ConversationViewSet(
         serializer = SandboxOpenSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        conversation = self._get_or_create_sandbox_conversation(request)
+        conversation, created = self._get_or_create_sandbox_conversation(request)
         has_content = bool(serializer.validated_data.get("content"))
         convert_to_acp, resumed_context = self._compute_sandbox_conversion(request, conversation, has_content)
 
@@ -710,15 +672,17 @@ class ConversationViewSet(
             conversation.save(update_fields=["title"])
 
         return self._route_sandbox_message(
-            request, conversation, resumed_context=resumed_context, convert_to_acp=convert_to_acp
+            request, conversation, resumed_context=resumed_context, convert_to_acp=convert_to_acp, created=created
         )
 
-    def _get_or_create_sandbox_conversation(self, request: Request) -> Conversation:
+    def _get_or_create_sandbox_conversation(self, request: Request) -> tuple[Conversation, bool]:
         """Resolve the URL-keyed conversation, creating it on first use (the client mints the id).
 
         `open` is create-or-resume: a brand-new conversation (first warm or first message) has no row
-        yet, so a plain `get_object()` would 404. The runtime is stamped once here from the sandbox flag
-        and never re-evaluated, mirroring `create`.
+        yet, so a plain `get_object()` would 404. A brand-new row is only born on the sandbox runtime,
+        and only for a sandbox-eligible caller — otherwise we'd persist an orphaned LangGraph row that
+        `open` immediately rejects. Returns whether the row was created this request so the caller can
+        drop it again if nothing ends up being provisioned.
         """
         conversation_id = self.kwargs[self.lookup_url_kwarg]
         user = cast(User, request.user)
@@ -726,23 +690,24 @@ class ConversationViewSet(
             # nosemgrep: idor-lookup-without-team, idor-taint-user-input-to-model-get (user+team checked below)
             conversation = Conversation.objects.get(id=conversation_id)
         except Conversation.DoesNotExist:
-            return Conversation.objects.create(
+            # Gate first-use creation on eligibility so a non-sandbox caller can't spam orphaned rows
+            # by POSTing `open` with random ids — `open` would create then reject each one otherwise.
+            if not has_sandbox_mode_feature_flag(self.team, user):
+                raise exceptions.ValidationError("This conversation is not on the sandbox runtime.")
+            conversation = Conversation.objects.create(
                 user=user,
                 team=self.team,
                 id=conversation_id,
                 type=Conversation.Type.ASSISTANT,
                 is_internal=is_impersonated_session(request),
-                agent_runtime=(
-                    Conversation.AgentRuntime.SANDBOX
-                    if has_sandbox_mode_feature_flag(self.team, user)
-                    else Conversation.AgentRuntime.LANGGRAPH
-                ),
+                agent_runtime=Conversation.AgentRuntime.SANDBOX,
             )
+            return conversation, True
         if conversation.user != user or conversation.team != self.team:
             raise exceptions.PermissionDenied("Cannot access other users' conversations")
         if conversation.deleted:
             raise exceptions.NotFound("Conversation does not exist")
-        return conversation
+        return conversation, False
 
     def _compute_sandbox_conversion(
         self, request: Request, conversation: Conversation, has_content: bool
@@ -780,13 +745,17 @@ class ConversationViewSet(
         *,
         resumed_context: str | None = None,
         convert_to_acp: bool = False,
+        created: bool = False,
     ) -> Response:
         user = cast(User, request.user)
         result = SandboxSession(conversation, user).open(
             request.data, resumed_context=resumed_context, convert_to_acp=convert_to_acp
         )
         if result is None:
-            # Warm intent that provisioned nothing (pool full / released) — no run to open.
+            # Warm intent that provisioned nothing (pool full / released) — no run to open. Drop the
+            # row if we created it this request so a content-less warm can't leave orphaned conversations.
+            if created:
+                conversation.delete()
             return Response(status=status.HTTP_204_NO_CONTENT)
         content = request.data.get("content")
         if isinstance(content, str) and content.strip():
