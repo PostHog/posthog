@@ -59,7 +59,6 @@ export default defineConfig(({ mode }) => {
                 models: resolve(__dirname, 'src/models'),
                 mocks: resolve(__dirname, 'src/mocks'),
                 exporter: resolve(__dirname, 'src/exporter'),
-                stories: resolve(__dirname, 'src/stories'),
                 types: resolve(__dirname, 'src/types.ts'),
                 // @posthog/lemon-ui aliases
                 '@posthog/lemon-ui': resolve(__dirname, '@posthog/lemon-ui/src/index'),

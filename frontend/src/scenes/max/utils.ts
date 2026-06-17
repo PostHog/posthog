@@ -2,7 +2,7 @@ import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { humanFriendlyDuration } from 'lib/utils'
+import { humanFriendlyDuration } from 'lib/utils/durations'
 
 import { VisualizationBlock } from '~/queries/schema/schema-assistant-artifacts'
 import {

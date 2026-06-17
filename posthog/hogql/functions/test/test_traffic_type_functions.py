@@ -1,6 +1,11 @@
 import pytest
+from posthog.test.base import BaseTest
+
+from parameterized import parameterized
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.errors import QueryError
 from posthog.hogql.functions.traffic_type import (
     get_bot_name,
     get_bot_type,
@@ -8,7 +13,10 @@ from posthog.hogql.functions.traffic_type import (
     get_traffic_type,
     is_bot,
 )
+from posthog.hogql.parser import parse_select
+from posthog.hogql.printer import prepare_and_print_ast
 
+from products.actions.backend.models.action import Action
 from products.web_analytics.backend.hogql_queries.bot_definitions import BOT_DEFINITIONS
 
 
@@ -419,3 +427,66 @@ class TestBotDefinitionsDataStructure:
                     assert patterns.index(p2) < patterns.index(p1), (
                         f"{p2} must come before {p1} for correct multiMatchAnyIndex matching"
                     )
+
+
+# Bot-lookup macros whose builders duplicate their argument and so expand under the re-entrancy
+# guard in Resolver._expand_duplicating_macro. Parameterized over so a malformed dispatch line for
+# any one of them (missing guard, wrong flag reset) is caught.
+DUPLICATING_MACROS = [
+    "__preview_getTrafficType",
+    "__preview_getTrafficCategory",
+    "__preview_getBotType",
+    "__preview_getBotName",
+    "__preview_getBotOperator",
+]
+
+
+class TestMacroExpansionGuard(BaseTest):
+    def _print(self, select: str) -> str:
+        return prepare_and_print_ast(
+            parse_select(select),
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            "clickhouse",
+        )[0]
+
+    @parameterized.expand(DUPLICATING_MACROS)
+    def test_single_level_macro_expands(self, macro: str):
+        # A non-nested call resolves and expands to the multiMatchAnyIndex lookup.
+        printed = self._print(f"SELECT {macro}(toString(properties.x)) FROM events")
+        assert "multiMatchAnyIndex" in printed
+
+    @parameterized.expand(DUPLICATING_MACROS)
+    def test_nested_duplicating_macro_is_rejected(self, macro: str):
+        # The bot-lookup builders duplicate their argument, so a duplicating macro nested inside
+        # another's expansion would blow up ~2^depth during resolution. Reject it instead.
+        with pytest.raises(QueryError, match="cannot be nested inside another expanded function call"):
+            self._print(f"SELECT {macro}({macro}(toString(properties.x))) FROM events")
+
+    def test_cross_duplicating_macro_nesting_is_rejected(self):
+        # Nesting two *different* duplicating macros is the same exponential vector.
+        with pytest.raises(QueryError, match="cannot be nested inside another expanded function call"):
+            self._print("SELECT __preview_getTrafficType(__preview_getBotName(toString(properties.x))) FROM events")
+
+    def test_non_duplicating_macro_inside_duplicating_macro_is_allowed(self):
+        # isBot does not duplicate its argument, so reaching it inside a duplicating macro's
+        # expansion is bounded (not exponential) and must still resolve, not raise.
+        printed = self._print("SELECT __preview_getTrafficType(toString(__preview_isBot(properties.x))) FROM events")
+        assert "multiMatchAnyIndex" in printed
+
+    def test_matches_action_with_macro_property_still_resolves(self):
+        # matchesAction expands a user-defined action, whose hogql property filters re-parse
+        # arbitrary user HogQL. A guarded macro referenced there must still expand — the guard
+        # must not fire across matchesAction's (bounded) action expansion.
+        action = Action.objects.create(
+            team=self.team,
+            steps_json=[
+                {
+                    "event": "$pageview",
+                    "properties": [
+                        {"type": "hogql", "key": "__preview_getTrafficType(properties.$user_agent) = 'Bot'"}
+                    ],
+                }
+            ],
+        )
+        printed = self._print(f"SELECT matchesAction({action.pk}) FROM events")
+        assert "multiMatchAnyIndex" in printed

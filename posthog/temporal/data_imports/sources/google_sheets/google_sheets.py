@@ -18,6 +18,15 @@ from posthog.temporal.data_imports.sources.generated_configs import GoogleSheets
 
 from products.data_warehouse.backend.types import IncrementalField, IncrementalFieldType
 
+# (connect, read) timeout for every Sheets API request, in seconds. gspread defaults to no
+# timeout, so a stalled connection blocks the worker thread indefinitely. Because the sync
+# activities are threaded, a blocked thread can't be interrupted cleanly — Temporal eventually
+# hits the activity's `start_to_close_timeout` and raises a `CancelledError` into the thread mid
+# socket-read, which surfaces as a noisy "Cancelled" error. A bounded timeout turns a stall into a
+# fast, retryable `requests.Timeout` instead. The read timeout is the max gap between received
+# bytes (not total download time), so it stays safe for large sheets that stream in steadily.
+_REQUEST_TIMEOUT_SECONDS: tuple[float, float] = (30.0, 120.0)
+
 
 def google_sheets_client() -> gspread.Client:
     credentials = service_account.Credentials.from_service_account_info(
@@ -36,7 +45,9 @@ def google_sheets_client() -> gspread.Client:
     adapter = make_tracked_adapter()
     session.mount("https://", adapter)
     session.mount("http://", adapter)
-    return gspread.authorize(credentials, session=session)
+    client = gspread.authorize(credentials, session=session)
+    client.set_timeout(_REQUEST_TIMEOUT_SECONDS)
+    return client
 
 
 cache: Cache[Any, Any] = TTLCache(maxsize=500, ttl=120)  # 120 seconds
@@ -65,7 +76,11 @@ def _retry_on_transient_api_error(execute: Callable[[], T]) -> T:
     errors. Google Sheets has a 300 request quota per minute, and also returns
     transient 5xx server errors (see `_RETRYABLE_API_ERROR_CODES`). We retry both
     and add a +- 10s jitter to the sleep per attempt so that multiple jobs blocked
-    by quota limits dont all retry at the same time."""
+    by quota limits dont all retry at the same time.
+
+    This wraps every gspread call that hits the API — worksheet acquisition *and* the
+    cell-reading calls (`get_all_values`/`get_all_records`). The reads issue their own
+    requests, so a transient 5xx there must be retried too rather than failing the sync."""
 
     attempts = 1
 
@@ -85,7 +100,7 @@ def _retry_on_transient_api_error(execute: Callable[[], T]) -> T:
 
 @cached(cache)
 def _get_worksheet(spreadsheet_url: str, worksheet_id: int) -> gspread.Worksheet:
-    def execute():
+    def execute() -> gspread.Worksheet:
         client = google_sheets_client()
         try:
             spreadsheet = client.open_by_url(spreadsheet_url)
@@ -126,7 +141,7 @@ def get_schema_incremental_fields(config: GoogleSheetsSourceConfig, worksheet_na
     worksheet = _get_worksheet(config.spreadsheet_url, worksheet_id)
 
     try:
-        rows = worksheet.get_all_values("1:2")  # Get the first two rows
+        rows = _retry_on_transient_api_error(lambda: worksheet.get_all_values("1:2"))  # Get the first two rows
     except gspread.exceptions.APIError as e:
         # Google rejects the unbounded "1:2" row range with a 400 "Unable to parse range" for
         # some worksheets (e.g. empty sheets, or sheets resized to have no columns). This is
@@ -170,7 +185,7 @@ def google_sheets_source(
 
     worksheet = _get_worksheet(config.spreadsheet_url, worksheet_id)
 
-    headers = worksheet.get_all_values("1:1")  # Get the first row
+    headers = _retry_on_transient_api_error(lambda: worksheet.get_all_values("1:1"))  # Get the first row
     primary_keys = None
     if len(headers) > 0 and "id" in headers[0]:
         primary_keys = ["id"]
@@ -190,7 +205,7 @@ def google_sheets_source(
 
         # default_blank defaults to "", which turns empty cells into strings and breaks numeric
         # columns that legitimately have gaps. None lets blank cells import as null instead.
-        values = worksheet.get_all_records(default_blank=None)
+        values = _retry_on_transient_api_error(lambda: worksheet.get_all_records(default_blank=None))
 
         if should_use_incremental_field and db_incremental_field_last_value is not None:
             values = [value for value in values if value.get("id", 0) > db_incremental_field_last_value]
