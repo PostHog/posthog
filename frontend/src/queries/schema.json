@@ -21251,6 +21251,9 @@
                 "Adapty",
                 "Braintrust",
                 "StreamElements",
+                "Streamlabs",
+                "Datorama",
+                "Ahrefs",
                 "Custom"
             ],
             "type": "string"
@@ -37415,6 +37418,63 @@
             "required": ["ts_from_s", "active"],
             "type": "object"
         },
+        "ReplayVisionScannerFindingSignalExtra": {
+            "additionalProperties": false,
+            "properties": {
+                "confidence": {
+                    "description": "The model's self-reported confidence in the finding, in [0, 1]. Independent of `weight`.",
+                    "type": "number"
+                },
+                "observation_id": {
+                    "type": "string"
+                },
+                "scanner_id": {
+                    "type": "string"
+                },
+                "scanner_name": {
+                    "type": "string"
+                },
+                "scanner_type": {
+                    "description": "Replay Vision scanner type, e.g. 'monitor' / 'classifier' / 'scorer' / 'summarizer'. Kept open so new scanner types don't fail signal validation.",
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                }
+            },
+            "required": ["scanner_id", "scanner_name", "scanner_type", "observation_id", "session_id", "confidence"],
+            "type": "object"
+        },
+        "ReplayVisionScannerFindingSignalInput": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "extra": {
+                    "$ref": "#/definitions/ReplayVisionScannerFindingSignalExtra"
+                },
+                "remediation": {
+                    "$ref": "#/definitions/SignalRemediation"
+                },
+                "source_id": {
+                    "type": "string"
+                },
+                "source_product": {
+                    "const": "replay_vision",
+                    "type": "string"
+                },
+                "source_type": {
+                    "const": "scanner_finding",
+                    "type": "string"
+                },
+                "weight": {
+                    "type": "number"
+                }
+            },
+            "required": ["description", "extra", "source_id", "source_product", "source_type", "weight"],
+            "type": "object"
+        },
         "ResolvedDateRangeResponse": {
             "additionalProperties": false,
             "properties": {
@@ -40267,6 +40327,9 @@
                 },
                 {
                     "$ref": "#/definitions/HealthCheckSignalInput"
+                },
+                {
+                    "$ref": "#/definitions/ReplayVisionScannerFindingSignalInput"
                 }
             ]
         },
@@ -40353,7 +40416,8 @@
                 "pganalyze",
                 "signals_scout",
                 "logs",
-                "health_checks"
+                "health_checks",
+                "replay_vision"
             ],
             "type": "string"
         },
@@ -40372,7 +40436,8 @@
                 "endpoint_breakdown_limit_exceeded",
                 "cross_source_issue",
                 "alert_state_change",
-                "health_issue"
+                "health_issue",
+                "scanner_finding"
             ],
             "type": "string"
         },
