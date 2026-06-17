@@ -8,7 +8,10 @@ import { projectLogic } from 'scenes/projectLogic'
 import type { sandboxStreamLogicType } from './sandboxStreamLogicType'
 import { defaultPermissionDecision, findAllowOptionId } from './sandboxToolPolicy'
 import type {
+    ContextUsage,
     PermissionRequestRecord,
+    ResourceProduct,
+    SdkSession,
     ThreadItem,
     ThreadItemType,
     ToolInvocation,
@@ -20,6 +23,8 @@ import {
     type PosthogErrorParams,
     type PosthogPermissionRequestParams,
     type PosthogProgressParams,
+    type PosthogUsageUpdateParams,
+    type SessionUpdateUsage,
     type SseErrorFrameData,
     type StoredLogEntry,
     isKnownSessionUpdate,
@@ -27,6 +32,7 @@ import {
     isPermissionRequestFrame,
     isPosthogNotification,
     isSessionUpdateNotification,
+    isSessionUpdateUsage,
     isTaskRunStateFrame,
 } from './types/sandboxWireTypes'
 
@@ -136,6 +142,71 @@ function extractUserMessageText(content: string | unknown[] | undefined): string
             .join('')
     }
     return ''
+}
+
+/**
+ * Union incoming resource products into the accumulated list by `id`, preserving first-seen order.
+ * Pure — mirrors the reference `accumulateSessionResources`. Products without an `id` are skipped.
+ */
+export function mergeResourceProducts(
+    existing: ResourceProduct[],
+    incoming: { id?: string; label?: string }[]
+): ResourceProduct[] {
+    const seen = new Set(existing.map((p) => p.id))
+    const next = [...existing]
+    for (const product of incoming) {
+        if (typeof product.id !== 'string' || product.id === '' || seen.has(product.id)) {
+            continue
+        }
+        seen.add(product.id)
+        next.push({ id: product.id, label: product.label })
+    }
+    return next
+}
+
+/** Normalize either wire cost shape (a bare number, or `{amount, currency}`) to a number | undefined. */
+function normalizeUsageCost(
+    cost: number | { amount?: number; currency?: string } | null | undefined
+): number | undefined {
+    if (cost == null) {
+        return undefined
+    }
+    if (typeof cost === 'number') {
+        return cost
+    }
+    return typeof cost.amount === 'number' ? cost.amount : undefined
+}
+
+/** Latest-wins fold of an `_posthog/usage_update` ext-notification onto the context-usage snapshot. */
+export function foldUsageNotification(existing: ContextUsage | null, params: PosthogUsageUpdateParams): ContextUsage {
+    const next: ContextUsage = { ...existing }
+    if (params.used != null) {
+        next.tokens = params.used
+    }
+    if (params.breakdown != null) {
+        next.breakdown = params.breakdown
+    }
+    const cost = normalizeUsageCost(params.cost)
+    if (cost !== undefined) {
+        next.cost = cost
+    }
+    return next
+}
+
+/** Latest-wins fold of the numeric `session/update` usage aggregate (drives the percentage ring). */
+export function foldUsageAggregate(existing: ContextUsage | null, update: SessionUpdateUsage): ContextUsage {
+    const next: ContextUsage = { ...existing }
+    if (typeof update.used === 'number') {
+        next.used = update.used
+    }
+    if (typeof update.size === 'number') {
+        next.size = update.size
+    }
+    const cost = normalizeUsageCost(update.cost)
+    if (cost !== undefined) {
+        next.cost = cost
+    }
+    return next
 }
 
 /** Refetch the run's status; on failure return the mapped error envelope instead. */
@@ -261,6 +332,11 @@ function findLastBufferIndex(state: ThreadItem[], id: string, type: ThreadItemTy
         }
     }
     return -1
+}
+
+/** The in-progress compaction spinner item — cleared when compaction completes or a boundary lands. */
+function isPendingCompactingStatus(item: ThreadItem): boolean {
+    return item.type === 'status' && item.status === 'compacting' && item.isComplete !== true
 }
 
 function mapAcpStatus(status: unknown): ToolInvocationStatus {
@@ -482,6 +558,20 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
         /** Echoes the user's own message into the thread — the sandbox wire never replays it. */
         pushHumanMessage: (content: string) => ({ content }),
         pushErrorItem: (errorMessage: string, variant: 'error' | 'crash' = 'error') => ({ errorMessage, variant }),
+        /** Union the products an answer was grounded in — accumulates across the whole session. */
+        mergeResourcesUsed: (products: { id?: string; label?: string }[]) => ({ products }),
+        /** Latest-wins context-usage snapshot fold (token/cost/breakdown or numeric aggregate). */
+        setContextUsage: (usage: ContextUsage) => ({ usage }),
+        /** Inline `_posthog/status` thread item (e.g. compaction in progress). */
+        pushStatusItem: (status: string, isComplete: boolean) => ({ status, isComplete }),
+        /** Removes the in-progress compaction spinner once compaction completes. */
+        clearCompactingStatus: true,
+        /** Inline `_posthog/compact_boundary` thread item — the post-compaction marker. */
+        pushCompactBoundaryItem: (payload: { trigger?: string; preTokens?: number; contextSize?: number }) => payload,
+        /** Inline `_posthog/task_notification` thread item — a task milestone. */
+        pushTaskNotificationItem: (payload: { status?: string; summary?: string }) => payload,
+        /** Diagnostic `_posthog/sdk_session` plumbing — no UI. */
+        setSdkSession: (session: SdkSession) => ({ session }),
         reset: true,
     }),
     reducers({
@@ -632,6 +722,21 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                     ...state,
                     { id: `error-${state.length}`, type: 'error', errorMessage, variant },
                 ],
+                pushStatusItem: (state, { status, isComplete }) => [
+                    ...state,
+                    { id: `status-${state.length}`, type: 'status', status, isComplete },
+                ],
+                clearCompactingStatus: (state) => state.filter((item) => !isPendingCompactingStatus(item)),
+                // Drop the in-progress spinner before the divider lands, in case the completing
+                // status frame never arrived — the boundary itself signals compaction is done.
+                pushCompactBoundaryItem: (state, { trigger, preTokens, contextSize }) => [
+                    ...state.filter((item) => !isPendingCompactingStatus(item)),
+                    { id: `compact-${state.length}`, type: 'compact_boundary', trigger, preTokens, contextSize },
+                ],
+                pushTaskNotificationItem: (state, { status, summary }) => [
+                    ...state,
+                    { id: `task-${state.length}`, type: 'task_notification', status, summary },
+                ],
                 reset: () => [],
             },
         ],
@@ -735,6 +840,32 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 markRunStarted: () => false,
                 pushHumanMessage: () => false,
                 reset: () => false,
+            },
+        ],
+        // Products the agent grounded answers in, unioned by id (first-seen order) across the whole
+        // session. NOT cleared on markTurnComplete — the bar accumulates; only a reset clears it.
+        resourcesUsed: [
+            [] as ResourceProduct[],
+            {
+                mergeResourcesUsed: (state, { products }) => mergeResourceProducts(state, products),
+                reset: () => [],
+            },
+        ],
+        // Latest-wins context-usage snapshot for the footer ring. The setContextUsage payload is the
+        // already-folded snapshot (the listener merges onto the prior value).
+        contextUsage: [
+            null as ContextUsage | null,
+            {
+                setContextUsage: (_, { usage }) => usage,
+                reset: () => null,
+            },
+        ],
+        // Diagnostic resume plumbing — adapter/session identity for telemetry. No UI.
+        sdkSession: [
+            null as SdkSession | null,
+            {
+                setSdkSession: (_, { session }) => session,
+                reset: () => null,
             },
         ],
     }),
@@ -1253,8 +1384,55 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 }
                 return
             }
+            // The agent reports, per turn, which PostHog products an answer was grounded in. Union
+            // them by id into the persistent resources bar — accumulates across the whole session.
+            if (isPosthogNotification(notification, '_posthog/resources_used')) {
+                actions.mergeResourcesUsed(notification.params?.products ?? [])
+                return
+            }
+            // Token usage + cost + context-window breakdown. The Codex adapter sends two split
+            // frames; the Claude adapter sends a single combined frame (used + cost-as-number +
+            // breakdown). The permissive fold tolerates both. The numeric used/size aggregate that
+            // drives the percentage ring arrives separately on a session/update (handled below).
+            if (isPosthogNotification(notification, '_posthog/usage_update')) {
+                actions.setContextUsage(foldUsageNotification(values.contextUsage, notification.params ?? {}))
+                return
+            }
+            // Context-compaction start/end. The in-progress frame pushes a spinner item; the
+            // completed frame clears that spinner (Twig renders nothing for the completed case)
+            // rather than leaving it hanging beside the `compact_boundary` divider that follows.
+            if (isPosthogNotification(notification, '_posthog/status')) {
+                const status = String(notification.params?.status ?? '')
+                const isComplete = notification.params?.isComplete === true
+                if (status === 'compacting' && isComplete) {
+                    actions.clearCompactingStatus()
+                    return
+                }
+                actions.pushStatusItem(status, isComplete)
+                return
+            }
+            if (isPosthogNotification(notification, '_posthog/compact_boundary')) {
+                const params = notification.params
+                actions.pushCompactBoundaryItem({
+                    trigger: params?.trigger,
+                    preTokens: params?.preTokens,
+                    contextSize: params?.contextSize,
+                })
+                return
+            }
+            if (isPosthogNotification(notification, '_posthog/task_notification')) {
+                const params = notification.params
+                actions.pushTaskNotificationItem({ status: params?.status, summary: params?.summary })
+                return
+            }
+            // Diagnostic only — no UI; kept for resume telemetry / crash-affordance work.
+            if (isPosthogNotification(notification, '_posthog/sdk_session')) {
+                const params = notification.params
+                actions.setSdkSession({ sessionId: params?.sessionId, adapter: params?.adapter })
+                return
+            }
             if (method?.startsWith('_posthog/')) {
-                // _posthog/usage_update, _posthog/console, _posthog/sdk_session, _posthog/git_checkpoint, ...
+                // _posthog/console, _posthog/sandbox_output, _posthog/git_checkpoint, ... — still dropped.
                 return
             }
 
@@ -1263,6 +1441,13 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             }
 
             const update = notification.params?.update
+            // The numeric used/size usage aggregate is session/update-framed but isn't in
+            // KNOWN_SESSION_UPDATES — special-case it before isKnownSessionUpdate to drive the ring
+            // without widening the tool-render switch below.
+            if (isSessionUpdateUsage(update)) {
+                actions.setContextUsage(foldUsageAggregate(values.contextUsage, update))
+                return
+            }
             if (!isKnownSessionUpdate(update)) {
                 return
             }

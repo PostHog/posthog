@@ -72,6 +72,8 @@ import { LogEntry } from 'products/tasks/frontend/lib/parse-logs'
 
 import { FeedbackDisplay } from './components/FeedbackDisplay'
 import { MaxWebAnalyticsNudge } from './components/MaxWebAnalyticsNudge'
+import { SandboxContextUsage } from './components/SandboxContextUsage'
+import { SandboxResourcesBar } from './components/SandboxResourcesBar'
 import { ContextSummary } from './Context'
 import { DangerousOperationApprovalCard } from './DangerousOperationApprovalCard'
 import { FeedbackPrompt } from './FeedbackPrompt'
@@ -94,6 +96,11 @@ import {
     isRenderableUIPayloadTool,
 } from './messages/UIPayloadAnswer'
 import { VisualizationArtifact } from './messages/VisualizationArtifact'
+import {
+    SandboxCompactBoundaryItem,
+    SandboxStatusItem,
+    SandboxTaskNotificationItem,
+} from './sandbox/SandboxThreadItems'
 import { sandboxStreamLogic } from './sandboxStreamLogic'
 import { MAX_SLASH_COMMANDS, SlashCommandName } from './slash-commands'
 import { TicketPrompt } from './TicketPrompt'
@@ -229,6 +236,15 @@ function SandboxThread(): JSX.Element {
                             {item.errorMessage}
                         </MessageTemplate>
                     )
+                }
+                if (item.type === 'status') {
+                    return <SandboxStatusItem key={item.id} item={item} />
+                }
+                if (item.type === 'compact_boundary') {
+                    return <SandboxCompactBoundaryItem key={item.id} item={item} />
+                }
+                if (item.type === 'task_notification') {
+                    return <SandboxTaskNotificationItem key={item.id} item={item} />
                 }
                 return null
             })}
@@ -486,6 +502,30 @@ function LegacyThread({ showTrailers }: { showTrailers: boolean }): JSX.Element 
             <NotFound object="conversation" className="m-0" />
         </div>
     ) : null
+}
+
+/**
+ * Persistent sandbox surfaces mounted between the thread and the sticky composer: the
+ * "PostHog resources used" bar and the context-usage indicator. Both read `sandboxStreamLogic`
+ * values directly, so this binds the same logic instance `Thread`'s sandbox path uses. Renders
+ * nothing for non-sandbox conversations; the inner components hide themselves when empty.
+ */
+export function SandboxComposerSurfaces(): JSX.Element | null {
+    const { conversation, sandboxConversationKey } = useValues(maxThreadLogic)
+    const sandboxModeEnabled = useFeatureFlag('PHAI_SANDBOX_MODE')
+
+    if (conversation?.agent_runtime !== 'sandbox' || !sandboxModeEnabled || !sandboxConversationKey) {
+        return null
+    }
+
+    return (
+        <BindLogic logic={sandboxStreamLogic} props={{ conversationId: sandboxConversationKey }}>
+            <div className="w-full max-w-180 self-center mx-auto">
+                <SandboxResourcesBar />
+                <SandboxContextUsage />
+            </div>
+        </BindLogic>
+    )
 }
 
 function SandboxActivityPanel({ entries }: { entries: LogEntry[] }): JSX.Element | null {
