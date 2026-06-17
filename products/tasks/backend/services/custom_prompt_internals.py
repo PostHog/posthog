@@ -108,6 +108,26 @@ class EmptyAgentTurnError(RuntimeError):
         self.printed_lines = printed_lines
 
 
+class AgentOutputNotJSONError(ValueError):
+    """Raised when an agent's final message contains no parseable JSON object.
+
+    The agent is expected to return structured output; when it replies with prose
+    (structured-output non-compliance) or the "message" is really a provider error
+    string, there is no JSON to extract. Carries the step `label` and a bounded
+    snippet of the offending text so callers can re-prompt or surface the failure
+    without dumping the whole (possibly large) reply into logs. Subclasses
+    ``ValueError`` so existing ``except ValueError`` / ``except json.JSONDecodeError``
+    callers keep catching it.
+    """
+
+    SNIPPET_CHARS = 200
+
+    def __init__(self, label: str, text: str):
+        self.label = label
+        self.snippet = text[: self.SNIPPET_CHARS]
+        super().__init__(f"Agent output for ({label}) contained no parseable JSON. Snippet: {self.snippet!r}")
+
+
 async def create_task_and_trigger(
     description: str,
     context: CustomPromptSandboxContext,
@@ -736,19 +756,8 @@ def extract_json_from_text(text: str | None, label: str) -> Any:
             except json.JSONDecodeError:
                 start = brace_pos + 1
 
-    # 4. Last resort — try the whole text as-is, then surface a classified error so
-    # callers (and operators reading the failure) can tell empty / fenced / prose apart
-    # instead of seeing a bare "Expecting value: line 1 column 1 (char 0)".
-    stripped = text.strip()
+    # 4. Last resort — try the whole text as-is (e.g. a bare JSON array/scalar with no object braces).
     try:
-        return json.loads(stripped)
+        return json.loads(text.strip())
     except json.JSONDecodeError as e:
-        if not stripped:
-            raise ValueError(f"No JSON in {label}: end-turn text was empty or whitespace-only") from e
-        if "```" in text:
-            raise ValueError(
-                f"No valid JSON in {label}: text has a code fence but its contents did not parse as JSON"
-            ) from e
-        raise ValueError(
-            f"No JSON in {label}: end-turn text was prose with no JSON object (starts with {stripped[:60]!r})"
-        ) from e
+        raise AgentOutputNotJSONError(label=label, text=text) from e

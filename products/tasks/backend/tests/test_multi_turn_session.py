@@ -16,13 +16,18 @@ from posthog.storage.object_storage import ObjectStorageError
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.services.custom_prompt_internals import (
     AgentError,
+    AgentOutputNotJSONError,
     CustomPromptSandboxContext,
     EmptyAgentTurnError,
     _extract_agent_error,
     create_task_and_trigger,
     poll_for_turn,
 )
-from products.tasks.backend.services.custom_prompt_multi_turn_runner import _EMPTY_TURN_RETRY_NUDGE, MultiTurnSession
+from products.tasks.backend.services.custom_prompt_multi_turn_runner import (
+    _EMPTY_TURN_RETRY_NUDGE,
+    _JSON_CORRECTION_PREAMBLE,
+    MultiTurnSession,
+)
 from products.tasks.backend.tests.agent_log_fixtures import (
     FakeTaskRun,
     _agent_error_line,
@@ -1164,6 +1169,111 @@ class TestMultiTurnSessionRetry:
         assert captured_skip_lines == [5, 99]
 
 
+class TestMultiTurnSessionJSONCorrection:
+    """When the agent's reply isn't valid JSON for the schema, the session must send
+    exactly one corrective follow-up and parse the new reply — recovering from
+    structured-output non-compliance instead of failing the whole activity. A
+    terminal-failed run (e.g. provider 429) short-circuits without re-prompting."""
+
+    def _make_session(self) -> MultiTurnSession:
+        workflow_handle = AsyncMock()
+        workflow_handle.signal = AsyncMock()
+        return MultiTurnSession(
+            task=object(),  # type: ignore[arg-type]
+            task_run=FakeTaskRun(),  # type: ignore[arg-type]
+            _workflow_handle=workflow_handle,
+        )
+
+    @pytest.mark.asyncio
+    async def test_followup_reprompts_once_then_succeeds_on_non_json(self):
+        session = self._make_session()
+        poll_mock = AsyncMock(
+            side_effect=[
+                ("I cannot answer that in JSON, sorry.", None, 10, 5),
+                (json.dumps({"value": "recovered"}), None, 20, 10),
+            ]
+        )
+        with (
+            patch(
+                "products.tasks.backend.services.custom_prompt_multi_turn_runner.poll_for_turn",
+                new=poll_mock,
+            ),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=FakeTaskRun(status="running")),
+        ):
+            result = await session.send_followup("question", _Resp, label="unit")
+
+        assert result == _Resp(value="recovered")
+        # Two signals: original followup + the corrective re-prompt.
+        assert session._workflow_handle.signal.await_count == 2  # type: ignore[union-attr]
+        correction = session._workflow_handle.signal.await_args_list[1].args[1]  # type: ignore[union-attr]
+        assert _JSON_CORRECTION_PREAMBLE in correction
+
+    @pytest.mark.asyncio
+    async def test_followup_reprompts_once_then_succeeds_on_validation_error(self):
+        session = self._make_session()
+        poll_mock = AsyncMock(
+            side_effect=[
+                (json.dumps({"wrong_field": "x"}), None, 10, 5),
+                (json.dumps({"value": "fixed"}), None, 20, 10),
+            ]
+        )
+        with (
+            patch(
+                "products.tasks.backend.services.custom_prompt_multi_turn_runner.poll_for_turn",
+                new=poll_mock,
+            ),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=FakeTaskRun(status="running")),
+        ):
+            result = await session.send_followup("question", _Resp, label="unit")
+
+        assert result == _Resp(value="fixed")
+        assert session._workflow_handle.signal.await_count == 2  # type: ignore[union-attr]
+        # The pydantic case appends the validation error summary so the agent can fix the field.
+        correction = session._workflow_handle.signal.await_args_list[1].args[1]  # type: ignore[union-attr]
+        assert "Validation errors:" in correction
+
+    @pytest.mark.asyncio
+    async def test_followup_raises_when_correction_also_fails(self):
+        session = self._make_session()
+        poll_mock = AsyncMock(
+            side_effect=[
+                ("still prose", None, 10, 5),
+                ("still not JSON after the nudge", None, 20, 10),
+            ]
+        )
+        with (
+            patch(
+                "products.tasks.backend.services.custom_prompt_multi_turn_runner.poll_for_turn",
+                new=poll_mock,
+            ),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=FakeTaskRun(status="running")),
+        ):
+            with pytest.raises(AgentOutputNotJSONError):
+                await session.send_followup("question", _Resp, label="unit")
+
+        # Exactly one corrective re-prompt was attempted (original + one correction), no more.
+        assert session._workflow_handle.signal.await_count == 2  # type: ignore[union-attr]
+
+    @pytest.mark.asyncio
+    async def test_terminal_failed_run_short_circuits_without_reprompt(self):
+        session = self._make_session()
+        # The "agent message" is really a provider error string; the run is terminal-failed.
+        poll_mock = AsyncMock(side_effect=[("API Error: 429 rate_limit_error", None, 10, 5)])
+        failed_run = FakeTaskRun(status="failed", error_message="upstream_provider_failure: API Error: 429")
+        with (
+            patch(
+                "products.tasks.backend.services.custom_prompt_multi_turn_runner.poll_for_turn",
+                new=poll_mock,
+            ),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=failed_run),
+        ):
+            with pytest.raises(RuntimeError, match="429"):
+                await session.send_followup("question", _Resp, label="unit")
+
+        # Only the original followup was signalled — no wasted corrective re-prompt.
+        assert session._workflow_handle.signal.await_count == 1  # type: ignore[union-attr]
+
+
 @pytest.mark.django_db(transaction=True)
 class TestMultiTurnSessionStartBranch:
     """Regression: an earlier impl rewrote branch='master' to None as a sentinel for
@@ -1250,6 +1360,83 @@ class TestMultiTurnSessionStartCleanup:
             )
 
         # session.end() must have signalled the workflow exactly once on the cleanup path.
+        mock_handle.signal.assert_called_once()
+
+
+class TestMultiTurnSessionStartCorrection:
+    """The corrective re-prompt also applies to the initial turn (start()): a non-JSON
+    first reply is recovered via one follow-up. A terminal-failed initial run is surfaced
+    as the provider error and the start() teardown contract still ends the session."""
+
+    @staticmethod
+    def _mocks() -> tuple[MagicMock, MagicMock]:
+        mock_handle = MagicMock()
+        mock_handle.signal = AsyncMock()
+        mock_client = MagicMock(get_workflow_handle=MagicMock(return_value=mock_handle))
+        return mock_handle, mock_client
+
+    @pytest.mark.asyncio
+    async def test_initial_turn_reprompts_once_then_succeeds(self):
+        mock_handle, mock_client = self._mocks()
+        poll_mock = AsyncMock(
+            side_effect=[
+                ("prose, not JSON", None, 5, 3),
+                (json.dumps({"value": "ok"}), None, 10, 6),
+            ]
+        )
+        with (
+            patch(
+                "products.tasks.backend.services.custom_prompt_multi_turn_runner.create_task_and_trigger",
+                new=AsyncMock(return_value=(MagicMock(id="task-id"), MagicMock(id="run-id"))),
+            ),
+            patch(
+                "products.tasks.backend.services.custom_prompt_multi_turn_runner.async_connect",
+                new=AsyncMock(return_value=mock_client),
+            ),
+            patch(
+                "products.tasks.backend.services.custom_prompt_multi_turn_runner.poll_for_turn",
+                new=poll_mock,
+            ),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=FakeTaskRun(status="running")),
+        ):
+            _, parsed = await MultiTurnSession.start(
+                prompt="hello",
+                context=CustomPromptSandboxContext(team_id=1, user_id=2),
+                model=_Resp,
+            )
+
+        assert parsed == _Resp(value="ok")
+        # The corrective follow-up was signalled; the session was not torn down.
+        assert mock_handle.signal.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_initial_terminal_failed_run_surfaces_error_and_ends_session(self):
+        mock_handle, mock_client = self._mocks()
+        poll_mock = AsyncMock(side_effect=[("API Error: 429 rate_limit_error", None, 5, 3)])
+        failed_run = FakeTaskRun(status="failed", error_message="upstream_provider_failure: API Error: 429")
+        with (
+            patch(
+                "products.tasks.backend.services.custom_prompt_multi_turn_runner.create_task_and_trigger",
+                new=AsyncMock(return_value=(MagicMock(id="task-id"), MagicMock(id="run-id"))),
+            ),
+            patch(
+                "products.tasks.backend.services.custom_prompt_multi_turn_runner.async_connect",
+                new=AsyncMock(return_value=mock_client),
+            ),
+            patch(
+                "products.tasks.backend.services.custom_prompt_multi_turn_runner.poll_for_turn",
+                new=poll_mock,
+            ),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=failed_run),
+        ):
+            with pytest.raises(RuntimeError, match="429"):
+                await MultiTurnSession.start(
+                    prompt="hello",
+                    context=CustomPromptSandboxContext(team_id=1, user_id=2),
+                    model=_Resp,
+                )
+
+        # No corrective re-prompt; the start() teardown ended the session as failed.
         mock_handle.signal.assert_called_once()
 
 

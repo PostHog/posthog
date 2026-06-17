@@ -7,7 +7,8 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, TypeVar
 
-from pydantic import BaseModel
+from asgiref.sync import sync_to_async
+from pydantic import BaseModel, ValidationError
 
 from products.tasks.backend.models import Task, TaskRun
 
@@ -16,6 +17,7 @@ if TYPE_CHECKING:
 from posthog.temporal.common.client import async_connect
 
 from products.tasks.backend.services.custom_prompt_internals import (
+    AgentOutputNotJSONError,
     CustomPromptSandboxContext,
     EmptyAgentTurnError,
     OutputFn,
@@ -31,7 +33,21 @@ logger = logging.getLogger(__name__)
 # Kept short to avoid meaningfully changing the cached prefix.
 _EMPTY_TURN_RETRY_NUDGE = "\n\nPlease respond now with the JSON object matching the schema above."
 
+# Corrective follow-up sent once when the agent's reply isn't valid JSON for the expected schema.
+_JSON_CORRECTION_PREAMBLE = (
+    "Your previous reply was not valid JSON for the expected schema. "
+    "Respond with ONLY the JSON object — no prose, explanation, or code fences."
+)
+
 _ModelT = TypeVar("_ModelT", bound=BaseModel)
+
+
+def _correction_message(parse_error: Exception) -> str:
+    """Build the corrective follow-up, appending the validation error summary for the
+    pydantic case so the agent knows which fields were wrong."""
+    if isinstance(parse_error, ValidationError):
+        return f"{_JSON_CORRECTION_PREAMBLE}\n\nValidation errors:\n{parse_error}"
+    return _JSON_CORRECTION_PREAMBLE
 
 
 @dataclass
@@ -100,7 +116,7 @@ class MultiTurnSession:
             max_poll_seconds=max_poll_seconds,
         )
         try:
-            parsed = cls._parse_and_validate(last_message, model, label="initial turn")
+            parsed = await session._parse_with_correction(last_message, model, label="initial turn")
         except (Exception, asyncio.CancelledError) as e:
             # Salvage path: the agent produced text but it didn't parse/validate. Rather
             # than discarding the whole run, build the model from the raw text so the caller
@@ -227,8 +243,7 @@ class MultiTurnSession:
     ) -> _ModelT:
         """Send a follow-up message and wait for the agent's next structured response."""
         last_message = await self.send_followup_raw(message, label=label)
-        parsed = self._parse_and_validate(last_message, model, label=label or "followup")
-        return parsed
+        return await self._parse_with_correction(last_message, model, label=label or "followup")
 
     async def send_followup_raw(
         self,
@@ -303,6 +318,44 @@ class MultiTurnSession:
         """Extract JSON from agent text and validate against a Pydantic model."""
         json_data = extract_json_from_text(text=text, label=label)
         return model.model_validate(json_data)
+
+    async def _parse_with_correction(self, text: str, model: type[_ModelT], *, label: str) -> _ModelT:
+        """Parse + validate the agent reply, with one corrective re-prompt on failure.
+
+        When the reply isn't valid JSON for the schema (`AgentOutputNotJSONError`) or
+        fails validation (`ValidationError`), send exactly ONE corrective follow-up
+        asking for only the JSON object, then parse the new reply. If that also fails,
+        the exception propagates. The corrective reply is parsed via `_parse_and_validate`
+        (not this method), so a corrective turn never triggers another corrective turn.
+        """
+        try:
+            return self._parse_and_validate(text, model, label=label)
+        except (AgentOutputNotJSONError, ValidationError) as parse_error:
+            # A re-prompt against a terminal-failed run (e.g. provider 429) is wasted spend —
+            # the "agent message" we tried to parse is really the provider error. Surface it.
+            terminal_error = await self._terminal_failure_error()
+            if terminal_error is not None:
+                raise RuntimeError(terminal_error) from parse_error
+            logger.warning(
+                "multi_turn: corrective re-prompt run=%s label=%s error_class=%s",
+                self.task_run.id,
+                label,
+                type(parse_error).__name__,
+            )
+            corrected = await self.send_followup_raw(
+                _correction_message(parse_error), label=f"{label} (json-correction)"
+            )
+            return self._parse_and_validate(corrected, model, label=f"{label} (corrected)")
+
+    async def _terminal_failure_error(self) -> str | None:
+        """Return the run's error message if it reached terminal FAILED status, else None.
+
+        Used to short-circuit the corrective re-prompt: a run already failed upstream
+        (rate limit, provider error) won't produce valid JSON on a retry."""
+        refreshed = await sync_to_async(TaskRun.objects.get)(id=self.task_run.id)
+        if refreshed.status == TaskRun.Status.FAILED:
+            return refreshed.error_message or f"TaskRun {self.task_run.id} reached terminal status=failed"
+        return None
 
     async def end(self, *, status: str = "completed", error: str | None = None) -> None:
         """Signal the workflow to shut down, recording `status` as the terminal TaskRun state.

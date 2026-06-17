@@ -2,48 +2,52 @@ import pytest
 
 from parameterized import parameterized
 
-from products.tasks.backend.services.custom_prompt_internals import extract_json_from_text
+from products.tasks.backend.services.custom_prompt_internals import AgentOutputNotJSONError, extract_json_from_text
 
 EXPECTED = {"answer": "hello world"}
 JSON_STR = '{"answer": "hello world"}'
+NESTED_JSON_STR = '{"answer": {"nested": "hello world"}}'
+NESTED_EXPECTED = {"answer": {"nested": "hello world"}}
 
 
 class TestExtractJsonFromText:
     @parameterized.expand(
         [
-            ("bare_json", JSON_STR),
-            ("generic_code_block", f"```\n{JSON_STR}\n```"),
-            ("json_code_block", f"```json\n{JSON_STR}\n```"),
-            ("text_above_bare_json", f"Here is your answer:\n{JSON_STR}"),
-            ("text_above_generic_block", f"Here is your answer:\n```\n{JSON_STR}\n```"),
-            ("text_above_json_block", f"Here is your answer:\n```json\n{JSON_STR}\n```"),
-            ("text_above_and_below_bare_json", f"Here is your answer:\n{JSON_STR}\nHope that helps!"),
-            ("text_above_and_below_generic_block", f"Here is your answer:\n```\n{JSON_STR}\n```\nHope that helps!"),
-            ("text_above_and_below_json_block", f"Here is your answer:\n```json\n{JSON_STR}\n```\nHope that helps!"),
+            ("bare_json", JSON_STR, EXPECTED),
+            ("generic_code_block", f"```\n{JSON_STR}\n```", EXPECTED),
+            ("json_code_block", f"```json\n{JSON_STR}\n```", EXPECTED),
+            ("bare_object_in_prose", f"Here is your answer:\n{JSON_STR}\nHope that helps!", EXPECTED),
+            ("nested_braces", f"Sure:\n{NESTED_JSON_STR}", NESTED_EXPECTED),
         ]
     )
-    def test_extracts_json(self, _name, text):
-        assert extract_json_from_text(text, label="test") == EXPECTED
+    def test_extracts_json_unchanged(self, _name, text, expected):
+        assert extract_json_from_text(text, label="test") == expected
+
+    @parameterized.expand(
+        [
+            ("no_json_prose", "I could not complete the request, sorry."),
+            ("empty_string", ""),
+            ("provider_error_text", "API Error: 429 rate_limit_error"),
+        ]
+    )
+    def test_no_json_raises_typed_error(self, _name, text):
+        with pytest.raises(AgentOutputNotJSONError) as exc_info:
+            extract_json_from_text(text, label="repo-selection")
+        assert exc_info.value.label == "repo-selection"
+        # Snippet is bounded and carries the offending text (truncated to SNIPPET_CHARS).
+        assert exc_info.value.snippet == text[: AgentOutputNotJSONError.SNIPPET_CHARS]
+        # Subclasses ValueError so existing `except ValueError` callers still catch it.
+        assert isinstance(exc_info.value, ValueError)
+
+    def test_snippet_is_bounded(self):
+        long_text = "x" * 5000
+        with pytest.raises(AgentOutputNotJSONError) as exc_info:
+            extract_json_from_text(long_text, label="test")
+        assert len(exc_info.value.snippet) == AgentOutputNotJSONError.SNIPPET_CHARS
 
     def test_none_raises_value_error(self):
         with pytest.raises(ValueError, match="is None"):
             extract_json_from_text(None, label="test")
-
-    def test_invalid_json_raises(self):
-        with pytest.raises(Exception):
-            extract_json_from_text("not json at all", label="test")
-
-    @parameterized.expand(
-        [
-            ("empty_string", "", "empty or whitespace-only"),
-            ("whitespace_only", "   \n\t ", "empty or whitespace-only"),
-            ("prose_only", "I checked everything and found nothing worth surfacing.", "prose with no JSON object"),
-            ("fenced_invalid", "```json\nnot: valid json\n```", "code fence but its contents did not parse"),
-        ]
-    )
-    def test_classifies_unparseable_text(self, _name, text, expected_message):
-        with pytest.raises(ValueError, match=expected_message):
-            extract_json_from_text(text, label="initial turn")
 
     @parameterized.expand(
         [
