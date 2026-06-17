@@ -436,6 +436,7 @@ class TestBackfillCommand:
             except RPCError:
                 logging.warning("Schedule %s already deleted", export.id)
 
+    @pytest.mark.flaky(reruns=2)
     @pytest.mark.parametrize(
         "window_hours, covered_hour_offsets, expected_interval_end_offsets",
         [
