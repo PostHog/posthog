@@ -122,11 +122,13 @@ async def fetch_enabled_signals_scout_runs_activity(
     schedule is due — most-overdue first, capped at MAX_RUNS_PER_TICK.
     """
     async with Heartbeater():
-        # Read the flag payload off the DB thread pool — the SDK call can block on a cold
+        # Read the flag payload once, off the DB thread pool — the SDK call can block on a cold
         # cache, and database_sync_to_async's pool is sized for DB-bound work (mirrors the
-        # asyncio.to_thread split in ai_observability/team_discovery.py).
-        enrolled_team_ids = await asyncio.to_thread(_enrolled_team_ids)
-        team_configs = await asyncio.to_thread(_team_configs)
+        # asyncio.to_thread split in ai_observability/team_discovery.py). Enrollment and per-team
+        # configs are derived from the same snapshot so they can't disagree across two reads.
+        payload = await asyncio.to_thread(_read_flag_payload)
+        enrolled_team_ids = _enrolled_team_ids(payload)
+        team_configs = _team_configs(payload)
         planned = await database_sync_to_async(_collect_planned_runs, thread_sensitive=False)(
             enrolled_team_ids, team_configs
         )
@@ -177,6 +179,7 @@ def _collect_planned_runs(enrolled_team_ids: set[int], team_configs: dict[int, d
     the flag reads stay off this DB pool.
     """
     now = timezone.now()
+    team_configs = _canonicalize_team_config_keys(team_configs or {})
     due: list[_DueRun] = []
     for team in _participating_teams(enrolled_team_ids):
         # Sync canonical scouts so a freshly-enrolled team has skills to register on.
@@ -293,6 +296,28 @@ def _participating_teams(enrolled: set[int]) -> list[Team]:
     return list(Team.objects.filter(id__in=canonical_ids).order_by("id"))
 
 
+def _canonicalize_team_config_keys(team_configs: dict[int, dict]) -> dict[int, dict]:
+    """Remap child-env config keys to their parent project id so per-team overrides line up with
+    the canonical team ids planning uses — `_participating_teams` canonicalizes enrollment the
+    same way, so an operator listing a child env id in both `guaranteed_team_ids` and
+    `team_configs` keeps its override. If both a parent and one of its child envs are keyed, the
+    explicit parent-keyed config wins regardless of dict order."""
+    if not team_configs:
+        return team_configs
+    parent_of = {
+        team_id: (parent_id or team_id)
+        for team_id, parent_id in Team.objects.filter(id__in=team_configs.keys()).values_list("id", "parent_team_id")
+    }
+    canonical: dict[int, dict] = {}
+    for team_id, config in team_configs.items():
+        canonical_id = parent_of.get(team_id, team_id)
+        # A parent/standalone key (team_id == canonical_id) always wins; a child remap only
+        # fills in when no parent-keyed config is present for that project.
+        if team_id == canonical_id or canonical_id not in canonical:
+            canonical[canonical_id] = config
+    return canonical
+
+
 def _fallback_team_ids() -> list[int]:
     """Default allowlist when the flag payload is absent/unreadable — gated to PostHog Cloud
     and local dev. A self-hosted instance (where teams 1/2 exist but no one opted into scouts)
@@ -301,44 +326,55 @@ def _fallback_team_ids() -> list[int]:
     return list(DEFAULT_ENROLLED_TEAM_IDS) if (is_cloud() or settings.DEBUG) else []
 
 
-def _enrolled_team_ids() -> set[int]:
-    """Project ids enrolled in scouts, read from the `signals-scout` flag's JSON payload.
+def _read_flag_payload() -> dict | None:
+    """Read + parse the `signals-scout` flag's JSON payload once.
 
-    Flag-driven enrollment, no deploy: edit `guaranteed_team_ids` in the flag UI to enroll (or
-    drain) a team on the next tick; `skip_team_ids` is an override kill-switch. The flag must
-    stay 100%-on so the payload is served for the synthetic discovery distinct_id —
-    `match_value=True` additionally forces the true-variant payload under local evaluation.
-    Fail-safe: a missing/invalid payload or a read error falls back to `_fallback_team_ids`.
-    Mirrors `posthog/temporal/ai_observability/team_discovery.py`.
+    The flag must stay 100%-on so the payload is served for the synthetic discovery
+    distinct_id — `match_value=True` additionally forces the true-variant payload under local
+    evaluation. Returns the parsed dict, or `None` when the payload is absent / not an object /
+    unreadable. A read error never breaks dispatch: callers apply their own fallback to `None`.
+    Enrollment and per-team configs both derive from a single call to this so they always see
+    the same snapshot. Mirrors `posthog/temporal/ai_observability/team_discovery.py`.
     """
-    fallback = _fallback_team_ids()
     try:
         payload = posthoganalytics.get_feature_flag_payload(
             SIGNALS_SCOUT_DOGFOOD_FLAG, SIGNALS_SCOUT_DISCOVERY_DISTINCT_ID, match_value=True
         )
         if isinstance(payload, str):
             payload = json.loads(payload)
-        if not isinstance(payload, dict):
-            return set(fallback)
-
-        # Absent key or malformed value → fallback. An explicit empty list is honored as an
-        # intentional "drain all teams" — not coerced to the fallback.
-        guaranteed = payload.get("guaranteed_team_ids", fallback)
-        if not isinstance(guaranteed, list) or not all(isinstance(t, int) for t in guaranteed):
-            guaranteed = fallback
-
-        skip = payload.get("skip_team_ids", [])
-        if not isinstance(skip, list) or not all(isinstance(t, int) for t in skip):
-            skip = []
-
-        return set(guaranteed) - set(skip)
+        return payload if isinstance(payload, dict) else None
     except Exception as error:
         capture_exception(error)
+        return None
+
+
+def _enrolled_team_ids(payload: dict | None) -> set[int]:
+    """Project ids enrolled in scouts, parsed from the `signals-scout` flag payload.
+
+    Flag-driven enrollment, no deploy: edit `guaranteed_team_ids` in the flag UI to enroll (or
+    drain) a team on the next tick; `skip_team_ids` is an override kill-switch.
+    Fail-safe: a missing/invalid payload (`None`) or malformed value falls back to
+    `_fallback_team_ids`.
+    """
+    fallback = _fallback_team_ids()
+    if payload is None:
         return set(fallback)
 
+    # Absent key or malformed value → fallback. An explicit empty list is honored as an
+    # intentional "drain all teams" — not coerced to the fallback.
+    guaranteed = payload.get("guaranteed_team_ids", fallback)
+    if not isinstance(guaranteed, list) or not all(isinstance(t, int) for t in guaranteed):
+        guaranteed = fallback
 
-def _team_configs() -> dict[int, dict]:
-    """Optional per-team config overrides, read from the same `signals-scout` flag payload as
+    skip = payload.get("skip_team_ids", [])
+    if not isinstance(skip, list) or not all(isinstance(t, int) for t in skip):
+        skip = []
+
+    return set(guaranteed) - set(skip)
+
+
+def _team_configs(payload: dict | None) -> dict[int, dict]:
+    """Optional per-team config overrides, parsed from the same `signals-scout` flag payload as
     enrollment. Returns `{team_id: config_dict}`.
 
     Payload key `team_configs` is a `{team_id: {…}}` map — a forward-looking per-team override
@@ -347,37 +383,29 @@ def _team_configs() -> dict[int, dict]:
     deploy); add more per-team settings under the same blob later. The override takes precedence
     over the global default for its team; teams not listed keep the global default.
 
-    Absent/malformed → `{}` (everyone on the defaults). Defensive parse: JSON object keys arrive
-    as strings so they're coerced to int; entries whose value isn't a dict are dropped. Each
-    consumer validates the specific key it reads (see `_allocate_tick_budget._team_cap`). A read
-    error never breaks dispatch — it just falls back to the global defaults for all teams.
+    Absent/malformed (`None` payload included) → `{}` (everyone on the defaults). Defensive
+    parse: JSON object keys arrive as strings so they're coerced to int; entries whose value
+    isn't a dict are dropped. Each consumer validates the specific key it reads (see
+    `_allocate_tick_budget._team_cap`). Keys are canonicalized to parent projects at planning
+    time (see `_canonicalize_team_config_keys`).
     """
-    try:
-        payload = posthoganalytics.get_feature_flag_payload(
-            SIGNALS_SCOUT_DOGFOOD_FLAG, SIGNALS_SCOUT_DISCOVERY_DISTINCT_ID, match_value=True
-        )
-        if isinstance(payload, str):
-            payload = json.loads(payload)
-        if not isinstance(payload, dict):
-            return {}
-
-        raw = payload.get("team_configs", {})
-        if not isinstance(raw, dict):
-            return {}
-
-        configs: dict[int, dict] = {}
-        for key, value in raw.items():
-            if not isinstance(value, dict):
-                continue
-            try:
-                team_id = int(key)
-            except (TypeError, ValueError):
-                continue
-            configs[team_id] = value
-        return configs
-    except Exception as error:
-        capture_exception(error)
+    if payload is None:
         return {}
+
+    raw = payload.get("team_configs", {})
+    if not isinstance(raw, dict):
+        return {}
+
+    configs: dict[int, dict] = {}
+    for key, value in raw.items():
+        if not isinstance(value, dict):
+            continue
+        try:
+            team_id = int(key)
+        except (TypeError, ValueError):
+            continue
+        configs[team_id] = value
+    return configs
 
 
 def _overdue_seconds(config: SignalScoutConfig, now: datetime) -> float | None:

@@ -31,6 +31,7 @@ from products.signals.backend.temporal.agentic.scout_coordinator import (
     SignalsScoutCoordinatorWorkflow,
     StampDispatchedRunsInput,
     _enrolled_team_ids,
+    _read_flag_payload,
     _team_configs,
     fetch_enabled_signals_scout_runs_activity,
     stamp_dispatched_signals_scout_runs_activity,
@@ -155,7 +156,7 @@ def test_enrolled_team_ids_parses_payload(payload, expected):
     # is_cloud → True so the fallback resolves to DEFAULT_ENROLLED_TEAM_IDS (see the
     # off-cloud fail-closed case below).
     with patch(_PAYLOAD_PATH, return_value=payload), patch(_IS_CLOUD_PATH, return_value=True):
-        assert _enrolled_team_ids() == expected
+        assert _enrolled_team_ids(_read_flag_payload()) == expected
 
 
 @pytest.mark.flag_off
@@ -163,7 +164,7 @@ def test_enrolled_team_ids_uses_match_value_true():
     # The team list lives in the payload, not the release conditions — assert we request the
     # true-variant payload so a group-targeted/disabled flag can't starve discovery.
     with patch(_PAYLOAD_PATH, return_value={"guaranteed_team_ids": [9]}) as mock_payload:
-        _enrolled_team_ids()
+        _read_flag_payload()
     args, kwargs = mock_payload.call_args
     assert args[0] == "signals-scout"
     assert args[1] == SIGNALS_SCOUT_DISCOVERY_DISTINCT_ID
@@ -173,7 +174,7 @@ def test_enrolled_team_ids_uses_match_value_true():
 @pytest.mark.flag_off
 def test_enrolled_team_ids_falls_back_to_defaults_on_error():
     with patch(_PAYLOAD_PATH, side_effect=RuntimeError("flag service down")), patch(_IS_CLOUD_PATH, return_value=True):
-        assert _enrolled_team_ids() == set(DEFAULT_ENROLLED_TEAM_IDS)
+        assert _enrolled_team_ids(_read_flag_payload()) == set(DEFAULT_ENROLLED_TEAM_IDS)
 
 
 @pytest.mark.flag_off
@@ -183,9 +184,9 @@ def test_enrolled_team_ids_fails_closed_off_cloud():
     # never starts scout runs for an unintended tenant. An explicit payload is still honored.
     with patch(_IS_CLOUD_PATH, return_value=False):
         with patch(_PAYLOAD_PATH, return_value=None):
-            assert _enrolled_team_ids() == set()
+            assert _enrolled_team_ids(_read_flag_payload()) == set()
         with patch(_PAYLOAD_PATH, return_value={"guaranteed_team_ids": [5]}):
-            assert _enrolled_team_ids() == {5}
+            assert _enrolled_team_ids(_read_flag_payload()) == {5}
 
 
 @pytest.mark.asyncio
@@ -450,7 +451,14 @@ async def test_global_cap_is_split_fairly_across_teams(ateam, aother_team):
 @pytest.mark.flag_off
 def test_team_configs_parses_payload(payload, expected):
     with patch(_PAYLOAD_PATH, return_value=payload):
-        assert _team_configs() == expected
+        assert _team_configs(_read_flag_payload()) == expected
+
+
+@pytest.mark.flag_off
+def test_team_configs_falls_back_to_empty_on_error():
+    # A read error never breaks dispatch — every team falls back to the global default cap.
+    with patch(_PAYLOAD_PATH, side_effect=RuntimeError("flag service down")):
+        assert _team_configs(_read_flag_payload()) == {}
 
 
 @pytest.mark.asyncio
@@ -500,6 +508,40 @@ async def test_team_without_config_override_keeps_global_default(ateam):
         planned = await _run_activity()
 
     assert sorted(p.skill_name for p in planned) == ["signals-scout-mid", "signals-scout-most"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_per_team_config_override_keyed_by_child_env_applies_to_parent(ateam, aorganization):
+    # An operator enrolls a child environment id (the same id they'd list in guaranteed_team_ids).
+    # Planning canonicalizes that child to its parent project, so a team_configs override keyed by
+    # the child id must be canonicalized the same way to land on the parent. Cap at 1/tick via the
+    # child-keyed override and assert only the most-overdue scout dispatches.
+    child = await sync_to_async(Team.objects.create)(
+        organization=aorganization,
+        name=f"SignalsCoordinatorChildEnv-{random.randint(1, 99999)}",
+        parent_team=ateam,
+    )
+
+    now = timezone.now()
+    for name, hours in [("signals-scout-most", 10), ("signals-scout-mid", 5), ("signals-scout-least", 2)]:
+        await database_sync_to_async(_create_skill)(ateam, name)
+        await database_sync_to_async(_create_config)(
+            ateam, name, enabled=True, run_interval_minutes=60, last_run_at=now - timedelta(hours=hours)
+        )
+
+    def _payload(*_a, **_k):
+        return {
+            "guaranteed_team_ids": [child.id],
+            "team_configs": {str(child.id): {"max_runs_per_tick": 1}},
+        }
+
+    with patch(_PAYLOAD_PATH, side_effect=_payload):
+        planned = await _run_activity()
+
+    assert [p.skill_name for p in planned] == ["signals-scout-most"]
+
+    await sync_to_async(child.delete)()
 
 
 @pytest.mark.asyncio
