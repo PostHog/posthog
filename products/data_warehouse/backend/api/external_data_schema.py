@@ -4,7 +4,7 @@ from typing import Any, Optional
 
 import structlog
 import temporalio
-from drf_spectacular.utils import extend_schema_field
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
@@ -644,10 +644,16 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                         pause_external_data_schedule(str(updated_instance.id))
                     elif should_sync is True:
                         unpause_external_data_schedule(str(updated_instance.id))
-                elif should_sync is True:
+                elif should_sync_value:
+                    # No schedule yet but the schema should be syncing — create (or recover) it. The
+                    # schedule is built from the current frequency, so a cadence-only edit on an
+                    # enabled-but-unscheduled schema still takes effect.
                     sync_external_data_job_workflow(updated_instance, create=True, should_sync=should_sync_value)
 
-                if was_sync_frequency_updated or was_sync_time_of_day_updated:
+                # Re-issue an existing schedule when the cadence changed. A disabled schema with no
+                # schedule has nothing to update — updating a missing schedule raises "workflow not
+                # found" — so its new cadence is just saved and applies if/when it is enabled.
+                if (was_sync_frequency_updated or was_sync_time_of_day_updated) and schedule_exists:
                     sync_external_data_job_workflow(updated_instance, create=False, should_sync=should_sync_value)
 
             self._run_temporal_side_effect(update_schedule)
@@ -824,6 +830,7 @@ class SimpleExternalDataSchemaSerializer(serializers.ModelSerializer):
         fields = ["id", "name", "label", "should_sync", "last_synced_at", "sync_type"]
 
 
+@extend_schema(extensions={"x-product": "warehouse_sources"})
 class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "external_data_source"
     scope_object_write_actions = [
