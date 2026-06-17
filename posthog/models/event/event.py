@@ -11,7 +11,7 @@ from dateutil.relativedelta import relativedelta
 
 from posthog.models.team import Team
 
-SELECTOR_ATTRIBUTE_REGEX = r"([a-zA-Z]*)\[(.*)=[\'|\"](.*)[\'|\"]\]"
+SELECTOR_ATTRIBUTE_REGEX = r"([a-zA-Z0-9\-]*)\[(.*)=[\'|\"](.*)[\'|\"]\]"
 
 
 LAST_UPDATED_TEAM_ACTION: dict[int, datetime.datetime] = {}
@@ -46,12 +46,15 @@ class SelectorPart:
             tag = parts[0]
         if "." in tag:
             # Regex pattern that matches dots that are NOT inside square brackets
-            # Uses negative lookahead to ensure the dot is not followed by content ending with ]
-            # without an opening [ in between
-            # Handles Tailwind arbitrary values with square brackets properly.
-            # Example: 'div.shadow-[0_4px_6px_rgba(0,0,0,0.1)].text-blue-500'
-            # Returns: ['div', 'shadow-[0_4px_6px_rgba(0,0,0,0.1)]', 'text-blue-500']
-            pattern = r"\.(?![^\[]*\])"
+            # and are NOT backslash-escaped (a "\." is a literal dot in the class name).
+            # Negative lookbehind ensures escaped dots (e.g. Tailwind's '.py-2\.5') stay
+            # within a single class instead of being treated as a class separator.
+            # Negative lookahead ensures the dot is not followed by content ending with ]
+            # without an opening [ in between, so Tailwind arbitrary values with square
+            # brackets are handled properly.
+            # Example: 'div.shadow-[0_4px_6px_rgba(0,0,0,0.1)].py-2\.5'
+            # Returns: ['div', 'shadow-[0_4px_6px_rgba(0,0,0,0.1)]', 'py-2\.5']
+            pattern = r"(?<!\\)\.(?![^\[]*\])"
             parts = re.split(pattern, tag)
             # Strip all slashes that are not followed by another slash
             self.data["attr_class__contains"] = [self._unescape_class(p) if escape_slashes else p for p in parts[1:]]

@@ -803,3 +803,42 @@ class TestSelectors(BaseTest):
         # Make sure we strip these for full text search to work in the database
         selector1 = Selector("div#root\\:id")
         self.assertEqual(selector1.parts[0].data, {"tag_name": "div", "attr_id": "root:id"})
+
+    def test_class_with_escaped_dot(self):
+        # Tailwind classes such as `py-2.5` are escaped as `py-2\.5` in CSS selectors.
+        # The backslash-escaped dot is a literal part of the class name, not a separator.
+        selector1 = Selector("div.py-2\\.5.text-blue-500")
+
+        self.assertEqual(
+            selector1.parts[0].data,
+            {"tag_name": "div", "attr_class__contains": ["py-2.5", "text-blue-500"]},
+        )
+        self.assertEqual(selector1.parts[0].direct_descendant, False)
+        self.assertEqual(selector1.parts[0].unique_order, 0)
+
+    def test_tag_with_digits_and_attribute(self):
+        # Tags containing digits (e.g. `h1`) must be preserved alongside an attribute selector.
+        selector1 = Selector('h1[data-id="5"] > span')
+
+        self.assertEqual(selector1.parts[0].data, {"tag_name": "span"})
+        self.assertEqual(selector1.parts[0].direct_descendant, False)
+        self.assertEqual(selector1.parts[0].unique_order, 0)
+
+        self.assertEqual(
+            selector1.parts[1].data,
+            {"tag_name": "h1", "attributes__attr__data-id": "5"},
+        )
+        self.assertEqual(selector1.parts[1].direct_descendant, True)
+        self.assertEqual(selector1.parts[1].unique_order, 0)
+
+    def test_tag_with_hyphen_and_attribute(self):
+        # Custom-element tags containing hyphens (e.g. `my-component`) must be preserved
+        # alongside an attribute selector.
+        selector1 = Selector('my-component[data-id="5"]')
+
+        self.assertEqual(
+            selector1.parts[0].data,
+            {"tag_name": "my-component", "attributes__attr__data-id": "5"},
+        )
+        self.assertEqual(selector1.parts[0].direct_descendant, False)
+        self.assertEqual(selector1.parts[0].unique_order, 0)
