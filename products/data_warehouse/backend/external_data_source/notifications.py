@@ -85,8 +85,26 @@ def notify_external_data_sync_failures(team_id: int) -> None:
             for schema in group
         ]
 
+        listed_schemas = ordered_schemas[:MAX_SCHEMAS_PER_DIGEST_EMAIL]
+
+        # The Syncs screen surfaces the failing job's error (ExternalDataJob.latest_error),
+        # but schema.latest_error is frequently null even when the job recorded a real
+        # failure — e.g. a non-retryable error with no friendly message never gets mirrored
+        # onto the schema. Reading only the schema field left the digest showing
+        # "Unknown error" while the UI showed the actual error. Pull the latest failed job's
+        # error per schema so the email matches what the user sees in-app.
+        latest_job_errors = dict(
+            ExternalDataJob.objects.filter(
+                schema_id__in=[schema.id for schema in listed_schemas],
+                status=ExternalDataJob.Status.FAILED,
+            )
+            .order_by("schema_id", "-created_at")
+            .distinct("schema_id")
+            .values_list("schema_id", "latest_error")
+        )
+
         items = []
-        for schema in ordered_schemas[:MAX_SCHEMAS_PER_DIGEST_EMAIL]:
+        for schema in listed_schemas:
             source_url = (
                 f"{settings.SITE_URL}/project/{team_id}/data-management/sources/managed-{schema.source_id}/syncs"
             )
@@ -99,7 +117,7 @@ def notify_external_data_sync_failures(team_id: int) -> None:
                     "source_url": source_url,
                     # The template truncates for display (truncatechars), and the rendered
                     # HTML is what crosses the Celery boundary — no need to cap here.
-                    "error": schema.latest_error or "Unknown error",
+                    "error": latest_job_errors.get(schema.id) or schema.latest_error or "Unknown error",
                     "paused": not schema.should_sync,
                     "url": f"{source_url}?schema={quote(schema.name)}",
                 }

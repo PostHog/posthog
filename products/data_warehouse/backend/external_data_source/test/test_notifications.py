@@ -36,6 +36,26 @@ def _create_team_and_source() -> tuple[Team, ExternalDataSource]:
     return team, source
 
 
+def _create_failed_job(
+    team: Team,
+    source: ExternalDataSource,
+    schema: ExternalDataSchema,
+    latest_error: str,
+    created_at: dt.datetime | None = None,
+) -> ExternalDataJob:
+    job = ExternalDataJob.objects.create(
+        team=team,
+        pipeline=source,
+        schema=schema,
+        status=ExternalDataJob.Status.FAILED,
+        latest_error=latest_error,
+    )
+    if created_at is not None:
+        # created_at is auto_now_add; .update() bypasses it so ordering is deterministic.
+        ExternalDataJob.objects.filter(id=job.id).update(created_at=created_at)
+    return job
+
+
 class TestNotifyExternalDataSyncFailures:
     def test_sends_digest_with_failing_schemas_classified(self):
         team, source = _create_team_and_source()
@@ -112,6 +132,43 @@ class TestNotifyExternalDataSyncFailures:
 
         (_, items) = mock_sender.call_args.args
         assert items[0]["error"] == "Unknown error"
+
+    def test_falls_back_to_latest_failed_job_error_when_schema_error_missing(self):
+        team, source = _create_team_and_source()
+        schema = ExternalDataSchema.objects.create(
+            name="Companies",
+            team=team,
+            source=source,
+            status=ExternalDataSchema.Status.FAILED,
+            should_sync=False,
+            latest_error=None,
+        )
+        _create_failed_job(team, source, schema, "missing or invalid refresh token")
+
+        with patch(SENDER_PATH) as mock_sender:
+            notify_external_data_sync_failures(team.pk)
+
+        (_, items) = mock_sender.call_args.args
+        assert items[0]["error"] == "missing or invalid refresh token"
+
+    def test_uses_most_recent_failed_job_error(self):
+        team, source = _create_team_and_source()
+        schema = ExternalDataSchema.objects.create(
+            name="Companies",
+            team=team,
+            source=source,
+            status=ExternalDataSchema.Status.FAILED,
+            latest_error=None,
+        )
+        now = dt.datetime.now(dt.UTC)
+        _create_failed_job(team, source, schema, "older error", created_at=now - dt.timedelta(hours=2))
+        _create_failed_job(team, source, schema, "newest error", created_at=now - dt.timedelta(minutes=5))
+
+        with patch(SENDER_PATH) as mock_sender:
+            notify_external_data_sync_failures(team.pk)
+
+        (_, items) = mock_sender.call_args.args
+        assert items[0]["error"] == "newest error"
 
     def test_swallows_sender_exceptions(self):
         team, source = _create_team_and_source()
