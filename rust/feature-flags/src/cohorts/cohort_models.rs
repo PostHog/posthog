@@ -114,12 +114,16 @@ pub struct CohortValues {
 /// property filter. Mirrors `FilterOrGroup` in posthog/api/cohort.py — the cohort UI
 /// always wraps filters in an inner group, but the API contract allows filters
 /// directly in a group and arbitrarily deep nesting, so evaluation must accept both.
-/// Untagged is unambiguous: groups have `values` and no `key`, filters require `key`.
+///
+/// `Filter` is listed first because `#[serde(untagged)]` tries variants in order:
+/// `PropertyFilter` requires `key`, so a group (no `key`) falls through to `Group`,
+/// while an ambiguous object carrying both `key` and `values` is kept as the filter
+/// it most likely is rather than silently dropping its `key`/`value`/`operator`.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum CohortValuesItem {
-    Group(CohortValues),
     Filter(PropertyFilter),
+    Group(CohortValues),
 }
 
 #[cfg(test)]

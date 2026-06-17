@@ -17,6 +17,11 @@ use crate::{api::errors::FlagError, properties::property_models::PropertyFilter}
 use common_database::PostgresReader;
 use common_types::TeamId;
 
+/// Maximum cohort filter group nesting depth walked during evaluation and dependency
+/// extraction. The cohort UI tops out at 3-4 levels; this generous bound guards the hot
+/// `/flags` path against stack overflow from an adversarially deep filter tree.
+const MAX_COHORT_FILTER_DEPTH: usize = 64;
+
 /// Column list for `posthog_cohort` queries. Must match the fields in `Cohort` (sqlx::FromRow).
 const COHORT_COLUMNS: &str = r#"
     c.id, c.name, c.description, c.team_id, c.deleted, c.filters,
@@ -177,7 +182,7 @@ impl Cohort {
         dependencies: &mut HashSet<CohortId>,
     ) -> Result<(), FlagError> {
         for item in &inner.values {
-            Self::traverse_item(item, dependencies)?;
+            Self::traverse_item(item, dependencies, 0)?;
         }
         Ok(())
     }
@@ -186,11 +191,15 @@ impl Cohort {
     fn traverse_item(
         item: &CohortValuesItem,
         dependencies: &mut HashSet<CohortId>,
+        depth: usize,
     ) -> Result<(), FlagError> {
+        if depth > MAX_COHORT_FILTER_DEPTH {
+            return Err(FlagError::CohortFiltersParsingError);
+        }
         match item {
             CohortValuesItem::Group(group) => {
                 for nested in &group.values {
-                    Self::traverse_item(nested, dependencies)?;
+                    Self::traverse_item(nested, dependencies, depth + 1)?;
                 }
             }
             CohortValuesItem::Filter(filter) => {
@@ -262,7 +271,7 @@ impl InnerCohortProperty {
         match self.prop_type {
             CohortPropertyType::OR => {
                 for item in &self.values {
-                    if evaluate_cohort_item(item, target_properties, cohort_matches)? {
+                    if evaluate_cohort_item(item, target_properties, cohort_matches, 0)? {
                         return Ok(true);
                     }
                 }
@@ -270,7 +279,7 @@ impl InnerCohortProperty {
             }
             CohortPropertyType::AND => {
                 for item in &self.values {
-                    if !evaluate_cohort_item(item, target_properties, cohort_matches)? {
+                    if !evaluate_cohort_item(item, target_properties, cohort_matches, 0)? {
                         return Ok(false);
                     }
                 }
@@ -285,10 +294,14 @@ fn evaluate_cohort_item(
     item: &CohortValuesItem,
     target_properties: &HashMap<String, Value>,
     cohort_matches: &HashMap<CohortId, bool>,
+    depth: usize,
 ) -> Result<bool, FlagError> {
+    if depth > MAX_COHORT_FILTER_DEPTH {
+        return Err(FlagError::CohortFiltersParsingError);
+    }
     match item {
         CohortValuesItem::Group(group) => {
-            evaluate_cohort_values(group, target_properties, cohort_matches)
+            evaluate_cohort_values(group, target_properties, cohort_matches, depth)
         }
         CohortValuesItem::Filter(filter) => {
             evaluate_cohort_filter(filter, target_properties, cohort_matches)
@@ -321,11 +334,12 @@ fn evaluate_cohort_values(
     values: &CohortValues,
     target_properties: &HashMap<String, Value>,
     cohort_matches: &HashMap<CohortId, bool>,
+    depth: usize,
 ) -> Result<bool, FlagError> {
     match values.prop_type.as_str() {
         "OR" => {
             for item in &values.values {
-                if evaluate_cohort_item(item, target_properties, cohort_matches)? {
+                if evaluate_cohort_item(item, target_properties, cohort_matches, depth + 1)? {
                     return Ok(true);
                 }
             }
@@ -333,7 +347,7 @@ fn evaluate_cohort_values(
         }
         "AND" | "property" => {
             for item in &values.values {
-                if !evaluate_cohort_item(item, target_properties, cohort_matches)? {
+                if !evaluate_cohort_item(item, target_properties, cohort_matches, depth + 1)? {
                     return Ok(false);
                 }
             }
@@ -1161,5 +1175,109 @@ mod tests {
                 "email={email} should evaluate to {expected}"
             );
         }
+    }
+
+    /// Wraps `leaf` in `levels` nested AND groups: {type: AND, values: [{type: AND, values: [... leaf]}]}.
+    fn nest_in_groups(leaf: serde_json::Value, levels: usize) -> serde_json::Value {
+        let mut current = leaf;
+        for _ in 0..levels {
+            current = json!({"type": "AND", "values": [current]});
+        }
+        current
+    }
+
+    #[test]
+    fn test_deeply_nested_cohort_filters_error_instead_of_overflowing() {
+        // A filter tree deeper than MAX_COHORT_FILTER_DEPTH must fail with a parsing
+        // error rather than recursing until the worker thread's stack overflows.
+        let leaf = json!({"key": "email", "type": "person", "value": "@posthog.com", "operator": "icontains"});
+        let deep_properties = nest_in_groups(leaf, MAX_COHORT_FILTER_DEPTH + 10);
+        let cohort =
+            create_dynamic_cohort_with_filters(1, json!({ "properties": deep_properties }));
+
+        // Dependency extraction bails out with the parsing error.
+        assert!(matches!(
+            cohort.extract_dependencies(),
+            Err(FlagError::CohortFiltersParsingError)
+        ));
+
+        // Evaluation surfaces the same error instead of overflowing the stack.
+        let cohorts = vec![cohort];
+        let target_properties = HashMap::from([("email".to_string(), json!("a@posthog.com"))]);
+        assert!(matches!(
+            evaluate_dynamic_cohorts(1, &target_properties, &cohorts, &HashMap::new()),
+            Err(FlagError::CohortFiltersParsingError)
+        ));
+    }
+
+    #[test]
+    fn test_evaluate_dynamic_cohorts_with_legacy_property_group_type() {
+        // The cohort UI emits "property" as the inner group type — a legacy alias that
+        // must behave like "AND".
+        let cohort = create_dynamic_cohort_with_filters(
+            1,
+            json!({
+                "properties": {
+                    "type": "OR",
+                    "values": [{
+                        "type": "property",
+                        "values": [
+                            {"key": "email", "type": "person", "value": "@posthog.com", "operator": "icontains"},
+                            {"key": "plan", "type": "person", "value": "pro", "operator": "exact"}
+                        ]
+                    }]
+                }
+            }),
+        );
+
+        let cohorts = vec![cohort];
+        let static_cohort_matches = HashMap::new();
+
+        let test_cases = [
+            (json!("a@posthog.com"), json!("pro"), true), // both match -> AND true
+            (json!("a@posthog.com"), json!("free"), false), // plan fails -> AND false
+            (json!("a@other.com"), json!("pro"), false),  // email fails -> AND false
+        ];
+
+        for (email, plan, expected) in test_cases {
+            let target_properties = HashMap::from([
+                ("email".to_string(), email.clone()),
+                ("plan".to_string(), plan.clone()),
+            ]);
+            let result =
+                evaluate_dynamic_cohorts(1, &target_properties, &cohorts, &static_cohort_matches)
+                    .unwrap();
+            assert_eq!(
+                result, expected,
+                "email={email}, plan={plan} should evaluate to {expected}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_evaluate_dynamic_cohorts_with_unknown_group_type_errors() {
+        // An unrecognized group type must fail loudly rather than silently matching or
+        // not matching.
+        let cohort = create_dynamic_cohort_with_filters(
+            1,
+            json!({
+                "properties": {
+                    "type": "OR",
+                    "values": [{
+                        "type": "XOR",
+                        "values": [
+                            {"key": "email", "type": "person", "value": "@posthog.com", "operator": "icontains"}
+                        ]
+                    }]
+                }
+            }),
+        );
+
+        let cohorts = vec![cohort];
+        let target_properties = HashMap::from([("email".to_string(), json!("a@posthog.com"))]);
+        assert!(matches!(
+            evaluate_dynamic_cohorts(1, &target_properties, &cohorts, &HashMap::new()),
+            Err(FlagError::CohortFiltersParsingError)
+        ));
     }
 }
