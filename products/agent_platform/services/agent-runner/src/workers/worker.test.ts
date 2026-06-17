@@ -34,7 +34,6 @@ import {
 import { reset } from '@posthog/agent-shared/testing'
 
 const KAFKA_HOSTS = process.env.KAFKA_HOSTS ?? 'localhost:9092'
-import { setPosthogInternalClient } from '@posthog/agent-tools'
 
 import type { McpTransportFactory } from '../loop/mcp-clients'
 import { Worker, type WorkerDeps } from './worker'
@@ -89,14 +88,6 @@ describe('Worker', () => {
         const built = buildTestBundleStore(bundlePrefix)
         bundleClient = built.client
         bundleStore = built.store
-        setPosthogInternalClient({
-            async runHogql() {
-                return { rows: [], columns: [] }
-            },
-            async searchPersons() {
-                return { persons: [] }
-            },
-        })
     })
 
     afterEach(async () => {

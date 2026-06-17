@@ -55,6 +55,7 @@ import {
     EncryptedEnvSecretResolver,
     EncryptedFields,
     HttpClient,
+    type HttpFetcher,
     S3MemoryStore,
     SecretBroker,
     SecretResolver,
@@ -62,7 +63,6 @@ import {
     wipeTestPrefix as wipeMemoryTestPrefix,
 } from '@posthog/agent-shared'
 import { reset } from '@posthog/agent-shared/testing'
-import { setPosthogInternalClient } from '@posthog/agent-tools'
 
 import { buildFauxModel, ScriptedTurn } from './faux'
 
@@ -73,6 +73,35 @@ const TEST_DB_URL =
 const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379'
 
 const KAFKA_HOSTS = process.env.KAFKA_HOSTS ?? 'localhost:9092'
+
+/**
+ * Wrap an `HttpFetcher` so `POST /api/projects/{team}/query/` returns an
+ * in-process echo of the submitted HogQL string (`results: [[query]]`,
+ * `columns: ['query']`) — which `@posthog/query` maps into a single
+ * `{ query }` row. Mirrors the old in-process echo client so query cases run
+ * without a live Django; every other request passes straight through.
+ */
+function buildQueryEchoHttp(inner: HttpFetcher): HttpFetcher {
+    return {
+        async fetch(input, init) {
+            const url = String(input)
+            if (init?.method === 'POST' && /\/api\/projects\/\d+\/query\/?$/.test(url)) {
+                let query = ''
+                try {
+                    const body = init.body ? JSON.parse(String(init.body)) : {}
+                    query = body?.query?.query ?? ''
+                } catch {
+                    query = ''
+                }
+                return new Response(JSON.stringify({ results: [[query]], columns: ['query'] }), {
+                    status: 200,
+                    headers: { 'content-type': 'application/json' },
+                })
+            }
+            return inner.fetch(input, init)
+        },
+    }
+}
 
 /**
  * Test-side `LogSink`-shaped collector backed by `KafkaLogSink`. The real
@@ -368,15 +397,13 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
     // real-inference + dedicated tests).
     const resolveModelForHarness = (): typeof model => model
 
-    // For native @posthog/query etc. tests use the in-process echo client.
-    setPosthogInternalClient({
-        async runHogql({ query }) {
-            return { rows: [{ query }], columns: ['query'] }
-        },
-        async searchPersons() {
-            return { persons: [] }
-        },
-    })
+    // `@posthog/query` runs as the connected user against the Django
+    // `/query/` endpoint via `ctx.http` (see `_posthog-api.ts`). The harness
+    // has no live Django, so wrap the worker's http with an in-process echo
+    // that returns the submitted HogQL string back as a single `query` column
+    // — the same shape the old in-process client produced, so query cases keep
+    // passing without a real PostHog. Non-query requests fall through.
+    const harnessHttp = buildQueryEchoHttp(opts.http ?? new HttpClient())
 
     const worker = new Worker({
         queue,
@@ -407,8 +434,9 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         // outbound HTTP hit real localhost servers (matches the wider harness
         // stance of real-everywhere except the model layer). Tests that
         // want to assert on outbound headers / short-circuit the network
-        // override via `BuildClusterOpts.http`.
-        http: opts.http ?? new HttpClient(),
+        // override via `BuildClusterOpts.http`. Wrapped to echo `/query/`
+        // (see `buildQueryEchoHttp`).
+        http: harnessHttp,
         posthogApiBaseUrl: 'http://localhost:8010',
     })
 

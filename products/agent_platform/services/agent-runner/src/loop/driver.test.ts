@@ -33,7 +33,6 @@ import {
 import { reset } from '@posthog/agent-shared/testing'
 
 const KAFKA_HOSTS = process.env.KAFKA_HOSTS ?? 'localhost:9092'
-import { setPosthogInternalClient } from '@posthog/agent-tools'
 
 import { buildApprovalDecidedMarker } from './approval-marker'
 import { runSession } from './driver'
@@ -185,16 +184,11 @@ async function run(
 }
 
 describe('driver runSession', () => {
-    beforeEach(() => {
-        setPosthogInternalClient({
-            async runHogql() {
-                return { rows: [{ a: 1 }], columns: ['a'] }
-            },
-            async searchPersons() {
-                return { persons: [] }
-            },
-        })
-    })
+    // These tests use `@posthog/query` purely as a generic native tool. The
+    // sessions carry no `posthog` principal, so the tool fails closed
+    // (`posthog_user_context_required`) before any HTTP call — the loop renders
+    // that as a tool result, which is all the dispatch assertions below need.
+    // The approval-gating tests assert it never even reaches dispatch.
 
     describe('approval gating is fail-closed', () => {
         it('refuses to run without an approval store wired', async () => {
@@ -312,17 +306,13 @@ describe('driver runSession', () => {
             } as unknown as ApprovalStore
         }
 
+        // A dispatched `@posthog/query` always lands a toolResult in the
+        // conversation (a success result, or — with no posthog principal — an
+        // error result). Its ABSENCE proves the gated tool never ran.
+        const ranQuery = (s: AgentSession | null): boolean =>
+            (s?.conversation ?? []).some((m) => (m as { toolName?: string }).toolName === '@posthog/query')
+
         it('drops a marker whose approval row belongs to another session (no hijack)', async () => {
-            let hogqlCalls = 0
-            setPosthogInternalClient({
-                async runHogql() {
-                    hogqlCalls++
-                    return { rows: [], columns: [] }
-                },
-                async searchPersons() {
-                    return { persons: [] }
-                },
-            })
             const session = makeSession({
                 pending_inputs: [{ role: 'user', content: buildApprovalDecidedMarker('req1'), timestamp: Date.now() }],
             })
@@ -335,26 +325,16 @@ describe('driver runSession', () => {
                 }
             )
             expect(out.state).toBe('completed')
-            // The cross-session approved tool must NOT have run.
-            expect(hogqlCalls).toBe(0)
             // Marker consumed (dropped), not left dangling — verified
             // against PG since the runner no longer mutates the
             // in-memory session.pending_inputs.
             const refreshed = await new PgSessionQueue(pool).get(session.id)
             expect(refreshed?.pending_inputs).toHaveLength(0)
+            // The cross-session approved tool must NOT have run.
+            expect(ranQuery(refreshed)).toBe(false)
         })
 
         it('drops a marker whose row is not in the approving state', async () => {
-            let hogqlCalls = 0
-            setPosthogInternalClient({
-                async runHogql() {
-                    hogqlCalls++
-                    return { rows: [], columns: [] }
-                },
-                async searchPersons() {
-                    return { persons: [] }
-                },
-            })
             const session = makeSession({
                 pending_inputs: [{ role: 'user', content: buildApprovalDecidedMarker('req1'), timestamp: Date.now() }],
             })
@@ -367,9 +347,9 @@ describe('driver runSession', () => {
                 }
             )
             expect(out.state).toBe('completed')
-            expect(hogqlCalls).toBe(0)
             const refreshed = await new PgSessionQueue(pool).get(session.id)
             expect(refreshed?.pending_inputs).toHaveLength(0)
+            expect(ranQuery(refreshed)).toBe(false)
         })
     })
 

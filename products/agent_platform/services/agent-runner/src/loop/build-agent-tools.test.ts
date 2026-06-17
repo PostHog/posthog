@@ -6,16 +6,18 @@ import {
     AgentSession,
     AgentSpecSchema,
     buildTestBundleStore,
+    type CredentialBroker,
     EMPTY_USAGE_TOTAL,
+    type HttpFetcher,
     HttpClient,
     InProcessSandboxPool,
     McpRef,
+    MemoryCredentialBroker,
     newTestPrefix,
     S3BundleStore,
     ToolRefSchema,
     wipeTestPrefix,
 } from '@posthog/agent-shared'
-import { setPosthogInternalClient } from '@posthog/agent-tools'
 
 import { AgentToolDeps, buildAgentTools } from './build-agent-tools'
 import type { OpenedMcp, RemoteMcpTool } from './mcp-clients'
@@ -161,6 +163,30 @@ function byId(
     return tool
 }
 
+/**
+ * `@posthog/query` (like every `@posthog/*` data tool) runs AS the connected
+ * user through the credential broker. makeSession's principal is `posthog`
+ * (team 1), so these tools just need a `posthog_api` bearer — mirroring what
+ * the ingress verifier writes for a `posthog`-auth session — plus an HTTP
+ * endpoint to hit.
+ */
+function posthogBroker(): CredentialBroker {
+    const broker = new MemoryCredentialBroker()
+    void broker.write('s1', { posthog_api: { kind: 'posthog_bearer', token: 'tok' } })
+    return broker
+}
+
+/** Echoes a HogQL `/query/` response so query tests don't need a live Django. */
+function queryEchoHttp(): HttpFetcher {
+    return {
+        fetch: async () =>
+            new Response(JSON.stringify({ results: [[1]], columns: ['a'] }), {
+                status: 200,
+                headers: { 'content-type': 'application/json' },
+            }),
+    }
+}
+
 describe('buildAgentTools', () => {
     it('always includes the two meta control-flow tools; load-skill only with skills', async () => {
         const noSkills = await buildAgentTools(makeRev([]), makeDeps(makeRev([])))
@@ -204,32 +230,24 @@ describe('buildAgentTools', () => {
     })
 
     it('native tool execute calls native.run and returns JSON content + raw output detail', async () => {
-        setPosthogInternalClient({
-            async runHogql() {
-                return { rows: [{ a: 1 }], columns: ['a'] }
-            },
-            async searchPersons() {
-                return { persons: [] }
-            },
-        })
         const rev = makeRev([{ kind: 'native', id: '@posthog/query' }])
-        const built = await buildAgentTools(rev, makeDeps(rev))
+        const built = await buildAgentTools(
+            rev,
+            makeDeps(rev, { credentialBroker: posthogBroker(), http: queryEchoHttp() })
+        )
         const result = await byId(built, '@posthog/query').execute('c1', { query: 'select 1 as a' })
         expect(result.content).toEqual([{ type: 'text', text: JSON.stringify({ rows: [{ a: 1 }], columns: ['a'] }) }])
         expect(result.details.output).toEqual({ rows: [{ a: 1 }], columns: ['a'] })
     })
 
     it('native execute lets a thrown error propagate (the loop renders it as an error result)', async () => {
-        setPosthogInternalClient({
-            async runHogql() {
+        const http: HttpFetcher = {
+            fetch: async () => {
                 throw new Error('boom')
             },
-            async searchPersons() {
-                return { persons: [] }
-            },
-        })
+        }
         const rev = makeRev([{ kind: 'native', id: '@posthog/query' }])
-        const built = await buildAgentTools(rev, makeDeps(rev))
+        const built = await buildAgentTools(rev, makeDeps(rev, { credentialBroker: posthogBroker(), http }))
         await expect(byId(built, '@posthog/query').execute('c1', { query: 'x' })).rejects.toThrow('boom')
     })
 
