@@ -9,9 +9,10 @@ import {
     ensureActivityDescribersLoaded,
 } from 'lib/components/ActivityLog/activityLogLogic'
 import { ActivityLogItem, HumanizedActivityLogItem, humanize } from 'lib/components/ActivityLog/humanizeActivity'
+import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { projectLogic } from 'scenes/projectLogic'
 
-import { ActivityScope, UserBasicType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, ActivityScope, UserBasicType } from '~/types'
 
 import { sidePanelContextLogic } from '../../sidePanelContextLogic'
 import { sidePanelStateLogic } from '../../sidePanelStateLogic'
@@ -29,6 +30,12 @@ const HIDDEN_ACTIVITY_SCOPES: ActivityScope[] = [
 const getVisibleActivityScopes = (): ActivityScope[] => {
     return Object.values(ActivityScope).filter((scope) => !HIDDEN_ACTIVITY_SCOPES.includes(scope))
 }
+
+// The activity_log resource is RBAC-gated, so users without Viewer access get a 403 from the list
+// endpoint. The component renders an "Access denied" panel for them, but the loader can still fire via
+// listeners/subscriptions — guard it here so denied users don't emit an uncaught 403.
+const canViewActivityLog = (): boolean =>
+    userHasAccess(AccessControlResourceType.ActivityLog, AccessControlLevel.Viewer)
 
 export type ActivityFilters = {
     scope?: ActivityScope | string
@@ -95,6 +102,9 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
             null as PaginatedResponse<ActivityLogItem> | null,
             {
                 loadAllActivity: async (_, breakpoint) => {
+                    if (!canViewActivityLog()) {
+                        return null
+                    }
                     const filters = values.activeFilters ?? {}
                     const expandedFilters = activityLogTransforms.expandListScopes(filters)
                     const [response] = await Promise.all([
