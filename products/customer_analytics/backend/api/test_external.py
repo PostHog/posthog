@@ -131,8 +131,10 @@ class TestExternalAccountAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         self.account.refresh_from_db()
-        self.assertEqual(self.account.properties.csm.id, self.user.id)
-        self.assertEqual(self.account.properties.csm.email, self.user.email)
+        csm = self.account.properties.csm
+        assert csm is not None
+        self.assertEqual(csm.id, self.user.id)
+        self.assertEqual(csm.email, self.user.email)
 
     def test_patch_clears_role_with_null(self):
         self.account.properties = AccountProperties(csm=AccountAssignment(id=self.user.id, email=self.user.email))
@@ -150,8 +152,10 @@ class TestExternalAccountAPI(APIBaseTest):
         response = self._patch({"external_id": "acme-1", "csm": {"type": "user", "id": self.user.id}})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.account.refresh_from_db()
+        csm = self.account.properties.csm
+        assert csm is not None
         self.assertEqual(self.account.properties.stripe_customer_id, "cus_123")
-        self.assertEqual(self.account.properties.csm.id, self.user.id)
+        self.assertEqual(csm.id, self.user.id)
 
     def test_patch_rejects_role_assignee(self):
         response = self._patch({"external_id": "acme-1", "csm": {"type": "role", "id": "some-role-uuid"}})

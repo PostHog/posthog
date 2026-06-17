@@ -132,8 +132,11 @@ class ExternalAccountUpdateSerializer(serializers.Serializer):
             raise serializers.ValidationError({field: "Must be an assignee object or null"})
         if value.get("type") != "user":
             raise serializers.ValidationError({field: "Accounts can only be assigned to users, not roles"})
+        raw_id = value.get("id")
+        if not isinstance(raw_id, (int, str)):
+            raise serializers.ValidationError({field: "Assignee id must be a user id"})
         try:
-            return int(value.get("id"))
+            return int(raw_id)
         except (TypeError, ValueError):
             raise serializers.ValidationError({field: "Assignee id must be a user id"})
 
