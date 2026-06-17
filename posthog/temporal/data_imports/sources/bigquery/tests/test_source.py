@@ -526,6 +526,15 @@ def test_bigquery_build_pipeline_trims_whitespace_in_destination_table():
         ),
         # Permission to list tables in a dataset is also denied with the same prefix
         str(Forbidden("Access Denied: Permission bigquery.tables.list denied on dataset prj:ds.")),
+        # Storage Read API `create_read_session` denial — `str(PermissionDenied)` is "403 request
+        # failed: the user does not have 'bigquery.readsessions.create' permission for 'projects/...'",
+        # which the "Access Denied:" / "PermissionDenied: 403 request failed" keys don't cover.
+        str(
+            PermissionDenied(
+                "request failed: the user does not have 'bigquery.readsessions.create' "
+                "permission for 'projects/some-project'"
+            )
+        ),
     ],
 )
 def test_non_retryable_errors_match_permission_denied(observed_error):
@@ -553,6 +562,34 @@ def test_non_retryable_errors_match_federated_upstream_permission_denied(observe
 
 
 @pytest.mark.parametrize(
+    "observed_error",
+    [
+        # Administrator-set custom cost control on the customer's BigQuery project — surfaced as a
+        # `Forbidden` whose str() is "403 Custom quota exceeded: ...".
+        str(
+            Forbidden(
+                "Custom quota exceeded: Your usage exceeded the custom quota for QueryUsagePerDay, "
+                "which is set by your administrator. For more information, see "
+                "https://docs.cloud.google.com/bigquery/cost-controls.; reason: quotaExceeded"
+            )
+        ),
+        # Per-user variant of the same custom cost control.
+        str(
+            Forbidden(
+                "Custom quota exceeded: Your usage exceeded the custom quota for "
+                "QueryUsagePerUserPerDay, which is set by your administrator.; reason: quotaExceeded"
+            )
+        ),
+    ],
+)
+def test_non_retryable_errors_match_custom_quota_exceeded(observed_error):
+    """An administrator-set custom cost control (e.g. QueryUsagePerDay) can't be recovered by
+    retrying within the sync's window — the user must raise the quota or sync less data."""
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    assert any(key in observed_error for key in non_retryable_errors)
+
+
+@pytest.mark.parametrize(
     "other_error",
     [
         # Transient server / connection errors must stay retryable
@@ -562,6 +599,11 @@ def test_non_retryable_errors_match_federated_upstream_permission_denied(observe
         # A federated-read failure that isn't a permission problem must stay retryable
         "Error while reading data, error message: Failed to fetch row from PostgreSQL server. "
         "Error: ERROR:  connection to server timed out",
+        # Transient rate-limit quota errors ("Quota exceeded" / `rateLimitExceeded`) are NOT the
+        # administrator-set custom cost control and must stay retryable — the "Custom quota
+        # exceeded" key must not catch them.
+        "403 Quota exceeded: Your project exceeded quota for concurrent queries; reason: quotaExceeded",
+        "403 Exceeded rate limits: too many concurrent queries for this project; reason: rateLimitExceeded",
     ],
 )
 def test_non_retryable_errors_does_not_match_transient(other_error):
