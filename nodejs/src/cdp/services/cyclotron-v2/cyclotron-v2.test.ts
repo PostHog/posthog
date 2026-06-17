@@ -490,11 +490,12 @@ describe('Cyclotron V2', () => {
         })
 
         describe('CyclotronV2RateLimitedWorker', () => {
-            // The hook is consulted on every poll. Returning a positive limit
-            // clamps the SQL LIMIT to min(limit, batchMaxSize); 0 skips the
-            // dequeue and sleeps; undefined falls back to batchMaxSize.
+            // The hook is consulted on every poll. It receives the number of
+            // rows actually visible (capped at batchMaxSize). Returning a
+            // positive limit clamps the SQL LIMIT to min(limit, batchMaxSize);
+            // 0 skips the dequeue and sleeps; undefined falls back to batchMaxSize.
             const createRateLimitedWorker = (
-                getBatchLimit: () => Promise<CyclotronV2BatchLimit | undefined>,
+                getBatchLimit: (requested: number) => Promise<CyclotronV2BatchLimit | undefined>,
                 overrides?: Record<string, unknown>
             ): CyclotronV2RateLimitedWorker =>
                 new CyclotronV2RateLimitedWorker(
@@ -605,6 +606,47 @@ describe('Cyclotron V2', () => {
                 // Many poll cycles ran (~20 at 10ms cadence) but no jobs exist,
                 // so the limiter hook is never invoked.
                 expect(hookCalls).toBe(0)
+            })
+
+            it('passes the visible row count to the limiter hook', async () => {
+                // Sparse-traffic regression guard. 3 ready rows + batchMaxSize=100
+                // → hook must be asked for 3 tokens, not 100. Without pre-sizing,
+                // a single trickle of jobs would drain the full bucket per send.
+                for (let i = 0; i < 3; i++) {
+                    await manager.createJob({ teamId: 1, queueName: QUEUE })
+                }
+
+                const requestedHistory: number[] = []
+                const worker = createRateLimitedWorker((requested) => {
+                    requestedHistory.push(requested)
+                    return Promise.resolve({ limit: requested })
+                })
+
+                await dequeueOneBatch(worker)
+
+                // First (and only relevant) call: 3 rows visible → 3 requested.
+                expect(requestedHistory[0]).toBe(3)
+            })
+
+            it('caps the visible row count at batchMaxSize', async () => {
+                // Backlog of 10 rows with batchMaxSize=4 should ask for 4
+                // (the batch ceiling), not 10.
+                for (let i = 0; i < 10; i++) {
+                    await manager.createJob({ teamId: 1, queueName: QUEUE })
+                }
+
+                const requestedHistory: number[] = []
+                const worker = createRateLimitedWorker(
+                    (requested) => {
+                        requestedHistory.push(requested)
+                        return Promise.resolve({ limit: requested })
+                    },
+                    { batchMaxSize: 4 }
+                )
+
+                await dequeueOneBatch(worker)
+
+                expect(requestedHistory[0]).toBe(4)
             })
         })
 
