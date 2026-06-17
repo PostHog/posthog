@@ -1388,7 +1388,7 @@ export type EnvironmentsEvaluationContextSuggestionsDestroyParams = {
 export type FeatureFlagsListParams = {
     active?: FeatureFlagsListActive
     /**
-     * The User ID which initially created the feature flag.
+     * Filter by the user(s) who created the feature flag. Accepts a single user ID, or a JSON-encoded / comma-separated list of user IDs to match any of them.
      */
     created_by_id?: string
     /**
