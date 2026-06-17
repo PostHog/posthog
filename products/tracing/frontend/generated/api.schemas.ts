@@ -165,6 +165,41 @@ export interface _TracingAttributeBreakdownRequestApi {
     query: _TracingAttributeBreakdownQueryBodyApi
 }
 
+/**
+ * * `key` - key
+ * * `value` - value
+ */
+export type MatchedOnEnumApi = (typeof MatchedOnEnumApi)[keyof typeof MatchedOnEnumApi]
+
+export const MatchedOnEnumApi = {
+    Key: 'key',
+    Value: 'value',
+} as const
+
+export interface _TracingAttributeEntryApi {
+    /** Attribute key name. */
+    name: string
+    /** Property filter type: "span_attribute" or "span_resource_attribute". Use this as the `type` field when filtering. */
+    propertyFilterType: string
+    /** How the search query matched this row: "key" if the attribute key matched, "value" if a value matched.
+     *
+     * * `key` - key
+     * * `value` - value */
+    matchedOn: MatchedOnEnumApi
+    /**
+     * Sample matching value — only set when matchedOn is "value".
+     * @nullable
+     */
+    matchedValue?: string | null
+}
+
+export interface _TracingAttributesResponseApi {
+    /** Available attribute keys matching the filters. */
+    results: _TracingAttributeEntryApi[]
+    /** Total attribute keys matched (lower bound when searching values). */
+    count: number
+}
+
 export interface _TracingCountBodyApi {
     /** Date range for the count. Defaults to last hour. */
     dateRange?: _TracingDateRangeApi
@@ -403,6 +438,11 @@ export interface _TracingTraceRequestApi {
     dateRange?: _TracingDateRangeApi
     /** Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false. */
     excludeAttributes?: boolean
+    /**
+     * Pagination offset into the trace's spans (ordered by start time ascending). Each page returns up to 2000 spans; pass the response's `nextOffset` to load the next page. Defaults to 0.
+     * @minimum 0
+     */
+    offset?: number
 }
 
 export interface _TracingTreeQueryBodyApi {
@@ -450,6 +490,10 @@ export type TracingSpansAttributesRetrieveParams = {
      * @minLength 1
      */
     search?: string
+    /**
+     * When true, the search query also matches attribute values (not just keys), so a value such as a trace_id finds the key holding it.
+     */
+    search_values?: boolean
 }
 
 export type TracingSpansAttributesRetrieveAttributeType =
