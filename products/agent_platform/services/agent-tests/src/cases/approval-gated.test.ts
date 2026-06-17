@@ -489,6 +489,42 @@ describe('approval-gated tools: real e2e', () => {
         expect(approved).not.toBeNull()
         expect(approved!.result).toMatchObject({ echoed: { ping: 'pong' } })
     })
+
+    // ─────────────────────────────────────────────────────────────
+    // Case 8 — posthog-code client suppresses URL prose.
+    // Same flow as case 1 but the caller sets X-PostHog-Client: posthog-code,
+    // so the queued envelope must NOT carry approval_url / approver_hint —
+    // the desktop chat preview renders an in-line approval card and the
+    // standalone console (port 3040) is going away.
+    // ─────────────────────────────────────────────────────────────
+    it('case 8: posthog-code client omits approval_url + approver_hint from the queued envelope', async () => {
+        c.setScript([fauxCallTool('@posthog/query', { query: 'select 1' }), fauxText('queued for approval')])
+        await deployGatedAgent({
+            slug: 'gated-8',
+            toolId: '@posthog/query',
+            auth: { modes: [{ type: 'posthog' }] },
+        })
+
+        const run = await request(c.ingress)
+            .post('/agents/gated-8/run')
+            .set('authorization', `Bearer ${APPROVAL_PAT}`)
+            .set('X-PostHog-Client', 'posthog-code')
+            .send({ message: 'go' })
+        expect(run.status).toBe(200)
+        await c.drain()
+
+        const session = await c.queue.get(run.body.session_id)
+        const queued = findApproval(session!.conversation, 'queued')
+        expect(queued).not.toBeNull()
+        // The model still sees the request_id + state so it knows the call
+        // is gated, but neither the URL nor the admin hint — its only
+        // option is to acknowledge the queued state in plain text.
+        expect(queued!.request_id).toMatch(/^[0-9a-f-]+$/)
+        expect(queued!.approval_url).toBeUndefined()
+        expect(queued!.approver_hint).toBeUndefined()
+        // Sanity: client_kind landed on the session row.
+        expect(session!.trigger_metadata).toMatchObject({ client_kind: 'posthog-code' })
+    })
 })
 
 // ─────────────────────────────────────────────────────────────────────

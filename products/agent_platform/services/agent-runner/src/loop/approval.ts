@@ -27,8 +27,10 @@ import {
     ApprovalRequest,
     ApprovalStore,
     AssistantMessageRecord,
+    CLIENT_KIND_POSTHOG_CODE,
     ConversationMessage,
     hashCanonicalArgs,
+    readSessionClientKind,
 } from '@posthog/agent-shared'
 
 import { parseApprovalDecidedMarker } from './approval-marker'
@@ -100,12 +102,21 @@ export async function queueApprovalResult(input: {
         expires_at: new Date(Date.now() + input.policy.ttl_ms).toISOString(),
     })
 
+    // Posthog-code sessions render an in-chat approval card on top of every
+    // queued tool call; the model echoing a "track it here: <url>" line on top
+    // of that card reads as either redundant or (when the URL points at the
+    // dying :3040 console) actively wrong. Drop the URL + approver hint so the
+    // model has nothing to repeat about how the user should approve. Other
+    // clients (Slack, MCP, the standalone console) still surface the URL.
+    const suppressApprovalChannel = readSessionClientKind(input.session.trigger_metadata) === CLIENT_KIND_POSTHOG_CODE
     const buildUrl = input.buildApprovalUrl ?? defaultApprovalUrl
     const approval: Record<string, unknown> = {
         request_id: upsert.request.id,
         state: 'queued',
-        approver_hint: APPROVER_HINT_TEAM_ADMINS,
-        approval_url: buildUrl(upsert.request.id),
+    }
+    if (!suppressApprovalChannel) {
+        approval.approver_hint = APPROVER_HINT_TEAM_ADMINS
+        approval.approval_url = buildUrl(upsert.request.id)
     }
     if (!upsert.deduped && previous && isTerminal(previous.state)) {
         approval.prior_decision = { state: previous.state, reason: previous.decision_reason ?? undefined }

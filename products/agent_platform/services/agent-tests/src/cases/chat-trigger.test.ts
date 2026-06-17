@@ -125,4 +125,33 @@ describe('chat trigger: real e2e', () => {
         expect(res.status).toBe(404)
         expect(res.body).toMatchObject({ error: 'no_chat_trigger' })
     })
+
+    it('stamps client_kind on the session row when X-PostHog-Client is supplied at /run', async () => {
+        c.setScript([fauxText('ok')])
+        await c.deployAgent({ slug: 'kind' })
+        const res = await request(c.ingress)
+            .post('/agents/kind/run')
+            .set('X-PostHog-Client', 'posthog-code')
+            .send({ message: 'hi' })
+        expect(res.status).toBe(200)
+        const session = await c.queue.get(res.body.session_id)
+        // Posthog-code is the only recognised value today; the runner
+        // gates the approval-URL prose on this exact string.
+        expect(session!.trigger_metadata).toMatchObject({ kind: 'chat', client_kind: 'posthog-code' })
+    })
+
+    it('drops an unrecognised X-PostHog-Client value silently (no client_kind stamped)', async () => {
+        c.setScript([fauxText('ok')])
+        await c.deployAgent({ slug: 'kind-unknown' })
+        const res = await request(c.ingress)
+            .post('/agents/kind-unknown/run')
+            .set('X-PostHog-Client', 'not-a-real-client')
+            .send({ message: 'hi' })
+        expect(res.status).toBe(200)
+        const session = await c.queue.get(res.body.session_id)
+        // Unrecognised → null; never crash, never store the unknown value
+        // (so a future allowlist add can't pick up stale rows from old
+        // clients that guessed the new name).
+        expect(session!.trigger_metadata).toEqual({ kind: 'chat' })
+    })
 })
