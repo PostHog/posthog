@@ -2024,6 +2024,55 @@ def get_document_window(
     ]
 
 
+@with_team_scope(canonical=True)
+def get_chunks_by_ids(team_id: int, chunk_ids: list[UUID]) -> list[KnowledgeSearchResult]:
+    """
+    Rehydrate full chunk content + source context for a set of chunk ids,
+    preserving the order of ``chunk_ids`` and dropping any id that no longer
+    resolves (unsafe/tombstoned/deleted). Applies the same safety filters as
+    ``search_knowledge``.
+
+    Lets callers pass chunk ids across a process/serialization boundary (e.g.
+    between Temporal activities) and re-fetch content on demand — deterministic
+    retrieval — instead of shipping the content itself through workflow history.
+    """
+    if not chunk_ids:
+        return []
+
+    chunks = (
+        _safe_chunks_qs(team_id)
+        .filter(id__in=chunk_ids)
+        .select_related("source", "document")
+        .only(
+            "id",
+            "source_id",
+            "document_id",
+            "heading_path",
+            "ordinal",
+            "content",
+            "source__name",
+            "source__source_type",
+            "document__title",
+        )
+    )
+    by_id = {c.id: c for c in chunks}
+    return [
+        KnowledgeSearchResult(
+            chunk_id=c.id,
+            source_id=c.source_id,
+            source_name=c.source.name,
+            source_type=c.source.source_type,
+            document_id=c.document_id,
+            document_title=c.document.title,
+            heading_path=c.heading_path,
+            ordinal=c.ordinal,
+            content=c.content,
+        )
+        for chunk_id in chunk_ids
+        if (c := by_id.get(chunk_id)) is not None
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Background-refresh coordinator helpers (cross-team)
 #

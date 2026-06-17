@@ -36,6 +36,7 @@ import {
     IncrementalField,
     ManualLinkSourceType,
     manualLinkSources,
+    RowFilter,
 } from '~/types'
 
 import {
@@ -323,6 +324,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             schema,
             enabledColumns,
         }),
+        setSchemaRowFilters: (schema: ExternalDataSourceSyncSchema, rowFilters: RowFilter[] | null) => ({
+            schema,
+            rowFilters,
+        }),
         updateSchemaSyncType: (
             schema: ExternalDataSourceSyncSchema,
             syncType: ExternalDataSourceSyncSchema['sync_type'],
@@ -469,6 +474,12 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     return state.map((s) => ({
                         ...s,
                         enabled_columns: s.table === schema.table ? enabledColumns : s.enabled_columns,
+                    }))
+                },
+                setSchemaRowFilters: (state, { schema, rowFilters }) => {
+                    return state.map((s) => ({
+                        ...s,
+                        row_filters: s.table === schema.table ? rowFilters : s.row_filters,
                     }))
                 },
                 updateSchemaSyncType: (
@@ -1190,6 +1201,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                                         sync_time_of_day: schema.sync_time_of_day,
                                         primary_key_columns: schema.primary_key_columns,
                                         enabled_columns: schema.enabled_columns ?? null,
+                                        row_filters: schema.row_filters ?? null,
                                         ...(schema.sync_type === 'cdc' && schema.cdc_table_mode
                                             ? { cdc_table_mode: schema.cdc_table_mode }
                                             : {}),
@@ -1438,12 +1450,23 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 actions.setDatabaseSchemas(schemas)
                 actions.onNext()
             } catch (e: any) {
-                const errorMessage = e.data?.message ?? e.message
+                // A gateway timeout / 5xx has no JSON body, so e.message is the raw
+                // "Non-OK response [POST ...] (status 504: )" — meaningless to the user. Surface a
+                // friendly hint for server-side failures while keeping any API-provided message.
+                const apiMessage = e.data?.message ?? e.detail
+                const errorMessage =
+                    apiMessage ??
+                    (e.status >= 500
+                        ? 'PostHog could not validate your connection in time. This can happen with a very large schema or a slow or unreachable database — please check your connection details and try again.'
+                        : e.message)
                 lemonToast.error(errorMessage)
 
                 posthog.capture('warehouse credentials invalid', {
                     sourceType: values.selectedConnector.name,
                     errorMessage,
+                    // Keep the raw error (status code etc.) so server-side failures stay triageable.
+                    rawError: e.message,
+                    status: e.status,
                 })
             }
 

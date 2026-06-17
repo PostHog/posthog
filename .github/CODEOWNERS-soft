@@ -249,6 +249,7 @@ AGENTS.md @PostHog/team-devex
 .claude/agents/ingestion/ @PostHog/team-ingestion
 .agents/skills/ingestion-*/ @PostHog/team-ingestion
 .claude/skills/ingestion-*/ @PostHog/team-ingestion
+.agents/skills/manage-dashboard-widgets/ @PostHog/team-analytics-platform
 tools/pr-approval-agent/ @PostHog/team-devex
 tools/phrocs/ @PostHog/team-devex
 tools/query-performance-ai/ @PostHog/team-analytics-platform

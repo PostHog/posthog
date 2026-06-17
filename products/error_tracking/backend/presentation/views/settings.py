@@ -46,6 +46,8 @@ class ErrorTrackingSettingsSerializer(serializers.ModelSerializer):
 
 class ErrorTrackingSettingsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "error_tracking"
+    scope_object_read_actions = ["retrieve_settings"]
+    scope_object_write_actions = ["update_settings"]
 
     def _get_or_create_settings(self) -> ErrorTrackingSettings:
         settings, _ = ErrorTrackingSettings.objects.get_or_create(team=self.team)
