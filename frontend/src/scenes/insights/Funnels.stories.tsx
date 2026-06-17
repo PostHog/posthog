@@ -21,9 +21,6 @@ const meta: Meta = {
                 width: 1300,
                 height: 720,
             },
-            // Chart pixels are covered by the isolated chart stories; suppress this full-scene
-            // story's async canvas paint so the snapshot is deterministic instead of flaky.
-            skipCanvasDraw: true,
         },
         viewMode: 'story',
         mockDate: '2022-03-11',

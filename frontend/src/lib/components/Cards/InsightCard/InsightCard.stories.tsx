@@ -55,9 +55,6 @@ const meta: Meta<InsightCardProps> = {
     component: InsightCardComponent,
     parameters: {
         mockDate: '2023-07-01',
-        // Cards render insight charts that paint asynchronously — suppress their canvas draw so
-        // these snapshots are deterministic. Chart pixels are covered by the isolated chart stories.
-        testOptions: { skipCanvasDraw: true },
     },
     argTypes: {
         insight: {
