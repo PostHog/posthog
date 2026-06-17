@@ -7,6 +7,7 @@ from typing import Any
 import pytest
 from posthog.test.base import BaseTest
 
+import pydantic
 from parameterized import parameterized
 
 from posthog.hogql import ast
@@ -76,6 +77,11 @@ def _assert_independent(original: Any, clone: Any, seen: set | None = None) -> N
             _assert_independent(ov, cv, seen)
     elif isinstance(original, set):
         assert original is not clone, "clone shares a set with the original"  # frozenset is immutable, sharing is fine
+    elif isinstance(original, pydantic.BaseModel):
+        # Embedded non-AST models (database Tables/joins) must be deep-copied, not shared.
+        assert original is not clone, f"clone shares {type(original).__name__} with the original"
+        for name in type(original).model_fields:
+            _assert_independent(getattr(original, name, None), getattr(clone, name, None), seen)
 
 
 def _count_distinct_nodes(node: Any) -> int:
