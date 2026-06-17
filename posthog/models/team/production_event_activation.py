@@ -260,9 +260,21 @@ def _teams_meeting_criterion(team_ids: Iterable[int]) -> dict[int, ProductionTra
     `is_production_host` so it stays unit-testable. The localhost/loopback
     prefilter in SQL is an optimization only (it keeps the dominant dev noise
     out of the result set and away from the per-team cap); correctness lives
-    in the Python classifier. `$is_emulator` is matched against its raw JSON
-    value so both boolean and stringly-typed `false` count, and anything else
-    (true, absent, garbage, SDK versions that don't send it) fails closed.
+    in the Python classifier.
+
+    Evidence is gathered in two passes so the scan stays under ClickHouse's
+    per-query read-bytes limit. The web and server legs read only the small,
+    materialized-where-available `$host`/`$current_url`/`$lib` columns plus
+    `distinct_id`/`$device_id` — never the large `properties` blob. The mobile
+    leg is the only one that must read `properties` (for `$is_emulator`, which
+    has no usable materialized form — see `_teams_with_physical_devices`), so it
+    runs as a second, narrowly-scoped query (`_teams_with_physical_devices`)
+    over only the teams that did NOT qualify on the web leg and that carry
+    enough distinct devices to possibly cross the threshold. High-volume teams
+    overwhelmingly qualify on the web/server legs (or send no `$device_id` at
+    all, since server SDKs don't set one), so they drop out before the expensive
+    `properties` scan — which is what kept a batch of high-traffic teams from
+    blowing the read-bytes limit on the old single-query form.
     """
     team_id_list = list(team_ids)
     if not team_id_list:
@@ -270,10 +282,6 @@ def _teams_meeting_criterion(team_ids: Iterable[int]) -> dict[int, ProductionTra
 
     # Use materialized property columns where the deployment has them; the
     # fallback is the JSONExtractString these expressions would otherwise be.
-    # `$is_emulator` stays on JSONExtractRaw deliberately: JSONExtractString
-    # returns '' for JSON booleans, so the string-expression fallback would
-    # silently kill the mobile leg on deployments without the materialized
-    # column, while the raw value works everywhere.
     host_expr, _ = get_property_string_expr("events", "$host", "'$host'", "properties")
     current_url_expr, _ = get_property_string_expr("events", "$current_url", "'$current_url'", "properties")
     device_id_expr, _ = get_property_string_expr("events", "$device_id", "'$device_id'", "properties")
@@ -285,10 +293,15 @@ def _teams_meeting_criterion(team_ids: Iterable[int]) -> dict[int, ProductionTra
     # cluster on cloud: this is a fleet sweep over raw events and must not
     # compete with customer-facing queries.
     workload = Workload.OFFLINE if is_cloud() else Workload.DEFAULT
-    # The interpolated fragments are server-side SQL expressions from
-    # get_property_string_expr, never user input; all values go through
-    # query parameters.
-    query = f"""
+
+    # Pass 1 — web + server legs and a distinct-device upper bound. Reads only
+    # the materialized property columns + distinct_id; the `properties` blob is
+    # never touched here. `device_candidates` is the pre-emulator-filter device
+    # count, so a team below the mobile threshold here cannot reach it after the
+    # filter and never enters the expensive pass below. The interpolated
+    # fragments are server-side SQL expressions from get_property_string_expr,
+    # never user input; all values go through query parameters.
+    web_server_query = f"""
         SELECT
             team_id,
             groupUniqArrayIf(%(hosts_per_team_cap)s)(
@@ -298,10 +311,7 @@ def _teams_meeting_criterion(team_ids: Iterable[int]) -> dict[int, ProductionTra
                 AND NOT startsWith(host, 'localhost:')
                 AND NOT startsWith(host, '127.0.0.1')
             ) AS candidate_hosts,
-            uniqIf(
-                device_id,
-                device_id != '' AND is_emulator_raw IN ('false', '"false"')
-            ) AS physical_devices,
+            uniqIf(device_id, device_id != '') AS device_candidates,
             uniqIf(distinct_id, lib IN %(server_side_libs)s) AS server_lib_users
         FROM (
             SELECT
@@ -312,7 +322,6 @@ def _teams_meeting_criterion(team_ids: Iterable[int]) -> dict[int, ProductionTra
                     1,
                     %(host_length_cap)s
                 ) AS host,
-                JSONExtractRaw(properties, '$is_emulator') AS is_emulator_raw,
                 {device_id_expr} AS device_id,
                 {lib_expr} AS lib
             FROM events
@@ -321,12 +330,12 @@ def _teams_meeting_criterion(team_ids: Iterable[int]) -> dict[int, ProductionTra
         )
         GROUP BY team_id
         HAVING notEmpty(candidate_hosts)
-            OR physical_devices >= %(mobile_threshold)s
+            OR device_candidates >= %(mobile_threshold)s
             OR server_lib_users >= %(server_threshold)s
     """
     with tags_context(product=Product.GROWTH, feature=Feature.ENRICHMENT):
         rows = sync_execute(
-            query,
+            web_server_query,
             {
                 "team_ids": team_id_list,
                 "window_days": WINDOW_DAYS,
@@ -344,11 +353,32 @@ def _teams_meeting_criterion(team_ids: Iterable[int]) -> dict[int, ProductionTra
         )
 
     qualifying: dict[int, ProductionTrafficSignal] = {}
-    for team_id, candidate_hosts, physical_devices, server_lib_users in rows:
+    # Teams that surfaced evidence but no production host: candidates for the
+    # mobile/server legs, resolved after the (properties-reading) mobile pass.
+    pending: dict[int, tuple[int, int]] = {}  # team_id -> (server_lib_users, device_candidates)
+    for team_id, candidate_hosts, device_candidates, server_lib_users in rows:
         production_host = next((host for host in candidate_hosts if is_production_host(host)), None)
         if production_host is not None:
             qualifying[team_id] = ProductionTrafficSignal(kind="production_host", production_host=production_host)
-        elif physical_devices >= MOBILE_PHYSICAL_DEVICES_THRESHOLD:
+        else:
+            pending[team_id] = (server_lib_users, device_candidates)
+
+    # Pass 2 — mobile leg, the only one that reads `properties`. Scoped to teams
+    # that didn't qualify on the web leg and have enough distinct devices to
+    # possibly cross the threshold, keeping the full-blob scan off the
+    # high-volume web/server teams above.
+    mobile_candidates = [
+        team_id
+        for team_id, (_server_lib_users, device_candidates) in pending.items()
+        if device_candidates >= MOBILE_PHYSICAL_DEVICES_THRESHOLD
+    ]
+    physical_devices_by_team = _teams_with_physical_devices(mobile_candidates, device_id_expr, workload)
+
+    # Resolve the mobile/server legs for the pending teams, mobile first to keep
+    # the documented web > mobile > server precedence.
+    for team_id, (server_lib_users, _device_candidates) in pending.items():
+        physical_devices = physical_devices_by_team.get(team_id)
+        if physical_devices is not None:
             qualifying[team_id] = ProductionTrafficSignal(
                 kind="mobile_physical_devices", distinct_count=physical_devices
             )
@@ -371,6 +401,62 @@ def _teams_meeting_criterion(team_ids: Iterable[int]) -> dict[int, ProductionTra
             qualifying[team_id] = replace(qualifying[team_id], converted_at=converted_at)
 
     return qualifying
+
+
+def _teams_with_physical_devices(
+    team_ids: list[int],
+    device_id_expr: str,
+    workload: Workload,
+) -> dict[int, int]:
+    """Distinct physical-device (`$is_emulator: false`) counts per team, for the
+    teams that cross the mobile threshold.
+
+    This is the only leg that reads the `properties` blob: `$is_emulator` is
+    matched against its raw JSON value (JSONExtractRaw), so both a boolean and a
+    stringly-typed `false` count and anything else (true, absent, garbage, SDK
+    versions that don't send it) fails closed. JSONExtractString can't be used
+    instead — it returns '' for JSON booleans, which would silently kill the leg
+    — and there is no materialized column to fall back to, so this forces a full
+    `properties` read. The caller scopes `team_ids` to the residual set of
+    not-yet-qualified, device-bearing teams to keep that read small.
+    """
+    if not team_ids:
+        return {}
+
+    # As in `_teams_meeting_criterion`: the interpolated fragment is a
+    # server-side SQL expression from get_property_string_expr, never user
+    # input; all values go through query parameters.
+    query = f"""
+        SELECT
+            team_id,
+            uniqIf(
+                device_id,
+                device_id != '' AND is_emulator_raw IN ('false', '"false"')
+            ) AS physical_devices
+        FROM (
+            SELECT
+                team_id,
+                {device_id_expr} AS device_id,
+                JSONExtractRaw(properties, '$is_emulator') AS is_emulator_raw
+            FROM events
+            WHERE team_id IN %(team_ids)s
+              AND timestamp >= now() - toIntervalDay(%(window_days)s)
+        )
+        GROUP BY team_id
+        HAVING physical_devices >= %(mobile_threshold)s
+    """
+    with tags_context(product=Product.GROWTH, feature=Feature.ENRICHMENT):
+        rows = sync_execute(
+            query,
+            {
+                "team_ids": team_ids,
+                "window_days": WINDOW_DAYS,
+                "mobile_threshold": MOBILE_PHYSICAL_DEVICES_THRESHOLD,
+            },
+            workload=workload,
+            settings={"max_execution_time": 600},
+        )
+    return dict(rows)
 
 
 def _earliest_production_host_timestamps(
