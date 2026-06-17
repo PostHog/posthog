@@ -1551,6 +1551,17 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             validated_data.pop("remove_targeting_flag")
 
         validated_data["team_id"] = self.context["team_id"]
+        if validated_data.get("targeting_flag_id"):
+            # Attaching an existing flag takes write control of it: its active state is later
+            # synced to the survey's lifecycle (start/stop/archive). Require feature_flag:write
+            # so survey:write alone can't point a survey at an arbitrary flag and toggle it.
+            assert_feature_flag_write_scope(
+                self.context["request"],
+                action="survey.create.targeting_flag_id",
+                resource_scope="survey:write",
+                team_id=self.context["team_id"],
+                feature_flag_id=validated_data["targeting_flag_id"],
+            )
         if validated_data.get("targeting_flag_filters"):
             assert_feature_flag_write_scope(
                 self.context["request"],
@@ -1591,6 +1602,17 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         before_update = Survey.objects.get(pk=instance.pk)
         user = self.context["request"].user
         changes = []
+
+        if validated_data.get("targeting_flag_id"):
+            # Re-pointing the survey at an existing flag takes write control of it (the
+            # lifecycle sync below can toggle its active state), so require feature_flag:write.
+            assert_feature_flag_write_scope(
+                self.context["request"],
+                action="survey.update.targeting_flag_id",
+                resource_scope="survey:write",
+                team_id=self.context["team_id"],
+                feature_flag_id=validated_data["targeting_flag_id"],
+            )
 
         if validated_data.get("remove_targeting_flag"):
             if instance.targeting_flag:

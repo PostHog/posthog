@@ -7213,6 +7213,25 @@ class TestSurveyFeatureFlagScopeEnforcement(PersonalAPIKeysBaseTest, APIBaseTest
         response = self._create_survey()
         assert response.status_code == status.HTTP_201_CREATED, response.json()
 
+    def test_create_attaching_existing_targeting_flag_is_denied(self):
+        # Pointing a survey at an arbitrary existing flag (which the lifecycle sync can toggle)
+        # must require feature_flag:write.
+        flag = FeatureFlag.objects.create(team=self.team, key="survey-attach-existing", created_by=self.user)
+        response = self._create_survey(targeting_flag_id=flag.id)
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert "feature_flag:write" in response.json()["detail"]
+
+    def test_update_attaching_existing_targeting_flag_is_denied(self):
+        flag = FeatureFlag.objects.create(team=self.team, key="survey-attach-existing-2", created_by=self.user)
+        survey_id = self._create_survey().json()["id"]
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey_id}/",
+            data={"targeting_flag_id": flag.id},
+            format="json",
+            headers=self.auth_headers,
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+
     def test_update_targeting_flag_filters_is_denied(self):
         survey_id = self._create_survey_with_targeting_flag_as_admin()
         response = self.client.patch(
