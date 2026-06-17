@@ -360,10 +360,10 @@ class TestNarrowScopesToCeiling(SimpleTestCase):
                 ["openid"],
             ),
             # `@default` ceiling narrows to the unprivileged default plus listed extras,
-            # dropping a hidden scope (`metrics:read`) the default doesn't cover.
+            # dropping a hidden scope (`wizard_session:read`) the default doesn't cover.
             (
                 "default_sentinel_keeps_unprivileged_and_extras",
-                ["query:read", "llm_gateway:read", "metrics:read"],
+                ["query:read", "llm_gateway:read", "wizard_session:read"],
                 ["@default", "llm_gateway:read"],
                 ["llm_gateway:read", "query:read"],
             ),
