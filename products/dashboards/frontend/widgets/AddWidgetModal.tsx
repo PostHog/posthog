@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { Fragment } from 'react'
 
-import { IconSparkles } from '@posthog/icons'
+import { IconLightBulb } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -142,7 +142,7 @@ export function AddWidgetModal({ isOpen, onClose, loading, onAdd }: AddWidgetMod
                                 <h5 className="col-span-full mx-0 my-0">{group.groupLabel}</h5>
                                 {productIsNew && productIntro ? (
                                     <div className="col-span-full -mt-2 flex w-fit max-w-full flex-wrap items-center gap-x-2 gap-y-1 rounded bg-accent-highlight-secondary px-3 py-2 text-xs">
-                                        <IconSparkles className="shrink-0 text-base text-accent" />
+                                        <IconLightBulb className="shrink-0 text-base text-accent" />
                                         <span className="text-primary">{productIntro.valueProp}</span>
                                         <Link
                                             to={productIntro.docsHref}
