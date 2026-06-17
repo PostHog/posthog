@@ -729,7 +729,8 @@ class UserAuthenticationThrottle(UserOrEmailRateThrottle):
             return True
 
         # only throttle if attempting to change current password
-        if "current_password" not in request.data:
+        # request.data can be None (e.g. empty body or literal JSON `null`), so guard before membership test
+        if not request.data or "current_password" not in request.data:
             return True
 
         return super().allow_request(request, view)

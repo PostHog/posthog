@@ -1458,6 +1458,18 @@ class TestUserAPI(APIBaseTest):
             response = self.client.patch("/api/users/@me/", {"organization_name": "new name"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+    @parameterized.expand(
+        [
+            ("empty_body", "", "application/json"),
+            ("null_body", "null", "application/json"),
+        ]
+    )
+    def test_throttle_does_not_crash_on_empty_or_null_body(self, _name, body, content_type):
+        # request.data is None for an empty or literal-null JSON body; the throttle must not crash on it
+        for _ in range(10):
+            response = self.client.patch("/api/users/@me/", data=body, content_type=content_type)
+        self.assertNotEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+
     def test_cannot_delete_user_with_organization_memberships(self):
         user = self._create_user("activeorgmemberships@posthog.com", password="test")
 
