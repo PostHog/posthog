@@ -13752,6 +13752,8 @@ export namespace Schemas {
       readonly last_accessed_at: string | null;
       /** @nullable */
       readonly last_viewed_at: string | null;
+      /** Path of the project-tree folder this dashboard is filed under in the file system, e.g. 'Unfiled/Dashboards'. An empty string means the project root; null means the dashboard has no file system entry. The dashboard's own name is not part of the path. */
+      readonly folder: string;
       readonly is_shared: boolean;
       readonly deleted: boolean;
       readonly creation_mode: CreationModeEnum;
