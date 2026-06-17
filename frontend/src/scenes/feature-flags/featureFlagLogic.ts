@@ -1288,7 +1288,20 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     }
 
                     if (flagType !== 'remote_config') {
-                        const conditionsConfig = values.defaultReleaseConditions
+                        // Default release conditions are loaded fire-and-forget by
+                        // defaultReleaseConditionsLogic.afterMount, which races with this loader.
+                        // Explicitly await the load so the value is populated before we build the
+                        // new flag, otherwise the configured project default is silently dropped.
+                        let conditionsConfig = values.defaultReleaseConditions
+                        try {
+                            conditionsConfig =
+                                (await defaultReleaseConditionsLogic.asyncActions.loadDefaultReleaseConditions()) ??
+                                conditionsConfig
+                        } catch (error) {
+                            // If loading default release conditions fails, fall back to the
+                            // already-loaded value (if any) and continue without defaults.
+                            console.warn('Failed to load default release conditions:', error)
+                        }
                         if (conditionsConfig?.enabled && conditionsConfig.default_groups?.length > 0) {
                             baseFlagConfig = {
                                 ...baseFlagConfig,

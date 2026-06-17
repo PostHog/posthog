@@ -1,4 +1,4 @@
-import { MOCK_DEFAULT_BASIC_USER, MOCK_DEFAULT_PROJECT } from 'lib/api.mock'
+import { MOCK_DEFAULT_BASIC_USER, MOCK_DEFAULT_PROJECT, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
@@ -1134,6 +1134,82 @@ describe('validateFeatureFlagKey', () => {
 
     it('accepts key at exactly 400 characters', () => {
         expect(validateFeatureFlagKey('a'.repeat(400))).toBeUndefined()
+    })
+})
+
+describe('default release conditions for new flags', () => {
+    // Regression test for #63662: the project "Default Release Conditions" setting must be
+    // applied to flags created via the UI. The value is loaded by
+    // defaultReleaseConditionsLogic, and featureFlagLogic must await that load before building
+    // the new-flag form — otherwise the value is still null and the configured default is lost.
+    const DEFAULT_GROUPS = [
+        {
+            properties: [
+                {
+                    key: 'email',
+                    type: PropertyFilterType.Person,
+                    value: 'is_set',
+                    operator: PropertyOperator.IsSet,
+                },
+            ],
+            rollout_percentage: 42,
+            variant: null,
+        },
+    ]
+
+    const mountNewFlag = async (): Promise<ReturnType<typeof featureFlagLogic.build>> => {
+        // Park the router at a non-matching path so the `new`-keyed logic's afterMount takes the
+        // plain `loadFeatureFlag()` branch (no sourceId/type/template/intent prefetch).
+        router.actions.push('/')
+        const newLogic = featureFlagLogic({ id: 'new' })
+        newLogic.mount()
+        await expectLogic(newLogic).toDispatchActions(['loadFeatureFlagSuccess'])
+        return newLogic
+    }
+
+    it('applies configured default release conditions to a new flag', async () => {
+        useMocks({
+            get: {
+                [`/api/environments/${MOCK_TEAM_ID}/default_release_conditions/`]: () => [
+                    200,
+                    { enabled: true, default_groups: DEFAULT_GROUPS },
+                ],
+            },
+        })
+        initKeaTests()
+
+        const newLogic = await mountNewFlag()
+        await expectLogic(newLogic).toMatchValues({
+            featureFlag: partial({
+                filters: partial({
+                    groups: DEFAULT_GROUPS,
+                }),
+            }),
+        })
+        newLogic.unmount()
+    })
+
+    it('does not apply default release conditions when the setting is disabled', async () => {
+        useMocks({
+            get: {
+                [`/api/environments/${MOCK_TEAM_ID}/default_release_conditions/`]: () => [
+                    200,
+                    { enabled: false, default_groups: DEFAULT_GROUPS },
+                ],
+            },
+        })
+        initKeaTests()
+
+        const newLogic = await mountNewFlag()
+        await expectLogic(newLogic).toMatchValues({
+            featureFlag: partial({
+                filters: partial({
+                    // Falls back to NEW_FLAG's default empty group when disabled.
+                    groups: NEW_FLAG.filters.groups,
+                }),
+            }),
+        })
+        newLogic.unmount()
     })
 })
 
