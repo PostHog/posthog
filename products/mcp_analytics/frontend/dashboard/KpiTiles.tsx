@@ -1,8 +1,8 @@
-import { LemonSkeleton, Link } from '@posthog/lemon-ui'
+import { Link } from '@posthog/lemon-ui'
 import { type ChartTheme, MetricCard } from '@posthog/quill-charts'
-import { Card, CardContent } from '@posthog/quill-primitives'
+import { Card, CardContent, Skeleton } from '@posthog/quill-primitives'
 
-import { formatPercentage } from 'lib/utils'
+import { formatPercentage } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
 import { type KPIData, KPIMetric } from '../mcpDashboardOverviewLogic'
@@ -27,8 +27,8 @@ function KPITile({ tile, theme }: { tile: TileSpec; theme: ChartTheme }): JSX.El
             <Card size="sm" className="flex-1 transition-transform group-hover/tile:-translate-y-0.5">
                 {tile.loading ? (
                     <CardContent className="flex flex-col gap-2">
-                        <LemonSkeleton className="h-3 w-16" />
-                        <LemonSkeleton className="h-7 w-20" />
+                        <Skeleton className="h-3 w-16" />
+                        <Skeleton className="h-7 w-20" />
                     </CardContent>
                 ) : (
                     <CardContent>

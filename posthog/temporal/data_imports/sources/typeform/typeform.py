@@ -101,9 +101,19 @@ class TypeformFormsPaginator(BasePaginator):
 
 
 class TypeformResponsesPaginator(BasePaginator):
-    def __init__(self) -> None:
+    """Token-cursor paginator for /forms/{form_id}/responses.
+
+    Typeform rejects mixing `before` token pagination with the `since`/`until` datetime
+    window, so only the first page is windowed; later pages walk back through history via
+    `before`. Without a stop condition that walk re-fetches a form's entire response
+    history on every incremental sync, so when a watermark is known we stop as soon as a
+    whole page is older than it.
+    """
+
+    def __init__(self, stop_when_older_than: str | None = None) -> None:
         super().__init__()
         self._cursor: str | None = None
+        self._stop_when_older_than = stop_when_older_than
 
     def init_request(self, request: Request) -> None:
         self._cursor = None
@@ -122,6 +132,17 @@ class TypeformResponsesPaginator(BasePaginator):
         else:
             self._cursor = None
         self._has_next_page = self._cursor is not None
+
+        # Responses arrive newest-first; once an entire page predates the incremental
+        # watermark, everything further back has already been synced. Timestamps are
+        # RFC3339 UTC strings, so lexicographic comparison is chronological.
+        if self._has_next_page and self._stop_when_older_than is not None:
+            newest_in_page = max(
+                (item.get("submitted_at") or "" for item in data if isinstance(item, dict)),
+                default="",
+            )
+            if newest_in_page < self._stop_when_older_than:
+                self._has_next_page = False
 
     def update_request(self, request: Request) -> None:
         if self._cursor:
@@ -278,6 +299,14 @@ def typeform_source(
     endpoint_config = TYPEFORM_ENDPOINTS[endpoint]
     base_api_url = _validated_api_base_url(api_base_url)
 
+    incremental_watermark: str | None = None
+    if (
+        should_use_incremental_field
+        and db_incremental_field_last_value is not None
+        and (incremental_field or endpoint_config.default_incremental_field) == "submitted_at"
+    ):
+        incremental_watermark = _start_param_for_typeform(db_incremental_field_last_value)
+
     if endpoint_config.fanout:
         dependent_resource = cast(
             Iterable[Any],
@@ -299,7 +328,7 @@ def typeform_source(
                     "data_selector": "items",
                 },
                 child_endpoint_extra={
-                    "paginator": TypeformResponsesPaginator(),
+                    "paginator": TypeformResponsesPaginator(stop_when_older_than=incremental_watermark),
                     "data_selector": "items",
                 },
             ),

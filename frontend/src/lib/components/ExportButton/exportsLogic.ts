@@ -7,9 +7,9 @@ import { TriggerExportProps, downloadBlob, downloadExportedAsset } from 'lib/com
 import { isLongRunningExportFormat } from 'lib/components/ExportButton/exportStatus'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { delay } from 'lib/utils'
+import { delay } from 'lib/utils/async'
 import { newInternalTab } from 'lib/utils/newInternalTab'
-import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import type { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { urls } from 'scenes/urls'
 
 import { cohortsModel } from '~/models/cohortsModel'
@@ -36,6 +36,9 @@ export const pickPollDelayMs = (pendingAssets: ExportedAssetType[]): number => {
 
 const isLocalExport = (context: ExportContext | undefined): context is LocalExportContext =>
     !!(context && 'localData' in context)
+
+// Single source for the per-export toast id so the show and dismiss sites can't drift.
+const exportToastId = (id: number): string => `export-${id}`
 
 export const exportsLogic = kea<exportsLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'exportsLogic']),
@@ -114,20 +117,41 @@ export const exportsLogic = kea<exportsLogicType>([
             actions.createExport({ exportData })
         },
         createExportSuccess: () => {
-            lemonToast.info('Export starting...', {
-                button: {
-                    label: 'View exports',
-                    action: () => newInternalTab(urls.exports()),
-                },
-                autoClose: false,
-            })
             actions.loadExports()
         },
         loadExportsSuccess: async (_, breakpoint) => {
-            // Check if any exports haven't completed
-            const donePolling = exportsLogic.values.exports.every((asset) => asset.has_content || asset.exception)
-            if (!donePolling) {
-                await breakpoint(pickPollDelayMs(exportsLogic.values.exports))
+            // Auto-download (or surface errors for) async exports we kicked off that have now finished.
+            // NB: avoid naming a local `exports` — it shadows the CommonJS module object under
+            // transpilation (jest) and throws a TDZ error.
+            const { exports: exportsList, freshUndownloadedExports } = exportsLogic.values
+            for (const fresh of freshUndownloadedExports) {
+                // The list can be format-filtered (assetFormat), so fetch directly if the tracked export isn't in it.
+                let latest = exportsList.find((asset) => asset.id === fresh.id)
+                if (!latest) {
+                    try {
+                        latest = await api.exports.get(fresh.id)
+                    } catch {
+                        continue
+                    }
+                }
+                if (!latest.has_content && !latest.exception) {
+                    continue
+                }
+                actions.removeFresh(fresh)
+                lemonToast.dismiss(exportToastId(fresh.id))
+                if (latest.has_content) {
+                    await downloadExportedAsset(latest)
+                    lemonToast.success('Export complete!')
+                } else {
+                    lemonToast.error('Export failed: ' + latest.exception)
+                }
+            }
+
+            // Keep polling while the (possibly filtered) list or any tracked async export is still unfinished.
+            const pendingInList = exportsList.some((asset) => !asset.has_content && !asset.exception)
+            const pendingFresh = exportsLogic.values.freshUndownloadedExports.length > 0
+            if (pendingInList || pendingFresh) {
+                await breakpoint(pickPollDelayMs([...exportsList, ...exportsLogic.values.freshUndownloadedExports]))
                 actions.loadExports()
                 return
             }
@@ -230,11 +254,24 @@ export const exportsLogic = kea<exportsLogicType>([
                             const updatedExports = [response, ...currentExports.filter((e) => e.id !== response.id)]
                             actions.loadExportsSuccess(updatedExports)
 
-                            // If this was a blocking export, we should download it now
                             if (response && response.has_content) {
+                                // Blocking export already finished — download and confirm.
                                 await downloadExportedAsset(response)
+                                lemonToast.success('Export complete!')
                             } else if (response && response.exception) {
                                 lemonToast.error('Export failed: ' + response.exception)
+                            } else if (response) {
+                                // Async export (e.g. video render): show a per-export toast that the
+                                // polling loop resolves to success (or error) once the render finishes.
+                                lemonToast.info('Export starting...', {
+                                    toastId: exportToastId(response.id),
+                                    autoClose: false,
+                                    button: {
+                                        label: 'View exports',
+                                        action: () => newInternalTab(urls.exports()),
+                                    },
+                                })
+                                actions.addFresh(response)
                             }
                         } catch (error) {
                             const apiError = error as { data?: APIErrorType }

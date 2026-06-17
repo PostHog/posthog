@@ -1858,13 +1858,16 @@ class TestExperimentService(APIBaseTest):
         flag_variants = dup.feature_flag.filters["multivariate"]["variants"]
         assert len(flag_variants) == 3
 
-    def test_duplicate_experiment_revalidates_source_parameters(self):
-        self._create_flag(key="dup-invalid-source")
+    def test_duplicate_experiment_uses_flag_variants_over_stale_parameters(self):
+        self._create_flag(key="dup-stale-source")
         service = self._service()
         source = service.create_experiment(
-            name="Invalid Source",
-            feature_flag_key="dup-invalid-source",
+            name="Stale Source",
+            feature_flag_key="dup-stale-source",
         )
+        # Drift the stored parameters to an invalid single-variant set. The linked flag
+        # stays the source of truth (control + test), so duplication must ignore the stale
+        # copy and build the new flag from the flag's variants rather than revalidate them.
         Experiment.objects.filter(id=source.id).update(
             parameters={
                 "feature_flag_variants": [
@@ -1874,10 +1877,10 @@ class TestExperimentService(APIBaseTest):
         )
         source.refresh_from_db()
 
-        with self.assertRaises(ValidationError) as ctx:
-            service.duplicate_experiment(source)
+        dup = service.duplicate_experiment(source, feature_flag_key="dup-stale-target")
 
-        assert "at least 2 variants" in str(ctx.exception)
+        assert dup.feature_flag.key == "dup-stale-target"
+        assert [v["key"] for v in dup.feature_flag.variants] == ["control", "test"]
 
     def test_duplicate_experiment_copies_saved_metrics(self):
         self._create_flag(key="dup-saved")

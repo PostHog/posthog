@@ -14,8 +14,7 @@ from django.dispatch import receiver
 from django.utils import timezone
 
 import structlog
-
-from posthog.schema import ProductKey
+from celery.exceptions import SoftTimeLimitExceeded
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, tag_queries
@@ -30,6 +29,7 @@ from posthog.models.person import Person
 from posthog.models.person.util import get_person_by_uuid
 from posthog.models.property import Property, PropertyGroup
 from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
+from posthog.schema_enums import ProductKey
 from posthog.settings.base_variables import TEST
 
 if TYPE_CHECKING:
@@ -455,6 +455,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         batchsize=DEFAULT_COHORT_INSERT_BATCH_SIZE,
         *,
         team_id: int,
+        raise_on_error: bool = False,
     ) -> int:
         """
         Insert a list of users identified by their UUID into the cohort, for the given team.
@@ -463,13 +464,19 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             items: List of user UUIDs to be inserted into the cohort.
             batchsize: Number of UUIDs to process in each batch.
             team_id: The ID of the team to which the cohort belongs.
+            raise_on_error: When True, a batch insert failure is re-raised and terminal
+                cohort state is left for the caller to finalize, instead of being swallowed
+                and recorded on the cohort here. Use when the caller records its own
+                success/failure outcome and must not treat a partial insert as success.
 
         Returns:
             The number of batches processed.
         """
 
         batch_iterator = ArrayBatchIterator(items, batch_size=batchsize)
-        return self._insert_users_list_with_batching(batch_iterator, insert_in_clickhouse=True, team_id=team_id)
+        return self._insert_users_list_with_batching(
+            batch_iterator, insert_in_clickhouse=True, team_id=team_id, raise_on_error=raise_on_error
+        )
 
     def insert_users_by_email(
         self,
@@ -545,6 +552,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         insert_in_clickhouse: bool = False,
         *,
         team_id: int,
+        raise_on_error: bool = False,
     ) -> int:
         """
         Insert a list of users identified by their UUID into the cohort, for the given team.
@@ -622,9 +630,20 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                     """
                     cursor.execute(query, params)
 
+        except SoftTimeLimitExceeded as err:
+            # Let a Celery soft-time-limit interruption propagate so the task's time limit
+            # actually bounds the run. Swallowing it here (as the broad except below would)
+            # leaves the caller's loop running past the limit, since Celery raises it once.
+            # Record it as a processing error so the finally marks the run as failed
+            # rather than a successful calculation.
+            processing_error = err
+            raise
         except Exception as err:
             processing_error = err
-            if settings.DEBUG:
+            # When the caller owns terminal-state finalization (raise_on_error), surface
+            # the failure instead of swallowing it, so a partial insert can't be recorded
+            # as success. The finally block below skips its own error save in this mode.
+            if settings.DEBUG or raise_on_error:
                 raise
             capture_exception(
                 err,
@@ -652,7 +671,11 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                     additional_properties={"cohort_id": self.id, "team_id": team_id},
                 )
 
-            self._safe_save_cohort_state(team_id=team_id, processing_error=processing_error)
+            # In raise_on_error mode the caller finalizes cohort state on failure, so skip
+            # the error save here to avoid double-counting errors_calculating. The success
+            # path (processing_error is None) still finalizes state as usual.
+            if not (raise_on_error and processing_error is not None):
+                self._safe_save_cohort_state(team_id=team_id, processing_error=processing_error)
 
         return current_batch_index + 1
 

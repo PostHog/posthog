@@ -241,11 +241,9 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
         has_repo = ctx.repository is not None
         repository = ctx.repository
 
-        snapshot_resume_disabled = ctx.use_modal_vm_sandbox
-
         snapshot = None
         used_snapshot = False
-        if has_repo and ctx.github_integration_id is not None and not snapshot_resume_disabled:
+        if has_repo and ctx.github_integration_id is not None:
             assert repository is not None
             with StepTimer("snapshot_lookup") as snapshot_lookup_timer:
                 snapshot = SandboxSnapshot.get_latest_snapshot_with_repos(ctx.github_integration_id, [repository])
@@ -294,13 +292,12 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
         environment_variables = _build_environment_variables(ctx, task, github_token, access_token)
 
         run_state = parse_run_state(ctx.state)
-        # When Modal resume snapshots are disabled, ignore any snapshot_external_id
-        # baked into TaskRun state — resume falls back to the agent server's
-        # git-checkpoint flow (POSTHOG_RESUME_RUN_ID continues to be set above).
+        # VM and gVisor both resume from filesystem snapshots. A run's resume
+        # snapshot is taken from the same task's sandbox, so its base image
+        # matches the runtime provisioned here (the earlier disable was for
+        # gVisor memory snapshots, which cannot restore into the VM runtime).
         resume_snapshot_external_id = (
-            run_state.snapshot_external_id
-            if settings.TASKS_USE_MODAL_RESUME_SNAPSHOTS and not snapshot_resume_disabled
-            else None
+            run_state.snapshot_external_id if settings.TASKS_USE_MODAL_RESUME_SNAPSHOTS else None
         )
         if resume_snapshot_external_id:
             used_snapshot = True
@@ -381,6 +378,18 @@ def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cre
             metadata={"task_id": ctx.task_id},
             vm_runtime=use_vm_sandbox,
         )
+
+        # Request a small slice and let the box burst up to the configured size. The decision is
+        # captured once in the context at workflow start, so it's stable across activity retries.
+        if ctx.burstable_sandbox_resources_enabled:
+            config.burstable_resources = True
+            emit_agent_log(
+                ctx.run_id,
+                "debug",
+                f"Burstable resources enabled: requesting {config.cpu_request_cores} CPU / "
+                f"{config.memory_request_mb} MiB, bursting up to {config.cpu_cores} CPU / "
+                f"{int(config.memory_gb * 1024)} MiB",
+            )
 
         # gVisor only — Modal's domain allowlist breaks vm_runtime.
         if ctx.use_modal_network_allowlist and not use_vm_sandbox and ctx.allowed_domains is not None:

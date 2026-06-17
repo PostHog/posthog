@@ -14,6 +14,8 @@ import type {
     CIMDVerificationTokenApi,
     CIMDVerificationTokenWithValueApi,
     CimdVerificationTokensListParams,
+    ContextGenerationApi,
+    ContextGenerationSetApi,
     DesktopFileSystemInstructionsVersionsListParams,
     DesktopFileSystemListParams,
     DesktopFileSystemShortcutListParams,
@@ -1321,6 +1323,45 @@ export const desktopFileSystemDestroy = async (projectId: string, id: string, op
     return apiMutator<void>(getDesktopFileSystemDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getDesktopFileSystemContextGenerationRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/desktop_file_system/${id}/context_generation/`
+}
+
+/**
+ * Return the Task currently generating this folder's CONTEXT.md, or null if none.
+ */
+export const desktopFileSystemContextGenerationRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ContextGenerationApi> => {
+    return apiMutator<ContextGenerationApi>(getDesktopFileSystemContextGenerationRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDesktopFileSystemContextGenerationUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/desktop_file_system/${id}/context_generation/`
+}
+
+/**
+ * Set or clear the Task associated with this folder's CONTEXT.md generation.
+ */
+export const desktopFileSystemContextGenerationUpdate = async (
+    projectId: string,
+    id: string,
+    contextGenerationSetApi: ContextGenerationSetApi,
+    options?: RequestInit
+): Promise<ContextGenerationApi> => {
+    return apiMutator<ContextGenerationApi>(getDesktopFileSystemContextGenerationUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(contextGenerationSetApi),
     })
 }
 

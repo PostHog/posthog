@@ -62,7 +62,7 @@ export const FeatureFlagsListQueryParams = /* @__PURE__ */ zod.object({
             'Filter by the user(s) who created the feature flag. Accepts a single user ID, or a JSON-encoded / comma-separated list of user IDs to match any of them.'
         ),
     evaluation_runtime: zod
-        .enum(['both', 'client', 'server'])
+        .enum(['all', 'client', 'server'])
         .optional()
         .describe('Filter feature flags by their evaluation runtime.'),
     excluded_properties: zod
@@ -395,6 +395,32 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Whether this flag is a remote configuration flag that delivers a payload rather than gating a feature.'
         ),
+    ensure_experience_continuity: zod
+        .boolean()
+        .nullish()
+        .describe(
+            "Whether to persist a user's flag value across the anonymous-to-identified transition (the 'persist across authentication steps' option). Incompatible with device_id bucketing."
+        ),
+    evaluation_runtime: zod
+        .union([
+            zod.enum(['server', 'client', 'all']).describe('* `server` - Server\n* `client` - Client\n* `all` - All'),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            "Where this flag is allowed to evaluate: 'server' (server-side SDKs only), 'client' (client-side SDKs only), or 'all' (both). Defaults to 'all'.\n\n* `server` - Server\n* `client` - Client\n* `all` - All"
+        ),
+    bucketing_identifier: zod
+        .union([
+            zod
+                .enum(['distinct_id', 'device_id'])
+                .describe('* `distinct_id` - User ID (default)\n* `device_id` - Device ID'),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            "Identifier used to bucket users into rollout percentages and variants: 'distinct_id' (user ID, the default) or 'device_id'. Using 'device_id' is incompatible with ensure_experience_continuity=True.\n\n* `distinct_id` - User ID (default)\n* `device_id` - Device ID"
+        ),
 })
 
 /**
@@ -724,6 +750,32 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe(
             'Whether this flag is a remote configuration flag that delivers a payload rather than gating a feature.'
+        ),
+    ensure_experience_continuity: zod
+        .boolean()
+        .nullish()
+        .describe(
+            "Whether to persist a user's flag value across the anonymous-to-identified transition (the 'persist across authentication steps' option). Incompatible with device_id bucketing."
+        ),
+    evaluation_runtime: zod
+        .union([
+            zod.enum(['server', 'client', 'all']).describe('* `server` - Server\n* `client` - Client\n* `all` - All'),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            "Where this flag is allowed to evaluate: 'server' (server-side SDKs only), 'client' (client-side SDKs only), or 'all' (both). Defaults to 'all'.\n\n* `server` - Server\n* `client` - Client\n* `all` - All"
+        ),
+    bucketing_identifier: zod
+        .union([
+            zod
+                .enum(['distinct_id', 'device_id'])
+                .describe('* `distinct_id` - User ID (default)\n* `device_id` - Device ID'),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            "Identifier used to bucket users into rollout percentages and variants: 'distinct_id' (user ID, the default) or 'device_id'. Using 'device_id' is incompatible with ensure_experience_continuity=True.\n\n* `distinct_id` - User ID (default)\n* `device_id` - Device ID"
         ),
 })
 

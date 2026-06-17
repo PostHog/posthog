@@ -37,9 +37,11 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs, now } from 'lib/dayjs'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic, getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
-import { clearDOMTextSelection, getJSHeapMemory, shouldCancelQuery, toParams, uuid } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
+import { clearDOMTextSelection, getJSHeapMemory, uuid } from 'lib/utils/dom'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { shouldCancelQuery } from 'lib/utils/requests'
+import { toParams } from 'lib/utils/url'
 import { BREAKPOINTS, dashboardToSaveableTemplate, getDashboardTileDisplayName } from 'scenes/dashboard/dashboardUtils'
 import { calculateDuplicateLayout, calculateLayouts } from 'scenes/dashboard/tileLayouts'
 import {
@@ -292,6 +294,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
         toggleAddWidgetSelectedType: (widgetType: string) => ({ widgetType }),
         clearAddWidgetSelectedTypes: true,
         addWidgetTileFinished: true,
+        /** One-shot signal asking the view to scroll the dashboard to the bottom (e.g. after adding tiles). */
+        requestScrollToBottom: true,
         /** Update a single refresh status. */
         setRefreshStatus: (shortId: InsightShortId, loading = false, queued = false) => ({ shortId, loading, queued }),
         /** Update multiple refresh statuses. */
@@ -560,6 +564,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     }
                 },
                 removeTile: async ({ tile }) => {
+                    // The reducer drops the tile optimistically; here we only persist and roll back on failure.
                     try {
                         await api.update(`api/environments/${values.currentTeamId}/dashboards/${props.id}`, {
                             tiles: [{ id: tile.id, deleted: true }],
@@ -569,13 +574,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             dashboardId: props.id,
                         })
 
-                        return {
-                            ...values.dashboard,
-                            tiles: values.tiles.filter((t) => t.id !== tile.id),
-                        } as DashboardType<QueryBasedInsightModel>
+                        return values.dashboard
                     } catch (e) {
                         lemonToast.error('Could not remove tile from dashboard: ' + String(e))
-                        return values.dashboard
+                        // Re-insert the tile (its layout puts it back in place) and suppress the undo toast.
+                        cache.removedTileForUndo = undefined
+                        return {
+                            ...values.dashboard,
+                            tiles: [...(values.tiles || []), tile],
+                        } as DashboardType<QueryBasedInsightModel>
                     }
                 },
                 setDashboardMode: async ({ mode, source }) => {
@@ -876,6 +883,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     return {
                         ...state,
                         tiles: state?.tiles?.map((tile) => (tile.id === tileId ? { ...tile, ...properties } : tile)),
+                    } as DashboardType<QueryBasedInsightModel>
+                },
+                removeTile: (state, { tile }) => {
+                    // Optimistically drop the tile so the grid reflows immediately; the loader rolls back on failure.
+                    return {
+                        ...state,
+                        tiles: state?.tiles?.filter((t) => t.id !== tile.id),
                     } as DashboardType<QueryBasedInsightModel>
                 },
                 [dashboardsModel.actionTypes.tileMovedToDashboard]: (state, { tile, dashboardId }) => {
@@ -1310,6 +1324,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 addWidgetTileFinished: () => false,
             },
         ],
+        // Incremented on each scroll-to-bottom request; the view effects on the change.
+        scrollToBottomSignal: [
+            0,
+            {
+                requestScrollToBottom: (state) => state + 1,
+            },
+        ],
         addWidgetModalOpen: [
             false,
             {
@@ -1342,11 +1363,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         canAutoPreview: [
-            (s) => [s.dashboard],
-            (dashboard) => {
+            (s) => [s.insightTiles],
+            (insightTiles) => {
                 const payload = getFeatureFlagPayload(FEATURE_FLAGS.DASHBOARD_AUTO_PREVIEW_LIMIT)
                 const limit = typeof payload === 'number' ? payload : DEFAULT_AUTO_PREVIEW_TILE_LIMIT
-                return (dashboard?.tiles.length || 0) < limit
+                // The limit is about the number of insights on a dashboard (per the flag's intent),
+                // so count insight tiles only — not text, button, or widget tiles.
+                return insightTiles.length < limit
             },
         ],
         hasIntermittentFilters: [
@@ -2565,6 +2588,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     } as DashboardType<InsightModel>)
                     if (dashboard) {
                         dashboardsModel.actions.updateDashboardSuccess(dashboard)
+
+                        // New tiles are stacked at the bottom (backend), so ask the view to scroll
+                        // down once they've rendered to reveal what was just added.
+                        actions.requestScrollToBottom()
                     }
                 }
 

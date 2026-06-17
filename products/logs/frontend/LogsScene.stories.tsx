@@ -3,8 +3,9 @@ import { router } from 'kea-router'
 import { useEffect } from 'react'
 
 import { dayjs } from 'lib/dayjs'
-import { dateStringToDayJs, inStorybookTestRunner, sampleOne, uuid } from 'lib/utils'
-import { deterministicRandom } from 'lib/utils/random'
+import { sampleOne } from 'lib/utils/arrays'
+import { dateStringToDayJs } from 'lib/utils/dateFilters'
+import { inStorybookTestRunner, uuid } from 'lib/utils/dom'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -12,6 +13,22 @@ import { mswDecorator } from '~/mocks/browser'
 import { MockSignature } from '~/mocks/utils'
 import { LogMessage, LogSeverityLevel } from '~/queries/schema/schema-general'
 import { PropertyFilterType } from '~/types'
+
+function createSeededRandom(seed: number): () => number {
+    // LCG constants from Numerical Recipes
+    let m = 0x80000000 // 2^31
+    let a = 1103515245
+    let c = 12345
+
+    let state = seed ? seed : Math.floor(Math.random() * (m - 1))
+
+    return function () {
+        state = (a * state + c) % m
+        return state / m
+    }
+}
+
+const deterministicRandom = createSeededRandom(1234)
 
 const delayIfNotTestRunner = async (): Promise<void> => {
     await new Promise((resolve) => setTimeout(resolve, inStorybookTestRunner() ? 0 : 200 + Math.random() * 1000))

@@ -2,7 +2,7 @@ import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { humanFriendlyDuration } from 'lib/utils'
+import { humanFriendlyDuration } from 'lib/utils/durations'
 
 import { VisualizationBlock } from '~/queries/schema/schema-assistant-artifacts'
 import {
@@ -38,6 +38,7 @@ import { ActionType, DashboardType, EventDefinition, QueryBasedInsightModel } fr
 
 import { Scene } from '../sceneTypes'
 import { MODE_DEFINITIONS } from './max-constants'
+import { EnhancedToolCall } from './max-constants'
 import { SuggestionGroup } from './maxLogic'
 import {
     InsightWithQuery,
@@ -51,7 +52,6 @@ import {
     MaxNotebookContext,
     MaxUIContext,
 } from './maxTypes'
-import { EnhancedToolCall } from './Thread'
 
 export function isMultiVisualizationMessage(
     message: RootAssistantMessage | undefined | null

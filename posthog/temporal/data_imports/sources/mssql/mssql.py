@@ -20,7 +20,6 @@ import structlog
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
-from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.helpers import (
     incremental_type_to_initial_value,
     incremental_type_to_operator,
@@ -41,8 +40,13 @@ from posthog.temporal.data_imports.sources.common.sql import (
     format_projected_select_clause,
     project_arrow_columns,
 )
-from posthog.temporal.data_imports.sources.common.sql.implementation import SQLSourceImplementation, TableStats
+from posthog.temporal.data_imports.sources.common.sql.implementation import (
+    SourceMetadata,
+    SQLSourceImplementation,
+    TableStats,
+)
 from posthog.temporal.data_imports.sources.common.sql.incremental import IncrementalFieldFilter
+from posthog.temporal.data_imports.sources.common.sql.location import normalize_namespace, resolve_source_location
 from posthog.temporal.data_imports.sources.generated_configs import MSSQLSourceConfig
 
 from products.data_warehouse.backend.types import IncrementalFieldType
@@ -54,6 +58,47 @@ __all__ = [
 ]
 
 _IDENTIFIER_QUOTER = BracketIdentifierQuoter()
+
+# Schemas every MSSQL database ships with that never hold user tables. `db_*` covers the
+# fixed database roles (db_owner, db_datareader, …), which also surface as schemas.
+SYSTEM_MSSQL_SCHEMAS = ("sys", "guest", "INFORMATION_SCHEMA")
+
+
+def _non_system_schema_clause(column: str) -> tuple[str, dict[str, str]]:
+    """Predicate excluding MSSQL system schemas + the fixed `db_*` database roles.
+
+    `db[_]%` brackets the `_` so it matches literally (it is a LIKE wildcard otherwise);
+    `%%` survives pymssql's pyformat paramstyle since a params dict is always passed.
+    """
+    params = {f"sys_schema_{index}": name for index, name in enumerate(SYSTEM_MSSQL_SCHEMAS)}
+    placeholders = ", ".join(f"%(sys_schema_{index})s" for index in range(len(SYSTEM_MSSQL_SCHEMAS)))
+    clause = f"{column} NOT IN ({placeholders}) AND {column} NOT LIKE 'db[_]%%'"
+    return clause, params
+
+
+def _unqualified_table(display: str) -> str:
+    """The table part of a qualified `schema.table` (or the whole name if unqualified)."""
+    return display.partition(".")[2] or display
+
+
+def _filter_qualified_tables(
+    all_tables: dict[str, list[tuple[str, str, bool]]], names: list[str]
+) -> dict[str, list[tuple[str, str, bool]]]:
+    """Keep only the requested tables from a qualified (`schema.table`) discovery.
+
+    Matches a qualified name directly; a legacy bare `table` (a pre-migration row whose
+    name isn't qualified yet) matches every discovered `*.table`.
+    """
+    filtered: dict[str, list[tuple[str, str, bool]]] = {}
+    for name in names:
+        if name in all_tables:
+            filtered[name] = all_tables[name]
+            continue
+        if "." not in name:
+            for display, columns in all_tables.items():
+                if display.partition(".")[2] == name:
+                    filtered[display] = columns
+    return filtered
 
 
 def filter_mssql_incremental_fields(
@@ -227,28 +272,52 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
         config: MSSQLSourceConfig,
         names: list[str] | None,
     ) -> dict[str, list[tuple[str, str, bool]]]:
-        params: dict[str, Any] = {"schema": config.schema}
+        """Discover columns per table.
+
+        With a namespace set, lists that one schema and keys by bare table name (the
+        single-schema fast path). With a blank namespace, lists every non-system schema
+        and keys by qualified `schema.table` so duplicate table names stay distinct.
+        """
+        selected_schema = normalize_namespace(config.schema)
+        qualify = selected_schema is None
+
+        params: dict[str, Any] = {}
+        if selected_schema is not None:
+            schema_clause = "table_schema = %(schema)s"
+            params["schema"] = selected_schema
+        else:
+            schema_clause, sys_params = _non_system_schema_clause("table_schema")
+            params.update(sys_params)
+
+        # Single-schema names are bare and can be pushed into SQL; multi-schema names arrive
+        # qualified (`schema.table`), so they're filtered in Python after discovery.
         names_filter = ""
-        if names:
+        if names and not qualify:
             params["names"] = tuple(names)
             names_filter = "AND table_name IN %(names)s"
 
         with conn.cursor(as_dict=False) as cursor:
             cursor.execute(
-                "SELECT table_name, column_name, data_type, is_nullable"
+                "SELECT table_schema, table_name, column_name, data_type, is_nullable"
                 " FROM information_schema.columns"
-                f" WHERE table_schema = %(schema)s {names_filter}"
-                " ORDER BY table_name ASC",
+                f" WHERE {schema_clause} {names_filter}"
+                " ORDER BY table_schema ASC, table_name ASC",
                 params,
             )
 
             schema_list: dict[str, list[tuple[str, str, bool]]] = collections.defaultdict(list)
 
             for row in cursor:
-                if row:
-                    schema_list[row[0]].append((row[1], row[2], row[3] == "YES"))
+                if not row:
+                    continue
+                table_schema, table_name, column_name, data_type, is_nullable = row
+                display = f"{table_schema}.{table_name}" if qualify else table_name
+                schema_list[display].append((column_name, data_type, is_nullable == "YES"))
 
-        return dict(schema_list)
+        columns_by_table = dict(schema_list)
+        if names and qualify:
+            return _filter_qualified_tables(columns_by_table, names)
+        return columns_by_table
 
     def get_primary_keys(
         self,
@@ -260,43 +329,87 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
 
         Permission-sensitive — some MSSQL deployments restrict access to
         `sys.indexes` / `sys.tables`. Swallow and log any failure so
-        schema discovery keeps working without PKs.
+        schema discovery keeps working without PKs. With a blank namespace,
+        scans every non-system schema and keys by qualified `schema.table`.
         """
         result: dict[str, list[str] | None] = dict.fromkeys(tables)
         if not tables:
             return result
 
+        selected_schema = normalize_namespace(config.schema)
+        base_query = """
+            SELECT s.name AS schema_name, t.name AS table_name, c.name AS column_name
+            FROM sys.indexes i
+            JOIN sys.index_columns ic ON i.object_id = ic.object_id AND i.index_id = ic.index_id
+            JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id
+            JOIN sys.tables t ON i.object_id = t.object_id
+            JOIN sys.schemas s ON t.schema_id = s.schema_id
+            WHERE i.is_primary_key = 1
+        """
+        # Bound the scan by table name server-side even in multi-schema mode (where two
+        # schemas can share a name → false positives the `if display in result` guard drops).
+        params: dict[str, Any] = {}
+        if selected_schema is not None:
+            schema_clause = "s.name = %(schema)s"
+            params["schema"] = selected_schema
+            params["names"] = tuple(tables)
+        else:
+            schema_clause, sys_params = _non_system_schema_clause("s.name")
+            params.update(sys_params)
+            params["names"] = tuple({_unqualified_table(table) for table in tables})
+        query = base_query + f" AND {schema_clause} AND t.name IN %(names)s ORDER BY s.name, t.name, ic.key_ordinal"
+
         try:
             with conn.cursor(as_dict=False) as cursor:
-                cursor.execute(
-                    """
-                    SELECT t.name AS table_name, c.name AS column_name
-                    FROM sys.indexes i
-                    JOIN sys.index_columns ic ON i.object_id = ic.object_id AND i.index_id = ic.index_id
-                    JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id
-                    JOIN sys.tables t ON i.object_id = t.object_id
-                    JOIN sys.schemas s ON t.schema_id = s.schema_id
-                    WHERE i.is_primary_key = 1
-                    AND s.name = %(schema)s
-                    AND t.name IN %(names)s
-                    ORDER BY t.name, ic.key_ordinal
-                    """,
-                    {"schema": config.schema, "names": tuple(tables)},
-                )
+                cursor.execute(query, params)
                 rows = cursor.fetchall()
         except Exception as e:
             structlog.get_logger().warning("Failed to detect primary keys for MSSQL schemas", exc_info=e)
             return result
 
         pks: dict[str, list[str]] = collections.defaultdict(list)
-        for table_name, column_name in rows or []:
-            pks[table_name].append(column_name)
-        for table_name, pk_cols in pks.items():
-            result[table_name] = pk_cols
+        for schema_name, table_name, column_name in rows or []:
+            display = f"{schema_name}.{table_name}" if selected_schema is None else table_name
+            if display in result:
+                pks[display].append(column_name)
+        for display, pk_cols in pks.items():
+            result[display] = pk_cols
         return result
 
     def get_incremental_filter(self) -> IncrementalFieldFilter:
         return filter_mssql_incremental_fields
+
+    def get_source_metadata(
+        self,
+        conn: pymssql.Connection,
+        config: MSSQLSourceConfig,
+        tables: list[str],
+    ) -> SourceMetadata:
+        """Per-table catalog/schema/table-name overrides for the qualified display names.
+
+        `catalog` is the connected database (display only); `schema` is the source
+        namespace; `table` is unqualified. Persisted into `schema_metadata` so per-row
+        sync routes to the right namespace without re-querying the catalog.
+        """
+        selected_schema = normalize_namespace(config.schema)
+        catalog_by_table: dict[str, str | None] = {}
+        schema_by_table: dict[str, str | None] = {}
+        table_name_by_table: dict[str, str | None] = {}
+        for display in tables:
+            schema: str | None
+            if selected_schema is None and "." in display:
+                schema, _, table = display.partition(".")
+            else:
+                schema = selected_schema
+                table = display
+            catalog_by_table[display] = config.database
+            schema_by_table[display] = schema
+            table_name_by_table[display] = table
+        return SourceMetadata(
+            catalog_by_table=catalog_by_table,
+            schema_by_table=schema_by_table,
+            table_name_by_table=table_name_by_table,
+        )
 
     def get_leading_index_columns(
         self,
@@ -325,27 +438,39 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
 
         result: dict[str, set[str]] = {table: set() for table in tables}
 
+        selected_schema = normalize_namespace(config.schema)
+        base_query = """
+            SELECT s.name AS schema_name, t.name AS table_name, c.name AS column_name
+            FROM sys.indexes i
+            JOIN sys.index_columns ic ON i.object_id = ic.object_id AND i.index_id = ic.index_id
+            JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id
+            JOIN sys.tables t ON i.object_id = t.object_id
+            JOIN sys.schemas s ON t.schema_id = s.schema_id
+            WHERE ic.key_ordinal = 1
+              AND ic.is_included_column = 0
+              AND i.has_filter = 0
+              AND i.is_disabled = 0
+        """
+        # Bound the scan by table name server-side even in multi-schema mode; the
+        # `if display in result` guard drops any same-name false positives.
+        params: dict[str, Any] = {}
+        if selected_schema is not None:
+            schema_clause = "s.name = %(schema)s"
+            params["schema"] = selected_schema
+            params["names"] = tuple(tables)
+        else:
+            schema_clause, sys_params = _non_system_schema_clause("s.name")
+            params.update(sys_params)
+            params["names"] = tuple({_unqualified_table(table) for table in tables})
+        query = base_query + f" AND {schema_clause} AND t.name IN %(names)s"
+
         try:
             with conn.cursor(as_dict=False) as cursor:
-                cursor.execute(
-                    """
-                    SELECT t.name AS table_name, c.name AS column_name
-                    FROM sys.indexes i
-                    JOIN sys.index_columns ic ON i.object_id = ic.object_id AND i.index_id = ic.index_id
-                    JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id
-                    JOIN sys.tables t ON i.object_id = t.object_id
-                    JOIN sys.schemas s ON t.schema_id = s.schema_id
-                    WHERE ic.key_ordinal = 1
-                      AND ic.is_included_column = 0
-                      AND i.has_filter = 0
-                      AND i.is_disabled = 0
-                      AND s.name = %(schema)s
-                      AND t.name IN %(names)s
-                    """,
-                    {"schema": config.schema, "names": tuple(tables)},
-                )
-                for table_name, column_name in cursor.fetchall() or []:
-                    result.setdefault(table_name, set()).add(column_name)
+                cursor.execute(query, params)
+                for schema_name, table_name, column_name in cursor.fetchall() or []:
+                    display = f"{schema_name}.{table_name}" if selected_schema is None else table_name
+                    if display in result:
+                        result[display].add(column_name)
         except Exception as e:
             structlog.get_logger().warning("Failed to detect leading index columns for MSSQL schemas", exc_info=e)
             return None
@@ -473,6 +598,13 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
             # sp_spaceused returns: name, rows, reserved, data, index_size, unused
             _, total_rows, _, data_size, _, _ = result
 
+            # Views (and other storage-less objects) return NULL for rows/data
+            # from sp_spaceused. Treat that as "no stats available" and fall
+            # back to safe defaults rather than crashing on int(None).
+            if total_rows is None or data_size is None:
+                logger.debug("fetch_table_stats: sp_spaceused returned NULL row count or data size")
+                return None
+
             total_rows = int(total_rows)
 
             # Parse size with unit (e.g. "1024.45 MB" -> 1024.45, "MB")
@@ -562,11 +694,19 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
     # ------------------------------------------------------------------
 
     def build_pipeline(self, config: MSSQLSourceConfig, inputs: SourceInputs) -> SourceResponse:
-        table_name = inputs.schema_name
+        # Resolve the per-row namespace + table from `schema_metadata` (multi-schema) or the
+        # config namespace (legacy single-schema). `response_name` keeps the legacy Delta path.
+        # No fallback namespace: every real source either has a config schema or carries
+        # per-row metadata, so a missing schema means a genuinely broken row — fail loudly
+        # rather than guess a namespace and sync the wrong table.
+        location = resolve_source_location(inputs, config_namespace=config.schema)
+        schema = location.schema
+        table_name = location.table_name
         if not table_name:
             raise ValueError("Table name is missing")
+        if not schema:
+            raise ValueError("Schema is missing")
 
-        schema = config.schema
         logger = inputs.logger
         should_use_incremental_field = inputs.should_use_incremental_field
         incremental_field = inputs.incremental_field
@@ -636,10 +776,8 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
 
                         yield table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
 
-        name = NamingConvention.normalize_identifier(table_name)
-
         return SourceResponse(
-            name=name,
+            name=location.response_name,
             items=get_rows,
             primary_keys=primary_keys,
             partition_count=partition_settings.partition_count if partition_settings else None,

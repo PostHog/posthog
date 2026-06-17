@@ -1,12 +1,18 @@
+import copy
 import json
-from typing import Any, Literal, Optional, cast
+import graphlib
+from datetime import date
+from typing import Any, Literal, NamedTuple, Optional, cast
 from urllib.parse import urlparse
 
+import structlog
+from jsonpath_ng.exceptions import JSONPathError
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 from requests import Response
 from urllib3.util.retry import Retry
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -20,10 +26,18 @@ from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleS
 from posthog.temporal.data_imports.sources.common.http import make_tracked_session
 from posthog.temporal.data_imports.sources.common.mixins import _is_host_safe
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
-from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resource
+from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
 from posthog.temporal.data_imports.sources.common.rest_source.auth import auth_secret_values
-from posthog.temporal.data_imports.sources.common.rest_source.config_setup import create_auth
-from posthog.temporal.data_imports.sources.common.rest_source.utils import resolve_request_url
+from posthog.temporal.data_imports.sources.common.rest_source.config_setup import (
+    build_resource_dependency_graph,
+    create_auth,
+)
+from posthog.temporal.data_imports.sources.common.rest_source.typing import (
+    EndpointResource,
+    EndpointResourceBase,
+    ResolvedParam,
+)
+from posthog.temporal.data_imports.sources.common.rest_source.utils import exclude_keys, resolve_request_url
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import CustomSourceConfig
 from posthog.temporal.data_imports.util import NonRetryableException
@@ -33,6 +47,8 @@ from products.data_warehouse.backend.types import ExternalDataSourceType, Increm
 # Credential keys that must NOT appear inline in the manifest — they belong in
 # the dedicated secret `auth_*` config fields so the API layer can redact them.
 INLINE_SECRET_KEYS = ("token", "api_key", "password")
+
+logger = structlog.get_logger(__name__)
 
 # Outbound create-time probe tunables. The probe runs inline on the API request
 # thread, the same as business_knowledge's URL fetch, so it borrows that feature's
@@ -139,12 +155,16 @@ class _Manifest(BaseModel):
         return self
 
 
-def validate_manifest(manifest: Any) -> None:
-    """Validate the structural shape of a user-provided REST API manifest.
+def validate_manifest_structure(manifest: Any) -> None:
+    """Validate only the structural shape of a manifest, via the
+    :class:`_Manifest` schema.
 
-    Delegates to the :class:`_Manifest` schema. The safety of any URLs in
-    the manifest is checked separately by :func:`validate_manifest_urls`,
-    which needs the team_id for cloud-vs-self-hosted handling.
+    This is the validation level used on sync and schema-listing reads of
+    already-stored manifests: it must stay permissive enough that tightening
+    the rules can never brick a deployed source's syncs. Graph-level fan-out
+    errors are checked separately by :func:`_validate_resource_graph` on the
+    API validation paths (`validate_credentials`), and per-schema at sync time
+    by :func:`_fanout_chain`.
     """
     if not isinstance(manifest, dict):
         raise ManifestValidationError("Manifest must be a JSON object")
@@ -152,6 +172,108 @@ def validate_manifest(manifest: Any) -> None:
         _Manifest.model_validate(manifest)
     except ValidationError as exc:
         raise ManifestValidationError(_format_validation_errors(exc)) from exc
+
+
+def _validate_resource_graph(manifest: dict[str, Any]) -> dict[str, Optional[ResolvedParam]]:
+    """Surface parent/child fan-out errors at create-time instead of first sync.
+
+    Reuses the REST engine's own :func:`build_resource_dependency_graph` so the
+    rules can't drift from what the engine enforces at runtime: a child's
+    ``type: "resolve"`` param must reference a resource that exists, must be
+    bound in the path (``/forms/{form_id}/responses`` — query-param resolve is
+    not supported by the engine), at most one resolve param per resource, and no
+    dependency cycles (forced by ``static_order``). The graph builder mutates the
+    resources it inspects (binds path params), so it runs on a deep copy and
+    never touches the stored manifest.
+
+    On top of the engine's rules, nesting is capped at one level: a parent must
+    itself be top-level. The engine supports deeper chains, but each extra level
+    multiplies the per-sync request volume by the parent's row count and every
+    ancestor full-scans on every run — and no shipped fan-out source (PostHog
+    built-ins, or any of Airbyte's declarative connectors) uses more than one
+    level. Starting strict is deliberately cheap to relax later; loosening the
+    cap is backwards-compatible, tightening it would break stored manifests.
+
+    Returns the engine's parent-resolution map (resource name -> resolve param,
+    ``None`` for top-level resources) so callers that need it — the probe's
+    child filter — don't rebuild the graph.
+    """
+    try:
+        graph, resource_map, resolved = _build_resource_graph(manifest)
+        list(graph.static_order())
+    except KeyError as exc:
+        # A resolve param missing "resource"/"field" raises KeyError from deep
+        # inside the engine — surface it as a validation error, not a 500.
+        raise ManifestValidationError(f"A resolve param is missing the required key {exc}") from exc
+    except JSONPathError as exc:
+        # The resolve param's "field" is a JSONPath, compiled inside the engine;
+        # a malformed expression raises a bare-Exception subclass.
+        raise ManifestValidationError(f"A resolve param's field is not a valid JSONPath: {exc}") from exc
+    except graphlib.CycleError as exc:
+        # str(CycleError) is the raw args tuple — render the cycle readably.
+        cycle = exc.args[1] if len(exc.args) > 1 else []
+        rendered = " -> ".join(str(name) for name in cycle)
+        raise ManifestValidationError(f"Resources form a dependency cycle: {rendered}") from exc
+    except (ValueError, NotImplementedError) as exc:
+        raise ManifestValidationError(str(exc)) from exc
+
+    client = manifest.get("client")
+    base_url = client.get("base_url") if isinstance(client, dict) else None
+    for name, resolved_param in resolved.items():
+        if resolved_param is None:
+            continue
+        parent = resolved_param.resolve_config["resource"]
+        if resolved.get(parent) is not None:
+            raise ManifestValidationError(
+                f"Resource {name!r} depends on {parent!r}, which itself depends on another resource — "
+                "a resource can only depend on a top-level resource (one level of nesting)"
+            )
+        # The parent placeholder is filled with uncontrolled upstream data at
+        # sync time, then the engine resolves the path against base_url. A
+        # placeholder positioned where it can supply the URL's authority lets that
+        # parent value redirect the authenticated request — and its credential —
+        # off base_url: a leading placeholder (`{form_id}/...`) can be a full
+        # `https://attacker/...`, and a literal scheme prefix (`https:{form_id}`)
+        # lets `//attacker/...` take over the authority. Neither the create-time
+        # host validator nor the update retarget guard can see this — they only
+        # ever inspect the literal placeholder. The path comes from `resource_map`
+        # (defaults merged, scalar params already bound), so only the resolve
+        # placeholder survives in the same string the request is built from.
+        endpoint = resource_map[name].get("endpoint")
+        path = endpoint.get("path", "") if isinstance(endpoint, dict) else ""
+        if (
+            isinstance(path, str)
+            and isinstance(base_url, str)
+            and _placeholder_escapes_base(path, resolved_param.param_name, base_url)
+        ):
+            raise ManifestValidationError(
+                f"Resource {name!r}: the parent placeholder {{{resolved_param.param_name}}} must sit within the path "
+                "of the base URL (e.g. /forms/{form_id}/responses) — it must not start the path or follow a scheme "
+                "like 'https:', so the bound parent value can't redirect the request off the manifest's base URL"
+            )
+    return resolved
+
+
+def _validate_incremental_configs(manifest: dict[str, Any]) -> None:
+    """Reject incremental config values that would deterministically crash at sync time.
+
+    The structural schema doesn't model ``endpoint.incremental``, so a hand-authored
+    non-string ``datetime_format`` would otherwise only surface mid-sync, and only
+    from the second sync onward (formatting needs a stored watermark).
+    """
+    for resource in manifest.get("resources") or []:
+        if not isinstance(resource, dict):
+            continue
+        endpoint = resource.get("endpoint")
+        incremental = endpoint.get("incremental") if isinstance(endpoint, dict) else None
+        if not isinstance(incremental, dict):
+            continue
+        datetime_format = incremental.get("datetime_format")
+        if datetime_format is not None and not isinstance(datetime_format, str):
+            raise ManifestValidationError(
+                f"Resource {resource.get('name')!r}: endpoint.incremental.datetime_format must be a string "
+                'strftime pattern (e.g. "%Y-%m-%dT%H:%M:%SZ")'
+            )
 
 
 def _format_validation_errors(exc: ValidationError) -> str:
@@ -297,6 +419,43 @@ def _url_hostname(url: str) -> str | None:
     return urlparse(normalized).hostname
 
 
+# Probe values substituted for a fan-out child's resolve placeholder to test
+# whether uncontrolled parent data bound there could move the request — and the
+# credential — off base_url's host. Each models a different escape technique: a
+# full absolute URL (placeholder is the first/only path segment), an
+# authority-only value (a literal ``scheme:`` prefix lets ``//host`` take over),
+# and a bare host (placeholder sits in the authority of a ``scheme://`` prefix).
+# The ``.invalid`` TLD never resolves and this is a pure string check — no I/O.
+_PLACEHOLDER_ESCAPE_SENTINELS = ("https://sentinel.invalid/x", "//sentinel.invalid/x", "sentinel.invalid")
+
+
+def _placeholder_escapes_base(path: str, param_name: str, base_url: str) -> bool:
+    """True if binding the resolve placeholder ``{param_name}`` in ``path`` could
+    move the request to a host other than ``base_url``'s.
+
+    The placeholder is filled with uncontrolled upstream data at sync time, then
+    the engine resolves the path against ``base_url`` exactly as
+    :func:`resolve_request_url` does. We substitute attacker-shaped sentinels for
+    the placeholder and check whether any resolves to a different host — catching
+    not just a leading placeholder (``{form_id}/responses``) but a literal
+    ``scheme:`` prefix that lets the bound value supply the authority
+    (``https:{form_id}/responses`` with ``form_id="//attacker/x"`` resolves to the
+    attacker host). A position that keeps the placeholder strictly inside the path
+    (``/forms/{form_id}/responses``) leaves the host unchanged and passes.
+    """
+    base_host = _url_hostname(base_url)
+    if not base_host:
+        # A base_url with no host is rejected separately by validate_manifest_urls;
+        # don't raise a confusing placeholder error for it here.
+        return False
+    placeholder = "{" + param_name + "}"
+    for sentinel in _PLACEHOLDER_ESCAPE_SENTINELS:
+        probed = path.replace(placeholder, sentinel)
+        if _url_hostname(resolve_request_url(base_url, probed)) != base_host:
+            return True
+    return False
+
+
 @SourceRegistry.register
 class CustomSource(SimpleSource[CustomSourceConfig]):
     """User-defined REST API source.
@@ -322,6 +481,7 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.CUSTOM,
+            category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Custom REST source",
             releaseStatus=ReleaseStatus.ALPHA,
             caption=(
@@ -391,7 +551,12 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             manifest = json.loads(config.manifest_json)
         except json.JSONDecodeError as exc:
             raise ManifestValidationError(f"Manifest is not valid JSON: {exc.msg} (line {exc.lineno}, col {exc.colno})")
-        validate_manifest(manifest)
+        # Structural validation only — no resource-graph checks. This runs on
+        # every sync and schema listing of already-stored manifests, so a
+        # graph problem on one resource must not take down the source's other
+        # schemas (graph rules are enforced on the API validation paths in
+        # `validate_credentials`, and per-schema at sync time in `_fanout_chain`).
+        validate_manifest_structure(manifest)
         _inject_auth_secrets(manifest, config)
         return manifest
 
@@ -400,6 +565,15 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
     ) -> tuple[bool, str | None]:
         try:
             manifest = self._assemble_manifest(config)
+            # Graph-level fan-out rules apply on every validation path —
+            # including updates that don't touch the manifest and schema-scoped
+            # read checks. Builder-authored manifests are always graph-valid,
+            # so a stored manifest tripping this means hand-authored JSON that
+            # never synced; failing the API call with a pointed message is
+            # preferable to carrying a permanent leniency mode. The returned
+            # map feeds the probe's child filter below.
+            resolved = _validate_resource_graph(manifest)
+            _validate_incremental_configs(manifest)
         except ManifestValidationError as exc:
             return False, str(exc)
 
@@ -438,7 +612,14 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             allow_redirects=False,
         )
 
-        for resource in manifest["resources"][:PROBE_MAX_RESOURCES]:
+        # Fan-out child resources bind a parent row's field into their path
+        # (`/forms/{form_id}/responses`), so they can't be reached without first
+        # fetching a parent — skip them. Auth is shared across resources, so the
+        # top-level resources still validate the credential. The engine's own
+        # dependency map (not a local copy of its resolve-param detection) tells
+        # us which resources are children.
+        probeable = [resource for resource in manifest["resources"] if resolved.get(resource.get("name")) is None]
+        for resource in probeable[:PROBE_MAX_RESOURCES]:
             endpoint = resource.get("endpoint", {})
             method = (endpoint.get("method") or "GET").upper()
             path = endpoint.get("path", "")
@@ -512,33 +693,47 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             if not ok:
                 raise ManifestValidationError(err or "Manifest URL validation failed")
 
-            chosen = next(
-                (r for r in manifest["resources"] if isinstance(r, dict) and r.get("name") == inputs.schema_name),
-                None,
+            # The resources to run for this schema: the chosen resource plus,
+            # when it's a fan-out child, its ancestor chain (root first) — see
+            # `_fanout_chain` for the full rationale. Ancestors are stripped of
+            # incremental config so the run's high-watermark — which belongs to
+            # the chosen resource — can't be misapplied to a parent and silently
+            # drop parent rows (and with them their children); they full-scan
+            # every run, matching the built-in fan-out sources (Typeform/Sentry).
+            chain = _fanout_chain(manifest, inputs.schema_name)
+            chosen = chain.child
+            engine_resources = [
+                *(_without_incremental_config(r) for r in chain.ancestors),
+                _strip_engine_unsupported_incremental_keys(chain.child),
+            ]
+            engine_manifest = cast(RESTAPIConfig, {**manifest, "resources": engine_resources})
+
+            # The engine serializes a datetime watermark via str() (space-separated),
+            # which strict APIs reject — format it to the declared wire format first.
+            last_value = inputs.db_incremental_field_last_value if inputs.should_use_incremental_field else None
+            last_value = _format_incremental_cursor(last_value, chosen)
+
+            # Inside the try block: the engine raises deterministic ValueErrors at
+            # build time for config problems the create-time checks can't see
+            # (e.g. `include_from_parent` on a resource with no resolve param).
+            resources = rest_api_resources(
+                engine_manifest,
+                team_id=inputs.team_id,
+                job_id=inputs.job_id,
+                db_incremental_field_last_value=last_value,
             )
-            if chosen is None:
-                raise ValueError(f"Resource {inputs.schema_name!r} not found in config")
         except ValueError as exc:
-            # A malformed manifest or a missing resource is a permanent,
-            # deterministic failure — retrying the sync cannot fix it. Raise
-            # NonRetryableException (the only type Temporal treats as
-            # non-retryable for this activity) so the job fails fast instead of
-            # burning the whole retry budget on an error that will always recur.
+            # A malformed manifest, a missing resource, or a broken parent
+            # reference is a permanent, deterministic failure — retrying the sync
+            # cannot fix it. Raise NonRetryableException (the only type Temporal
+            # treats as non-retryable for this activity) so the job fails fast
+            # instead of burning the whole retry budget on an error that will
+            # always recur.
             raise NonRetryableException(str(exc)) from exc
 
-        single_resource_manifest = cast(
-            RESTAPIConfig,
-            {**manifest, "resources": [_strip_engine_unsupported_incremental_keys(chosen)]},
-        )
-
-        resource = rest_api_resource(
-            single_resource_manifest,
-            team_id=inputs.team_id,
-            job_id=inputs.job_id,
-            db_incremental_field_last_value=(
-                inputs.db_incremental_field_last_value if inputs.should_use_incremental_field else None
-            ),
-        )
+        resource = next((r for r in resources if getattr(r, "name", None) == inputs.schema_name), None)
+        if resource is None:
+            raise NonRetryableException(f"Resource {inputs.schema_name!r} was not produced by the REST engine")
 
         primary_key = chosen.get("primary_key")
         primary_keys: list[str] | None
@@ -563,7 +758,12 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         # finish within one worker window. A proper fix would slice the cursor into
         # windows with per-window state (cf. Airbyte's DatetimeBasedCursor), which
         # the generic engine doesn't support today.
-        sort_mode: SortMode = "desc" if chosen.get("sort_mode") == "desc" else "asc"
+        #
+        # Fan-out children always get the deferred-commit ("desc") behavior: their
+        # rows arrive grouped per parent, never globally cursor-ascending, so an
+        # "asc" per-batch commit after an interruption would set the watermark past
+        # later parents' older rows and permanently skip them.
+        sort_mode: SortMode = "desc" if (chain.is_fanout_child or chosen.get("sort_mode") == "desc") else "asc"
 
         return SourceResponse(
             name=inputs.schema_name,
@@ -649,11 +849,36 @@ def _incremental_field_type(raw: Any) -> IncrementalFieldType:
 
 
 # Keys the Custom source understands on ``endpoint.incremental`` that the generic
-# REST engine's ``Incremental(**config)`` constructor does NOT accept. They inform
-# how the cursor is typed (see ``_incremental_field_type``) but must be removed
-# before the engine builds its incremental tracker, or it raises an unexpected
-# keyword-argument error at sync setup.
-_ENGINE_UNSUPPORTED_INCREMENTAL_KEYS = frozenset({"cursor_type"})
+# REST engine's ``Incremental(**config)`` constructor does NOT accept. They must be
+# removed before the engine builds its incremental tracker, or it raises an
+# unexpected keyword-argument error at sync setup.
+_ENGINE_UNSUPPORTED_INCREMENTAL_KEYS = frozenset({"cursor_type", "datetime_format"})
+
+
+def _format_incremental_cursor(value: Any, chosen: dict[str, Any]) -> Any:
+    """Render a datetime/date high-watermark as a string for the REST engine.
+
+    The engine binds the watermark via ``str()``, whose space-separated datetime
+    rendering strict APIs (e.g. Typeform) reject. The resource's
+    ``endpoint.incremental.datetime_format`` strftime pattern controls the wire
+    format, defaulting to ISO-8601; non-datetime cursors pass through untouched.
+
+    A non-string ``datetime_format`` raises ``ManifestValidationError`` (non-retryable)
+    instead of strftime's ``TypeError``, which Temporal would retry — a backstop for
+    manifests stored before ``_validate_incremental_configs`` existed.
+    """
+    # `datetime` is a subclass of `date`, so this matches both.
+    if not isinstance(value, date):
+        return value
+    endpoint = chosen.get("endpoint")
+    incremental = endpoint.get("incremental") if isinstance(endpoint, dict) else None
+    datetime_format = incremental.get("datetime_format") if isinstance(incremental, dict) else None
+    if datetime_format is not None and not isinstance(datetime_format, str):
+        raise ManifestValidationError(
+            f"Resource {chosen.get('name')!r}: endpoint.incremental.datetime_format must be a string "
+            'strftime pattern (e.g. "%Y-%m-%dT%H:%M:%SZ")'
+        )
+    return value.strftime(datetime_format) if datetime_format else value.isoformat()
 
 
 def _strip_engine_unsupported_incremental_keys(resource: dict[str, Any]) -> dict[str, Any]:
@@ -666,8 +891,112 @@ def _strip_engine_unsupported_incremental_keys(resource: dict[str, Any]) -> dict
     incremental = endpoint.get("incremental")
     if not isinstance(incremental, dict) or not _ENGINE_UNSUPPORTED_INCREMENTAL_KEYS.intersection(incremental):
         return resource
-    cleaned = {k: v for k, v in incremental.items() if k not in _ENGINE_UNSUPPORTED_INCREMENTAL_KEYS}
+    cleaned = exclude_keys(incremental, _ENGINE_UNSUPPORTED_INCREMENTAL_KEYS)
     return {**resource, "endpoint": {**endpoint, "incremental": cleaned}}
+
+
+def _build_resource_graph(
+    manifest: dict[str, Any],
+) -> tuple[Any, dict[str, EndpointResource], dict[str, Optional[ResolvedParam]]]:
+    """Run the REST engine's dependency-graph builder on a deep copy of the
+    manifest. The builder binds path params in place, so it must never see the
+    stored manifest's resources — hence the copy.
+    """
+    return build_resource_dependency_graph(
+        cast(EndpointResourceBase, copy.deepcopy(manifest.get("resource_defaults") or {})),
+        cast("list[str | EndpointResource]", copy.deepcopy(manifest["resources"])),
+    )
+
+
+class FanoutChain(NamedTuple):
+    """The resources a schema's sync hands the engine: the chosen resource plus
+    its fan-out ancestors (root first). The single source of truth for whether
+    the chosen resource is a fan-out child — callers must not re-derive that
+    from names or chain length."""
+
+    ancestors: list[dict[str, Any]]
+    child: dict[str, Any]
+
+    @property
+    def is_fanout_child(self) -> bool:
+        return bool(self.ancestors)
+
+
+def _fanout_chain(manifest: dict[str, Any], chosen_name: str) -> FanoutChain:
+    """The :class:`FanoutChain` for ``chosen_name``: its fan-out ancestors
+    (root first) plus ``chosen`` itself; a top-level resource has no ancestors.
+
+    We pass this subset, not the whole manifest, on purpose. The engine is lazy —
+    resources it builds but we never iterate issue no requests — but it still
+    runs ``setup_incremental_object`` for every resource it's given at build time,
+    so an unrelated resource's config error would otherwise sink this schema's
+    sync. Subsetting also lets the caller full-scan the ancestors (via
+    ``_without_incremental_config``) so the child's high-watermark isn't
+    misapplied to a parent. The parent graph comes from the engine's own
+    ``build_resource_dependency_graph``, so resolve-param detection isn't
+    re-implemented here.
+
+    Raises ``ValueError`` when ``chosen_name`` isn't in the manifest.
+    """
+    by_name: dict[str, dict[str, Any]] = {
+        r["name"]: r for r in manifest["resources"] if isinstance(r, dict) and isinstance(r.get("name"), str)
+    }
+    chosen = by_name.get(chosen_name)
+    if chosen is None:
+        raise ValueError(f"Resource {chosen_name!r} not found in config")
+    try:
+        _, _, resolved = _build_resource_graph(manifest)
+    except (ValueError, NotImplementedError, KeyError, JSONPathError) as exc:
+        # Graph rules are enforced at create/update time, but a stored manifest
+        # can predate them. A graph error on an UNRELATED resource must not sink
+        # this schema's sync — fall back to handing the engine just the chosen
+        # resource (the pre-fan-out behavior). If the chosen resource itself is
+        # the broken one, the engine rejects it at build time with the
+        # underlying error, which the caller converts to a non-retryable failure.
+        # Logged so the size of the predates-the-rules population is measurable;
+        # once this stops firing in production the fallback can be deleted.
+        logger.warning(
+            "custom_source_fanout_graph_fallback",
+            schema_name=chosen_name,
+            error=str(exc),
+        )
+        return FanoutChain(ancestors=[], child=chosen)
+    ancestor_names: list[str] = []
+    seen: set[str] = {chosen_name}
+    current = chosen_name
+    while (resolved_param := resolved.get(current)) is not None:
+        parent_name = resolved_param.resolve_config["resource"]
+        if parent_name in seen:
+            # The graph builder itself doesn't reject cycles (only the
+            # create-time `static_order` check does), so a stored manifest can
+            # still carry one — fail loudly rather than loop or truncate.
+            raise ValueError(f"Resource {chosen_name!r} is part of a dependency cycle")
+        ancestor_names.append(parent_name)
+        seen.add(parent_name)
+        current = parent_name
+    return FanoutChain(ancestors=[by_name[name] for name in reversed(ancestor_names)], child=chosen)
+
+
+def _without_incremental_config(resource: dict[str, Any]) -> dict[str, Any]:
+    """Return a copy of ``resource`` with every incremental form removed.
+
+    The engine builds an incremental tracker from EITHER ``endpoint.incremental``
+    OR a params-style ``{"type": "incremental", ...}`` spec (see the engine's
+    ``setup_incremental_object``) — both must go, or the run's high-watermark
+    would still be injected into this resource's start param.
+    """
+    endpoint = resource.get("endpoint")
+    if not isinstance(endpoint, dict):
+        return resource
+    cleaned = exclude_keys(endpoint, {"incremental"})
+    params = cleaned.get("params")
+    if isinstance(params, dict):
+        cleaned["params"] = {
+            key: value
+            for key, value in params.items()
+            if not (isinstance(value, dict) and value.get("type") == "incremental")
+        }
+    return {**resource, "endpoint": cleaned}
 
 
 def _schema_from_resource(resource: dict[str, Any]) -> SourceSchema:

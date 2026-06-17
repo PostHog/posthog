@@ -4,7 +4,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { LemonTab } from 'lib/lemon-ui/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'

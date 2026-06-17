@@ -493,9 +493,10 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             expect(update!.params[0]).toEqual(['job-batch'])
         })
 
-        it('sets conversionMatched on top-level state when workflow conversion event fires', async () => {
+        it('sets conversionMatched and wakes the job when an exit_on_conversion goal fires', async () => {
             const flow = makeHogFlow({
                 id: 'flow-1',
+                exit_condition: 'exit_on_conversion',
                 conversion: {
                     events: [
                         {
@@ -526,6 +527,46 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             const update = matcher.calls.find((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))
             const newState = parseJSON(update!.params[1][0].toString('utf-8')) as any
             expect(newState.state.conversionMatched).toBe(true)
+        })
+
+        it('does not wake on a conversion match when the workflow does not exit on conversion', async () => {
+            // A conversion goal on an `exit_only_at_end` workflow is measurement-only: the conversion
+            // event must NOT wake/resume the job (which would run its next step early, e.g. cut a
+            // delay short). The conversion event matches but no UPDATE is produced.
+            const flow = makeHogFlow({
+                id: 'flow-1',
+                exit_condition: 'exit_only_at_end',
+                conversion: {
+                    events: [
+                        {
+                            filters: {
+                                bytecode: eventBytecode('wuc_cancelled'),
+                                events: [{ id: 'wuc_cancelled', name: 'wuc_cancelled', type: 'events', order: 0 }],
+                            },
+                        },
+                    ],
+                } as any,
+            } as any)
+            // Event matches the conversion goal but not the wait step, so the only thing that could
+            // wake the job is the conversion — which must be suppressed for exit_only_at_end.
+            matcher.findRows = [
+                {
+                    id: 'job-c',
+                    team_id: 1,
+                    function_id: 'flow-1',
+                    action_id: 'wait_node',
+                    distinct_id: 'user-1',
+                    person_id: null,
+                },
+            ]
+            matcher.wakeRows = [{ ...matcher.findRows[0], state: stateBuffer({ currentAction: { id: 'wait_node' } }) }]
+            matcher.updateRowCount = 1
+            matcher.setHogFlows({ 'flow-1': flow })
+
+            await matcher.runWake([makeGlobals({ event: { ...makeGlobals({}).event, event: 'wuc_cancelled' } })])
+
+            const update = matcher.calls.find((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))
+            expect(update).toBeUndefined()
         })
 
         it('does not wake on an empty conversion "events" entry (always-true bytecode)', async () => {

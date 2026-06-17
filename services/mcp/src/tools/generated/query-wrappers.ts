@@ -478,7 +478,7 @@ const AssistantTrendsFilter = z.object({
     aggregationAxisPostfix: z
         .string()
         .describe(
-            'Custom postfix to add to the aggregation axis, e.g., ` clicks` to format 5 as `5 clicks`. You may need to add a space before postfix.'
+            'Custom postfix to add to the aggregation axis, e.g., ` clicks` to format 5 as `5 clicks`. You may need to add a space before postfix. Never set a postfix that `aggregationAxisFormat` already renders: `percentage` and `percentage_scaled` already append the `%` sign, so a `%` postfix would render values as `50%%`.'
         )
         .optional(),
     aggregationAxisPrefix: z
@@ -509,6 +509,7 @@ const AssistantTrendsFilter = z.object({
             'CalendarHeatmap',
             'TwoDimensionalHeatmap',
             'BoxPlot',
+            'SlopeGraph',
         ])
         .describe(
             'Visualization type. Available values: `ActionsLineGraph` - time-series line chart; most common option, as it shows change over time. `ActionsBar` - time-series bar chart. `ActionsAreaGraph` - time-series area chart. `ActionsLineGraphCumulative` - cumulative time-series line chart; good for cumulative metrics. `BoldNumber` - total value single large number. Use when user explicitly asks for a single output number. You CANNOT use this with breakdown or if the insight has more than one series. `ActionsBarValue` - total value (NOT time-series) bar chart; good for categorical data. `ActionsPie` - total value pie chart; good for visualizing proportions. `ActionsTable` - total value table; good when using breakdown to list users or other entities. `WorldMap` - total value world map; use when breaking down by country name using property `$geoip_country_name`, and only then.'

@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -34,6 +35,7 @@ class PostmarkSource(ResumableSource[PostmarkSourceConfig, PostmarkResumeConfig]
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.POSTMARK,
+            category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Postmark",
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your Postmark **Server API token** to pull your Postmark data into the PostHog Data warehouse.

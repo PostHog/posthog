@@ -37,8 +37,6 @@ from rest_framework.request import Request
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
-from posthog.schema import SlackIntegrationScope
-
 from posthog.cache_utils import cache_for
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.encrypted_fields import EncryptedJSONField
@@ -50,6 +48,7 @@ from posthog.models.user import User
 from posthog.models.utils import IntegrityError, generate_random_oauth_access_token, generate_random_oauth_refresh_token
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 from posthog.rbac.decorators import field_access_control
+from posthog.schema_enums import SlackIntegrationScope, SlackIntegrationScopeInReview
 from posthog.security.url_validation import is_url_allowed
 from posthog.sync import database_sync_to_async
 from posthog.utils import get_instance_region
@@ -163,6 +162,7 @@ class Integration(models.Model):
         GITHUB = "github"
         GITLAB = "gitlab"
         GOOGLE_ADS = "google-ads"
+        GOOGLE_ANALYTICS = "google-analytics"
         GOOGLE_CLOUD_SERVICE_ACCOUNT = "google-cloud-service-account"
         GOOGLE_CLOUD_STORAGE = "google-cloud-storage"
         GOOGLE_PUBSUB = "google-pubsub"
@@ -276,7 +276,20 @@ class OauthConfig:
 # Slack accepts comma-separated scopes on the OAuth authorize URL. The canonical list is the
 # StrEnum declared in posthog/schema.py (generated from the SlackIntegrationScope enum in
 # frontend/src/types.ts via `hogli build:schema`), so widening it on either side stays in sync.
-POSTHOG_SLACK_SCOPE = ",".join(scope.value for scope in SlackIntegrationScope)
+#
+# On the internal DEV instance (CLOUD_DEPLOYMENT="DEV") and local development (settings.DEBUG)
+# we also request the in-review scopes — the Slack app manifest in those setups can list them.
+# US/EU/self-hosted would fail with `invalid_scope` until Slack approves the public Cloud app.
+# Evaluated at module import; tests that need a different value should
+# `@override_settings(...)` *before* importing this module (or `importlib.reload` it after).
+def _build_posthog_slack_scope() -> str:
+    scopes = [scope.value for scope in SlackIntegrationScope]
+    if settings.DEBUG or get_instance_region() == "DEV":
+        scopes.extend(scope.value for scope in SlackIntegrationScopeInReview)
+    return ",".join(scopes)
+
+
+POSTHOG_SLACK_SCOPE = _build_posthog_slack_scope()
 
 
 class OauthIntegration:
@@ -285,6 +298,7 @@ class OauthIntegration:
         "salesforce",
         "hubspot",
         "google-ads",
+        "google-analytics",
         "google-search-console",
         "google-sheets",
         "snapchat",
@@ -310,7 +324,7 @@ class OauthIntegration:
 
     @classmethod
     @cache_for(timedelta(minutes=5))
-    def oauth_config_for_kind(cls, kind: str, is_sandbox: bool = False) -> OauthConfig:
+    def oauth_config_for_kind(cls, kind: str) -> OauthConfig:
         if kind == "slack":
             from_settings = get_instance_settings(
                 [
@@ -391,6 +405,23 @@ class OauthIntegration:
                 client_id=settings.GOOGLE_ADS_APP_CLIENT_ID,
                 client_secret=settings.GOOGLE_ADS_APP_CLIENT_SECRET,
                 scope="https://www.googleapis.com/auth/adwords https://www.googleapis.com/auth/userinfo.email",
+                id_path="sub",
+                name_path="email",
+            )
+        elif kind == "google-analytics":
+            if not settings.GOOGLE_ANALYTICS_APP_CLIENT_ID or not settings.GOOGLE_ANALYTICS_APP_CLIENT_SECRET:
+                raise NotImplementedError("Google Analytics app not configured")
+
+            return OauthConfig(
+                authorize_url="https://accounts.google.com/o/oauth2/v2/auth",
+                # forces the consent screen, otherwise we won't receive a refresh token
+                additional_authorize_params={"access_type": "offline", "prompt": "consent"},
+                token_info_url="https://openidconnect.googleapis.com/v1/userinfo",
+                token_info_config_fields=["sub", "email"],
+                token_url="https://oauth2.googleapis.com/token",
+                client_id=settings.GOOGLE_ANALYTICS_APP_CLIENT_ID,
+                client_secret=settings.GOOGLE_ANALYTICS_APP_CLIENT_SECRET,
+                scope="https://www.googleapis.com/auth/analytics.readonly https://www.googleapis.com/auth/userinfo.email",
                 id_path="sub",
                 name_path="email",
             )
@@ -599,17 +630,8 @@ class OauthIntegration:
             if not settings.STRIPE_APP_CLIENT_ID or not settings.STRIPE_APP_SECRET_KEY:
                 raise NotImplementedError("Stripe app not configured")
 
-            # Stripe issues separate client_id and secret for live vs sandbox installs of the
-            # same app. Sandbox-issued OAuth codes can only be redeemed with the sandbox secret;
-            # using the live secret returns "Authorization code provided does not belong to you".
-            if is_sandbox:
-                if not settings.STRIPE_APP_SANDBOX_CLIENT_ID or not settings.STRIPE_APP_SANDBOX_SECRET_KEY:
-                    raise NotImplementedError("Stripe sandbox not configured")
-                client_id = settings.STRIPE_APP_SANDBOX_CLIENT_ID
-                client_secret = settings.STRIPE_APP_SANDBOX_SECRET_KEY
-            else:
-                client_id = settings.STRIPE_APP_CLIENT_ID
-                client_secret = settings.STRIPE_APP_SECRET_KEY
+            client_id = settings.STRIPE_APP_CLIENT_ID
+            client_secret = settings.STRIPE_APP_SECRET_KEY
 
             authorize_url = (
                 settings.STRIPE_APP_OVERRIDE_AUTHORIZE_URL or "https://marketplace.stripe.com/oauth/v2/authorize"
@@ -634,8 +656,8 @@ class OauthIntegration:
         return f"{settings.SITE_URL.replace('http://', 'https://')}/integrations/{kind}/callback"
 
     @classmethod
-    def authorize_url(cls, kind: str, token: str, next: str = "", is_sandbox: bool = False) -> str:
-        oauth_config = cls.oauth_config_for_kind(kind, is_sandbox=is_sandbox)
+    def authorize_url(cls, kind: str, token: str, next: str = "") -> str:
+        oauth_config = cls.oauth_config_for_kind(kind)
 
         state_payload: dict[str, str] = {"next": next, "token": token}
 
@@ -710,37 +732,6 @@ class OauthIntegration:
                     "grant_type": "authorization_code",
                 },
             )
-            # Marketplace-initiated installs land on /integrations/stripe/confirm-install
-            # without any signal indicating live vs sandbox. If the live secret rejected
-            # the code as "does not belong to you", it was minted by the sandbox app -
-            # retry with the sandbox secret. Both sandbox client_id and secret must be
-            # configured: oauth_config_for_kind requires both, so guard on both here to
-            # avoid raising NotImplementedError over the original OAuth error.
-            if (
-                res.status_code == 400
-                and settings.STRIPE_APP_SANDBOX_CLIENT_ID
-                and settings.STRIPE_APP_SANDBOX_SECRET_KEY
-                and "does not belong to you" in (res.text or "")
-            ):
-                sandbox_oauth_config = cls.oauth_config_for_kind("stripe", is_sandbox=True)
-                res = requests.post(
-                    sandbox_oauth_config.token_url,
-                    auth=HTTPBasicAuth(sandbox_oauth_config.client_secret, ""),
-                    data={
-                        "code": params["code"],
-                        "grant_type": "authorization_code",
-                    },
-                )
-                if res.status_code == 200:
-                    # Use the sandbox config for downstream API calls (account name lookup)
-                    # and persist the flag so refresh / write_posthog_secrets / clear_posthog_secrets
-                    # pick the sandbox secret without retrying.
-                    oauth_config = sandbox_oauth_config
-                    stripe_is_sandbox = True
-                else:
-                    stripe_is_sandbox = False
-            else:
-                stripe_is_sandbox = False
         else:
             redirect_uri = OauthIntegration.redirect_uri(kind)
             res = requests.post(
@@ -953,12 +944,6 @@ class OauthIntegration:
         if not config.get("expires_in") and kind == "stripe":
             config["expires_in"] = 3600
 
-        if kind == "stripe":
-            # Persisted so downstream Stripe API calls (refresh_access_token,
-            # StripeIntegration.write_posthog_secrets / clear_posthog_secrets)
-            # pick the right developer secret without error-driven retries.
-            config["is_sandbox"] = stripe_is_sandbox
-
         config["refreshed_at"] = int(time.time())
 
         integration, created = Integration.objects.update_or_create(
@@ -1007,8 +992,7 @@ class OauthIntegration:
         """
         Refresh the access token for the integration if necessary
         """
-        is_sandbox = _stripe_integration_is_sandbox(self.integration)
-        oauth_config = self.oauth_config_for_kind(self.integration.kind, is_sandbox=is_sandbox)
+        oauth_config = self.oauth_config_for_kind(self.integration.kind)
 
         # Clear out previous token refreshing errors, as they'll be re-set below if another error occurs
         self.integration.errors = ""
@@ -3293,16 +3277,6 @@ class AzureBlobIntegration:
         return None
 
 
-def _stripe_integration_is_sandbox(integration: Integration) -> bool:
-    """True when this is a Stripe integration provisioned via the sandbox channel.
-
-    Strict identity check on the config flag - a malformed string write (e.g. "false")
-    fails closed to live rather than escalating to sandbox-secret usage. Returns
-    False for non-stripe integrations so non-Stripe call sites can pass through.
-    """
-    return integration.kind == "stripe" and integration.config.get("is_sandbox") is True
-
-
 class StripeIntegration:
     integration: Integration
 
@@ -3333,25 +3307,18 @@ class StripeIntegration:
             raise ValueError(f"Expected stripe integration, got {integration.kind}")
         self.integration = integration
 
-    @property
-    def is_sandbox(self) -> bool:
-        return _stripe_integration_is_sandbox(self.integration)
-
     def _stripe_client(self) -> "StripeClient | None":
-        # Sandbox accounts are issued by a separate Stripe app (live vs sandbox), so the
-        # Apps Secret Store and account-scoped API calls must authenticate with the matching
-        # developer secret. Returns None when the required env vars are missing so callers
-        # can skip Stripe API calls without raising past their per-secret error handling.
+        # Returns None when the required env vars are missing so callers can skip Stripe
+        # API calls without raising past their per-secret error handling.
         from stripe import StripeClient  # noqa: PLC0415
 
         try:
-            oauth_config = OauthIntegration.oauth_config_for_kind("stripe", is_sandbox=self.is_sandbox)
+            oauth_config = OauthIntegration.oauth_config_for_kind("stripe")
         except NotImplementedError as e:
             capture_exception(
                 e,
                 {
                     "stripe_user_id": self.integration.integration_id,
-                    "is_sandbox": self.is_sandbox,
                 },
             )
             return None
@@ -3418,7 +3385,6 @@ class StripeIntegration:
                     {
                         "secret_name": name,
                         "stripe_user_id": stripe_user_id,
-                        "is_sandbox": self.is_sandbox,
                     },
                 )
 
@@ -3454,7 +3420,6 @@ class StripeIntegration:
                     {
                         "secret_name": name,
                         "stripe_user_id": stripe_user_id,
-                        "is_sandbox": self.is_sandbox,
                     },
                 )
 
