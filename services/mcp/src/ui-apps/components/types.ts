@@ -231,6 +231,8 @@ export interface RetentionPayload extends BasePayload {
 export interface TrendsVisualizerProps {
     query: TrendsQuery | undefined
     results: TrendsResult
+    /** Shell title (e.g. "Trends"); rendered inline with the chart controls. */
+    title?: string
 }
 
 export interface FunnelVisualizerProps {

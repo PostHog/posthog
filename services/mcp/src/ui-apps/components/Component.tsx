@@ -63,7 +63,11 @@ export function Component({ data }: ComponentProps): ReactElement {
         switch (visualizationType) {
             case 'trends':
                 return (
-                    <TrendsVisualizer query={payload.query as TrendsQuery} results={payload.results as TrendsResult} />
+                    <TrendsVisualizer
+                        query={payload.query as TrendsQuery}
+                        results={payload.results as TrendsResult}
+                        title={getTitle()}
+                    />
                 )
 
             case 'funnel':
@@ -120,9 +124,12 @@ export function Component({ data }: ComponentProps): ReactElement {
     return (
         <Card>
             <CardContent>
-                <div className="mb-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    {getTitle()}
-                </div>
+                {/* Trends renders its own title inline with the chart controls. */}
+                {visualizationType !== 'trends' && (
+                    <div className="mb-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                        {getTitle()}
+                    </div>
+                )}
                 {renderVisualization()}
             </CardContent>
         </Card>

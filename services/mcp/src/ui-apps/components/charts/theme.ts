@@ -43,13 +43,13 @@ export const LIFECYCLE_COLORS: Record<LifecycleStatus, string> = {
 export const lifecycleColor = (status: string | undefined): string =>
     LIFECYCLE_COLORS[(status ?? 'new') as LifecycleStatus] ?? LIFECYCLE_COLORS.new
 
-// Single mid-gray for axis labels — readable on both light and dark hosts. Claude
-// Desktop's iframe doesn't set `prefers-color-scheme`, so we can't detect the host
-// theme and adapt at runtime.
+// The canvas is always white (Claude Desktop's iframe doesn't set `prefers-color-scheme`,
+// so we can't detect the host theme and adapt at runtime). axisColor drives both the axis
+// lines/ticks and the tick labels — a mid-gray (gray-500) that reads clearly on the white fill.
 export const CHART_THEME: ChartTheme = {
     colors: CHART_COLORS,
     backgroundColor: '#ffffff',
-    axisColor: '#9ca3af',
+    axisColor: '#6b7280',
     gridColor: 'rgba(128, 128, 128, 0.2)',
     crosshairColor: 'rgba(128, 128, 128, 0.5)',
     tooltipBackground: '#ffffff',

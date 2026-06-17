@@ -2,7 +2,13 @@ import { type ReactElement, useState } from 'react'
 
 import { emptyStateIllustration } from '@posthog/mcp-ui'
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia } from '@posthog/quill'
-import { BarChart as BarValueChart, ciRanges, SlopeChart, TimeSeriesBarChart, TimeSeriesLineChart } from '@posthog/quill-charts'
+import {
+    BarChart as BarValueChart,
+    ciRanges,
+    SlopeChart,
+    TimeSeriesBarChart,
+    TimeSeriesLineChart,
+} from '@posthog/quill-charts'
 
 import { buildTrendsBarChartModel } from 'products/product_analytics/frontend/insights/trends/TrendsBarChart/trendsBarChartTransforms'
 import {
@@ -38,7 +44,9 @@ const CHART_TYPE_OPTIONS = [
 // when they ask "how much did X change between A and B?" rather than the path between them.
 const SLOPE_TYPE_OPTION = { value: 'slope' as const, label: 'Slope' }
 
-const TOOLTIP_CONFIG = { pinnable: true, placement: 'top' as const }
+const TOOLTIP_CONFIG = { pinnable: true, placement: 'cursor' as const }
+
+const TITLE_CLASS = 'text-xs font-semibold uppercase tracking-wider text-muted-foreground'
 
 function calculateTotal(results: TrendsResultItem[]): number {
     return results.reduce((sum, item) => {
@@ -55,7 +63,7 @@ function calculateTotal(results: TrendsResultItem[]): number {
     }, 0)
 }
 
-export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): ReactElement {
+export function TrendsVisualizer({ query, results, title }: TrendsVisualizerProps): ReactElement {
     const displayType = getDisplayType(query)
     // Honour the backend slope runner: a SlopeGraph query already comes back as two points per series,
     // so defaultChartType opens straight into slope mode rather than line + a manual toggle.
@@ -64,12 +72,15 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
 
     if (!results || results.length === 0) {
         return (
-            <Empty>
-                <EmptyHeader>
-                    <EmptyMedia>{emptyStateIllustration('chart')}</EmptyMedia>
-                    <EmptyDescription>No data available</EmptyDescription>
-                </EmptyHeader>
-            </Empty>
+            <div>
+                {title && <div className={`mb-4 ${TITLE_CLASS}`}>{title}</div>}
+                <Empty>
+                    <EmptyHeader>
+                        <EmptyMedia>{emptyStateIllustration('chart')}</EmptyMedia>
+                        <EmptyDescription>No data available</EmptyDescription>
+                    </EmptyHeader>
+                </Empty>
+            </div>
         )
     }
 
@@ -77,7 +88,12 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
     if (displayType === 'BoldNumber') {
         const total = calculateTotal(results)
         const label = results[0] ? getSeriesLabel(results[0], 0) : 'Total'
-        return <BigNumber value={total} label={label} />
+        return (
+            <div>
+                {title && <div className={`mb-4 ${TITLE_CLASS}`}>{title}</div>}
+                <BigNumber value={total} label={label} />
+            </div>
+        )
     }
 
     // ActionsBarValue returns aggregated_value per series (empty data[]/days[]) — render a
@@ -90,13 +106,16 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
         const barSeries = buildTrendsBarValueSeries(items, { getColor: colorAt })
         const barConfig = buildTrendsBarValueConfig()
         return (
-            <div className="flex flex-col w-full h-[400px]">
-                <BarValueChart
-                    series={barSeries}
-                    labels={items.map((item) => item.label)}
-                    theme={CHART_THEME}
-                    config={barConfig}
-                />
+            <div>
+                {title && <div className={`mb-4 ${TITLE_CLASS}`}>{title}</div>}
+                <div className="flex flex-col w-full h-[400px]">
+                    <BarValueChart
+                        series={barSeries}
+                        labels={items.map((item) => item.label)}
+                        theme={CHART_THEME}
+                        config={barConfig}
+                    />
+                </div>
             </div>
         )
     }
@@ -109,8 +128,6 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
         days: item.days,
         incompleteEnd: !!item.incomplete_end,
     }))
-    const yAxisLabel = results.length === 1 && results[0] ? getSeriesLabel(results[0], 0) : undefined
-
     // A slope needs a start and an end, so only offer it when there are at least two time points.
     const slopeAvailable = labels.length >= 2
     const chartTypeOptions = slopeAvailable ? [...CHART_TYPE_OPTIONS, SLOPE_TYPE_OPTION] : CHART_TYPE_OPTIONS
@@ -157,7 +174,6 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
             const { series, config } = buildTrendsBarChartModel(trendResults, {
                 getColor: (_, index) => colorAt(index),
                 labels,
-                yAxisLabel,
                 trendsFilter: effectiveTrendsFilter,
                 isPercentStackView,
                 isGrouped: effectiveType === 'bar',
@@ -174,11 +190,8 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
         const config = buildTrendsLineTimeSeriesConfig({
             results: trendResults,
             trendsFilter: effectiveTrendsFilter,
-            yAxisLabel,
             isPercentStackView,
             showTrendLines: chartConfig.showTrendLine && !derivedSeriesDisabled,
-            showMovingAverage: chartConfig.showMovingAverage && !derivedSeriesDisabled,
-            movingAverageIntervals: chartConfig.movingAverageIntervals,
             showConfidenceIntervals: chartConfig.showConfidenceIntervals && !derivedSeriesDisabled,
             confidenceLevel: chartConfig.confidenceLevel,
             ciRanges,
@@ -192,19 +205,22 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
 
     return (
         <div>
-            <div className="mb-2 flex items-center justify-end gap-2">
-                {/* eslint-disable-next-line react/forbid-elements */}
-                <Select value={effectiveType} onChange={setChartType} options={chartTypeOptions} />
-                {/* Slope bypasses the chart-config pipeline entirely — none of these options apply. */}
-                {effectiveType !== 'slope' && (
-                    <ChartSettings
-                        chartMode={isBarFamily(effectiveType) ? 'bar' : 'line'}
-                        config={chartConfig}
-                        onChange={setChartConfig}
-                        derivedSeriesDisabled={derivedSeriesDisabled}
-                        percentStackDisabled={!supportsPercentStack(effectiveType)}
-                    />
-                )}
+            <div className="mb-2 flex items-center gap-2">
+                {title && <div className={TITLE_CLASS}>{title}</div>}
+                <div className="ml-auto flex items-center gap-2">
+                    {/* eslint-disable-next-line react/forbid-elements */}
+                    <Select value={effectiveType} onChange={setChartType} options={chartTypeOptions} />
+                    {/* Slope bypasses the chart-config pipeline entirely — none of these options apply. */}
+                    {effectiveType !== 'slope' && (
+                        <ChartSettings
+                            chartMode={isBarFamily(effectiveType) ? 'bar' : 'line'}
+                            config={chartConfig}
+                            onChange={setChartConfig}
+                            derivedSeriesDisabled={derivedSeriesDisabled}
+                            percentStackDisabled={!supportsPercentStack(effectiveType)}
+                        />
+                    )}
+                </div>
             </div>
             <div className="flex flex-col w-full h-[400px]">{renderChart()}</div>
         </div>

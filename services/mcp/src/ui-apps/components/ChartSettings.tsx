@@ -1,4 +1,6 @@
-import { type ReactElement, useEffect, useRef, useState } from 'react'
+import { type ReactElement, useEffect, useId, useRef, useState } from 'react'
+
+import { Button, Label, Switch } from '@posthog/quill'
 
 import { type ChartConfig, Y_UNIT_OPTIONS, type YUnit } from './chartSettingsConfig'
 
@@ -48,15 +50,15 @@ export function ChartSettings({
 
     return (
         <div ref={containerRef} className="relative">
-            <button
-                type="button"
+            <Button
+                variant="outline"
+                size="sm"
                 onClick={() => setOpen((o) => !o)}
                 aria-label="Chart options"
                 aria-expanded={open}
-                className="cursor-pointer rounded-sm border border-input bg-background px-2 py-1 text-xs text-foreground hover:bg-accent"
             >
                 Options
-            </button>
+            </Button>
             {open && (
                 <div
                     role="dialog"
@@ -75,12 +77,6 @@ export function ChartSettings({
                                     checked={config.showTrendLine}
                                     disabled={derivedSeriesDisabled}
                                     onChange={(v) => update('showTrendLine', v)}
-                                />
-                                <Toggle
-                                    label="Moving average"
-                                    checked={config.showMovingAverage}
-                                    disabled={derivedSeriesDisabled}
-                                    onChange={(v) => update('showMovingAverage', v)}
                                 />
                                 <Toggle
                                     label="Confidence intervals"
@@ -128,15 +124,19 @@ function Toggle({
     onChange: (next: boolean) => void
     disabled?: boolean
 }): ReactElement {
+    const id = useId()
     return (
-        <label className={`inline-flex items-center gap-2 ${disabled ? 'cursor-not-allowed opacity-50' : ''}`}>
-            <input
-                type="checkbox"
+        <div className={`flex items-center justify-between gap-2 ${disabled ? 'opacity-50' : ''}`}>
+            <Label htmlFor={id} className={disabled ? 'cursor-not-allowed' : 'cursor-pointer'}>
+                {label}
+            </Label>
+            <Switch
+                id={id}
+                size="sm"
                 checked={checked && !disabled}
                 disabled={disabled}
-                onChange={(e) => onChange(e.target.checked)}
+                onCheckedChange={(next) => onChange(next)}
             />
-            {label}
-        </label>
+        </div>
     )
 }
