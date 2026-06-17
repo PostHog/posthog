@@ -1055,6 +1055,10 @@ environment:
         bin_script: start-ai-gateway
         description: 'Bring up the local Go ai-gateway via docker compose and top up the anonymous-team ledger for AGENT_USE_AI_GATEWAY dev'
         hidden: true
+    dockerignore:drop:check:
+        bin_script: dockerignore-drop-check
+        description: List files an .dockerignore change drops from the image build context
+        hidden: true
     verify:metrics:pipe:
         bin_script: verify-metrics-pipe
         description: 'Verify the local metrics pipe reached ClickHouse metrics1'
