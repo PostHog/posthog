@@ -71,6 +71,21 @@ PostgresErrors = {
     # transient mid-stream drop in the streaming path (`_CONNECTION_DROPPED_ERROR_SUBSTRINGS`) and
     # must stay retryable there.
     "server closed the connection unexpectedly": "Your database closed the connection unexpectedly while connecting. This usually means the host or port is wrong, the server requires SSL/TLS, or a connection pooler, firewall, or SSH tunnel dropped the connection. Check your host, port, and SSL settings.",
+    # Supabase/Supavisor reports a saturated session-mode pooler as
+    # "FATAL: (EMAXCONNSESSION) max clients reached in session mode - max clients are limited to
+    # pool_size: <n>". Every client slot the pooler exposes is in use, so it refuses new connections
+    # until one frees up — a config/capacity condition on the customer's pooler, not a PostHog bug.
+    # Map it to an actionable message so credential validation stops surfacing it as captured error
+    # noise. The volatile pool_size number and the "(EMAXCONNSESSION)" code prefix are excluded from
+    # the match. NB: this is intentionally NOT added to `get_non_retryable_errors` — pooler
+    # saturation is transient (it clears once connections are returned to the pool), so the streaming
+    # path must keep retrying it. See `test_transient_connection_errors_are_retryable`.
+    "max clients reached in session mode": (
+        "Your database's connection pooler has no free client connections "
+        '("max clients reached in session mode"). Raise the pooler\'s client limit (for example '
+        "increase pool_size, or switch it to transaction mode) or reduce the number of concurrent "
+        "connections to your database, then try again."
+    ),
 }
 
 

@@ -1307,6 +1307,17 @@ class TestValidateCredentialsErrorMapping:
                 "or port is wrong, the server requires SSL/TLS, or a connection pooler, firewall, or SSH tunnel "
                 "dropped the connection. Check your host, port, and SSL settings.",
             ),
+            # Supabase/Supavisor session-mode pooler with no free client slots. The pool_size number
+            # is volatile, so the match is on the stable "max clients reached in session mode" phrase.
+            (
+                'connection failed: connection to server at "52.45.94.125", port 5432 failed: '
+                "FATAL:  (EMAXCONNSESSION) max clients reached in session mode - max clients are "
+                "limited to pool_size: 15",
+                "Your database's connection pooler has no free client connections (\"max clients "
+                "reached in session mode\"). Raise the pooler's client limit (for example increase "
+                "pool_size, or switch it to transaction mode) or reduce the number of concurrent "
+                "connections to your database, then try again.",
+            ),
             # Unmapped errors fall back to the generic message.
             (
                 "some brand new failure",
