@@ -154,15 +154,12 @@ export class BatchingPipeline<
     }
 
     feed(elements: OkResultWithContext<TInput, CInput>[]): Promise<FeedResult> {
-        // With one concurrent batch the caller is strictly sequential (feed then
-        // drain), so the mutex is a guaranteed no-op — skip it to keep p-limit's
-        // per-call microtask hop and allocations off the hot path. Above one,
-        // serialize so buffer order always matches batchId order: without this,
+        // Serialize so buffer order always matches batchId order: without this,
         // the await on beforePipeline between batchId assignment and
         // subPipeline.feed() lets two concurrent feeds enter the buffer inverted.
-        return this.options.concurrentBatches === 1
-            ? this.feedSerialized(elements)
-            : this.feedLimit(() => this.feedSerialized(elements))
+        // With one concurrent batch the caller is already sequential, so the
+        // mutex is uncontended.
+        return this.feedLimit(() => this.feedSerialized(elements))
     }
 
     private async feedSerialized(elements: OkResultWithContext<TInput, CInput>[]): Promise<FeedResult> {
@@ -231,14 +228,12 @@ export class BatchingPipeline<
     }
 
     next(): Promise<BatchResult<BatchPipelineResultWithContext<TOutput, COutput, R>> | null> {
-        // With one concurrent batch the caller is strictly sequential, so the
-        // pump is already single-caller — skip the mutex to keep p-limit's
-        // per-call microtask hop and allocations off the hot path. Above one,
-        // serialize so exactly one caller pumps the sub-pipeline at a time,
+        // Serialize so exactly one caller pumps the sub-pipeline at a time,
         // restoring the single-caller assumption the stages were written under.
-        // Group processing started by the pump runs concurrently in the
-        // background regardless of who holds the pump.
-        return this.options.concurrentBatches === 1 ? this.pump() : this.pumpLimit(() => this.pump())
+        // With one concurrent batch the caller is already sequential, so the
+        // mutex is uncontended. Group processing started by the pump runs
+        // concurrently in the background regardless of who holds the pump.
+        return this.pumpLimit(() => this.pump())
     }
 
     private async pump(): Promise<BatchResult<BatchPipelineResultWithContext<TOutput, COutput, R>> | null> {

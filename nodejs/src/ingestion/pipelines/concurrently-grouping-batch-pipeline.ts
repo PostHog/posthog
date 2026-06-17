@@ -108,11 +108,6 @@ export class ConcurrentlyGroupingBatchPipeline<
                 return null
             }
             this.groupCompleted.reset()
-            // Re-check after arming: a group may have completed between the shift
-            // above and the reset, resolving the now-replaced promise.
-            if (this.completedResults.length > 0 || this.failure !== undefined) {
-                continue
-            }
             await this.groupCompleted.wait()
         }
     }
