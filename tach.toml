@@ -97,6 +97,7 @@ depends_on = [
     "products.posthog_ai",
     "products.product_analytics",
     "products.product_tours",
+    "products.reminders",
     "products.replay",
     "products.replay_vision",
     "products.revenue_analytics",
@@ -481,6 +482,21 @@ path = "products.product_tours"
 depends_on = [
     "posthog",
     "products.feature_flags",
+    "products.surveys",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.reminders"
+depends_on = [
+    "posthog",
+    "products.dashboards",
+    "products.error_tracking",
+    "products.experiments",
+    "products.feature_flags",
+    "products.notebooks",
+    "products.notifications",
+    "products.product_analytics",
     "products.surveys",
 ]
 layer = "modules"

@@ -3395,6 +3395,8 @@ importers:
 
   products/product_tours: {}
 
+  products/reminders: {}
+
   products/replay:
     dependencies:
       '@posthog/icons':
