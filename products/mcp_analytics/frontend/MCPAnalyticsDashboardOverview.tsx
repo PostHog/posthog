@@ -4,6 +4,7 @@ import { useMemo } from 'react'
 import { type ChartTheme } from '@posthog/quill-charts'
 
 import { buildTheme } from 'lib/charts/utils/theme'
+import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -34,8 +35,9 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
         toolRowsLoading,
         dateFilter,
         interval,
+        filterTestAccounts,
     } = useValues(mcpDashboardOverviewLogic)
-    const { setDateFilter } = useActions(mcpDashboardOverviewLogic)
+    const { setDateFilter, setFilterTestAccounts } = useActions(mcpDashboardOverviewLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const { timezone } = useValues(teamLogic)
 
@@ -52,6 +54,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                     onChange={(dateFrom, dateTo) => setDateFilter(dateFrom, dateTo)}
                     dataAttr="mcp-dashboard-date-filter"
                 />
+                <TestAccountFilterSwitch checked={filterTestAccounts} onChange={setFilterTestAccounts} />
             </div>
             <section>
                 <h2 className="mb-4 text-xl font-semibold text-primary">Key metrics</h2>

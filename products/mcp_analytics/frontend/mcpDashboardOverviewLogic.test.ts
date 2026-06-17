@@ -283,7 +283,7 @@ describe('mcpDashboardOverviewLogic', () => {
         })
     })
 
-    describe('date filter wiring', () => {
+    describe('filter wiring', () => {
         beforeEach(() => {
             jest.clearAllMocks()
             initKeaTests()
@@ -314,6 +314,24 @@ describe('mcpDashboardOverviewLogic', () => {
             const kpi = reloads.find((call) => call.query.includes('AS bucket'))
             expect(kpi?.filters.dateRange.date_from).not.toBe('-30d')
             expect(dayjs(kpi?.filters.dateRange.date_from).isValid()).toBe(true)
+        })
+
+        it.each([[false], [true]])('passes filterTestAccounts=%s to every tile', async (enabled) => {
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            // enabled=false is the default mount state; enabled=true reloads after toggling.
+            const callsBefore = enabled ? mockApi.query.mock.calls.length : 0
+
+            if (enabled) {
+                await expectLogic(logic, () => {
+                    logic.actions.setFilterTestAccounts(true)
+                }).toFinishAllListeners()
+            }
+
+            const reloads = reloadCallsSince(callsBefore)
+            expect(reloads.length).toBe(6)
+            expect(reloads.every((call) => call.filters.filterTestAccounts === enabled)).toBe(true)
         })
     })
 })
