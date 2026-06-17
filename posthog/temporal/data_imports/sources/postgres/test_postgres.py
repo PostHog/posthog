@@ -606,6 +606,11 @@ class TestIsConnectionDroppedError:
             psycopg.OperationalError("connection to server was closed unexpectedly"),
             psycopg.OperationalError("consuming input failed: EOF detected"),
             psycopg.OperationalError("terminating connection due to administrator command"),
+            # psycopg's message when libpq finds the socket already gone (raised from
+            # PGconn.socket inside the commit at the end of get_connection). A transient
+            # dead-socket drop the in-process recovery must catch — without this the
+            # reconnect retry gives up and the offset-chunking fallback never triggers.
+            psycopg.OperationalError("the connection is lost"),
             psycopg.errors.ProtocolViolation("SERVER CONN CRASHED?"),
             # SQLSTATE 25P03: the source's idle_in_transaction_session_timeout culled our
             # backend mid-stream. psycopg maps this to InternalError, not OperationalError,
