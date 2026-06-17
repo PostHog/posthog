@@ -5,7 +5,7 @@
  * vars share the same prefix so deployment config is unambiguous (e.g.
  * `WARPSTREAM_METRICS_PRODUCER` ↔ `KAFKA_WARPSTREAM_METRICS_PRODUCER_*`).
  */
-import { AllowedConfigKey } from '../../ingestion/outputs/kafka-producer-config'
+import { AllowedConfigKey } from '~/common/outputs/kafka-producer-config'
 
 /**
  * Targets the Warpstream cluster dedicated to metrics. The main metrics data

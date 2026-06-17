@@ -1,5 +1,6 @@
 import { Message } from 'node-rdkafka'
 
+import { KafkaProducerRegistryComponent } from '~/common/outputs/registry'
 import { Clickhouse } from '~/tests/helpers/clickhouse'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import {
@@ -13,7 +14,6 @@ import { resetKafka } from '~/tests/helpers/kafka'
 import { resetTestDatabase } from '~/tests/helpers/sql'
 
 import { getDefaultKafkaDownstreamProducerEnvConfig, getDefaultKafkaUpstreamProducerEnvConfig } from '../common/config'
-import { KafkaProducerRegistryComponent } from '../common/outputs/registry'
 import { Component, newScope } from '../common/scopes'
 import { getDefaultIngestionOutputsConfig } from '../config'
 import { CookielessManagerComponent } from '../cookieless/cookieless-manager'

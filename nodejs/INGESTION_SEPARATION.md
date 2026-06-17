@@ -24,6 +24,8 @@ be tested independently.
 - If a test file mixes CDP and ingestion logic, split the ingestion logic into its own test.
 - Unit tests live beside the files they test. Integration and e2e tests live in separate folders.
 - All CI, scripts, etc. adapt to the new layout.
+- Group files by semantic separation within every folder (e.g. `common/persons`, `common/groups`,
+  `common/personhog`) — avoid flat dumps.
 - No renaming of files; prefer moves over rewrites. Change a file only when:
   - imports need fixing, or
   - CDP and ingestion logic in the same file can be separated, or
@@ -130,10 +132,13 @@ on every iteration.
 
 ### Phase 1 — break the CDP <-> ingestion seams
 
-- [ ] Inventory every CDP->ingestion and ingestion->CDP import.
-- [ ] Move shared pieces (`outputs`/`IngestionOutputs`, `personhog`, `hog-transformer`, person
-      repositories) into top-level `common/`; fix imports.
-- [ ] Invert `event-processing` / `event-preprocessing` shared->lane edges.
+- [x] Inventory every CDP->ingestion and ingestion->CDP import.
+- [x] Group 1: move the outputs framework (`ingestion/outputs` + `ingestion/common/outputs`)
+      -> `common/outputs`; fix imports (219 across 131 files).
+- [ ] Group 2: move `cdp/hog-transformations` -> `common/hog-transformations` (breaks the cycle).
+- [ ] Group 3: move person/group repositories + `personhog` -> `common/persons`, `common/groups`,
+      `common/personhog`.
+- [ ] Group 4: invert `event-processing` / `event-preprocessing` shared->lane edges.
 - [ ] Baseline shrinks; CDP no longer imports ingestion and vice versa.
 
 ### Phase 2 — consolidate into lanes
@@ -162,3 +167,7 @@ on every iteration.
 
 - Phase 0 complete: boundary guard + baseline (14 known edges) + npm scripts + CI step + this
   tracker. Guard passes against its baseline. No production code moved yet.
+- Phase 1 Group 1 complete: outputs framework moved to `common/outputs` (`ingestion/outputs` +
+  `ingestion/common/outputs`), 219 imports rewritten across 131 files via `bin/rewrite-imports.mjs`.
+  tsc shows no new errors vs baseline; guard green; this also resolved the pre-existing
+  `common -> ingestion/outputs` edge. Added `bin/rewrite-imports.mjs` (reusable codemod).

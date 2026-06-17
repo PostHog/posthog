@@ -1,5 +1,5 @@
-import { APP_METRICS_OUTPUT, DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT } from '../../common/outputs'
-import { IngestionOutputsBuilder } from '../../outputs/ingestion-outputs-builder'
+import { APP_METRICS_OUTPUT, DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT } from '~/common/outputs'
+import { IngestionOutputsBuilder } from '~/common/outputs/ingestion-outputs-builder'
 
 /**
  * Register the outputs the clientwarnings pipeline produces to. Call

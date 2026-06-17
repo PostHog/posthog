@@ -1,5 +1,8 @@
 import { Message } from 'node-rdkafka'
 
+import { DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT, OVERFLOW_OUTPUT } from '~/common/outputs'
+import { OverflowOutput } from '~/common/outputs'
+
 import { createMockIngestionOutputs } from '../../../tests/helpers/mock-ingestion-outputs'
 import { createMockPipeline } from '../../../tests/helpers/mock-pipeline'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
@@ -9,8 +12,6 @@ import {
     produceMessageToDLQ,
     redirectMessageToOutput,
 } from '../../worker/ingestion/pipeline-helpers'
-import { DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT, OVERFLOW_OUTPUT } from '../common/outputs'
-import { OverflowOutput } from '../common/outputs'
 import { createContext } from './helpers'
 import { PipelineConfig, ResultHandlingPipeline } from './result-handling-pipeline'
 import { dlq, drop, ok, redirect } from './results'

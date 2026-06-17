@@ -5,7 +5,7 @@
  * vars share the same prefix so deployment config is unambiguous (e.g.
  * `WARPSTREAM_LOGS_PRODUCER` ↔ `KAFKA_WARPSTREAM_LOGS_PRODUCER_*`).
  */
-import { AllowedConfigKey } from '../../ingestion/outputs/kafka-producer-config'
+import { AllowedConfigKey } from '~/common/outputs/kafka-producer-config'
 
 /**
  * Targets the Warpstream cluster dedicated to logs/traces. The main log/trace

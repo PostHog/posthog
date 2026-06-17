@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto'
 
-import { IngestionOutputs } from '../../../ingestion/outputs/ingestion-outputs'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+
 import { TimestampFormat } from '../../../types'
 import { logger } from '../../../utils/logger'
 import { castTimestampOrNow } from '../../../utils/utils'

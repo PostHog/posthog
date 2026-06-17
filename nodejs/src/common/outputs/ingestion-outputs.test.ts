@@ -1,4 +1,5 @@
-import { KafkaProducerWrapper } from '../../kafka/producer'
+import { KafkaProducerWrapper } from '~/kafka/producer'
+
 import { DualWriteIngestionOutput } from './dual-write-ingestion-output'
 import { IngestionOutputs } from './ingestion-outputs'
 import { SingleIngestionOutput } from './single-ingestion-output'

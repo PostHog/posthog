@@ -2,6 +2,9 @@ import { Message } from 'node-rdkafka'
 import { Counter, Histogram } from 'prom-client'
 
 import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
+import { ProducerName } from '~/common/outputs'
+import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
+import { createIngestionProducerRegistry } from '~/common/outputs/registry'
 
 import { initializePrometheusLabels } from '../api/router'
 import {
@@ -31,8 +34,6 @@ import {
     getDefaultKafkaUpstreamProducerEnvConfig,
 } from '../ingestion/common/config'
 import { EventFilterManagerComponent } from '../ingestion/common/event-filters'
-import { ProducerName } from '../ingestion/common/outputs'
-import { createIngestionProducerRegistry } from '../ingestion/common/outputs/registry'
 import {
     DatabaseConnectionConfig,
     IngestionConsumerConfig,
@@ -45,7 +46,6 @@ import {
 } from '../ingestion/config'
 import { CookielessManager } from '../ingestion/cookieless/cookieless-manager'
 import { parseSplitAiEventsConfig } from '../ingestion/event-processing/split-ai-events-step'
-import { KafkaProducerRegistry } from '../ingestion/outputs/kafka-producer-registry'
 import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from '../ingestion/personhog'
 import { createOkContext } from '../ingestion/pipelines/helpers'
 import { TopHog } from '../ingestion/tophog'

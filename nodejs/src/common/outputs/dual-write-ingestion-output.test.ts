@@ -1,4 +1,5 @@
-import { KafkaProducerWrapper } from '../../kafka/producer'
+import { KafkaProducerWrapper } from '~/kafka/producer'
+
 import {
     DualWriteIngestionOutput,
     keyHashBucket,

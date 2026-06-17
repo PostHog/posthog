@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 
-import { IngestionOutputs } from '../../../ingestion/outputs/ingestion-outputs'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+
 import { parseJSON } from '../../../utils/json-parse'
 import { REPLAY_EVENTS_OUTPUT, ReplayEventsOutput } from '../outputs'
 import { SessionMetadataStore } from './session-metadata-store'

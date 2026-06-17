@@ -1,7 +1,8 @@
+import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
+
 import { CommonConfig } from '../common/config'
 import { defaultConfig, overrideConfigWithEnv } from '../config/config'
 import { KafkaBrokerConfig } from '../ingestion/config'
-import { KafkaProducerRegistry } from '../ingestion/outputs/kafka-producer-registry'
 import { createProducerRegistry } from '../session-replay/recording-api/outputs/producer-registry'
 import { createOutputsRegistry } from '../session-replay/recording-api/outputs/registry'
 import { RecordingApi } from '../session-replay/recording-api/recording-api'

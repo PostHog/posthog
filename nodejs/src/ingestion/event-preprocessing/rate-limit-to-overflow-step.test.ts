@@ -1,6 +1,7 @@
+import { OVERFLOW_OUTPUT } from '~/common/outputs'
+
 import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
 import { createTestPipelineEvent } from '../../../tests/helpers/pipeline-event'
-import { OVERFLOW_OUTPUT } from '../common/outputs'
 import { COOKIELESS_SENTINEL_VALUE } from '../cookieless/cookieless-manager'
 import { PipelineResultType } from '../pipelines/results'
 import { OverflowRedirectService } from '../utils/overflow-redirect/overflow-redirect-service'

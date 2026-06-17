@@ -1,8 +1,9 @@
 import { Counter } from 'prom-client'
 
+import { OVERFLOW_OUTPUT, OverflowOutput } from '~/common/outputs'
+
 import { EventHeaders } from '../../types'
 import { EventIngestionRestrictionManager, RestrictionType } from '../../utils/event-ingestion-restrictions'
-import { OVERFLOW_OUTPUT, OverflowOutput } from '../common/outputs'
 import { dlq, drop, ok, redirect } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 

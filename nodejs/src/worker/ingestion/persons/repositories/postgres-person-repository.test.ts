@@ -2,10 +2,11 @@ import { mockProducer } from '~/tests/helpers/mocks/producer.mock'
 
 import { DateTime } from 'luxon'
 
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
+
 import { KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID } from '../../../../../src/config/kafka-topics'
 import { PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT } from '../../../../../src/ingestion/analytics/outputs'
-import { IngestionOutputs } from '../../../../../src/ingestion/outputs/ingestion-outputs'
-import { SingleIngestionOutput } from '../../../../../src/ingestion/outputs/single-ingestion-output'
 import { createTeam, insertRow, resetTestDatabase } from '../../../../../tests/helpers/sql'
 import { Hub, InternalPerson, PropertyUpdateOperation, Team } from '../../../../types'
 import { closeHub, createHub } from '../../../../utils/db/hub'

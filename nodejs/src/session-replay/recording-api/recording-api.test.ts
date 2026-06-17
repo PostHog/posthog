@@ -3,7 +3,8 @@ import { Server } from 'http'
 import supertest from 'supertest'
 import express from 'ultimate-express'
 
-import { IngestionOutputs } from '../../ingestion/outputs/ingestion-outputs'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+
 import { PostgresRouter } from '../../utils/db/postgres'
 import { getBlockDecryptor } from '../shared/crypto'
 import { getKeyStore } from '../shared/keystore'

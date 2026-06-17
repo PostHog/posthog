@@ -1,10 +1,10 @@
+import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 
 import { CommonConfig } from '../common/config'
 import { defaultConfig, overrideConfigWithEnv } from '../config/config'
 import { createPosthogRedisConnectionConfig } from '../config/redis-pools'
 import { DatabaseConnectionConfig, KafkaBrokerConfig, RedisConnectionsConfig } from '../ingestion/config'
-import { KafkaProducerRegistry } from '../ingestion/outputs/kafka-producer-registry'
 import {
     LogsIngestionConsumerConfig,
     LogsIngestionOutputsConfig,

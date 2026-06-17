@@ -1,6 +1,9 @@
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
+import { IngestionWarningsOutput } from '~/common/outputs'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+
 import { ingestionLagGauge, ingestionLagHistogram } from '../../common/metrics'
 import { EventHeaders, ProcessedEvent, RawKafkaEvent, TimestampFormat } from '../../types'
 import { MessageSizeTooLarge } from '../../utils/db/error'
@@ -8,8 +11,6 @@ import { safeClickhouseString } from '../../utils/db/utils'
 import { castTimestampOrNow, castTimestampToClickhouseFormat } from '../../utils/utils'
 import { eventProcessedAndIngestedCounter } from '../../worker/ingestion/event-pipeline/metrics'
 import { emitIngestionWarning } from '../common/ingestion-warnings'
-import { IngestionWarningsOutput } from '../common/outputs'
-import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 

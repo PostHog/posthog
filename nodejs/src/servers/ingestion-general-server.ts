@@ -1,4 +1,5 @@
 import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
+import { KafkaProducerRegistryComponent } from '~/common/outputs/registry'
 
 import { initializePrometheusLabels } from '../api/router'
 import {
@@ -24,7 +25,6 @@ import {
     getDefaultKafkaUpstreamProducerEnvConfig,
 } from '../ingestion/common/config'
 import { ingestionConsumerService } from '../ingestion/common/ingestion-consumer'
-import { KafkaProducerRegistryComponent } from '../ingestion/common/outputs/registry'
 import { extend, newScope } from '../ingestion/common/scopes'
 import {
     DatabaseConnectionConfig,

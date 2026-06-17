@@ -1,9 +1,9 @@
 import { DateTime } from 'luxon'
 
+import { GROUPS_OUTPUT, GroupsOutput } from '~/common/outputs'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { Properties } from '~/plugin-scaffold'
 
-import { GROUPS_OUTPUT, GroupsOutput } from '../../../../ingestion/common/outputs'
-import { IngestionOutputs } from '../../../../ingestion/outputs/ingestion-outputs'
 import { GroupTypeIndex, TeamId, TimestampFormat } from '../../../../types'
 import { castTimestampOrNow } from '../../../../utils/utils'
 

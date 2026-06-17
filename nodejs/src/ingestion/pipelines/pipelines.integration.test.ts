@@ -1,16 +1,17 @@
 import { Message } from 'node-rdkafka'
 import { v4 } from 'uuid'
 
-import { createMockIngestionOutputs } from '../../../tests/helpers/mock-ingestion-outputs'
-import { ProjectId, Team } from '../../types'
 import {
     DLQ_OUTPUT,
     INGESTION_WARNINGS_OUTPUT,
     IngestionWarningsOutput,
     OVERFLOW_OUTPUT,
     OverflowOutput,
-} from '../common/outputs'
-import { IngestionOutputs } from '../outputs/ingestion-outputs'
+} from '~/common/outputs'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+
+import { createMockIngestionOutputs } from '../../../tests/helpers/mock-ingestion-outputs'
+import { ProjectId, Team } from '../../types'
 import { BatchProcessingStep } from './base-batch-pipeline'
 import { newBatchPipelineBuilder } from './builders'
 import { createBatch, createNewPipeline, createUnwrapper } from './helpers'

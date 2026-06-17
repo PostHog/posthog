@@ -2,8 +2,8 @@ import { promisify } from 'node:util'
 import { gunzip, gzip } from 'node:zlib'
 import { Counter, Gauge } from 'prom-client'
 
-import { HOG_INVOCATION_RESULTS_OUTPUT, HogInvocationResultsOutput } from '~/ingestion/common/outputs'
-import { IngestionOutputs } from '~/ingestion/outputs/ingestion-outputs'
+import { HOG_INVOCATION_RESULTS_OUTPUT, HogInvocationResultsOutput } from '~/common/outputs'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 
 import { safeClickhouseString } from '../../../utils/db/utils'
 import { parseJSON } from '../../../utils/json-parse'

@@ -1,8 +1,9 @@
 import { Message } from 'node-rdkafka'
 
+import { IngestionWarningsOutput } from '~/common/outputs'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+
 import { PromiseScheduler } from '../../../utils/promise-scheduler'
-import { IngestionWarningsOutput } from '../../common/outputs'
-import { IngestionOutputs } from '../../outputs/ingestion-outputs'
 import { BaseBatchPipeline, BatchProcessingStep } from '../base-batch-pipeline'
 import { BatchPipeline } from '../batch-pipeline.interface'
 import { BatchRetryOptions, withBatchRetry } from '../batch-retry'

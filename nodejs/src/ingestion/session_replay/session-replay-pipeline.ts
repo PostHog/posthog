@@ -1,5 +1,8 @@
 import { Message } from 'node-rdkafka'
 
+import { DlqOutput, IngestionWarningsOutput, OverflowOutput } from '~/common/outputs'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+
 import { ParsedMessageData } from '../../session-recording/kafka/types'
 import { SessionBatchManager } from '../../session-recording/sessions/session-batch-manager'
 import { TeamForReplay } from '../../session-recording/teams/types'
@@ -7,9 +10,7 @@ import { TeamService } from '../../session-replay/shared/teams/team-service'
 import { ValueMatcher } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
-import { DlqOutput, IngestionWarningsOutput, OverflowOutput } from '../common/outputs'
 import { createApplyEventRestrictionsStep, createParseHeadersStep } from '../event-preprocessing'
-import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { BatchPipelineUnwrapper } from '../pipelines/batch-pipeline-unwrapper'
 import { newBatchPipelineBuilder } from '../pipelines/builders'
 import { TopHogRegistry, createTopHogWrapper, sum, timer } from '../pipelines/extensions/tophog'

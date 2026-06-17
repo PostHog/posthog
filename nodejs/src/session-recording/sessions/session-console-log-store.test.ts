@@ -1,6 +1,7 @@
-import { LOG_ENTRIES_OUTPUT, LogEntriesOutput } from '../../ingestion/common/outputs'
-import { IngestionOutputs } from '../../ingestion/outputs/ingestion-outputs'
-import { IngestionOutputMessage } from '../../ingestion/outputs/types'
+import { LOG_ENTRIES_OUTPUT, LogEntriesOutput } from '~/common/outputs'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { IngestionOutputMessage } from '~/common/outputs/types'
+
 import { ClickHouseTimestamp } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { ConsoleLogLevel } from '../rrweb-types'

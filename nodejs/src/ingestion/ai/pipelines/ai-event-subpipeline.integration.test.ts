@@ -1,5 +1,7 @@
 import { DateTime } from 'luxon'
 
+import { INGESTION_WARNINGS_OUTPUT } from '~/common/outputs'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { PluginEvent } from '~/plugin-scaffold'
 
 import { createTestEventHeaders } from '../../../../tests/helpers/event-headers'
@@ -12,8 +14,6 @@ import { parseJSON } from '../../../utils/json-parse'
 import { GroupStoreForBatch } from '../../../worker/ingestion/groups/group-store-for-batch'
 import { PersonsStoreForBatch } from '../../../worker/ingestion/persons/persons-store-for-batch'
 import { AI_EVENTS_OUTPUT, EVENTS_OUTPUT, PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT } from '../../analytics/outputs'
-import { INGESTION_WARNINGS_OUTPUT } from '../../common/outputs'
-import { IngestionOutputs } from '../../outputs/ingestion-outputs'
 import { newPipelineBuilder } from '../../pipelines/builders'
 import { createOkContext } from '../../pipelines/helpers'
 import { PipelineResultType } from '../../pipelines/results'

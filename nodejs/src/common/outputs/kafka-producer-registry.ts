@@ -1,5 +1,5 @@
-import { KafkaProducerWrapper } from '../../kafka/producer'
-import { logger } from '../../utils/logger'
+import { KafkaProducerWrapper } from '~/kafka/producer'
+import { logger } from '~/utils/logger'
 
 /**
  * Typed producer registry that holds pre-created Kafka producers by name.

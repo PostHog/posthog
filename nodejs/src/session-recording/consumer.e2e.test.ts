@@ -9,6 +9,16 @@ import { HighLevelProducer } from 'node-rdkafka'
 import snappy from 'snappy'
 import { v4 as uuidv4 } from 'uuid'
 
+import {
+    DLQ_OUTPUT,
+    INGESTION_WARNINGS_OUTPUT,
+    LOG_ENTRIES_OUTPUT,
+    OVERFLOW_OUTPUT,
+    TOPHOG_OUTPUT,
+} from '~/common/outputs'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
+
 import { Clickhouse } from '../../tests/helpers/clickhouse'
 import { waitForExpect } from '../../tests/helpers/expectations'
 import { resetKafka } from '../../tests/helpers/kafka'
@@ -20,15 +30,6 @@ import {
     KAFKA_CLICKHOUSE_SESSION_REPLAY_FEATURES,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
 } from '../config/kafka-topics'
-import {
-    DLQ_OUTPUT,
-    INGESTION_WARNINGS_OUTPUT,
-    LOG_ENTRIES_OUTPUT,
-    OVERFLOW_OUTPUT,
-    TOPHOG_OUTPUT,
-} from '../ingestion/common/outputs'
-import { IngestionOutputs } from '../ingestion/outputs/ingestion-outputs'
-import { SingleIngestionOutput } from '../ingestion/outputs/single-ingestion-output'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import { REPLAY_EVENTS_OUTPUT, SESSION_FEATURES_OUTPUT } from '../session-replay/shared/outputs'
 import { Hub, Team } from '../types'

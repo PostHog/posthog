@@ -1,4 +1,5 @@
-import { KafkaProducerRegistryBuilder } from '../../ingestion/outputs/kafka-producer-registry-builder'
+import { KafkaProducerRegistryBuilder } from '~/common/outputs/kafka-producer-registry-builder'
+
 import {
     WARPSTREAM_INGESTION_PRODUCER,
     WARPSTREAM_INGESTION_PRODUCER_CONFIG_MAP,

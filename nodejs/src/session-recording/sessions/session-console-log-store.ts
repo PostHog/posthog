@@ -1,5 +1,6 @@
-import { LOG_ENTRIES_OUTPUT, LogEntriesOutput } from '../../ingestion/common/outputs'
-import { IngestionOutputs } from '../../ingestion/outputs/ingestion-outputs'
+import { LOG_ENTRIES_OUTPUT, LogEntriesOutput } from '~/common/outputs'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+
 import { ClickHouseTimestamp } from '../../types'
 import { logger } from '../../utils/logger'
 import { ConsoleLogLevel } from '../rrweb-types'

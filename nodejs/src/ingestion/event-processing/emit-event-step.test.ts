@@ -1,6 +1,9 @@
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
+import { IngestionWarningsOutput } from '~/common/outputs'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+
 import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
 import { createTestMessage } from '../../../tests/helpers/kafka-message'
 import { createMockIngestionOutputs } from '../../../tests/helpers/mock-ingestion-outputs'
@@ -10,8 +13,6 @@ import { MessageSizeTooLarge } from '../../utils/db/error'
 import { eventProcessedAndIngestedCounter } from '../../worker/ingestion/event-pipeline/metrics'
 import { EVENTS_OUTPUT, EventOutput } from '../analytics/outputs'
 import { emitIngestionWarning } from '../common/ingestion-warnings'
-import { IngestionWarningsOutput } from '../common/outputs'
-import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { isOkResult } from '../pipelines/results'
 import {
     EmitEventStepConfig,

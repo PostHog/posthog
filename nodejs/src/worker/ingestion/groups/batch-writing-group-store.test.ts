@@ -15,9 +15,9 @@ jest.mock('../../../ingestion/common/ingestion-warnings', () => ({
     emitIngestionWarning: jest.fn().mockResolvedValue(undefined),
 }))
 
-import { GroupsOutput, IngestionWarningsOutput } from '../../../ingestion/common/outputs'
+import { GroupsOutput, IngestionWarningsOutput } from '~/common/outputs'
 import { emitIngestionWarning } from '../../../ingestion/common/ingestion-warnings'
-import { IngestionOutputs } from '../../../ingestion/outputs/ingestion-outputs'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 
 // Mock the DB class
 

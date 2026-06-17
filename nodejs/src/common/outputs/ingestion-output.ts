@@ -1,4 +1,5 @@
-import { MessageKey } from '../../kafka/producer'
+import { MessageKey } from '~/kafka/producer'
+
 import { IngestionOutputMessage } from './types'
 
 /** A resolved Kafka output that pipeline steps produce to. */

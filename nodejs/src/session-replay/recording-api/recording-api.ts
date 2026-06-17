@@ -3,7 +3,8 @@ import { ClickHouseClient, createClient as createClickHouseClient } from '@click
 import https from 'https'
 import express from 'ultimate-express'
 
-import { IngestionOutputs } from '../../ingestion/outputs/ingestion-outputs'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+
 import {
     HealthCheckResult,
     HealthCheckResultError,

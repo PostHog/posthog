@@ -1,12 +1,12 @@
 import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
+import { AppMetricsOutput } from '~/common/outputs'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { AppMetricsAggregator } from '~/common/services/app-metrics-aggregator'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
-import { AppMetricsOutput } from '~/ingestion/common/outputs'
-import { IngestionOutputs } from '~/ingestion/outputs/ingestion-outputs'
 
 import { KafkaConsumerInterface, createKafkaConsumer, parseKafkaHeaders } from '../kafka/consumer'
 import { HealthCheckResult, PluginServerService } from '../types'

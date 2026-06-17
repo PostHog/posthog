@@ -1,4 +1,4 @@
-import type { AllowedConfigKey } from '../../../ingestion/outputs/kafka-producer-config'
+import type { AllowedConfigKey } from '~/common/outputs/kafka-producer-config'
 
 /**
  * SESSIONREPLAY producer — the replay-domain Kafka cluster (warpstream-replay), carrying

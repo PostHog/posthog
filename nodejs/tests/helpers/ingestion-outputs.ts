@@ -1,4 +1,16 @@
 import {
+    APP_METRICS_OUTPUT,
+    DLQ_OUTPUT,
+    GROUPS_OUTPUT,
+    INGESTION_WARNINGS_OUTPUT,
+    LOG_ENTRIES_OUTPUT,
+    OVERFLOW_OUTPUT,
+    TOPHOG_OUTPUT,
+} from '~/common/outputs'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
+
+import {
     KAFKA_APP_METRICS_2,
     KAFKA_CLICKHOUSE_AI_EVENTS_JSON,
     KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
@@ -20,18 +32,7 @@ import {
     PERSONS_OUTPUT,
     PERSON_DISTINCT_IDS_OUTPUT,
 } from '../../src/ingestion/analytics/outputs'
-import {
-    APP_METRICS_OUTPUT,
-    DLQ_OUTPUT,
-    GROUPS_OUTPUT,
-    INGESTION_WARNINGS_OUTPUT,
-    LOG_ENTRIES_OUTPUT,
-    OVERFLOW_OUTPUT,
-    TOPHOG_OUTPUT,
-} from '../../src/ingestion/common/outputs'
 import { HEATMAPS_OUTPUT } from '../../src/ingestion/heatmaps/outputs'
-import { IngestionOutputs } from '../../src/ingestion/outputs/ingestion-outputs'
-import { SingleIngestionOutput } from '../../src/ingestion/outputs/single-ingestion-output'
 import { KafkaProducerWrapper } from '../../src/kafka/producer'
 
 function testOutput(name: string, topic: string, producer: KafkaProducerWrapper): SingleIngestionOutput {

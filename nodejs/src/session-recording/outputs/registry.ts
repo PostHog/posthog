@@ -4,8 +4,9 @@ import {
     LOG_ENTRIES_OUTPUT,
     OVERFLOW_OUTPUT,
     TOPHOG_OUTPUT,
-} from '../../ingestion/common/outputs'
-import { IngestionOutputsBuilder } from '../../ingestion/outputs/ingestion-outputs-builder'
+} from '~/common/outputs'
+import { IngestionOutputsBuilder } from '~/common/outputs/ingestion-outputs-builder'
+
 import { REPLAY_EVENTS_OUTPUT, SESSION_FEATURES_OUTPUT } from '../../session-replay/shared/outputs'
 
 /** Register all session replay outputs on the builder. Call `.build(registry, config)` to resolve. */

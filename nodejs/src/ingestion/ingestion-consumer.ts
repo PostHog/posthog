@@ -1,6 +1,15 @@
 import { Message } from 'node-rdkafka'
 import { Gauge, Histogram } from 'prom-client'
 
+import {
+    AppMetricsOutput,
+    DlqOutput,
+    GroupsOutput,
+    IngestionWarningsOutput,
+    OverflowOutput,
+    TophogOutput,
+} from '~/common/outputs'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
 import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
@@ -38,18 +47,9 @@ import {
 } from './analytics'
 import { AiEventOutput, AsyncOutput, EventOutput, PersonDistinctIdsOutput, PersonsOutput } from './analytics/outputs'
 import { EventFilterManager, EventFilterManagerComponent } from './common/event-filters'
-import {
-    AppMetricsOutput,
-    DlqOutput,
-    GroupsOutput,
-    IngestionWarningsOutput,
-    OverflowOutput,
-    TophogOutput,
-} from './common/outputs'
 import { IngestionConsumerConfig } from './config'
 import { CookielessManager } from './cookieless/cookieless-manager'
 import { parseSplitAiEventsConfig } from './event-processing/split-ai-events-step'
-import { IngestionOutputs } from './outputs/ingestion-outputs'
 import { createOkContext } from './pipelines/helpers'
 import { TopHog } from './tophog'
 import { MainLaneOverflowRedirect } from './utils/overflow-redirect/main-lane-overflow-redirect'

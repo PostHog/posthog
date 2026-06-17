@@ -1,11 +1,11 @@
 import { DateTime } from 'luxon'
 import pLimit from 'p-limit'
 
+import { GroupsOutput, IngestionWarningsOutput } from '~/common/outputs'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { Properties } from '~/plugin-scaffold'
 
 import { emitIngestionWarning } from '../../../ingestion/common/ingestion-warnings'
-import { GroupsOutput, IngestionWarningsOutput } from '../../../ingestion/common/outputs'
-import { IngestionOutputs } from '../../../ingestion/outputs/ingestion-outputs'
 import { GroupTypeIndex, TeamId } from '../../../types'
 import { MessageSizeTooLarge } from '../../../utils/db/error'
 import { logger } from '../../../utils/logger'

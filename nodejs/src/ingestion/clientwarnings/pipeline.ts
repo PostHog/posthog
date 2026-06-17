@@ -1,10 +1,12 @@
 import { Message } from 'node-rdkafka'
 
+import { AppMetricsOutput, DlqOutput, IngestionWarningsOutput } from '~/common/outputs'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { TeamManager } from '../../utils/team-manager'
 import { EventFilterManager } from '../common/event-filters'
-import { AppMetricsOutput, DlqOutput, IngestionWarningsOutput } from '../common/outputs'
 import { createAllowEventsStep } from '../common/steps/allow-events'
 import {
     EventFiltersBatchContext,
@@ -24,7 +26,6 @@ import {
 import { createApplyBasicEventRestrictionsStep } from '../event-preprocessing/apply-event-restrictions'
 import { createDropOldEventsStep } from '../event-processing/drop-old-events-step'
 import { createHandleClientIngestionWarningStep } from '../event-processing/handle-client-ingestion-warning-step'
-import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { newBatchingPipeline } from '../pipelines/builders'
 import { PipelineConfig } from '../pipelines/result-handling-pipeline'
 

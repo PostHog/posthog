@@ -1,5 +1,7 @@
 import { Message } from 'node-rdkafka'
 
+import { IngestionWarningsOutput } from '~/common/outputs'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { createProcessGroupsStep } from '~/ingestion/event-processing/process-groups-step'
 import { PluginEvent } from '~/plugin-scaffold'
 
@@ -11,7 +13,6 @@ import { GroupStoreForBatch } from '../../../worker/ingestion/groups/group-store
 import { PersonsStoreForBatch } from '../../../worker/ingestion/persons/persons-store-for-batch'
 import { AiEventOutput, AsyncOutput, EVENTS_OUTPUT, EventOutput } from '../../analytics/outputs'
 import { PersonDistinctIdsOutput, PersonsOutput } from '../../analytics/outputs'
-import { IngestionWarningsOutput } from '../../common/outputs'
 import { createCreateEventStep } from '../../event-processing/create-event-step'
 import { createEmitEventStep } from '../../event-processing/emit-event-step'
 import { EventPipelineRunnerOptions } from '../../event-processing/event-pipeline-options'
@@ -22,7 +23,6 @@ import { createPrepareEventStep } from '../../event-processing/prepare-event-ste
 import { createProcessPersonlessStep } from '../../event-processing/process-personless-step'
 import { createProcessPersonsStep } from '../../event-processing/process-persons-step'
 import { SplitAiEventsStepConfig, createSplitAiEventsStep } from '../../event-processing/split-ai-events-step'
-import { IngestionOutputs } from '../../outputs/ingestion-outputs'
 import { PipelineBuilder, StartPipelineBuilder } from '../../pipelines/builders/pipeline-builders'
 import { TopHogWrapper, sum, sumOk, sumResult, timer } from '../../pipelines/extensions/tophog'
 import { isDropResult } from '../../pipelines/results'

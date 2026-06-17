@@ -1,6 +1,7 @@
+import { IngestionWarningsOutput } from '~/common/outputs'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+
 import { emitIngestionWarning } from '../common/ingestion-warnings'
-import { IngestionWarningsOutput } from '../common/outputs'
-import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { BatchPipeline, BatchPipelineResultWithContext, OkResultWithContext } from './batch-pipeline.interface'
 import { TeamIdContext } from './builders/batch-pipeline-builders'
 

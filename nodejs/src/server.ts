@@ -1,4 +1,5 @@
 import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
+import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { InternalCaptureService } from '~/common/services/internal-capture'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 
@@ -33,7 +34,6 @@ import { EncryptedFields } from './cdp/utils/encryption-utils'
 import { defaultConfig } from './config/config'
 import { createIngestionRedisConnectionConfig, createPosthogRedisConnectionConfig } from './config/redis-pools'
 import { startEvaluationScheduler } from './evaluation-scheduler/evaluation-scheduler'
-import { KafkaProducerRegistry } from './ingestion/outputs/kafka-producer-registry'
 import { createPersonHogClient } from './ingestion/personhog'
 import { PersonHogGroupReadRepository } from './ingestion/personhog/personhog-group-read-repository'
 import { PersonHogPersonReadRepository } from './ingestion/personhog/personhog-person-read-repository'

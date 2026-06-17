@@ -1,13 +1,5 @@
 import { Message } from 'node-rdkafka'
 
-import { PluginEvent } from '~/plugin-scaffold'
-import { ErrorTrackingSettings, ErrorTrackingSettingsManager } from '~/utils/error-tracking-settings-manager'
-import { EventIngestionRestrictionManager } from '~/utils/event-ingestion-restrictions'
-import { PromiseScheduler } from '~/utils/promise-scheduler'
-import { TeamManager } from '~/utils/team-manager'
-import { PersonReadRepository } from '~/worker/ingestion/persons/repositories/person-repository'
-import { ReadOnlyGroupTypeManager } from '~/worker/ingestion/readonly-group-type-manager'
-
 import {
     AppMetricsOutput,
     DlqOutput,
@@ -16,7 +8,16 @@ import {
     IngestionWarningsOutput,
     OverflowOutput,
     TophogOutput,
-} from '../common/outputs'
+} from '~/common/outputs'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { PluginEvent } from '~/plugin-scaffold'
+import { ErrorTrackingSettings, ErrorTrackingSettingsManager } from '~/utils/error-tracking-settings-manager'
+import { EventIngestionRestrictionManager } from '~/utils/event-ingestion-restrictions'
+import { PromiseScheduler } from '~/utils/promise-scheduler'
+import { TeamManager } from '~/utils/team-manager'
+import { PersonReadRepository } from '~/worker/ingestion/persons/repositories/person-repository'
+import { ReadOnlyGroupTypeManager } from '~/worker/ingestion/readonly-group-type-manager'
+
 import { CookielessManager } from '../cookieless/cookieless-manager'
 import {
     createApplyCookielessProcessingStep,
@@ -32,7 +33,6 @@ import { createCreateEventStep } from '../event-processing/create-event-step'
 import { createEmitEventStep } from '../event-processing/emit-event-step'
 import { createHogTransformEventStep } from '../event-processing/hog-transform-event-step'
 import { createReadOnlyProcessGroupsStep } from '../event-processing/readonly-process-groups-step'
-import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { BatchPipelineUnwrapper } from '../pipelines/batch-pipeline-unwrapper'
 import { newBatchPipelineBuilder } from '../pipelines/builders'
 import { BatchPipelineBuilder } from '../pipelines/builders/batch-pipeline-builders'

@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 
+import { INGESTION_WARNINGS_OUTPUT } from '~/common/outputs'
 import { PERSONS_OUTPUT, PersonDistinctIdsOutput, PersonsOutput } from '~/ingestion/analytics/outputs'
-import { INGESTION_WARNINGS_OUTPUT } from '~/ingestion/common/outputs'
 import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
 import { InternalPerson, TeamId } from '~/types'
 import { DependencyUnavailableError, MessageSizeTooLarge } from '~/utils/db/error'

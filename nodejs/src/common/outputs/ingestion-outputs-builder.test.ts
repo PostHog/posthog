@@ -1,4 +1,5 @@
-import { KafkaProducerWrapper } from '../../kafka/producer'
+import { KafkaProducerWrapper } from '~/kafka/producer'
+
 import { IngestionOutputsBuilder, parseTeamDenylist } from './ingestion-outputs-builder'
 import { KafkaProducerRegistry } from './kafka-producer-registry'
 

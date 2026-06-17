@@ -44,7 +44,8 @@ import snappy from 'snappy'
 import supertest from 'supertest'
 import express from 'ultimate-express'
 
-import { IngestionOutputs } from '../../ingestion/outputs/ingestion-outputs'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+
 import { PostgresRouter } from '../../utils/db/postgres'
 import { parseJSON } from '../../utils/json-parse'
 import { SodiumRecordingDecryptor, SodiumRecordingEncryptor } from '../shared/crypto'

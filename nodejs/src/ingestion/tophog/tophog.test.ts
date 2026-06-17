@@ -1,6 +1,7 @@
+import { TOPHOG_OUTPUT, TophogOutput } from '~/common/outputs'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+
 import { parseJSON } from '../../utils/json-parse'
-import { TOPHOG_OUTPUT, TophogOutput } from '../common/outputs'
-import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { TopHog, TopHogOptionalConfig, TopHogRequiredConfig } from './tophog'
 
 describe('TopHog', () => {

@@ -3,6 +3,8 @@ import { mockProducer, mockProducerObserver } from '~/tests/helpers/mocks/produc
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
 import { KafkaConsumer } from '~/kafka/consumer/consumer-v1'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub, PipelineEvent, Team } from '~/types'
@@ -14,8 +16,6 @@ import { UUIDT } from '~/utils/utils'
 import { PersonReadRepository } from '~/worker/ingestion/persons/repositories/person-repository'
 import { ReadOnlyGroupTypeManager } from '~/worker/ingestion/readonly-group-type-manager'
 
-import { IngestionOutputs } from '../outputs/ingestion-outputs'
-import { SingleIngestionOutput } from '../outputs/single-ingestion-output'
 import { ErrorTrackingConsumer, ErrorTrackingHogTransformer } from './error-tracking-consumer'
 
 /** Creates a mock KafkaConsumer for tests that don't need actual Kafka connections */

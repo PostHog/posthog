@@ -1,5 +1,7 @@
 import { mockProducer } from './mocks/producer.mock'
 
+import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
+
 import { CdpConsumerBaseDeps } from '../../src/cdp/consumers/cdp-base.consumer'
 import {
     CdpProducerName,
@@ -9,7 +11,6 @@ import {
     WARPSTREAM_INGESTION_PRODUCER,
 } from '../../src/cdp/outputs/producers'
 import { InternalCaptureService } from '../../src/common/services/internal-capture'
-import { KafkaProducerRegistry } from '../../src/ingestion/outputs/kafka-producer-registry'
 import { KafkaProducerWrapper } from '../../src/kafka/producer'
 import { Hub } from '../../src/types'
 import { GroupReadRepository } from '../../src/worker/ingestion/groups/repositories/group-repository.interface'

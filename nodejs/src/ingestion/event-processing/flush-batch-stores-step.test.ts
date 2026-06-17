@@ -1,3 +1,5 @@
+import { INGESTION_WARNINGS_OUTPUT } from '~/common/outputs'
+
 import { createMockIngestionOutputs } from '../../../tests/helpers/mock-ingestion-outputs'
 import { MessageSizeTooLarge } from '../../utils/db/error'
 import { BatchWritingGroupStore } from '../../worker/ingestion/groups/batch-writing-group-store'
@@ -15,7 +17,6 @@ import {
 } from '../../worker/ingestion/stores/metrics'
 import { PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT } from '../analytics/outputs'
 import { emitIngestionWarning } from '../common/ingestion-warnings'
-import { INGESTION_WARNINGS_OUTPUT } from '../common/outputs'
 import { AfterBatchInput } from '../pipelines/batching-pipeline'
 import { isOkResult, ok } from '../pipelines/results'
 import { FlushBatchStoresStepConfig, createFlushBatchStoresStep } from './flush-batch-stores-step'

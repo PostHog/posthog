@@ -1,18 +1,12 @@
 import { S3Client, S3ClientConfig } from '@aws-sdk/client-s3'
 import { CODES, Message, TopicPartition, TopicPartitionOffset, features, librdkafkaVersion } from 'node-rdkafka'
 
+import { DlqOutput, IngestionWarningsOutput, LogEntriesOutput, OverflowOutput, TophogOutput } from '~/common/outputs'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
 import { buildIntegerMatcher } from '../config/config'
-import {
-    DlqOutput,
-    IngestionWarningsOutput,
-    LogEntriesOutput,
-    OverflowOutput,
-    TophogOutput,
-} from '../ingestion/common/outputs'
 import { IngestionConsumerConfig } from '../ingestion/config'
-import { IngestionOutputs } from '../ingestion/outputs/ingestion-outputs'
 import { BatchPipelineUnwrapper } from '../ingestion/pipelines/batch-pipeline-unwrapper'
 import {
     SessionReplayPipelineInput,

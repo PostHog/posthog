@@ -1,4 +1,7 @@
 import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
+import { ProducerName } from '~/common/outputs'
+import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
+import { createIngestionProducerRegistry } from '~/common/outputs/registry'
 
 import { initializePrometheusLabels } from '../api/router'
 import {
@@ -16,8 +19,6 @@ import {
     getDefaultKafkaDownstreamProducerEnvConfig,
     getDefaultKafkaUpstreamProducerEnvConfig,
 } from '../ingestion/common/config'
-import { ProducerName } from '../ingestion/common/outputs'
-import { createIngestionProducerRegistry } from '../ingestion/common/outputs/registry'
 import {
     DatabaseConnectionConfig,
     KafkaBrokerConfig,
@@ -33,7 +34,6 @@ import {
 } from '../ingestion/error-tracking/config'
 import { ErrorTrackingConsumer } from '../ingestion/error-tracking/error-tracking-consumer'
 import { createOutputsRegistry } from '../ingestion/error-tracking/outputs/registry'
-import { KafkaProducerRegistry } from '../ingestion/outputs/kafka-producer-registry'
 import { createPersonHogClient } from '../ingestion/personhog'
 import { PersonHogGroupReadRepository } from '../ingestion/personhog/personhog-group-read-repository'
 import { PersonHogPersonReadRepository } from '../ingestion/personhog/personhog-person-read-repository'

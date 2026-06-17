@@ -1,7 +1,8 @@
+import { OVERFLOW_OUTPUT } from '~/common/outputs'
+
 import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
 import { EventHeaders } from '../../types'
 import { EventIngestionRestrictionManager, Restriction } from '../../utils/event-ingestion-restrictions'
-import { OVERFLOW_OUTPUT } from '../common/outputs'
 import { dlq, drop, ok, redirect } from '../pipelines/results'
 import {
     RoutingConfig,

@@ -1,5 +1,6 @@
+import { OVERFLOW_OUTPUT, OverflowOutput } from '~/common/outputs'
+
 import { EventHeaders, PipelineEvent } from '../../types'
-import { OVERFLOW_OUTPUT, OverflowOutput } from '../common/outputs'
 import { COOKIELESS_SENTINEL_VALUE } from '../cookieless/cookieless-manager'
 import { PipelineResult, ok, redirect } from '../pipelines/results'
 import { OverflowEventBatch, OverflowRedirectService } from '../utils/overflow-redirect/overflow-redirect-service'

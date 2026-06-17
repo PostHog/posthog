@@ -1,3 +1,5 @@
+import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
+
 import { initializePrometheusLabels } from '../api/router'
 import { CommonConfig } from '../common/config'
 import { defaultConfig, overrideConfigWithEnv } from '../config/config'
@@ -6,7 +8,6 @@ import {
     getDefaultKafkaDownstreamProducerEnvConfig,
 } from '../ingestion/common/config'
 import { KafkaBrokerConfig, RedisConnectionsConfig } from '../ingestion/config'
-import { KafkaProducerRegistry } from '../ingestion/outputs/kafka-producer-registry'
 import {
     SessionReplayOutputsConfig,
     type SessionReplayProducerName,

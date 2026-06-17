@@ -1,8 +1,9 @@
 import { Message } from 'node-rdkafka'
 
+import { OVERFLOW_OUTPUT } from '~/common/outputs'
+
 import { createMockPipeline } from '../../../tests/helpers/mock-pipeline'
 import { logger } from '../../utils/logger'
-import { OVERFLOW_OUTPUT } from '../common/outputs'
 import { BatchPipelineUnwrapper } from './batch-pipeline-unwrapper'
 import { BatchPipeline } from './batch-pipeline.interface'
 import { DefaultContext, createContext, createNewBatchPipeline, createOkContext } from './helpers'

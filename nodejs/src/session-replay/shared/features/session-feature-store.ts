@@ -1,4 +1,5 @@
-import { IngestionOutputs } from '../../../ingestion/outputs/ingestion-outputs'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+
 import { FeatureEndResult } from '../../../session-recording/sessions/session-feature-recorder'
 import { TimestampFormat } from '../../../types'
 import { logger } from '../../../utils/logger'

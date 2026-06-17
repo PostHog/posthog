@@ -43,11 +43,12 @@
  * ignored and never sent to Kafka. Always ensure `handleIngestionWarnings()`
  * is called within a `teamAware()` block to process warnings.
  */
+import { IngestionWarningsOutput } from '~/common/outputs'
+
 import { createMockIngestionOutputs } from '../../../../tests/helpers/mock-ingestion-outputs'
 import { createTestTeam } from '../../../../tests/helpers/team'
 import { Team } from '../../../types'
 import { PromiseScheduler } from '../../../utils/promise-scheduler'
-import { IngestionWarningsOutput } from '../../common/outputs'
 import { newBatchPipelineBuilder } from '../builders'
 import { createOkContext } from '../helpers'
 import { PipelineWarning } from '../pipeline.interface'

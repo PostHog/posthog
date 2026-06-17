@@ -1,7 +1,8 @@
 import { ProducerGlobalConfig } from 'node-rdkafka'
 
-import { KafkaProducerWrapper } from '../../kafka/producer'
-import { logger } from '../../utils/logger'
+import { KafkaProducerWrapper } from '~/kafka/producer'
+import { logger } from '~/utils/logger'
+
 import { AllowedConfigKey, parseProducerConfig } from './kafka-producer-config'
 import { KafkaProducerRegistry } from './kafka-producer-registry'
 

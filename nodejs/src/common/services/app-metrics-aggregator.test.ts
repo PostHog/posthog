@@ -1,5 +1,6 @@
-import { APP_METRICS_OUTPUT, AppMetricsOutput } from '../../ingestion/common/outputs'
-import { IngestionOutputs } from '../../ingestion/outputs/ingestion-outputs'
+import { APP_METRICS_OUTPUT, AppMetricsOutput } from '~/common/outputs'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+
 import { parseJSON } from '../../utils/json-parse'
 import { AppMetricInput, AppMetricsAggregator } from './app-metrics-aggregator'
 

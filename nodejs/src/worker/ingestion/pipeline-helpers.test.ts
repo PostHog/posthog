@@ -1,9 +1,10 @@
 import { Message } from 'node-rdkafka'
 
+import { DLQ_OUTPUT } from '~/common/outputs'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+
 import { createMockIngestionOutputs } from '../../../tests/helpers/mock-ingestion-outputs'
 import { emitIngestionWarning } from '../../ingestion/common/ingestion-warnings'
-import { DLQ_OUTPUT } from '../../ingestion/common/outputs'
-import { IngestionOutputs } from '../../ingestion/outputs/ingestion-outputs'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { PromiseScheduler } from '../../utils/promise-scheduler'

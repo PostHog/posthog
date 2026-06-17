@@ -52,10 +52,11 @@
  */
 import { Message } from 'node-rdkafka'
 
+import { DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT, OVERFLOW_OUTPUT } from '~/common/outputs'
+
 import { createTestMessage } from '../../../../tests/helpers/kafka-message'
 import { createMockIngestionOutputs } from '../../../../tests/helpers/mock-ingestion-outputs'
 import { PromiseScheduler } from '../../../utils/promise-scheduler'
-import { DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT, OVERFLOW_OUTPUT } from '../../common/outputs'
 import { newBatchPipelineBuilder } from '../builders'
 import { createOkContext } from '../helpers'
 import { PipelineResult, dlq, drop, isDlqResult, isDropResult, isRedirectResult, ok, redirect } from '../results'

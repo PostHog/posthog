@@ -1,9 +1,10 @@
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+
 import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
 import { createMockIngestionOutputs } from '../../../tests/helpers/mock-ingestion-outputs'
 import { ISOTimestamp, PreIngestionEvent, ProjectId } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { cloneObject } from '../../utils/utils'
-import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { PipelineResultType } from '../pipelines/results'
 import { createExtractHeatmapDataStep } from './extract-heatmap-data-step'
 import { HEATMAPS_OUTPUT, HeatmapsOutput } from './outputs'

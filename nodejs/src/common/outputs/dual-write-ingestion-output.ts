@@ -1,4 +1,5 @@
-import { MessageKey } from '../../kafka/producer'
+import { MessageKey } from '~/kafka/producer'
+
 import { IngestionOutput } from './ingestion-output'
 import { SingleIngestionOutput } from './single-ingestion-output'
 import { DualWriteMode, IngestionOutputMessage } from './types'

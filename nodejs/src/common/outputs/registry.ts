@@ -1,8 +1,11 @@
 import { INGESTION_DOWNSTREAM_PRODUCER, INGESTION_UPSTREAM_PRODUCER, ProducerName } from '.'
 
-import { KafkaProducerRegistry } from '../../outputs/kafka-producer-registry'
-import { KafkaProducerRegistryBuilder } from '../../outputs/kafka-producer-registry-builder'
-import { INGESTION_DOWNSTREAM_PRODUCER_CONFIG_MAP, INGESTION_UPSTREAM_PRODUCER_CONFIG_MAP } from '../config'
+import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
+import { KafkaProducerRegistryBuilder } from '~/common/outputs/kafka-producer-registry-builder'
+import {
+    INGESTION_DOWNSTREAM_PRODUCER_CONFIG_MAP,
+    INGESTION_UPSTREAM_PRODUCER_CONFIG_MAP,
+} from '~/ingestion/common/config'
 
 /**
  * The consolidated UPSTREAM/DOWNSTREAM producer slots, for the analytics-family servers
