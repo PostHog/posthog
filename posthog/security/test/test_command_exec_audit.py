@@ -1,0 +1,273 @@
+import os
+import uuid
+import shutil
+import subprocess
+
+from posthog.test.base import APIBaseTest
+from unittest import TestCase, mock, skipUnless
+
+from django.test import override_settings
+from django.urls import path
+
+import structlog
+from parameterized import parameterized
+from rest_framework.permissions import AllowAny
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.clickhouse.query_tagging import AccessMethod
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.utils import generate_random_token_personal
+from posthog.security import command_exec_audit
+from posthog.security.command_exec_audit import (
+    _REDACTED as _R,
+    _scrub_args,
+    _scrub_command_string,
+    _summarize_env,
+    install,
+)
+
+
+class _ExecProbeView(APIView):
+    authentication_classes = [PersonalAPIKeyAuthentication, SessionAuthentication]
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        subprocess.run(["true"], check=True)
+        return Response({"ok": True})
+
+
+# Test-only URLconf so a real request/response cycle can run a command from a view.
+urlpatterns = [path("api/_exec_audit_probe/", _ExecProbeView.as_view())]
+
+
+class TestCommandExecAuditScrubbing(TestCase):
+    @parameterized.expand(
+        [
+            ("no_secrets", ["ls", "-la", "/tmp"], ["ls", "-la", "/tmp"]),
+            ("flag_value_pair", ["mycli", "--password", "hunter2"], ["mycli", "--password", _R]),
+            ("flag_equals", ["mycli", "--api-key=abc123"], ["mycli", f"--api-key={_R}"]),
+            ("bare_secret", ["mycli", "my_secret_token"], ["mycli", _R]),
+            (
+                "value_then_flag_not_consumed",
+                ["mycli", "--token", "--verbose"],
+                ["mycli", "--token", _R],
+            ),
+        ]
+    )
+    def test_scrub_args(self, _name: str, args: list[str], expected: list[str]) -> None:
+        self.assertEqual(_scrub_args(args), expected)
+
+    def test_scrub_args_truncates(self) -> None:
+        result = _scrub_args([f"a{i}" for i in range(200)])
+        self.assertEqual(len(result), command_exec_audit._MAX_ARGS + 1)
+        self.assertIn("truncated", result[-1])
+
+    def test_scrub_command_string_redacts_secret(self) -> None:
+        self.assertEqual(_scrub_command_string("psql --password supersecret db"), f"psql --password {_R} db")
+
+    def test_summarize_env_redacts_non_allowlisted(self) -> None:
+        allowed, redacted = _summarize_env({"PATH": "/usr/bin", "AWS_SECRET_KEY": "xxx", "FOO": "bar"})
+        self.assertEqual(allowed, {"PATH": "/usr/bin"})
+        self.assertEqual(redacted, 2)
+
+    def test_summarize_env_empty(self) -> None:
+        self.assertEqual(_summarize_env(None), (None, 0))
+
+
+class TestCommandExecAuditPatching(TestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        # install() is idempotent and audit-only, so patching the process-global sinks here is safe.
+        install()
+
+    def _find(self, logs: list[dict], sink: str) -> dict | None:
+        return next((log for log in logs if log.get("event") == "command_execution" and log.get("sink") == sink), None)
+
+    def test_subprocess_run_is_logged(self) -> None:
+        with structlog.testing.capture_logs() as logs:
+            subprocess.run(["true"], check=True)
+        entry = self._find(logs, "subprocess.Popen")
+        assert entry is not None
+        self.assertEqual(entry["command"], ["true"])
+        self.assertEqual(entry["binary"], "true")
+        self.assertFalse(entry["shell"])
+
+    def test_subprocess_shell_secret_is_scrubbed(self) -> None:
+        with structlog.testing.capture_logs() as logs:
+            subprocess.run("echo --password hunter2", shell=True, check=True)
+        entry = self._find(logs, "subprocess.Popen")
+        assert entry is not None
+        self.assertTrue(entry["shell"])
+        self.assertNotIn("hunter2", entry["command"])
+
+    def test_os_system_is_logged(self) -> None:
+        with structlog.testing.capture_logs() as logs:
+            os.system("true")
+        entry = self._find(logs, "os.system")
+        assert entry is not None
+        self.assertTrue(entry["shell"])
+
+    def test_context_is_attached(self) -> None:
+        from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries
+
+        org_id = uuid.uuid4()
+        reset_query_tags()
+        # user_email is intentionally set here but must NOT be logged — it's PII.
+        tag_queries(team_id=42, user_id=7, org_id=org_id, user_email="a@b.com")
+        with structlog.testing.capture_logs() as logs:
+            subprocess.run(["true"], check=True)
+        entry = self._find(logs, "subprocess.Popen")
+        assert entry is not None
+        self.assertEqual(entry["team_id"], 42)
+        self.assertEqual(entry["user_id"], 7)
+        # org_id is a UUID in the tags; it must be stringified for the log.
+        self.assertEqual(entry["org_id"], str(org_id))
+        self.assertNotIn("user_email", entry)
+
+    def test_cwd_is_logged(self) -> None:
+        with structlog.testing.capture_logs() as logs:
+            subprocess.run(["true"], cwd="/tmp", check=True)
+        entry = self._find(logs, "subprocess.Popen")
+        assert entry is not None
+        self.assertEqual(entry["cwd"], "/tmp")
+
+    def test_executable_overrides_binary(self) -> None:
+        true_path = shutil.which("true")
+        assert true_path is not None
+        with structlog.testing.capture_logs() as logs:
+            subprocess.run(["ignored"], executable=true_path, check=True)
+        entry = self._find(logs, "subprocess.Popen")
+        assert entry is not None
+        self.assertEqual(entry["binary"], true_path)
+
+    def test_shell_operators_are_flagged(self) -> None:
+        with structlog.testing.capture_logs() as logs:
+            subprocess.run("true | cat", shell=True, check=True)
+        entry = self._find(logs, "subprocess.Popen")
+        assert entry is not None
+        self.assertTrue(entry["has_shell_operators"])
+
+    def test_plain_command_has_no_shell_operator_flag(self) -> None:
+        with structlog.testing.capture_logs() as logs:
+            subprocess.run(["true"], check=True)
+        entry = self._find(logs, "subprocess.Popen")
+        assert entry is not None
+        self.assertNotIn("has_shell_operators", entry)
+
+    def test_audit_does_not_break_command(self) -> None:
+        result = subprocess.run(["true"], check=False)
+        self.assertEqual(result.returncode, 0)
+
+    def test_command_output_is_preserved(self) -> None:
+        # The patched Popen must still pipe stdout back to the caller untouched.
+        self.assertEqual(subprocess.check_output(["printf", "hello"]), b"hello")
+
+    @parameterized.expand(
+        [
+            ("missing_binary", ["this-binary-does-not-exist-9f3a"], {}, FileNotFoundError),
+            ("nonzero_with_check", ["false"], {"check": True}, subprocess.CalledProcessError),
+        ]
+    )
+    def test_subprocess_exceptions_propagate(self, _name: str, args: list, kwargs: dict, exc: type) -> None:
+        with self.assertRaises(exc):
+            subprocess.run(args, **kwargs)
+
+    def test_os_system_returns_exit_status(self) -> None:
+        self.assertEqual(os.system("exit 0"), 0)
+        self.assertNotEqual(os.system("exit 3"), 0)
+
+    def test_audit_failure_never_breaks_the_command(self) -> None:
+        # If the audit path raises, the wrapped command must still run and return normally.
+        with mock.patch.object(command_exec_audit, "_context", side_effect=RuntimeError("boom")):
+            result = subprocess.run(["true"], check=False)
+        self.assertEqual(result.returncode, 0)
+
+    def test_reentrancy_guard_suppresses_nested_audit(self) -> None:
+        # While an audit is in progress, a nested exec (e.g. the git shell-out in query
+        # tagging) must not emit or recurse back into the patched sink.
+        token = command_exec_audit._in_audit.set(True)
+        try:
+            with structlog.testing.capture_logs() as logs:
+                command_exec_audit._emit(component="os", sink="os.system", command="true", shell=True)
+            self.assertIsNone(self._find(logs, "os.system"))
+        finally:
+            command_exec_audit._in_audit.reset(token)
+
+    def test_install_is_idempotent(self) -> None:
+        # A second install() must not double-wrap and double-log.
+        install()
+        with structlog.testing.capture_logs() as logs:
+            subprocess.run(["true"], cwd="/", check=True)
+        matches = [
+            log
+            for log in logs
+            if log.get("event") == "command_execution"
+            and log.get("sink") == "subprocess.Popen"
+            and log.get("cwd") == "/"
+        ]
+        self.assertEqual(len(matches), 1)
+
+    @skipUnless(hasattr(os, "posix_spawn"), "posix_spawn unavailable on this platform")
+    def test_posix_spawn_is_logged(self) -> None:
+        true_path = shutil.which("true")
+        assert true_path is not None
+        with structlog.testing.capture_logs() as logs:
+            pid = os.posix_spawn(true_path, [true_path], os.environ)
+            os.waitpid(pid, 0)
+        entry = self._find(logs, "os.posix_spawn")
+        assert entry is not None
+        self.assertEqual(entry["binary"], true_path)
+
+
+@override_settings(ROOT_URLCONF="posthog.security.test.test_command_exec_audit")
+class TestCommandExecAuditRequestCycle(APIBaseTest):
+    PROBE = "/api/_exec_audit_probe/"
+
+    def setUp(self) -> None:
+        super().setUp()
+        install()
+
+    def _probe_log(self, logs: list[dict]) -> dict | None:
+        return next(
+            (log for log in logs if log.get("event") == "command_execution" and log.get("sink") == "subprocess.Popen"),
+            None,
+        )
+
+    def test_session_request_logs_middleware_context(self) -> None:
+        # APIBaseTest auto-logs-in self.user; the middleware should populate user/ip/request context
+        # onto the command log without any manual tagging in the view.
+        with structlog.testing.capture_logs() as logs:
+            response = self.client.get(self.PROBE)
+        self.assertEqual(response.status_code, 200)
+        entry = self._probe_log(logs)
+        assert entry is not None
+        self.assertEqual(entry["user_id"], self.user.pk)
+        self.assertEqual(entry["kind"], "request")
+        self.assertEqual(entry["ip_address"], "127.0.0.1")
+
+    def test_personal_api_key_request_logs_auth_context(self) -> None:
+        # Key-based auth tags team_id + access_method during DRF dispatch, before the command runs.
+        self.client.logout()
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="probe", user=self.user, secure_value=hash_key_value(value), scopes=["*"])
+        with structlog.testing.capture_logs() as logs:
+            response = self.client.get(self.PROBE, headers={"authorization": f"Bearer {value}"})
+        self.assertEqual(response.status_code, 200)
+        entry = self._probe_log(logs)
+        assert entry is not None
+        self.assertEqual(entry["user_id"], self.user.pk)
+        self.assertEqual(entry["team_id"], self.team.pk)
+        self.assertEqual(entry["access_method"], AccessMethod.PERSONAL_API_KEY)
+        self.assertEqual(entry["ip_address"], "127.0.0.1")
+
+    def test_unauthenticated_request_is_still_logged(self) -> None:
+        self.client.logout()
+        with structlog.testing.capture_logs() as logs:
+            response = self.client.get(self.PROBE)
+        self.assertEqual(response.status_code, 200)
+        entry = self._probe_log(logs)
+        assert entry is not None
+        self.assertEqual(entry["command"], ["true"])
+        self.assertNotIn("user_id", entry)

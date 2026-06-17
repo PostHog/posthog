@@ -1,0 +1,341 @@
+"""Process-execution audit logging."""
+
+import os
+import re
+import uuid
+import shlex
+import subprocess
+import contextvars
+from collections.abc import Mapping
+from typing import Any, Optional
+
+import wrapt
+import structlog
+
+logger = structlog.get_logger(__name__)
+
+# Reentrancy guard. Emitting a log touches the query-tag context, which on first access
+# shells out to `git` (see posthog/git.py via query_tagging.__get_constant_tags) — without
+# this guard that subprocess call would recurse straight back into the patched sink.
+_in_audit: contextvars.ContextVar[bool] = contextvars.ContextVar("command_exec_audit_in_progress", default=False)
+
+_installed = False
+
+_REDACTED = "[redacted]"
+_MAX_ARGS = 64
+_MAX_LEN = 4096
+
+# Case-insensitive substrings that mark an argument token or env var name as a secret.
+_SECRET_HINTS = (
+    "password",
+    "passwd",
+    "pwd",
+    "secret",
+    "token",
+    "api_key",
+    "apikey",
+    "access_key",
+    "accesskey",
+    "credential",
+    "private_key",
+    "auth",
+)
+# Only these env var names keep their value in the log; everything else is counted but redacted.
+_ENV_ALLOWLIST = frozenset({"PATH", "LD_PRELOAD", "LD_LIBRARY_PATH", "HOME", "USER", "SHELL", "PWD"})
+_INLINE_ENV_RE = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*)=(\S+)")
+
+# Characters that let one command string spawn or chain into another.
+_SHELL_OPERATORS = frozenset(";|&$`<>\n")
+
+# Context fields pulled from the query-tag ContextVar (set by middleware / Celery / Temporal).
+# Identifiers only — deliberately no PII (e.g. user_email) and nothing that can leak secrets
+# (http_referer / http_user_agent can carry tokens in query strings). Resolve a user/org from
+# the ids out-of-band instead.
+_QUERY_TAG_FIELDS = (
+    "team_id",
+    "user_id",
+    "org_id",
+    "access_method",
+    "is_impersonated",
+    "http_request_id",
+    "product",
+    "kind",
+)
+
+
+def _coerce_str(value: Any) -> str:
+    try:
+        if isinstance(value, str):
+            return value
+        if isinstance(value, bytes):
+            return value.decode("utf-8", "replace")
+        if hasattr(value, "__fspath__"):
+            path = os.fspath(value)
+            return path.decode("utf-8", "replace") if isinstance(path, bytes) else path
+        return str(value)
+    except Exception:
+        return _REDACTED
+
+
+def _is_sensitive(token: str) -> bool:
+    # Normalize hyphens to underscores so ``--api-key`` matches the ``api_key`` hint.
+    normalized = token.lower().replace("-", "_")
+    return any(hint in normalized for hint in _SECRET_HINTS)
+
+
+def _scrub_args(tokens: Any) -> list[str]:
+    result: list[str] = []
+    redact_next = False
+    seq = list(tokens)[:_MAX_ARGS]
+    for raw in seq:
+        token = _coerce_str(raw)
+        if redact_next:
+            result.append(_REDACTED)
+            redact_next = False
+            continue
+        if not _is_sensitive(token):
+            result.append(token[:_MAX_LEN])
+            continue
+        if "=" in token:
+            name = token.split("=", 1)[0]
+            result.append(f"{name}={_REDACTED}")
+        elif token[:1] in ("-", "/"):
+            # Sensitive flag whose value is the following token, e.g. ``--password secret``.
+            result.append(token)
+            redact_next = True
+        else:
+            result.append(_REDACTED)
+    extra = len(list(tokens)) - len(seq)
+    if extra > 0:
+        result.append(f"...(+{extra} args truncated)")
+    return result
+
+
+def _scrub_command_string(command: str) -> str:
+    command = command[:_MAX_LEN]
+    try:
+        # Space-join (not shlex.join) keeps the audit string readable — it's for logs, not re-execution.
+        return " ".join(_scrub_args(shlex.split(command)))
+    except Exception:
+        # Fall back to redacting inline ``KEY=value`` secrets when the line can't be tokenized.
+        return _INLINE_ENV_RE.sub(
+            lambda m: f"{m.group(1)}={_REDACTED}" if _is_sensitive(m.group(1)) else m.group(0),
+            command,
+        )
+
+
+def _summarize_env(env: Any) -> tuple[Optional[dict[str, str]], int]:
+    if not env or not isinstance(env, Mapping):
+        return None, 0
+    allowed: dict[str, str] = {}
+    redacted = 0
+    for key, value in env.items():
+        name = _coerce_str(key)
+        if name in _ENV_ALLOWLIST and not _is_sensitive(name):
+            allowed[name] = _coerce_str(value)[:_MAX_LEN]
+        else:
+            redacted += 1
+    return (allowed or None), redacted
+
+
+def _context() -> dict[str, Any]:
+    ctx: dict[str, Any] = {}
+    try:
+        from posthog.clickhouse.query_tagging import get_query_tags
+
+        tags = get_query_tags()
+        for field in _QUERY_TAG_FIELDS:
+            value = getattr(tags, field, None)
+            if value is not None:
+                ctx[field] = str(value) if isinstance(value, uuid.UUID) else value
+    except Exception:
+        pass
+    try:
+        from posthog.models.activity_logging.utils import activity_storage
+
+        ip_address = activity_storage.get_ip_address()
+        if ip_address:
+            ctx["ip_address"] = ip_address
+        client = activity_storage.get_client()
+        if client:
+            ctx["client"] = client
+    except Exception:
+        pass
+    return ctx
+
+
+def _emit(
+    *,
+    component: str,
+    sink: str,
+    command: Any,
+    shell: bool,
+    env: Any = None,
+    binary: Optional[str] = None,
+    cwd: Any = None,
+    extra: Optional[dict[str, Any]] = None,
+) -> None:
+    if _in_audit.get():
+        return
+    token = _in_audit.set(True)
+    try:
+        payload: dict[str, Any] = {"component": component, "sink": sink, "shell": bool(shell)}
+        if isinstance(command, (list, tuple)):
+            scrubbed = _scrub_args(command)
+            payload["command"] = scrubbed
+            payload["binary"] = binary or (scrubbed[0] if scrubbed else None)
+            scanned = " ".join(scrubbed)
+        else:
+            scrubbed_str = _scrub_command_string(_coerce_str(command))
+            payload["command"] = scrubbed_str
+            payload["binary"] = binary
+            scanned = scrubbed_str
+
+        # Flag command lines carrying shell operators (chaining, pipes, substitution) — the
+        # shape that turns an interpolated value into command injection.
+        if any(char in _SHELL_OPERATORS for char in scanned):
+            payload["has_shell_operators"] = True
+
+        if cwd is not None:
+            payload["cwd"] = _coerce_str(cwd)
+
+        env_allowed, env_redacted = _summarize_env(env)
+        if env_allowed:
+            payload["env"] = env_allowed
+        if env_redacted:
+            payload["env_redacted_count"] = env_redacted
+        if extra:
+            payload.update(extra)
+        payload.update(_context())
+
+        logger.info("command_execution", **payload)
+    except Exception:
+        try:
+            logger.warning("command_execution_audit_failed", sink=sink, exc_info=True)
+        except Exception:
+            pass
+    finally:
+        _in_audit.reset(token)
+
+
+def _arg(args: tuple, kwargs: dict, index: int, name: str, default: Any = None) -> Any:
+    if len(args) > index:
+        return args[index]
+    return kwargs.get(name, default)
+
+
+def _popen_wrapper(wrapped, instance, args, kwargs):  # type: ignore[no-untyped-def]
+    # wrapt strips `self`, so the first positional is Popen's `args` (the command).
+    try:
+        # When `executable` is given it, not args[0], is the program actually run.
+        executable = _arg(args, kwargs, 2, "executable")
+        _emit(
+            component="subprocess",
+            sink="subprocess.Popen",
+            command=_arg(args, kwargs, 0, "args"),
+            shell=_arg(args, kwargs, 8, "shell", False),
+            env=_arg(args, kwargs, 10, "env"),
+            cwd=_arg(args, kwargs, 9, "cwd"),
+            binary=_coerce_str(executable) if executable else None,
+        )
+    except Exception:
+        pass
+    return wrapped(*args, **kwargs)
+
+
+def _system_wrapper(wrapped, instance, args, kwargs):  # type: ignore[no-untyped-def]
+    try:
+        _emit(component="os", sink="os.system", command=_arg(args, kwargs, 0, "command"), shell=True)
+    except Exception:
+        pass
+    return wrapped(*args, **kwargs)
+
+
+def _spawnvef_wrapper(wrapped, instance, args, kwargs):  # type: ignore[no-untyped-def]
+    # _spawnvef(mode, file, args, env, func) — the funnel for every os.spawn* alias.
+    try:
+        file = _arg(args, kwargs, 1, "file")
+        spawn_args = _arg(args, kwargs, 2, "args") or []
+        _emit(
+            component="os",
+            sink="os.spawn",
+            command=[file, *spawn_args],
+            shell=False,
+            env=_arg(args, kwargs, 3, "env"),
+            binary=_coerce_str(file),
+        )
+    except Exception:
+        pass
+    return wrapped(*args, **kwargs)
+
+
+def _make_posix_spawn_wrapper(sink: str):  # type: ignore[no-untyped-def]
+    def wrapper(wrapped, instance, args, kwargs):  # type: ignore[no-untyped-def]
+        # posix_spawn(path, argv, env, ...)
+        try:
+            path = _arg(args, kwargs, 0, "path")
+            _emit(
+                component="os",
+                sink=sink,
+                command=list(_arg(args, kwargs, 1, "argv") or []),
+                shell=False,
+                env=_arg(args, kwargs, 2, "env"),
+                binary=_coerce_str(path),
+            )
+        except Exception:
+            pass
+        return wrapped(*args, **kwargs)
+
+    return wrapper
+
+
+def _make_exec_wrapper(sink: str, *, takes_env: bool):  # type: ignore[no-untyped-def]
+    def wrapper(wrapped, instance, args, kwargs):  # type: ignore[no-untyped-def]
+        # execv(path, args) / execve(path, args, env) — every os.exec* alias funnels here.
+        try:
+            path = _arg(args, kwargs, 0, "path")
+            _emit(
+                component="os",
+                sink=sink,
+                command=list(_arg(args, kwargs, 1, "args") or []),
+                shell=False,
+                env=_arg(args, kwargs, 2, "env") if takes_env else None,
+                binary=_coerce_str(path),
+                extra={"replaces_process": True},
+            )
+        except Exception:
+            pass
+        return wrapped(*args, **kwargs)
+
+    return wrapper
+
+
+def _wrap(module: Any, name: str, wrapper: Any) -> None:
+    """Attach a wrapt wrapper, skipping targets that are missing or already wrapped by us."""
+    obj = module
+    *path, attr = name.split(".")
+    for part in path:
+        obj = getattr(obj, part, None)
+        if obj is None:
+            return
+    target = getattr(obj, attr, None)
+    if target is None or isinstance(target, wrapt.ObjectProxy):
+        return
+    wrapt.wrap_function_wrapper(module, name, wrapper)
+
+
+def install() -> None:
+    """Patch the process-execution sinks. Idempotent; safe to call once per process."""
+    global _installed
+    if _installed:
+        return
+    _installed = True
+
+    _wrap(subprocess, "Popen.__init__", _popen_wrapper)
+    _wrap(os, "system", _system_wrapper)
+    # All os.spawn* aliases funnel through this private helper.
+    _wrap(os, "_spawnvef", _spawnvef_wrapper)
+    _wrap(os, "posix_spawn", _make_posix_spawn_wrapper("os.posix_spawn"))
+    _wrap(os, "posix_spawnp", _make_posix_spawn_wrapper("os.posix_spawnp"))
+    _wrap(os, "execv", _make_exec_wrapper("os.execv", takes_env=False))
+    _wrap(os, "execve", _make_exec_wrapper("os.execve", takes_env=True))
