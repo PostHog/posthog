@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
+import { ResponseComposition, RestContext, RestRequest } from 'msw'
 
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events_query'
 import { recordingMetaJson } from 'scenes/session-recordings/__mocks__/recording_meta'
@@ -39,7 +40,11 @@ const meta: Meta<{ width: number }> = {
         mswDecorator({
             get: {
                 '/api/projects/:team_id/notebooks/recording_comments': { results: [] },
-                '/api/environments/:team_id/session_recordings/:id/snapshots': (req, res, ctx) => {
+                '/api/environments/:team_id/session_recordings/:id/snapshots': (
+                    req: RestRequest,
+                    res: ResponseComposition,
+                    ctx: RestContext
+                ) => {
                     if (req.url.searchParams.get('source') === 'blob_v2') {
                         return res(ctx.text(lateFullSnapshotAsJSONLines(LATE_SNAPSHOT_BASE, 60000)))
                     }
@@ -60,7 +65,11 @@ const meta: Meta<{ width: number }> = {
                 '/api/environments/:team_id/session_recordings/:id': () => [200, lateRecordingMeta],
             },
             post: {
-                '/api/environments/:team_id/query/:kind': (req, res, ctx) => {
+                '/api/environments/:team_id/query/:kind': (
+                    req: RestRequest,
+                    res: ResponseComposition,
+                    ctx: RestContext
+                ) => {
                     const body = req.body as Record<string, any>
                     if (body.query.kind === 'EventsQuery') {
                         return res(ctx.json(recordingEventsJson))
