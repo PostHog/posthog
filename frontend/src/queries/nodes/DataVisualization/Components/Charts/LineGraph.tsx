@@ -30,8 +30,10 @@ import {
 import { resolveVariableColor } from 'lib/charts/utils/color'
 import { getGraphColors, getSeriesColor } from 'lib/colors'
 import { InsightLabel } from 'lib/components/InsightLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useChart } from 'lib/hooks/useChart'
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { hexToRGBA } from 'lib/utils/colors'
 import { uuid } from 'lib/utils/dom'
 import { unpinTooltip, useInsightTooltip } from 'scenes/insights/useInsightTooltip'
@@ -43,6 +45,8 @@ import { ChartDisplayType, GraphType } from '~/types'
 import { AxisSeries, AxisSeriesSettings, formatDataWithSettings } from '../../dataVisualizationLogic'
 import { AxisBreakdownSeries } from '../seriesBreakdownLogic'
 import { lineGraphLogic } from './lineGraphLogic'
+import { SqlLineGraph } from './SqlLineGraph'
+import { canRenderSqlLineGraph } from './sqlLineGraphAdapter'
 
 Chart.register(annotationPlugin)
 Chart.register(ChartjsPluginStacked100)
@@ -134,8 +138,9 @@ export type LineGraphProps = {
     className?: string
 }
 
-// LineGraph displays a graph using either x and y data or series breakdown data
-export const LineGraph = ({
+// LegacyLineGraph displays a graph using either x and y data or series breakdown data, rendered
+// via chart.js. The exported `LineGraph` dispatcher below decides between this and the quill path.
+const LegacyLineGraph = ({
     xData,
     yData,
     presetChartHeight,
@@ -728,4 +733,18 @@ export const LineGraph = ({
             <canvas ref={canvasRef} />
         </div>
     )
+}
+
+// Dispatches between the new SQL line graph (line/area charts, behind the `data-viz-quill-charts`
+// flag) and the legacy chart.js renderer. When the flag is off — or the inputs aren't yet supported
+// by the new path — the legacy behavior is unchanged.
+export const LineGraph = (props: LineGraphProps): JSX.Element => {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const newChartsEnabled = !!featureFlags[FEATURE_FLAGS.DATA_VIZ_QUILL_CHARTS]
+
+    if (newChartsEnabled && canRenderSqlLineGraph(props)) {
+        return <SqlLineGraph {...props} />
+    }
+
+    return <LegacyLineGraph {...props} />
 }
