@@ -6,13 +6,13 @@ from rest_framework.exceptions import PermissionDenied, Throttled
 from posthog.exceptions import QuotaLimitExceeded
 
 from products.tasks.backend.models import Task, TaskRun
-from products.tasks.backend.services.warm import ORIGIN_PRODUCT_WARM_CAPS, warm_at_capacity, warm_run
+from products.tasks.backend.services.warm import SandboxWarmer
 
 WARM = "products.tasks.backend.services.warm"
-_CAPS = ORIGIN_PRODUCT_WARM_CAPS[Task.OriginProduct.POSTHOG_AI]
+_CAPS = SandboxWarmer.ORIGIN_PRODUCT_CAPS[Task.OriginProduct.POSTHOG_AI]
 
 
-class TestWarmRun(APIBaseTest):
+class TestSandboxWarmerWarm(APIBaseTest):
     def _task(self, *, origin=Task.OriginProduct.POSTHOG_AI, created_by=None) -> Task:
         return Task.objects.create(
             team=self.team,
@@ -33,7 +33,7 @@ class TestWarmRun(APIBaseTest):
             patch(f"{WARM}.is_team_limited", return_value=False),
             self.captureOnCommitCallbacks(execute=True),
         ):
-            result = warm_run(task, user=self.user, extra_state={"systemPrompt": "SYS"})
+            result = SandboxWarmer(task, user=self.user).warm(extra_state={"systemPrompt": "SYS"})
 
         assert result.just_created is True
         run = result.run
@@ -58,7 +58,7 @@ class TestWarmRun(APIBaseTest):
             patch(f"{WARM}.is_team_limited", return_value=False),
             self.captureOnCommitCallbacks(execute=True),
         ):
-            result = warm_run(task, user=self.user)
+            result = SandboxWarmer(task, user=self.user).warm()
 
         assert result.just_created is False
         assert result.run.id == existing.id
@@ -76,7 +76,7 @@ class TestWarmRun(APIBaseTest):
             patch(f"{WARM}.is_team_limited", return_value=False),
             self.captureOnCommitCallbacks(execute=True),
         ):
-            result = warm_run(task, user=self.user)
+            result = SandboxWarmer(task, user=self.user).warm()
 
         assert result.just_created is True
         assert result.run.id != terminal.id
@@ -94,7 +94,7 @@ class TestWarmRun(APIBaseTest):
             patch(f"{WARM}.execute_task_processing_workflow") as m_workflow,
             patch(f"{WARM}.is_team_limited", return_value=False),
         ):
-            result = warm_run(task, user=self.user)
+            result = SandboxWarmer(task, user=self.user).warm()
             m_workflow.assert_not_called()
 
         assert result.just_created is True
@@ -107,7 +107,7 @@ class TestWarmRun(APIBaseTest):
             patch(f"{WARM}.is_team_limited", return_value=True),
         ):
             with self.assertRaises(QuotaLimitExceeded):
-                warm_run(task, user=self.user)
+                SandboxWarmer(task, user=self.user).warm()
 
         assert task.runs.count() == 0
         m_workflow.assert_not_called()
@@ -116,7 +116,7 @@ class TestWarmRun(APIBaseTest):
         # Fail-closed: only origin products with a registered quota gate may warm.
         task = self._task(origin=Task.OriginProduct.USER_CREATED)
         with self.assertRaises(PermissionDenied):
-            warm_run(task, user=self.user)
+            SandboxWarmer(task, user=self.user).warm()
         assert task.runs.count() == 0
 
     def test_over_cap_raises_throttled(self):
@@ -129,13 +129,13 @@ class TestWarmRun(APIBaseTest):
             patch(f"{WARM}.is_team_limited", return_value=False),
         ):
             with self.assertRaises(Throttled):
-                warm_run(task, user=self.user)
+                SandboxWarmer(task, user=self.user).warm()
 
         assert task.runs.count() == 0
         m_workflow.assert_not_called()
 
 
-class TestWarmAtCapacity(APIBaseTest):
+class TestSandboxWarmerAtCapacity(APIBaseTest):
     def _warm_run_on_new_task(self, *, created_by=None, status=TaskRun.Status.QUEUED, warm=True) -> TaskRun:
         task = Task.objects.create(
             team=self.team,
@@ -152,30 +152,28 @@ class TestWarmAtCapacity(APIBaseTest):
         return run
 
     def test_counts_only_warm_non_terminal_runs(self):
-        caps = ORIGIN_PRODUCT_WARM_CAPS[Task.OriginProduct.POSTHOG_AI]
         origin = Task.OriginProduct.POSTHOG_AI
 
         # Terminal warm runs drop from the count via the status filter.
-        for _ in range(caps.per_user):
+        for _ in range(_CAPS.per_user):
             self._warm_run_on_new_task(status=TaskRun.Status.CANCELLED)
-        assert warm_at_capacity(origin, self.team, self.user) is False
+        assert SandboxWarmer.at_capacity(origin, self.team, self.user) is False
 
         # Activated (await_user_message cleared) non-terminal runs drop via the state filter.
-        for _ in range(caps.per_user):
+        for _ in range(_CAPS.per_user):
             self._warm_run_on_new_task(warm=False)
-        assert warm_at_capacity(origin, self.team, self.user) is False
+        assert SandboxWarmer.at_capacity(origin, self.team, self.user) is False
 
         # Genuine warm runs do count.
-        for _ in range(caps.per_user):
+        for _ in range(_CAPS.per_user):
             self._warm_run_on_new_task()
-        assert warm_at_capacity(origin, self.team, self.user) is True
+        assert SandboxWarmer.at_capacity(origin, self.team, self.user) is True
 
     def test_per_org_cap_counts_across_users(self):
-        caps = ORIGIN_PRODUCT_WARM_CAPS[Task.OriginProduct.POSTHOG_AI]
         origin = Task.OriginProduct.POSTHOG_AI
         other = self._create_user("warmer@posthog.com")
-        for _ in range(caps.per_org):
+        for _ in range(_CAPS.per_org):
             self._warm_run_on_new_task(created_by=other)
 
         # The requesting user holds no warm runs, but the org cap is full.
-        assert warm_at_capacity(origin, self.team, self.user) is True
+        assert SandboxWarmer.at_capacity(origin, self.team, self.user) is True

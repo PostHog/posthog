@@ -21,12 +21,12 @@ from products.posthog_ai.backend.system_prompt import PromptService
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.services.agent_command import CommandResult
 from products.tasks.backend.services.connection_token import reset_sandbox_jwt_key_cache
-from products.tasks.backend.services.warm import ORIGIN_PRODUCT_WARM_CAPS
+from products.tasks.backend.services.warm import SandboxWarmer
 from products.tasks.backend.tests.test_api import TEST_RSA_PRIVATE_KEY
 
 ROUTING = "products.posthog_ai.backend.message_routing"
 WARM = "products.tasks.backend.services.warm"
-_CAPS = ORIGIN_PRODUCT_WARM_CAPS[Task.OriginProduct.POSTHOG_AI]
+_CAPS = SandboxWarmer.ORIGIN_PRODUCT_CAPS[Task.OriginProduct.POSTHOG_AI]
 
 
 class TestHandleSandboxMessage(APIBaseTest):
@@ -549,7 +549,7 @@ class TestSandboxPrewarm(APIBaseTest):
         m_workflow.assert_called_once()
 
     def test_prewarm_over_quota_raises_and_creates_no_task(self):
-        # The AI-credit gate now lives in warm_run; an over-quota warm must not leave a runless Task.
+        # The AI-credit gate now lives in SandboxWarmer; an over-quota warm must not leave a runless Task.
         with (
             patch(f"{WARM}.is_team_limited", return_value=True),
             patch.object(PromptService, "build", return_value="SYS"),

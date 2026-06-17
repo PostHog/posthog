@@ -37,7 +37,7 @@ from products.posthog_ai.backend.wire_types import UnknownFrame, is_user_message
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.services.agent_command import send_cancel
 from products.tasks.backend.services.connection_token import create_sandbox_connection_token
-from products.tasks.backend.services.warm import enforce_warm_quota, warm_at_capacity, warm_run
+from products.tasks.backend.services.warm import SandboxWarmer
 from products.tasks.backend.temporal.client import execute_task_processing_workflow, signal_task_followup_message
 
 logger = structlog.get_logger(__name__)
@@ -212,16 +212,16 @@ class MessageRoutingService(BaseSandboxService):
         routes through the follow-up branch.
 
         Ensures the conversation's Task exists under the row lock (so two tabs can't
-        create two Tasks), then hands provisioning to the shared `warm_run` helper,
+        create two Tasks), then hands provisioning to the shared `SandboxWarmer`,
         which enforces the AI-credit quota and the warm-pool cap, serializes on the
         Task row, and dispatches the workflow after commit. Idempotent: a non-terminal
         current Run is a no-op.
         """
         # Gate before creating the Task: an over-quota or over-cap warm must not leave the conversation
-        # with a runless Task that the next message can't continue. `warm_run` re-checks both (a cheap
-        # cached read + a state query) so it stays self-contained for any future caller.
-        enforce_warm_quota(Task.OriginProduct.POSTHOG_AI, self.team, self.user)
-        if warm_at_capacity(Task.OriginProduct.POSTHOG_AI, self.team, self.user):
+        # with a runless Task that the next message can't continue. `SandboxWarmer.warm` re-checks both
+        # (a cheap cached read + a state query) so it stays self-contained for any future caller.
+        SandboxWarmer.enforce_quota(Task.OriginProduct.POSTHOG_AI, self.team, self.user)
+        if SandboxWarmer.at_capacity(Task.OriginProduct.POSTHOG_AI, self.team, self.user):
             logger.info(
                 "sandbox_prewarm_capacity_reached",
                 conversation_id=str(self.conversation.id),
@@ -249,11 +249,11 @@ class MessageRoutingService(BaseSandboxService):
                 locked.task = task
                 locked.save(update_fields=["task", "updated_at"])
 
-        # Conversation lock released. `warm_run` provisions under its own Task-row lock and dispatches
-        # the workflow on commit; `systemPrompt` is the one PostHog AI-specific Run-state key the
-        # generic helper can't know.
+        # Conversation lock released. `SandboxWarmer` provisions under its own Task-row lock and
+        # dispatches the workflow on commit; `systemPrompt` is the one PostHog AI-specific Run-state key
+        # the generic warmer can't know.
         try:
-            warm_run(task, user=self.user, extra_state={"systemPrompt": system_prompt})
+            SandboxWarmer(task, user=self.user).warm(extra_state={"systemPrompt": system_prompt})
         except exceptions.Throttled:
             # Warm-pool cap reached. Prewarm is best-effort (fire-and-forget from the composer), so a
             # full pool is a silent no-op rather than a surfaced 429. The AI-credit quota (402) still
