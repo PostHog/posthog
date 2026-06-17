@@ -53,7 +53,10 @@ from posthog.temporal.ai.research_agent import (
     ResearchAgentWorkflowInputs,
 )
 
-from products.posthog_ai.backend.context_wrapper import ALLOWED_TYPES as ALLOWED_ATTACHED_CONTEXT_TYPES
+from products.posthog_ai.backend.context_wrapper import (
+    ALLOWED_TYPES as ALLOWED_ATTACHED_CONTEXT_TYPES,
+    ContextService,
+)
 from products.posthog_ai.backend.message_routing import MessageRoutingService
 from products.posthog_ai.backend.models.assistant import Conversation
 from products.tasks.backend.models import Task, TaskRun
@@ -485,9 +488,39 @@ class ConversationViewSet(
         is_idle = conversation.status == Conversation.Status.IDLE
         has_message = serializer.validated_data.get("message") is not None
         has_resume_payload = serializer.validated_data.get("resume_payload") is not None
+
+        # Convert a reopened legacy LangGraph thread on its first new message: read the current
+        # conversation window into a one-time resumed-context block (while still LangGraph), then
+        # route the message through the sandbox path, which flips the runtime + links the Task
+        # atomically. Gated on `phai-sandbox-mode` only; the legacy thread itself is kept and still
+        # rendered (above the conversion divider).
+        resumed_context: str | None = None
+        convert_to_acp = bool(
+            not is_new_conversation
+            and conversation.agent_runtime == Conversation.AgentRuntime.LANGGRAPH
+            and conversation.task_id is None
+            and is_idle
+            and has_message
+            and has_sandbox_mode_feature_flag(self.team, cast(User, request.user))
+        )
+        if convert_to_acp:
+            try:
+                resumed_context = asgi_async_to_sync(ContextService().abuild_resumed_legacy_context)(
+                    conversation, self.team, cast(User, request.user)
+                )
+            except Exception as e:
+                # A failed read must not block the conversion — continue with no resumed context.
+                # The user can still continue, and the legacy thread is rendered by the serializer.
+                capture_exception(e)
+                resumed_context = None
+
         is_sandbox = (
             serializer.validated_data.get("is_sandbox", False)
             or serializer.validated_data.get("agent_mode") == AgentMode.SANDBOX
+            or conversation.agent_runtime == Conversation.AgentRuntime.SANDBOX
+            # A converting thread is still LangGraph here (the flip happens in the routing service),
+            # so route it through the sandbox path explicitly.
+            or convert_to_acp
         )
 
         if conversation.type == Conversation.Type.DEEP_RESEARCH:
@@ -513,7 +546,9 @@ class ConversationViewSet(
             if is_new_conversation:
                 conversation.title = serializer.validated_data["content"][:80]
                 conversation.save(update_fields=["title"])
-            return self._route_sandbox_message(request, conversation)
+            return self._route_sandbox_message(
+                request, conversation, resumed_context=resumed_context, convert_to_acp=convert_to_acp
+            )
 
         workflow_inputs: ChatAgentWorkflowInputs | ResearchAgentWorkflowInputs
         workflow_class: type[ChatAgentWorkflow] | type[ResearchAgentWorkflow]
@@ -701,9 +736,18 @@ class ConversationViewSet(
             raise exceptions.ValidationError("This conversation is not on the sandbox runtime.")
         return self._route_sandbox_message(request, conversation)
 
-    def _route_sandbox_message(self, request: Request, conversation: Conversation) -> Response:
+    def _route_sandbox_message(
+        self,
+        request: Request,
+        conversation: Conversation,
+        *,
+        resumed_context: str | None = None,
+        convert_to_acp: bool = False,
+    ) -> Response:
         user = cast(User, request.user)
-        result = MessageRoutingService(conversation, user).handle(request.data)
+        result = MessageRoutingService(conversation, user).handle(
+            request.data, resumed_context=resumed_context, convert_to_acp=convert_to_acp
+        )
         report_user_action(
             user,
             "prompt sent",
@@ -712,6 +756,7 @@ class ConversationViewSet(
                 "conversation_id": str(conversation.id),
                 "execution_type": "sandbox",
                 "agent_runtime": "sandbox",
+                "converted_to_acp": convert_to_acp,
                 "just_created_run": result.just_created_run,
                 "has_attached_context": result.attached_context_count > 0,
                 "attached_context_count": result.attached_context_count,

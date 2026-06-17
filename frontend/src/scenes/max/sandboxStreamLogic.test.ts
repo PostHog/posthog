@@ -453,25 +453,59 @@ describe('sandboxStreamLogic', () => {
         })
     })
 
-    describe('_posthog/user_message replay', () => {
-        it('replays a persisted user message into the thread as a human item', async () => {
+    describe('_posthog/user_message rendering', () => {
+        it('renders a seeded user turn into the thread on bootstrap replay', async () => {
+            const frames: StoredLogEntry[] = [
+                notification('_posthog/user_message', { content: 'Why did checkout drop?' }),
+                sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm1', content: { text: 'Let me check.' } }),
+            ]
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue(frames as any)
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'completed' } as any)
+
             await expectLogic(logic, () => {
-                logic.actions.ingestAcpFrame(
-                    notification('_posthog/user_message', { content: 'Why did signups drop?' })
-                )
+                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
             }).toFinishAllListeners()
 
-            const humanItems = logic.values.threadItems.filter((item) => item.type === 'human_message')
-            expect(humanItems).toHaveLength(1)
-            expect(humanItems[0].text).toEqual('Why did signups drop?')
+            // Both the human question and the assistant reply must render, in order.
+            expect(logic.values.threadItems).toHaveLength(2)
+            expect(logic.values.threadItems[0]).toEqual({
+                id: 'human-0',
+                type: 'human_message',
+                text: 'Why did checkout drop?',
+                complete: true,
+            })
+            expect(logic.values.threadItems[1].type).toEqual('assistant_message')
+        })
+
+        it('extracts text from ACP content blocks', async () => {
+            const frames: StoredLogEntry[] = [
+                notification('_posthog/user_message', {
+                    content: [
+                        { type: 'text', text: 'first ' },
+                        { type: 'text', text: 'second' },
+                    ],
+                }),
+            ]
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue(frames as any)
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'completed' } as any)
+
+            await expectLogic(logic, () => {
+                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            }).toFinishAllListeners()
+
+            expect(logic.values.threadItems).toHaveLength(1)
+            expect(logic.values.threadItems[0]).toMatchObject({ type: 'human_message', text: 'first second' })
         })
 
         it('strips the posthog_context wrapper so a replayed prompt matches the live one', async () => {
             const wrapped =
                 '<posthog_context>\nThe user attached the following PostHog entities.\n- Insight #1\n</posthog_context>\n\nWhy did signups drop?'
+            const frames: StoredLogEntry[] = [notification('_posthog/user_message', { content: wrapped })]
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue(frames as any)
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'completed' } as any)
 
             await expectLogic(logic, () => {
-                logic.actions.ingestAcpFrame(notification('_posthog/user_message', { content: wrapped }))
+                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
             }).toFinishAllListeners()
 
             expect(logic.values.threadItems.find((item) => item.type === 'human_message')?.text).toEqual(
@@ -479,12 +513,12 @@ describe('sandboxStreamLogic', () => {
             )
         })
 
-        it('ignores a non-string content payload', async () => {
+        it('does not render a live (non-replay) user_message frame — it is echoed on send instead', async () => {
             await expectLogic(logic, () => {
-                logic.actions.ingestAcpFrame(notification('_posthog/user_message', { content: [{ text: 'x' }] }))
+                logic.actions.ingestAcpFrame(notification('_posthog/user_message', { content: 'live message' }))
             }).toFinishAllListeners()
 
-            expect(logic.values.threadItems.filter((item) => item.type === 'human_message')).toHaveLength(0)
+            expect(logic.values.threadItems).toHaveLength(0)
         })
     })
 

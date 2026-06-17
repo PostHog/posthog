@@ -106,6 +106,27 @@ function unwrapUserMessageContent(content: string): string {
     return content
 }
 
+/**
+ * Pull rendered text out of a `_posthog/user_message` frame's `content`. The seeder writes a plain
+ * string; the live wire may instead carry ACP content blocks (`[{ type: 'text', text }]`). Returns
+ * the concatenated text, or '' when there's nothing renderable.
+ */
+function extractUserMessageText(content: string | unknown[] | undefined): string {
+    if (typeof content === 'string') {
+        return content
+    }
+    if (Array.isArray(content)) {
+        return content
+            .map((block) =>
+                block && typeof block === 'object' && typeof (block as { text?: unknown }).text === 'string'
+                    ? (block as { text: string }).text
+                    : ''
+            )
+            .join('')
+    }
+    return ''
+}
+
 /** Refetch the run's status; on failure return the mapped error envelope instead. */
 async function fetchRunStatus(
     taskId: string,
@@ -1042,15 +1063,18 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 }
                 return
             }
-            // The user's own prompts are persisted to the run log as `_posthog/user_message`
-            // (backend `_log_user_message`) and never re-emitted on the live SSE — `pushHumanMessage`
-            // only fires on the live send path and is wiped before a history replay. Without this
-            // branch a reopened conversation would replay assistant replies and tool cards but none
-            // of the user's questions, reading as one-sided.
+            // Seeded / persisted user turns. Live messages are already echoed into the thread by
+            // maxThreadLogic (`pushSandboxHumanMessage`) the moment they're sent, so only render this
+            // frame on `logs/` bootstrap replay — otherwise a live turn would render the user's
+            // message twice (once on send, once when the relay echoes the command back). This is also
+            // the only path that surfaces a converted LangGraph thread's human turns.
             if (isPosthogNotification(notification, '_posthog/user_message')) {
-                const content = notification.params?.content
-                if (typeof content === 'string') {
-                    const unwrapped = unwrapUserMessageContent(content)
+                if (cache.bootstrapReplay === true) {
+                    const text = extractUserMessageText(notification.params?.content)
+                    // Persisted prompts may carry the `<posthog_context>…</posthog_context>` wrapper
+                    // added when attachments are present; strip it so a replayed prompt matches the
+                    // live one.
+                    const unwrapped = unwrapUserMessageContent(text)
                     if (unwrapped) {
                         actions.pushHumanMessage(unwrapped)
                     }

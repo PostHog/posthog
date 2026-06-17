@@ -1,7 +1,7 @@
 from typing import Any
 
 import pydantic
-from asgiref.sync import async_to_sync
+from asgiref.sync import async_to_sync, sync_to_async
 from drf_spectacular.utils import extend_schema_field
 from langgraph.graph.state import CompiledStateGraph
 from rest_framework import serializers
@@ -47,6 +47,67 @@ CONVERSATION_TYPE_MAP: dict[
     Conversation.Type.SLACK: (AssistantGraph, AssistantState),
     Conversation.Type.DEEP_RESEARCH: (ResearchAgentGraph, AssistantState),
 }
+
+
+async def aget_conversation_state(
+    conversation: Conversation, team: Any, user: Any
+) -> tuple[AssistantMaxGraphState | None, bool, dict[str, dict[str, Any]]]:
+    """Compile the LangGraph graph, replay the checkpoint, and validate the typed state.
+
+    Single source of truth for the LangGraph history read path — both the conversation
+    serializer (history-load) and the legacy-history converter (products/posthog_ai) call this so
+    the graph-compile + checkpoint-replay logic is never duplicated.
+
+    Returns (state, has_unsupported_content, interrupt_payloads). `state` is None for born-sandbox
+    conversations (no checkpoint) and on any read/validation error — errors degrade gracefully
+    and are captured rather than raised so a bad checkpoint can't 500 a conversation load.
+    """
+    # Born-sandbox conversations have no LangGraph checkpoint — skip the graph compile entirely.
+    # A CONVERTED conversation (now sandbox, but kept its legacy checkpoint) falls through so its
+    # legacy thread still renders above the "history was converted" divider.
+    if conversation.agent_runtime == Conversation.AgentRuntime.SANDBOX:
+        has_checkpoint = await sync_to_async(conversation.checkpoints.exists)()
+        if not has_checkpoint:
+            return None, False, {}
+
+    try:
+        graph_class, state_class = CONVERSATION_TYPE_MAP[conversation.type]  # type: ignore[index]
+        graph: CompiledStateGraph = graph_class(team, user).compile_full_graph()
+        snapshot = await graph.aget_state({"configurable": {"thread_id": str(conversation.id), "checkpoint_ns": ""}})
+        state = state_class.model_validate(snapshot.values)
+
+        # Extract interrupt payloads from pending tasks — the single source of truth for payload data.
+        interrupt_payloads: dict[str, dict[str, Any]] = {}
+        for task in snapshot.tasks:
+            for interrupt in task.interrupts:
+                if isinstance(interrupt.value, dict) and interrupt.value.get("status") == PENDING_APPROVAL_STATUS:
+                    proposal_id = interrupt.value.get("proposal_id")
+                    if proposal_id:
+                        interrupt_payloads[proposal_id] = interrupt.value
+
+        return state, False, interrupt_payloads
+    except pydantic.ValidationError as e:
+        capture_exception(
+            e,
+            additional_properties={
+                "tag": "max_ai",
+                "exception_type": "ValidationError",
+                "conversation_id": str(conversation.id),
+            },
+        )
+        return None, True, {}
+    except Exception as e:
+        # Broad exception handler to gracefully degrade UI instead of 500s.
+        # Captures all errors (context access, graph compilation, validation, etc.) to PostHog.
+        capture_exception(
+            e,
+            additional_properties={
+                "tag": "max_ai",
+                "exception_type": type(e).__name__,
+                "conversation_id": str(conversation.id),
+            },
+        )
+        return None, False, {}
 
 
 class ConversationTaskSerializer(TaskSerializer):
@@ -106,8 +167,9 @@ class ConversationSerializer(ConversationMinimalSerializer):
         read_only=True,
         help_text=(
             "Runtime that owns this conversation. 'langgraph' conversations return their messages "
-            "in the `messages` field; 'sandbox' conversations return an empty `messages` array and "
-            "load history from the products/tasks logs endpoint instead."
+            "in the `messages` field; born-'sandbox' conversations return an empty `messages` array "
+            "and load history from the products/tasks logs endpoint. A converted conversation is "
+            "'sandbox' but still returns its legacy thread in `messages`."
         ),
     )
     messages = serializers.SerializerMethodField()
@@ -117,27 +179,31 @@ class ConversationSerializer(ConversationMinimalSerializer):
     pending_approvals = serializers.SerializerMethodField()
 
     def get_messages(self, conversation: Conversation) -> list[dict[str, Any]]:
-        # Sandbox conversations don't persist messages Django-side — history lives in S3
-        # ACP logs, fetched via the products/tasks `logs/` endpoint.
+        # Born-sandbox conversations have no checkpoint — their history lives in S3 ACP logs
+        # (fetched via the products/tasks `logs/` endpoint), so `_get_cached_state` returns None and
+        # messages are []; the cached `messages_json` is intentionally ignored on this path. A
+        # CONVERTED conversation keeps its legacy checkpoint, so its full legacy thread is returned
+        # (rendered above the conversion divider). LangGraph conversations use the cached
+        # `messages_json` when present, else compile + replay the checkpoint.
         if conversation.agent_runtime == Conversation.AgentRuntime.SANDBOX:
-            return []
+            state, _, _ = self._get_cached_state(conversation)
+            return self._render_state_messages(state)
 
         if conversation.messages_json is not None:
             return conversation.messages_json
 
         state, _, _ = self._get_cached_state(conversation)
+        return self._render_state_messages(state)
+
+    def _render_state_messages(self, state: AssistantMaxGraphState | None) -> list[dict[str, Any]]:
         if state is None:
             return []
-
         try:
             team = self.context["team"]
             user = self.context["user"]
             artifact_manager = ArtifactManager(team, user)
             enriched_messages = async_to_sync(artifact_manager.aenrich_messages)(list(state.messages))
-            messages = [
-                message.model_dump() for message in enriched_messages if should_output_assistant_message(message)
-            ]
-            return messages
+            return [message.model_dump() for message in enriched_messages if should_output_assistant_message(message)]
         except Exception as e:
             capture_exception(e)
             return []
@@ -213,50 +279,4 @@ class ConversationSerializer(ConversationMinimalSerializer):
             Tuple of (state, has_unsupported_content, interrupt_payloads).
             interrupt_payloads is a dict mapping proposal_id to the interrupt value (including payload).
         """
-        # Sandbox conversations have no LangGraph checkpoint — their state lives in S3 ACP logs.
-        if conversation.agent_runtime == Conversation.AgentRuntime.SANDBOX:
-            return None, False, {}
-
-        try:
-            team = self.context["team"]
-            user = self.context["user"]
-            graph_class, state_class = CONVERSATION_TYPE_MAP[conversation.type]  # type: ignore[index]
-            graph: CompiledStateGraph = graph_class(team, user).compile_full_graph()
-            snapshot = await graph.aget_state(
-                {"configurable": {"thread_id": str(conversation.id), "checkpoint_ns": ""}}
-            )
-            state = state_class.model_validate(snapshot.values)
-
-            # Extract interrupt payloads from pending tasks
-            # This is the single source of truth for payload data
-            interrupt_payloads: dict[str, dict[str, Any]] = {}
-            for task in snapshot.tasks:
-                for interrupt in task.interrupts:
-                    if isinstance(interrupt.value, dict) and interrupt.value.get("status") == PENDING_APPROVAL_STATUS:
-                        proposal_id = interrupt.value.get("proposal_id")
-                        if proposal_id:
-                            interrupt_payloads[proposal_id] = interrupt.value
-
-            return state, False, interrupt_payloads
-        except pydantic.ValidationError as e:
-            capture_exception(
-                e,
-                additional_properties={
-                    "tag": "max_ai",
-                    "exception_type": "ValidationError",
-                    "conversation_id": str(conversation.id),
-                },
-            )
-            return None, True, {}
-        except Exception as e:
-            # Broad exception handler to gracefully degrade UI instead of 500s
-            # Captures all errors (context access, graph compilation, validation, etc.) to PostHog
-            capture_exception(
-                e,
-                additional_properties={
-                    "tag": "max_ai",
-                    "exception_type": type(e).__name__,
-                    "conversation_id": str(conversation.id),
-                },
-            )
-            return None, False, {}
+        return await aget_conversation_state(conversation, self.context["team"], self.context["user"])

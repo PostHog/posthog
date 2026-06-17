@@ -1607,6 +1607,15 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         // logics with the same id connect() used above, or the two would resolve different instances.
         sandboxConversationKey: [(_, p) => [p.conversationId], (conversationId): string => conversationId],
 
+        // A converted conversation: now on the sandbox runtime but still carrying its legacy
+        // LangGraph history. Drives the dual render (full legacy thread → "history was converted"
+        // divider → live sandbox thread). Reads `threadRaw`, not `threadGrouped`, so the streaming
+        // thinking-loader injected into `threadGrouped` can't be mistaken for legacy content.
+        isConvertedConversation: [
+            (s) => [s.conversation, s.threadRaw],
+            (conversation, threadRaw): boolean => conversation?.agent_runtime === 'sandbox' && threadRaw.length > 0,
+        ],
+
         effectiveApprovalStatuses: [
             (s) => [s.resolvedApprovalStatuses, s.pendingApprovalsData],
             (resolved, pendingApprovalsData): Record<string, { status: ApprovalDecisionStatus; feedback?: string }> => {

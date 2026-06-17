@@ -867,8 +867,18 @@ class TaskRun(models.Model):
         update = params.get("update", {}) if isinstance(params, dict) else {}
         return update.get("sessionUpdate") == "agent_message_chunk" if isinstance(update, dict) else False
 
-    def append_log(self, entries: list[dict]):
-        """Append log entries to S3 storage."""
+    # Default S3 retention for a freshly-created run log. Live runs auto-expire after a month;
+    # callers that must preserve a log indefinitely pass `ttl_days=None` so it is never tagged for
+    # expiry — user history must not silently vanish after 30 days.
+    DEFAULT_LOG_TTL_DAYS = 30
+
+    def append_log(self, entries: list[dict], *, ttl_days: int | None = DEFAULT_LOG_TTL_DAYS):
+        """Append log entries to S3 storage.
+
+        `ttl_days` tags a newly-created log file for expiry; pass `None` to write a log that is
+        never auto-expired. The tag is only applied on
+        first write — re-tagging an existing log would not change a TTL already in flight.
+        """
         entries = [e for e in entries if not self._is_agent_message_chunk(e)]
         if not entries:
             return
@@ -881,12 +891,12 @@ class TaskRun(models.Model):
 
         object_storage.write(self.log_url, content)
 
-        if is_new_file:
+        if is_new_file and ttl_days is not None:
             try:
                 object_storage.tag(
                     self.log_url,
                     {
-                        "ttl_days": "30",
+                        "ttl_days": str(ttl_days),
                         "team_id": str(self.team_id),
                     },
                 )

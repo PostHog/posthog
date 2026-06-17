@@ -1591,3 +1591,136 @@ class TestConversationListTaskHandle(APIBaseTest):
                 response = self.client.get(url)
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(len(response.json()["results"]), 3)
+
+
+class TestConversationLegacyHistoryConversion(APIBaseTest):
+    """First-message conversion of an idle LangGraph conversation to the sandbox runtime."""
+
+    def _langgraph_conversation(self, **overrides) -> Conversation:
+        defaults: dict[str, Any] = {
+            "user": self.user,
+            "team": self.team,
+            "title": "A chat",
+            "type": Conversation.Type.ASSISTANT,
+            "agent_runtime": Conversation.AgentRuntime.LANGGRAPH,
+            "status": Conversation.Status.IDLE,
+        }
+        defaults.update(overrides)
+        return Conversation.objects.create(**defaults)
+
+    def _sentinel_result(self) -> SandboxRouteResult:
+        return SandboxRouteResult(task_id="t", run_id="r", trace_id=None, run_status="queued", just_created_run=True)
+
+    def _send(self, conversation: Conversation, content: str = "resume on sandbox"):
+        return self.client.post(
+            f"/api/environments/{self.team.id}/conversations/",
+            {"content": content, "trace_id": str(uuid.uuid4()), "conversation": str(conversation.id)},
+        )
+
+    def _mock_streaming_response(self, streaming_content: Any, *args: Any, **kwargs: Any) -> StreamingHttpResponse:
+        return StreamingHttpResponse([b""], content_type="text/event-stream")
+
+    def test_retrieve_does_not_convert(self):
+        # Opening a conversation never converts — conversion only fires on a new message.
+        conversation = self._langgraph_conversation()
+        with (
+            patch("ee.api.conversation.has_sandbox_mode_feature_flag", return_value=True),
+            patch("ee.api.conversation.MessageRoutingService") as m_routing,
+            patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock),
+        ):
+            response = self.client.get(f"/api/environments/{self.team.id}/conversations/{conversation.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        m_routing.assert_not_called()
+        conversation.refresh_from_db()
+        self.assertEqual(conversation.agent_runtime, Conversation.AgentRuntime.LANGGRAPH)
+        self.assertIsNone(conversation.task_id)
+
+    def test_create_first_message_converts_and_injects_window_context(self):
+        # First message on an idle LangGraph thread (sandbox flag on) routes through the sandbox
+        # handler with convert_to_acp=True and the legacy window block as resumed_context.
+        conversation = self._langgraph_conversation()
+        block = "<posthog_context>This session was resumed from the legacy implementation.\nUser: hi</posthog_context>"
+        with (
+            patch("ee.api.conversation.has_sandbox_mode_feature_flag", return_value=True),
+            patch("ee.api.conversation.ContextService") as m_ctx,
+            patch("ee.api.conversation.MessageRoutingService") as m_routing,
+            patch("ee.api.conversation.report_user_action"),
+        ):
+            m_ctx.return_value.abuild_resumed_legacy_context = AsyncMock(return_value=block)
+            m_routing.return_value.handle.return_value = self._sentinel_result()
+            response = self._send(conversation)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        m_routing.return_value.handle.assert_called_once()
+        kwargs = m_routing.return_value.handle.call_args.kwargs
+        self.assertTrue(kwargs["convert_to_acp"])
+        self.assertEqual(kwargs["resumed_context"], block)
+
+    def test_create_resumed_context_read_failure_degrades(self):
+        # A failed legacy read must not block the conversion — route with no resumed context.
+        conversation = self._langgraph_conversation()
+        with (
+            patch("ee.api.conversation.has_sandbox_mode_feature_flag", return_value=True),
+            patch("ee.api.conversation.ContextService") as m_ctx,
+            patch("ee.api.conversation.MessageRoutingService") as m_routing,
+            patch("ee.api.conversation.capture_exception") as m_capture,
+            patch("ee.api.conversation.report_user_action"),
+        ):
+            m_ctx.return_value.abuild_resumed_legacy_context = AsyncMock(side_effect=RuntimeError("boom"))
+            m_routing.return_value.handle.return_value = self._sentinel_result()
+            response = self._send(conversation)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        m_capture.assert_called_once()
+        kwargs = m_routing.return_value.handle.call_args.kwargs
+        self.assertTrue(kwargs["convert_to_acp"])
+        self.assertIsNone(kwargs["resumed_context"])
+
+    def test_create_born_sandbox_routes_without_conversion(self):
+        # A born-sandbox conversation routes through the sandbox handler but never converts.
+        conversation = self._langgraph_conversation(agent_runtime=Conversation.AgentRuntime.SANDBOX)
+        with (
+            patch("ee.api.conversation.has_sandbox_mode_feature_flag", return_value=True),
+            patch("ee.api.conversation.ContextService") as m_ctx,
+            patch("ee.api.conversation.MessageRoutingService") as m_routing,
+            patch("ee.api.conversation.report_user_action"),
+        ):
+            m_routing.return_value.handle.return_value = self._sentinel_result()
+            response = self._send(conversation)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        m_ctx.return_value.abuild_resumed_legacy_context.assert_not_called()
+        kwargs = m_routing.return_value.handle.call_args.kwargs
+        self.assertFalse(kwargs["convert_to_acp"])
+        self.assertIsNone(kwargs["resumed_context"])
+
+    def test_create_no_sandbox_flag_streams_langgraph(self):
+        # Without the sandbox flag, a reopened LangGraph thread stays LangGraph and the message
+        # takes the streaming path — never the sandbox router.
+        conversation = self._langgraph_conversation()
+        with (
+            patch("ee.api.conversation.has_sandbox_mode_feature_flag", return_value=False),
+            patch("ee.api.conversation.MessageRoutingService") as m_routing,
+            patch("ee.hogai.core.executor.AgentExecutor.astream", return_value=_async_generator()),
+            patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._mock_streaming_response),
+        ):
+            response = self._send(conversation, content="keep me on langgraph")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        m_routing.assert_not_called()
+        conversation.refresh_from_db()
+        self.assertEqual(conversation.agent_runtime, Conversation.AgentRuntime.LANGGRAPH)
+
+    def test_create_non_idle_langgraph_does_not_convert(self):
+        # Conversion requires an idle conversation; a non-idle LangGraph thread getting a new
+        # message hits the existing "cannot resume streaming" conflict instead.
+        conversation = self._langgraph_conversation(status=Conversation.Status.IN_PROGRESS)
+        with (
+            patch("ee.api.conversation.has_sandbox_mode_feature_flag", return_value=True),
+            patch("ee.api.conversation.MessageRoutingService") as m_routing,
+        ):
+            response = self._send(conversation)
+
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        m_routing.assert_not_called()
