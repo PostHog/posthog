@@ -64,7 +64,7 @@ export function DashboardTemplateChooser(props: DashboardTemplateProps): JSX.Ele
             {teamTemplates.length > 0 ? (
                 <section>
                     <div className="mb-3">
-                        <h3 className="text-base font-semibold m-0">Team templates</h3>
+                        <h3 className="text-base font-semibold m-0">Your templates</h3>
                         <p className="text-secondary text-sm m-0 mt-1">
                             Templates saved for this project and shared across your organization.
                         </p>

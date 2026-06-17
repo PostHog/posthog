@@ -47,20 +47,32 @@ function TemplateItemBuildingGlyph({ size }: { size: 'sm' | 'lg' }): JSX.Element
     )
 }
 
+/** Tag distinguishing org-shared templates from this project's own; team templates are the implicit default and unbadged. */
+function OrganizationScopeBadge({ scope }: { scope?: DashboardTemplateType['scope'] }): JSX.Element | null {
+    if (scope !== 'organization') {
+        return null
+    }
+    return (
+        <Tooltip title="Shared with everyone in your organization">
+            <LemonTag type="muted" size="small" className="shrink-0">
+                Organization
+            </LemonTag>
+        </Tooltip>
+    )
+}
+
 function TemplateItemTitleDescription({
     titleId,
     template,
     wrapClassName,
     titleClassName,
     descriptionClassName,
-    badge,
 }: {
     titleId: string
-    template: Pick<DashboardTemplateType, 'template_name' | 'dashboard_description'>
+    template: Pick<DashboardTemplateType, 'template_name' | 'dashboard_description' | 'scope'>
     wrapClassName: string
     titleClassName: string
     descriptionClassName: string
-    badge?: JSX.Element
 }): JSX.Element {
     return (
         <div className={wrapClassName}>
@@ -68,7 +80,7 @@ function TemplateItemTitleDescription({
                 <h5 id={titleId} className={titleClassName}>
                     {template?.template_name}
                 </h5>
-                {badge}
+                <OrganizationScopeBadge scope={template?.scope} />
             </div>
             <p className={descriptionClassName}>{template?.dashboard_description ?? ' '}</p>
         </div>
@@ -106,15 +118,6 @@ export function TemplateItem({
         </Tooltip>
     ) : null
 
-    const organizationBadge =
-        template.scope === 'organization' ? (
-            <Tooltip title="Shared with everyone in your organization">
-                <LemonTag type="muted" size="small" className="shrink-0">
-                    Organization
-                </LemonTag>
-            </Tooltip>
-        ) : undefined
-
     if (!showCover) {
         return (
             <button
@@ -129,7 +132,6 @@ export function TemplateItem({
                 <TemplateItemTitleDescription
                     titleId={titleId}
                     template={template}
-                    badge={organizationBadge}
                     wrapClassName={clsx('min-w-0 flex-1 flex flex-col', isLarge ? 'gap-1' : 'gap-0.5')}
                     titleClassName={clsx('min-w-0 font-semibold leading-snug', isLarge ? 'text-base' : 'text-sm')}
                     descriptionClassName={clsx(

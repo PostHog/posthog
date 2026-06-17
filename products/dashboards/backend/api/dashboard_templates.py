@@ -24,6 +24,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.event_usage import report_user_action
+from posthog.exceptions_capture import capture_exception
 from posthog.helpers.full_text_search import build_rank
 from posthog.models.resource_transfer.visitors.insight import InsightVisitor
 from posthog.models.team.team import Team
@@ -42,6 +43,12 @@ MAX_DASHBOARD_TEMPLATES_PER_ORGANIZATION = 100
 _NON_STAFF_ALLOWED_PATCH_KEYS = frozenset({"template_name", "dashboard_description", "tags", "deleted", "scope"})
 _NON_STAFF_FORBIDDEN_CREATE_FIELDS = frozenset({"availability_contexts", "image_url", "github_url"})
 _NON_STAFF_ALLOWED_SCOPES = frozenset({DashboardTemplate.Scope.ONLY_TEAM, DashboardTemplate.Scope.ORGANIZATION})
+
+
+def _non_staff_allowed_scopes_display() -> str:
+    """Human-readable list of scopes non-staff editors may set, derived from `_NON_STAFF_ALLOWED_SCOPES`."""
+    return " or ".join(sorted(str(scope.value) for scope in _NON_STAFF_ALLOWED_SCOPES))
+
 
 # load dashboard_template_schema.json
 dashboard_template_schema = json.loads((Path(__file__).parent / "dashboard_template_schema.json").read_text())
@@ -94,9 +101,7 @@ def _collect_warehouse_table_names(node: Any) -> set[str]:
 def detect_non_portable_references(tiles: list[dict[str, Any]]) -> dict[str, Any]:
     """Project-scoped references in template tiles that may not resolve when used in another project.
 
-    Events and properties are matched by name and degrade to empty results, so they are portable and are not
-    reported. Action IDs, cohort IDs, and data warehouse table names are project-specific and are surfaced here
-    so the UI can warn before sharing a template across projects.
+    Events and properties are portable (matched by name), so they are not reported.
     """
     action_ids: set[int] = set()
     cohort_ids: set[int] = set()
@@ -110,9 +115,10 @@ def detect_non_portable_references(tiles: list[dict[str, Any]]) -> dict[str, Any
         try:
             action_ids |= InsightVisitor._extract_action_ids(None, query)
             cohort_ids |= InsightVisitor._extract_cohort_ids(None, query)
-        except (ValueError, TypeError):
+        except (ValueError, TypeError) as exc:
             # Detection is best-effort; a malformed tile must never break serialization.
-            pass
+            logger.warning("dashboard_template_non_portable_reference_detection_failed", exc_info=exc)
+            capture_exception(exc)
         warehouse_tables |= _collect_warehouse_table_names(query)
     return {
         "actions": len(action_ids),
@@ -124,7 +130,8 @@ def detect_non_portable_references(tiles: list[dict[str, Any]]) -> dict[str, Any
 class CustomerDashboardTemplateWritePermission(BasePermission):
     """
     Staff: any unsafe method (delegates object rules to has_object_permission).
-    Non-staff: team-scoped templates only (see has_object_permission); global / feature-flag rows forbidden.
+    Non-staff: only templates owned by the requesting project (team- or org-scoped); global / feature-flag rows
+    forbidden. Org-scoped templates stay readable org-wide but writeable only from their owning project.
     Project RBAC is enforced separately by AccessControlPermission (editor on `dashboard_template`).
     """
 
@@ -148,13 +155,10 @@ class CustomerDashboardTemplateWritePermission(BasePermission):
             return False
         if obj.scope == DashboardTemplate.Scope.ONLY_TEAM and obj.team_id is not None and obj.team_id != view_team_id:
             return False
-        if obj.scope == DashboardTemplate.Scope.ORGANIZATION:
-            view_org_id = getattr(view, "organization_id", None)
-            if view_org_id is None or obj.team_id is None:
-                return False
-            obj_org_id = Team.objects.filter(pk=obj.team_id).values_list("organization_id", flat=True).first()
-            if obj_org_id is None or str(obj_org_id) != str(view_org_id):
-                return False
+        # Org-scoped templates are readable org-wide, but rename/delete/demote is restricted to the owning
+        # project's editors. Every org row keeps its creating team_id, so ownership is always derivable.
+        if obj.scope == DashboardTemplate.Scope.ORGANIZATION and obj.team_id != view_team_id:
+            return False
         return True
 
 
@@ -217,7 +221,12 @@ class DashboardTemplateSerializer(serializers.ModelSerializer):
         return bool(user and user.is_authenticated and user.is_staff)
 
     @extend_schema_field(NonPortableReferencesSerializer)
-    def get_non_portable_references(self, obj: DashboardTemplate) -> dict[str, Any]:
+    def get_non_portable_references(self, obj: DashboardTemplate) -> dict[str, Any] | None:
+        # O(tiles) per row, so only compute when a single template is fetched (retrieve). List responses — the
+        # dashboard chooser and the management table — return null and fetch references on demand when promoting.
+        view = self.context.get("view")
+        if view is None or getattr(view, "action", None) != "retrieve":
+            return None
         return detect_non_portable_references(obj.tiles or [])
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
@@ -251,7 +260,7 @@ class DashboardTemplateSerializer(serializers.ModelSerializer):
                 requested_scope = attrs.get("scope") or initial.get("scope") or DashboardTemplate.Scope.ONLY_TEAM
                 if requested_scope not in _NON_STAFF_ALLOWED_SCOPES:
                     raise ValidationError(
-                        {"scope": ["Project templates can only use team or organization scope."]},
+                        {"scope": [f"Project templates can only use {_non_staff_allowed_scopes_display()} scope."]},
                     )
                 is_featured_val = initial.get("is_featured", attrs.get("is_featured"))
                 if is_featured_val:
@@ -467,6 +476,26 @@ class DashboardTemplateViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, views
                     "template_name": instance.template_name,
                     "tile_count": len(instance.tiles or []),
                     "variable_count": len(instance.variables or []),
+                },
+                team=self.team,
+                organization=self.organization,
+            )
+
+    def perform_update(self, serializer):
+        scope_before = serializer.instance.scope
+        instance = serializer.save()
+        user = self.request.user if self.request.user.is_authenticated else None
+        if instance.scope != scope_before and isinstance(user, User):
+            report_user_action(
+                user,
+                "dashboard template scope changed",
+                properties={
+                    "template_id": str(instance.id),
+                    "from_scope": scope_before or "",
+                    "to_scope": instance.scope or "",
+                    "team_id": instance.team_id,
+                    "organization_id": self.organization_id,
+                    "is_staff": bool(user.is_staff),
                 },
                 team=self.team,
                 organization=self.organization,

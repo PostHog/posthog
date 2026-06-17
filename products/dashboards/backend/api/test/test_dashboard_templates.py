@@ -1064,7 +1064,25 @@ class TestDashboardTemplates(APIBaseTest):
             {**variable_template, "template_name": "Portable template"},
         )
         assert create.status_code == status.HTTP_201_CREATED, create
-        assert create.json()["non_portable_references"] == {"actions": 0, "cohorts": 0, "warehouse_tables": []}
+
+        retrieve = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates/{create.json()['id']}")
+        assert retrieve.status_code == status.HTTP_200_OK
+        assert retrieve.json()["non_portable_references"] == {"actions": 0, "cohorts": 0, "warehouse_tables": []}
+
+    def test_non_portable_references_null_in_list_response(self) -> None:
+        create = self.client.post(
+            f"/api/projects/{self.team.pk}/dashboard_templates",
+            {**variable_template, "template_name": "Listed template"},
+        )
+        assert create.status_code == status.HTTP_201_CREATED, create
+        # Not computed on the create (non-retrieve) response, nor in list responses — only on single retrieve.
+        assert create.json()["non_portable_references"] is None
+
+        list_response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates?scope=team")
+        assert list_response.status_code == status.HTTP_200_OK
+        listed = [t for t in list_response.json()["results"] if t["id"] == create.json()["id"]]
+        assert len(listed) == 1
+        assert listed[0]["non_portable_references"] is None
 
 
 class TestCustomerDashboardTemplateAuthoring(APIBaseTest):
@@ -1248,6 +1266,71 @@ class TestCustomerDashboardTemplateAuthoring(APIBaseTest):
         )
         assert demote.status_code == status.HTTP_200_OK, demote
         assert demote.json()["scope"] == "team"
+
+    def test_non_staff_cannot_modify_org_template_owned_by_sibling_team(self) -> None:
+        sibling_team = Team.objects.create(organization=self.organization, name="Sibling owns org template")
+        org_template = DashboardTemplate.objects.create(
+            team_id=sibling_team.pk,
+            scope=DashboardTemplate.Scope.ORGANIZATION,
+            template_name="Sibling-owned org template",
+            dashboard_description="",
+            dashboard_filters={},
+            tiles=variable_template["tiles"],
+            variables=[],
+            tags=[],
+        )
+
+        # Readable org-wide from the current project...
+        retrieve = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates/{org_template.id}")
+        assert retrieve.status_code == status.HTTP_200_OK, retrieve
+
+        # ...but rename / demote / delete are rejected because this project does not own it.
+        rename = self.client.patch(
+            f"/api/projects/{self.team.pk}/dashboard_templates/{org_template.id}",
+            {"template_name": "Hijacked"},
+        )
+        assert rename.status_code == status.HTTP_403_FORBIDDEN, rename
+
+        demote = self.client.patch(
+            f"/api/projects/{self.team.pk}/dashboard_templates/{org_template.id}",
+            {"scope": "team"},
+        )
+        assert demote.status_code == status.HTTP_403_FORBIDDEN, demote
+
+        delete = self.client.patch(
+            f"/api/projects/{self.team.pk}/dashboard_templates/{org_template.id}",
+            {"deleted": True},
+        )
+        assert delete.status_code == status.HTTP_403_FORBIDDEN, delete
+
+    @patch("products.dashboards.backend.api.dashboard_templates.report_user_action")
+    def test_scope_change_emits_analytics(self, mock_report) -> None:
+        create = self.client.post(
+            f"/api/projects/{self.team.pk}/dashboard_templates",
+            {**variable_template, "template_name": "Scope change analytics"},
+        )
+        tid = create.json()["id"]
+        mock_report.reset_mock()
+
+        promote = self.client.patch(
+            f"/api/projects/{self.team.pk}/dashboard_templates/{tid}",
+            {"scope": "organization"},
+        )
+        assert promote.status_code == status.HTTP_200_OK, promote
+        mock_report.assert_called_once()
+        call_kwargs = mock_report.call_args.kwargs
+        assert mock_report.call_args.args[1] == "dashboard template scope changed"
+        assert call_kwargs["properties"]["from_scope"] == "team"
+        assert call_kwargs["properties"]["to_scope"] == "organization"
+
+        # A no-op update (no scope change) must not emit the event.
+        mock_report.reset_mock()
+        rename = self.client.patch(
+            f"/api/projects/{self.team.pk}/dashboard_templates/{tid}",
+            {"template_name": "Scope change analytics renamed"},
+        )
+        assert rename.status_code == status.HTTP_200_OK, rename
+        mock_report.assert_not_called()
 
     @parameterized.expand([("global",), ("feature_flag",)])
     def test_non_staff_cannot_promote_to_restricted_scope(self, bad_scope: str) -> None:

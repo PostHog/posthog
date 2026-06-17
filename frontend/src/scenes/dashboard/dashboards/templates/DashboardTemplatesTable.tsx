@@ -89,7 +89,8 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
         return null
     }, [templateNameOrdering])
 
-    const { deleteDashboardTemplate, updateDashboardTemplate } = useActions(dashboardTemplateEditorLogic)
+    const { deleteDashboardTemplate, updateDashboardTemplate, toggleTemplateOrganizationScope } =
+        useActions(dashboardTemplateEditorLogic)
     const { openEdit: openDashboardTemplateModalEdit } = useActions(dashboardTemplateModalLogic)
 
     const { user } = useValues(userLogic)
@@ -137,48 +138,28 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
         )
     }
 
-    /** Promote a team template to organization-wide, or demote it back. Warns before promoting when the template
-     * embeds project-specific references (actions, cohorts, warehouse tables) that may not resolve in other projects. */
-    const promoteOrDemoteOrganizationScope = (record: DashboardTemplateType): void => {
-        const { id, scope } = record
+    /** Org-wide templates affect every project, so confirm before deleting; project templates delete straight away. */
+    const confirmDeleteTemplate = (record: DashboardTemplateType): void => {
+        const { id } = record
         if (id === undefined) {
             console.error('Dashboard template id not defined')
             return
         }
-        if (scope === 'organization') {
-            updateDashboardTemplate({ id, dashboardTemplateUpdates: { scope: 'team' } })
+        if (record.scope === 'organization') {
+            LemonDialog.open({
+                title: 'Delete this organization-wide template?',
+                description:
+                    'This template is shared with every project in your organization. Deleting it removes it for all of them.',
+                primaryButton: {
+                    children: 'Delete',
+                    status: 'danger',
+                    onClick: () => deleteDashboardTemplate({ id, templateName: record.template_name }),
+                },
+                secondaryButton: { children: 'Cancel' },
+            })
             return
         }
-        const refs = record.non_portable_references
-        const warnings: string[] = []
-        if (refs) {
-            if (refs.actions > 0) {
-                warnings.push(`${refs.actions} action${refs.actions === 1 ? '' : 's'}`)
-            }
-            if (refs.cohorts > 0) {
-                warnings.push(`${refs.cohorts} cohort${refs.cohorts === 1 ? '' : 's'}`)
-            }
-            if (refs.warehouse_tables.length > 0) {
-                warnings.push(
-                    `${refs.warehouse_tables.length === 1 ? 'data warehouse table' : 'data warehouse tables'} ${refs.warehouse_tables.join(', ')}`
-                )
-            }
-        }
-        if (warnings.length === 0) {
-            updateDashboardTemplate({ id, dashboardTemplateUpdates: { scope: 'organization' } })
-            return
-        }
-        LemonDialog.open({
-            title: 'Share this template with your whole organization?',
-            description: `This template references items specific to this project (${warnings.join(
-                ', '
-            )}). Insights using them may show errors in other projects — events and properties work everywhere.`,
-            primaryButton: {
-                children: 'Share with organization',
-                onClick: () => updateDashboardTemplate({ id, dashboardTemplateUpdates: { scope: 'organization' } }),
-            },
-            secondaryButton: { children: 'Cancel' },
-        })
+        deleteDashboardTemplate({ id, templateName: record.template_name })
     }
 
     const columns: LemonTableColumns<DashboardTemplateType> = [
@@ -339,16 +320,7 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
 
                                     <LemonDivider />
                                     <LemonButton
-                                        onClick={() => {
-                                            if (id === undefined) {
-                                                console.error('Dashboard template id not defined')
-                                                return
-                                            }
-                                            deleteDashboardTemplate({
-                                                id,
-                                                templateName: record.template_name,
-                                            })
-                                        }}
+                                        onClick={() => confirmDeleteTemplate(record)}
                                         fullWidth
                                         status="danger"
                                         disabledReason={
@@ -367,7 +339,16 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
                     )
                 }
 
-                if (canCustomerManageTeamTemplates && (scope === 'team' || scope === 'organization')) {
+                // Org-scoped templates are readable org-wide but only their owning project may edit/delete/demote
+                // them (see CustomerDashboardTemplateWritePermission). Team templates listed here are always owned.
+                const ownedByCurrentTeam =
+                    scope === 'team' || (record.team_id != null && record.team_id === currentTeamId)
+
+                if (
+                    canCustomerManageTeamTemplates &&
+                    (scope === 'team' || scope === 'organization') &&
+                    ownedByCurrentTeam
+                ) {
                     return (
                         <More
                             overlay={
@@ -385,7 +366,7 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
                                         Edit
                                     </LemonButton>
                                     <LemonButton
-                                        onClick={() => promoteOrDemoteOrganizationScope(record)}
+                                        onClick={() => toggleTemplateOrganizationScope(record)}
                                         fullWidth
                                         data-attr="dashboard-template-toggle-organization-visibility"
                                     >
@@ -401,16 +382,7 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
                                         : null}
                                     <LemonDivider />
                                     <LemonButton
-                                        onClick={() => {
-                                            if (id === undefined) {
-                                                console.error('Dashboard template id not defined')
-                                                return
-                                            }
-                                            deleteDashboardTemplate({
-                                                id,
-                                                templateName: record.template_name,
-                                            })
-                                        }}
+                                        onClick={() => confirmDeleteTemplate(record)}
                                         fullWidth
                                         status="danger"
                                     >

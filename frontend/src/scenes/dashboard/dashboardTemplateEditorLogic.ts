@@ -2,12 +2,12 @@ import { actions, afterMount, connect, kea, listeners, path, reducers } from 'ke
 import { loaders } from 'kea-loaders'
 import { createElement, Fragment } from 'react'
 
-import { lemonToast } from '@posthog/lemon-ui'
+import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import { DashboardTemplateEditorType, DashboardTemplateType, MonacoMarker } from '~/types'
+import { DashboardTemplateEditorType, DashboardTemplateType, MonacoMarker, NonPortableReferences } from '~/types'
 
 import { dashboardTemplatesLogic } from './dashboards/templates/dashboardTemplatesLogic'
 import type { dashboardTemplateEditorLogicType } from './dashboardTemplateEditorLogicType'
@@ -30,6 +30,26 @@ function refreshDashboardTemplateListsAfterMutation(): void {
     dashboardTemplatesLogic
         .findMounted({ scope: 'default', listQuery: { is_featured: true } })
         ?.actions.getAllTemplates()
+}
+
+/** Human-readable phrases for the project-specific references that may not resolve when sharing a template org-wide. */
+function describeNonPortableReferences(refs: NonPortableReferences | null | undefined): string[] {
+    const warnings: string[] = []
+    if (!refs) {
+        return warnings
+    }
+    if (refs.actions > 0) {
+        warnings.push(`${refs.actions} action${refs.actions === 1 ? '' : 's'}`)
+    }
+    if (refs.cohorts > 0) {
+        warnings.push(`${refs.cohorts} cohort${refs.cohorts === 1 ? '' : 's'}`)
+    }
+    if (refs.warehouse_tables.length > 0) {
+        warnings.push(
+            `${refs.warehouse_tables.length === 1 ? 'data warehouse table' : 'data warehouse tables'} ${refs.warehouse_tables.join(', ')}`
+        )
+    }
+    return warnings
 }
 
 function parseDashboardTemplateEditorPayload(raw: string | undefined): DashboardTemplateEditorType | undefined {
@@ -63,6 +83,9 @@ export const dashboardTemplateEditorLogic = kea<dashboardTemplateEditorLogicType
         openDashboardTemplateEditor: true,
         closeDashboardTemplateEditor: true,
         updateValidationErrors: (markers: MonacoMarker[] | undefined) => ({ markers }),
+        /** Promote a team template to organization-wide, or demote it back. Confirms before either to avoid
+         * accidental changes, and warns on promote when the template embeds project-specific references. */
+        toggleTemplateOrganizationScope: (template: DashboardTemplateType) => ({ template }),
     }),
     reducers({
         editorValue: [
@@ -280,6 +303,53 @@ export const dashboardTemplateEditorLogic = kea<dashboardTemplateEditorLogicType
             if (dashboardTemplate) {
                 actions.setEditorValue(JSON.stringify(dashboardTemplate, null, 4))
             }
+        },
+        toggleTemplateOrganizationScope: async ({ template }) => {
+            const { id, scope } = template
+            if (id === undefined) {
+                console.error('Dashboard template id not defined')
+                return
+            }
+            if (scope === 'organization') {
+                LemonDialog.open({
+                    title: 'Make this template visible to this project only?',
+                    description:
+                        'It will no longer be shared with the other projects in your organization. They will lose access to it.',
+                    primaryButton: {
+                        children: 'Make project-only',
+                        onClick: () =>
+                            actions.updateDashboardTemplate({ id, dashboardTemplateUpdates: { scope: 'team' } }),
+                    },
+                    secondaryButton: { children: 'Cancel' },
+                })
+                return
+            }
+            // `non_portable_references` is only computed on single-template retrieve, so fetch before warning.
+            let refs: NonPortableReferences | null | undefined = template.non_portable_references
+            if (!refs) {
+                try {
+                    refs = (await api.dashboardTemplates.get(id)).non_portable_references
+                } catch {
+                    refs = undefined
+                }
+            }
+            const warnings = describeNonPortableReferences(refs)
+            if (warnings.length === 0) {
+                actions.updateDashboardTemplate({ id, dashboardTemplateUpdates: { scope: 'organization' } })
+                return
+            }
+            LemonDialog.open({
+                title: 'Share this template with your whole organization?',
+                description: `This template references items specific to this project (${warnings.join(
+                    ', '
+                )}). Insights using them may show errors in other projects — events and properties work everywhere.`,
+                primaryButton: {
+                    children: 'Share with organization',
+                    onClick: () =>
+                        actions.updateDashboardTemplate({ id, dashboardTemplateUpdates: { scope: 'organization' } }),
+                },
+                secondaryButton: { children: 'Cancel' },
+            })
         },
     })),
     afterMount(({ actions }) => {
