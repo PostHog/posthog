@@ -24,7 +24,7 @@ from rest_framework.renderers import BaseRenderer
 from rest_framework.request import Request
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.permissions import APIScopePermission, TeamMemberAccessPermission
+from posthog.permissions import AccessControlPermission, APIScopePermission, TeamMemberAccessPermission
 
 from ..marketplace import git_smart_http as git
 from ..marketplace.adapters import synthesize_team_marketplace_repo
@@ -78,12 +78,16 @@ class LLMSkillMarketplaceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
 
     def dangerously_get_permissions(self) -> list[BasePermission]:
         # The credential is a real (scoped, read-only) Personal API Key, so the standard checks
-        # apply to its owner: APIScopePermission enforces the llm_skill:read scope + team scoping,
-        # and TeamMemberAccessPermission re-checks current membership on every request — so the
-        # clone stops working the moment the user is offboarded or loses team access, with no
-        # manual revocation. (We set the list explicitly rather than via the default stack only to
-        # skip AccessControlPermission, which expects the AccessControlViewSetMixin this view omits.)
-        return [IsAuthenticated(), APIScopePermission(), TeamMemberAccessPermission()]
+        # apply to its owner and are re-evaluated on every request — the clone stops working the
+        # moment the user loses access, with no manual revocation:
+        #   - APIScopePermission: enforces the llm_skill:read scope + the key's team scoping
+        #   - AccessControlPermission: gates the read by the same llm_skill RBAC as the JSON skill
+        #     APIs (so losing skill access revokes the clone, not just leaving the team)
+        #   - TeamMemberAccessPermission: requires current project membership
+        # (`user_access_control`, which AccessControlPermission needs, comes from TeamAndOrgViewSetMixin
+        # — the heavier AccessControlViewSetMixin only adds the access-control management action, which
+        # this git endpoint doesn't want.)
+        return [IsAuthenticated(), APIScopePermission(), AccessControlPermission(), TeamMemberAccessPermission()]
 
     def _synthesize(self) -> git.SynthesizedRepo:
         # Cached on the content version, so info/refs polling and the two-request clone reuse

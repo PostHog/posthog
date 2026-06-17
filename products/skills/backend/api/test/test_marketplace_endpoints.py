@@ -14,10 +14,13 @@ from django.utils import timezone
 
 from rest_framework import serializers, status
 
+from posthog.constants import AvailableFeature
 from posthog.models import PersonalAPIKey, User
-from posthog.models.organization import Organization
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.utils import hash_key_value
+
+from ee.models.rbac.access_control import AccessControl
 
 from ...api.skill_serializers import validate_skill_file_path
 from ...api.skill_services import archive_skill
@@ -490,3 +493,61 @@ class TestImportAndCreateValidation(APIBaseTest):
         # First skill fits the (patched) ceiling; the second crosses it and is skipped rather than OOM.
         assert "plugins/posthog-skill-store/skills/aaa/SKILL.md" in tree
         assert "plugins/posthog-skill-store/skills/zzz/SKILL.md" not in tree
+
+
+class TestSkillMarketplaceRBAC(APIBaseTest):
+    """The marketplace read must be gated by the same llm_skill RBAC as the JSON skill APIs — a
+    project member who loses skill access can no longer clone, even with a previously minted key."""
+
+    def setUp(self):
+        super().setUp()
+        self.client.logout()  # git carries no session; auth is the Basic-bridged PAK only
+        cache.clear()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        AccessControl.objects.create(
+            team=self.team, resource="project", resource_id=str(self.team.id), access_level="member"
+        )
+        # Skills inherit their access-control resource from llm_analytics (RESOURCE_INHERITANCE_MAP).
+        # Make access grant-based: the resource default is "none", so a member only gets in with an
+        # explicit grant — restricting the default is how skill access is actually gated.
+        AccessControl.objects.create(team=self.team, resource="llm_analytics", resource_id=None, access_level="none")
+        LLMSkill.objects.create(
+            team=self.team,
+            name="make-fractals",
+            description="d",
+            body="# x\n",
+            version=1,
+            is_latest=True,
+            created_by=self.user,
+        )
+        self.member = User.objects.create_and_join(self.organization, "rbac-member@posthog.com", "pw")
+        _mint_pak(self.member, scopes=["llm_skill:read"], scoped_teams=[self.team.id])
+
+    def _membership(self) -> OrganizationMembership:
+        return OrganizationMembership.objects.get(user=self.member, organization=self.organization)
+
+    def _clone_status(self) -> int:
+        return self.client.get(
+            f"/api/projects/{self.team.id}/llm_skills/marketplace.git/info/refs",
+            {"service": "git-upload-pack"},
+            HTTP_AUTHORIZATION=_basic_header(_PAK_TOKEN),
+        ).status_code
+
+    def test_member_without_skill_access_is_denied(self):
+        # Valid key, current project member — but no llm_skill grant → the clone is denied. This is
+        # the gap the JSON skill APIs close via AccessControlPermission, now closed here too.
+        assert self._clone_status() in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
+
+    def test_member_with_skill_access_can_clone(self):
+        AccessControl.objects.create(
+            team=self.team,
+            resource="llm_analytics",
+            resource_id=None,
+            access_level="viewer",
+            organization_member=self._membership(),
+        )
+        assert self._clone_status() == status.HTTP_200_OK
