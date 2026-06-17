@@ -21,7 +21,7 @@ import { createNormalizeProcessPersonFlagStep } from '../../event-processing/nor
 import { createPrepareEventStep } from '../../event-processing/prepare-event-step'
 import { createProcessPersonlessStep } from '../../event-processing/process-personless-step'
 import { createProcessPersonsStep } from '../../event-processing/process-persons-step'
-import { SplitAiEventsStepConfig, createSplitAiEventsStep } from '../../event-processing/split-ai-events-step'
+import { createSplitAiEventsStep } from '../../event-processing/split-ai-events-step'
 import { IngestionOutputs } from '../../outputs/ingestion-outputs'
 import { PipelineBuilder, StartPipelineBuilder } from '../../pipelines/builders/pipeline-builders'
 import { TopHogWrapper, sum, sumOk, sumResult, timer } from '../../pipelines/extensions/tophog'
@@ -45,7 +45,6 @@ export interface AiEventSubpipelineConfig {
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
     hogTransformer: HogTransformerService
-    splitAiEventsConfig: SplitAiEventsStepConfig
     groupId: string
     topHog: TopHogWrapper
 }
@@ -54,8 +53,7 @@ export function createAiEventSubpipeline<TInput extends AiEventSubpipelineInput,
     builder: StartPipelineBuilder<TInput, TContext>,
     config: AiEventSubpipelineConfig
 ): PipelineBuilder<TInput, void, TContext, AsyncOutput> {
-    const { options, outputs, teamManager, groupTypeManager, hogTransformer, splitAiEventsConfig, groupId, topHog } =
-        config
+    const { options, outputs, teamManager, groupTypeManager, hogTransformer, groupId, topHog } = config
 
     return builder
         .pipe(createNormalizeProcessPersonFlagStep())
@@ -103,7 +101,7 @@ export function createAiEventSubpipeline<TInput extends AiEventSubpipelineInput,
         .pipe(createPrepareEventStep())
         .pipe(createProcessGroupsStep(teamManager, groupTypeManager, options))
         .pipe(createCreateEventStep(EVENTS_OUTPUT))
-        .pipe(createSplitAiEventsStep(splitAiEventsConfig))
+        .pipe(createSplitAiEventsStep())
         .pipe(
             topHog(
                 createEmitEventStep({

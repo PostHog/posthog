@@ -165,10 +165,9 @@ interface GenerationsQueryValues {
 let lastRawFetchCount = 0
 
 async function fetchGenerations(values: GenerationsQueryValues, cursor: string | null): Promise<SentimentGeneration[]> {
-    // Routed through `AIObservabilitySentimentViewSet.generations` which wraps
-    // `execute_with_ai_events_fallback`. This keeps the read on the standard
-    // kill-switch / fallback / `ai_query_source` tagging contract for the
-    // rollout. Response shape is tuple-positional ([uuid, trace_id, ai_input,
+    // Routed through `AIObservabilitySentimentViewSet.generations`, which wraps
+    // `query_ai_events` for consistent `ai_query_source` attribution and the
+    // retention-window fallback. Response shape is tuple-positional ([uuid, trace_id, ai_input,
     // model, distinct_id, timestamp, created_at]) — the generated wrapper
     // types `results` as `unknown[][]` so the position casts here are
     // unavoidable until the response serializer declares per-element types.

@@ -1,10 +1,8 @@
-"""Strip-migration unit tests for sentiment Temporal data layer.
+"""Unit tests for the sentiment Temporal data layer.
 
-`fetch_generations` and `fetch_generations_by_uuid` both moved from
-`FROM events SELECT properties.$ai_input` to `FROM posthog.ai_events SELECT input`
-behind the resolver. Both must continue to read populated `ai_input` for
-post-strip events (the resolver wires that up); these tests assert the contract
-without hitting ClickHouse.
+`fetch_generations` and `fetch_generations_by_uuid` read `ai_input` from
+`posthog.ai_events` native columns via `query_ai_events`; these tests assert the
+contract without hitting ClickHouse.
 """
 
 from typing import cast
@@ -36,7 +34,7 @@ def _resolver_response(rows: list[list]) -> MagicMock:
 class TestFetchGenerations:
     def test_groups_rows_by_trace_id(self, team):
         # Each row tuple: (uuid, ai_input, trace_id) — order matches GENERATIONS_QUERY's outer SELECT.
-        with patch("posthog.hogql_queries.ai.ai_table_resolver.execute_with_ai_events_fallback") as mock_resolver:
+        with patch("posthog.hogql_queries.ai.ai_table_resolver.query_ai_events") as mock_resolver:
             mock_resolver.return_value = _resolver_response(
                 [
                     ["uuid-1", '[{"role":"user","content":"hi A"}]', "trace-A"],
@@ -59,7 +57,7 @@ class TestFetchGenerations:
             assert result.total_input_bytes > 0
 
     def test_skips_rows_with_unparseable_input(self, team):
-        with patch("posthog.hogql_queries.ai.ai_table_resolver.execute_with_ai_events_fallback") as mock_resolver:
+        with patch("posthog.hogql_queries.ai.ai_table_resolver.query_ai_events") as mock_resolver:
             mock_resolver.return_value = _resolver_response(
                 [
                     ["uuid-1", "{not-json", "trace-A"],
@@ -78,7 +76,7 @@ class TestFetchGenerations:
     def test_query_reads_native_input_from_ai_events(self, team):
         """If someone reverts the GENERATIONS_QUERY template to
         `properties.$ai_input`, this test catches it."""
-        with patch("posthog.hogql_queries.ai.ai_table_resolver.execute_with_ai_events_fallback") as mock_resolver:
+        with patch("posthog.hogql_queries.ai.ai_table_resolver.query_ai_events") as mock_resolver:
             mock_resolver.return_value = _resolver_response([])
             fetch_generations(
                 team_id=team.id,
@@ -103,7 +101,7 @@ _TRACE_RESOLVE_PATH = "posthog.hogql_queries.ai.trace_id_resolver.resolve_trace_
 class TestFetchGenerationsByUuid:
     @patch(_TRACE_RESOLVE_PATH, return_value={"uuid-1": "trace-A", "uuid-2": "trace-B"})
     def test_returns_flat_list(self, _mock_resolve, team):
-        with patch("posthog.hogql_queries.ai.ai_table_resolver.execute_with_ai_events_fallback") as mock_resolver:
+        with patch("posthog.hogql_queries.ai.ai_table_resolver.query_ai_events") as mock_resolver:
             mock_resolver.return_value = _resolver_response(
                 [
                     ["uuid-1", '[{"role":"user","content":"hi"}]'],
@@ -121,7 +119,7 @@ class TestFetchGenerationsByUuid:
 
     @patch(_TRACE_RESOLVE_PATH, return_value={"uuid-good": "trace-A", "uuid-bad": "trace-A"})
     def test_skips_unparseable_input(self, _mock_resolve, team):
-        with patch("posthog.hogql_queries.ai.ai_table_resolver.execute_with_ai_events_fallback") as mock_resolver:
+        with patch("posthog.hogql_queries.ai.ai_table_resolver.query_ai_events") as mock_resolver:
             mock_resolver.return_value = _resolver_response(
                 [
                     ["uuid-bad", "not-json"],
@@ -141,7 +139,7 @@ class TestFetchGenerationsByUuid:
     def test_no_trace_ids_resolved_skips_heavy_fetch(self, _mock_resolve, team):
         """When the events preflight returns no trace_ids — uuids purged or
         outside the window — skip the heavy ai_events fan-out entirely."""
-        with patch("posthog.hogql_queries.ai.ai_table_resolver.execute_with_ai_events_fallback") as mock_resolver:
+        with patch("posthog.hogql_queries.ai.ai_table_resolver.query_ai_events") as mock_resolver:
             rows, total_bytes = fetch_generations_by_uuid(
                 team_id=team.id,
                 generation_ids=["uuid-1", "uuid-2"],
@@ -157,7 +155,7 @@ class TestFetchGenerationsByUuid:
         """The discovered trace_ids must land in the WHERE so the heavy fetch
         hits the ai_events `(team_id, trace_id, timestamp)` sorting-key
         prefix and single-shard via the cityHash64 sharding key."""
-        with patch("posthog.hogql_queries.ai.ai_table_resolver.execute_with_ai_events_fallback") as mock_resolver:
+        with patch("posthog.hogql_queries.ai.ai_table_resolver.query_ai_events") as mock_resolver:
             mock_resolver.return_value = _resolver_response([])
             fetch_generations_by_uuid(
                 team_id=team.id,

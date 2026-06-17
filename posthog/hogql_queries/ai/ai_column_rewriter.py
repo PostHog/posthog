@@ -1,8 +1,7 @@
 """AST rewriter that translates queries written against `ai_events` columns to work with the `events` table.
 
 This is the reverse of `AiPropertyRewriter`. When a query targets the `events` table
-as a fallback (e.g. data older than the `ai_events` TTL, or the kill switch is off),
-this rewriter:
+as a fallback (e.g. data older than the `ai_events` retention TTL), this rewriter:
 
 1. Rewrites dedicated column references (e.g. `trace_id`) to property access
    (e.g. `properties.$ai_trace_id`) so they resolve against the `events` table.

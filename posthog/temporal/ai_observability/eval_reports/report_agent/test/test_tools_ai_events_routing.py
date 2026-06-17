@@ -1,4 +1,4 @@
-"""Strip-migration tests for the eval-report agent's heavy-prop tools.
+"""Tests for the eval-report agent's heavy-prop tools.
 
 `sample_generation_details`, `get_generation_detail`, and
 `get_generation_text_repr` are the three tools that read heavy columns. They
@@ -50,7 +50,7 @@ def _resolver_response(rows: list[list]) -> MagicMock:
 
 
 class TestSampleGenerationDetailsRoutesThroughResolver(BaseTest):
-    @patch("posthog.hogql_queries.ai.ai_table_resolver.execute_with_ai_events_fallback")
+    @patch("posthog.hogql_queries.ai.ai_table_resolver.query_ai_events")
     @patch(_RESOLVE_PATH, return_value={_VALID_GEN_ID: "trace-1"})
     def test_routes_through_resolver_against_ai_events(self, _mock_lookup, mock_resolver):
         """The heavy-prop tool must hit the resolver, not raw `execute_hogql_query`."""
@@ -77,7 +77,7 @@ class TestSampleGenerationDetailsRoutesThroughResolver(BaseTest):
         result = _sample_fn(state=_state(self.team.id), generation_ids=[_VALID_GEN_ID])
 
         # Returns rendered JSON with input/output previews from heavy columns.
-        assert "post-strip" not in result  # sanity: nothing weird leaked
+        assert result
         assert mock_resolver.call_count == 1
         kwargs = mock_resolver.call_args.kwargs
         select = cast(ast.SelectQuery, kwargs["query"])
@@ -90,7 +90,7 @@ class TestSampleGenerationDetailsRoutesThroughResolver(BaseTest):
         trace_id_values = [const.value for const in placeholders["trace_ids"].exprs]
         assert trace_id_values == ["trace-1"]
 
-    @patch("posthog.hogql_queries.ai.ai_table_resolver.execute_with_ai_events_fallback")
+    @patch("posthog.hogql_queries.ai.ai_table_resolver.query_ai_events")
     @patch(_RESOLVE_PATH, return_value={})
     def test_skips_heavy_fetch_when_no_trace_ids_resolved(self, _mock_lookup, mock_resolver):
         """If the events preflight finds no rows (uuids purged or never existed),
@@ -103,7 +103,7 @@ class TestSampleGenerationDetailsRoutesThroughResolver(BaseTest):
 
 
 class TestGetGenerationDetailRoutesThroughResolver(BaseTest):
-    @patch("posthog.hogql_queries.ai.ai_table_resolver.execute_with_ai_events_fallback")
+    @patch("posthog.hogql_queries.ai.ai_table_resolver.query_ai_events")
     @patch("posthog.hogql.query.execute_hogql_query")
     @patch(_RESOLVE_PATH, return_value={_VALID_GEN_ID: "trace-1"})
     def test_main_query_uses_resolver_eval_query_uses_events(self, _mock_lookup, mock_events, mock_resolver):
@@ -155,7 +155,7 @@ class TestGetGenerationDetailRoutesThroughResolver(BaseTest):
         assert "trace_id" in placeholders
         assert placeholders["trace_id"].value == "trace-1"
 
-    @patch("posthog.hogql_queries.ai.ai_table_resolver.execute_with_ai_events_fallback")
+    @patch("posthog.hogql_queries.ai.ai_table_resolver.query_ai_events")
     @patch(_RESOLVE_PATH, return_value={})
     def test_returns_not_found_when_trace_id_lookup_misses(self, _mock_lookup, mock_resolver):
         """If the events preflight can't find the generation, surface a not-found
@@ -165,7 +165,7 @@ class TestGetGenerationDetailRoutesThroughResolver(BaseTest):
         assert mock_resolver.call_count == 0
 
     def test_invalid_generation_id_returns_error_without_querying(self):
-        with patch("posthog.hogql_queries.ai.ai_table_resolver.execute_with_ai_events_fallback") as mock_resolver:
+        with patch("posthog.hogql_queries.ai.ai_table_resolver.query_ai_events") as mock_resolver:
             result = _get_detail_fn(state=_state(self.team.id), generation_id="not-a-uuid")
             assert "error" in result.lower()
             assert mock_resolver.call_count == 0
@@ -175,9 +175,9 @@ class TestGetGenerationTextReprRoutesThroughResolver(BaseTest):
     """`get_generation_text_repr` reads `$ai_input`/`$ai_output`/`$ai_output_choices`/
     `$ai_tools` indirectly through the formatter. Those are 4 of the 6 stripped
     heavy columns, so the tool must hit ai_events — querying `events.properties`
-    directly would render an empty skeleton post-cutover."""
+    directly would render an empty skeleton (the heavy columns live only on ai_events)."""
 
-    @patch("posthog.hogql_queries.ai.ai_table_resolver.execute_with_ai_events_fallback")
+    @patch("posthog.hogql_queries.ai.ai_table_resolver.query_ai_events")
     @patch(_RESOLVE_PATH, return_value={_VALID_GEN_ID: "trace-1"})
     def test_routes_through_resolver_against_ai_events(self, _mock_lookup, mock_resolver):
         """Heavy fetch goes through the resolver and selects from posthog.ai_events."""
@@ -218,7 +218,7 @@ class TestGetGenerationTextReprRoutesThroughResolver(BaseTest):
         assert placeholders["trace_id"].value == "trace-1"
         assert placeholders["generation_id"].value == _VALID_GEN_ID
 
-    @patch("posthog.hogql_queries.ai.ai_table_resolver.execute_with_ai_events_fallback")
+    @patch("posthog.hogql_queries.ai.ai_table_resolver.query_ai_events")
     @patch(_RESOLVE_PATH, return_value={_VALID_GEN_ID: "trace-1"})
     def test_parses_output_choices_dict_format(self, _mock_lookup, mock_resolver):
         """`$ai_output_choices` must arrive as a parsed structure — the formatter's
@@ -245,7 +245,7 @@ class TestGetGenerationTextReprRoutesThroughResolver(BaseTest):
         result = _get_text_repr_fn(state=_state(self.team.id), generation_id=_VALID_GEN_ID)
         assert "choice content" in result
 
-    @patch("posthog.hogql_queries.ai.ai_table_resolver.execute_with_ai_events_fallback")
+    @patch("posthog.hogql_queries.ai.ai_table_resolver.query_ai_events")
     @patch(_RESOLVE_PATH, return_value={_VALID_GEN_ID: "trace-1"})
     def test_renders_error_section_when_is_error(self, _mock_lookup, mock_resolver):
         """`is_error` / `error` are dedicated columns — propagate them as
@@ -273,7 +273,7 @@ class TestGetGenerationTextReprRoutesThroughResolver(BaseTest):
         assert "ERROR:" in result
         assert "boom" in result
 
-    @patch("posthog.hogql_queries.ai.ai_table_resolver.execute_with_ai_events_fallback")
+    @patch("posthog.hogql_queries.ai.ai_table_resolver.query_ai_events")
     @patch(_RESOLVE_PATH, return_value={_VALID_GEN_ID: "trace-1"})
     def test_handles_all_heavy_columns_null(self, _mock_lookup, mock_resolver):
         """A generation with all heavy columns nulled should still render — the
@@ -302,7 +302,7 @@ class TestGetGenerationTextReprRoutesThroughResolver(BaseTest):
         assert "OUTPUT:" not in result
         assert "ERROR:" not in result
 
-    @patch("posthog.hogql_queries.ai.ai_table_resolver.execute_with_ai_events_fallback")
+    @patch("posthog.hogql_queries.ai.ai_table_resolver.query_ai_events")
     @patch(_RESOLVE_PATH, return_value={_VALID_GEN_ID: "trace-1"})
     def test_passes_non_json_string_input_through_to_formatter(self, _mock_lookup, mock_resolver):
         """Heavy columns are usually JSON-encoded but a plain text input
@@ -329,7 +329,7 @@ class TestGetGenerationTextReprRoutesThroughResolver(BaseTest):
         result = _get_text_repr_fn(state=_state(self.team.id), generation_id=_VALID_GEN_ID)
         assert "plain text prompt" in result
 
-    @patch("posthog.hogql_queries.ai.ai_table_resolver.execute_with_ai_events_fallback")
+    @patch("posthog.hogql_queries.ai.ai_table_resolver.query_ai_events")
     @patch(_RESOLVE_PATH, return_value={})
     def test_returns_not_found_when_trace_id_lookup_misses(self, _mock_lookup, mock_resolver):
         """Skip the heavy fan-out when the events preflight can't find the uuid."""
@@ -337,7 +337,7 @@ class TestGetGenerationTextReprRoutesThroughResolver(BaseTest):
         assert "not found" in result.lower()
         assert mock_resolver.call_count == 0
 
-    @patch("posthog.hogql_queries.ai.ai_table_resolver.execute_with_ai_events_fallback")
+    @patch("posthog.hogql_queries.ai.ai_table_resolver.query_ai_events")
     @patch(_RESOLVE_PATH, return_value={_VALID_GEN_ID: "trace-1"})
     def test_returns_not_found_when_ai_events_query_empty(self, _mock_lookup, mock_resolver):
         """Trace_id resolved but ai_events returns no rows (e.g. raced TTL eviction)."""
@@ -346,7 +346,7 @@ class TestGetGenerationTextReprRoutesThroughResolver(BaseTest):
         assert "not found" in result.lower()
 
     def test_invalid_generation_id_returns_error_without_querying(self):
-        with patch("posthog.hogql_queries.ai.ai_table_resolver.execute_with_ai_events_fallback") as mock_resolver:
+        with patch("posthog.hogql_queries.ai.ai_table_resolver.query_ai_events") as mock_resolver:
             with patch(_RESOLVE_PATH) as mock_lookup:
                 result = _get_text_repr_fn(state=_state(self.team.id), generation_id="not-a-uuid")
                 assert "error" in result.lower()

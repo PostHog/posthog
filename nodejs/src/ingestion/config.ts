@@ -166,22 +166,6 @@ export type IngestionConsumerConfig = {
     /** Teams whose $feature_flag_called events default to personless: '*' for all, '' to disable, or comma-separated team IDs */
     FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: string
 
-    // AI event splitting config
-    INGESTION_AI_EVENT_SPLITTING_ENABLED: boolean
-    /** '*' for all teams, or comma-separated team IDs always routed to ai_events */
-    INGESTION_AI_EVENT_SPLITTING_TEAMS: string
-    /**
-     * Sticky percentage rollout (0-100), unioned with INGESTION_AI_EVENT_SPLITTING_TEAMS.
-     * Bucketed deterministically on team_id so increases are monotonic and per-team writes don't flap.
-     */
-    INGESTION_AI_EVENT_SPLITTING_PERCENTAGE: number
-    /**
-     * Teams whose events copy should have heavy AI properties stripped — i.e. the post-migration final state
-     * where heavy columns live only in the AI events table. '*' for all teams, or comma-separated team IDs.
-     * Defaults to '' (no stripping → double-write the full event for everyone).
-     */
-    INGESTION_AI_EVENT_SPLITTING_STRIP_HEAVY_TEAMS: string
-
     // Clickhouse topics
     CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
     CLICKHOUSE_AI_EVENTS_KAFKA_TOPIC: string
@@ -277,12 +261,6 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         EVENT_SCHEMA_ENFORCEMENT_ENABLED: true,
         KAFKA_BATCH_START_LOGGING_ENABLED: false,
         FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: DEFAULT_FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
-
-        // AI event splitting config
-        INGESTION_AI_EVENT_SPLITTING_ENABLED: false,
-        INGESTION_AI_EVENT_SPLITTING_TEAMS: '*',
-        INGESTION_AI_EVENT_SPLITTING_PERCENTAGE: 0,
-        INGESTION_AI_EVENT_SPLITTING_STRIP_HEAVY_TEAMS: '',
 
         // Clickhouse topics
         CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: KAFKA_EVENTS_JSON,

@@ -21,14 +21,10 @@ export interface LoadAIDataParams {
     tools: unknown
     traceId?: string
     timestamp?: string
-    /** True when the team is rolled out to read from `ai_events`. When false, the new path
-     *  can't help — TraceQuery would just fall back to the shared `events` table, which
-     *  post-strip-heavy has NULL heavy props. */
-    aiEventsRolloutEnabled?: boolean
 }
 
 async function loadAIDataAsync(params: LoadAIDataParams): Promise<AIData> {
-    const { eventId, input, output, tools, traceId, timestamp, aiEventsRolloutEnabled } = params
+    const { eventId, input, output, tools, traceId, timestamp } = params
 
     // Passthrough: caller already has both sides of the conversation (e.g. the trace page
     // hydrates rows from the TraceQuery that has heavy props merged back). No fetch needed.
@@ -42,16 +38,10 @@ async function loadAIDataAsync(params: LoadAIDataParams): Promise<AIData> {
         return { input, output, tools }
     }
 
-    // The ai_events read path is the only one that can recover heavy props for a stripped
-    // event. If the team isn't rolled out, skip the fetch.
-    if (!aiEventsRolloutEnabled) {
-        return { input, output, tools }
-    }
-
-    // Post-strip events have NULL heavy props on the shared `events` table. Reuse the
-    // existing TraceQuery pipeline (ai_events first, shared `events` on zero rows) to
-    // fetch the event's heavy columns by (trace_id, event uuid). TraceQueryDateRange
-    // auto-widens the window by ±10 minutes, so a single timestamp is sufficient.
+    // Heavy props live only on `ai_events`. Reuse the existing TraceQuery pipeline
+    // (ai_events first, shared `events` on zero rows) to fetch the event's heavy columns
+    // by (trace_id, event uuid). TraceQueryDateRange auto-widens the window by ±10 minutes,
+    // so a single timestamp is sufficient.
     try {
         const traceQuery: TraceQuery = {
             kind: NodeKind.TraceQuery,

@@ -31,7 +31,7 @@ class TestSentimentGenerationsEndpoint(APIBaseTest):
     ) -> list[Any]:
         return [uuid, trace_id, model, distinct_id, ts_max, ts_min]
 
-    @patch("products.ai_observability.backend.api.sentiment.execute_with_ai_events_fallback")
+    @patch("products.ai_observability.backend.api.sentiment.query_ai_events")
     @patch("products.ai_observability.backend.api.sentiment.execute_hogql_query")
     def test_returns_rows_in_tuple_order(self, mock_preflight: MagicMock, mock_heavy: MagicMock) -> None:
         mock_preflight.return_value = self._make_response(
@@ -72,7 +72,7 @@ class TestSentimentGenerationsEndpoint(APIBaseTest):
         assert mock_preflight.call_args.kwargs["query_type"] == "LLMSentimentGenerationsTraceIdResolve"
         assert mock_heavy.call_args.kwargs["query_type"] == "LLMSentimentGenerations"
 
-    @patch("products.ai_observability.backend.api.sentiment.execute_with_ai_events_fallback")
+    @patch("products.ai_observability.backend.api.sentiment.query_ai_events")
     @patch("products.ai_observability.backend.api.sentiment.execute_hogql_query")
     def test_invalid_filters_returns_400(self, mock_preflight: MagicMock, mock_heavy: MagicMock) -> None:
         response = self.client.post(
@@ -90,7 +90,7 @@ class TestSentimentGenerationsEndpoint(APIBaseTest):
             ("empty_filters_dict", {"filters": {}}),
         ]
     )
-    @patch("products.ai_observability.backend.api.sentiment.execute_with_ai_events_fallback")
+    @patch("products.ai_observability.backend.api.sentiment.query_ai_events")
     @patch("products.ai_observability.backend.api.sentiment.execute_hogql_query")
     def test_empty_preflight_skips_heavy_query(
         self,
@@ -112,7 +112,7 @@ class TestSentimentGenerationsEndpoint(APIBaseTest):
             ("heavy", "heavy"),
         ]
     )
-    @patch("products.ai_observability.backend.api.sentiment.execute_with_ai_events_fallback")
+    @patch("products.ai_observability.backend.api.sentiment.query_ai_events")
     @patch("products.ai_observability.backend.api.sentiment.execute_hogql_query")
     def test_clickhouse_failure_returns_500(
         self,
@@ -132,7 +132,7 @@ class TestSentimentGenerationsEndpoint(APIBaseTest):
         if failing_stage == "preflight":
             assert mock_heavy.call_count == 0
 
-    @patch("products.ai_observability.backend.api.sentiment.execute_with_ai_events_fallback")
+    @patch("products.ai_observability.backend.api.sentiment.query_ai_events")
     @patch("products.ai_observability.backend.api.sentiment.execute_hogql_query")
     def test_preflight_targets_events_and_heavy_targets_ai_events(
         self, mock_preflight: MagicMock, mock_heavy: MagicMock
@@ -188,7 +188,7 @@ class TestSentimentGenerationsEndpoint(APIBaseTest):
     # `LimitContext.QUERY`) injects a default of 100 rows and the `GROUP BY
     # trace_id` is silently truncated when the preflight returns more, so
     # the truncated half renders as blank cards on the Sentiment tab.
-    @patch("products.ai_observability.backend.api.sentiment.execute_with_ai_events_fallback")
+    @patch("products.ai_observability.backend.api.sentiment.query_ai_events")
     @patch("products.ai_observability.backend.api.sentiment.execute_hogql_query")
     def test_heavy_query_has_explicit_limit(self, mock_preflight: MagicMock, mock_heavy: MagicMock) -> None:
         from posthog.hogql import ast as hogql_ast
@@ -213,7 +213,7 @@ class TestSentimentGenerationsEndpoint(APIBaseTest):
     # the response still includes them positionally. This keeps the
     # frontend dedup grouping (and the per-card "View trace" links)
     # working for the remaining rows.
-    @patch("products.ai_observability.backend.api.sentiment.execute_with_ai_events_fallback")
+    @patch("products.ai_observability.backend.api.sentiment.query_ai_events")
     @patch("products.ai_observability.backend.api.sentiment.execute_hogql_query")
     def test_traces_without_heavy_match_get_null_ai_input(
         self, mock_preflight: MagicMock, mock_heavy: MagicMock
@@ -266,7 +266,7 @@ class TestSentimentGenerationsRealClickhouse(ClickhouseTestMixin, APIBaseTest):
             ("with_event", True),
         ]
     )
-    @patch("products.ai_observability.backend.api.sentiment.execute_with_ai_events_fallback")
+    @patch("products.ai_observability.backend.api.sentiment.query_ai_events")
     def test_preflight_against_real_clickhouse_for_non_utc_team(
         self,
         _name: str,

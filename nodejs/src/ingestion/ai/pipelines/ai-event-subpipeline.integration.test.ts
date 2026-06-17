@@ -99,12 +99,6 @@ function buildPipeline(configOverrides: Partial<AiEventSubpipelineConfig> = {}) 
         hogTransformer: {
             transformEventAndProduceMessages: (event: PluginEvent) => Promise.resolve({ event, invocationResults: [] }),
         } as any,
-        splitAiEventsConfig: {
-            enabled: false,
-            enabledTeams: '*',
-            enabledPercentage: 0,
-            stripHeavyTeams: [],
-        },
         groupId: 'test-group',
         topHog: (step) => step,
         ...configOverrides,

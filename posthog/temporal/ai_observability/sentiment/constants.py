@@ -41,10 +41,10 @@ BATCH_MAX_GENERATION_IDS = 5  # keep small to avoid upstream request timeouts
 # and a size filter to skip accumulated conversation histories — the same
 # user messages appear in earlier, smaller generations so we lose nothing.
 #
-# Reads from `posthog.ai_events` so post-strip rows still expose the heavy
-# `input` column (it's stripped from `events.properties.$ai_input` after
-# the cutover). `execute_with_ai_events_fallback` rewrites this back to
-# `events.properties.$ai_*` for the shared-table fallback.
+# Reads from `posthog.ai_events`, where the heavy `input` column lives as a
+# native column (it is not stored on `events.properties.$ai_input`).
+# `query_ai_events` rewrites this back to `events.properties.$ai_*` for the
+# retention-window fallback.
 GENERATIONS_QUERY = """
     SELECT uuid, ai_input, trace_id
     FROM (

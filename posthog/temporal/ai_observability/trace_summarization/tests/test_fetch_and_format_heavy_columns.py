@@ -1,8 +1,7 @@
-"""Strip-migration unit tests for the `_fetch_and_format_generation` query.
+"""Unit tests for the `_fetch_and_format_generation` query.
 
-Verifies the by-uuid generation lookup routes through
-`execute_with_ai_events_fallback` and reads the heavy `input` / `output` from
-`posthog.ai_events` native columns.
+Verifies the by-uuid generation lookup routes through `query_ai_events` and reads
+the heavy `input` / `output` from `posthog.ai_events` native columns.
 """
 
 from typing import cast
@@ -31,10 +30,10 @@ def _resolver_response(rows: list[list]) -> MagicMock:
 
 
 @pytest.mark.django_db
-class TestFetchAndFormatGenerationStripMigration:
+class TestFetchAndFormatGenerationHeavyColumns:
     def test_returns_none_when_resolver_has_no_results(self, team):
         with patch(
-            "posthog.temporal.ai_observability.trace_summarization.fetch_and_format.execute_with_ai_events_fallback"
+            "posthog.temporal.ai_observability.trace_summarization.fetch_and_format.query_ai_events"
         ) as mock_resolver:
             mock_resolver.return_value = _resolver_response([])
             result = _fetch_and_format_generation(
@@ -48,7 +47,7 @@ class TestFetchAndFormatGenerationStripMigration:
 
     def test_returns_text_repr_with_heavy_input_output(self, team):
         with patch(
-            "posthog.temporal.ai_observability.trace_summarization.fetch_and_format.execute_with_ai_events_fallback"
+            "posthog.temporal.ai_observability.trace_summarization.fetch_and_format.query_ai_events"
         ) as mock_resolver:
             # Order matches SELECT: model, provider, input, output, input_tokens, output_tokens, latency
             mock_resolver.return_value = _resolver_response(
@@ -83,9 +82,10 @@ class TestFetchAndFormatGenerationStripMigration:
 
     def test_query_targets_ai_events_with_native_heavy_columns(self, team):
         """If the projection regresses to `properties.$ai_input` / `FROM events`,
-        post-strip generation summaries silently empty out. Lock both."""
+        generation summaries silently empty out — the heavy columns live only on
+        `ai_events`. Lock both."""
         with patch(
-            "posthog.temporal.ai_observability.trace_summarization.fetch_and_format.execute_with_ai_events_fallback"
+            "posthog.temporal.ai_observability.trace_summarization.fetch_and_format.query_ai_events"
         ) as mock_resolver:
             mock_resolver.return_value = _resolver_response([])
 
