@@ -46,7 +46,7 @@ import { AxisSeries, AxisSeriesSettings, formatDataWithSettings } from '../../da
 import { AxisBreakdownSeries } from '../seriesBreakdownLogic'
 import { lineGraphLogic } from './lineGraphLogic'
 import { SqlLineGraph } from './SqlLineGraph'
-import { canRenderSqlLineGraph } from './sqlLineGraphAdapter'
+import { MAX_SERIES, canRenderSqlLineGraph } from './sqlLineGraphAdapter'
 
 Chart.register(annotationPlugin)
 Chart.register(ChartjsPluginStacked100)
@@ -138,8 +138,7 @@ export type LineGraphProps = {
     className?: string
 }
 
-// LegacyLineGraph displays a graph using either x and y data or series breakdown data, rendered
-// via chart.js. The exported `LineGraph` dispatcher below decides between this and the quill path.
+// Legacy chart.js renderer. The exported `LineGraph` below routes to it or the new SqlLineGraph.
 const LegacyLineGraph = ({
     xData,
     yData,
@@ -172,7 +171,6 @@ const LegacyLineGraph = ({
     const isAreaChart = visualizationType === ChartDisplayType.ActionsAreaGraph
     const isHighlightBarMode = isBarChart && isStackedBarChart && isShiftPressed
 
-    const MAX_SERIES = 200
     const ySeriesData = useMemo(() => {
         if (!yData) {
             return null
@@ -735,9 +733,8 @@ const LegacyLineGraph = ({
     )
 }
 
-// Dispatches between the new SQL line graph (line/area charts, behind the `data-viz-quill-charts`
-// flag) and the legacy chart.js renderer. When the flag is off — or the inputs aren't yet supported
-// by the new path — the legacy behavior is unchanged.
+// Routes to the new SQL line graph when the flag is on and the inputs are supported; otherwise the
+// legacy chart.js path renders unchanged.
 export const LineGraph = (props: LineGraphProps): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
     const newChartsEnabled = !!featureFlags[FEATURE_FLAGS.DATA_VIZ_QUILL_CHARTS]
