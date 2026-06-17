@@ -5140,6 +5140,7 @@ const api = {
                 offset?: number
                 search?: string
                 archived?: boolean
+                ids?: string
             } = {
                 limit: SURVEY_PAGE_SIZE,
             }

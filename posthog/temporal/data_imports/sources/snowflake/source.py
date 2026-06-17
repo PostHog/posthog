@@ -206,6 +206,13 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             # rejects the connection because PostHog's egress IP isn't permitted. Retrying can never
             # succeed until their admin allowlists our IPs, so stop retrying and surface what to do.
             "is not allowed to access Snowflake": "Snowflake rejected the connection because a network policy (IP allowlist) on your account does not permit PostHog's IP address. Ask your Snowflake administrator to add PostHog's egress IP addresses to the network policy allowlist, then resync.",
+            # Snowflake error 002003 (SQLSTATE 42S02 for tables / 02000 for schemas): a table or
+            # schema the source syncs was dropped or renamed in Snowflake, or the role's grant on it
+            # was revoked, after the schema was discovered. The driver raises "<object> does not exist
+            # or not authorized" on `SHOW PRIMARY KEYS` / the data query. Retrying can never succeed
+            # until the user restores the object or re-grants access. The object name and query id in
+            # the message are volatile, so we match on the stable trailing phrase.
+            "does not exist or not authorized": "A table or schema this source syncs no longer exists in Snowflake, or your role is no longer authorized to access it. Check that the object still exists and that your Snowflake role has access, then resync.",
             # Raised from the shared `evolve_pyarrow_schema` in `pipelines/pipeline/utils.py`
             # when an integer column's source type was widened (e.g. a narrower NUMBER widened
             # to a larger NUMBER/BIGINT) after the destination table was created with the

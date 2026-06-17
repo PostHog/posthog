@@ -7,6 +7,7 @@ import {
     IconNotification,
     IconPieChart,
     IconPlug,
+    IconStar,
     IconTrending,
     IconWarning,
 } from '@posthog/icons'
@@ -27,6 +28,7 @@ const NOTIFICATION_TYPE_ICONS: Record<string, JSX.Element> = {
     project_created: <IconFolder className="size-5 text-primary shrink-0" />,
     usage_spike: <IconTrending className="size-5 text-warning shrink-0" />,
     web_analytics_digest: <IconPieChart className="size-5 text-primary shrink-0" />,
+    achievement_unlocked: <IconStar className="size-5 text-warning shrink-0" />,
 }
 
 export function getNotificationIcon(notificationType: string): JSX.Element {

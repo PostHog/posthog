@@ -297,6 +297,7 @@ export interface PatchedTaskAutomationApi {
  * * `session_summaries` - Session Summaries
  * * `signal_report` - Signal Report
  * * `signals_scout` - Signals Scout
+ * * `support_reply` - Support Reply
  */
 export type OriginProductEnumApi = (typeof OriginProductEnumApi)[keyof typeof OriginProductEnumApi]
 
@@ -310,6 +311,7 @@ export const OriginProductEnumApi = {
     SessionSummaries: 'session_summaries',
     SignalReport: 'signal_report',
     SignalsScout: 'signals_scout',
+    SupportReply: 'support_reply',
 } as const
 
 /**
@@ -351,7 +353,8 @@ export interface TaskApi {
      * * `support_queue` - Support Queue
      * * `session_summaries` - Session Summaries
      * * `signal_report` - Signal Report
-     * * `signals_scout` - Signals Scout */
+     * * `signals_scout` - Signals Scout
+     * * `support_reply` - Support Reply */
     origin_product?: OriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -433,7 +436,8 @@ export interface PatchedTaskApi {
      * * `support_queue` - Support Queue
      * * `session_summaries` - Session Summaries
      * * `signal_report` - Signal Report
-     * * `signals_scout` - Signals Scout */
+     * * `signals_scout` - Signals Scout
+     * * `support_reply` - Support Reply */
     origin_product?: OriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).

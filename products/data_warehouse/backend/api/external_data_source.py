@@ -48,7 +48,12 @@ from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.temporal.data_imports.sources.common.base import AnySource, ExternalWebhookInfo, FieldType, WebhookSource
 from posthog.temporal.data_imports.sources.common.config import Config
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema, build_default_schemas
-from posthog.temporal.data_imports.sources.common.sql import filter_dwh_columns_by_enabled_columns, sql_schema_metadata
+from posthog.temporal.data_imports.sources.common.sql import (
+    RowFilterValidationError,
+    filter_dwh_columns_by_enabled_columns,
+    sql_schema_metadata,
+    validate_and_coerce_row_filters,
+)
 from posthog.temporal.data_imports.sources.common.sql.base import SQLSource
 from posthog.temporal.data_imports.sources.custom.source import MAX_CUSTOM_SOURCES_PER_TEAM, manifest_request_hosts
 from posthog.temporal.data_imports.sources.postgres.cdc.config import (
@@ -68,8 +73,10 @@ from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
 from products.data_warehouse.backend.api.external_data_schema import (
     ExternalDataSchemaSerializer,
+    RowFiltersField,
     SimpleExternalDataSchemaSerializer,
     source_supports_column_selection,
+    unsupported_row_filter_reason,
 )
 from products.data_warehouse.backend.data_load.service import (
     bulk_create_external_data_job_schedules,
@@ -570,6 +577,11 @@ class ExternalDataSourceBulkUpdateSchemaSerializer(serializers.Serializer):
         allow_null=True,
         allow_empty=True,
         help_text="Columns to sync. Null means sync all columns.",
+    )
+    row_filters = RowFiltersField(
+        required=False,
+        allow_null=True,
+        help_text="Row-filter predicates ANDed onto the source query. Null/empty means sync all rows.",
     )
 
 
@@ -1620,6 +1632,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             else:
                 enabled_columns = None
 
+            payload_row_filters = schema.get("row_filters")
+            row_filters: list[dict[str, Any]] | None = (
+                payload_row_filters if isinstance(payload_row_filters, list) and payload_row_filters else None
+            )
+
             if should_sync and requires_incremental_fields and incremental_field is None:
                 new_source_model.delete()
                 return Response(
@@ -1664,6 +1681,24 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 if source.supports_column_selection
                 else {}
             )
+
+            if row_filters is not None:
+                if reason := unsupported_row_filter_reason(
+                    is_direct_postgres=new_source_model.is_direct_postgres, is_cdc=sync_type == "cdc"
+                ):
+                    new_source_model.delete()
+                    return Response(
+                        status=status.HTTP_400_BAD_REQUEST,
+                        data={"message": f"Row filter not allowed for schema '{schema_name}': {reason}"},
+                    )
+                try:
+                    validate_and_coerce_row_filters(row_filters, schema_metadata)
+                except RowFilterValidationError as e:
+                    new_source_model.delete()
+                    return Response(
+                        status=status.HTTP_400_BAD_REQUEST,
+                        data={"message": f"Invalid row filter for schema '{schema_name}': {e}"},
+                    )
 
             is_cdc_schema = sync_type == "cdc"
             # A CDC table the user isn't enabling hasn't been "set up" — leave its sync method
@@ -1715,6 +1750,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 label=schema_label_by_name.get(schema_name),
                 sync_frequency_interval=schema_sync_frequency_interval,
                 enabled_columns=enabled_columns,
+                row_filters=row_filters,
             )
 
             # CDC + direct-postgres paths are Postgres-only — `get_postgres_source_table_location`

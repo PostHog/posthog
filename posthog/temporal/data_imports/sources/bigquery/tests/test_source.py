@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import pytest
 from freezegun import freeze_time
 from unittest import mock
@@ -16,6 +18,7 @@ from posthog.temporal.data_imports.sources.bigquery.bigquery import (
     BigQueryTokenRefreshError,
     _bq_select_clause,
     _get_query,
+    _get_rows_to_sync,
     _has_duplicate_primary_keys,
     _resolve_dataset_id,
     _resolve_dataset_project_id,
@@ -28,6 +31,7 @@ from posthog.temporal.data_imports.sources.bigquery.bigquery import (
 )
 from posthog.temporal.data_imports.sources.bigquery.source import BigQuerySource
 from posthog.temporal.data_imports.sources.common.sql.identifiers import InvalidIdentifierError
+from posthog.temporal.data_imports.sources.common.sql.predicates import ColumnTypeCategory, ValidatedRowFilter
 from posthog.temporal.data_imports.sources.generated_configs import (
     BigQueryDatasetProjectConfig,
     BigQueryKeyFileConfig,
@@ -451,7 +455,7 @@ def test_bigquery_select_clause(enabled_columns, primary_keys, incremental_field
 
 def test_bigquery_get_query_projects_enabled_columns():
     bq_table = mock.MagicMock(dataset_id="ds", table_id="t")
-    query = _get_query(
+    query, params = _get_query(
         should_use_incremental_field=False,
         db_incremental_field_last_value=None,
         bq_table=bq_table,
@@ -459,11 +463,12 @@ def test_bigquery_get_query_projects_enabled_columns():
         primary_keys=["id"],
     )
     assert "SELECT `email`, `id` FROM" in query
+    assert params == []
 
 
 def test_bigquery_get_query_keeps_incremental_field_in_projection():
     bq_table = mock.MagicMock(dataset_id="ds", table_id="t")
-    query = _get_query(
+    query, params = _get_query(
         should_use_incremental_field=True,
         db_incremental_field_last_value=42,
         bq_table=bq_table,
@@ -474,6 +479,95 @@ def test_bigquery_get_query_keeps_incremental_field_in_projection():
     )
     assert "SELECT `email`, `id`, `updated_at` FROM" in query
     assert "WHERE `updated_at` > 42" in query
+    assert params == []
+
+
+def test_bigquery_get_query_binds_row_filters_as_parameters():
+    bq_table = mock.MagicMock(dataset_id="ds", table_id="t")
+    bq_table.schema = [
+        SimpleNamespace(name="age", field_type="INTEGER"),
+        SimpleNamespace(name="name", field_type="STRING"),
+    ]
+    query, params = _get_query(
+        should_use_incremental_field=False,
+        db_incremental_field_last_value=None,
+        bq_table=bq_table,
+        row_filters=[
+            ValidatedRowFilter(column="age", operator=">", value=21, category=ColumnTypeCategory.INTEGER),
+            ValidatedRowFilter(
+                column="name", operator="=", value="x'; DROP TABLE y; --", category=ColumnTypeCategory.STRING
+            ),
+        ],
+    )
+    # Values are bound as @params, never inlined.
+    assert "WHERE `age` > @row_filter_0 AND `name` = @row_filter_1" in query
+    assert "DROP TABLE" not in query
+    assert [(p.name, p.type_, p.value) for p in params] == [
+        ("row_filter_0", "INT64", 21),
+        ("row_filter_1", "STRING", "x'; DROP TABLE y; --"),
+    ]
+
+
+def test_bigquery_get_rows_to_sync_runs_count_query_when_filtered():
+    # With row filters present the whole-table `num_rows` shortcut is invalid, so a COUNT(*)
+    # query with bound parameters runs instead.
+    table = mock.MagicMock(project="proj", dataset_id="ds", table_id="t")
+    table.schema = [SimpleNamespace(name="age", field_type="INTEGER")]
+    client = mock.MagicMock()
+    job = mock.MagicMock()
+    job.result.return_value = iter([[123]])
+    client.query.return_value = job
+
+    result = _get_rows_to_sync(
+        table=table,
+        client=client,
+        should_use_incremental_field=False,
+        db_incremental_field_last_value=None,
+        logger=mock.MagicMock(),
+        row_filters=[
+            ValidatedRowFilter(column="age", operator="IN", value=[21, 30], category=ColumnTypeCategory.INTEGER)
+        ],
+    )
+
+    assert result == 123
+    client.get_table.assert_not_called()  # num_rows shortcut skipped when filtered
+    count_query = client.query.call_args.args[0]
+    assert "COUNT(*)" in count_query
+    job_config = client.query.call_args.kwargs["job_config"]
+    assert [p.name for p in job_config.query_parameters] == ["row_filter_0_0", "row_filter_0_1"]
+
+
+def test_bigquery_get_query_in_filter_expands_to_one_param_per_value():
+    bq_table = mock.MagicMock(dataset_id="ds", table_id="t")
+    bq_table.schema = [SimpleNamespace(name="age", field_type="INTEGER")]
+    query, params = _get_query(
+        should_use_incremental_field=False,
+        db_incremental_field_last_value=None,
+        bq_table=bq_table,
+        row_filters=[
+            ValidatedRowFilter(column="age", operator="IN", value=[21, 30], category=ColumnTypeCategory.INTEGER)
+        ],
+    )
+    assert "WHERE `age` IN (@row_filter_0_0, @row_filter_0_1)" in query
+    assert [(p.name, p.type_, p.value) for p in params] == [
+        ("row_filter_0_0", "INT64", 21),
+        ("row_filter_0_1", "INT64", 30),
+    ]
+
+
+def test_bigquery_get_query_row_filters_compose_with_incremental():
+    bq_table = mock.MagicMock(dataset_id="ds", table_id="t")
+    bq_table.schema = [SimpleNamespace(name="age", field_type="INTEGER")]
+    query, params = _get_query(
+        should_use_incremental_field=True,
+        db_incremental_field_last_value=42,
+        bq_table=bq_table,
+        incremental_field="updated_at",
+        incremental_field_type=IncrementalFieldType.Integer,
+        row_filters=[ValidatedRowFilter(column="age", operator=">", value=21, category=ColumnTypeCategory.INTEGER)],
+    )
+    assert "WHERE `updated_at` > 42 AND `age` > @row_filter_0 ORDER BY `updated_at` ASC" in query
+    assert [(p.name, p.value) for p in params] == [("row_filter_0", 21)]
 
 
 @pytest.mark.parametrize(
@@ -497,15 +591,15 @@ def test_bigquery_get_query_keeps_incremental_field_in_projection():
 )
 def test_bigquery_get_query_datetime_cursor_timezone_offset(field_type, last_value, expected_clause, offset_present):
     bq_table = mock.MagicMock(dataset_id="ds", table_id="t")
-    query = _get_query(
+    sql, _ = _get_query(
         should_use_incremental_field=True,
         db_incremental_field_last_value=last_value,
         bq_table=bq_table,
         incremental_field="cursor",
         incremental_field_type=field_type,
     )
-    assert expected_clause in query
-    assert ("+00:00" in query) is offset_present
+    assert expected_clause in sql
+    assert ("+00:00" in sql) is offset_present
 
 
 @pytest.mark.parametrize(
@@ -826,6 +920,15 @@ def test_validate_bigquery_credentials_reports_unexpected_errors():
         ),
         # Permission to list tables in a dataset is also denied with the same prefix
         str(Forbidden("Access Denied: Permission bigquery.tables.list denied on dataset prj:ds.")),
+        # Storage Read API `create_read_session` denial — `str(PermissionDenied)` is "403 request
+        # failed: the user does not have 'bigquery.readsessions.create' permission for 'projects/...'",
+        # which the "Access Denied:" / "PermissionDenied: 403 request failed" keys don't cover.
+        str(
+            PermissionDenied(
+                "request failed: the user does not have 'bigquery.readsessions.create' "
+                "permission for 'projects/some-project'"
+            )
+        ),
     ],
 )
 def test_non_retryable_errors_match_permission_denied(observed_error):
@@ -853,6 +956,34 @@ def test_non_retryable_errors_match_federated_upstream_permission_denied(observe
 
 
 @pytest.mark.parametrize(
+    "observed_error",
+    [
+        # Administrator-set custom cost control on the customer's BigQuery project — surfaced as a
+        # `Forbidden` whose str() is "403 Custom quota exceeded: ...".
+        str(
+            Forbidden(
+                "Custom quota exceeded: Your usage exceeded the custom quota for QueryUsagePerDay, "
+                "which is set by your administrator. For more information, see "
+                "https://docs.cloud.google.com/bigquery/cost-controls.; reason: quotaExceeded"
+            )
+        ),
+        # Per-user variant of the same custom cost control.
+        str(
+            Forbidden(
+                "Custom quota exceeded: Your usage exceeded the custom quota for "
+                "QueryUsagePerUserPerDay, which is set by your administrator.; reason: quotaExceeded"
+            )
+        ),
+    ],
+)
+def test_non_retryable_errors_match_custom_quota_exceeded(observed_error):
+    """An administrator-set custom cost control (e.g. QueryUsagePerDay) can't be recovered by
+    retrying within the sync's window — the user must raise the quota or sync less data."""
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    assert any(key in observed_error for key in non_retryable_errors)
+
+
+@pytest.mark.parametrize(
     "other_error",
     [
         # Transient server / connection errors must stay retryable
@@ -862,6 +993,11 @@ def test_non_retryable_errors_match_federated_upstream_permission_denied(observe
         # A federated-read failure that isn't a permission problem must stay retryable
         "Error while reading data, error message: Failed to fetch row from PostgreSQL server. "
         "Error: ERROR:  connection to server timed out",
+        # Transient rate-limit quota errors ("Quota exceeded" / `rateLimitExceeded`) are NOT the
+        # administrator-set custom cost control and must stay retryable — the "Custom quota
+        # exceeded" key must not catch them.
+        "403 Quota exceeded: Your project exceeded quota for concurrent queries; reason: quotaExceeded",
+        "403 Exceeded rate limits: too many concurrent queries for this project; reason: rateLimitExceeded",
     ],
 )
 def test_non_retryable_errors_does_not_match_transient(other_error):
@@ -967,3 +1103,22 @@ def test_bigquery_storage_read_client_disables_grpc_message_size_limit():
     options = dict(mock_transport_cls.create_channel.call_args.kwargs["options"])
     assert options["grpc.max_receive_message_length"] == -1
     assert options["grpc.max_send_message_length"] == -1
+
+
+def test_bigquery_billing_not_enabled_is_non_retryable():
+    # A `billingNotEnabled` Forbidden 403 is a customer config issue — retrying never helps.
+    # Representative message from a real failed job (the `reason: billingNotEnabled` 403 raised
+    # by `job.result()` when the source project has BigQuery billing disabled / is in sandbox mode).
+    internal_error = (
+        "Forbidden: 403 Billing has not been enabled for this project. Enable billing at "
+        "https://console.cloud.google.com/billing. Datasets must have a default expiration time "
+        "and default partition expiration time of less than 60 days while in sandbox mode.; "
+        "reason: billingNotEnabled, message: Billing has not been enabled for this project."
+    )
+
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+
+    billing_key = "Billing has not been enabled for this project"
+    assert billing_key in non_retryable_errors, "expected billing key to be non-retryable"
+    # Mirror the substring match used by `update_external_data_job_model`.
+    assert billing_key in internal_error
