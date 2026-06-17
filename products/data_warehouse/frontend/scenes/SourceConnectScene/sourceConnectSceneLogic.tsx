@@ -12,6 +12,7 @@ import { Breadcrumb } from '~/types'
 
 import { externalDataSourcesStoreCredentialsCreate } from 'products/warehouse_sources/frontend/generated/api'
 import type { SourceCredentialApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
+
 import { availableSourcesLogic } from '../NewSourceScene/availableSourcesLogic'
 import { getErrorsForFields } from '../NewSourceScene/sourceWizardLogic'
 import type { sourceConnectSceneLogicType } from './sourceConnectSceneLogicType'
