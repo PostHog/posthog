@@ -18,6 +18,8 @@ from posthog.temporal.oauth import PosthogMcpScopes
 from products.tasks.backend.constants import SANDBOX_EVENT_INGEST_FEATURE_FLAG
 from products.tasks.backend.metrics import observe_task_run_workflow_start
 from products.tasks.backend.models import TaskRun
+from products.tasks.backend.temporal.command_run.constants import COMMAND_RUN_WORKFLOWS, DEFAULT_COMMAND_RUN_KIND
+from products.tasks.backend.temporal.command_run.workflow import CloudRunInput
 from products.tasks.backend.temporal.process_task.workflow import ProcessTaskInput
 from products.tasks.backend.temporal.slack_relay.activities import RelaySlackMessageInput
 
@@ -291,6 +293,56 @@ def execute_task_processing_workflow(
             run_id,
             f"Failed to start task workflow: {e}",
         )
+
+
+def execute_command_run_workflow(
+    task_id: str,
+    run_id: str,
+    team_id: int,
+    command_run_kind: str = DEFAULT_COMMAND_RUN_KIND,
+) -> None:
+    """Start a non-agent command cloud run synchronously. Fire-and-forget.
+
+    Resolves the concrete workflow (e.g. the generic command runner or a named leaf)
+    from `command_run_kind` and starts it on the tasks task queue.
+    """
+    workflow_name = COMMAND_RUN_WORKFLOWS.get(command_run_kind)
+    if workflow_name is None:
+        raise ValueError(f"Unknown command_run_kind: {command_run_kind}")
+
+    task_run_for_metrics = _get_task_run_for_metrics(run_id)
+    observe_task_run_workflow_start(task_run_for_metrics, outcome="attempted", reason="requested")
+    try:
+        Team.objects.get(id=team_id)
+        workflow_id = TaskRun.get_workflow_id(task_id, run_id)
+
+        logger.info(
+            "command_run_starting_workflow",
+            extra={"workflow_id": workflow_id, "workflow_name": workflow_name, "run_id": run_id},
+        )
+
+        client = sync_connect()
+        asyncio.run(
+            client.start_workflow(
+                workflow_name,
+                CloudRunInput(run_id=run_id),
+                id=workflow_id,
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                task_queue=settings.TASKS_TASK_QUEUE,
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+        )
+
+        logger.info("command_run_workflow_started", extra={"task_id": task_id, "run_id": run_id})
+        observe_task_run_workflow_start(task_run_for_metrics, outcome="started", reason="accepted")
+    except Team.DoesNotExist as e:
+        observe_task_run_workflow_start(task_run_for_metrics, outcome="failed", reason="permission_validation")
+        logger.exception("command_run_permission_validation_failed", extra={"run_id": run_id, "error": str(e)})
+        _terminalize_unstarted_task_run(run_id, f"Failed to start command run workflow: permission validation: {e}")
+    except Exception as e:
+        observe_task_run_workflow_start(task_run_for_metrics, outcome="failed", reason="temporal_start")
+        logger.exception("command_run_workflow_start_failed", extra={"run_id": run_id, "error": str(e)})
+        _terminalize_unstarted_task_run(run_id, f"Failed to start command run workflow: {e}")
 
 
 def resume_task_in_cloud_workflow(run_id: str, workflow_id: str) -> None:

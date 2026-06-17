@@ -25,6 +25,7 @@ from .constants import (
 from .models import SandboxEnvironment, Task, TaskAutomation, TaskRun
 from .redis import get_tasks_cache
 from .services.title_generator import generate_task_title
+from .temporal.command_run.constants import COMMAND_RUN_WORKFLOWS
 from .temporal.process_task.utils import (
     PUBLIC_REASONING_EFFORTS,
     LLMProvider,
@@ -964,6 +965,7 @@ class TaskRunCreateRequestSerializer(serializers.Serializer):
     RUN_SOURCE_CHOICES = [source.value for source in RunSource]
     RUNTIME_ADAPTER_CHOICES = [adapter.value for adapter in RuntimeAdapter]
     REASONING_EFFORT_CHOICES = [effort.value for effort in PUBLIC_REASONING_EFFORTS]
+    COMMAND_RUN_KIND_CHOICES = list(COMMAND_RUN_WORKFLOWS.keys())
 
     mode = serializers.ChoiceField(
         choices=["interactive", "background"],
@@ -1057,9 +1059,63 @@ class TaskRunCreateRequestSerializer(serializers.Serializer):
             "Codex runtimes accept 'auto', 'read-only', and 'full-access'."
         ),
     )
+    command = serializers.CharField(
+        required=False,
+        default=None,
+        allow_blank=False,
+        help_text=(
+            "Shell command for a non-agent command cloud run. When set, the run provisions a sandbox, "
+            "clones the repository, runs this command from the repo root, then opens a PR backed by a "
+            "GitHub-signed commit. Mutually exclusive with the agent runtime fields (runtime_adapter/model)."
+        ),
+    )
+    command_run_kind = serializers.ChoiceField(
+        choices=COMMAND_RUN_KIND_CHOICES,
+        required=False,
+        default=None,
+        help_text=(
+            "Selects which non-agent command cloud run to start. 'command' runs the supplied `command`; "
+            "named kinds run a canned, predefined command instead (in which case `command` is ignored)."
+        ),
+    )
+    pr_title = serializers.CharField(
+        required=False,
+        default=None,
+        allow_blank=False,
+        max_length=255,
+        help_text="Title for the pull request opened by a command cloud run.",
+    )
+    pr_body = serializers.CharField(
+        required=False,
+        default=None,
+        allow_blank=True,
+        help_text="Body for the pull request opened by a command cloud run.",
+    )
+    base_branch = serializers.CharField(
+        required=False,
+        default=None,
+        allow_null=True,
+        max_length=255,
+        help_text="Base branch for the pull request opened by a command cloud run. Defaults to the repo's default branch.",
+    )
 
     def validate(self, attrs):
         errors: dict[str, str] = {}
+
+        command = attrs.get("command")
+        command_run_kind = attrs.get("command_run_kind")
+        runtime_selection_fields = ("runtime_adapter", "model", "reasoning_effort")
+        is_command_run = command is not None or command_run_kind is not None
+        if is_command_run:
+            if any(attrs.get(field) is not None for field in runtime_selection_fields):
+                errors["command"] = "Command cloud runs cannot also select an agent runtime."
+            # A generic command run needs an explicit command; named kinds hardcode their own.
+            kind = command_run_kind or "command"
+            if kind == "command" and command is None:
+                errors["command"] = "This field is required for a generic command cloud run."
+            if errors:
+                raise serializers.ValidationError(errors)
+            return attrs
         initial_permission_mode = attrs.get("initial_permission_mode")
         runtime_adapter = attrs.get("runtime_adapter")
         if initial_permission_mode is not None:

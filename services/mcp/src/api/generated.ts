@@ -11874,6 +11874,7 @@ export namespace Schemas {
     /**
      * * `manual` - manual
      * * `signal_report` - signal_report
+     * * `cloud_run` - cloud_run
      */
     export type RunSourceEnum = typeof RunSourceEnum[keyof typeof RunSourceEnum];
 
@@ -11881,6 +11882,7 @@ export namespace Schemas {
     export const RunSourceEnum = {
       Manual: 'manual',
       SignalReport: 'signal_report',
+      CloudRun: 'cloud_run',
     } as const;
 
     /**
@@ -11920,6 +11922,18 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `command` - command
+     * * `append_readme` - append_readme
+     */
+    export type CommandRunKindEnum = typeof CommandRunKindEnum[keyof typeof CommandRunKindEnum];
+
+
+    export const CommandRunKindEnum = {
+      Command: 'command',
+      AppendReadme: 'append_readme',
+    } as const;
+
+    /**
      * Request body for creating a new task run
      */
     export interface ClaudeTaskRunCreateSchema {
@@ -11953,7 +11967,8 @@ export namespace Schemas {
       /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
        *
        * * `manual` - manual
-       * * `signal_report` - signal_report */
+       * * `signal_report` - signal_report
+       * * `cloud_run` - cloud_run */
       run_source?: RunSourceEnum;
       /** Optional signal report identifier when this run was started from Inbox. */
       signal_report_id?: string;
@@ -11981,6 +11996,26 @@ export namespace Schemas {
        * * `bypassPermissions` - bypassPermissions
        * * `auto` - auto */
       initial_permission_mode?: ClaudeTaskRunCreateSchemaInitialPermissionModeEnum;
+      /** Shell command for a non-agent command cloud run. When set, the run provisions a sandbox, clones the repository, runs this command from the repo root, then opens a PR backed by a GitHub-signed commit. Mutually exclusive with the agent runtime fields (runtime_adapter/model). */
+      command?: string;
+      /** Selects which non-agent command cloud run to start. 'command' runs the supplied `command`; named kinds run a canned, predefined command instead (in which case `command` is ignored).
+       *
+       * * `command` - command
+       * * `append_readme` - append_readme */
+      command_run_kind?: CommandRunKindEnum;
+      /**
+         * Title for the pull request opened by a command cloud run.
+         * @maxLength 255
+         */
+      pr_title?: string;
+      /** Body for the pull request opened by a command cloud run. */
+      pr_body?: string;
+      /**
+         * Base branch for the pull request opened by a command cloud run. Defaults to the repo's default branch.
+         * @maxLength 255
+         * @nullable
+         */
+      base_branch?: string | null;
     }
 
     export type ClickhouseEventProperties = { [key: string]: unknown };
@@ -12298,7 +12333,8 @@ export namespace Schemas {
       /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
        *
        * * `manual` - manual
-       * * `signal_report` - signal_report */
+       * * `signal_report` - signal_report
+       * * `cloud_run` - cloud_run */
       run_source?: RunSourceEnum;
       /** Optional signal report identifier when this run was started from Inbox. */
       signal_report_id?: string;
@@ -12324,6 +12360,26 @@ export namespace Schemas {
        * * `read-only` - read-only
        * * `full-access` - full-access */
       initial_permission_mode?: CodexTaskRunCreateSchemaInitialPermissionModeEnum;
+      /** Shell command for a non-agent command cloud run. When set, the run provisions a sandbox, clones the repository, runs this command from the repo root, then opens a PR backed by a GitHub-signed commit. Mutually exclusive with the agent runtime fields (runtime_adapter/model). */
+      command?: string;
+      /** Selects which non-agent command cloud run to start. 'command' runs the supplied `command`; named kinds run a canned, predefined command instead (in which case `command` is ignored).
+       *
+       * * `command` - command
+       * * `append_readme` - append_readme */
+      command_run_kind?: CommandRunKindEnum;
+      /**
+         * Title for the pull request opened by a command cloud run.
+         * @maxLength 255
+         */
+      pr_title?: string;
+      /** Body for the pull request opened by a command cloud run. */
+      pr_body?: string;
+      /**
+         * Base branch for the pull request opened by a command cloud run. Defaults to the repo's default branch.
+         * @maxLength 255
+         * @nullable
+         */
+      base_branch?: string | null;
     }
 
     export type PropertyGroupOperator = typeof PropertyGroupOperator[keyof typeof PropertyGroupOperator];
@@ -46720,7 +46776,8 @@ export namespace Schemas {
       /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
        *
        * * `manual` - manual
-       * * `signal_report` - signal_report */
+       * * `signal_report` - signal_report
+       * * `cloud_run` - cloud_run */
       run_source?: RunSourceEnum;
       /** Optional signal report identifier when this run was started from Inbox. */
       signal_report_id?: string;
@@ -46830,7 +46887,8 @@ export namespace Schemas {
       /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
        *
        * * `manual` - manual
-       * * `signal_report` - signal_report */
+       * * `signal_report` - signal_report
+       * * `cloud_run` - cloud_run */
       run_source?: RunSourceEnum;
       /** Optional signal report identifier when this run was started from Inbox. */
       signal_report_id?: string;

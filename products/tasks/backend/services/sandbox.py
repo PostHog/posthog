@@ -11,9 +11,12 @@ This module exports:
 
 from __future__ import annotations
 
+import io
 import os
 import re
 import shlex
+import base64
+import tarfile
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
@@ -42,6 +45,14 @@ class AgentServerResult:
 
     url: str
     token: str | None = None
+
+
+@dataclass
+class WorkingTreeChanges:
+    """Staged changes collected from a sandbox repo, ready for a GitHub-API signed commit."""
+
+    additions: list[tuple[str, str]]  # (path, base64-encoded contents)
+    deletions: list[str]
 
 
 class SandboxStatus(str, Enum):
@@ -208,6 +219,47 @@ class SandboxBase(ABC):
         )
         _logger.info(f"Cloning repository {repository} to {target_path} in sandbox {self.id} (shallow={shallow})")
         return self.execute(clone_command, timeout_seconds=5 * 60)
+
+    def stage_and_collect_changes(self, repository: str) -> WorkingTreeChanges:
+        """Stage all working-tree changes and return them as structured file changes.
+
+        Built only on `execute()` so both Docker and Modal sandboxes inherit it. The
+        sandbox image blocks raw `git commit`/`git push` (only signed commits may leave),
+        so instead of committing here we surface the diff for a signed commit created via
+        the GitHub API. `additions` carries (path, base64 contents); `deletions` carries paths.
+        """
+        if not self.is_running():
+            raise RuntimeError("Sandbox not in running state.")
+
+        org, repo = repository.lower().split("/")
+        repo_path = f"{WORKING_DIR}/repos/{org}/{repo}"
+
+        status = self.execute(
+            f"cd {shlex.quote(repo_path)} && git add -A && "
+            f"git -c core.quotepath=false diff --cached --no-renames --name-status"
+        )
+
+        added_paths: list[str] = []
+        deletions: list[str] = []
+        for line in status.stdout.splitlines():
+            code, _, path = line.partition("\t")
+            if not path:
+                continue
+            (deletions if code.startswith("D") else added_paths).append(path)
+
+        additions: list[tuple[str, str]] = []
+        if added_paths:
+            # One round-trip for all contents (vs. one per file): tar the changed paths and
+            # base64 the archive. tar handles binary and odd filenames cleanly.
+            quoted = " ".join(shlex.quote(path) for path in added_paths)
+            archive = self.execute(f"cd {shlex.quote(repo_path)} && tar -cf - -- {quoted} | base64 -w0")
+            raw = base64.b64decode(archive.stdout.strip())
+            with tarfile.open(fileobj=io.BytesIO(raw), mode="r:") as tar:
+                for path in added_paths:
+                    extracted = tar.extractfile(tar.getmember(path))
+                    contents = extracted.read() if extracted else b""
+                    additions.append((path, base64.b64encode(contents).decode("ascii")))
+        return WorkingTreeChanges(additions=additions, deletions=deletions)
 
     @abstractmethod
     def setup_repository(self, repository: str) -> ExecutionResult: ...
@@ -417,6 +469,7 @@ __all__ = [
     "ExecutionStream",
     "SANDBOX_TTL_SECONDS",
     "SandboxBase",
+    "WorkingTreeChanges",
     "WORKING_DIR",
     "parse_sandbox_repo_mount_map",
     "get_sandbox_class",

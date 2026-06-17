@@ -143,11 +143,13 @@ from .stream.redis_stream import (
     get_task_run_stream_key,
 )
 from .temporal.client import (
+    execute_command_run_workflow,
     execute_posthog_code_agent_relay_workflow,
     execute_task_processing_workflow,
     resume_task_in_cloud_workflow,
     signal_task_followup_message,
 )
+from .temporal.command_run.constants import DEFAULT_COMMAND_RUN_KIND
 from .temporal.process_task.utils import (
     GitHubCredentialSource,
     PrAuthorshipMode,
@@ -156,6 +158,7 @@ from .temporal.process_task.utils import (
     get_pr_authorship_mode,
     get_provider_for_runtime_adapter,
     get_reasoning_effort_error,
+    normalize_repository,
     parse_run_state,
     resolve_user_github_integration_for_task,
     user_github_integration_is_usable,
@@ -752,8 +755,47 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         logger.info(f"Soft deleting task {task.id}")
         task.soft_delete()
 
+    def _validate_command_run_prerequisites(self, task: Task) -> Response | None:
+        """A command cloud run opens its PR via the GitHub API, so the task must have a
+        connected GitHub integration and a valid 'org/repo' repository. Validate up front
+        so a misconfigured task fails with a 400 instead of provisioning a sandbox and
+        failing mid-run."""
+        if not task.github_integration_id:
+            return Response(
+                {
+                    "type": "validation_error",
+                    "code": "invalid_input",
+                    "detail": "A command cloud run requires the task to have a connected GitHub integration.",
+                    "attr": "command",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if normalize_repository(task.repository) is None:
+            return Response(
+                {
+                    "type": "validation_error",
+                    "code": "invalid_input",
+                    "detail": "A command cloud run requires the task to have a valid 'org/repo' repository.",
+                    "attr": "command",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return None
+
     def _trigger_workflow(self, task: Task, task_run: TaskRun) -> None:
         try:
+            command_run_kind = (task_run.state or {}).get("command_run_kind")
+            if command_run_kind is not None:
+                logger.info(f"Attempting to trigger command cloud run for task {task.id}, run {task_run.id}")
+                execute_command_run_workflow(
+                    task_id=str(task.id),
+                    run_id=str(task_run.id),
+                    team_id=task.team.id,
+                    command_run_kind=command_run_kind,
+                )
+                logger.info(f"Command run trigger completed for task {task.id}, run {task_run.id}")
+                return
+
             logger.info(f"Attempting to trigger task processing workflow for task {task.id}, run {task_run.id}")
             execute_task_processing_workflow(
                 task_id=str(task.id),
@@ -961,6 +1003,13 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         reasoning_effort = request.validated_data.get("reasoning_effort")
         github_user_token = request.validated_data.get("github_user_token")
         initial_permission_mode = request.validated_data.get("initial_permission_mode")
+        command = request.validated_data.get("command")
+        command_run_kind = request.validated_data.get("command_run_kind")
+        if (command is not None or command_run_kind is not None) and run_source is None:
+            run_source = RunSource.CLOUD_RUN
+        if run_source == RunSource.CLOUD_RUN:
+            if (validation_error := self._validate_command_run_prerequisites(task)) is not None:
+                return validation_error
         if run_source == RunSource.SIGNAL_REPORT:
             pr_authorship_mode = PrAuthorshipMode.BOT
 
@@ -1096,6 +1145,18 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     },
                     status=status.HTTP_400_BAD_REQUEST,
                 )
+
+        if run_source == RunSource.CLOUD_RUN:
+            extra_state = extra_state or {}
+            extra_state["command_run_kind"] = command_run_kind or DEFAULT_COMMAND_RUN_KIND
+            for key, value in {
+                "command": command,
+                "pr_title": request.validated_data.get("pr_title"),
+                "pr_body": request.validated_data.get("pr_body"),
+                "base_branch": request.validated_data.get("base_branch"),
+            }.items():
+                if value is not None:
+                    extra_state[key] = value
 
         logger.info(f"Creating task run for task {task.id} with mode={mode}, branch={branch}")
 

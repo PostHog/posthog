@@ -6862,3 +6862,133 @@ class TestGetPosthogCodeUsage(TestCase):
     def test_fails_open_when_no_gateway_url(self, mock_token):
         self.assertIsNone(get_posthog_code_usage(MagicMock(), 1))
         mock_token.assert_not_called()
+
+
+class TestTaskCommandRun(BaseTaskAPITest):
+    def _command_task(self, repository: str = "posthog/hedgebox") -> Task:
+        integration = Integration.objects.create(team=self.team, kind="github", config={"account": {"name": "posthog"}})
+        task = self.create_task()
+        task.github_integration = integration
+        task.repository = repository
+        task.save(update_fields=["github_integration", "repository"])
+        return task
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    @patch("products.tasks.backend.api.execute_command_run_workflow")
+    def test_command_payload_routes_to_command_workflow(self, mock_command_workflow, mock_agent_workflow):
+        task = self._command_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"command": "make migrate", "pr_title": "Run migrations"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        run_id = response.json()["latest_run"]["id"]
+        mock_command_workflow.assert_called_once_with(
+            task_id=str(task.id),
+            run_id=run_id,
+            team_id=task.team.id,
+            command_run_kind="command",
+        )
+        mock_agent_workflow.assert_not_called()
+
+        run = TaskRun.objects.get(id=run_id)
+        self.assertEqual(run.state["command_run_kind"], "command")
+        self.assertEqual(run.state["command"], "make migrate")
+        self.assertEqual(run.state["pr_title"], "Run migrations")
+        self.assertEqual(run.state["run_source"], "cloud_run")
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    @patch("products.tasks.backend.api.execute_command_run_workflow")
+    def test_named_kind_routes_to_named_workflow_without_command(self, mock_command_workflow, mock_agent_workflow):
+        task = self._command_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"command_run_kind": "append_readme"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        run_id = response.json()["latest_run"]["id"]
+        mock_command_workflow.assert_called_once_with(
+            task_id=str(task.id),
+            run_id=run_id,
+            team_id=task.team.id,
+            command_run_kind="append_readme",
+        )
+        mock_agent_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    @patch("products.tasks.backend.api.execute_command_run_workflow")
+    def test_agent_payload_still_routes_to_agent_workflow(self, mock_command_workflow, mock_agent_workflow):
+        task = self.create_task()
+
+        response = self.client.post(f"/api/projects/@current/tasks/{task.id}/run/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        mock_agent_workflow.assert_called_once()
+        mock_command_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    @patch("products.tasks.backend.api.execute_command_run_workflow")
+    def test_command_and_agent_runtime_are_mutually_exclusive(self, mock_command_workflow, mock_agent_workflow):
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"command": "make migrate", "runtime_adapter": "claude", "model": "claude-opus-4-8"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        mock_command_workflow.assert_not_called()
+        mock_agent_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    @patch("products.tasks.backend.api.execute_command_run_workflow")
+    def test_generic_command_kind_requires_command(self, mock_command_workflow, mock_agent_workflow):
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"command_run_kind": "command"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        mock_command_workflow.assert_not_called()
+        mock_agent_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    @patch("products.tasks.backend.api.execute_command_run_workflow")
+    def test_command_run_requires_github_integration(self, mock_command_workflow, mock_agent_workflow):
+        task = self.create_task()  # no github_integration
+        task.repository = "posthog/hedgebox"
+        task.save(update_fields=["repository"])
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"command_run_kind": "append_readme"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("GitHub integration", response.json()["detail"])
+        mock_command_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    @patch("products.tasks.backend.api.execute_command_run_workflow")
+    def test_command_run_requires_valid_repository(self, mock_command_workflow, mock_agent_workflow):
+        integration = Integration.objects.create(team=self.team, kind="github", config={"account": {"name": "posthog"}})
+        task = self.create_task()
+        task.github_integration = integration  # integration present, but repository unset
+        task.save(update_fields=["github_integration"])
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"command_run_kind": "append_readme"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("repository", response.json()["detail"])
+        mock_command_workflow.assert_not_called()

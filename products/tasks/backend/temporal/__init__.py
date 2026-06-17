@@ -4,6 +4,12 @@ from .code_workstreams.activities.load_pr_urls import load_team_pr_urls
 from .code_workstreams.activities.poll_pull_requests import poll_team_pull_requests
 from .code_workstreams.activities.rebuild_workstreams import rebuild_team_workstreams
 from .code_workstreams.workflow import EvaluateCodeWorkstreamsWorkflow, EvaluateTeamCodeWorkstreamsWorkflow
+from .command_run import (
+    AppendToReadmeCommandCloudRunWorkflow,
+    CommandCloudRunWorkflow,
+    commit_and_open_pr,
+    run_command_in_sandbox,
+)
 from .create_snapshot.activities import (
     cleanup_sandbox as snapshot_cleanup_sandbox,
     clone_repository as snapshot_clone_repository,
@@ -41,6 +47,8 @@ from .slack_relay import PostHogCodeAgentRelayWorkflow, relay_slack_message
 
 WORKFLOWS = [
     ProcessTaskWorkflow,
+    CommandCloudRunWorkflow,
+    AppendToReadmeCommandCloudRunWorkflow,
     CreateSnapshotForRepositoryWorkflow,
     PostHogCodeAgentRelayWorkflow,
     RunTaskAutomationWorkflow,
@@ -73,6 +81,9 @@ ACTIVITIES = [
     get_pr_context,
     relay_slack_message,
     run_task_automation_activity,
+    # command_run activities
+    run_command_in_sandbox,
+    commit_and_open_pr,
     # create_snapshot activities
     get_snapshot_context,
     snapshot_create_sandbox,

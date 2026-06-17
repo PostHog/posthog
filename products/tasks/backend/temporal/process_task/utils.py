@@ -41,6 +41,8 @@ class GitHubCredentialSource(StrEnum):
 class RunSource(StrEnum):
     MANUAL = "manual"
     SIGNAL_REPORT = "signal_report"
+    # Non-agent run that executes a fixed CLI command against the repo and opens a PR.
+    CLOUD_RUN = "cloud_run"
 
 
 class RuntimeAdapter(StrEnum):
@@ -387,7 +389,7 @@ def get_user_github_token(github_user_integration_id: str) -> Optional[str]:
     return github_integration.integration.sensitive_config.get("access_token") or None
 
 
-def _normalize_repository(repository: str | None) -> str | None:
+def normalize_repository(repository: str | None) -> str | None:
     if not repository:
         return None
     repository = repository.strip().lower()
@@ -433,7 +435,7 @@ def get_user_github_integration(
     if user is None:
         return None
 
-    normalized_repository = _normalize_repository(repository)
+    normalized_repository = normalize_repository(repository)
     integrations = UserIntegration.objects.filter(user=user, kind="github").order_by("created_at")
     if github_user_integration_id:
         integrations = integrations.filter(id=github_user_integration_id)
@@ -459,7 +461,7 @@ def resolve_user_github_integration_for_task(
     if task.created_by is None:
         return None
 
-    normalized_repository = _normalize_repository(repository or task.repository)
+    normalized_repository = normalize_repository(repository or task.repository)
     selected_id = str(task.github_user_integration_id) if task.github_user_integration_id else None
     user_github_integration = get_user_github_integration(
         task.created_by,

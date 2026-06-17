@@ -412,10 +412,18 @@ export const tasksRunCreateBodyOneBranchMax = 255
 
 export const tasksRunCreateBodyOnePendingUserArtifactIdsItemMax = 128
 
+export const tasksRunCreateBodyOnePrTitleMax = 255
+
+export const tasksRunCreateBodyOneBaseBranchMax = 255
+
 export const tasksRunCreateBodyTwoModeDefault = `background`
 export const tasksRunCreateBodyTwoBranchMax = 255
 
 export const tasksRunCreateBodyTwoPendingUserArtifactIdsItemMax = 128
+
+export const tasksRunCreateBodyTwoPrTitleMax = 255
+
+export const tasksRunCreateBodyTwoBaseBranchMax = 255
 
 export const tasksRunCreateBodyThreeModeDefault = `background`
 export const tasksRunCreateBodyThreeBranchMax = 255
@@ -459,11 +467,11 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                     'Whether pull requests for this run should be authored by the user or the bot.\n\n\* `user` - user\n\* `bot` - bot'
                 ),
             run_source: zod
-                .enum(['manual', 'signal_report'])
-                .describe('\* `manual` - manual\n\* `signal_report` - signal_report')
+                .enum(['manual', 'signal_report', 'cloud_run'])
+                .describe('\* `manual` - manual\n\* `signal_report` - signal_report\n\* `cloud_run` - cloud_run')
                 .optional()
                 .describe(
-                    'High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.\n\n\* `manual` - manual\n\* `signal_report` - signal_report'
+                    'High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.\n\n\* `manual` - manual\n\* `signal_report` - signal_report\n\* `cloud_run` - cloud_run'
                 ),
             signal_report_id: zod
                 .string()
@@ -497,6 +505,32 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                 .optional()
                 .describe(
                     'Initial permission mode for Claude runtimes.\n\n\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto'
+                ),
+            command: zod
+                .string()
+                .optional()
+                .describe(
+                    'Shell command for a non-agent command cloud run. When set, the run provisions a sandbox, clones the repository, runs this command from the repo root, then opens a PR backed by a GitHub-signed commit. Mutually exclusive with the agent runtime fields (runtime_adapter\/model).'
+                ),
+            command_run_kind: zod
+                .enum(['command', 'append_readme'])
+                .describe('\* `command` - command\n\* `append_readme` - append_readme')
+                .optional()
+                .describe(
+                    "Selects which non-agent command cloud run to start. 'command' runs the supplied `command`; named kinds run a canned, predefined command instead (in which case `command` is ignored).\n\n\* `command` - command\n\* `append_readme` - append_readme"
+                ),
+            pr_title: zod
+                .string()
+                .max(tasksRunCreateBodyOnePrTitleMax)
+                .optional()
+                .describe('Title for the pull request opened by a command cloud run.'),
+            pr_body: zod.string().optional().describe('Body for the pull request opened by a command cloud run.'),
+            base_branch: zod
+                .string()
+                .max(tasksRunCreateBodyOneBaseBranchMax)
+                .nullish()
+                .describe(
+                    "Base branch for the pull request opened by a command cloud run. Defaults to the repo's default branch."
                 ),
         })
         .describe('Request body for creating a new task run'),
@@ -538,11 +572,11 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                     'Whether pull requests for this run should be authored by the user or the bot.\n\n\* `user` - user\n\* `bot` - bot'
                 ),
             run_source: zod
-                .enum(['manual', 'signal_report'])
-                .describe('\* `manual` - manual\n\* `signal_report` - signal_report')
+                .enum(['manual', 'signal_report', 'cloud_run'])
+                .describe('\* `manual` - manual\n\* `signal_report` - signal_report\n\* `cloud_run` - cloud_run')
                 .optional()
                 .describe(
-                    'High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.\n\n\* `manual` - manual\n\* `signal_report` - signal_report'
+                    'High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.\n\n\* `manual` - manual\n\* `signal_report` - signal_report\n\* `cloud_run` - cloud_run'
                 ),
             signal_report_id: zod
                 .string()
@@ -574,6 +608,32 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                 .optional()
                 .describe(
                     'Initial permission mode for Codex runtimes.\n\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access'
+                ),
+            command: zod
+                .string()
+                .optional()
+                .describe(
+                    'Shell command for a non-agent command cloud run. When set, the run provisions a sandbox, clones the repository, runs this command from the repo root, then opens a PR backed by a GitHub-signed commit. Mutually exclusive with the agent runtime fields (runtime_adapter\/model).'
+                ),
+            command_run_kind: zod
+                .enum(['command', 'append_readme'])
+                .describe('\* `command` - command\n\* `append_readme` - append_readme')
+                .optional()
+                .describe(
+                    "Selects which non-agent command cloud run to start. 'command' runs the supplied `command`; named kinds run a canned, predefined command instead (in which case `command` is ignored).\n\n\* `command` - command\n\* `append_readme` - append_readme"
+                ),
+            pr_title: zod
+                .string()
+                .max(tasksRunCreateBodyTwoPrTitleMax)
+                .optional()
+                .describe('Title for the pull request opened by a command cloud run.'),
+            pr_body: zod.string().optional().describe('Body for the pull request opened by a command cloud run.'),
+            base_branch: zod
+                .string()
+                .max(tasksRunCreateBodyTwoBaseBranchMax)
+                .nullish()
+                .describe(
+                    "Base branch for the pull request opened by a command cloud run. Defaults to the repo's default branch."
                 ),
         })
         .describe('Request body for creating a new task run'),
@@ -610,11 +670,11 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                 'Whether pull requests for this run should be authored by the user or the bot.\n\n\* `user` - user\n\* `bot` - bot'
             ),
         run_source: zod
-            .enum(['manual', 'signal_report'])
-            .describe('\* `manual` - manual\n\* `signal_report` - signal_report')
+            .enum(['manual', 'signal_report', 'cloud_run'])
+            .describe('\* `manual` - manual\n\* `signal_report` - signal_report\n\* `cloud_run` - cloud_run')
             .optional()
             .describe(
-                'High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.\n\n\* `manual` - manual\n\* `signal_report` - signal_report'
+                'High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.\n\n\* `manual` - manual\n\* `signal_report` - signal_report\n\* `cloud_run` - cloud_run'
             ),
         signal_report_id: zod
             .string()
@@ -768,11 +828,11 @@ export const TasksRunsCreateBody = /* @__PURE__ */ zod
                 'Whether pull requests for this run should be authored by the user or the bot.\n\n\* `user` - user\n\* `bot` - bot'
             ),
         run_source: zod
-            .enum(['manual', 'signal_report'])
-            .describe('\* `manual` - manual\n\* `signal_report` - signal_report')
+            .enum(['manual', 'signal_report', 'cloud_run'])
+            .describe('\* `manual` - manual\n\* `signal_report` - signal_report\n\* `cloud_run` - cloud_run')
             .optional()
             .describe(
-                'High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.\n\n\* `manual` - manual\n\* `signal_report` - signal_report'
+                'High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.\n\n\* `manual` - manual\n\* `signal_report` - signal_report\n\* `cloud_run` - cloud_run'
             ),
         signal_report_id: zod
             .string()

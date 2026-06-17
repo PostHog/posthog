@@ -780,6 +780,25 @@ class TaskRun(models.Model):
 
         return cls.mutate_state_atomic(run_id, _mutator)
 
+    @classmethod
+    def update_output_atomic(
+        cls,
+        run_id: str | uuid.UUID,
+        updates: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Merge updates into the run's `output` JSON while holding a row lock.
+
+        Mirrors `mutate_state_atomic` for the `output` field so independent
+        writers (e.g. a PR-creating activity) don't clobber each other.
+        """
+        with transaction.atomic():
+            locked_task_run = cls.objects.select_for_update().get(id=run_id)
+            output = dict(locked_task_run.output or {})
+            output.update(updates)
+            locked_task_run.output = output
+            locked_task_run.save(update_fields=["output", "updated_at"])
+            return output
+
     @staticmethod
     def get_workflow_id(task_id: str | uuid.UUID, run_id: str | uuid.UUID) -> str:
         """Get the Temporal workflow ID for a task run."""

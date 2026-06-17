@@ -2662,6 +2662,68 @@ class GitHubIntegration(GitHubIntegrationBase):
                 "status_code": response.status_code,
             }
 
+    def create_signed_commit(
+        self,
+        repository: str,
+        branch: str,
+        expected_head_oid: str,
+        headline: str,
+        additions: list[tuple[str, str]],
+        deletions: list[str],
+        body: str = "",
+    ) -> dict[str, Any]:
+        """Create a single commit on an existing branch via the GraphQL createCommitOnBranch mutation.
+
+        Commits created this way are signed/verified by GitHub (the app installation is the committer),
+        so they pass branch protections that require signed commits. `additions` is a list of
+        (path, base64-encoded contents) pairs; `deletions` is a list of paths. `expected_head_oid` must
+        be the branch's current tip (the base SHA returned by `create_branch`).
+        """
+        org = self.organization()
+        access_token = self.integration.sensitive_config["access_token"]
+
+        query = (
+            "mutation($input: CreateCommitOnBranchInput!) {"
+            "  createCommitOnBranch(input: $input) { commit { oid url } }"
+            "}"
+        )
+        variables = {
+            "input": {
+                "branch": {"repositoryNameWithOwner": f"{org}/{repository}", "branchName": branch},
+                "message": {"headline": headline, "body": body},
+                "expectedHeadOid": expected_head_oid,
+                "fileChanges": {
+                    "additions": [{"path": path, "contents": contents} for path, contents in additions],
+                    "deletions": [{"path": path} for path in deletions],
+                },
+            }
+        }
+
+        response = self._github_api_post(
+            "https://api.github.com/graphql",
+            endpoint="/graphql",
+            json_body={"query": query, "variables": variables},
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {access_token}",
+                "X-GitHub-Api-Version": GITHUB_API_VERSION,
+            },
+        )
+
+        if response.status_code != 200:
+            return {
+                "success": False,
+                "error": f"Failed to create signed commit: {response.text}",
+                "status_code": response.status_code,
+            }
+
+        payload = response.json()
+        if payload.get("errors"):
+            return {"success": False, "error": f"Failed to create signed commit: {payload['errors']}"}
+
+        commit = payload["data"]["createCommitOnBranch"]["commit"]
+        return {"success": True, "commit_sha": commit["oid"], "commit_url": commit["url"]}
+
     def get_branch_info(self, repository: str, branch_name: str) -> dict[str, Any]:
         """Get information about a specific branch."""
         org = self.organization()
