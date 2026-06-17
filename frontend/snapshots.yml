@@ -4208,6 +4208,10 @@ snapshots:
         hash: v1.k794b7964.55820e6d4062b19b7be7b87d629e5009054147a9c168d7817d82c199bc2bf9bc.5Y3qGvAMQcUBJsjBoJjEoB9nM3y9RYol-LvUG5FoJHU
     replay-player-recordingdeleted--without-timestamp--light:
         hash: v1.k794b7964.b05e8572dd694a62581f650a04dfd9c2f3e4185aedcd4d436bf9ff141543e56e.NJybpc6_7iPoUGlSopTmBRqYyVY3cnDsnPiI9yGYNHI
+    replay-player-seekbar--late-full-snapshot--dark:
+        hash: v1.k794b7964.2886d7b28515a368e890990d35cad871255b709897f865a8fead51ca37d88e8f.SL7wEXVZ3VaEgDdDhKt9klNijvd78tN-1pSJ2uIaqfM
+    replay-player-seekbar--late-full-snapshot--light:
+        hash: v1.k794b7964.9f483e5662ab30becd97b6180b1e99ef6755f6189f63b45bcd959e4785b1087b.Jawj15BENeCV-XD75Plb1zTDIPWke_ERmIGq9VBUQuU
     replay-scenes-activity-modal--event-explorer-with-modal-not-found--dark:
         hash: v1.k794b7964.24c95f96550f63168ee26cc5e15a65ee85900aafc69405e43cc8d1851ee8dbc2.xvGrD7kg07_HIXfNWRdcg2sEWhnQvWfAASy3jF8Se0w
     replay-scenes-activity-modal--event-explorer-with-modal-not-found--light:
