@@ -8,6 +8,7 @@ import yaml
 
 from products.skills.backend.marketplace.git_smart_http import GitSynthesisError, synthesize_repo
 from products.skills.backend.marketplace.packaging import (
+    CODEX_METADATA_PATH,
     SkillExport,
     SkillFileExport,
     SkillImportError,
@@ -143,6 +144,18 @@ class TestPluginVersion:
 
     def test_same_change_time_yields_same_version(self):
         assert compute_plugin_version(1700000000) == compute_plugin_version(1700000000)
+
+
+class TestCodexMetadata:
+    def test_skill_tree_includes_codex_sidecar(self):
+        parsed = yaml.safe_load(build_skill_tree(_skill())[CODEX_METADATA_PATH])
+        assert parsed["interface"]["display_name"] == "Make fractals"
+        assert parsed["interface"]["short_description"].startswith("Render fractal")
+
+    def test_import_ignores_codex_sidecar(self):
+        # The generated Codex sidecar must not round-trip back in as a stored bundled file.
+        parsed = parse_skill_zip(build_skill_zip(_skill()))
+        assert all(f.path != CODEX_METADATA_PATH for f in parsed.files)
 
 
 class TestZipImport:

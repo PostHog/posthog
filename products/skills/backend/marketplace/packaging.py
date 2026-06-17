@@ -97,13 +97,38 @@ def validate_for_export(skill: SkillExport) -> list[str]:
     return problems
 
 
+# OpenAI Codex reads this optional sidecar for UI metadata + tool deps; every other agent
+# ignores it. Generated into the tree so the same artifact is first-class in Codex too.
+CODEX_METADATA_PATH = "agents/openai.yaml"
+
+
+def _humanize_skill_name(name: str) -> str:
+    spaced = name.replace("-", " ").strip()
+    return spaced[:1].upper() + spaced[1:] if spaced else name
+
+
+def render_codex_openai_yaml(skill: SkillExport) -> str:
+    """Codex's ``agents/openai.yaml`` — UI metadata derived from the skill's spec fields."""
+    document = {
+        "interface": {
+            "display_name": _humanize_skill_name(skill.name),
+            "short_description": skill.description,
+        }
+    }
+    return yaml.safe_dump(document, sort_keys=False, allow_unicode=True, default_flow_style=False)
+
+
 def build_skill_tree(skill: SkillExport) -> FileTree:
-    """Files for one skill relative to its own root: ``SKILL.md`` + bundled files.
+    """Files for one skill relative to its own root: ``SKILL.md`` + Codex sidecar + bundled files.
 
     The bundled file ``path`` already encodes its ``scripts/`` / ``references/`` /
     ``assets/`` subdirectory, so it maps straight through.
     """
-    tree: FileTree = {"SKILL.md": render_skill_md(skill)}
+    tree: FileTree = {
+        "SKILL.md": render_skill_md(skill),
+        # Generated first so a user-bundled file at the same path overrides it below.
+        CODEX_METADATA_PATH: render_codex_openai_yaml(skill),
+    }
     for skill_file in skill.files:
         tree[skill_file.path] = skill_file.content
     return tree
@@ -196,6 +221,8 @@ def parse_skill_zip(data: bytes) -> SkillExport:
             if member == skill_md_name or not member.startswith(prefix):
                 continue
             rel_path = member[len(prefix) :]
+            if rel_path == CODEX_METADATA_PATH:
+                continue  # generated Codex sidecar — regenerated on export, not a stored file
             content = _read_zip_text(archive, member, rel_path)
             content_type = mimetypes.guess_type(rel_path)[0] or "text/plain"
             files.append(SkillFileExport(path=rel_path, content=content, content_type=content_type))

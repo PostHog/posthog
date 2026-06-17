@@ -36,6 +36,14 @@ unit-testable against the real `git` binary without booting the app
 - platform `version` → `metadata.version` (the spec defines no top-level version field)
 - `description` is validated against the spec's 1024 limit on export (`validate_for_export`)
 
+## Cross-agent portability
+
+The `SKILL.md` artifact is the open standard ([agentskills.io](https://agentskills.io/specification)),
+read by Claude Code, OpenAI Codex, Gemini CLI, Copilot/VS Code, Cursor, Windsurf, and more — so the
+zip export drops straight into any of them. Each skill tree also includes an `agents/openai.yaml`
+sidecar (`render_codex_openai_yaml`) carrying Codex UI metadata; every other agent ignores it. On
+import (`parse_skill_zip`) that sidecar is skipped since export regenerates it.
+
 ## Auth: a dedicated, revocable marketplace credential (not a personal API key)
 
 `git clone` (and therefore `/plugin marketplace add`) speaks only HTTP Basic via git
