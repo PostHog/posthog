@@ -65,7 +65,6 @@ MAX_EXCERPT_CHARS = 1000
 # Plain-LLM utility calls (refine, validate) go through the internal LLM gateway via the
 # raw Anthropic SDK — the gateway captures $ai_generation itself, so no langchain wrapper.
 UTILITY_MODEL = "claude-haiku-4-5"
-GATEWAY_PRODUCT = "conversations"
 
 
 def _anthropic_text(message: Any) -> str:
@@ -227,7 +226,7 @@ Return ONLY the queries, one per line. No numbering, no explanation."""
     if missing:
         user_parts.append("\nMissing from previous attempt:\n" + "\n".join(f"- {m}" for m in missing))
 
-    client = get_async_anthropic_gateway_client(product=GATEWAY_PRODUCT, team_id=team_id)
+    client = get_async_anthropic_gateway_client(product="conversations", team_id=team_id)
     message = await client.messages.create(
         model=UTILITY_MODEL,
         max_tokens=512,
@@ -473,7 +472,7 @@ REPLY:
 CITED CHUNKS:
 {chunks_text[:6000]}"""
 
-    client = get_async_anthropic_gateway_client(product=GATEWAY_PRODUCT, team_id=team_id)
+    client = get_async_anthropic_gateway_client(product="conversations", team_id=team_id)
     message = await client.messages.create(
         model=UTILITY_MODEL,
         max_tokens=1024,
