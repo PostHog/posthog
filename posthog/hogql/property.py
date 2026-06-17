@@ -1210,8 +1210,17 @@ def property_to_expr(
             right=ast.Constant(value=cohort.pk),
         )
     elif property.type == "flag":
-        # Flag dependencies are evaluated at the API layer, not in HogQL.
-        # Return a neutral filter that doesn't affect the query.
+        # Flag dependencies are evaluated per-user at the API layer, not in HogQL.
+        # Counterpart to the `isinstance(property, FlagPropertyFilter)` branch above
+        # (~L792); that path handles the typed filter object, this one the
+        # dict-converted Property. Return a neutral filter that doesn't affect the
+        # query so blast-radius no longer 500s on a flag-dependency condition.
+        #
+        # Caveat: a neutral filter matches every user, so when the flag dependency
+        # is AND'd with other filters the flag constraint is effectively dropped and
+        # the estimate over-counts (the dependency might have excluded some matched
+        # users). There's no HogQL fix — flag evaluation is runtime/per-user — and
+        # this is strictly better than the prior crash.
         return ast.Constant(value=1)
 
     # TODO: Add support for these types: "recording"

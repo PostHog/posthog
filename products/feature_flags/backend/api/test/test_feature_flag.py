@@ -8086,6 +8086,51 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), {"affected": 10, "total": 10})
 
+    def test_user_blast_radius_with_flag_dependency_and_property_condition(self):
+        # Mirror test_user_blast_radius (a real person filter matches 4 of 10),
+        # but AND the flag dependency into the same condition. The flag entry
+        # compiles to a neutral `Constant(value=1)`, so the AND must collapse to
+        # the person filter alone and still report affected: 4. If the neutral
+        # filter ever broke the AND, this would inflate toward 10.
+        for i in range(10):
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=[f"person{i}"],
+                properties={"group": f"{i}"},
+            )
+
+        dependency_flag_response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/", {"name": "Dependency flag", "key": "dependency-flag"}
+        )
+        self.assertEqual(dependency_flag_response.status_code, status.HTTP_201_CREATED)
+        dependency_flag_id = dependency_flag_response.json()["id"]
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {
+                            "key": "group",
+                            "type": "person",
+                            "value": [0, 1, 2, 3],
+                            "operator": "exact",
+                        },
+                        {
+                            "key": str(dependency_flag_id),
+                            "type": "flag",
+                            "value": False,
+                            "operator": "flag_evaluates_to",
+                        },
+                    ],
+                    "rollout_percentage": 25,
+                }
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"affected": 4, "total": 10})
+
     @freeze_time("2024-01-11")
     def test_user_blast_radius_with_relative_date_filters(self):
         for i in range(8):
