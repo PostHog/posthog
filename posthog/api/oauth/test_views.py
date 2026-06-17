@@ -2641,7 +2641,8 @@ class TestOAuthAPI(APIBaseTest):
         self.assertIn("insight:read", wildcard_reads)
         self.assertIn("batch_import:read", wildcard_reads)
         self.assertNotIn("llm_gateway:read", wildcard_reads)
-        self.assertNotIn("metrics:read", wildcard_reads)
+        self.assertNotIn("wizard_session:read", wildcard_reads)
+        self.assertIn("metrics:read", wildcard_reads)
         self.assertFalse(any(scope.endswith(":write") for scope in wildcard_reads))
 
     def test_authorize_wildcard_accepted_when_app_ceiling_empty(self):
