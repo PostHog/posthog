@@ -572,6 +572,43 @@ describe('sandboxStreamLogic', () => {
 
             expect(logic.values.threadItems).toHaveLength(0)
         })
+
+        // The backend persists the human turn as a session/update `user_message_chunk`, not a
+        // `_posthog/user_message` ext-notification — this is the frame a thread actually loads from logs.
+        it('renders a persisted user_message_chunk session update on bootstrap replay', async () => {
+            const frames: StoredLogEntry[] = [
+                sessionUpdate({
+                    sessionUpdate: 'user_message_chunk',
+                    content: { type: 'text', text: 'what posthog tools do you have?' },
+                }),
+                sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm1', content: { text: 'Several.' } }),
+            ]
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue(frames as any)
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'completed' } as any)
+
+            await expectLogic(logic, () => {
+                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            }).toFinishAllListeners()
+
+            expect(logic.values.threadItems).toHaveLength(2)
+            expect(logic.values.threadItems[0]).toEqual({
+                id: 'human-0',
+                type: 'human_message',
+                text: 'what posthog tools do you have?',
+                complete: true,
+            })
+            expect(logic.values.threadItems[1].type).toEqual('assistant_message')
+        })
+
+        it('does not render a live (non-replay) user_message_chunk — it is echoed on send instead', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'user_message_chunk', content: { type: 'text', text: 'live' } })
+                )
+            }).toFinishAllListeners()
+
+            expect(logic.values.threadItems).toHaveLength(0)
+        })
     })
 
     describe('per-conversation isolation', () => {

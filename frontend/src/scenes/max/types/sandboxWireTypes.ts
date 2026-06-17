@@ -307,6 +307,26 @@ export function isSessionUpdateUsage(update: unknown): update is SessionUpdateUs
     return isRecord(update) && update.sessionUpdate === 'usage_update'
 }
 
+/**
+ * The user's own turn, echoed back by the agent adapter and persisted to the run log as a
+ * `session/update` (not a `_posthog/*` ext-notification). Carries the full prompt text in a single
+ * frame — it is not token-streamed like the agent's. Rendered only on `logs/` bootstrap replay: a
+ * live turn is already echoed into the thread by maxThreadLogic the moment it's sent, so rendering
+ * the wire echo too would duplicate it. This is the path that restores human turns on thread load.
+ */
+export interface SessionUpdateUserMessage {
+    sessionUpdate: 'user_message_chunk' | 'user_message'
+    messageId?: string
+    content?: SessionUpdateText
+    text?: string
+}
+
+export function isSessionUpdateUserMessage(update: unknown): update is SessionUpdateUserMessage {
+    return (
+        isRecord(update) && (update.sessionUpdate === 'user_message_chunk' || update.sessionUpdate === 'user_message')
+    )
+}
+
 export interface PosthogStatusParams {
     sessionId?: string
     status?: string

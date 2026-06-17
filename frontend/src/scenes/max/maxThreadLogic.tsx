@@ -68,12 +68,12 @@ import { LogEntry, parseLogEvent } from 'products/tasks/frontend/lib/parse-logs'
 
 import { handsFreeLogic } from './handsFreeLogic'
 import { summariseAssistantThread } from './handsFreeUtils'
-import { EnhancedToolCall, MODE_DEFINITIONS, ToolRegistration } from './max-constants'
+import { EnhancedToolCall, MODE_DEFINITIONS, ToolRegistration, getModeDisplayName } from './max-constants'
 import { MaxBillingContext, MaxBillingContextSubscriptionLevel, maxBillingContextLogic } from './maxBillingContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { SIDE_PANEL_PANEL_ID, maxLogic } from './maxLogic'
 import type { maxThreadLogicType } from './maxThreadLogicType'
-import { MaxUIContext } from './maxTypes'
+import { AttachedContext, MaxUIContext } from './maxTypes'
 import { posthogAiContextLogic } from './posthogAiContextLogic'
 import { isTerminalRunStatus, sandboxStreamLogic } from './sandboxStreamLogic'
 import { MAX_SLASH_COMMANDS, SlashCommand } from './slash-commands'
@@ -652,16 +652,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             const traceId = uuid()
             actions.setTraceId(traceId)
 
-            if (generationAttempt === 0 && streamData.content && addToThread) {
-                const message: ThreadMessage = {
-                    type: AssistantMessageType.Human,
-                    content: streamData.content,
-                    status: 'completed',
-                    trace_id: traceId,
-                }
-                actions.addMessage(message)
-            }
-
             // Sandbox runtime: route the message to a non-streaming products/tasks Run, then hand the
             // SSE connection off to sandboxStreamLogic. The LangGraph EventSource loop below is never
             // entered for sandbox conversations.
@@ -672,9 +662,26 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             // `is_sandbox` flag and let the conversation-create endpoint create it + return the run
             // IDs as JSON (both endpoints return the identical { task_id, run_id, just_created_run }).
             const isExistingSandboxConversation = values.conversation?.agent_runtime === 'sandbox'
-            if (isExistingSandboxConversation || isSandbox) {
+            const isSandboxConversation = isExistingSandboxConversation || !!isSandbox
+
+            // Echo the human message into whichever thread the renderer actually shows. A sandbox
+            // conversation renders sandboxStreamLogic's threadItems (not this logic's thread) and
+            // echoes via pushSandboxHumanMessage below; adding it to the legacy thread too would
+            // briefly show a duplicate (until the runtime resolves to the SandboxThread) that vanishes
+            // on reload, since sandbox turns live in the run log, not the legacy conversation messages.
+            if (generationAttempt === 0 && streamData.content && addToThread && !isSandboxConversation) {
+                const message: ThreadMessage = {
+                    type: AssistantMessageType.Human,
+                    content: streamData.content,
+                    status: 'completed',
+                    trace_id: traceId,
+                }
+                actions.addMessage(message)
+            }
+
+            if (isSandboxConversation) {
                 // SandboxThread renders sandboxStreamLogic's threadItems, not this logic's thread,
-                // so the human message must be echoed there too to show up in the UI.
+                // so the human message must be echoed there to show up in the UI.
                 if (generationAttempt === 0 && streamData.content && addToThread) {
                     actions.pushSandboxHumanMessage(streamData.content)
                     // Pull the current scene's `maxContext` into the sandbox attachments at send
@@ -685,13 +692,22 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 try {
                     const conversationId = values.conversation?.id || values.conversationId
                     if (conversationId && streamData.content) {
+                        // The sandbox runtime has no agent modes — they're a legacy LangGraph concept. If the
+                        // user still picked one, carry it through as a context note so the agent can acknowledge it.
+                        const attachedContext: AttachedContext[] = [...values.sandboxAttachments]
+                        if (values.agentMode) {
+                            attachedContext.push({
+                                type: 'text',
+                                value: `The user selected a mode: "${getModeDisplayName(values.agentMode)}". It was in the legacy implementation. Acknowledge the mode if the user refers to it.`,
+                            })
+                        }
                         // Single create-or-resume opener: it creates the conversation row on first use,
                         // starts/continues the Run, and returns the (task, run) handle. A message always
                         // provisions a run (a null handle only happens on a warm with a full pool).
                         const handle = await api.conversations.open(conversationId, {
                             content: streamData.content,
                             trace_id: traceId,
-                            attached_context: values.sandboxAttachments,
+                            attached_context: attachedContext,
                         })
                         if (handle) {
                             // The sent message consumes any in-flight warm — it's now the active run, so

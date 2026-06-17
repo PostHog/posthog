@@ -35,6 +35,7 @@ import {
     isPosthogNotification,
     isSessionUpdateNotification,
     isSessionUpdateUsage,
+    isSessionUpdateUserMessage,
     isTaskRunStateFrame,
 } from './types/sandboxWireTypes'
 
@@ -1483,6 +1484,22 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             // without widening the tool-render switch below.
             if (isSessionUpdateUsage(update)) {
                 actions.setContextUsage(foldUsageAggregate(values.contextUsage, update))
+                return
+            }
+            // The user's own turn is persisted to the run log as a `session/update`
+            // (`user_message_chunk`), so this is what restores human turns when a thread loads from
+            // `logs/`. Render it only on bootstrap replay — a live turn is already echoed into the
+            // thread by maxThreadLogic (`pushSandboxHumanMessage`) on send, so rendering the wire echo
+            // too would duplicate it. (The legacy `_posthog/user_message` handler above covers an
+            // older frame shape the backend no longer emits.)
+            if (isSessionUpdateUserMessage(update)) {
+                if (cache.bootstrapReplay === true) {
+                    const text = String(update.content?.text ?? update.text ?? '')
+                    const unwrapped = unwrapUserMessageContent(text)
+                    if (unwrapped) {
+                        actions.pushHumanMessage(unwrapped)
+                    }
+                }
                 return
             }
             if (!isKnownSessionUpdate(update)) {
