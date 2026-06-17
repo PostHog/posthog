@@ -332,7 +332,7 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             response = self._run(self._build_query(breakdown_by=WebStatsBreakdown.LANGUAGE))
 
         assert self._job_count() > 0
-        assert response.usedLazyPrecompute is True
+        assert response.preComputeStrategy == WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
         assert self._metrics(response) == [("en-US", (2.0, None), (4.0, None))]
 
     @freeze_time("2024-01-15T12:00:00Z")
@@ -364,7 +364,7 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         with self._enable_lazy():
             lazy_response = self._run(self._build_query(breakdown_by=WebStatsBreakdown.LANGUAGE))
 
-        assert lazy_response.usedLazyPrecompute is True
+        assert lazy_response.preComputeStrategy == WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
         assert self._metrics(lazy_response) == raw
 
     @freeze_time("2024-01-15T12:00:00Z")
@@ -396,7 +396,7 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         with self._enable_lazy():
             lazy_response = self._run(self._build_query(breakdown_by=WebStatsBreakdown.LANGUAGE))
 
-        assert lazy_response.usedLazyPrecompute is True
+        assert lazy_response.preComputeStrategy == WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
         assert self._metrics(lazy_response) == raw, f"raw={raw} lazy={self._metrics(lazy_response)}"
 
     @freeze_time("2024-01-15T12:00:00Z")
