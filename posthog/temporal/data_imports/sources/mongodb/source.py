@@ -47,6 +47,19 @@ _MONGO_ATLAS_SQL_MESSAGE = (
     "driver. Use your regular cluster connection string (e.g. mongodb+srv://...mongodb.net) instead."
 )
 
+_MONGO_HOST_UNRESOLVED_MESSAGE = (
+    "The MongoDB host could not be resolved. Check that the cluster address in your connection "
+    "string is spelled correctly."
+)
+
+# Substrings pymongo embeds in ServerSelectionTimeoutError when the OS can't resolve the host.
+_DNS_RESOLUTION_FAILURE_MARKERS = (
+    "No address associated with hostname",
+    "nodename nor servname provided",
+    "Name or service not known",
+    "Temporary failure in name resolution",
+)
+
 
 @SourceRegistry.register
 class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin):
@@ -150,7 +163,7 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
     def validate_credentials(
         self, config: MongoDBSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
-        from pymongo.errors import OperationFailure
+        from pymongo.errors import OperationFailure, ServerSelectionTimeoutError
 
         try:
             connection_params = _parse_connection_string(config.connection_string, config.database_name)
@@ -177,6 +190,15 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
         except OperationFailure as e:
             capture_exception(e)
             return False, f"MongoDB authentication failed: {str(e)}"
+        except ServerSelectionTimeoutError as e:
+            # pymongo dumps a verbose topology description into str(e); surface a concise,
+            # actionable message instead. A DNS failure means the host doesn't resolve at all,
+            # which is distinct from an allowlist/reachability problem.
+            capture_exception(e)
+            message = str(e)
+            if any(marker in message for marker in _DNS_RESOLUTION_FAILURE_MARKERS):
+                return False, _MONGO_HOST_UNRESOLVED_MESSAGE
+            return False, _MONGO_UNREACHABLE_MESSAGE
         except Exception as e:
             capture_exception(e)
             return False, f"Failed to connect to MongoDB database: {str(e)}"

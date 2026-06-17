@@ -6,6 +6,7 @@ from dateutil import parser
 from google.api_core.exceptions import BadRequest, Forbidden, NotFound, PermissionDenied
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
+from posthog.temporal.data_imports.sources.bigquery import bigquery as bq_module
 from posthog.temporal.data_imports.sources.bigquery.bigquery import (
     BIGQUERY_TOKEN_RESPONSE_ERROR,
     BigQueryImplementation,
@@ -510,12 +511,34 @@ def test_non_retryable_errors_match_permission_denied(observed_error):
 
 
 @pytest.mark.parametrize(
+    "observed_error",
+    [
+        # Federated table backed by a Cloud SQL PostgreSQL server — BigQuery wraps the upstream
+        # ACL failure in a 400 BadRequest while reading query results.
+        str(
+            BadRequest(
+                "GET https://bigquery.googleapis.com/bigquery/v2/projects/p/queries/j?maxResults=0"
+                "&location=us-central1: Error while reading data, error message: Failed to fetch row "
+                "from PostgreSQL server. Error: ERROR:  permission denied for table GroupParticipant"
+            )
+        ),
+    ],
+)
+def test_non_retryable_errors_match_federated_upstream_permission_denied(observed_error):
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    assert any(key in observed_error for key in non_retryable_errors)
+
+
+@pytest.mark.parametrize(
     "other_error",
     [
         # Transient server / connection errors must stay retryable
         "503 Service unavailable, please retry",
         "500 Internal error encountered",
         "Connection reset by peer",
+        # A federated-read failure that isn't a permission problem must stay retryable
+        "Error while reading data, error message: Failed to fetch row from PostgreSQL server. "
+        "Error: ERROR:  connection to server timed out",
     ],
 )
 def test_non_retryable_errors_does_not_match_transient(other_error):
@@ -573,3 +596,51 @@ def test_has_duplicate_primary_keys_captures_unexpected_errors():
 
     assert result is False
     mock_capture.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "location",
+    ["US", "EU", "asia-northeast1"],
+)
+def test_bigquery_dataset_not_found_in_location_is_non_retryable(location):
+    """A deleted/renamed dataset (or one in a region we don't query) surfaces from schema
+    discovery as a google-api-core NotFound. Its str() is "404 Not found: Dataset ... was
+    not found in location <X>", which must be recognised as non-retryable via the
+    "was not found in location" pattern instead of retrying forever."""
+    error = NotFound(
+        f"Not found: Dataset my-proj:my_dataset was not found in location {location}; "
+        f"reason: notFound, message: Not found: Dataset my-proj:my_dataset was not found in location {location}"
+    )
+
+    # Mirror the substring match in `sync_new_schemas_activity` / `update_external_data_job_model`.
+    error_msg = str(error)
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+
+    assert any(pattern in error_msg for pattern in non_retryable_errors)
+
+
+def test_bigquery_storage_read_client_disables_grpc_message_size_limit():
+    """Regression: the Storage Read API streams Arrow ReadRowsResponse messages that can
+    exceed gRPC's default 4 MiB client receive limit (wide rows / large string columns like
+    GeoJSON), which surfaced as `_MultiThreadedRendezvous` RESOURCE_EXHAUSTED "Received
+    message larger than max". Because we build the channel ourselves, we must pass the same
+    unlimited message-length options the transport sets on its own default channel."""
+    with (
+        mock.patch.object(bq_module.service_account.Credentials, "from_service_account_info", return_value=mock.Mock()),
+        mock.patch.object(bq_module, "make_tracked_channel", return_value=mock.Mock()),
+        mock.patch.object(bq_module, "BigQueryReadGrpcTransport") as mock_transport_cls,
+        mock.patch.object(bq_module.bigquery_storage, "BigQueryReadClient"),
+    ):
+        with bq_module.bigquery_storage_read_client(
+            project_id="project-id",
+            private_key="private-key",
+            private_key_id="private-key-id",
+            client_email="client-email",
+            token_uri="token-uri",
+        ):
+            pass
+
+    mock_transport_cls.create_channel.assert_called_once()
+    options = dict(mock_transport_cls.create_channel.call_args.kwargs["options"])
+    assert options["grpc.max_receive_message_length"] == -1
+    assert options["grpc.max_send_message_length"] == -1

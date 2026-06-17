@@ -10,7 +10,7 @@ import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { ExperimentsHog } from 'lib/components/hedgehogs'
-import { MemberSelect } from 'lib/components/MemberSelect'
+import { MemberMultiSelect } from 'lib/components/MemberMultiSelect'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -21,8 +21,8 @@ import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/Le
 import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { pluralize } from 'lib/utils'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
+import { pluralize } from 'lib/utils/strings'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import MaxTool from 'scenes/max/MaxTool'
 import { useMaxTool } from 'scenes/max/useMaxTool'
@@ -155,16 +155,16 @@ const ExperimentsTableFilters = ({
                     <span className="ml-1">
                         <b>Created by</b>
                     </span>
-                    <MemberSelect
+                    <MemberMultiSelect
                         defaultLabel="Any user"
-                        value={filters.created_by_id ?? null}
+                        value={filters.created_by_id ?? []}
                         size="xsmall"
-                        onChange={(user) => {
-                            if (!user) {
+                        onChange={(userIds) => {
+                            if (!userIds.length) {
                                 const { created_by_id, ...restFilters } = filters
                                 onFiltersChange({ ...restFilters, page: 1 }, true)
                             } else {
-                                onFiltersChange({ created_by_id: user.id, page: 1 })
+                                onFiltersChange({ created_by_id: userIds, page: 1 })
                             }
                         }}
                     />

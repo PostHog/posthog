@@ -134,35 +134,50 @@ class TestBuildQuery:
             )
 
     @pytest.mark.parametrize(
-        "schema,table_name",
+        "schema,table_name,expected_from",
         [
-            ("dbo]; DROP TABLE foo; --", "users"),
-            ("dbo", "users]; DROP TABLE foo; --"),
-            ("dbo with space", "users"),
-            ("dbo", "users'name"),
+            # Injection payloads are neutralised by bracket-quoting (a literal `]`
+            # is doubled), so the whole payload stays inside one quoted identifier.
+            ("dbo]; DROP TABLE foo; --", "users", "FROM [dbo]]; DROP TABLE foo; --].[users]"),
+            ("dbo", "users]; DROP TABLE foo; --", "FROM [dbo].[users]]; DROP TABLE foo; --]"),
+            # Legal SQL Server names the old allowlist wrongly rejected.
+            ("dbo with space", "users", "FROM [dbo with space].[users]"),
+            ("dbo", "users'name", "FROM [dbo].[users'name]"),
+            ("dbo", "Orden#", "FROM [dbo].[Orden#]"),
         ],
     )
-    def test_rejects_unsafe_schema_or_table(self, schema, table_name):
+    def test_quotes_schema_or_table_safely(self, schema, table_name, expected_from):
+        query, _ = _build_query(
+            schema=schema,
+            table_name=table_name,
+            should_use_incremental_field=False,
+            incremental_field=None,
+            incremental_field_type=None,
+            db_incremental_field_last_value=None,
+        )
+        assert expected_from in query
+
+    def test_rejects_control_char_in_table(self):
         with pytest.raises(ValueError, match="Invalid SQL identifier"):
             _build_query(
-                schema=schema,
-                table_name=table_name,
+                schema="dbo",
+                table_name="users\nname",
                 should_use_incremental_field=False,
                 incremental_field=None,
                 incremental_field_type=None,
                 db_incremental_field_last_value=None,
             )
 
-    def test_rejects_unsafe_incremental_field(self):
-        with pytest.raises(ValueError, match="Invalid SQL identifier"):
-            _build_query(
-                schema="dbo",
-                table_name="users",
-                should_use_incremental_field=True,
-                incremental_field="created_at]; DROP TABLE foo; --",
-                incremental_field_type=IncrementalFieldType.DateTime,
-                db_incremental_field_last_value="2025-01-01",
-            )
+    def test_quotes_unsafe_incremental_field_safely(self):
+        query, _ = _build_query(
+            schema="dbo",
+            table_name="users",
+            should_use_incremental_field=True,
+            incremental_field="created_at]; DROP TABLE foo; --",
+            incremental_field_type=IncrementalFieldType.DateTime,
+            db_incremental_field_last_value="2025-01-01",
+        )
+        assert "WHERE [created_at]]; DROP TABLE foo; --]" in query
 
 
 class TestBuildQueryEnabledColumns:
@@ -351,11 +366,22 @@ class TestFetchAverageRowSize:
         assert "TOP 100" in size_query
         assert "DATALENGTH([id])" in size_query
 
-    def test_rejects_malformed_column_names(self, impl, cursor, logger):
-        # If INFORMATION_SCHEMA returns a weird column name, the quoter
-        # must reject it rather than splice it into SQL. Method catches
+    def test_handles_column_names_with_special_chars(self, impl, cursor, logger):
+        # Real SQL Server columns like `Orden#` are legal under bracket-quoting;
+        # they must be sampled, not crash the quoter (the bug this fixes).
+        cursor.fetchall.return_value = [("Orden#",), ("Forma Pago",)]
+        cursor.fetchone.return_value = (42,)
+        result = impl.fetch_average_row_size(cursor, "dbo", "t", "SELECT 1", {}, logger)
+        assert result == 42
+        size_query = cursor.execute.call_args_list[1].args[0]
+        assert "DATALENGTH([Orden#])" in size_query
+        assert "DATALENGTH([Forma Pago])" in size_query
+
+    def test_rejects_control_char_column_names(self, impl, cursor, logger):
+        # A column name with a control character can't be made safe by
+        # bracket-quoting, so the quoter rejects it; the method catches
         # and returns None.
-        cursor.fetchall.return_value = [("bad;col",)]
+        cursor.fetchall.return_value = [("bad\ncol",)]
         cursor.fetchone.return_value = (1,)
         result = impl.fetch_average_row_size(cursor, "dbo", "t", "SELECT 1", {}, logger)
         assert result is None
@@ -454,5 +480,37 @@ class TestMSSQLSourceNonRetryableErrors:
         ],
     )
     def test_connection_errors_are_non_retryable(self, error_msg):
+        non_retryable = MSSQLSource().get_non_retryable_errors()
+        assert any(pattern in error_msg for pattern in non_retryable.keys()), error_msg
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Real pymssql MSSQLDatabaseException for SQL Server error 229 on a table.
+            "SQL Server message 229, severity 14, state 5, procedure b'', line 1:\n"
+            "b\"The SELECT permission was denied on the object 'ExistenciasProductoMagiQ', "
+            "database 'VirtualMedios', schema 'dbo'.DB-Lib error message 20018, severity 14:\n"
+            'General SQL Server error: Check messages from the SQL Server\n"',
+            # Different object/database names must still match the stable substring.
+            "The SELECT permission was denied on the object 'zzz_segtieint', database 'VirtualMedios', schema 'dbo'.",
+        ],
+    )
+    def test_permission_denied_errors_are_non_retryable(self, error_msg):
+        non_retryable = MSSQLSource().get_non_retryable_errors()
+        assert any(pattern in error_msg for pattern in non_retryable.keys()), error_msg
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Real pymssql MSSQLDatabaseException for SQL Server error 208 raised mid-sync when the
+            # view being selected references an object the login can't resolve.
+            "SQL Server message 208, severity 16, state 1, procedure b'VentasAsesorMes', line 8: "
+            "b\"Invalid object name 'Imagiq.dbo.inv_cuedoc'.DB-Lib error message 20018, severity 16:\\n"
+            'General SQL Server error: Check messages from the SQL Server\\n"',
+            # The table being synced was dropped/renamed after schema discovery.
+            "Invalid object name 'dbo.orders'.",
+        ],
+    )
+    def test_invalid_object_name_is_non_retryable(self, error_msg):
         non_retryable = MSSQLSource().get_non_retryable_errors()
         assert any(pattern in error_msg for pattern in non_retryable.keys()), error_msg
