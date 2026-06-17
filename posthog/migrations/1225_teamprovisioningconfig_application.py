@@ -4,7 +4,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("posthog", "1217_project_is_pending_deletion")]
+    dependencies = [("posthog", "1224_columnconfiguration_properties")]
 
     operations = [
         migrations.AddField(
