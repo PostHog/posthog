@@ -13,11 +13,20 @@ for a small surface that moves rarely.
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
 
+import jsonschema
 from rest_framework.exceptions import ValidationError
 
-from ..logic.spec_schema import SLACK_BOT_TOKEN_KEY, SLACK_SIGNING_SECRET_KEY, missing_required_secrets
+from ..logic.spec_schema import (
+    AGENT_SPEC_JSON_SCHEMA_FOR_WRITE,
+    SLACK_BOT_TOKEN_KEY,
+    SLACK_SIGNING_SECRET_KEY,
+    missing_required_secrets,
+)
 from ..presentation.serializers import AgentRevisionSerializer
 
 # Auth is per-trigger now (no top-level spec.auth). These fixtures focus on
@@ -165,6 +174,26 @@ def _with_auth(spec: dict) -> dict:
             "limits_max_output_tokens",
             {"model": "x", "limits": {"max_output_tokens": 16384}},
         ),
+        # Bare-string secrets keep parsing (back-compat path); the runtime
+        # http-request refuses to substitute them, but the spec itself is
+        # still valid.
+        (
+            "secrets_bare_string",
+            {"model": "x", "secrets": ["GITHUB_TOKEN"]},
+        ),
+        # Object-form secret with allowed_hosts — the egress-binding shape.
+        (
+            "secrets_with_allowed_hosts",
+            {"model": "x", "secrets": [{"name": "GH_PAT", "allowed_hosts": ["api.github.com"]}]},
+        ),
+        # Mixed bare + object forms in the same spec — common during migration.
+        (
+            "secrets_mixed_forms",
+            {
+                "model": "x",
+                "secrets": ["LEGACY", {"name": "GH_PAT", "allowed_hosts": ["api.github.com", "*.github.com"]}],
+            },
+        ),
     ],
 )
 def test_validate_spec_accepts_valid_payloads(name: str, spec: dict) -> None:
@@ -253,6 +282,23 @@ def test_validate_spec_accepts_valid_payloads(name: str, spec: dict) -> None:
             {"model": "x", "triggers": [{"type": "cron", "config": {"schedule": "0 9 * * *", "prompt": "go"}}]},
             "triggers.0",
         ),
+        # spec.secrets[] object form must declare allowed_hosts. An object
+        # without it is rejected so a half-migrated entry can't quietly
+        # behave as "name only, no binding" — the bare-string form is the
+        # explicit way to say that.
+        (
+            "secrets_object_missing_allowed_hosts",
+            {"model": "x", "secrets": [{"name": "GH_PAT"}]},
+            "secrets",
+        ),
+        # An empty allowed_hosts means "bound to nothing" — not what an
+        # author meant. Force them to either pin a host or drop to the
+        # bare-string form.
+        (
+            "secrets_empty_allowed_hosts",
+            {"model": "x", "secrets": [{"name": "GH_PAT", "allowed_hosts": []}]},
+            "secrets",
+        ),
     ],
 )
 def test_validate_spec_rejects_invalid_payloads(name: str, spec: dict, expected_substring: str) -> None:
@@ -292,3 +338,18 @@ def test_missing_required_secrets_for_slack_trigger(name: str, env: dict, expect
 def test_missing_required_secrets_skips_triggers_without_requirements() -> None:
     spec = {"model": "x", "triggers": [{"type": "chat", "config": {}}]}
     assert missing_required_secrets(spec, {}) == []
+
+
+# Every shipped example bundle must validate against the write schema exactly
+# as authored. This is the guard against the drift class that bit us: a field
+# added to the zod schema (e.g. `allow_direct_messages`, `resume`) but not
+# mirrored here would let an example carry it while the platform silently
+# rejects/drops it. The example seeder no longer maintains its own allowlist —
+# this schema is the single gate — so a missing mirror now fails here, loudly.
+_EXAMPLES_DIR = Path(__file__).parents[2] / "services" / "agent-tests" / "src" / "examples"
+_EXAMPLE_SPECS = sorted(p for p in _EXAMPLES_DIR.glob("*/spec.json"))
+
+
+@pytest.mark.parametrize("spec_file", _EXAMPLE_SPECS, ids=lambda p: p.parent.name)
+def test_example_bundles_validate_against_write_schema(spec_file: Path) -> None:
+    jsonschema.validate(json.loads(spec_file.read_text()), AGENT_SPEC_JSON_SCHEMA_FOR_WRITE)
