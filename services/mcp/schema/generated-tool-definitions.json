@@ -259,7 +259,7 @@
             "openWorldHint": true,
             "readOnlyHint": false
         },
-        "feature_flag": "agent-platform-mcp"
+        "feature_flag": "agent-platform"
     },
     "agent-applications-destroy": {
         "description": "Soft-delete: `archived=true`, `archived_at` stamped. Existing revisions stay queryable for audit; further CRUD on this app is blocked until you create a new app with the same slug (the unique constraint is scoped to `archived=false`).",
@@ -274,7 +274,7 @@
             "openWorldHint": true,
             "readOnlyHint": false
         },
-        "feature_flag": "agent-platform-mcp"
+        "feature_flag": "agent-platform"
     },
     "agent-applications-env-keys-clear": {
         "description": "Remove one key from the encrypted env. No-op when the key wasn't set. Use this when a secret is no longer required by the spec or after a credential is known to be compromised. Does NOT trigger session restarts — in-flight sessions keep the value they resolved at start.",
@@ -289,7 +289,7 @@
             "openWorldHint": true,
             "readOnlyHint": false
         },
-        "feature_flag": "agent-platform-mcp"
+        "feature_flag": "agent-platform"
     },
     "agent-applications-env-keys-get": {
         "description": "Returns `{ key, is_set }` for one name. The value is never returned. Use as a pre-check before asking the user to set or rotate a key, and again after the user completes the punch-out flow to confirm the write landed.",
@@ -304,7 +304,7 @@
             "openWorldHint": true,
             "readOnlyHint": true
         },
-        "feature_flag": "agent-platform-mcp"
+        "feature_flag": "agent-platform"
     },
     "agent-applications-env-keys-list": {
         "description": "Returns `{ keys: [name, ...] }` — names only, never values. Use to know which declared secrets are already populated so you don't ask the user to set something that's already set. Pair with `agent-applications-revisions-retrieve` (`spec.secrets[]`) to spot which declared keys are still unset.",
@@ -319,7 +319,7 @@
             "openWorldHint": true,
             "readOnlyHint": true
         },
-        "feature_flag": "agent-platform-mcp"
+        "feature_flag": "agent-platform"
     },
     "agent-applications-list": {
         "description": "List every agent application in the project. Returns id, slug, name, description, live_revision, archived state. Use the slug to drive subsequent calls — it's stable and human-readable.",
@@ -334,7 +334,7 @@
             "openWorldHint": true,
             "readOnlyHint": true
         },
-        "feature_flag": "agent-platform-mcp"
+        "feature_flag": "agent-platform"
     },
     "agent-applications-partial-update": {
         "description": "Edit `name` / `description`. The env block is managed separately (raw secret entry goes through the agent console's secret editor, not MCP), and `live_revision` is set by promoting a revision.",
@@ -349,10 +349,10 @@
             "openWorldHint": true,
             "readOnlyHint": false
         },
-        "feature_flag": "agent-platform-mcp"
+        "feature_flag": "agent-platform"
     },
     "agent-applications-preview-proxy": {
-        "description": "Authoring-side proxy for invoking a non-live revision. Closes the anonymous-draft-invoke gap — the public ingress refuses draft invokes that don't carry a valid `x-agent-preview-token` (short-lived JWT bound to (app, revision)), and this proxy mints + attaches the token after authenticating the Django caller. Path `rest` is one of `run` (start a new session), `send` (append to an existing one), `cancel` (kill it), `listen` (SSE tail). `revision_id` query param is required and must be a non-live revision of this application. See docs/agent-platform/plans/draft-preview-auth.md.",
+        "description": "Authoring-side proxy for invoking a non-live revision. Closes the anonymous-draft-invoke gap — the public ingress refuses draft invokes that don't carry a valid `x-agent-preview-token` (short-lived JWT bound to (app, revision)), and this proxy mints + attaches the token after authenticating the Django caller. Path `rest` is one of `run` (start a new session), `send` (append to an existing one), `cancel` (kill it), `listen` (SSE tail). `revision_id` query param is required and must be a non-live revision of this application.",
         "category": "Agent stack",
         "feature": "agent_platform",
         "summary": "Invoke a draft revision via the Django preview-proxy",
@@ -364,7 +364,7 @@
             "openWorldHint": true,
             "readOnlyHint": false
         },
-        "feature_flag": "agent-platform-mcp"
+        "feature_flag": "agent-platform"
     },
     "agent-applications-retrieve": {
         "description": "Fetch one application by id or slug (both unique within the team). Returns metadata only — to inspect the running spec or bundle, look up the live revision via `agent-applications-revisions-list` then call `agent-applications-revisions-retrieve` and `agent-applications-revisions-manifest-retrieve`.",
@@ -379,7 +379,7 @@
             "openWorldHint": true,
             "readOnlyHint": true
         },
-        "feature_flag": "agent-platform-mcp"
+        "feature_flag": "agent-platform"
     },
     "agent-applications-revisions-agent-md-update": {
         "description": "Body `{ content: \"…\" }`. Overwrites the agent's system prompt. Use for surgical edits to the prompt; leaves skills, tools, and spec untouched. Draft-only.",
@@ -394,7 +394,7 @@
             "openWorldHint": true,
             "readOnlyHint": false
         },
-        "feature_flag": "agent-platform-mcp"
+        "feature_flag": "agent-platform"
     },
     "agent-applications-revisions-archive-create": {
         "description": "Mark a revision archived. If it was the live revision, clears the parent application's `live_revision` (the app has no deployable version until another revision is promoted). Idempotent.",
@@ -409,10 +409,10 @@
             "openWorldHint": true,
             "readOnlyHint": false
         },
-        "feature_flag": "agent-platform-mcp"
+        "feature_flag": "agent-platform"
     },
     "agent-applications-revisions-bundle-retrieve": {
-        "description": "Returns `{ agent_md, skills, tools, spec }` — the typed view of the revision. Use this when you want to edit the whole agent locally (pull, mutate in-memory, push back via the bundle PUT). Skills carry `description`, `body`, and optional `files[]`. Tools carry `description`, `args_schema`, `source` (TypeScript). `spec` is the author-facing slice (skills/tools are server-derived at freeze).",
+        "description": "Returns `{ agent_md, skills, tools, spec }` — the typed view of the revision. Use this when you want to edit the whole agent locally (pull, mutate in-memory, push back via the bundle PUT). Skills carry `description` and `body` (stored at `skills/<id>/SKILL.md`). Tools carry `description`, `args_schema`, `source` (TypeScript). `spec` is the author-facing slice (skills/tools are server-derived at freeze).",
         "category": "Agent stack",
         "feature": "agent_platform",
         "summary": "Get the typed bundle",
@@ -424,7 +424,7 @@
             "openWorldHint": true,
             "readOnlyHint": true
         },
-        "feature_flag": "agent-platform-mcp"
+        "feature_flag": "agent-platform"
     },
     "agent-applications-revisions-bundle-update": {
         "description": "Body shape matches the GET response: `{ agent_md, skills, tools, spec }`. **Full replace** — anything not in the payload is deleted. For incremental edits use the single-resource PUTs (`agent-applications-revisions-skills-update`, etc.). Each tool source is AST-checked + esbuild-compiled synchronously; a bad shape returns 422 before any S3 writes. Only `state=draft` revisions accept this.",
@@ -439,7 +439,7 @@
             "openWorldHint": true,
             "readOnlyHint": false
         },
-        "feature_flag": "agent-platform-mcp"
+        "feature_flag": "agent-platform"
     },
     "agent-applications-revisions-clone-from-create": {
         "description": "Copy every file in `source_revision_id`'s bundle into this (draft) revision. Use after `agent-applications-revisions-create` if you didn't go through `new-draft` for some reason. Both revisions must belong to the same team.",
@@ -454,7 +454,7 @@
             "openWorldHint": true,
             "readOnlyHint": false
         },
-        "feature_flag": "agent-platform-mcp"
+        "feature_flag": "agent-platform"
     },
     "agent-applications-revisions-create": {
         "description": "Create a new revision in state `draft`. Body shape mirrors the AgentRevision serializer — the only fields you typically set are `spec` (initial JSON) and `parent_revision` (optional, lets the diff UI show what you're changing). The bundle starts empty; use `agent-applications-revisions-clone-from-create` or `agent-applications-revisions-new-draft-create` to seed it from an existing revision.",
@@ -469,7 +469,7 @@
             "openWorldHint": true,
             "readOnlyHint": false
         },
-        "feature_flag": "agent-platform-mcp"
+        "feature_flag": "agent-platform"
     },
     "agent-applications-revisions-cron-fire-create": {
         "description": "Fire a single cron job out-of-band, bypassing the scheduler's window logic. Use this to iterate on a cron agent's `prompt` (or to debug `external_key` placeholder expansion) without waiting for the next real firing. Required: `cron_name` (matches `spec.triggers[].config.name` on a `type: cron` trigger). Optional: `request_id` — pass a stable id per logical click so repeat fires resolve to the same session instead of stacking duplicates. Returns `{ ok, session_id, fired_at, idempotency_key }`; track the session via `agent-applications-sessions-retrieve` to read the conversation. Authoring-loop completion piece — without this, \"did my prompt do the right thing?\" is unanswerable until the cron actually fires.",
@@ -484,7 +484,7 @@
             "openWorldHint": true,
             "readOnlyHint": false
         },
-        "feature_flag": "agent-platform-mcp"
+        "feature_flag": "agent-platform"
     },
     "agent-applications-revisions-freeze-create": {
         "description": "Walks the bundle, computes a manifest sha256, stamps it on the row, flips state `draft → ready`. After this the bundle is immutable. Idempotent — freezing a `ready` revision is a no-op that returns the existing sha256.",
@@ -499,7 +499,7 @@
             "openWorldHint": true,
             "readOnlyHint": false
         },
-        "feature_flag": "agent-platform-mcp"
+        "feature_flag": "agent-platform"
     },
     "agent-applications-revisions-list": {
         "description": "List every revision (draft, ready, live, archived) for one application, newest first. Use to find the current live revision id or pick a known-good revision to clone for an edit.",
@@ -514,7 +514,7 @@
             "openWorldHint": true,
             "readOnlyHint": true
         },
-        "feature_flag": "agent-platform-mcp"
+        "feature_flag": "agent-platform"
     },
     "agent-applications-revisions-manifest-retrieve": {
         "description": "Returns `{ revision_id, state, bundle_sha256, files: [{ path, size, sha256 }, …] }`. Use to discover what's in a bundle without pulling all the bytes — sha256 lets you spot which files have changed since you last looked.",
@@ -529,7 +529,7 @@
             "openWorldHint": true,
             "readOnlyHint": true
         },
-        "feature_flag": "agent-platform-mcp"
+        "feature_flag": "agent-platform"
     },
     "agent-applications-revisions-new-draft-create": {
         "description": "One-shot helper: creates a draft revision under `application_id` and clones every file from `source_revision_id` into the new bundle in a single round-trip. Use this for the common \"edit live\" workflow — branch from the current live revision, mutate files, freeze, promote.",
@@ -544,7 +544,7 @@
             "openWorldHint": true,
             "readOnlyHint": false
         },
-        "feature_flag": "agent-platform-mcp"
+        "feature_flag": "agent-platform"
     },
     "agent-applications-revisions-partial-update": {
         "description": "Replace `spec` on a draft revision. Only `state=draft` revisions accept spec edits — promote bumps the revision to `ready` which freezes the spec. Validation against the AgentSpec zod schema runs on the runner side; an invalid spec will surface when the next session starts, not here.",
@@ -559,7 +559,7 @@
             "openWorldHint": true,
             "readOnlyHint": false
         },
-        "feature_flag": "agent-platform-mcp"
+        "feature_flag": "agent-platform"
     },
     "agent-applications-revisions-promote-create": {
         "description": "Flips a `ready` revision to `live` and sets the parent application's `live_revision`. The previously live revision is archived automatically. Requires `state=ready` and `bundle_sha256` set (call `freeze` first). Idempotent: promoting an already-live revision is a no-op.",
@@ -574,7 +574,7 @@
             "openWorldHint": true,
             "readOnlyHint": false
         },
-        "feature_flag": "agent-platform-mcp"
+        "feature_flag": "agent-platform"
     },
     "agent-applications-revisions-retrieve": {
         "description": "Fetch one revision's metadata: state, spec (the structural JSON), bundle_uri, bundle_sha256, parent revision id, timestamps. For the bundle contents see `agent-applications-revisions-manifest-retrieve` / `agent-applications-revisions-bundle-retrieve`.",
@@ -589,10 +589,10 @@
             "openWorldHint": true,
             "readOnlyHint": true
         },
-        "feature_flag": "agent-platform-mcp"
+        "feature_flag": "agent-platform"
     },
     "agent-applications-revisions-skills-destroy": {
-        "description": "Removes the skill body + every companion file under `skills/<id>/files/`. Returns 404 if the skill doesn't exist. Draft-only.",
+        "description": "Removes the skill folder (`skills/<id>/`, holding its `SKILL.md`). Returns 404 if the skill doesn't exist. Draft-only.",
         "category": "Agent stack",
         "feature": "agent_platform",
         "summary": "Delete one skill",
@@ -604,10 +604,10 @@
             "openWorldHint": true,
             "readOnlyHint": false
         },
-        "feature_flag": "agent-platform-mcp"
+        "feature_flag": "agent-platform"
     },
     "agent-applications-revisions-skills-update": {
-        "description": "Body `{ description, body, files? }`. Creates the skill if it doesn't exist, replaces it if it does. `files[]` is the optional list of companion docs (path relative to `skills/<id>/files/`). Skill id comes from the URL. Draft-only.",
+        "description": "Body `{ description, body }`. Creates the skill if it doesn't exist, replaces it if it does. The `body` is stored at `skills/<skill_id>/SKILL.md`. Skill id comes from the URL. Draft-only.",
         "category": "Agent stack",
         "feature": "agent_platform",
         "summary": "Upsert one skill",
@@ -619,7 +619,7 @@
             "openWorldHint": true,
             "readOnlyHint": false
         },
-        "feature_flag": "agent-platform-mcp"
+        "feature_flag": "agent-platform"
     },
     "agent-applications-revisions-slack-manifest": {
         "description": "Returns `{ revision_id, manifest, notes, events_url, interactivity_url }` for a revision that has a slack trigger. `manifest` is a ready-to-paste Slack app manifest (JSON) for https://api.slack.com/apps?new_app=1 → \"From an app manifest\" — its OAuth scopes and bot event subscriptions are derived from the agent's slack trigger config (mention_only / auto_resume_threads / ack_reaction) and its Slack tools, so it subscribes to exactly the events the config needs. Hand the user the manifest plus the create-from-manifest link; surface `notes` (e.g. invite the bot to its channels). 400 if the revision has no slack trigger.",
@@ -634,7 +634,7 @@
             "openWorldHint": true,
             "readOnlyHint": true
         },
-        "feature_flag": "agent-platform-mcp"
+        "feature_flag": "agent-platform"
     },
     "agent-applications-revisions-spec-update": {
         "description": "Body `{ spec: { … } }`. Replaces the author-writable spec slice (model, triggers, mcps, integrations, secrets, limits, auth, entrypoint, reasoning). `skills[]` and `tools[]` are NOT author-writable — they're derived at freeze from the typed resources. Draft-only.",
@@ -649,7 +649,7 @@
             "openWorldHint": true,
             "readOnlyHint": false
         },
-        "feature_flag": "agent-platform-mcp"
+        "feature_flag": "agent-platform"
     },
     "agent-applications-revisions-system-prompt": {
         "description": "Returns the fully-assembled system prompt the runner would pass to the model at session start — framework preamble + agent.md (or `spec.entrypoint`) + skills index. Use to verify what the model actually sees before promoting; particularly useful for confirming `spec.framework_prompt.omit` opt-outs took effect or for debugging author-vs-framework precedence. Response also includes `framework_prompt_version` so you can tell whether a pin (`spec.framework_prompt.version_pin`) is in effect. Works on any revision state.",
@@ -664,7 +664,7 @@
             "openWorldHint": true,
             "readOnlyHint": true
         },
-        "feature_flag": "agent-platform-mcp"
+        "feature_flag": "agent-platform"
     },
     "agent-applications-revisions-tools-destroy": {
         "description": "Removes source.ts, compiled.js, schema.json from the bundle. Returns 404 if the tool doesn't exist. Draft-only.",
@@ -679,7 +679,7 @@
             "openWorldHint": true,
             "readOnlyHint": false
         },
-        "feature_flag": "agent-platform-mcp"
+        "feature_flag": "agent-platform"
     },
     "agent-applications-revisions-tools-update": {
         "description": "Body `{ description, args_schema, source }`. `source` is the TypeScript tool source — the janitor runs an AST shape check + esbuild compile synchronously and rejects a bad shape with structured diagnostics in the 422 response. Required shape: `export default { actions: { default: async (args, ctx) => { ... } } }`. Do NOT include `compiled.js` — it's generated. Tool id comes from the URL. Draft-only.",
@@ -694,7 +694,7 @@
             "openWorldHint": true,
             "readOnlyHint": false
         },
-        "feature_flag": "agent-platform-mcp"
+        "feature_flag": "agent-platform"
     },
     "agent-applications-revisions-validate-create": {
         "description": "Pre-flight checks before deploying. Returns `{ ok, errors: [...] }`. Catches: missing entrypoint file, unknown native tool ids, custom tools missing `compiled.js` / `schema.json`, skill paths that don't exist in the bundle, declared secrets that aren't set in the application env. Works on any revision state — use this on a draft before calling `agent-applications-revisions-freeze-create`.",
@@ -709,7 +709,7 @@
             "openWorldHint": true,
             "readOnlyHint": true
         },
-        "feature_flag": "agent-platform-mcp"
+        "feature_flag": "agent-platform"
     },
     "agent-applications-sessions-list": {
         "description": "Newest-first list of sessions for this agent across all revisions. Each summary carries id, state (queued / running / completed / closed / cancelled / failed), revision_id, principal, turn count, retry count, timestamps, a `preview` of the last assistant text (~120 chars), and `usage_total` (tokens + cost aggregated over the whole conversation). The transcript body is omitted — use `agent-applications-sessions-retrieve` for that. Filters: `state` (comma-separated for multiple, e.g. `completed,failed`), `revision_id` (UUID), `created_after` / `created_before` (ISO datetimes). Paging via `limit` (default 100, capped at 500) + `offset`. Filters AND together.",
@@ -724,7 +724,7 @@
             "openWorldHint": true,
             "readOnlyHint": true
         },
-        "feature_flag": "agent-platform-mcp"
+        "feature_flag": "agent-platform"
     },
     "agent-applications-sessions-retrieve": {
         "description": "Full `AgentSession` row: state, principal, conversation (user / assistant / toolResult messages), pending_inputs, retry_count, timestamps. Always includes a `usage_total` block (tokens + cost) aggregated over the entire session. Pass `last_n=<int>` to trim the response to the most recent N messages — useful for long sessions where you only care about the tail; `conversation_trimmed: true` plus `conversation_total_turns` tells you how much was hidden, and `usage_total` is still computed over the full untrimmed conversation so cost reporting stays accurate.",
@@ -739,7 +739,7 @@
             "openWorldHint": true,
             "readOnlyHint": true
         },
-        "feature_flag": "agent-platform-mcp"
+        "feature_flag": "agent-platform"
     },
     "agent-native-tools-list": {
         "description": "Read-only catalog of every `@posthog/*` native tool an agent can wire into `spec.tools`. Each entry includes the id, description, args schema (TypeBox-shaped), required integrations + scopes, and a cost hint (`cheap` / `medium` / `expensive`). Authoring flows use this to validate tool ids before writing them into a revision's spec.",
@@ -754,7 +754,7 @@
             "openWorldHint": true,
             "readOnlyHint": true
         },
-        "feature_flag": "agent-platform-mcp"
+        "feature_flag": "agent-platform"
     },
     "alert-create": {
         "description": "Create a new alert on an insight. Alerts can use either threshold-based conditions or anomaly detection. For threshold alerts: set condition (absolute_value, relative_increase, relative_decrease) and threshold configuration with bounds — at least one of lower or upper is required (omit detector_config). For anomaly detection: set detector_config with a detector type (zscore, mad, iqr, threshold, copod, ecod, hbos, isolation_forest, knn, lof, ocsvm, pca) and parameters like threshold (sensitivity 0-1, default 0.9) and window size. Ensemble detectors combine 2+ sub-detectors with AND/OR logic. Requires an insight ID and at least one subscribed user.\nNote: subscribed_users only controls email recipients. For Slack, HTTPS webhook, or Discord delivery, see the recipe on cdp-functions-create — it covers integration lookup (integrations-channels-retrieve), dedupe (cdp-functions-list filtered by alert id, limit=1000), and the exact filters/inputs shape to pass.",
@@ -2438,6 +2438,34 @@
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "error-tracking-settings-get": {
+        "description": "Get the error tracking ingestion settings for the current project. Returns the project-wide and per-issue exception rate limits, where each `*_rate_limit_value` is the maximum events ingested per bucket and each `*_rate_limit_bucket_size_minutes` is the bucket window. A null `*_rate_limit_value` means no limit is set. Read these before updating so you can preserve the fields you don't intend to change.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "Get error tracking settings",
+        "title": "Get error tracking settings",
+        "required_scopes": ["error_tracking:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "error-tracking-settings-update": {
+        "description": "Update the error tracking ingestion settings for the current project. Only the fields you include are applied; omitted fields keep their existing values. Use this to set the project-wide rate limit (`project_rate_limit_value` events per `project_rate_limit_bucket_size_minutes`) and the per-issue rate limit (`per_issue_rate_limit_value` events per `per_issue_rate_limit_bucket_size_minutes`). Set a `*_rate_limit_value` to null to remove that limit. WARNING: exception events above a rate limit are dropped at ingestion and cannot be recovered. Lowering a limit silently discards volume — confirm the threshold with the user before reducing it.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "Update error tracking settings",
+        "title": "Update error tracking settings",
+        "required_scopes": ["error_tracking:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
         }
