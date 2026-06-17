@@ -8,7 +8,7 @@ from posthog.temporal.sync_events_retention.activities import sync_events_retent
 from posthog.temporal.sync_events_retention.types import SyncEventsRetentionInput
 
 
-def _team(*, current_period: str, feature_unit: str | None, feature_limit: int | None) -> MagicMock:
+def _team(*, current_months: int, feature_unit: str | None, feature_limit: int | None) -> MagicMock:
     organization = MagicMock()
     if feature_unit is None or feature_limit is None:
         organization.get_available_feature.return_value = None
@@ -22,7 +22,7 @@ def _team(*, current_period: str, feature_unit: str | None, feature_limit: int |
     team = MagicMock()
     team.id = id(team)
     team.organization = organization
-    team.event_retention_period = current_period
+    team.event_retention_months = current_months
     return team
 
 
@@ -55,14 +55,14 @@ def _patch_team_objects(teams: list[MagicMock], bulk_update: MagicMock):
 
 
 @pytest.mark.asyncio
-async def test_sets_period_from_entitlement():
-    team = _team(current_period="7y", feature_unit="year", feature_limit=1)
+async def test_sets_months_from_entitlement():
+    team = _team(current_months=84, feature_unit="year", feature_limit=1)
     bulk_update = MagicMock()
 
     with _patch_team_objects([team], bulk_update):
         await ActivityEnvironment().run(sync_events_retention, SyncEventsRetentionInput(dry_run=False))
 
-    assert team.event_retention_period == "1y"
+    assert team.event_retention_months == 12
     bulk_update.assert_called_once()
     assert bulk_update.call_args[0][0] == [team]
     # Guard the billing key: the sync must read the entitlement billing actually emits.
@@ -71,32 +71,32 @@ async def test_sets_period_from_entitlement():
 
 @pytest.mark.asyncio
 async def test_defaults_to_seven_years_without_entitlement():
-    # No billing entitlement → grandfather to 7 years rather than reducing.
-    team = _team(current_period="1y", feature_unit=None, feature_limit=None)
+    # No billing entitlement → grandfather to 7 years (84 months) rather than reducing.
+    team = _team(current_months=12, feature_unit=None, feature_limit=None)
     bulk_update = MagicMock()
 
     with _patch_team_objects([team], bulk_update):
         await ActivityEnvironment().run(sync_events_retention, SyncEventsRetentionInput(dry_run=False))
 
-    assert team.event_retention_period == "7y"
+    assert team.event_retention_months == 84
     assert bulk_update.call_args[0][0] == [team]
 
 
 @pytest.mark.asyncio
 async def test_skips_team_already_at_target():
-    team = _team(current_period="7y", feature_unit=None, feature_limit=None)
+    team = _team(current_months=84, feature_unit=None, feature_limit=None)
     bulk_update = MagicMock()
 
     with _patch_team_objects([team], bulk_update):
         await ActivityEnvironment().run(sync_events_retention, SyncEventsRetentionInput(dry_run=False))
 
-    assert team.event_retention_period == "7y"
+    assert team.event_retention_months == 84
     assert bulk_update.call_args[0][0] == []
 
 
 @pytest.mark.asyncio
 async def test_dry_run_does_not_persist():
-    team = _team(current_period="7y", feature_unit="year", feature_limit=1)
+    team = _team(current_months=84, feature_unit="year", feature_limit=1)
     bulk_update = MagicMock()
 
     with _patch_team_objects([team], bulk_update):

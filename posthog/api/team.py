@@ -56,7 +56,7 @@ from posthog.models.project import Project
 from posthog.models.team.event_retention import should_enforce_events_retention
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.setup_tasks import SetupTaskId
-from posthog.models.team.team import CURRENCY_CODE_CHOICES, DEFAULT_CURRENCY, EventRetentionPeriod
+from posthog.models.team.team import CURRENCY_CODE_CHOICES, DEFAULT_CURRENCY
 from posthog.models.team.util import actions_that_require_current_team
 from posthog.models.utils import UUIDT
 from posthog.permissions import (
@@ -743,12 +743,11 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     customer_analytics_config = TeamCustomerAnalyticsConfigSerializer(required=False)
     workflows_config = TeamWorkflowsConfigSerializer(required=False)
     base_currency = serializers.ChoiceField(choices=CURRENCY_CODE_CHOICES, default=DEFAULT_CURRENCY)
-    event_retention_period = serializers.ChoiceField(
-        choices=EventRetentionPeriod.choices,
+    event_retention_months = serializers.IntegerField(
         read_only=True,
         help_text=(
-            "The team's events data retention window (plan-derived, synced from billing). When retention "
-            "enforcement is active for the team, queries do not return events older than this window."
+            "The team's events data retention window in months (plan-derived, synced from billing). When retention "
+            "enforcement is active for the team, queries do not return events older than this many months."
         ),
     )
     events_retention_enforced = serializers.SerializerMethodField(
@@ -783,7 +782,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "product_intents",
             "managed_viewsets",
             "available_setup_task_ids",
-            "event_retention_period",
+            "event_retention_months",
             "events_retention_enforced",
         )
 

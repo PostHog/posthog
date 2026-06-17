@@ -21,7 +21,7 @@ export const insightRetentionBannerLogic = kea<insightRetentionBannerLogicType>(
     connect((props: InsightLogicProps) => ({
         values: [
             dataRetentionBannerLogic,
-            ['warningEligible', 'retentionPeriodDays'],
+            ['warningEligible', 'retentionMonths'],
             insightDataLogic(props),
             ['insightData', 'query'],
             insightVizDataLogic(props),
@@ -30,9 +30,9 @@ export const insightRetentionBannerLogic = kea<insightRetentionBannerLogicType>(
     })),
     selectors({
         rangeExceedsRetention: [
-            (s) => [s.dateRange, s.insightData, s.retentionPeriodDays, s.query],
-            (dateRange, insightData, retentionPeriodDays, query): boolean => {
-                if (!retentionPeriodDays) {
+            (s) => [s.dateRange, s.insightData, s.retentionMonths, s.query],
+            (dateRange, insightData, retentionMonths, query): boolean => {
+                if (!retentionMonths) {
                     return false
                 }
                 // SQL/HogQL insights can scan arbitrary history with no resolvable range, so warn whenever eligible.
@@ -47,7 +47,7 @@ export const insightRetentionBannerLogic = kea<insightRetentionBannerLogicType>(
                 if (!dateFrom) {
                     return false
                 }
-                return dayjs(dateFrom).isBefore(dayjs().subtract(retentionPeriodDays, 'day'))
+                return dayjs(dateFrom).isBefore(dayjs().subtract(retentionMonths, 'month'))
             },
         ],
         shouldShowBanner: [

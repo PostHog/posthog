@@ -1,4 +1,3 @@
-from datetime import timedelta
 from typing import Optional
 
 from django.conf import settings
@@ -8,31 +7,16 @@ import posthoganalytics
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
 from posthog.models.organization import ProductFeature
-from posthog.models.team.team import EventRetentionPeriod, Team
+from posthog.models.team.team import Team
 
-# Concrete retention window per plan, denormalized onto Team.event_retention_period and synced from the
-# billing entitlement. Every plan has a real value — there is no "unlimited" tier.
-EVENT_RETENTION_PERIOD_TO_TIMEDELTA: dict[str, timedelta] = {
-    EventRetentionPeriod.ONE_YEAR: timedelta(days=365),
-    EventRetentionPeriod.TWO_YEARS: timedelta(days=365 * 2),
-    EventRetentionPeriod.THREE_YEARS: timedelta(days=365 * 3),
-    EventRetentionPeriod.FIVE_YEARS: timedelta(days=365 * 5),
-    EventRetentionPeriod.SEVEN_YEARS: timedelta(days=365 * 7),
-}
-
-DEFAULT_EVENT_RETENTION = timedelta(days=365 * 7)
+# Grandfather default: existing teams keep 7 years (84 months) until billing assigns a shorter window.
+DEFAULT_EVENT_RETENTION_MONTHS = 84
 
 # Cohort feature flag — enables enforcement for a project so the rollout can target a specific cohort.
 EVENTS_DATA_RETENTION_FLAG = "events-data-retention"
 
-
-def get_events_retention_period(team: Team) -> timedelta:
-    """The team's events retention window, read from the denormalized Team.event_retention_period.
-
-    Always concrete (default 7 years). Read on the HogQL hot path, so this stays a pure field read — no billing
-    or DB lookups. The billing entitlement is reconciled onto the field by the sync job.
-    """
-    return EVENT_RETENTION_PERIOD_TO_TIMEDELTA.get(team.event_retention_period, DEFAULT_EVENT_RETENTION)
+# Billing entitlement key the sync job reconciles Team.event_retention_months against.
+EVENTS_DATA_RETENTION_FEATURE = AvailableFeature.PRODUCT_ANALYTICS_DATA_RETENTION
 
 
 def should_enforce_events_retention(team_id: int) -> bool:
@@ -59,8 +43,8 @@ def should_enforce_events_retention(team_id: int) -> bool:
     )
 
 
-def events_retention_window_for_team(team: Optional[Team], team_id: Optional[int]) -> Optional[timedelta]:
-    """The retention floor to apply to a query's events scans, or None if retention isn't enforced for this team.
+def events_retention_months_for_team(team: Optional[Team], team_id: Optional[int]) -> Optional[int]:
+    """Months of events retention to floor a query's events scans to, or None if retention isn't enforced.
 
     Computed once per query in prepare_ast_for_printing. The cohort gate runs first and is DB-free, so non-cohort
     teams (the vast majority during rollout) never hit Postgres here — only an enforced team triggers the lean
@@ -75,50 +59,34 @@ def events_retention_window_for_team(team: Optional[Team], team_id: Optional[int
         return None
 
     if team is None:
-        team = Team.objects.filter(id=team_id).only("event_retention_period").first()
+        team = Team.objects.filter(id=team_id).only("event_retention_months").first()
         if team is None:
             return None
 
-    return get_events_retention_period(team)
+    return team.event_retention_months or DEFAULT_EVENT_RETENTION_MONTHS
 
 
-# Billing entitlement key the sync job reconciles Team.event_retention_period against.
-EVENTS_DATA_RETENTION_FEATURE = AvailableFeature.PRODUCT_ANALYTICS_DATA_RETENTION
+def parse_events_feature_to_months(retention_feature: ProductFeature | None) -> int:
+    """Map the billing events-retention entitlement to a number of months for the sync job.
 
-
-def parse_events_feature_to_period(retention_feature: ProductFeature | None) -> str:
-    """Map the billing events-retention entitlement to a concrete EventRetentionPeriod value for the sync job.
-
-    Defaults to 7 years when billing exposes no entitlement, so existing paid teams stay grandfathered at their
-    current retention rather than being silently reduced.
+    Defaults to 7 years (84 months) when billing exposes no entitlement, so existing paid teams stay grandfathered
+    rather than being silently reduced. Honors billing's value exactly — no bucketing — since the field stores the
+    real duration.
     """
     if retention_feature is None:
-        return EventRetentionPeriod.SEVEN_YEARS
+        return DEFAULT_EVENT_RETENTION_MONTHS
 
     limit = retention_feature.get("limit")
     unit = retention_feature.get("unit")
     if limit is None or unit is None or limit <= 0:
-        return EventRetentionPeriod.SEVEN_YEARS
+        return DEFAULT_EVENT_RETENTION_MONTHS
 
     match unit.lower():
         case "year" | "years":
-            years = limit
+            return limit * 12
         case "month" | "months":
-            years = limit // 12
-        case "day" | "days":
-            years = limit // 365
+            return limit
         case _:
-            return EventRetentionPeriod.SEVEN_YEARS
-
-    # A sub-unit entitlement (e.g. 11 months) floors to 0 years; grandfather rather than over-provision a full year.
-    if years <= 0:
-        return EventRetentionPeriod.SEVEN_YEARS
-    if years <= 1:
-        return EventRetentionPeriod.ONE_YEAR
-    if years <= 2:
-        return EventRetentionPeriod.TWO_YEARS
-    if years <= 3:
-        return EventRetentionPeriod.THREE_YEARS
-    if years <= 5:
-        return EventRetentionPeriod.FIVE_YEARS
-    return EventRetentionPeriod.SEVEN_YEARS
+            # Events retention is a months/years concept; an unexpected unit (e.g. days) grandfathers rather than
+            # introducing a lossy day→month conversion.
+            return DEFAULT_EVENT_RETENTION_MONTHS

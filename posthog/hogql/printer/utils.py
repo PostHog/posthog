@@ -42,7 +42,7 @@ from posthog.hogql.workload import WorkloadCollector
 
 from posthog.clickhouse.workload import Workload
 from posthog.models.team import Team
-from posthog.models.team.event_retention import events_retention_window_for_team
+from posthog.models.team.event_retention import events_retention_months_for_team
 
 from products.access_control.backend.property_access_control import get_restricted_properties_for_team
 
@@ -243,7 +243,7 @@ def prepare_ast_for_printing(
         # enforcement floor still can't be circumvented by a query-supplied modifier.
         with context.timings.measure("events_retention_floor"):
             if context.apply_events_retention_floor:
-                context.events_retention_window = events_retention_window_for_team(context.team, context.team_id)
+                context.events_retention_months = events_retention_months_for_team(context.team, context.team_id)
 
         # Events predicate pushdown runs on the lowered AST (between lowering and property resolution), so it matches the
         # dialect-neutral PropertyAccess form. Its pre-filtering subquery projects only source columns (raw blobs and

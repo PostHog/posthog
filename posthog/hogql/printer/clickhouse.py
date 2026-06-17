@@ -52,11 +52,12 @@ def team_id_guard_for_table(table_type: ast.TableOrSelectType, context: HogQLCon
     )
 
 
-def retention_floor_for_table(table_type: ast.TableOrSelectType, retention_days: int) -> ast.Expr:
-    """Floor an events-table scan to ``timestamp > now() - retention_days``.
+def retention_floor_for_table(table_type: ast.TableOrSelectType, retention_months: int) -> ast.Expr:
+    """Floor an events-table scan to ``timestamp > now() - toIntervalMonth(retention_months)``.
 
     Sibling to ``team_id_guard_for_table``: a mandatory, context-derived guard added at the lowest level on the
     events table, so the events-data-retention cap can't be bypassed by query-supplied date filters or modifiers.
+    Uses a calendar-month interval so the boundary lands on the exact date (no leap-year / 365-day drift).
     """
     field_table_type = _table_filter_type(table_type)
     return ast.CompareOperation(
@@ -65,7 +66,7 @@ def retention_floor_for_table(table_type: ast.TableOrSelectType, retention_days:
         right=ast.ArithmeticOperation(
             op=ast.ArithmeticOperationOp.Sub,
             left=ast.Call(name="now", args=[]),
-            right=ast.Call(name="toIntervalDay", args=[ast.Constant(value=retention_days)]),
+            right=ast.Call(name="toIntervalMonth", args=[ast.Constant(value=retention_months)]),
         ),
         type=ast.BooleanType(),
     )
@@ -843,12 +844,12 @@ class ClickHousePrinter(BasePrinter):
     ) -> ast.Expr | None:
         from posthog.hogql.database.schema.events import EventsTable
 
-        window = self.context.events_retention_window
-        if window is None or node_type is None or not isinstance(table_type, ast.TableType):
+        months = self.context.events_retention_months
+        if months is None or node_type is None or not isinstance(table_type, ast.TableType):
             return None
         if not isinstance(table_type.table, EventsTable):
             return None
-        return retention_floor_for_table(node_type, window.days)
+        return retention_floor_for_table(node_type, months)
 
     def _print_table_ref(self, table_type: ast.TableType | ast.LazyTableType, node: ast.JoinExpr) -> str:
         sql = table_type.table.to_printed_clickhouse(self.context)

@@ -1,5 +1,4 @@
 from dataclasses import dataclass, field
-from datetime import timedelta
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
@@ -111,8 +110,8 @@ class HogQLContext:
     restricted_properties: Optional[set[tuple[str, int]]] = None
 
     # Cohort-gated events data retention: when set, the ClickHouse printer floors every events-table scan to
-    # now() - this window. Computed once per query in prepare_ast_for_printing; None means not enforced.
-    events_retention_window: Optional[timedelta] = None
+    # now() - toIntervalMonth(this). Computed once per query in prepare_ast_for_printing; None means not enforced.
+    events_retention_months: Optional[int] = None
     # Backend-only switch for the events-retention floor. Defaults on; server-side paths that must act on all rows
     # regardless of retention — notably the GDPR data-deletion mutation path — set this False. Deliberately NOT a
     # HogQLQueryModifier, so a query can't disable enforcement.

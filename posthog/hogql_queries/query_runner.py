@@ -113,7 +113,7 @@ from posthog.hogql_queries.validation.validation import (
 )
 from posthog.models import Team, User
 from posthog.models.team import WeekStartDay
-from posthog.models.team.event_retention import events_retention_window_for_team
+from posthog.models.team.event_retention import events_retention_months_for_team
 from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlError
 from posthog.schema_helpers import to_dict
 from posthog.scopes import APIScopeObject
@@ -1883,9 +1883,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # Vary the cache key by the events-retention floor: a cache hit returns before the printer applies the floor,
         # so without this a result cached pre-enforcement (or at a longer period) would keep surfacing events past
         # retention. Only set when enforced, so non-cohort teams' keys are unchanged.
-        retention_window = events_retention_window_for_team(self.team, self.team.pk)
-        if retention_window is not None:
-            payload["events_retention_floor_days"] = retention_window.days
+        retention_months = events_retention_months_for_team(self.team, self.team.pk)
+        if retention_months is not None:
+            payload["events_retention_floor_months"] = retention_months
 
         return payload
 

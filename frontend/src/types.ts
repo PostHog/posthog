@@ -773,8 +773,8 @@ export interface TeamType extends TeamBasicType {
         | null
     session_recording_masking_config: SessionRecordingMaskingConfig | undefined | null
     session_recording_retention_period: SessionRecordingRetentionPeriod | null
-    /** Plan-derived events data retention window (synced from billing). */
-    event_retention_period: '1y' | '2y' | '3y' | '5y' | '7y'
+    /** Plan-derived events data retention window in months (synced from billing). */
+    event_retention_months: number
     /** Whether events data retention is currently enforced for this team (cohort/flag gated). */
     events_retention_enforced: boolean
     session_replay_config: { record_canvas?: boolean } | undefined | null

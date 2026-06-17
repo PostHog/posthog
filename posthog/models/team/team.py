@@ -255,14 +255,6 @@ class SessionRecordingRetentionPeriod(models.TextChoices):
     FIVE_YEARS = "5y", "5 Years"
 
 
-class EventRetentionPeriod(models.TextChoices):
-    ONE_YEAR = "1y", "1 Year"
-    TWO_YEARS = "2y", "2 Years"
-    THREE_YEARS = "3y", "3 Years"
-    FIVE_YEARS = "5y", "5 Years"
-    SEVEN_YEARS = "7y", "7 Years"
-
-
 class Team(UUIDTClassicModel):
     """Team means "environment" (historically it meant "project", but now we have the parent Project model for that)."""
 
@@ -408,15 +400,11 @@ class Team(UUIDTClassicModel):
         "admin",
     )
 
-    # Events data retention — denormalized from the billing entitlement by sync_retention, read on the HogQL hot path.
-    # db_default because posthog_team is also written by raw inserts in nodejs/rust and the test-schema builder.
-    event_retention_period = field_access_control(
-        models.CharField(
-            max_length=3,
-            choices=EventRetentionPeriod,
-            default=EventRetentionPeriod.SEVEN_YEARS,
-            db_default=EventRetentionPeriod.SEVEN_YEARS,
-        ),
+    # Events data retention in months — denormalized from the billing entitlement by sync_events_retention, read on
+    # the HogQL hot path. Default 84 (7 years) grandfathers existing teams. db_default because posthog_team is also
+    # written by raw inserts in nodejs/rust and the test-schema builder.
+    event_retention_months = field_access_control(
+        models.PositiveSmallIntegerField(default=84, db_default=84),
         "project",
         "admin",
     )

@@ -13,20 +13,13 @@ const SNOOZE_DAYS = 30
 // retention horizon (or past it).
 const WARN_WITHIN_DAYS = 90
 
-const RETENTION_PERIOD_TO_DAYS: Record<string, number> = {
-    '1y': 365,
-    '2y': 365 * 2,
-    '3y': 365 * 3,
-    '5y': 365 * 5,
-    '7y': 365 * 7,
-}
-
-const RETENTION_PERIOD_TO_LABEL: Record<string, string> = {
-    '1y': '1 year',
-    '2y': '2 years',
-    '3y': '3 years',
-    '5y': '5 years',
-    '7y': '7 years',
+// Humanize a retention window in months: whole years read as "N year(s)", otherwise "N month(s)".
+function retentionMonthsLabel(months: number): string {
+    if (months % 12 === 0) {
+        const years = months / 12
+        return `${years} year${years === 1 ? '' : 's'}`
+    }
+    return `${months} month${months === 1 ? '' : 's'}`
 }
 
 // Global (per-browser) snooze + plan-derived eligibility for the events data-retention warning. The per-insight
@@ -54,32 +47,28 @@ export const dataRetentionBannerLogic = kea<dataRetentionBannerLogicType>([
             (s) => [s.currentTeam],
             (currentTeam): boolean => !!(currentTeam as TeamType | null)?.events_retention_enforced,
         ],
-        retentionPeriodDays: [
+        retentionMonths: [
             (s) => [s.currentTeam],
-            (currentTeam): number | null => {
-                const period = (currentTeam as TeamType | null)?.event_retention_period
-                return period ? (RETENTION_PERIOD_TO_DAYS[period] ?? null) : null
-            },
+            (currentTeam): number | null => (currentTeam as TeamType | null)?.event_retention_months ?? null,
         ],
         retentionPeriodLabel: [
-            (s) => [s.currentTeam],
-            (currentTeam): string | null => {
-                const period = (currentTeam as TeamType | null)?.event_retention_period
-                return period ? (RETENTION_PERIOD_TO_LABEL[period] ?? null) : null
-            },
+            (s) => [s.retentionMonths],
+            (retentionMonths): string | null => (retentionMonths ? retentionMonthsLabel(retentionMonths) : null),
         ],
         isSnoozed: [
             (s) => [s.snoozedUntil],
             (snoozedUntil): boolean => !!snoozedUntil && dayjs(snoozedUntil).isAfter(dayjs()),
         ],
         accountAgeEligible: [
-            (s) => [s.currentOrganization, s.retentionPeriodDays],
-            (currentOrganization, retentionPeriodDays): boolean => {
-                if (!currentOrganization?.created_at || !retentionPeriodDays) {
+            (s) => [s.currentOrganization, s.retentionMonths],
+            (currentOrganization, retentionMonths): boolean => {
+                if (!currentOrganization?.created_at || !retentionMonths) {
                     return false
                 }
-                const accountAgeDays = dayjs().diff(dayjs(currentOrganization.created_at), 'day')
-                return accountAgeDays >= retentionPeriodDays - WARN_WITHIN_DAYS
+                // Eligible once the account is old enough to have data within 90 days of (or past) its retention
+                // horizon — i.e. created before now − retention + 90 days.
+                const horizon = dayjs().subtract(retentionMonths, 'month').add(WARN_WITHIN_DAYS, 'day')
+                return dayjs(currentOrganization.created_at).isBefore(horizon)
             },
         ],
         warningEligible: [
