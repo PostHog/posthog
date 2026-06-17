@@ -6,6 +6,7 @@ from dateutil import parser
 from google.api_core.exceptions import BadRequest, Forbidden, NotFound, PermissionDenied
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
+from posthog.temporal.data_imports.sources.bigquery import bigquery as bq_module
 from posthog.temporal.data_imports.sources.bigquery.bigquery import (
     BIGQUERY_TOKEN_RESPONSE_ERROR,
     BigQueryImplementation,
@@ -616,3 +617,30 @@ def test_bigquery_dataset_not_found_in_location_is_non_retryable(location):
     non_retryable_errors = BigQuerySource().get_non_retryable_errors()
 
     assert any(pattern in error_msg for pattern in non_retryable_errors)
+
+
+def test_bigquery_storage_read_client_disables_grpc_message_size_limit():
+    """Regression: the Storage Read API streams Arrow ReadRowsResponse messages that can
+    exceed gRPC's default 4 MiB client receive limit (wide rows / large string columns like
+    GeoJSON), which surfaced as `_MultiThreadedRendezvous` RESOURCE_EXHAUSTED "Received
+    message larger than max". Because we build the channel ourselves, we must pass the same
+    unlimited message-length options the transport sets on its own default channel."""
+    with (
+        mock.patch.object(bq_module.service_account.Credentials, "from_service_account_info", return_value=mock.Mock()),
+        mock.patch.object(bq_module, "make_tracked_channel", return_value=mock.Mock()),
+        mock.patch.object(bq_module, "BigQueryReadGrpcTransport") as mock_transport_cls,
+        mock.patch.object(bq_module.bigquery_storage, "BigQueryReadClient"),
+    ):
+        with bq_module.bigquery_storage_read_client(
+            project_id="project-id",
+            private_key="private-key",
+            private_key_id="private-key-id",
+            client_email="client-email",
+            token_uri="token-uri",
+        ):
+            pass
+
+    mock_transport_cls.create_channel.assert_called_once()
+    options = dict(mock_transport_cls.create_channel.call_args.kwargs["options"])
+    assert options["grpc.max_receive_message_length"] == -1
+    assert options["grpc.max_send_message_length"] == -1

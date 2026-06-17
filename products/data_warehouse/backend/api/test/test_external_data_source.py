@@ -1250,6 +1250,45 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(payload["results"]), 2)
 
+    def _create_searchable_source(self, source_type: str, prefix: str) -> ExternalDataSource:
+        return ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type=source_type,
+            created_by=self.user,
+            prefix=prefix,
+        )
+
+    # Sentinel resolved to a freshly-created source's opaque internal source_id at runtime,
+    # to assert that searching by it no longer matches.
+    SEARCH_BY_INTERNAL_SOURCE_ID = object()
+
+    @parameterized.expand(
+        [
+            ("by_source_type", "Stripe", ["prod_payments"]),
+            ("by_source_type_other", "Postgres", ["analytics"]),
+            ("by_prefix_partial", "prod_", ["prod_payments"]),
+            ("by_prefix_full", "analytics", ["analytics"]),
+            ("no_match", "nonexistent", []),
+            ("internal_source_id_is_not_searchable", SEARCH_BY_INTERNAL_SOURCE_ID, []),
+        ]
+    )
+    def test_list_external_data_source_search(self, _name, term, expected_prefixes):
+        sources = {
+            "prod_payments": self._create_searchable_source(source_type="Stripe", prefix="prod_payments"),
+            "analytics": self._create_searchable_source(source_type="Postgres", prefix="analytics"),
+        }
+        if term is self.SEARCH_BY_INTERNAL_SOURCE_ID:
+            term = sources["analytics"].source_id
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/?search={term}")
+
+        assert response.status_code == 200
+        returned_prefixes = sorted(r["prefix"] for r in response.json()["results"])
+        assert returned_prefixes == sorted(expected_prefixes)
+
     def test_connections_returns_lightweight_direct_connection_options(self):
         source = ExternalDataSource.objects.create(
             team_id=self.team.pk,
