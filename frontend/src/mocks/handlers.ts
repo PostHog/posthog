@@ -62,14 +62,31 @@ const hogFunctionTemplatesMock: MockSignature = ({ request }) => {
     return HttpResponse.json(results)
 }
 
-function posthogCORSResponse({ request }: MockResolverInfo): Response {
+// Access-Control-Allow-Origin must be an origin (scheme + host + port), not a URL with a path.
+// Prefer the Origin header; fall back to deriving the origin from Referer (which often carries a path).
+function corsAllowOrigin({ request }: MockResolverInfo): string {
+    const origin = request.headers.get('origin')
+    if (origin && origin.length) {
+        return origin
+    }
     const referer = request.headers.get('referer')
+    if (referer && referer.length) {
+        try {
+            return new URL(referer).origin
+        } catch {
+            // malformed referer — fall through to the default
+        }
+    }
+    return 'http://localhost'
+}
+
+function posthogCORSResponse(info: MockResolverInfo): Response {
     return HttpResponse.json('ok', {
         status: 200,
         // some of our tests try to make requests via posthog-js e.g. userLogic calls identify
         // they have to have CORS allowed, or they pass but print noise to the console
         headers: {
-            'Access-Control-Allow-Origin': referer && referer.length ? referer : 'http://localhost',
+            'Access-Control-Allow-Origin': corsAllowOrigin(info),
             'Access-Control-Allow-Credentials': 'true',
             'Access-Control-Allow-Headers': '*',
         },

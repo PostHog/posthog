@@ -71,7 +71,7 @@ describe('the property definitions model', () => {
                     const url = new URL(request.url)
                     const propertiesToFind = (url.searchParams.get('properties') || '').split(',')
                     if (propertiesToFind[0] === 'network error') {
-                        return
+                        return [500, { detail: 'simulated network error' }]
                     }
                     const filteredPropertyDefinitions =
                         url.searchParams.get('type') === 'group' && url.searchParams.get('group_type_index') !== null
