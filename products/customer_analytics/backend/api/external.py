@@ -8,6 +8,7 @@ via the team secret API token passed as a Bearer token in the Authorization head
 import hashlib
 from typing import Any
 
+from django.db import transaction
 from django.db.models import Q
 
 import structlog
@@ -198,16 +199,18 @@ class ExternalAccountView(APIView):
         if account is None:
             return Response({"error": "Account not found"}, status=status.HTTP_404_NOT_FOUND)
 
-        error = self._apply_role_assignments(team, account, data)
-        if error:
-            return error
-
-        if "tags" in data:
-            try:
-                _apply_tags(account, data["tags"], data.get("tags_mode", "add"))
-            except Exception as e:
-                capture_exception(e, {"account_id": str(account.id)})
-                return Response({"error": "Failed to update tags"}, status=status.HTTP_400_BAD_REQUEST)
+        # Role assignments and tags must be all-or-nothing — a tag failure must not leave the
+        # role-contact changes committed. Validation errors return before any write happens.
+        try:
+            with transaction.atomic():
+                error = self._apply_role_assignments(team, account, data)
+                if error:
+                    return error
+                if "tags" in data:
+                    _apply_tags(account, data["tags"], data.get("tags_mode", "add"))
+        except Exception as e:
+            capture_exception(e, {"account_id": str(account.id)})
+            return Response({"error": "Failed to update account"}, status=status.HTTP_400_BAD_REQUEST)
 
         account.refresh_from_db()
         return Response(_serialize_account(account))

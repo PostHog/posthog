@@ -191,6 +191,18 @@ class TestExternalAccountAPI(APIBaseTest):
         response = self._patch({"external_id": "acme-1", "tags": ["enterprise"]}, token=other_team.secret_api_token)
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
+    def test_patch_rolls_back_role_assignment_when_tags_fail(self):
+        with patch(
+            "products.customer_analytics.backend.api.external._apply_tags",
+            side_effect=Exception("boom"),
+        ):
+            response = self._patch(
+                {"external_id": "acme-1", "csm": {"type": "user", "id": self.user.id}, "tags": ["enterprise"]}
+            )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.account.refresh_from_db()
+        self.assertIsNone(self.account.properties.csm)
+
     def test_patch_cannot_change_external_id_or_name(self):
         # external_id only identifies the account; renaming/rebinding is not exposed to workflows.
         response = self._patch({"external_id": "acme-1", "name": "Renamed", "new_external_id": "acme-2", "csm": None})
