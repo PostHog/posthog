@@ -93,6 +93,40 @@ export function parseTagsFilter(raw: unknown): string[] | undefined {
     return undefined
 }
 
+/** Parse a URL/query param into a list of numeric IDs. Accepts an array, a JSON-encoded list, or a comma-separated string. */
+export function parseNumericArrayFilter(raw: unknown): number[] | undefined {
+    const toNumbers = (values: unknown[]): number[] => values.map((v) => Number(v)).filter((n) => Number.isFinite(n))
+
+    let values: unknown[] | undefined
+
+    if (Array.isArray(raw)) {
+        values = raw
+    } else if (typeof raw === 'number') {
+        values = [raw]
+    } else if (typeof raw === 'string') {
+        const text = raw.trim()
+        if (text.startsWith('[')) {
+            try {
+                const parsed = JSON.parse(text)
+                values = Array.isArray(parsed) ? parsed : [parsed]
+            } catch {
+                // Looks like a JSON list but doesn't parse — treat as no valid IDs rather than
+                // comma-splitting, which would half-apply malformed input (e.g. "[1,2" -> [2]).
+                return undefined
+            }
+        } else {
+            values = text.split(',').map((s) => s.trim())
+        }
+    }
+
+    if (!values) {
+        return undefined
+    }
+
+    const numbers = toNumbers(values.filter((v) => v !== '' && v !== null && v !== undefined))
+    return numbers.length ? numbers : undefined
+}
+
 export function stripHTTP(url: string): string {
     url = url.replace(/(^[0-9]+_)/, '')
     url = url.replace(/(^\w+:|^)\/\//, '')
