@@ -709,3 +709,22 @@ def test_bigquery_storage_read_client_disables_grpc_message_size_limit():
     options = dict(mock_transport_cls.create_channel.call_args.kwargs["options"])
     assert options["grpc.max_receive_message_length"] == -1
     assert options["grpc.max_send_message_length"] == -1
+
+
+def test_bigquery_billing_not_enabled_is_non_retryable():
+    # A `billingNotEnabled` Forbidden 403 is a customer config issue — retrying never helps.
+    # Representative message from a real failed job (the `reason: billingNotEnabled` 403 raised
+    # by `job.result()` when the source project has BigQuery billing disabled / is in sandbox mode).
+    internal_error = (
+        "Forbidden: 403 Billing has not been enabled for this project. Enable billing at "
+        "https://console.cloud.google.com/billing. Datasets must have a default expiration time "
+        "and default partition expiration time of less than 60 days while in sandbox mode.; "
+        "reason: billingNotEnabled, message: Billing has not been enabled for this project."
+    )
+
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+
+    billing_key = "Billing has not been enabled for this project"
+    assert billing_key in non_retryable_errors, "expected billing key to be non-retryable"
+    # Mirror the substring match used by `update_external_data_job_model`.
+    assert billing_key in internal_error

@@ -42,6 +42,7 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     _MAX_SETUP_CONNECTION_DROPPED_RETRIES,
     _MAX_SETUP_RECOVERY_CONFLICT_RETRIES,
     FORCE_UTF8_CLIENT_ENCODING,
+    METADATA_STATEMENT_TIMEOUT_MS,
     SSL_REQUIRED_AFTER_DATE,
     JsonAsStringLoader,
     PostgresDiscoveredSchema,
@@ -606,6 +607,11 @@ class TestIsConnectionDroppedError:
             psycopg.OperationalError("connection to server was closed unexpectedly"),
             psycopg.OperationalError("consuming input failed: EOF detected"),
             psycopg.OperationalError("terminating connection due to administrator command"),
+            # psycopg's message when libpq finds the socket already gone (raised from
+            # PGconn.socket inside the commit at the end of get_connection). A transient
+            # dead-socket drop the in-process recovery must catch — without this the
+            # reconnect retry gives up and the offset-chunking fallback never triggers.
+            psycopg.OperationalError("the connection is lost"),
             psycopg.errors.ProtocolViolation("SERVER CONN CRASHED?"),
             # SQLSTATE 25P03: the source's idle_in_transaction_session_timeout culled our
             # backend mid-stream. psycopg maps this to InternalError, not OperationalError,
@@ -614,9 +620,13 @@ class TestIsConnectionDroppedError:
             psycopg.errors.IdleInTransactionSessionTimeout(),
             # Supavisor (Supabase's connection pooler) tears down a session whose backend connection
             # died and surfaces it as a generic XX000 InternalError_ — a transient drop, not a libpq
-            # signature, so it's matched on the pooler's own "DbHandler exited" text.
+            # signature, so it's matched on the pooler's own "(EDBHANDLEREXITED)" code. The trailing
+            # message wording varies for the same condition, so every observed variant must match.
             psycopg.errors.InternalError_("(EDBHANDLEREXITED) DbHandler exited. Check logs for more information"),
             psycopg.errors.InternalError_("(EDBHANDLEREXITED) DBHANDLER EXITED. Check logs for more information"),
+            psycopg.errors.InternalError_(
+                "(EDBHANDLEREXITED) connection to database closed. Check logs for more information"
+            ),
         ],
     )
     def test_connection_dropped_errors_are_detected(self, error):
@@ -637,7 +647,7 @@ class TestIsConnectionDroppedError:
             ValueError("server conn crashed?"),
             Exception("server conn crashed?"),
             # A genuine XX000 internal error that isn't the Supavisor pooler drop must stay
-            # non-recoverable — the InternalError_ match is scoped to the "DbHandler exited" text.
+            # non-recoverable — the InternalError_ match is scoped to the "(EDBHANDLEREXITED)" code.
             psycopg.errors.InternalError_("XX000: internal error: something went wrong"),
         ],
     )
@@ -2814,7 +2824,55 @@ class TestIsReadReplica:
             assert result is False
 
 
+class _RecordingCursor:
+    """Wraps a real cursor, recording executed SQL as text while delegating everything else."""
+
+    def __init__(self, inner: Any):
+        self._inner = inner
+        self.executed: list[str] = []
+
+    def execute(self, query: Any, *args: Any, **kwargs: Any) -> Any:
+        try:
+            self.executed.append(query.as_string())
+        except Exception:
+            self.executed.append(str(query))
+        return self._inner.execute(query, *args, **kwargs)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._inner, name)
+
+
 class TestGetTable:
+    @pytest.mark.django_db
+    def test_schema_discovery_query_runs_under_scoped_statement_timeout(self):
+        """The `information_schema.columns` metadata query is wrapped in its own transaction that
+        first issues a `SET LOCAL statement_timeout`, so a short role/server default can't cancel
+        it mid-discovery — the QueryCanceled on `_pg_numeric_scale` we observed against pooled
+        Postgres. Pin that the timeout is scoped immediately before the query it protects."""
+        logger = structlog.get_logger()
+
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute(
+                "CREATE TABLE test_get_table_timeout_scope (id INTEGER PRIMARY KEY, amount NUMERIC(10, 2))"
+            )
+            spy = _RecordingCursor(dj_cursor)
+            table = _get_table(cast(Any, spy), "public", "test_get_table_timeout_scope", logger)
+
+            # Real execution still succeeds and returns the expected columns.
+            assert {c.name for c in table.columns} >= {"id", "amount"}
+
+            set_local_idx = next(
+                i
+                for i, q in enumerate(spy.executed)
+                if "SET LOCAL" in q and "statement_timeout" in q and str(METADATA_STATEMENT_TIMEOUT_MS) in q
+            )
+            # The metadata SELECT (not the best-effort EXPLAIN that precedes it) must run directly
+            # after the SET LOCAL, inside the same transaction.
+            info_schema_idx = next(
+                i for i, q in enumerate(spy.executed) if "information_schema.columns" in q and "EXPLAIN" not in q
+            )
+            assert info_schema_idx == set_local_idx + 1
+
     @pytest.mark.django_db
     def test_regular_table(self):
         logger = structlog.get_logger()
