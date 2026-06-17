@@ -2142,6 +2142,21 @@ class TestHotTableAlterPolicy:
         risk = self._analyze([op])
         assert any("ACCESS EXCLUSIVE" in v for v in risk.policy_violations)
 
+    @parameterized.expand(
+        [
+            ("if_exists", "ALTER TABLE IF EXISTS posthog_team ADD COLUMN foo int NULL;"),
+            ("if_exists_quoted", 'ALTER TABLE IF EXISTS "posthog_team" ADD COLUMN foo int NULL;'),
+            ("if_exists_only", "ALTER TABLE IF EXISTS ONLY posthog_team ADD COLUMN foo int NULL;"),
+            ("schema_qualified", "ALTER TABLE public.posthog_team ADD COLUMN foo int NULL;"),
+            ("schema_qualified_quoted", 'ALTER TABLE "public"."posthog_team" ADD COLUMN foo int NULL;'),
+            ("if_exists_schema_qualified", "ALTER TABLE IF EXISTS public.posthog_team ADD COLUMN foo int NULL;"),
+        ]
+    )
+    def test_runsql_alter_variants_on_hot_table_blocked(self, _name, sql):
+        op = create_mock_operation(migrations.RunSQL, sql=sql)
+        risk = self._analyze([op])
+        assert any("ACCESS EXCLUSIVE" in v for v in risk.policy_violations)
+
     def test_runsql_validate_constraint_on_hot_table_not_flagged(self):
         op = create_mock_operation(migrations.RunSQL, sql='ALTER TABLE "posthog_team" VALIDATE CONSTRAINT "some_fk";')
         risk = self._analyze([op])

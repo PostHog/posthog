@@ -448,9 +448,15 @@ class HotTableAlterPolicy(MigrationPolicy):
 
     ACKNOWLEDGMENTS_FILE = Path(__file__).with_name("hot_table_acknowledged_migrations.txt")
 
-    # CONCURRENTLY index builds only take SHARE UPDATE EXCLUSIVE, which doesn't block reads or writes
+    # Only ALTER TABLE is matched; CONCURRENTLY index builds take SHARE UPDATE EXCLUSIVE, which
+    # doesn't block reads or writes. Mirrors the Postgres grammar: ALTER TABLE [ IF EXISTS ]
+    # [ ONLY ] [ schema. ] name, with optional double-quoting on the schema and table identifiers.
     _ALTER_HOT_TABLE = re.compile(
-        r'ALTER\s+TABLE\s+(?:ONLY\s+)?"?(posthog_team|posthog_user|posthog_organization|posthog_project)"?\b',
+        r"ALTER\s+TABLE\s+"
+        r"(?:IF\s+EXISTS\s+)?"
+        r"(?:ONLY\s+)?"
+        r'(?:"?\w+"?\s*\.\s*)?'  # optional schema qualifier, e.g. public.
+        r'"?(posthog_team|posthog_user|posthog_organization|posthog_project)"?\b',
         re.IGNORECASE,
     )
 
