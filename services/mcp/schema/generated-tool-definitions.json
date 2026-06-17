@@ -2274,6 +2274,62 @@
             "readOnlyHint": true
         }
     },
+    "error-tracking-alerts-create": {
+        "description": "Create an error tracking alert that fires when an issue is created, reopened, or starts spiking. An alert is a HogFunction with `type=internal_destination` whose `filters.events` references one of the three error-tracking lifecycle events. The events themselves are the trigger — there is no threshold or evaluation window to configure.\n\nTrigger events:\n- `$error_tracking_issue_created`  — fires once when a new issue first appears.\n- `$error_tracking_issue_reopened` — fires when a previously resolved issue starts emitting again.\n- `$error_tracking_issue_spiking`  — fires when the spike detector flags abnormal volume on an\n  issue. The spike threshold is configured separately via the spike detection config endpoint\n  and applies to all issues in the project.\n\n\nRecipe — deliver an error tracking alert to Slack or a webhook:\n\n1. Confirm the trigger and channel with the user. Picking `created` for a noisy project will\n   flood the channel; `spiking` is usually the safer default. Do not assume.\n\n\n2. Pick the integration. For Slack, call `integrations-list` with `kind=slack` to find the\n   integration id, then `integrations-channels-retrieve` for that integration to list channels.\n   For a webhook, the user provides the destination URL directly. Confirm the channel name or\n   webhook URL with the user before creating the alert — never wire a new alert to a production\n   channel without explicit confirmation.\n\n\n3. Dedupe. Call `error-tracking-alerts-list` and check whether an alert for the same trigger\n   event already exists. Skip creation if one is present and enabled — call\n   `error-tracking-alerts-partial-update` to adjust an existing alert instead of creating a\n   duplicate. Several alerts on the same event for the same channel produce duplicate\n   notifications.\n\n\n4. Create. Use `type=internal_destination`, the integration's `template_id`\n   (`template-slack`, `template-webhook`, `template-discord`, `template-microsoft-teams`,\n   `template-linear`, `template-github`, or `template-gitlab`), and:\n\n     filters = {\n       \"events\": [{\"id\": \"$error_tracking_issue_created\", \"type\": \"events\"}]\n     }\n\n   Optional per-issue scoping (`created`/`reopened` only): add a `filters.properties` clause\n   on `$exception_issue_id` — for example\n   `[{\"key\": \"$exception_issue_id\", \"value\": \"<issue_uuid>\", \"operator\": \"exact\", \"type\": \"event\"}]`\n   to alert only on a specific known-flaky issue. `$error_tracking_issue_spiking` events carry\n   no exception properties, so spiking alerts cannot be scoped per issue. PostHog's \"alerts\n   configured\" recommendation only checks `filters.events`, so adding property filters does\n   not affect it.\n\n\n5. Slack message body. Mirror the shape the in-product alert wizard produces so agent-created\n   and UI-created alerts look identical. The canonical payloads for every integration are in\n   the `authoring-error-tracking-alerts` skill references.\n\n   For `$error_tracking_issue_created` (Slack):\n\n     inputs = {\n       \"slack_workspace\": {\"value\": <slack_integration_id_int>},\n       \"channel\": {\"value\": \"<channel_id>\"},\n       \"text\": {\"value\": \"New issue created: {event.properties.name}\"},\n       \"blocks\": {\"value\": [\n         {\"type\": \"header\", \"text\": {\"type\": \"plain_text\",\n           \"text\": \"🔴 {event.properties.name}\"}},\n         {\"type\": \"section\", \"text\": {\"type\": \"plain_text\", \"text\": \"New issue created\"}},\n         {\"type\": \"section\", \"text\": {\"type\": \"mrkdwn\",\n           \"text\": \"```{substring(event.properties.description, 1, 150)}```\"}},\n         {\"type\": \"context\", \"elements\": [\n           {\"type\": \"plain_text\", \"text\": \"Status: {event.properties.status}\"},\n           {\"type\": \"mrkdwn\", \"text\": \"Project: <{project.url}|{project.name}>\"},\n           {\"type\": \"mrkdwn\", \"text\": \"Alert: <{source.url}|{source.name}>\"}\n         ]},\n         {\"type\": \"divider\"},\n         {\"type\": \"actions\", \"elements\": [\n           {\"type\": \"button\", \"text\": {\"type\": \"plain_text\", \"text\": \"View Issue\"},\n            \"url\": \"{project.url}/error_tracking/{event.distinct_id}?fingerprint={event.properties.fingerprint}&timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=slack\"}\n         ]}\n       ]}\n     }\n\n   For `$error_tracking_issue_reopened`, use the same blocks with the header swapped to\n   `🔄 {event.properties.name}`, the section text to `Issue reopened`, and `text` to\n   `Issue reopened: {event.properties.name}`.\n\n   For `$error_tracking_issue_spiking` (Slack), use the same shape but swap the header to\n   `📈 Issue spiking`, drop the `fingerprint`/`timestamp` params from the button URL (spiking\n   events do not carry them), and add a context line referencing\n   `{event.properties.current_bucket_value}` and `{event.properties.computed_baseline}`. The\n   exact block layout is in the `authoring-error-tracking-alerts` skill references.\n\n\n6. Webhook body. The webhook template only requires `url`:\n\n     inputs = {\"url\": {\"value\": \"<destination_url>\"}}\n\n   Webhooks must be `https://` URLs.\n\n\nEvent property reference — common across all three events: `event.properties.name` (issue title), `event.properties.description` (truncated body), `event.distinct_id` (issue id used in the deep link). `created`/`reopened` additionally expose `event.properties.status`, `event.properties.fingerprint`, `event.properties.exception_timestamp`, and the originating exception's properties (e.g. `$exception_types`, `$exception_issue_id`). Spiking events instead expose `event.properties.current_bucket_value` and `event.properties.computed_baseline` — no status, fingerprint, or exception properties. Project context is available as `{project.url}` (already includes `/project/<team_id>`), `{project.name}`, and the alert's own metadata as `{source.url}` and `{source.name}`.",
+        "category": "Error tracking alerts",
+        "feature": "error_tracking",
+        "summary": "Create error tracking alert",
+        "title": "Create error tracking alert",
+        "required_scopes": ["hog_function:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "error-tracking-alerts-delete": {
+        "description": "Delete an error tracking alert by ID (soft delete). The alert stops firing immediately, but the HogFunction row and its execution history are preserved. To re-enable a deleted alert, the user must re-create it; partial-update with `enabled=true` will not resurrect a soft-deleted alert.\n\nThis wraps the generic HogFunction delete and does not verify the ID belongs to an error tracking alert — it soft-deletes whatever function the ID points to, including unrelated destinations or transformations. Confirm the target with `error-tracking-alerts-list` before deleting.",
+        "category": "Error tracking alerts",
+        "feature": "error_tracking",
+        "summary": "Delete error tracking alert",
+        "title": "Delete error tracking alert",
+        "required_scopes": ["hog_function:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "error-tracking-alerts-list": {
+        "description": "List error tracking alerts in the project. Pass `type=internal_destination` and inspect each entry's `filters.events` for one of `$error_tracking_issue_created`, `$error_tracking_issue_reopened`, or `$error_tracking_issue_spiking` to identify alerts. The same endpoint backs `cdp-functions-list`, so non-error-tracking destinations are also returned — filter client-side by event id. Pagination defaults to 100 per page; pass a higher `limit` (e.g. 1000) when scanning for an existing alert by trigger and channel.",
+        "category": "Error tracking alerts",
+        "feature": "error_tracking",
+        "summary": "List error tracking alerts",
+        "title": "List error tracking alerts",
+        "required_scopes": ["hog_function:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "error-tracking-alerts-partial-update": {
+        "description": "Partially update an error tracking alert. Use to enable or disable an alert, rename it, change the destination channel/URL, or adjust the Slack message body. The `type` field cannot be changed after creation. To delete an alert, use `error-tracking-alerts-delete`. To change the trigger event, set `filters.events` to a list with the new event id — but consider creating a new alert instead so the old one's history is preserved.\n\nLike delete, this addresses the function by ID without verifying it is an error tracking alert; an unrelated function ID is updated instead. Confirm the target with `error-tracking-alerts-list` first.",
+        "category": "Error tracking alerts",
+        "feature": "error_tracking",
+        "summary": "Update error tracking alert",
+        "title": "Update error tracking alert",
+        "required_scopes": ["hog_function:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "error-tracking-assignment-rules-create": {
         "description": "Create an error tracking assignment rule for the current project. Provide `filters` to match incoming errors and an `assignee` with `type` (`user` or `role`) plus the matching user ID or role UUID.",
         "category": "Error tracking",
