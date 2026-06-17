@@ -135,7 +135,7 @@ function RequestAccessSection({ definition }: { definition: IntegrationDefinitio
                 center
                 loading={accessRequestLoading}
                 disabledReason={!accessRequestReason.trim() ? 'Add a short note for your admins' : undefined}
-                onClick={() => requestIntegrationAccess({ kind: definition.kind, reason: accessRequestReason.trim() })}
+                onClick={() => requestIntegrationAccess({ kind: definition.kind })}
             >
                 Request {definition.name}
             </LemonButton>

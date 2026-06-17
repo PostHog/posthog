@@ -183,11 +183,11 @@ export const integrationsLogic = kea<integrationsLogicType>([
         accessRequest: [
             null as IntegrationKind | null,
             {
-                requestIntegrationAccess: async ({ kind, reason }: { kind: IntegrationKind; reason: string }) => {
+                requestIntegrationAccess: async ({ kind }: { kind: IntegrationKind }) => {
                     try {
                         await integrationsRequestAccessCreate(String(values.currentProjectId), {
                             kind: kind as IntegrationKindEnumApi,
-                            reason,
+                            reason: values.accessRequestReason.trim(),
                         })
                         lemonToast.success('Request sent! Your project admins have been notified.')
                         return kind
