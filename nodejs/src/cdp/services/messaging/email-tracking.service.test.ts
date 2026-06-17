@@ -253,18 +253,21 @@ describe('EmailTrackingService', () => {
 
         it.each([
             {
-                name: 'uses event.distinct_id when present (event-triggered flow)',
-                globals: { event: { distinct_id: 'user-from-event' }, person: { id: 'person-uuid' } },
+                name: 'uses event.distinct_id (native for event-triggered; backfilled by the worker for batch)',
+                globals: { event: { distinct_id: 'user-from-event' } },
                 expected: 'user-from-event',
             },
             {
-                name: 'falls back to person.id when event.distinct_id is empty (batch / scheduled flow)',
-                globals: { event: { distinct_id: '' }, person: { id: 'person-uuid' } },
-                expected: 'person-uuid',
+                // Empty event.distinct_id means no distinct_id resolved upstream; we must NOT derive
+                // one from globals.person — person.id is the uuid (phantom person) and person.distinct_id
+                // is the same source already folded into event.distinct_id.
+                name: 'ignores globals.person and returns undefined when event.distinct_id is empty',
+                globals: { event: { distinct_id: '' }, person: { id: 'person-uuid', distinct_id: 'person-distinct' } },
+                expected: undefined,
             },
             {
-                name: 'returns undefined when neither event.distinct_id nor person.id is set',
-                globals: { event: { distinct_id: '' } },
+                name: 'returns undefined when there is no event',
+                globals: {},
                 expected: undefined,
             },
         ])('$name', ({ globals, expected }) => {

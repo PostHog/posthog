@@ -52,15 +52,19 @@ export const METRIC_NAME_TO_EVENT_NAME: Partial<Record<MinimalAppMetric['metric_
 }
 
 /**
- * Resolve the identifier to attribute engagement events to. Event-triggered workflows carry
- * `event.distinct_id`; batch/scheduled workflows synthesize an event with an empty `distinct_id`
- * and put the recipient on `globals.person`. Returns undefined if neither is present, in which
- * case we skip capture rather than emit an unattributable event.
+ * Resolve the identifier to attribute engagement events to. `event.distinct_id` is the canonical
+ * source for both flows: event-triggered runs carry it from the trigger event, and batch/scheduled
+ * runs have it backfilled by the cyclotron worker from the person's resolved distinct_id (see the
+ * `getCyclotronPerson` backfill in cdp-cyclotron-worker-hogflow.consumer.ts). We deliberately do
+ * NOT derive it from `globals.person` — `person.id` is the person UUID, which was never ingested as
+ * a distinct_id and would mint a phantom person, and `person.distinct_id` is the same source already
+ * folded into `event.distinct_id` upstream. If there's no distinct_id we skip capture rather than
+ * emit an unattributable event.
  */
 export const resolveEmailEngagementDistinctId = (
     invocation: Pick<CyclotronJobInvocationHogFunction, 'state'>
 ): string | undefined => {
-    return invocation.state?.globals?.event?.distinct_id || invocation.state?.globals?.person?.id || undefined
+    return invocation.state?.globals?.event?.distinct_id || undefined
 }
 
 export const generateTrackingRedirectUrl = (
