@@ -10,7 +10,7 @@ import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { closeHub, createHub } from '~/utils/db/hub'
 
 import { Hub, Team } from '../../../types'
-import { EmailService, parseAddressList, sanitizeEmailSubject } from './email.service'
+import { EmailService, formatToAddresses, parseAddressList, sanitizeEmailSubject } from './email.service'
 import { MailDevAPI } from './helpers/maildev'
 
 class ThrottlingException extends Error {
@@ -57,6 +57,22 @@ describe('parseAddressList', () => {
         expect(parseAddressList(undefined)).toBeUndefined()
         expect(parseAddressList('')).toBeUndefined()
         expect(parseAddressList(',')).toBeUndefined()
+    })
+})
+
+describe('formatToAddresses', () => {
+    it.each([
+        ['single recipient with display name', { email: 'a@x.com', name: 'A' }, ['"A" <a@x.com>']],
+        ['single recipient without name', { email: 'a@x.com' }, ['a@x.com']],
+        ['comma-separated list yields multiple addresses', { email: 'a@x.com, b@x.com' }, ['a@x.com', 'b@x.com']],
+        [
+            'comma-separated list applies the display name to each address',
+            { email: 'a@x.com, b@x.com', name: 'A' },
+            ['"A" <a@x.com>', '"A" <b@x.com>'],
+        ],
+        ['trims whitespace around commas', { email: '  a@x.com ,  b@x.com  ' }, ['a@x.com', 'b@x.com']],
+    ])('%s', (_name, input, expected) => {
+        expect(formatToAddresses(input)).toEqual(expected)
     })
 })
 
@@ -450,6 +466,18 @@ describe('EmailService', () => {
 
             const testSend = await service.executeSendEmail(invocation, true)
             expect(testSend.metrics).toEqual([])
+        })
+
+        it('should split a comma-separated To into multiple SES destination addresses', async () => {
+            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+            invocation.queueParameters = createEmailParams({
+                from: { integrationId: 1 },
+                to: { email: 'a@x.com, b@x.com' },
+            })
+            const result = await service.executeSendEmail(invocation)
+            expect(result.error).toBeUndefined()
+            const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
+            expect(sentCommand.input.Destination.ToAddresses).toEqual(['a@x.com', 'b@x.com'])
         })
 
         it('should include cc addresses in SES destination', async () => {

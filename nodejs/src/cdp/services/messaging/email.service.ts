@@ -100,6 +100,16 @@ export function parseAddressList(value?: string): string[] | undefined {
     return result.length > 0 ? result : undefined
 }
 
+/**
+ * Builds the `ToAddresses` list. The To field is free text that may contain a
+ * comma-separated list, so split it like Cc/Bcc and apply the optional display
+ * name to each resulting address.
+ */
+export function formatToAddresses(to: { email: string; name?: string }): string[] {
+    const addresses = parseAddressList(to.email) ?? [to.email]
+    return addresses.map((address) => (to.name ? `"${to.name}" <${address}>` : address))
+}
+
 export class EmailService {
     sesV2Client: SESv2Client | null
 
@@ -241,7 +251,7 @@ export class EmailService {
         // This can timeout but there is no native timeout so we do our own one
         const mailOptions: SendMailOptions = {
             from: from.name ? `"${from.name}" <${from.email}>` : from.email,
-            to: params.to.name ? `"${params.to.name}" <${params.to.email}>` : params.to.email,
+            to: formatToAddresses(params.to),
             subject: sanitizeEmailSubject(params.subject),
             text: params.text,
             ...(params.html ? { html: addTrackingToEmail(params.html, result.invocation, isTest) } : {}),
@@ -296,7 +306,7 @@ export class EmailService {
         const sendEmailParams: SendEmailCommandInput = {
             FromEmailAddress: from.name ? `"${from.name}" <${from.email}>` : from.email,
             Destination: {
-                ToAddresses: [params.to.name ? `"${params.to.name}" <${params.to.email}>` : params.to.email],
+                ToAddresses: formatToAddresses(params.to),
             },
             Content: {
                 Simple: {

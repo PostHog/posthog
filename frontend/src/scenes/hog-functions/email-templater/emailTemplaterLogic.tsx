@@ -38,7 +38,7 @@ export type EmailMetaField = {
 
 const EMAIL_META_FIELDS = {
     FROM: { key: 'from', label: 'From', optional: false },
-    TO: { key: 'to', label: 'To', optional: false },
+    TO: { key: 'to', label: 'To', optional: false, helpText: 'Comma-separated list of recipients.' },
     REPLY_TO: {
         key: 'replyTo',
         label: 'Reply-To',
