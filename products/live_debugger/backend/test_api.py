@@ -302,29 +302,6 @@ class TestLiveDebuggerBreakpointAPI(APIBaseTest):
         self.assertEqual(breakpoints[0]["filename"], "enabled.py")
         self.assertEqual(breakpoints[0]["line_number"], 100)
 
-    def test_active_breakpoints_endpoint_with_psak(self):
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/project_secret_api_keys",
-            {"label": "live-debugger", "scopes": ["live_debugger:read"]},
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        token = response.json()["value"]
-        LiveDebuggerBreakpoint.objects.create(
-            team=self.team,
-            repository="PostHog/posthog",
-            filename="enabled.py",
-            line_number=100,
-            enabled=True,
-        )
-
-        self.client.logout()
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/live_debugger_breakpoints/active/",
-            headers={"authorization": f"Bearer {token}"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 1)
-
     def test_active_breakpoints_filter_by_filename(self):
         LiveDebuggerBreakpoint.objects.create(
             team=self.team,
