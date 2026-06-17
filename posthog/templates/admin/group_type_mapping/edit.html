@@ -1,0 +1,82 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block title %}Edit group type mapping — {{ mapping.group_type }}{% endblock %}
+{% block content_title %}<h1>Edit group type mapping: {{ mapping.group_type }}</h1>{% endblock %}
+
+{% block content %}
+<div id="content-main">
+    {% if messages %}
+    <ul class="messagelist">
+        {% for message in messages %}
+        <li class="{{ message.tags }}">{{ message }}</li>
+        {% endfor %}
+    </ul>
+    {% endif %}
+
+    <form method="post" action="">
+        {% csrf_token %}
+
+        <fieldset class="module aligned">
+            <h2>Context</h2>
+            <div class="form-row" style="padding: 8px 12px;">
+                <strong>Team:</strong>
+                <a href="{% url 'admin:posthog_team_change' team.id %}">{{ team.name }}</a>
+                (ID: {{ team.id }})
+            </div>
+            {% if team.organization %}
+            <div class="form-row" style="padding: 8px 12px;">
+                <strong>Organization:</strong>
+                <a href="{% url 'admin:posthog_organization_change' team.organization_id %}">{{ team.organization.name }}</a>
+            </div>
+            {% endif %}
+            {% if project %}
+            <div class="form-row" style="padding: 8px 12px;">
+                <strong>Project:</strong>
+                <a href="{% url 'admin:posthog_project_change' project.id %}">{{ project.name }}</a>
+                (ID: {{ project.id }})
+            </div>
+            {% endif %}
+        </fieldset>
+
+        <fieldset class="module aligned">
+            <h2>Read-only fields</h2>
+            <div class="form-row" style="padding: 8px 12px;">
+                <strong>Group type:</strong> {{ mapping.group_type }}
+            </div>
+            <div class="form-row" style="padding: 8px 12px;">
+                <strong>Group type index:</strong> {{ mapping.group_type_index }}
+            </div>
+            <div class="form-row" style="padding: 8px 12px;">
+                <strong>Created at:</strong> {{ mapping.created_at|default:"-" }}
+            </div>
+        </fieldset>
+
+        <fieldset class="module aligned">
+            <h2>Editable fields</h2>
+            <div class="form-row" style="padding: 8px 12px;">
+                <label for="id_name_singular"><strong>Name (singular):</strong></label>
+                <input type="text" id="id_name_singular" name="name_singular" value="{{ mapping.name_singular|default:'' }}" style="padding: 6px 10px; width: 400px;" />
+            </div>
+            <div class="form-row" style="padding: 8px 12px;">
+                <label for="id_name_plural"><strong>Name (plural):</strong></label>
+                <input type="text" id="id_name_plural" name="name_plural" value="{{ mapping.name_plural|default:'' }}" style="padding: 6px 10px; width: 400px;" />
+            </div>
+            <div class="form-row" style="padding: 8px 12px;">
+                <label for="id_default_columns"><strong>Default columns (JSON array):</strong></label>
+                <input type="text" id="id_default_columns" name="default_columns" value="{{ default_columns_json|default:'' }}" style="padding: 6px 10px; width: 400px;" placeholder='e.g. ["name", "email"]' />
+                <p class="help">Enter a JSON array of column names, or leave empty.</p>
+            </div>
+        </fieldset>
+
+        <div class="submit-row" style="margin-top: 16px;">
+            <input type="submit" value="Save" class="default" />
+            <a href="{% url 'admin:grouptypemapping_team_detail' team.id %}" style="margin-left: 12px;">Cancel</a>
+        </div>
+    </form>
+
+    <p style="margin-top: 20px;">
+        <a href="{% url 'admin:grouptypemapping_team_detail' team.id %}">&larr; Back to team mappings</a>
+    </p>
+</div>
+{% endblock %}

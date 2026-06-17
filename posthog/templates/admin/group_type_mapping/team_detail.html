@@ -1,0 +1,74 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block title %}Group type mappings — {{ team.name }}{% endblock %}
+{% block content_title %}<h1>Group type mappings for {{ team.name }}</h1>{% endblock %}
+
+{% block content %}
+<div id="content-main">
+    <fieldset class="module aligned" style="margin-bottom: 20px;">
+        <h2>Team info</h2>
+        <div class="form-row" style="padding: 8px 12px;">
+            <strong>Team:</strong>
+            <a href="{% url 'admin:posthog_team_change' team.id %}">{{ team.name }}</a>
+            (ID: {{ team.id }})
+        </div>
+        {% if team.organization %}
+        <div class="form-row" style="padding: 8px 12px;">
+            <strong>Organization:</strong>
+            <a href="{% url 'admin:posthog_organization_change' team.organization_id %}">{{ team.organization.name }}</a>
+        </div>
+        {% endif %}
+        {% if project %}
+        <div class="form-row" style="padding: 8px 12px;">
+            <strong>Project:</strong>
+            <a href="{% url 'admin:posthog_project_change' project.id %}">{{ project.name }}</a>
+            (ID: {{ project.id }})
+        </div>
+        {% endif %}
+    </fieldset>
+
+    {% if mappings %}
+    <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
+        <thead>
+            <tr style="background: #f5f5f5;">
+                <th style="text-align: left; padding: 10px; border: 1px solid #ddd;">Index</th>
+                <th style="text-align: left; padding: 10px; border: 1px solid #ddd;">Group type</th>
+                <th style="text-align: left; padding: 10px; border: 1px solid #ddd;">Name (singular)</th>
+                <th style="text-align: left; padding: 10px; border: 1px solid #ddd;">Name (plural)</th>
+                <th style="text-align: left; padding: 10px; border: 1px solid #ddd;">Dashboard</th>
+                <th style="text-align: left; padding: 10px; border: 1px solid #ddd;">Created at</th>
+                <th style="text-align: left; padding: 10px; border: 1px solid #ddd;">Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for m in mappings %}
+            <tr>
+                <td style="padding: 10px; border: 1px solid #ddd;">{{ m.group_type_index }}</td>
+                <td style="padding: 10px; border: 1px solid #ddd;">{{ m.group_type }}</td>
+                <td style="padding: 10px; border: 1px solid #ddd;">{{ m.name_singular|default:"-" }}</td>
+                <td style="padding: 10px; border: 1px solid #ddd;">{{ m.name_plural|default:"-" }}</td>
+                <td style="padding: 10px; border: 1px solid #ddd;">
+                    {% if m.detail_dashboard_id %}
+                        {{ m.dashboard_link }}
+                    {% else %}
+                        -
+                    {% endif %}
+                </td>
+                <td style="padding: 10px; border: 1px solid #ddd;">{{ m.created_at|default:"-" }}</td>
+                <td style="padding: 10px; border: 1px solid #ddd;">
+                    <a href="{% url 'admin:grouptypemapping_edit' team.id m.group_type_index %}" class="button">Edit</a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+        <p>No group type mappings found for this team.</p>
+    {% endif %}
+
+    <p style="margin-top: 20px;">
+        <a href="{% url 'admin:grouptypemapping_search' %}">&larr; Back to search</a>
+    </p>
+</div>
+{% endblock %}
