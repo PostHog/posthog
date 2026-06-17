@@ -609,6 +609,20 @@ function classifyFetchError(error: unknown): string {
 }
 
 /**
+ * A 4xx from the reachability probe means the uiHost simply does not serve the
+ * `/toolbar_oauth/check` route (older self-hosted instances, reverse-proxy or
+ * custom-domain misconfig). That's an expected "host unreachable" control-flow
+ * condition, not an exception worth reporting to error tracking.
+ */
+function isExpectedReachabilityFailure(error: unknown): boolean {
+    if (!(error instanceof Error) || !error.message.startsWith('HTTP ')) {
+        return false
+    }
+    const status = Number.parseInt(error.message.slice('HTTP '.length), 10)
+    return status >= 400 && status < 500
+}
+
+/**
  * Run a CORS HEAD check against the PostHog app to verify uiHost is reachable.
  * If a pending OAuth code exchange exists, it runs after the check succeeds
  * (or shows the config modal on failure).
@@ -659,9 +673,13 @@ function verifyUiHostReachability(
         })
         .catch((error: unknown) => {
             actions.setAuthStatus('error')
-            captureToolbarException(error, 'ui_host_check', {
-                error_type: classifyFetchError(error),
-            })
+            // Expected reachability failures (uiHost doesn't serve the route) are control
+            // flow, not exceptions — they're still observable via the analytics event below.
+            if (!isExpectedReachabilityFailure(error)) {
+                captureToolbarException(error, 'ui_host_check', {
+                    error_type: classifyFetchError(error),
+                })
+            }
             toolbarPosthogJS.capture('toolbar ui host check', {
                 ...checkBaseProps,
                 status: 'error',

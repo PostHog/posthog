@@ -8,6 +8,7 @@ import {
     toolbarFetch,
     toolbarUploadMedia,
 } from '~/toolbar/toolbarConfigLogic'
+import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { cleanToolbarAuthHash, OAUTH_LOCALSTORAGE_KEY, PKCE_STORAGE_KEY, readToolbarAuthHash } from '~/toolbar/utils'
 
 global.fetch = jest.fn(() =>
@@ -342,6 +343,52 @@ describe('toolbar toolbarConfigLogic', () => {
             logic.mount()
             expect(logic.values.authStatus).toBe('checking')
             window.history.pushState({}, '', '/')
+        })
+    })
+
+    describe('reachability check exception reporting', () => {
+        let captureExceptionSpy: jest.SpyInstance
+        let captureSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            captureExceptionSpy = jest.spyOn(toolbarPosthogJS, 'captureException').mockReturnValue(undefined as any)
+            captureSpy = jest.spyOn(toolbarPosthogJS, 'capture').mockReturnValue(undefined as any)
+        })
+
+        afterEach(() => {
+            captureExceptionSpy.mockRestore()
+            captureSpy.mockRestore()
+        })
+
+        async function mountWithHeadResponse(response: Partial<Response>): Promise<void> {
+            ;(global.fetch as jest.Mock).mockImplementation((url: string) => {
+                if (typeof url === 'string' && url.endsWith('/toolbar_oauth/check')) {
+                    return Promise.resolve(response)
+                }
+                return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve([]) })
+            })
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
+            logic.mount()
+            // Flush the fetch promise chain so the .catch/.then runs.
+            await new Promise((resolve) => setTimeout(resolve, 0))
+        }
+
+        it('does not report an exception for an expected 4xx (route absent)', async () => {
+            await mountWithHeadResponse({ ok: false, status: 404 })
+            expect(captureExceptionSpy).not.toHaveBeenCalled()
+            // The analytics event still fires so the failure stays observable.
+            expect(captureSpy).toHaveBeenCalledWith(
+                'toolbar ui host check',
+                expect.objectContaining({ status: 'error', error_type: 'http_error' })
+            )
+        })
+
+        it('reports an exception for a 5xx response', async () => {
+            await mountWithHeadResponse({ ok: false, status: 503 })
+            expect(captureExceptionSpy).toHaveBeenCalledWith(
+                expect.any(Error),
+                expect.objectContaining({ error_type: 'http_error' })
+            )
         })
     })
 
