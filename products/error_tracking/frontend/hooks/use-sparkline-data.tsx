@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { ErrorTrackingSpikeEvent } from 'lib/components/Errors/types'
-import { dateStringToDayJs } from 'lib/utils'
+import { dateStringToDayJs } from 'lib/utils/dateFilters'
 
 import { DateRange, ErrorTrackingIssueAggregations } from '~/queries/schema/schema-general'
 

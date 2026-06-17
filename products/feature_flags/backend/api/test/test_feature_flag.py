@@ -46,7 +46,7 @@ from products.cohorts.backend.models.util import CohortErrorCode, get_friendly_e
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.models.experiment import Experiment
-from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
+from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer, parse_created_by_ids
 from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE, get_decrypted_flag_payload
 from products.feature_flags.backend.flag_status import FeatureFlagStatus
 from products.feature_flags.backend.models.feature_flag import (
@@ -5651,6 +5651,44 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert len(response["results"]) == 1
         assert response["results"][0]["key"] == "green_button"
 
+    @parameterized.expand(
+        [
+            # (name, format_filter, expected_keys)
+            ("json_list", lambda ids: json.dumps([ids[0], ids[1]]), {"red_button", "blue_button"}),
+            ("comma_separated", lambda ids: f"{ids[0]},{ids[2]}", {"red_button", "orange_button"}),
+            ("single_id", lambda ids: str(ids[1]), {"blue_button"}),
+            ("no_match", lambda ids: json.dumps([ids[3]]), set()),
+        ]
+    )
+    def test_get_flags_with_multiple_created_by_id_filter(self, _name, format_filter, expected_keys):
+        another_user = User.objects.create(email="foo@bar.com")
+        third_user = User.objects.create(email="baz@bar.com")
+        unrelated_user = User.objects.create(email="nobody@bar.com")
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
+        FeatureFlag.objects.create(team=self.team, created_by=another_user, key="blue_button")
+        FeatureFlag.objects.create(team=self.team, created_by=third_user, key="orange_button")
+
+        ids = [self.user.id, another_user.id, third_user.id, unrelated_user.id]
+        response = self.client.get(f"/api/projects/@current/feature_flags?created_by_id={format_filter(ids)}")
+        assert {flag["key"] for flag in response.json()["results"]} == expected_keys
+
+    @parameterized.expand(
+        [
+            ("none", None, []),
+            ("bool_true", True, []),
+            ("int", 42, [42]),
+            ("single_str", "42", [42]),
+            ("empty_str", "", []),
+            ("comma_separated", "1,2", [1, 2]),
+            ("comma_with_invalid", "1,abc,3", [1, 3]),
+            ("json_list", "[1, 2]", [1, 2]),
+            ("non_numeric", "abc", []),
+            ("malformed_json", "[5", []),
+        ]
+    )
+    def test_parse_created_by_ids(self, _name, value, expected):
+        assert parse_created_by_ids(value) == expected
+
     def test_get_flags_with_type_filters(self):
         feature_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
         Experiment.objects.create(
@@ -6253,8 +6291,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         FeatureFlag.objects.create(
             team=self.team,
             created_by=self.user,
-            key="both_flag",
-            evaluation_runtime="both",
+            key="all_flag",
+            evaluation_runtime="all",
         )
 
         # Test filtering by server environment
@@ -6269,11 +6307,11 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert len(response["results"]) == 1
         assert response["results"][0]["key"] == "client_flag"
 
-        # Test filtering by both environment
-        filtered_flags_list = self.client.get(f"/api/projects/@current/feature_flags?evaluation_runtime=both")
+        # Test filtering by all environment
+        filtered_flags_list = self.client.get(f"/api/projects/@current/feature_flags?evaluation_runtime=all")
         response = filtered_flags_list.json()
         assert len(response["results"]) == 1
-        assert response["results"][0]["key"] == "both_flag"
+        assert response["results"][0]["key"] == "all_flag"
 
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     def test_flag_is_cached_on_create_and_update(self, mock_on_commit):

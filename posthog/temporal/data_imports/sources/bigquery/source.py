@@ -59,6 +59,15 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # customer's service account — retrying can't resolve them; the user must grant the
             # missing permission (or the referenced table/dataset must exist).
             "Access Denied:": "BigQuery denied access to a table or dataset. Please ensure your service account has read access (the bigquery.tables.getData permission, e.g. the BigQuery Data Viewer role) on every dataset and table you're syncing, then reconnect the source.",
+            # Federated/external BigQuery tables (e.g. a Cloud SQL connection) read through to the
+            # underlying database. When that database's role lacks read access, BigQuery surfaces the
+            # upstream ACL failure inside a 400 BadRequest, e.g. "Error while reading data ...
+            # Failed to fetch row from PostgreSQL server. Error: ERROR:  permission denied for table
+            # <name>". This is a deterministic permission problem on the customer's data source —
+            # retrying can't resolve it; the user must grant the federation's database user read
+            # access. The "Access Denied:"/403 keys above only cover BigQuery's own IAM wording, so
+            # this lowercase upstream form slips through and retries forever.
+            "permission denied for table": 'BigQuery couldn\'t read a federated table because the underlying database denied permission ("permission denied for table"). Please grant the database user behind your BigQuery connection read access to the table, then reconnect the source.',
             # Raised from schema discovery (`get_columns`) and query jobs when the configured
             # dataset/table doesn't exist in the location we query — the dataset was deleted or
             # renamed, or it lives in a different region than the one we run against. The google
@@ -66,6 +75,12 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # so match the stable phrasing here. Retrying can't recover — the user must fix the
             # dataset or set the correct region.
             "was not found in location": "BigQuery couldn't find the configured dataset or table. It may have been deleted or renamed, or it may live in a different region — verify your dataset and table names, and set the dataset region in your source configuration if it isn't in the US.",
+            # Raised by google-cloud-bigquery's `TableReference.from_string` when a table id has
+            # more than the three `project.dataset.table` components. This happens when the
+            # Dataset ID field is set to `project.dataset` instead of just `dataset` — we then
+            # build `project.project.dataset.table` and the client rejects it. It's a deterministic
+            # config error, so retrying never succeeds.
+            "table_id must be a fully-qualified ID in standard SQL format": "Your BigQuery Dataset ID looks misconfigured — it should be just the dataset name (for example `analytics`), not `project.dataset`. Please update the Dataset ID in your source configuration.",
             # Raised from the shared `evolve_pyarrow_schema` in `pipelines/pipeline/utils.py`
             # when an integer column's source type was widened (e.g. `INT64` widened from a
             # narrower numeric type) after the destination table was created with the narrower

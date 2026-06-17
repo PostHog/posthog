@@ -6,7 +6,7 @@ import { Spinner } from '@posthog/lemon-ui'
 import { ExceptionAttributes } from 'lib/components/Errors/types'
 import { concatValues } from 'lib/components/Errors/utils'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
-import { identifierToHuman } from 'lib/utils'
+import { identifierToHuman } from 'lib/utils/strings'
 
 import {
     AnyPropertyFilter,

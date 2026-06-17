@@ -14,8 +14,10 @@ import {
 } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { humanFriendlyDuration, humanFriendlyNumber, pluralize } from 'lib/utils'
+import { humanFriendlyDuration } from 'lib/utils/durations'
 import { newInternalTab } from 'lib/utils/newInternalTab'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { CIStatusTag } from '../components/CIStatusTag'
