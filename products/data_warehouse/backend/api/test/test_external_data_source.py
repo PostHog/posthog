@@ -1087,6 +1087,44 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(payload["results"]), 2)
 
+    def test_list_external_data_source_search_matches_type_and_prefix(self):
+        stripe = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Stripe",
+            created_by=self.user,
+            prefix="prod_payments",
+        )
+        postgres = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="analytics",
+        )
+
+        base_url = f"/api/environments/{self.team.pk}/external_data_sources/"
+
+        # Search by source type narrows to that source.
+        by_type = self.client.get(f"{base_url}?search=Stripe").json()
+        assert [r["id"] for r in by_type["results"]] == [str(stripe.pk)]
+
+        # Search by prefix narrows to that source, including a partial prefix match.
+        by_prefix = self.client.get(f"{base_url}?search=prod_").json()
+        assert [r["id"] for r in by_prefix["results"]] == [str(stripe.pk)]
+
+        # A term matching neither type nor prefix returns nothing.
+        no_match = self.client.get(f"{base_url}?search=nonexistent").json()
+        assert no_match["results"] == []
+
+        # The opaque internal source_id is no longer a search target.
+        by_source_id = self.client.get(f"{base_url}?search={postgres.source_id}").json()
+        assert by_source_id["results"] == []
+
     def test_connections_returns_lightweight_direct_connection_options(self):
         source = ExternalDataSource.objects.create(
             team_id=self.team.pk,
