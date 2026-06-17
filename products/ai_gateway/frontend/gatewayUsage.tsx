@@ -3,7 +3,7 @@ import { LemonSkeleton, LemonTable } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { Sparkline } from 'lib/components/Sparkline'
 import { dayjs } from 'lib/dayjs'
-import { humanFriendlyCurrency, humanFriendlyNumber } from 'lib/utils'
+import { humanFriendlyCurrency, humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 

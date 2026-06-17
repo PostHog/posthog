@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
 
-import { humanFriendlyCurrency } from 'lib/utils'
+import { humanFriendlyCurrency } from 'lib/utils/numbers'
 
 import { aiGatewayLogic } from './aiGatewayLogic'
 

@@ -2,7 +2,7 @@ import { actions, afterMount, kea, listeners, path, reducers, selectors } from '
 import { loaders } from 'kea-loaders'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { humanFriendlyCurrency } from 'lib/utils'
+import { humanFriendlyCurrency } from 'lib/utils/numbers'
 
 import type { aiGatewayLogicType } from './aiGatewayLogicType'
 import {

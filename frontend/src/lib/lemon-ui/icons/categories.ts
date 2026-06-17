@@ -231,6 +231,7 @@ export const ELEMENTS = {
         'IconAsterisk',
         'IconCircleDashed',
         'IconX',
+        'IconXCircle',
         'IconAtSign',
         'IconEllipsis',
         'IconHide',
