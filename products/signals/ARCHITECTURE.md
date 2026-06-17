@@ -205,7 +205,11 @@ Bulk sync (`sync_full_cache`) fans the per-repo sync out via `run_parallel_with_
 
 #### Re-promotion
 
-Reports are re-promoted when new evidence arrives, but not on every single signal forever. `signals_at_run` is advanced when a run starts, and the grouping logic only re-promotes when `signal_count >= signals_at_run`.
+Reports are re-promoted when new evidence arrives. A `READY` / `RESOLVED` report re-promotes on every new matching signal (so research reruns with the latest evidence), and a report reset to `potential` re-promotes once it clears the `signals_at_run` snooze gate again.
+
+**Re-research cap.** The research activity reads every non-deleted signal, so re-research cost scales with report size. Once an already-researched report exceeds `RERESEARCH_MAX_SIGNALS` (`SIGNAL_RERESEARCH_MAX_SIGNALS`, default 10), `READY` / `RESOLVED` re-promotion is suppressed: new signals are still assigned, weighted, and emitted, but no new summary run spawns. Each suppressed signal fires the `signal_report_reresearch_skipped` event so the saved volume is trackable. Enforced at the grouping promotion gate (`assign_and_emit_signal_activity`) and the summary self-loop (`mark_report_ready_activity`).
+
+The cap covers **only** the `READY` / `RESOLVED` path (the one that re-promotes on every signal). Re-promotions through the `potential` gate stay uncapped — first research, `candidate` self-heal, snooze return, and a not-actionable reset re-accumulating weight — because they are weight / `signals_at_run`-gated rather than per-signal, so strong new evidence can still resurface a large report.
 
 On re-promotion:
 
@@ -343,9 +347,9 @@ potential → candidate → in_progress → ready
                                     → failed
                                     → potential (reset by actionability judge)
 
-# Re-promotion: READY reports are re-promoted to candidate when enough new signals
-# accumulate (signal_count >= signals_at_run), triggering a new summary run that
-# reuses the previous repo selection and findings for already-seen signals.
+# Re-promotion: READY reports are re-promoted to candidate on each new matching signal,
+# triggering a new summary run that reuses the previous repo selection and findings for
+# already-seen signals. Suppressed once signal_count > RERESEARCH_MAX_SIGNALS (see Re-research cap).
 ready → candidate
 
 # Transitions enforced by SignalReport.transition_to():
@@ -839,6 +843,7 @@ All events use `distinct_id = team.uuid` and `groups(organization, team)`. Per-s
 - `signal_emission_started` — `emit_signal()` past validation
 - `signal_emitted` — `emit_signal()` after Temporal dispatch succeeds
 - `signal_assigned_to_report` — grouping assigned the signal (+ `report_id`, `is_new_report`, `promoted`)
+- `signal_report_reresearch_skipped` — signal hit an already-researched report past the re-research cap, so no new run spawned (+ `report_id`, `signal_count`, `status`, `threshold`). Fires per suppressed signal
 - `signal_report_started` — report run began (+ `report_id`, `signal_count`, `run_count`, `source_products`)
 - `signals_repo_research_started` / `signals_repo_research_completed` — repo selection stage (+ `report_id`, `result`: `reused` | `selected` | `no_repo` | `failed`, optional `failure_reason`: `no_github_integration` | `agentic_activity_error`)
 - `signal_report_completed` — terminal per run (+ `result`: `ready` | `failed` | `pending_input` | `not_actionable`, optional `failure_reason`)
