@@ -208,14 +208,25 @@ class TestGetRowsErrors:
         with pytest.raises(HTTPError):
             _drive_get_rows("contacts", manager, responses)
 
-    def test_missing_envelope_key_raises(self) -> None:
+    @pytest.mark.parametrize(
+        ("endpoint", "body"),
+        [
+            # Brevo omits the array key entirely for an empty collection (just {"count": 0}).
+            ("email_campaigns", {"count": 0}),
+            ("sms_campaigns", {"count": 0}),
+            ("contact_segments", {"count": 0}),
+            # Some responses set the key to null instead of omitting it.
+            ("email_campaigns", {"campaigns": None, "count": 0}),
+        ],
+    )
+    def test_missing_or_null_envelope_key_yields_nothing(self, endpoint: str, body: dict[str, Any]) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
         manager.can_resume.return_value = False
 
-        # 200 OK with an unexpected body shape must fail loudly, not sync zero rows.
-        responses = [_make_response({"unexpected": []})]
-        with pytest.raises(KeyError):
-            _drive_get_rows("contacts", manager, responses)
+        _, rows = _drive_get_rows(endpoint, manager, [_make_response(body)])
+
+        assert rows == []
+        manager.save_state.assert_not_called()
 
 
 class TestGetRowsSession:

@@ -1,7 +1,16 @@
 import { useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 
-import { IconCollapse, IconExpand, IconVideoCamera } from '@posthog/icons'
+import {
+    IconClock,
+    IconCollapse,
+    IconExpand,
+    IconGear,
+    IconInfo,
+    IconSparkles,
+    IconThoughtBubble,
+    IconVideoCamera,
+} from '@posthog/icons'
 import { LemonButton, LemonCard, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -20,6 +29,8 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { BooleanTag } from '../components/BooleanTag'
+import { CardHeader } from '../components/CardHeader'
 import {
     CitedText,
     ObservationConfidence,
@@ -29,6 +40,8 @@ import {
     readResult,
 } from '../components/ObservationCard'
 import { ObservationProgressBar } from '../components/ObservationProgressBar'
+import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
+import { ScannerTypeBadge } from '../components/ScannerTypeBadge'
 import {
     failureKindDescription,
     ineligibleKindDescription,
@@ -36,12 +49,11 @@ import {
     parseFailureReason,
     parseIneligibleReason,
     type ScannerType,
-    scannerTypeLabel,
 } from '../replay_scanners/types'
 import { replayObservationLogic } from './replayObservationLogic'
-import { ReplayObservationSceneLogicProps, replayObservationSceneLogic } from './replayObservationSceneLogic'
+import { replayObservationSceneLogic } from './replayObservationSceneLogic'
 
-export const scene: SceneExport<ReplayObservationSceneLogicProps> = {
+export const scene: SceneExport = {
     component: ReplayObservationSceneComponent,
     logic: replayObservationSceneLogic,
     productKey: ProductKey.REPLAY_VISION,
@@ -90,17 +102,17 @@ function AutoSeekToTime({
     return null
 }
 
-export function ReplayObservationSceneComponent({ tabId }: { tabId: string }): JSX.Element {
+export function ReplayObservationSceneComponent(): JSX.Element {
     const { observationId } = useValues(replayObservationSceneLogic)
     const [recordingExpanded, setRecordingExpanded] = useState(true)
     const [pendingSeek, setPendingSeek] = useState<{ ms: number; trigger: number } | null>(null)
 
-    const observationLogic = replayObservationLogic({ id: observationId, tabId })
+    const observationLogic = replayObservationLogic({ id: observationId })
     useAttachedLogic(observationLogic, replayObservationSceneLogic)
 
     const { observation, observationLoading } = useValues(observationLogic)
 
-    if (observationLoading) {
+    if (observationLoading && !observation) {
         return (
             <SceneContent>
                 <SceneTitleSection name="Loading…" resourceType={{ type: 'replay_vision' }} />
@@ -181,11 +193,12 @@ export function ReplayObservationSceneComponent({ tabId }: { tabId: string }): J
                 name={scannerName}
                 description={`Observation of session ${observation.session_id}`}
                 resourceType={{ type: 'replay_vision' }}
+                actions={<ReplayVisionFeedbackButton />}
             />
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                 <LemonCard className="p-4" hoverEffect={false}>
-                    <div className="text-sm font-medium mb-3">Observation details</div>
+                    <CardHeader icon={<IconInfo />} title="Observation details" />
                     <div className="flex flex-col gap-3 text-sm">
                         <div>
                             <div className="text-xs text-muted mb-0.5">Status</div>
@@ -215,13 +228,18 @@ export function ReplayObservationSceneComponent({ tabId }: { tabId: string }): J
                         </div>
                         <div>
                             <div className="text-xs text-muted mb-0.5">Session</div>
-                            <Link to={urls.sessionProfile(observation.session_id)}>{observation.session_id}</Link>
+                            <Link
+                                to={urls.sessionProfile(observation.session_id)}
+                                data-attr="vision-observation-session-link"
+                            >
+                                {observation.session_id}
+                            </Link>
                         </div>
                     </div>
                 </LemonCard>
 
                 <LemonCard className="p-4" hoverEffect={false}>
-                    <div className="text-sm font-medium mb-3">Lifecycle</div>
+                    <CardHeader icon={<IconClock />} title="Lifecycle" />
                     <div className="flex flex-col gap-3 text-sm">
                         <div>
                             <div className="text-xs text-muted mb-0.5">Created at</div>
@@ -249,7 +267,7 @@ export function ReplayObservationSceneComponent({ tabId }: { tabId: string }): J
                 </LemonCard>
 
                 <LemonCard className="p-4" hoverEffect={false}>
-                    <div className="text-sm font-medium mb-3">Configuration</div>
+                    <CardHeader icon={<IconGear />} title="Configuration" />
                     <div className="flex flex-col gap-3 text-sm">
                         {snapshot?.model && (
                             <div>
@@ -278,37 +296,19 @@ export function ReplayObservationSceneComponent({ tabId }: { tabId: string }): J
                         {monitorAllowInconclusive !== null && (
                             <div>
                                 <div className="text-xs text-muted mb-0.5">Allow inconclusive verdicts</div>
-                                <LemonTag
-                                    type={monitorAllowInconclusive ? 'success' : 'muted'}
-                                    size="small"
-                                    className="self-start"
-                                >
-                                    {monitorAllowInconclusive ? 'Enabled' : 'Disabled'}
-                                </LemonTag>
+                                <BooleanTag value={monitorAllowInconclusive} />
                             </div>
                         )}
                         {classifierMultiLabel !== null && (
                             <div>
                                 <div className="text-xs text-muted mb-0.5">Multi-label</div>
-                                <LemonTag
-                                    type={classifierMultiLabel ? 'success' : 'muted'}
-                                    size="small"
-                                    className="self-start"
-                                >
-                                    {classifierMultiLabel ? 'Enabled' : 'Disabled'}
-                                </LemonTag>
+                                <BooleanTag value={classifierMultiLabel} />
                             </div>
                         )}
                         {classifierAllowFreeform !== null && (
                             <div>
                                 <div className="text-xs text-muted mb-0.5">Freeform tags</div>
-                                <LemonTag
-                                    type={classifierAllowFreeform ? 'success' : 'muted'}
-                                    size="small"
-                                    className="self-start"
-                                >
-                                    {classifierAllowFreeform ? 'Enabled' : 'Disabled'}
-                                </LemonTag>
+                                <BooleanTag value={classifierAllowFreeform} />
                             </div>
                         )}
                         {scorerMin !== null && (
@@ -341,15 +341,13 @@ export function ReplayObservationSceneComponent({ tabId }: { tabId: string }): J
 
             <div className={scannerType === 'summarizer' ? '' : 'grid grid-cols-1 lg:grid-cols-2 gap-4'}>
                 <section className="border rounded p-4 bg-surface-primary space-y-3">
-                    <div className="text-sm font-medium">Result</div>
+                    <CardHeader icon={<IconSparkles />} title="Result" />
 
                     {observation.status === 'failed' && observation.error_reason && (
                         <div className="flex flex-col gap-3">
                             {scannerType && (
                                 <LabeledRow label="Type">
-                                    <LemonTag type="option" className="self-start">
-                                        {scannerTypeLabel(scannerType)}
-                                    </LemonTag>
+                                    <ScannerTypeBadge scannerType={scannerType} />
                                 </LabeledRow>
                             )}
                             <LabeledRow label="Reason">
@@ -371,9 +369,7 @@ export function ReplayObservationSceneComponent({ tabId }: { tabId: string }): J
                         <div className="flex flex-col gap-3">
                             {scannerType && (
                                 <LabeledRow label="Type">
-                                    <LemonTag type="option" className="self-start">
-                                        {scannerTypeLabel(scannerType)}
-                                    </LemonTag>
+                                    <ScannerTypeBadge scannerType={scannerType} />
                                 </LabeledRow>
                             )}
                             <LabeledRow label="Reason">
@@ -395,9 +391,7 @@ export function ReplayObservationSceneComponent({ tabId }: { tabId: string }): J
                         <div className="flex flex-col gap-3">
                             {scannerType && (
                                 <LabeledRow label="Type">
-                                    <LemonTag type="option" className="self-start">
-                                        {scannerTypeLabel(scannerType)}
-                                    </LemonTag>
+                                    <ScannerTypeBadge scannerType={scannerType} />
                                 </LabeledRow>
                             )}
                             {prompt && scannerType !== 'summarizer' && (
@@ -433,7 +427,7 @@ export function ReplayObservationSceneComponent({ tabId }: { tabId: string }): J
                             reasoning ? 'bg-surface-primary' : 'bg-surface-secondary opacity-60'
                         }`}
                     >
-                        <div className="text-sm font-medium">Model reasoning</div>
+                        <CardHeader icon={<IconThoughtBubble />} title="Model reasoning" />
                         {reasoning ? (
                             <p className="text-sm whitespace-pre-wrap m-0">
                                 <CitedText text={reasoning} segments={reasoningSegments} onSeek={seekEmbeddedPlayer} />
@@ -465,6 +459,7 @@ export function ReplayObservationSceneComponent({ tabId }: { tabId: string }): J
                             e.stopPropagation()
                             setRecordingExpanded(!recordingExpanded)
                         }}
+                        data-attr="vision-observation-recording-toggle"
                     />
                     <IconVideoCamera className="text-muted-alt" />
                     <h3 className="text-lg font-semibold m-0">Recording</h3>

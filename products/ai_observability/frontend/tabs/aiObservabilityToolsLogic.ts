@@ -1,7 +1,7 @@
-import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, path, props, reducers, selectors } from 'kea'
 
-import { escapeRegex } from 'lib/actionUtils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { escapeRegex } from 'lib/utils/actions'
 
 import { groupsModel } from '~/models/groupsModel'
 import {
@@ -18,17 +18,14 @@ import toolsQueryTemplate from '../../backend/queries/tools.sql?raw'
 import { SortDirection, SortState, aiObservabilitySharedLogic } from '../aiObservabilitySharedLogic'
 import type { aiObservabilityToolsLogicType } from './aiObservabilityToolsLogicType'
 
-export interface AIObservabilityToolsLogicProps {
-    tabId?: string
-}
+export type AIObservabilityToolsLogicProps = Record<string, never>
 
 export const aiObservabilityToolsLogic = kea<aiObservabilityToolsLogicType>([
     path(['products', 'ai_observability', 'frontend', 'tabs', 'aiObservabilityToolsLogic']),
-    key((props: AIObservabilityToolsLogicProps) => props.tabId || 'default'),
     props({} as AIObservabilityToolsLogicProps),
-    connect((props: AIObservabilityToolsLogicProps) => ({
+    connect(() => ({
         values: [
-            aiObservabilitySharedLogic({ tabId: props.tabId }),
+            aiObservabilitySharedLogic,
             ['dateFilter', 'shouldFilterTestAccounts', 'propertyFilters'],
             groupsModel,
             ['groupsTaxonomicTypes'],

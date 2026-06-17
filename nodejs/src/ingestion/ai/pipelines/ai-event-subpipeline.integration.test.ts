@@ -9,6 +9,8 @@ import { createTestPluginEvent } from '../../../../tests/helpers/plugin-event'
 import { createTestTeam } from '../../../../tests/helpers/team'
 import { InternalPerson, PropertyUpdateOperation } from '../../../types'
 import { parseJSON } from '../../../utils/json-parse'
+import { GroupStoreForBatch } from '../../../worker/ingestion/groups/group-store-for-batch'
+import { PersonsStoreForBatch } from '../../../worker/ingestion/persons/persons-store-for-batch'
 import { AI_EVENTS_OUTPUT, EVENTS_OUTPUT, PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT } from '../../analytics/outputs'
 import { INGESTION_WARNINGS_OUTPUT } from '../../common/outputs'
 import { IngestionOutputs } from '../../outputs/ingestion-outputs'
@@ -34,6 +36,17 @@ const existingPerson: InternalPerson = {
     version: 0,
     last_seen_at: null,
 }
+
+const mockPersonsStoreForBatch: jest.Mocked<PersonsStoreForBatch> = {
+    fetchForChecking: jest.fn().mockResolvedValue(null),
+    getPersonlessBatchResult: jest.fn().mockReturnValue(false),
+    fetchForUpdate: jest.fn().mockResolvedValue(existingPerson),
+    updatePersonWithPropertiesDiffForUpdate: jest.fn().mockResolvedValue([existingPerson, [], false]),
+} as unknown as jest.Mocked<PersonsStoreForBatch>
+
+const mockGroupStoreForBatch: jest.Mocked<GroupStoreForBatch> = {
+    upsertGroup: jest.fn().mockResolvedValue(undefined),
+} as unknown as jest.Mocked<GroupStoreForBatch>
 
 function createAiEvent(overrides: Partial<PluginEvent> = {}): PluginEvent {
     return createTestPluginEvent({
@@ -74,6 +87,7 @@ function buildPipeline(configOverrides: Partial<AiEventSubpipelineConfig> = {}) 
             PERSON_MERGE_SYNC_BATCH_SIZE: 0,
             PERSON_JSONB_SIZE_ESTIMATE_ENABLE: 0,
             PERSON_PROPERTIES_UPDATE_ALL: false,
+            FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: '*',
         },
         outputs: mockOutputs,
         teamManager: {
@@ -85,13 +99,6 @@ function buildPipeline(configOverrides: Partial<AiEventSubpipelineConfig> = {}) 
         hogTransformer: {
             transformEventAndProduceMessages: (event: PluginEvent) => Promise.resolve({ event, invocationResults: [] }),
         } as any,
-        personsStore: {
-            fetchForChecking: jest.fn().mockResolvedValue(null),
-            getPersonlessBatchResult: jest.fn().mockReturnValue(false),
-            fetchForUpdate: jest.fn().mockResolvedValue(existingPerson),
-            updatePersonWithPropertiesDiffForUpdate: jest.fn().mockResolvedValue([existingPerson, [], false]),
-        } as any,
-        groupStore: {} as any,
         splitAiEventsConfig: {
             enabled: false,
             enabledTeams: '*',
@@ -111,7 +118,14 @@ function buildPipeline(configOverrides: Partial<AiEventSubpipelineConfig> = {}) 
 }
 
 function createInput(event: PluginEvent): AiEventSubpipelineInput {
-    return { message, event, team, headers }
+    return {
+        message,
+        event,
+        team,
+        headers,
+        personsStoreForBatch: mockPersonsStoreForBatch,
+        groupStoreForBatch: mockGroupStoreForBatch,
+    }
 }
 
 type AiOutputs =

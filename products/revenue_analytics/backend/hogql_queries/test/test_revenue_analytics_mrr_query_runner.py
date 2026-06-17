@@ -544,7 +544,7 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
             previous = results[0].total["data"][i]
 
     def test_with_data_with_managed_viewsets_ff(self):
-        with patch("posthoganalytics.feature_enabled", return_value=True):
+        with patch("posthoganalytics.feature_enabled", side_effect=lambda flag, *args, **kwargs: flag != "hogql-warehouse-access-control"):
             self._create_managed_viewsets()
 
             # Use huge date range to collect all data
@@ -1218,7 +1218,7 @@ class TestRevenueAnalyticsMRRQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_with_events_data_with_managed_viewsets_ff(self):
-        with patch("posthoganalytics.feature_enabled", return_value=True):
+        with patch("posthoganalytics.feature_enabled", side_effect=lambda flag, *args, **kwargs: flag != "hogql-warehouse-access-control"):
             s1 = str(uuid7("2025-01-25"))
             s2 = str(uuid7("2025-02-03"))
             s3 = str(uuid7("2025-02-05"))

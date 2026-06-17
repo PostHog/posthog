@@ -25,10 +25,10 @@ from rest_framework import status
 from posthog.api.test.test_personal_api_keys import PersonalAPIKeysBaseTest
 from posthog.constants import AvailableFeature
 from posthog.models import Person, Team
-from posthog.models.cohort.cohort import Cohort
 from posthog.models.organization import Organization, OrganizationMembership
 
 from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.cohort import Cohort
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.models.insight import Insight
 from products.product_tours.backend.models import ProductTour
@@ -1339,7 +1339,7 @@ class TestSurvey(APIBaseTest):
             format="json",
         ).json()
 
-        with self.assertNumQueries(21):
+        with self.assertNumQueries(20):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             result = response.json()
@@ -3440,7 +3440,7 @@ class TestSurvey(APIBaseTest):
         for name in survey_names:
             Survey.objects.create(team=self.team, name=name, type="popover", questions=[])
 
-        response = self.client.get(f"/api/projects/{self.team.id}/surveys/?search={search}")
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/", {"search": search})
         assert response.status_code == status.HTTP_200_OK
         result_names = [r["name"] for r in response.json()["results"]]
 
@@ -3477,7 +3477,7 @@ class TestSurvey(APIBaseTest):
         a = Survey.objects.create(team=self.team, name="Alpha", type="popover", questions=[])
         b = Survey.objects.create(team=self.team, name="Beta", type="popover", questions=[])
 
-        response = self.client.get(f"/api/projects/{self.team.id}/surveys/?search={search}")
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/", {"search": search})
         assert response.status_code == status.HTTP_200_OK
         result_ids = {r["id"] for r in response.json()["results"]}
 
@@ -3515,6 +3515,55 @@ class TestSurvey(APIBaseTest):
             body = response.json()
             assert body["attr"] == "search", f"expected error scoped to 'search', got {body}"
             assert "200 characters" in body["detail"], f"expected error detail to mention the cap, got {body['detail']}"
+
+    @parameterized.expand(
+        [
+            ("email in name", "alerts+ops@example.com", "alerts+ops@example.com"),
+            ("uuid in name", "run 1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed", "1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed"),
+            ("dotted identifier", "com.acme.billing survey", "com.acme.billing"),
+        ]
+    )
+    def test_list_filter_by_search_matches_literal_substring_below_trigram_threshold(self, _name, survey_name, search):
+        matching = Survey.objects.create(team=self.team, name=survey_name, type="popover", questions=[])
+        Survey.objects.create(team=self.team, name="Totally unrelated", type="popover", questions=[])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/", {"search": search})
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+
+        match_type_by_id = {r["id"]: r["search_match_type"] for r in results}
+        assert match_type_by_id.get(str(matching.id)) == "exact", (
+            "a literal substring must match and be labelled exact even when it scores below the trigram thresholds"
+        )
+        assert all(r["name"] != "Totally unrelated" for r in results)
+
+    def test_list_filter_by_search_returns_exact_first_with_match_type(self):
+        for name in ("feedback survey", "survey feedback", "feeback form", "Engineering survey"):
+            Survey.objects.create(team=self.team, name=name, type="popover", questions=[])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/?search=feedback")
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+
+        match_type_by_name = {r["name"]: r["search_match_type"] for r in results}
+        assert match_type_by_name == {
+            "feedback survey": "exact",
+            "survey feedback": "exact",
+            "feeback form": "similar",
+        }
+
+        match_types = [r["search_match_type"] for r in results]
+        assert match_types == ["exact", "exact", "similar"], f"exact matches must rank first, got {match_types}"
+
+    def test_list_filter_by_search_match_type_absent_without_search(self):
+        Survey.objects.create(team=self.team, name="Alpha", type="popover", questions=[])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/")
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+
+        assert results
+        assert all("search_match_type" not in r for r in results)
 
 
 class TestMultipleChoiceQuestions(APIBaseTest):
@@ -6771,6 +6820,26 @@ class TestSurveyListTypeFilter(APIBaseTest):
         data = response.json()
         self.assertEqual(len(data["results"]), 1)
         self.assertEqual(data["results"][0]["name"], "widget survey")
+
+    def test_filter_by_ids(self):
+        first = Survey.objects.create(team=self.team, name="first", type="popover", questions=[])
+        second = Survey.objects.create(team=self.team, name="second", type="popover", questions=[])
+        Survey.objects.create(team=self.team, name="third", type="popover", questions=[])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/?ids={first.id},{second.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual({s["name"] for s in data["results"]}, {"first", "second"})
+
+    def test_filter_by_ids_silently_omits_unknown_ids(self):
+        survey = Survey.objects.create(team=self.team, name="exists", type="popover", questions=[])
+        missing_id = uuid.uuid4()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/?ids={survey.id},{missing_id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(len(data["results"]), 1)
+        self.assertEqual(data["results"][0]["id"], str(survey.id))
 
 
 class TestSurveyStatsPerQuestion(ClickhouseTestMixin, APIBaseTest):

@@ -57,6 +57,8 @@ export class BrowserPool {
     private launchArgs(): string[] {
         return [
             '--disable-dev-shm-usage',
+            // Pin crashpad to /tmp — the container root filesystem is read-only.
+            '--crash-dumps-dir=/tmp/chrome-crash-dumps',
             '--mute-audio',
             ...this.proxyArgs,
             ...(config.disableBrowserSecurity ? ['--disable-web-security'] : []),

@@ -37,8 +37,8 @@ function OverviewPanel({
     )
 }
 
-function MonitorOverview({ scannerId, tabId }: { scannerId: string; tabId: string }): JSX.Element {
-    const { monitorStats, hasActiveObservationFilters } = useValues(replayScannerLogic({ id: scannerId, tabId }))
+function MonitorOverview({ scannerId }: { scannerId: string }): JSX.Element {
+    const { monitorStats, hasActiveObservationFilters } = useValues(replayScannerLogic({ id: scannerId }))
     const { yesTotal, noTotal, inconclusiveTotal } = monitorStats
     const total = yesTotal + noTotal + inconclusiveTotal
     if (total === 0) {
@@ -83,9 +83,9 @@ function MonitorOverview({ scannerId, tabId }: { scannerId: string; tabId: strin
     )
 }
 
-function ClassifierOverview({ scannerId, tabId }: { scannerId: string; tabId: string }): JSX.Element | null {
+function ClassifierOverview({ scannerId }: { scannerId: string }): JSX.Element | null {
     const { scanner, classifierTagStats, hasActiveObservationFilters } = useValues(
-        replayScannerLogic({ id: scannerId, tabId })
+        replayScannerLogic({ id: scannerId })
     )
     const { fixedRanked, freeformRanked } = classifierTagStats
     // Wait for the scanner config — without it `freeformAllowed` defaults to `false` and the panel flashes the
@@ -105,16 +105,20 @@ function ClassifierOverview({ scannerId, tabId }: { scannerId: string; tabId: st
         if (ranked.length === 0) {
             return <div className="text-muted text-sm">{emptyMessage}</div>
         }
-        const maxCount = ranked[0][1]
+        // Cap at the 5 most common so the panels stay compact.
+        const top = ranked.slice(0, 5)
+        const maxCount = top[0][1]
         return (
             <div className="space-y-1.5">
-                {ranked.map(([tag, count]) => (
+                {top.map(([tag, count]) => (
                     <div key={tag} className="flex items-center gap-2">
                         <LemonTag type="option" className="shrink-0">
                             {tag}
                         </LemonTag>
-                        <LemonProgress percent={Math.round((count / maxCount) * 100)} />
-                        <span className="text-xs text-muted tabular-nums w-8 text-right">{count}</span>
+                        <LemonProgress percent={Math.round((count / maxCount) * 100)} className="flex-1" />
+                        <span className="text-xs text-muted tabular-nums text-right whitespace-nowrap shrink-0 w-12">
+                            {count.toLocaleString()}
+                        </span>
                     </div>
                 ))}
             </div>
@@ -145,9 +149,9 @@ function ClassifierOverview({ scannerId, tabId }: { scannerId: string; tabId: st
     )
 }
 
-function ScorerOverview({ scannerId, tabId }: { scannerId: string; tabId: string }): JSX.Element {
+function ScorerOverview({ scannerId }: { scannerId: string }): JSX.Element {
     const { scorerSummary, scorerHistogram, hasActiveObservationFilters } = useValues(
-        replayScannerLogic({ id: scannerId, tabId })
+        replayScannerLogic({ id: scannerId })
     )
     const theme = useMemo(() => buildTheme(), [])
     if (!scorerSummary || !scorerHistogram) {
@@ -181,8 +185,8 @@ function ScorerOverview({ scannerId, tabId }: { scannerId: string; tabId: string
     )
 }
 
-export function ScannerOverview({ scannerId, tabId }: { scannerId: string; tabId: string }): JSX.Element | null {
-    const { scanner, coverageStats } = useValues(replayScannerLogic({ id: scannerId, tabId }))
+export function ScannerOverview({ scannerId }: { scannerId: string }): JSX.Element | null {
+    const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
     if (!scanner) {
         return null
     }
@@ -190,30 +194,19 @@ export function ScannerOverview({ scannerId, tabId }: { scannerId: string; tabId
     // Summarizer panel deferred to the Max chat follow-up.
     const typeOverview =
         scannerType === 'monitor' ? (
-            <MonitorOverview scannerId={scannerId} tabId={tabId} />
+            <MonitorOverview scannerId={scannerId} />
         ) : scannerType === 'classifier' ? (
-            <ClassifierOverview scannerId={scannerId} tabId={tabId} />
+            <ClassifierOverview scannerId={scannerId} />
         ) : scannerType === 'scorer' ? (
-            <ScorerOverview scannerId={scannerId} tabId={tabId} />
+            <ScorerOverview scannerId={scannerId} />
         ) : null
-    if (!typeOverview && scannerType !== 'summarizer') {
-        return null
-    }
     const showChart = scannerType !== 'summarizer'
-    const showCoverage = coverageStats.totalSessions > 0
-    if (!showCoverage && !showChart && !typeOverview) {
+    if (!showChart && !typeOverview) {
         return null
     }
     return (
         <div className="space-y-4">
-            {showCoverage && (
-                <div className="text-xs text-muted tabular-nums">
-                    Scanned <span className="font-semibold text-default">{coverageStats.recentSessions}</span> session
-                    {coverageStats.recentSessions === 1 ? '' : 's'} in the last {coverageStats.recentDays} days ·{' '}
-                    <span className="font-semibold text-default">{coverageStats.totalSessions}</span> total
-                </div>
-            )}
-            {showChart && <ScannerInsightsChart scannerId={scannerId} scannerType={scannerType} tabId={tabId} />}
+            {showChart && <ScannerInsightsChart scannerId={scannerId} scannerType={scannerType} />}
             {typeOverview}
         </div>
     )

@@ -138,6 +138,7 @@ export const urls = {
     aiHistory: (): string => '/ai/history',
     settings: (section: SettingSectionId | SettingLevelId = 'project', setting?: SettingId): string =>
         combineUrl(`/settings/${section}`, undefined, setting).url,
+    featurePreview: (flagKey: string): string => combineUrl('/settings/user-feature-previews', {}, flagKey).url,
     organizationCreationConfirm: (): string => '/organization/confirm-creation',
     toolbarLaunch: (): string => '/toolbar',
     site: (url: string): string => `/site/${url === ':url' ? url : encodeURIComponent(url)}`,
@@ -229,6 +230,7 @@ export const urls = {
     queryPerformance: (): string => '/instance/query_performance',
     materializedColumns: (): string => '/data-management/materialized-columns',
     unsubscribe: (): string => '/unsubscribe',
+    integration: (slug: string): string => `/integrations/${slug}`,
     integrationsRedirect: (kind: string): string => `/integrations/${kind}/callback`,
     stripeConfirmInstall: (): string => '/integrations/stripe/confirm-install',
     shared: (token: string, exportOptions: SharingConfigurationSettings = {}): string =>
@@ -284,6 +286,7 @@ export const urls = {
         `/product_tours/${id}${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
     organizationDeactivated: (): string => '/organization-deactivated',
     organizationPendingDeletion: (): string => '/organization-pending-deletion',
+    projectPendingDeletion: (): string => '/project-pending-deletion',
     approvals: (): string => '/settings/environment-approvals#change-requests',
     approval: (id: string): string => `/approvals/${id}`,
     health: (): string => '/health',
@@ -296,10 +299,12 @@ export const urls = {
     webAnalyticsBotAnalytics: (): string => '/web/bots',
     webAnalyticsHealth: (): string => '/web/health',
     pipelineStatus: (): string => '/health/pipeline-status',
-    sdkDoctor: (): string => '/health/sdk-doctor',
+    sdkHealth: (): string => '/health/sdk-health',
     exports: (): string => '/exports',
     subscriptions: (): string => '/subscriptions',
     subscription: (id: string | number): string => `/subscriptions/${id}`,
+    subscriptionNew: (): string => '/subscriptions/new',
+    subscriptionEdit: (id: string | number): string => `/subscriptions/${id}/edit`,
 }
 
 export interface UrlMatcher {

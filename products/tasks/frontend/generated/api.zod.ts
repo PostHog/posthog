@@ -206,13 +206,14 @@ export const TasksCreateBody = /* @__PURE__ */ zod.object({
             'session_summaries',
             'signal_report',
             'signals_scout',
+            'support_reply',
         ])
         .describe(
-            '\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout'
+            '\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply'
         )
         .optional()
         .describe(
-            'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout'
+            'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply'
         ),
     repository: zod
         .string()
@@ -275,13 +276,14 @@ export const TasksUpdateBody = /* @__PURE__ */ zod.object({
             'session_summaries',
             'signal_report',
             'signals_scout',
+            'support_reply',
         ])
         .describe(
-            '\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout'
+            '\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply'
         )
         .optional()
         .describe(
-            'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout'
+            'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply'
         ),
     repository: zod
         .string()
@@ -344,13 +346,14 @@ export const TasksPartialUpdateBody = /* @__PURE__ */ zod.object({
             'session_summaries',
             'signal_report',
             'signals_scout',
+            'support_reply',
         ])
         .describe(
-            '\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout'
+            '\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply'
         )
         .optional()
         .describe(
-            'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout'
+            'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply'
         ),
     repository: zod
         .string()
@@ -382,17 +385,6 @@ export const TasksPartialUpdateBody = /* @__PURE__ */ zod.object({
             'If true, the task is hidden from default list responses. Used by PostHog Code clients to share archive state across desktop and mobile.'
         ),
     ci_prompt: zod.string().nullish().describe('Custom prompt for CI fixes. If blank, a default prompt will be used.'),
-})
-
-/**
- * Add this task to the desktop project tree so it can be organized into folders. Optionally pass a destination folder path. Idempotent — re-filing updates the existing entry.
- * @summary File a task into the project tree
- */
-export const TasksFileCreateBody = /* @__PURE__ */ zod.object({
-    folder: zod
-        .string()
-        .optional()
-        .describe("Destination folder path in the project tree (e.g. 'Tasks\/Bugs'). Defaults to 'Tasks'."),
 })
 
 /**

@@ -1,5 +1,6 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 
+import { CardTopHeadingRow } from 'lib/components/Cards/CardTopHeadingRow'
 import { FilmCameraHog } from 'lib/components/hedgehogs'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import 'scenes/session-recordings/playlist/SessionRecordingPreview.scss'
@@ -12,14 +13,24 @@ import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessi
 import type { RecordingsQuery } from '~/queries/schema/schema-general'
 import type { SessionRecordingType } from '~/types'
 
-import { WidgetCardBodyMessage, WidgetCardContent } from '../../components/WidgetCard'
+import {
+    WidgetCardBodyMessage,
+    WidgetCardContent,
+    WidgetContentFooter,
+    WidgetListCount,
+    WIDGET_LIST_COUNT_RECORDINGS,
+} from '../../components/WidgetCard'
+import type { DashboardWidgetTopHeadingProps } from '../../components/WidgetCard/WidgetCardHeader'
 import type { DashboardWidgetComponentProps } from '../registry'
 import { parseSessionReplayWidgetConfig } from './sessionReplayWidgetConfigValidation'
+import { sessionReplayWidgetSavedFiltersLogic } from './sessionReplayWidgetSavedFiltersLogic'
 
 type SessionReplayWidgetResult = {
     results?: SessionRecordingType[]
     hasMore?: boolean
     limit?: number
+    totalCount?: number
+    totalCountCapped?: boolean
 }
 
 function SessionReplayWidgetRecordingRow({
@@ -48,7 +59,8 @@ function SessionReplayWidgetRecordingRow({
 export function SessionReplayWidget({ result, loading, config }: DashboardWidgetComponentProps): JSX.Element {
     const payload = result as SessionReplayWidgetResult | null | undefined
     const recordings = payload?.results ?? []
-    const order = parseSessionReplayWidgetConfig(config).orderBy as RecordingsQuery['order']
+    const parsedConfig = parseSessionReplayWidgetConfig(config)
+    const order = parsedConfig.orderBy as RecordingsQuery['order']
 
     if (loading) {
         return (
@@ -72,9 +84,7 @@ export function SessionReplayWidget({ result, loading, config }: DashboardWidget
                     >
                         <FilmCameraHog className="size-20 shrink-0" />
                         <p className="m-0 text-base font-semibold text-primary">No recordings yet</p>
-                        <p className="m-0 text-sm text-muted">
-                            No session recordings matched your filters for this date range.
-                        </p>
+                        <p className="m-0 text-sm text-muted">No session recordings matched your filters.</p>
                     </div>
                 </WidgetCardBodyMessage>
             </WidgetCardContent>
@@ -82,12 +92,44 @@ export function SessionReplayWidget({ result, loading, config }: DashboardWidget
     }
 
     return (
-        <WidgetCardContent>
-            <div className="flex flex-col">
-                {recordings.map((recording) => (
-                    <SessionReplayWidgetRecordingRow key={recording.id} recording={recording} order={order} />
-                ))}
-            </div>
-        </WidgetCardContent>
+        <>
+            <WidgetCardContent>
+                <div className="flex flex-col">
+                    {recordings.map((recording) => (
+                        <SessionReplayWidgetRecordingRow key={recording.id} recording={recording} order={order} />
+                    ))}
+                </div>
+            </WidgetCardContent>
+            <WidgetContentFooter>
+                <WidgetListCount
+                    shown={recordings.length}
+                    totalCount={payload?.totalCount}
+                    totalCountIsLowerBound={payload?.totalCountCapped}
+                    noun={WIDGET_LIST_COUNT_RECORDINGS}
+                    hasMore={payload?.hasMore}
+                    dataAttr="session-replay-widget-count"
+                />
+            </WidgetContentFooter>
+        </>
+    )
+}
+
+// A saved filter overrides the widget's date range, so the header shows the filter's name in its place.
+export function SessionReplayWidgetTopHeading({
+    config,
+    widgetTypeLabel,
+    showWidgetType,
+    dateText,
+}: DashboardWidgetTopHeadingProps): JSX.Element {
+    const rawSavedFilterId = config.savedFilterId
+    const savedFilterId = typeof rawSavedFilterId === 'string' && rawSavedFilterId.length > 0 ? rawSavedFilterId : null
+    const { savedFilterLabelById } = useValues(sessionReplayWidgetSavedFiltersLogic)
+
+    return (
+        <CardTopHeadingRow
+            typeLabel={widgetTypeLabel}
+            showTypeLabel={showWidgetType}
+            dateText={savedFilterId ? (savedFilterLabelById[savedFilterId] ?? 'Saved filter') : dateText}
+        />
     )
 }

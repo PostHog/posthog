@@ -237,7 +237,7 @@ def _build_insert_query(actions: Sequence) -> str:
     return f"""
 SELECT
     toStartOfHour(start_timestamp) AS time_window_start,
-    action_id,
+    action_id AS action_id,
     sumState(assumeNotNull(toInt(action_count))) AS count_state,
     uniqStateIf(
         session_person_id,
@@ -306,6 +306,7 @@ def ensure_web_goals_precomputed(
         table=LazyComputationTable.WEB_GOALS_PREAGGREGATED,
         placeholders=placeholders,
         query_type="web_goals_lazy_insert",
+        spill_to_disk=True,  # per-action GROUP BY over a sessions join; can build a large hash table
     )
 
 

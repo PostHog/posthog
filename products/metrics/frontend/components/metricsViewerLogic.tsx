@@ -1,22 +1,18 @@
-import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
-import { dateStringToDayJs } from 'lib/utils'
+import { dateStringToDayJs } from 'lib/utils/dateFilters'
+import { teamLogic } from 'scenes/teamLogic'
+
+import { metricsQueryCreate } from 'products/metrics/frontend/generated/api'
+import type { _MetricSeriesApi } from 'products/metrics/frontend/generated/api.schemas'
 
 import type { metricsViewerLogicType } from './metricsViewerLogicType'
 
 export type MetricAggregation = 'sum' | 'avg' | 'count' | 'p95'
 
-export interface MetricsViewerLogicProps {
-    tabId: string
-}
-
-export interface MetricsViewerPoint {
-    time: string
-    value: number
-}
+export type MetricsViewerSeries = _MetricSeriesApi
 
 const DEFAULT_AGGREGATION: MetricAggregation = 'sum'
 const DEFAULT_DATE_FROM = '-1h'
@@ -32,8 +28,9 @@ const resolveDate = (value: string | null | undefined): string | null => {
 
 export const metricsViewerLogic = kea<metricsViewerLogicType>([
     path(['products', 'metrics', 'frontend', 'components', 'metricsViewerLogic']),
-    props({} as MetricsViewerLogicProps),
-    key((p) => p.tabId),
+    connect(() => ({
+        values: [teamLogic, ['currentTeamId']],
+    })),
     actions({
         setMetricName: (metricName: string) => ({ metricName }),
         setAggregation: (aggregation: MetricAggregation) => ({ aggregation }),
@@ -67,7 +64,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
     })),
     loaders(({ values, actions }) => ({
         queryResults: [
-            [] as MetricsViewerPoint[],
+            [] as MetricsViewerSeries[],
             {
                 fetchQueryResults: async (_, breakpoint) => {
                     const trimmedName = values.metricName.trim()
@@ -82,15 +79,18 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                     const dateToISO = resolveDate(values.dateTo) ?? undefined
                     const controller = new AbortController()
                     actions.cancelInProgressQuery(controller)
-                    const response = await api.metrics.query({
-                        query: {
-                            metricName: trimmedName,
-                            aggregation: values.aggregation,
-                            dateFrom: dateFromISO,
-                            ...(dateToISO ? { dateTo: dateToISO } : {}),
+                    const response = await metricsQueryCreate(
+                        String(values.currentTeamId),
+                        {
+                            query: {
+                                metricName: trimmedName,
+                                aggregation: values.aggregation,
+                                dateFrom: dateFromISO,
+                                ...(dateToISO ? { dateTo: dateToISO } : {}),
+                            },
                         },
-                        signal: controller.signal,
-                    })
+                        { signal: controller.signal }
+                    )
                     breakpoint()
                     actions.setQueryAbortController(null)
                     return response.results
@@ -100,7 +100,9 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
     })),
     selectors({
         hasMetricName: [(s) => [s.metricName], (metricName) => metricName.trim().length > 0],
-        sparklineValues: [(s) => [s.queryResults], (results) => results.map((p) => p.value)],
-        sparklineLabels: [(s) => [s.queryResults], (results) => results.map((p) => p.time)],
+        // The viewer renders the first series only for now; group-by lands
+        // multi-series rendering in a later PR.
+        sparklineValues: [(s) => [s.queryResults], (results) => (results[0]?.points ?? []).map((p) => p.value)],
+        sparklineLabels: [(s) => [s.queryResults], (results) => (results[0]?.points ?? []).map((p) => p.time)],
     }),
 ])

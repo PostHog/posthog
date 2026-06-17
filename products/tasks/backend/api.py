@@ -11,7 +11,6 @@ from typing import Any, cast
 from urllib.parse import parse_qs, urlparse
 
 from django.conf import settings
-from django.core.cache import cache
 from django.db import models, transaction
 from django.db.models import F, OuterRef, Q, Subquery
 from django.db.models.functions import JSONObject
@@ -36,8 +35,6 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ServerTimingsGathered
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.event_usage import groups
-from posthog.models.file_system.constants import DESKTOP_SURFACE
-from posthog.models.file_system.file_system import FileSystem, create_or_update_file, delete_file, surface_q
 from posthog.models.integration import Integration
 from posthog.models.user_push_token import UserPushToken
 from posthog.permissions import APIScopePermission
@@ -75,6 +72,7 @@ from .models import (
     TaskPresence,
     TaskRun,
 )
+from .redis import get_tasks_cache, run_uses_dedicated_stream
 from .repository_readiness import compute_repository_readiness
 from .serializers import (
     CodeInviteRedeemRequestSerializer,
@@ -86,8 +84,6 @@ from .serializers import (
     SlackThreadContextQuerySerializer,
     SlackThreadContextResponseSerializer,
     TaskAutomationSerializer,
-    TaskFileRequestSerializer,
-    TaskFileResponseSerializer,
     TaskListQuerySerializer,
     TaskPresenceBeaconRequestSerializer,
     TaskRepositoriesResponseSerializer,
@@ -123,6 +119,7 @@ from .serializers import (
     build_task_run_artifact_size_error,
     get_task_run_artifact_max_size_bytes,
 )
+from .services.code_usage_gate import cloud_usage_limit_response
 from .services.connection_token import create_sandbox_connection_token
 from .services.staged_artifacts import (
     RUN_ARTIFACT_TTL_DAYS,
@@ -152,6 +149,7 @@ from .temporal.client import (
     signal_task_followup_message,
 )
 from .temporal.process_task.utils import (
+    GitHubCredentialSource,
     PrAuthorshipMode,
     RunSource,
     cache_github_user_token,
@@ -162,6 +160,7 @@ from .temporal.process_task.utils import (
     resolve_user_github_integration_for_task,
     user_github_integration_is_usable,
 )
+from .visibility import task_run_visibility_q, task_visibility_q
 
 logger = logging.getLogger(__name__)
 TASK_RUN_STREAM_KEEPALIVE_INTERVAL_SECONDS = 20.0
@@ -225,6 +224,44 @@ def _resolve_cloud_pr_authorship_mode(
     )
 
 
+def _github_credential_source_extra_state(
+    pr_authorship_mode: PrAuthorshipMode | str | None, github_user_token: str | None
+) -> dict[str, str]:
+    """Durable marker of which GitHub identity a run is pinned to, decided once at creation.
+
+    A caller-supplied token is owned by the caller and un-refreshable by us, so the refresh
+    loop must never swap it for the task creator's server integration. Persisting the source
+    in run state keeps that decision durable (the per-run token cache only lives ~6h).
+    """
+    if pr_authorship_mode != PrAuthorshipMode.USER:
+        return {}
+    source = GitHubCredentialSource.CALLER_TOKEN if github_user_token else GitHubCredentialSource.SERVER_INTEGRATION
+    return {"github_credential_source": source.value}
+
+
+# Run-state keys that are server-owned and must never be mutable through the PATCH endpoint:
+#   - github_credential_source / pr_authorship_mode fix the run's GitHub identity at creation;
+#     a caller could otherwise flip a caller-token run to ``server_integration`` and have the
+#     task creator's server-side token injected into their sandbox.
+#   - sandbox_id is the credential-propagation target; a caller could otherwise repoint a visible
+#     run at a sandbox they control and capture the run owner's token on the next rotation.
+#   - sandbox_cpu_cores / sandbox_memory_gb / sandbox_ttl_seconds / inactivity_timeout_seconds set
+#     the run's compute and lifetime at creation; a caller could otherwise PATCH a queued run to
+#     provision an oversized or long-lived sandbox beyond what they're entitled to.
+# All are written only server-side (run creation + the temporal workflow), never via PATCH.
+_PROTECTED_RUN_STATE_KEYS = frozenset(
+    {
+        "github_credential_source",
+        "pr_authorship_mode",
+        "sandbox_id",
+        "sandbox_cpu_cores",
+        "sandbox_memory_gb",
+        "sandbox_ttl_seconds",
+        "inactivity_timeout_seconds",
+    }
+)
+
+
 TASK_RUN_ARTIFACT_UPLOAD_FORM_OVERHEAD_BYTES = 64 * 1024
 
 
@@ -254,31 +291,6 @@ class _SchemaAwareLimitOffsetPagination(LimitOffsetPagination):
 class TasksPagination(_SchemaAwareLimitOffsetPagination):
     default_limit = 50
     max_limit = 100
-
-
-def task_visibility_q(user_id: int | None) -> Q:
-    """Filter for tasks visible to the given user.
-
-    A task is visible if:
-    - its creator matches `user_id`, or
-    - it has no creator at all (legacy unowned tasks remain visible to any
-      team member — they cannot be executed in any case because oauth.py
-      requires `task.created_by` to mint OAuth tokens), or
-    - it was generated by the signals pipeline (`origin_product=SIGNAL_REPORT`).
-      Signals tasks are team-scoped artifacts that the pipeline must attach to
-      a system-picked `created_by` so the agent can mint an OAuth token, but
-      they are not personal — any team member should be able to view them.
-    """
-    return Q(created_by_id=user_id) | Q(created_by__isnull=True) | Q(origin_product=Task.OriginProduct.SIGNAL_REPORT)
-
-
-def task_run_visibility_q(user_id: int | None) -> Q:
-    """`task_visibility_q` traversed via the `task` FK on TaskRun / TaskAutomation."""
-    return (
-        Q(task__created_by_id=user_id)
-        | Q(task__created_by__isnull=True)
-        | Q(task__origin_product=Task.OriginProduct.SIGNAL_REPORT)
-    )
 
 
 def _parse_slack_thread_url(url: str) -> tuple[str, str] | None:
@@ -904,56 +916,6 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
         return Response(serializer.data)
 
-    @validated_request(
-        request_serializer=TaskFileRequestSerializer,
-        responses={
-            200: OpenApiResponse(
-                response=TaskFileResponseSerializer, description="Task filed into the desktop project tree"
-            ),
-            404: OpenApiResponse(description="Task not found"),
-        },
-        summary="File a task into the project tree",
-        description=(
-            "Add this task to the desktop project tree so it can be organized into folders. "
-            "Optionally pass a destination folder path. Idempotent — re-filing updates the existing entry."
-        ),
-    )
-    @action(detail=True, methods=["post"], url_path="file", required_scopes=["task:write"])
-    def file(self, request, pk=None, **kwargs):
-        task = cast(Task, self.get_object())
-        folder = (request.validated_data.get("folder") or "").strip() or "Tasks"
-        fs = task.get_file_system_representation(folder=folder)
-        create_or_update_file(
-            team=task.team,
-            base_folder=fs.base_folder,
-            name=fs.name,
-            file_type=fs.type,
-            ref=fs.ref,
-            href=fs.href,
-            meta=fs.meta,
-            created_at=task.created_at,
-            created_by_id=task.created_by_id,
-            surface=DESKTOP_SURFACE,
-        )
-        entry = (
-            FileSystem.objects.filter(surface_q(DESKTOP_SURFACE), team=task.team, type="task", ref=str(task.id))
-            .exclude(shortcut=True)
-            .first()
-        )
-        return Response(TaskFileResponseSerializer(entry).data)
-
-    @extend_schema(
-        request=None,
-        responses={204: OpenApiResponse(description="Task removed from the project tree")},
-        summary="Remove a task from the project tree",
-        description="Remove this task's entry from the desktop project tree. The task itself is not deleted.",
-    )
-    @action(detail=True, methods=["post"], url_path="unfile", required_scopes=["task:write"])
-    def unfile(self, request, pk=None, **kwargs):
-        task = cast(Task, self.get_object())
-        delete_file(team=task.team, file_type="task", ref=str(task.id), surface=DESKTOP_SURFACE)
-        return Response(status=status.HTTP_204_NO_CONTENT)
-
     def perform_update(self, serializer):
         task = cast(Task, serializer.instance)
         logger.info(f"perform_update called for task {task.id} with validated_data: {serializer.validated_data}")
@@ -969,6 +931,9 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             200: OpenApiResponse(response=TaskSerializer, description="Task with updated latest run"),
             400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid task run payload"),
             404: OpenApiResponse(description="Task not found"),
+            429: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer, description="Team is over its posthog_code usage limit"
+            ),
         },
         summary="Run task",
         description="Create a new task run and kick off the workflow.",
@@ -976,6 +941,11 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(detail=True, methods=["post"], url_path="run", required_scopes=["task:write"])
     def run(self, request, pk=None, **kwargs):
         task = cast(Task, self.get_object())
+
+        # Always cloud: gate before creating the run.
+        if (limit_response := cloud_usage_limit_response(request.user, self.team_id)) is not None:
+            return limit_response
+
         mode = request.validated_data.get("mode", "background")
         branch = request.validated_data.get("branch")
         resume_from_run_id = request.validated_data.get("resume_from_run_id")
@@ -1088,6 +1058,10 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 pr_authorship_mode.value if hasattr(pr_authorship_mode, "value") else pr_authorship_mode
             )
 
+        if credential_source := _github_credential_source_extra_state(pr_authorship_mode, github_user_token):
+            extra_state = extra_state or {}
+            extra_state.update(credential_source)
+
         if sandbox_environment_id is not None:
             sandbox_environment = SandboxEnvironment.get_accessible_for_task(
                 environment_id=sandbox_environment_id,
@@ -1138,7 +1112,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             task_run.save(update_fields=["artifacts", "updated_at"])
 
             for artifact_id in pending_user_artifact_ids:
-                cache.delete(build_task_staged_artifact_cache_key(str(task.id), artifact_id))
+                get_tasks_cache().delete(build_task_staged_artifact_cache_key(str(task.id), artifact_id))
 
         if github_user_token and pr_authorship_mode == PrAuthorshipMode.USER:
             cache_github_user_token(str(task_run.id), github_user_token)
@@ -1289,6 +1263,9 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         responses={
             201: OpenApiResponse(response=TaskRunDetailSerializer, description="Created task run"),
             400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid task run payload"),
+            429: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer, description="Team is over its posthog_code usage limit"
+            ),
         },
         summary="Create task run",
         description="Create a new run for a specific task without starting execution.",
@@ -1306,6 +1283,12 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if task is None:
             raise NotFound("Task not found")
         environment = request.validated_data.get("environment", TaskRun.Environment.LOCAL)
+
+        # Gate cloud runs before the run row is created; local runs aren't limited.
+        if environment == TaskRun.Environment.CLOUD:
+            if (limit_response := cloud_usage_limit_response(request.user, self.team_id)) is not None:
+                return limit_response
+
         mode = request.validated_data.get("mode", "background")
         branch = request.validated_data.get("branch")
         sandbox_environment_id = request.validated_data.get("sandbox_environment_id")
@@ -1369,6 +1352,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 pr_authorship_mode.value if hasattr(pr_authorship_mode, "value") else pr_authorship_mode
             )
 
+        if credential_source := _github_credential_source_extra_state(pr_authorship_mode, github_user_token):
+            extra_state = extra_state or {}
+            extra_state.update(credential_source)
+
         if sandbox_environment_id is not None:
             sandbox_environment = SandboxEnvironment.get_accessible_for_task(
                 environment_id=sandbox_environment_id,
@@ -1417,6 +1404,9 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             200: OpenApiResponse(response=TaskSerializer, description="Task with updated latest run"),
             400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid start payload"),
             404: OpenApiResponse(description="Task run not found"),
+            429: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer, description="Team is over its posthog_code usage limit"
+            ),
         },
         summary="Start task run",
         description="Start an existing cloud run after any initial run-scoped attachments have been uploaded.",
@@ -1443,6 +1433,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 ).data,
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        # Backstop: don't launch the cloud workflow for an over-limit team.
+        if (limit_response := cloud_usage_limit_response(request.user, self.team_id)) is not None:
+            return limit_response
 
         if pending_user_artifact_ids:
             _, missing_artifact_ids = get_task_run_artifacts_by_id(task_run, pending_user_artifact_ids)
@@ -1513,7 +1507,14 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         task_run = cast(TaskRun, self.get_object())
         has_output_merge = "output" in request.validated_data and isinstance(request.validated_data["output"], dict)
         has_state_merge = "state" in request.validated_data and isinstance(request.validated_data["state"], dict)
-        state_remove_keys = request.validated_data.get("state_remove_keys") or []
+        # Protected keys fix the run's GitHub identity at creation — callers cannot change or remove them.
+        if has_state_merge:
+            request.validated_data["state"] = {
+                k: v for k, v in request.validated_data["state"].items() if k not in _PROTECTED_RUN_STATE_KEYS
+            }
+        state_remove_keys = [
+            k for k in (request.validated_data.get("state_remove_keys") or []) if k not in _PROTECTED_RUN_STATE_KEYS
+        ]
         has_state_mutation = has_state_merge or bool(state_remove_keys)
         update_fields: set[str] = set()
 
@@ -2618,6 +2619,9 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             400: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer, description="Run already active or workflow failed"
             ),
+            429: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer, description="Team is over its posthog_code usage limit"
+            ),
         },
         summary="Resume task run in cloud",
         description="Resume an existing task run in a cloud sandbox. Terminates any existing workflow and starts a new one.",
@@ -2630,6 +2634,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     def resume_in_cloud(self, request, pk=None, **kwargs):
         task_run = cast(TaskRun, self.get_object())
+
+        # Resume also runs in cloud: gate before handoff.
+        if (limit_response := cloud_usage_limit_response(request.user, self.team_id)) is not None:
+            return limit_response
 
         logger.info(
             "resume_in_cloud_called",
@@ -2750,13 +2758,14 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def stream(self, request, pk=None, **kwargs):
         task_run = cast(TaskRun, self.get_object())
         stream_key = get_task_run_stream_key(str(task_run.id))
+        use_dedicated_stream = run_uses_dedicated_stream(task_run.state)
         last_event_id = request.headers.get("Last-Event-ID")
         start_latest = request.GET.get("start") == "latest"
         format_sse_event = self._format_sse_event
         origin_product = origin_product_label(task_run)
 
-        async def async_stream() -> AsyncGenerator[bytes, None]:
-            redis_stream = TaskRunRedisStream(stream_key)
+        async def async_stream() -> AsyncGenerator[bytes]:
+            redis_stream = TaskRunRedisStream(stream_key, use_dedicated_stream)
             connection_started_at = asyncio.get_running_loop().time()
             # Default to client_disconnect: any exit that isn't an explicit
             # completion/error/unavailable is the client (or proxy) going away.

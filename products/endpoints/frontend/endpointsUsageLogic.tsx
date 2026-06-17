@@ -1,10 +1,9 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { router } from 'kea-router'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { router, urlToAction } from 'kea-router'
 
 import { dayjs } from 'lib/dayjs'
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
-import { dateStringToDayJs } from 'lib/utils'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
+import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { urls } from 'scenes/urls'
 
 import {
@@ -23,16 +22,10 @@ export const INITIAL_DATE_FROM = '-7d'
 export const INITIAL_DATE_TO = null as string | null
 export const INITIAL_INTERVAL: IntervalType = 'day'
 
-export interface EndpointsUsageLogicProps {
-    tabId: string
-}
-
 export const endpointsUsageLogic = kea<endpointsUsageLogicType>([
     path(['products', 'endpoints', 'frontend', 'endpointsUsageLogic']),
-    props({} as EndpointsUsageLogicProps),
-    key((props) => props.tabId),
-    connect(({ tabId }: EndpointsUsageLogicProps) => ({
-        values: [endpointsLogic({ tabId }), ['allEndpoints', 'allEndpointsLoading']],
+    connect(() => ({
+        values: [endpointsLogic(), ['allEndpoints', 'allEndpointsLoading']],
     })),
 
     actions({
@@ -219,7 +212,7 @@ export const endpointsUsageLogic = kea<endpointsUsageLogicType>([
         },
     })),
 
-    tabAwareActionToUrl(({ values }) => {
+    trackedActionToUrl(({ values }) => {
         const actionToUrl = ({
             dateFilter = values.dateFilter,
             endpointFilter = values.endpointFilter,
@@ -278,7 +271,7 @@ export const endpointsUsageLogic = kea<endpointsUsageLogicType>([
         }
     }),
 
-    tabAwareUrlToAction(({ actions, values }) => ({
+    urlToAction(({ actions, values }) => ({
         [urls.endpoints()]: (_, searchParams) => {
             if (searchParams.tab !== 'usage') {
                 return

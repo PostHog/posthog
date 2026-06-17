@@ -147,7 +147,7 @@ class TestRevenueExampleEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert results[0][3] == 42  # No conversion because assumed to not be in smallest unit
 
     def test_single_event_with_managed_viewsets_ff(self):
-        with patch("posthoganalytics.feature_enabled", return_value=True):
+        with patch("posthoganalytics.feature_enabled", side_effect=lambda flag, *args, **kwargs: flag != "hogql-warehouse-access-control"):
             s11 = str(uuid7("2023-12-02"))
             self._create_events(
                 [

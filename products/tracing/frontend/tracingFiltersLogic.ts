@@ -1,4 +1,4 @@
-import { actions, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, kea, path, reducers, selectors } from 'kea'
 
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { dayjs } from 'lib/dayjs'
@@ -10,9 +10,13 @@ import type { tracingFiltersLogicType } from './tracingFiltersLogicType'
 
 export const DEFAULT_DATE_RANGE: DateRange = { date_from: '-1h', date_to: null }
 export const DEFAULT_SERVICE_NAMES: string[] = []
-export const DEFAULT_ORDER_BY = 'latest' as const
+export const DEFAULT_ORDER_BY = 'timestamp' as const
+export const DEFAULT_ORDER_DIRECTION = 'DESC' as const
 
-export type TracingOrderBy = 'latest' | 'earliest'
+// Column the list is ordered by, and its direction. timestamp+DESC is "latest" (keyset paginated via
+// the `after` cursor); duration+DESC/ASC is slowest/fastest (offset paginated). See tracingDataLogic.
+export type TracingOrderBy = 'timestamp' | 'duration'
+export type TracingOrderDirection = 'ASC' | 'DESC'
 
 export interface OverlayWindow {
     startMs: number
@@ -24,26 +28,21 @@ export interface TracingFilters {
     serviceNames: string[]
     filterGroup: UniversalFiltersGroup
     orderBy: TracingOrderBy
+    orderDirection: TracingOrderDirection
     compareMode: boolean
     /** User-positioned overrides for the two compare windows. Null until the overlay is dragged. */
     currentWindowOverride: OverlayWindow | null
     previousWindowOverride: OverlayWindow | null
 }
 
-export interface TracingFiltersLogicProps {
-    tabId?: string
-}
-
 export const tracingFiltersLogic = kea<tracingFiltersLogicType>([
-    props({} as TracingFiltersLogicProps),
-    key((p) => p.tabId ?? 'default'),
-    path((tabId) => ['products', 'tracing', 'frontend', 'tracingFiltersLogic', tabId]),
+    path(['products', 'tracing', 'frontend', 'tracingFiltersLogic']),
 
     actions({
         setDateRange: (dateRange: DateRange) => ({ dateRange }),
         setServiceNames: (serviceNames: string[]) => ({ serviceNames }),
         setFilterGroup: (filterGroup: UniversalFiltersGroup) => ({ filterGroup }),
-        setOrderBy: (orderBy: TracingOrderBy) => ({ orderBy }),
+        setSort: (orderBy: TracingOrderBy, orderDirection: TracingOrderDirection) => ({ orderBy, orderDirection }),
         setCompareMode: (compareMode: boolean) => ({ compareMode }),
         /**
          * Persist the user-dragged overlay windows. Both must be supplied. Setting these
@@ -80,8 +79,15 @@ export const tracingFiltersLogic = kea<tracingFiltersLogicType>([
         orderBy: [
             DEFAULT_ORDER_BY as TracingOrderBy,
             {
-                setOrderBy: (_, { orderBy }) => orderBy,
+                setSort: (_, { orderBy }) => orderBy,
                 setFilters: (state, { filters }) => (filters.orderBy as TracingOrderBy) ?? state,
+            },
+        ],
+        orderDirection: [
+            DEFAULT_ORDER_DIRECTION as TracingOrderDirection,
+            {
+                setSort: (_, { orderDirection }) => orderDirection,
+                setFilters: (state, { filters }) => (filters.orderDirection as TracingOrderDirection) ?? state,
             },
         ],
         compareMode: [
@@ -120,6 +126,7 @@ export const tracingFiltersLogic = kea<tracingFiltersLogicType>([
                 s.serviceNames,
                 s.filterGroup,
                 s.orderBy,
+                s.orderDirection,
                 s.compareMode,
                 s.currentWindowOverride,
                 s.previousWindowOverride,
@@ -129,6 +136,7 @@ export const tracingFiltersLogic = kea<tracingFiltersLogicType>([
                 serviceNames,
                 filterGroup,
                 orderBy,
+                orderDirection,
                 compareMode,
                 currentWindowOverride,
                 previousWindowOverride
@@ -137,6 +145,7 @@ export const tracingFiltersLogic = kea<tracingFiltersLogicType>([
                 serviceNames,
                 filterGroup,
                 orderBy,
+                orderDirection,
                 compareMode,
                 currentWindowOverride,
                 previousWindowOverride,

@@ -7,11 +7,9 @@ from urllib.parse import urlparse
 from uuid import UUID
 
 from django.conf import settings
-from django.contrib.postgres.search import TrigramSimilarity, TrigramWordSimilarity
 from django.core.cache import cache
 from django.db import transaction
-from django.db.models import F, Min, Q, QuerySet, Value
-from django.db.models.functions import Coalesce
+from django.db.models import Min, QuerySet
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import render
 from django.utils.text import slugify
@@ -19,9 +17,10 @@ from django.views.decorators.csrf import csrf_exempt
 
 import nh3
 import structlog
+import django_filters
 import posthoganalytics
 from axes.decorators import axes_dispatch
-from django_filters.rest_framework import DjangoFilterBackend
+from django_filters.rest_framework import DjangoFilterBackend, FilterSet
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiParameter,
@@ -43,20 +42,14 @@ from posthog.schema import ProductKey
 
 from posthog.api.documentation import FeatureFlagFiltersSchemaSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.shared import UserBasicSerializer
+from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.utils import action
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.constants import SURVEY_TARGETING_FLAG_PREFIX, AvailableFeature
 from posthog.event_usage import report_user_action
-from posthog.helpers.trigram_search import (
-    DESCRIPTION_SCORE_WEIGHT,
-    MAX_SEARCH_LENGTH,
-    MIN_DESCRIPTION_TRIGRAM_SIMILARITY,
-    MIN_NAME_TRIGRAM_SIMILARITY,
-    normalize_search_term,
-)
+from posthog.helpers.trigram_search import DESCRIPTION_FIELD, MAX_SEARCH_LENGTH, NAME_FIELD, apply_trigram_search
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.team.team import Team
@@ -536,6 +529,14 @@ class SurveyAppearanceSchemaSerializer(serializers.Serializer):
     placeholder = serializers.CharField(required=False)
     shuffleQuestions = serializers.BooleanField(required=False)
     surveyPopupDelaySeconds = serializers.IntegerField(required=False)
+    allowGoBack = serializers.BooleanField(
+        required=False,
+        help_text="Whether to show a 'Back' button on web surveys after the first question, letting respondents return to a previously visited question. Defaults to false.",
+    )
+    backButtonText = serializers.CharField(
+        required=False,
+        help_text="Optional override for the back button label. Defaults to 'Back'.",
+    )
     widgetType = serializers.ChoiceField(choices=["button", "tab", "selector"], required=False)
     widgetSelector = serializers.CharField(required=False)
     widgetLabel = serializers.CharField(required=False)
@@ -747,7 +748,7 @@ class SurveyResponsesListSerializer(serializers.Serializer):
     offset = serializers.IntegerField(help_text="The offset applied to this query (echoed back for pagination).")
 
 
-class SurveySerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
+class SurveySerializer(SearchMatchTypeSerializerMixin, UserAccessControlSerializerMixin, serializers.ModelSerializer):
     linked_flag_id = serializers.IntegerField(required=False, allow_null=True, source="linked_flag.id")
     linked_flag = MinimalFeatureFlagSerializer(read_only=True)
     linked_insight_id = serializers.IntegerField(required=False, allow_null=True, source="linked_insight.id")
@@ -831,6 +832,7 @@ class SurveySerializer(UserAccessControlSerializerMixin, serializers.ModelSerial
             "translations",
             "user_access_level",
             "form_content",
+            "search_match_type",
         ]
         read_only_fields = ["id", "created_at", "created_by"]
 
@@ -1996,6 +1998,21 @@ class SurveySerializerCreateUpdateOnlySchema(SurveySerializerCreateUpdateOnly):
         }
 
 
+class UUIDInFilter(django_filters.BaseInFilter, django_filters.UUIDFilter):
+    pass
+
+
+class SurveyFilterSet(FilterSet):
+    ids = UUIDInFilter(
+        field_name="id",
+        label="Filter to a comma-separated list of survey IDs. IDs that don't exist are silently omitted rather than erroring.",
+    )
+
+    class Meta:
+        model = Survey
+        fields = ["archived", "type"]
+
+
 @extend_schema_view(
     create=extend_schema(request=SurveySerializerCreateUpdateOnlySchema),
     partial_update=extend_schema(request=SurveySerializerCreateUpdateOnlySchema),
@@ -2015,7 +2032,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         "linked_flag", "linked_insight", "targeting_flag", "internal_targeting_flag"
     ).all()
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ["archived", "type"]
+    filterset_class = SurveyFilterSet
 
     def get_serializer_class(self) -> type[serializers.Serializer]:
         if self.request.method == "POST" or self.request.method == "PATCH":
@@ -2049,33 +2066,12 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
     @staticmethod
     @tracer.start_as_current_span("SurveyViewSet._apply_search")
     def _apply_search(queryset: QuerySet, search: str) -> QuerySet:
-        search = normalize_search_term(search)
-        span = trace.get_current_span()
-        span.set_attribute("survey.search.length", len(search))
-        if not search:
-            return queryset
-
-        zero = Value(0.0)
-        name_word_score = Coalesce(TrigramWordSimilarity(search, "name"), zero)
-        name_full_score = Coalesce(TrigramSimilarity("name", search), zero)
-        description_word_score = Coalesce(TrigramWordSimilarity(search, "description"), zero)
-
-        return (
-            queryset.annotate(
-                _name_word=name_word_score,
-                _name_full=name_full_score,
-                _description_word=description_word_score,
-            )
-            .filter(
-                Q(_name_word__gt=MIN_NAME_TRIGRAM_SIMILARITY)
-                | Q(_description_word__gt=MIN_DESCRIPTION_TRIGRAM_SIMILARITY)
-            )
-            .annotate(
-                _name_match_score=F("_name_word") + F("_name_full"),
-                _description_match_score=F("_description_word"),
-            )
-            .annotate(_search_score=F("_name_match_score") + F("_description_match_score") * DESCRIPTION_SCORE_WEIGHT)
-            .order_by("-_search_score", "name")
+        return apply_trigram_search(
+            queryset,
+            search,
+            span_prefix="survey.search",
+            fields=(NAME_FIELD, DESCRIPTION_FIELD),
+            tiebreakers=("name",),
         )
 
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:

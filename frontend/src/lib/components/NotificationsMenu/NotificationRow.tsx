@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { IconCheckCircle } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
+import { getNotificationDescriber } from 'lib/components/NotificationsMenu/notificationDescribers'
 import { getNotificationIcon } from 'lib/components/NotificationsMenu/notificationToasts'
 import { dayjs } from 'lib/dayjs'
 import { IconRadioButtonUnchecked } from 'lib/lemon-ui/icons'
@@ -45,6 +46,18 @@ export const REALTIME_NOTIFICATION_TYPE_META: Record<string, { label: string; de
         label: 'Projects created',
         description: 'When a member creates a new project in your organization',
     },
+    usage_spike: {
+        label: 'Usage spikes',
+        description: 'When billing detects a usage spike for one of your accounts',
+    },
+    web_analytics_digest: {
+        label: 'Web analytics digest',
+        description: 'Your weekly Web analytics summary is ready!',
+    },
+    achievement_unlocked: {
+        label: 'Achievement unlocked',
+        description: 'When you unlock a new achievement',
+    },
 }
 
 export function NotificationRow({
@@ -59,6 +72,9 @@ export function NotificationRow({
     const [expanded, setExpanded] = useState(false)
 
     const otherProjectName = projectNameForNotification(notification)
+    const describer = getNotificationDescriber(notification)
+    const customBody = describer ? <describer.Component notification={notification} onNavigate={onNavigate} /> : null
+    const rich = !!describer?.takesOverRow && !!notification.metadata
 
     const hasNavigationTarget = !!sourcePathForNotification(notification)
     const handleNavigate = (e: React.MouseEvent): void => {
@@ -76,19 +92,27 @@ export function NotificationRow({
 
     return (
         <div
-            className={`flex items-start gap-2.5 p-2 rounded cursor-pointer transition-colors ${
+            className={`flex items-start gap-2.5 p-2 rounded transition-colors ${rich ? '' : 'cursor-pointer'} ${
                 notification.read ? 'hover:bg-fill-highlight-100' : 'bg-fill-highlight-50 hover:bg-fill-highlight-100'
             }`}
-            onClick={() => notification.body && setExpanded(!expanded)}
+            onClick={rich ? undefined : () => notification.body && setExpanded(!expanded)}
         >
             <div className="shrink-0 mt-0.5">{getNotificationIcon(notification.notification_type)}</div>
             <div className="flex-1 min-w-0">
                 <div className="flex items-start justify-between gap-1">
-                    <span className={`text-xs leading-snug ${notification.read ? 'text-secondary' : 'font-semibold'}`}>
-                        {notification.title}
-                    </span>
+                    {rich ? (
+                        <span className="text-[10px] font-semibold uppercase tracking-wide text-muted mt-1">
+                            Web analytics digest
+                        </span>
+                    ) : (
+                        <span
+                            className={`text-xs leading-snug ${notification.read ? 'text-secondary' : 'font-semibold'}`}
+                        >
+                            {notification.title}
+                        </span>
+                    )}
                     <div className="flex items-center gap-1 shrink-0">
-                        {hasNavigationTarget && (
+                        {!rich && hasNavigationTarget && (
                             <Tooltip title="Go to source">
                                 <button
                                     className="min-w-[26px] min-h-[26px] flex items-center justify-center rounded hover:bg-fill-highlight-200 text-secondary hover:text-primary cursor-pointer"
@@ -115,11 +139,13 @@ export function NotificationRow({
                         </Tooltip>
                     </div>
                 </div>
-                {notification.body && (
-                    <div className={`text-xs text-secondary mt-0.5 ${expanded ? '' : 'line-clamp-1'}`}>
-                        {notification.body}
-                    </div>
-                )}
+                {rich
+                    ? customBody
+                    : notification.body && (
+                          <div className={`text-xs text-secondary mt-0.5 ${expanded ? '' : 'line-clamp-1'}`}>
+                              {notification.body}
+                          </div>
+                      )}
                 <div className="flex items-center gap-1.5 mt-2">
                     <span className="text-[10px] text-muted">{dayjs(notification.created_at).fromNow()}</span>
                     {otherProjectName && (

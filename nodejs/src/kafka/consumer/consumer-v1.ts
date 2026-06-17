@@ -35,7 +35,7 @@ import { captureException } from '../../utils/posthog'
 import { retryIfRetriable } from '../../utils/retries'
 import { promisifyCallback } from '../../utils/utils'
 import { ensureTopicExists } from '../admin'
-import { getKafkaConfigFromEnv } from '../config'
+import { getKafkaConfigFromEnv, stripClassicProtocolConfig } from '../config'
 import { parseBrokerStatistics, trackBrokerMetrics } from '../kafka-client-metrics'
 import {
     consumedBatchBackgroundDuration,
@@ -176,7 +176,7 @@ export class KafkaConsumer {
             ? this.rebalanceCallback.bind(this)
             : true
 
-        this.consumerConfig = {
+        this.consumerConfig = stripClassicProtocolConfig({
             'client.id': hostname(),
             'security.protocol': 'plaintext',
             'metadata.broker.list': 'kafka:9092', // Overridden with KAFKA_CONSUMER_METADATA_BROKER_LIST
@@ -209,7 +209,7 @@ export class KafkaConsumer {
             'enable.auto.commit': this.config.autoCommit,
             rebalance_cb: rebalancecb,
             offset_commit_cb: true,
-        }
+        })
 
         this.rdKafkaConsumer = this.createConsumer()
     }

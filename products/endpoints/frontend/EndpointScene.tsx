@@ -8,6 +8,7 @@ import {
     IconDatabase,
     IconEndpoints,
     IconGraph,
+    IconLive,
     IconPause,
     IconPlay,
     IconPlayFilled,
@@ -46,6 +47,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope, EndpointVersionType } from '~/types'
 
 import { EndpointConfiguration } from './endpoint-tabs/EndpointConfiguration'
+import { EndpointLogs } from './endpoint-tabs/EndpointLogs'
 import { EndpointOverview } from './endpoint-tabs/EndpointOverview'
 import { EndpointPlayground } from './endpoint-tabs/EndpointPlayground'
 import { EndpointQuery } from './endpoint-tabs/EndpointQuery'
@@ -57,27 +59,18 @@ import { EndpointTab, endpointSceneLogic } from './endpointSceneLogic'
 import { endpointsLogic } from './endpointsLogic'
 import { insightPickerEndpointModalLogic } from './insightPickerEndpointModalLogic'
 
-interface EndpointProps {
-    tabId?: string
-}
-
 export const scene: SceneExport = {
     component: EndpointScene,
     logic: endpointSceneLogic,
     productKey: ProductKey.ENDPOINTS,
 }
 
-export function EndpointScene({ tabId }: EndpointProps = {}): JSX.Element {
-    if (!tabId) {
-        throw new Error('<EndpointScene /> must receive a tabId prop')
-    }
-    const { endpoint, endpointLoading, activeTab, viewingVersion, isMaterialized } = useValues(
-        endpointSceneLogic({ tabId })
-    )
-    const { setViewingVersion, toggleMaterializationFromMenu } = useActions(endpointSceneLogic({ tabId }))
-    const { deleteEndpoint, confirmToggleActive, saveTagsInline } = useActions(endpointLogic({ tabId }))
-    const { versions } = useValues(endpointLogic({ tabId }))
-    const { allEndpoints } = useValues(endpointsLogic({ tabId }))
+export function EndpointScene(): JSX.Element {
+    const { endpoint, endpointLoading, activeTab, viewingVersion, isMaterialized } = useValues(endpointSceneLogic)
+    const { setViewingVersion, toggleMaterializationFromMenu } = useActions(endpointSceneLogic)
+    const { deleteEndpoint, confirmToggleActive, saveTagsInline } = useActions(endpointLogic)
+    const { versions } = useValues(endpointLogic)
+    const { allEndpoints } = useValues(endpointsLogic)
     const { openModal } = useActions(insightPickerEndpointModalLogic)
     const { tags: tagsAvailable } = useValues(tagsModel)
     const { searchParams } = useValues(router)
@@ -89,7 +82,7 @@ export function EndpointScene({ tabId }: EndpointProps = {}): JSX.Element {
             key: EndpointTab.QUERY,
             label: 'Query',
             'data-attr': 'endpoint-query-tab',
-            content: <EndpointQuery tabId={tabId} />,
+            content: <EndpointQuery />,
             link: endpoint
                 ? combineUrl(urls.endpoint(endpoint.name), { ...searchParams, tab: EndpointTab.QUERY }).url
                 : undefined,
@@ -98,7 +91,7 @@ export function EndpointScene({ tabId }: EndpointProps = {}): JSX.Element {
             key: EndpointTab.CONFIGURATION,
             label: 'Configuration',
             'data-attr': 'endpoint-configuration-tab',
-            content: <EndpointConfiguration tabId={tabId} />,
+            content: <EndpointConfiguration />,
             link: endpoint
                 ? combineUrl(urls.endpoint(endpoint.name), { ...searchParams, tab: EndpointTab.CONFIGURATION }).url
                 : undefined,
@@ -106,7 +99,7 @@ export function EndpointScene({ tabId }: EndpointProps = {}): JSX.Element {
         {
             key: EndpointTab.VERSIONS,
             label: 'Versions',
-            content: <EndpointVersions tabId={tabId} />,
+            content: <EndpointVersions />,
             link: endpoint
                 ? combineUrl(urls.endpoint(endpoint.name), { ...searchParams, tab: EndpointTab.VERSIONS }).url
                 : undefined,
@@ -115,9 +108,18 @@ export function EndpointScene({ tabId }: EndpointProps = {}): JSX.Element {
             key: EndpointTab.PLAYGROUND,
             label: 'Playground',
             'data-attr': 'endpoint-playground-tab',
-            content: <EndpointPlayground tabId={tabId} />,
+            content: <EndpointPlayground />,
             link: endpoint
                 ? combineUrl(urls.endpoint(endpoint.name), { ...searchParams, tab: EndpointTab.PLAYGROUND }).url
+                : undefined,
+        },
+        {
+            key: EndpointTab.LOGS,
+            label: 'Logs',
+            'data-attr': 'endpoint-logs-tab',
+            content: <EndpointLogs />,
+            link: endpoint
+                ? combineUrl(urls.endpoint(endpoint.name), { ...searchParams, tab: EndpointTab.LOGS }).url
                 : undefined,
         },
         {
@@ -178,21 +180,23 @@ export function EndpointScene({ tabId }: EndpointProps = {}): JSX.Element {
         }
         switch (activeTab) {
             case EndpointTab.CONFIGURATION:
-                return <EndpointConfiguration tabId={tabId} />
+                return <EndpointConfiguration />
             case EndpointTab.VERSIONS:
-                return <EndpointVersions tabId={tabId} />
+                return <EndpointVersions />
             case EndpointTab.PLAYGROUND:
-                return <EndpointPlayground tabId={tabId} />
+                return <EndpointPlayground />
+            case EndpointTab.LOGS:
+                return <EndpointLogs />
             case EndpointTab.HISTORY:
                 return <ActivityLog scope={[ActivityScope.ENDPOINT, ActivityScope.ENDPOINT_VERSION]} id={endpoint.id} />
             case EndpointTab.QUERY:
             default:
-                return <EndpointQuery tabId={tabId} />
+                return <EndpointQuery />
         }
     }
 
     return (
-        <BindLogic logic={endpointSceneLogic} props={{ tabId }}>
+        <BindLogic logic={endpointSceneLogic} props={{}}>
             <SceneContent className="Endpoint">
                 {sceneMenuBarEnabled && endpoint && (
                     <SceneMenuBar>
@@ -233,6 +237,17 @@ export function EndpointScene({ tabId }: EndpointProps = {}): JSX.Element {
                             >
                                 <IconPlayFilled />
                                 Open playground
+                            </SceneMenuBarItem>
+                            <SceneMenuBarItem
+                                onClick={() =>
+                                    router.actions.push(
+                                        combineUrl(urls.endpoint(endpoint.name), { tab: EndpointTab.LOGS }).url
+                                    )
+                                }
+                                data-attr="endpoint-menubar-view-logs"
+                            >
+                                <IconLive />
+                                View logs
                             </SceneMenuBarItem>
                             <SceneMenuBarItem
                                 onClick={() =>
@@ -300,7 +315,7 @@ export function EndpointScene({ tabId }: EndpointProps = {}): JSX.Element {
                         </SceneMenuBarPopover>
                     </SceneMenuBar>
                 )}
-                <EndpointSceneHeader tabId={tabId} />
+                <EndpointSceneHeader />
                 {endpoint && !endpoint.is_active && (
                     <LemonBanner type="error">
                         This endpoint is deactivated and cannot be accessed via the API. <br />
@@ -314,7 +329,7 @@ export function EndpointScene({ tabId }: EndpointProps = {}): JSX.Element {
                         onGoToLatest={() => setViewingVersion(null)}
                     />
                 )}
-                {!endpointLoading && <EndpointOverview tabId={tabId} />}
+                {!endpointLoading && <EndpointOverview />}
                 {sceneMenuBarEnabled ? renderTabContent() : <LemonTabs activeKey={activeTab} tabs={tabs} />}
             </SceneContent>
             {endpoint && (

@@ -15,13 +15,15 @@ from dateutil.relativedelta import relativedelta
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL
-from posthog.models import Cohort, Person
+from posthog.models import Person
 from posthog.session_recordings.queries.test.listing_recordings.test_utils import (
     assert_query_matches_session_ids,
     create_event,
 )
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
+
+from products.cohorts.backend.models.cohort import Cohort
 
 
 @freeze_time("2021-01-01T13:46:23")

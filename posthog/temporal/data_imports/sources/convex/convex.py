@@ -12,10 +12,21 @@ from requests.exceptions import (
 )
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from posthog.temporal.data_imports.sources.common.http import make_tracked_session
+from posthog.temporal.data_imports.sources.common.http import DEFAULT_RETRY, make_tracked_session
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
 logger = logging.getLogger(__name__)
+
+# Convex deployments are served behind Cloudflare, which surfaces transient edge/origin
+# problems as the 52x family (520 Unknown Error, 521 Web Server Down, 522 Connection Timed
+# Out, 523 Origin Unreachable, 524 Timeout). These are retryable just like the standard 5xx
+# codes, but urllib3's default forcelist doesn't include them — so a single transient 520
+# would otherwise fail the whole sync. All Convex requests are idempotent GETs, so retrying
+# them is safe. Derive from DEFAULT_RETRY so backoff/total/allowed-methods stay in sync.
+_CLOUDFLARE_TRANSIENT_STATUSES = frozenset({520, 521, 522, 523, 524})
+_CONVEX_RETRY = DEFAULT_RETRY.new(
+    status_forcelist=frozenset(DEFAULT_RETRY.status_forcelist) | _CLOUDFLARE_TRANSIENT_STATUSES
+)
 
 
 @dataclasses.dataclass
@@ -39,7 +50,13 @@ def validate_deploy_url(deploy_url: str) -> str:
     Enforces https scheme, host matching *.convex.cloud, no query/fragment.
     Returns the validated base URL (scheme + host, no trailing slash).
     """
-    parsed = urlparse(deploy_url.strip())
+    deploy_url = deploy_url.strip()
+    # Tolerate a missing scheme — users routinely paste the bare host. We only add
+    # https when no scheme is present; an explicit http:// is still rejected below.
+    if deploy_url and "://" not in deploy_url:
+        deploy_url = f"https://{deploy_url}"
+
+    parsed = urlparse(deploy_url)
 
     if parsed.scheme != "https":
         raise InvalidDeployUrlError(
@@ -71,7 +88,7 @@ def _headers(deploy_key: str) -> dict[str, str]:
 
 def get_json_schemas(deploy_url: str, deploy_key: str) -> dict[str, Any]:
     url = f"{deploy_url.rstrip('/')}/api/json_schemas"
-    response = make_tracked_session().get(
+    response = make_tracked_session(retry=_CONVEX_RETRY).get(
         url, headers=_headers(deploy_key), params={"deltaSchema": "true", "format": "json"}, timeout=30
     )
     response.raise_for_status()
@@ -105,7 +122,9 @@ def list_snapshot(
         if snapshot is not None:
             params["snapshot"] = snapshot
 
-        response = make_tracked_session().get(base_url, headers=_headers(deploy_key), params=params, timeout=60)
+        response = make_tracked_session(retry=_CONVEX_RETRY).get(
+            base_url, headers=_headers(deploy_key), params=params, timeout=60
+        )
         response.raise_for_status()
         data = response.json()
 
@@ -154,7 +173,9 @@ def document_deltas(
     while True:
         params: dict[str, Any] = {"tableName": table_name, "cursor": current_cursor, "format": "json"}
 
-        response = make_tracked_session().get(base_url, headers=_headers(deploy_key), params=params, timeout=60)
+        response = make_tracked_session(retry=_CONVEX_RETRY).get(
+            base_url, headers=_headers(deploy_key), params=params, timeout=60
+        )
 
         if response.status_code == 400:
             error_data = response.json()

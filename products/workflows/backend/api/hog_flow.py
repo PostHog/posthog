@@ -4,6 +4,7 @@ import uuid as uuid_mod
 from datetime import timedelta
 from typing import Optional, cast
 
+from django.db import transaction
 from django.db.models import QuerySet
 from django.utils import timezone
 
@@ -14,12 +15,23 @@ from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import exceptions, serializers, viewsets
 from rest_framework.decorators import action
+from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 
-from posthog.api.app_metrics2 import AppMetricsMixin
+from posthog.schema import ProductKey
+
+from posthog.api.app_metrics2 import AppMetricsMixin, fetch_app_metric_totals_by_source
 from posthog.api.documentation import _FallbackSerializer
+from posthog.api.hog_invocation_results import (
+    HogInvocationResultDetailSerializer,
+    HogInvocationResultSerializer,
+    HogInvocationResultsRequestSerializer,
+    fetch_hog_invocation_result,
+    fetch_hog_invocation_results,
+    tag_invocation_results_query,
+)
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -31,17 +43,22 @@ from posthog.cdp.validation import (
     InputsSerializer,
     generate_template_bytecode,
 )
+from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.event_usage import EventSource, get_event_source
-from posthog.models import Cohort, Team
-from posthog.models.cohort.util import get_all_cohort_dependencies
+from posthog.models import Team
 from posthog.plugins.plugin_server_api import create_hog_flow_invocation_test, create_hog_flow_scheduled_invocation
+from posthog.utils import relative_date_parse_with_delta_mapping
 
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
+from products.cohorts.backend.models.cohort import Cohort
+from products.cohorts.backend.models.util import get_all_cohort_dependencies
 from products.feature_flags.backend.user_blast_radius import (
     PERSON_BATCH_SIZE,
     get_user_blast_radius,
     get_user_blast_radius_persons,
 )
+from products.workflows.backend.api.graph_operations import apply_graph_operations
+from products.workflows.backend.api.graph_validation import validate_graph
 from products.workflows.backend.api.hog_flow_batch_job import HogFlowBatchJobSerializer
 from products.workflows.backend.models.hog_flow.hog_flow import BILLABLE_ACTION_TYPES, HogFlow
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
@@ -54,6 +71,36 @@ logger = structlog.get_logger(__name__)
 # (nodejs/src/cdp/services/hogflows/actions/delay.ts) that throws at runtime on mismatch.
 DELAY_DURATION_REGEX = re.compile(r"^\d*\.?\d+[dhm]$")
 
+# Active workflows are read-only via MCP for now: edits can break runs already scheduled or in flight,
+# and there's no revision history to roll back. Shared by the plain update path and the graph endpoint.
+MCP_ACTIVE_EDIT_REJECTION = (
+    "Editing an active workflow isn't supported via MCP yet — changes can break runs already "
+    "scheduled or in flight, and there's no revision history to roll back. If you need different "
+    "behavior, create a new draft workflow."
+)
+
+
+def _should_validate_strictly(context: dict, is_draft: Optional[bool]) -> bool:
+    # Non-draft saves always validate fully. Drafts stay lenient for the web UI builder (which saves
+    # incomplete graphs mid-edit) and for internal re-saves (e.g. the refresh management command), which
+    # only re-persist already-accepted data. Programmatic authoring clients (MCP, posthog-code, raw API)
+    # validate drafts fully too, so an unsupported config is rejected at create rather than silently stored
+    # and surfacing only at enable. The viewset sets event_source; absent it (internal/no request), drafts
+    # stay lenient.
+    if not is_draft:
+        return True
+    source = context.get("event_source")
+    return source is not None and source != EventSource.WEB
+
+
+def _event_config_has_event_or_action(event_config: dict) -> bool:
+    # An "events to wait for" / conversion entry that targets neither events nor actions compiles to
+    # always-true bytecode and would fire on every incoming event. Action-based entries (events empty,
+    # actions set) are real and kept. Shared by the wait_until_condition and conversion strips so the
+    # rule lives in one place (mirrors hasEventOrActionTarget in the matcher consumer).
+    filters = event_config.get("filters") or {}
+    return bool(filters.get("events") or filters.get("actions"))
+
 
 class BlastRadiusRequestSerializer(serializers.Serializer):
     filters = serializers.DictField(help_text="Property filters to apply")
@@ -65,6 +112,24 @@ class BlastRadiusRequestSerializer(serializers.Serializer):
 class BlastRadiusSerializer(serializers.Serializer):
     affected = serializers.IntegerField(help_text="Number of users matching the filters")
     total = serializers.IntegerField(help_text="Total number of users")
+
+
+class WorkflowGlobalStatsRequestSerializer(serializers.Serializer):
+    after = serializers.CharField(
+        required=False,
+        default="-7d",
+        help_text="Start of the window, matched on metric time. Relative ('-7d', '-24h') or ISO 8601. Defaults to -7d.",
+    )
+    before = serializers.CharField(
+        required=False,
+        help_text="End of the window. Same format as 'after'. Defaults to now.",
+    )
+
+
+class WorkflowStatsRowSerializer(serializers.Serializer):
+    workflow_id = serializers.CharField(help_text="The workflow these counts are for.")
+    succeeded = serializers.IntegerField(help_text="Successful invocations in the window.")
+    failed = serializers.IntegerField(help_text="Failed invocations in the window.")
 
 
 class HogFlowConfigFunctionInputsSerializer(serializers.Serializer):
@@ -104,10 +169,10 @@ class HogFlowActionSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=400, help_text="Display name.")
     description = serializers.CharField(allow_blank=True, default="", help_text="Optional description.")
     on_error = serializers.ChoiceField(
-        choices=["continue", "abort", "complete", "branch"],
+        choices=["continue", "abort"],
         required=False,
         allow_null=True,
-        help_text="On failure: continue (skip), abort (stop), complete (mark done), branch (follow error edge).",
+        help_text="On failure: continue (skip the action and proceed) or abort (stop the run).",
     )
     created_at = serializers.IntegerField(required=False, help_text="Created at (epoch ms). Frontend-managed.")
     updated_at = serializers.IntegerField(required=False, help_text="Updated at (epoch ms). Frontend-managed.")
@@ -117,7 +182,7 @@ class HogFlowActionSerializer(serializers.Serializer):
     type = serializers.CharField(
         max_length=100,
         help_text=(
-            "trigger | function | function_email | function_sms | function_push | delay | "
+            "trigger | function | function_email | function_sms | delay | "
             "conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit."
         ),
     )
@@ -130,6 +195,8 @@ class HogFlowActionSerializer(serializers.Serializer):
             "type: event|person|group}. "
             "function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable "
             "hog templating ({person.x}, {event.x}); flat strings won't interpolate. "
+            "Dictionary input values are template strings too — write booleans/numbers as single-expression "
+            "templates ('{true}', '{42}'), which evaluate to the typed value. "
             "delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; "
             "seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. "
             "Max 30d. "
@@ -147,19 +214,12 @@ class HogFlowActionSerializer(serializers.Serializer):
         self.initial_data = data
         return super().to_internal_value(data)
 
-    def _should_enforce_audience_guard(self, is_draft) -> bool:
-        # Non-draft saves always validate. Drafts stay lenient only for the web UI builder (users save
-        # incomplete graphs while building); programmatic callers (MCP, posthog-code, API) send complete
-        # graphs, so enforce even on their drafts and fail fast at create time.
-        if not is_draft:
-            return True
-        request = self.context.get("request")
-        return request is None or get_event_source(request) != EventSource.WEB
-
     def _reject_behavioral_cohorts_in_audience(self, properties) -> None:
         # Batch/schedule audiences resolve offline by precalculated membership and can't evaluate event
         # behavior the way it's intended; the UI hides behavioral cohorts from the audience picker. Mirror
-        # that for API/MCP callers. Mirrors the feature-flag guard in posthog/api/cohort.py.
+        # that for API/MCP callers. Static cohorts are exempt regardless of how they were built — their
+        # membership is frozen and precalculated — matching the audience-picker exemption in
+        # _build_cohort_dependency_graph in posthog/api/cohort.py.
         if not isinstance(properties, list):
             return
         cohort_ids = [
@@ -175,7 +235,11 @@ class HogFlowActionSerializer(serializers.Serializer):
                 cohort = Cohort.objects.get(pk=cohort_id, team__project_id=project_id, deleted=False)
             except (Cohort.DoesNotExist, ValueError, TypeError):
                 continue  # missing/invalid cohort surfaces during audience resolution, not here
+            if cohort.is_static:
+                continue
             for dep in [cohort, *get_all_cohort_dependencies(cohort)]:
+                if dep.is_static:
+                    continue
                 if any(p.type == "behavioral" for p in dep.properties.flat):
                     raise serializers.ValidationError(
                         {
@@ -189,6 +253,10 @@ class HogFlowActionSerializer(serializers.Serializer):
 
     def validate(self, data):
         is_draft = self.context.get("is_draft")
+        # Drafts from the web builder stay lenient (incomplete graphs save fine); programmatic callers
+        # (MCP/API) get full validation even on drafts so a broken or unsupported config fails at create
+        # time rather than being silently stored and surfacing only at enable.
+        strict = _should_validate_strictly(self.context, is_draft)
 
         trigger_is_function = False
         if data.get("type") == "trigger":
@@ -201,7 +269,7 @@ class HogFlowActionSerializer(serializers.Serializer):
                     filters["filter_test_accounts"] = data["config"].pop("filter_test_accounts")
                 if filters:
                     serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
-                    if is_draft:
+                    if not strict:
                         if serializer.is_valid():
                             data["config"]["filters"] = serializer.validated_data
                     else:
@@ -209,7 +277,7 @@ class HogFlowActionSerializer(serializers.Serializer):
                         data["config"]["filters"] = serializer.validated_data
             elif data.get("config", {}).get("type") == "batch":
                 filters = data.get("config", {}).get("filters", {})
-                if not is_draft:
+                if strict:
                     if not filters:
                         raise serializers.ValidationError({"filters": "Filters are required for batch triggers."})
                     if not isinstance(filters, dict):
@@ -217,11 +285,10 @@ class HogFlowActionSerializer(serializers.Serializer):
                     properties = filters.get("properties", None)
                     if properties is not None and not isinstance(properties, list):
                         raise serializers.ValidationError({"filters": {"properties": "Properties must be an array."}})
-                if self._should_enforce_audience_guard(is_draft) and isinstance(filters, dict):
+                if strict and isinstance(filters, dict):
                     # The audience targets who a person is (properties / cohort membership), not what they did.
                     # Event/action filters are silently dropped by the person-based blast radius (resolving to
-                    # "everyone"), so reject them outright — same rejection as a behavioral cohort below, and
-                    # enforced together so MCP/API drafts can't slip an event-behavior audience through.
+                    # "everyone"), so reject them outright — same rejection as a behavioral cohort below.
                     if filters.get("events") or filters.get("actions"):
                         raise serializers.ValidationError(
                             {
@@ -236,19 +303,19 @@ class HogFlowActionSerializer(serializers.Serializer):
             elif data.get("config", {}).get("type") == "schedule":
                 # The schedule definition lives on a separate HogFlowSchedule row, but a schedule trigger
                 # resolves the same offline audience as batch — guard its cohort refs the same way.
-                if self._should_enforce_audience_guard(is_draft):
+                if strict:
                     filters = data.get("config", {}).get("filters", {})
                     if isinstance(filters, dict):
                         self._reject_behavioral_cohorts_in_audience(filters.get("properties"))
             else:
-                if not is_draft:
+                if strict:
                     raise serializers.ValidationError({"config": "Invalid trigger type"})
 
         if "function" in data.get("type", "") or trigger_is_function:
             template_id = data.get("config", {}).get("template_id", "")
             template = HogFunctionTemplate.get_template(template_id)
             if not template:
-                if not is_draft:
+                if strict:
                     raise serializers.ValidationError({"template_id": "Template not found"})
             else:
                 input_schema = template.inputs_schema
@@ -262,7 +329,7 @@ class HogFlowActionSerializer(serializers.Serializer):
                     context={"function_type": template.type},
                 )
 
-                if is_draft:
+                if not strict:
                     if function_config_serializer.is_valid():
                         data["config"]["inputs"] = function_config_serializer.validated_data["inputs"]
                 else:
@@ -273,34 +340,58 @@ class HogFlowActionSerializer(serializers.Serializer):
 
         single_condition = data.get("config", {}).get("condition", None)
         if conditions and single_condition:
-            if not is_draft:
+            if strict:
                 raise serializers.ValidationError({"config": "Cannot specify both 'conditions' and 'condition' fields"})
         if single_condition:
             conditions = [single_condition]
 
+        is_conditional_branch = data.get("type") == "conditional_branch"
         if conditions:
             for condition in conditions:
                 filters = condition.get("filters")
-                if filters is not None:
-                    if "events" in filters:
-                        if not is_draft:
-                            raise serializers.ValidationError("Event filters are not allowed in conditionals")
-                    else:
-                        serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
-                        if is_draft:
-                            if serializer.is_valid():
-                                condition["filters"] = serializer.validated_data
-                        else:
-                            serializer.is_valid(raise_exception=True)
+                if filters is None:
+                    # A conditional_branch condition without a 'filters' wrapper (e.g. a bare {properties: [...]})
+                    # has nothing to compile, so it silently becomes always-false and the branch never matches.
+                    # Reject it for strict callers with a fixable message; web-builder drafts stay lenient
+                    # (incomplete mid-edit). wait_until_condition waits on `events` instead, so a null condition
+                    # filter is legitimate there — only enforce this for conditional_branch.
+                    if strict and is_conditional_branch:
+                        raise serializers.ValidationError(
+                            {
+                                "config": (
+                                    "Each conditional_branch condition must wrap its filters in a 'filters' key, e.g. "
+                                    "{conditions: [{filters: {properties: [...]}}]} (same shape as a trigger's "
+                                    "filters). A condition without 'filters' compiles to always-false and never matches."
+                                )
+                            }
+                        )
+                    continue
+                if "events" in filters:
+                    if strict:
+                        raise serializers.ValidationError("Event filters are not allowed in conditionals")
+                else:
+                    serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
+                    if not strict:
+                        if serializer.is_valid():
                             condition["filters"] = serializer.validated_data
+                    else:
+                        serializer.is_valid(raise_exception=True)
+                        condition["filters"] = serializer.validated_data
 
         if data.get("type") == "wait_until_condition":
             wait_events = data.get("config", {}).get("events") or []
+            # Drop "events to wait for" entries that target neither events nor actions. An empty
+            # event filter compiles to always-true bytecode, which would wake the job on every
+            # incoming event and bypass the property condition. The UI can leave such an entry
+            # behind when the last event is removed; "nothing targeted" must mean "nothing wakes
+            # this", not "everything". Action-based entries (events empty, actions set) are kept.
+            wait_events = [ec for ec in wait_events if _event_config_has_event_or_action(ec)]
+            data["config"]["events"] = wait_events
             for event_config in wait_events:
                 filters = event_config.get("filters")
                 if filters is not None:
                     serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
-                    if is_draft:
+                    if not strict:
                         if serializer.is_valid():
                             event_config["filters"] = serializer.validated_data
                     else:
@@ -310,7 +401,7 @@ class HogFlowActionSerializer(serializers.Serializer):
         if data.get("type") == "delay":
             delay_duration = data.get("config", {}).get("delay_duration")
             if not isinstance(delay_duration, str) or not DELAY_DURATION_REGEX.match(delay_duration):
-                if not is_draft:
+                if strict:
                     raise serializers.ValidationError(
                         {
                             "config": (
@@ -352,12 +443,17 @@ class HogFlowMaskingSerializer(serializers.Serializer):
         min_value=60,
         max_value=60 * 60 * 24 * 365 * 3,
         allow_null=True,
-        help_text="Hash TTL in seconds (60 to ~94M / 3y).",
+        help_text="Seconds (60 to ~94M / 3y) to suppress repeat firings of the same hash.",
     )
     threshold = serializers.IntegerField(
-        required=False, allow_null=True, help_text="Min matching events before triggering (k-anonymity)."
+        required=False,
+        allow_null=True,
+        help_text="Fire once per N matches of the same hash within ttl — a sampler: N=3 fires on the 1st, 4th, 7th… match. Omit to fire on the first match, then suppress repeats within ttl.",
     )
-    hash = serializers.CharField(required=True, help_text="HogQL template, e.g. '{person.properties.email}'.")
+    hash = serializers.CharField(
+        required=True,
+        help_text="HogQL template defining the dedup/grouping key, e.g. '{person.id}' (once per person) within ttl.",
+    )
     bytecode = serializers.JSONField(required=False, allow_null=True, help_text="Auto-compiled from hash. Do not set.")
 
     def validate(self, attrs):
@@ -477,8 +573,12 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         required=False,
         allow_null=True,
         help_text=(
-            "Optional dedup: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. "
-            "Server compiles bytecode from hash. Omit to disable."
+            "Optional dedup/throttle on an already-matched trigger: {hash: <HogQL template>, "
+            "ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then "
+            "suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire "
+            "once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an "
+            "already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; "
+            "omit to disable."
         ),
     )
     conversion = serializers.JSONField(
@@ -594,12 +694,54 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         )
         data["billable_action_types"] = billable_action_types
 
+        # Web-builder drafts stay lenient; programmatic (MCP/API) callers get full validation even on
+        # drafts — same posture as HogFlowActionSerializer, so a conversion filter that can't compile
+        # (e.g. a cohort reference) fails at create rather than being silently stored.
+        strict = _should_validate_strictly(self.context, self.context.get("is_draft"))
+
+        # Graph wiring (dangling edges, branch-index range, abort_action, reachability) is enforced only on
+        # the surgical /graph endpoint (which sets enforce_graph_structure and builds a clean graph by
+        # construction). On every other save it's advisory: existing workflows carry pre-existing structural
+        # corruption (stale branch edges from removed conditions, legacy null endpoints), and a normal edit —
+        # even an unrelated one — must not be blocked by graph state the caller didn't introduce. We log it
+        # for telemetry instead. The web builder's incomplete drafts (not strict) skip the check entirely.
+        enforce_graph = self.context.get("enforce_graph_structure", False)
+        if strict or enforce_graph:
+            edges = data.get("edges", instance.edges if instance else [])
+            try:
+                warnings = validate_graph(actions, edges, abort_action=instance.abort_action if instance else None)
+            except serializers.ValidationError as exc:
+                if enforce_graph:
+                    raise
+                graph_errors = exc.detail.get("graph", []) if isinstance(exc.detail, dict) else [exc.detail]
+                for error in graph_errors:
+                    logger.warning(
+                        "hog_flow_graph_structural_error",
+                        error=str(error),
+                        hog_flow_id=str(instance.id) if instance else None,
+                    )
+                warnings = []
+            for warning in warnings:
+                logger.info(
+                    "hog_flow_graph_warning", warning=warning, hog_flow_id=str(instance.id) if instance else None
+                )
+
         conversion = data.get("conversion")
         if conversion is not None:
             filters = conversion.get("filters")
+            # Forward guard for the legacy bad shape (see migration 0009): an event-based conversion
+            # goal stored as an object in `conversion.filters` (e.g. {"events": [...], "source": "events"})
+            # belongs in `conversion.events`. `conversion.filters` is an array of property filters, so the
+            # object both crashes the property picker and is invisible to the matcher. Relocate it here so
+            # no client (web UI, API, MCP) can persist the malformed shape; it then compiles through the
+            # conversion.events path below.
+            if isinstance(filters, dict) and filters.get("events"):
+                data["conversion"]["events"] = [*(conversion.get("events") or []), {"filters": filters}]
+                data["conversion"]["filters"] = []
+                filters = []
             if filters:
                 serializer = HogFunctionFiltersSerializer(data={"properties": filters}, context=self.context)
-                if self.context.get("is_draft"):
+                if not strict:
                     if serializer.is_valid():
                         compiled_filters = serializer.validated_data
                         data["conversion"]["filters"] = compiled_filters.get("properties", [])
@@ -612,11 +754,17 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             if "bytecode" not in data["conversion"]:
                 data["conversion"]["bytecode"] = []
 
-            for event_config in conversion.get("events") or []:
+            # Drop conversion "events" entries that target neither events nor actions, for the same
+            # always-true reason as the wait_until_condition guard above: an empty entry would mark
+            # every incoming event as a conversion. Action-based entries (events empty, actions set)
+            # are kept.
+            conversion_events = [ec for ec in (conversion.get("events") or []) if _event_config_has_event_or_action(ec)]
+            data["conversion"]["events"] = conversion_events
+            for event_config in conversion_events:
                 event_filters = event_config.get("filters")
                 if event_filters is not None:
                     event_serializer = HogFunctionFiltersSerializer(data=event_filters, context=self.context)
-                    if self.context.get("is_draft"):
+                    if not strict:
                         if event_serializer.is_valid():
                             event_config["filters"] = event_serializer.validated_data
                         elif isinstance(event_filters, dict):
@@ -643,6 +791,87 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         return super().update(instance, validated_data)
 
 
+GRAPH_OPERATION_TYPES = [
+    "update_action",
+    "add_action",
+    "remove_action",
+    "add_edge",
+    "remove_edge",
+    "replace_action_edges",
+]
+
+# Per-op required fields, validated in HogFlowGraphOperationSerializer.validate so a malformed op is
+# rejected before any are applied (the whole batch is atomic).
+_GRAPH_OPERATION_REQUIRED_FIELDS: dict[str, list[str]] = {
+    "update_action": ["id", "patch"],
+    "add_action": ["action"],
+    "remove_action": ["id"],
+    "add_edge": ["edge"],
+    "remove_edge": ["edge"],
+    "replace_action_edges": ["id", "edges"],
+}
+
+
+class HogFlowGraphOperationSerializer(serializers.Serializer):
+    op = serializers.ChoiceField(
+        choices=GRAPH_OPERATION_TYPES,
+        help_text=(
+            "Graph edit. update_action {id, patch}: deep-merge patch into the action's fields (a null leaf "
+            "deletes that key) — the surgical path for tweaking one config value. add_action {action}: append "
+            "a full action node. remove_action {id}: delete a node and reconnect its incoming edges to its "
+            "first outgoer. add_edge {edge} / remove_edge {edge}: add or delete one edge. "
+            "replace_action_edges {id, edges}: replace this action's outgoing edges with the given set "
+            "(use when adding/removing branch conditions); incoming edges are left intact."
+        ),
+    )
+    id = serializers.CharField(
+        required=False, help_text="Action id. Required for update_action, remove_action, replace_action_edges."
+    )
+    patch = serializers.JSONField(
+        required=False,
+        help_text=(
+            "update_action only. Partial action fields, deep-merged into the existing action; a null leaf "
+            "deletes that key. e.g. {config: {inputs: {subject: {value: 'Hi'}}}} changes only that input."
+        ),
+    )
+    action = serializers.JSONField(
+        required=False,
+        help_text="add_action only. A full action node {id, name, type, config, ...}; same shape as in actions.",
+    )
+    edge = HogFlowEdgeSerializer(
+        required=False, help_text="add_edge / remove_edge only. The edge {from, to, type, index?}."
+    )
+    edges = serializers.ListField(
+        child=HogFlowEdgeSerializer(),
+        required=False,
+        help_text="replace_action_edges only. The complete set of the action's outgoing edges; incoming edges are preserved.",
+    )
+
+    def validate(self, data):
+        op = data["op"]
+        missing = [field for field in _GRAPH_OPERATION_REQUIRED_FIELDS[op] if data.get(field) is None]
+        if missing:
+            raise serializers.ValidationError(f"op '{op}' requires: {', '.join(missing)}")
+        if op == "update_action" and not isinstance(data.get("patch"), dict):
+            raise serializers.ValidationError("update_action 'patch' must be an object")
+        if op == "add_action" and not isinstance(data.get("action"), dict):
+            raise serializers.ValidationError("add_action 'action' must be an object")
+        return data
+
+
+class HogFlowGraphUpdateSerializer(serializers.Serializer):
+    operations = serializers.ListField(
+        child=HogFlowGraphOperationSerializer(),
+        allow_empty=False,
+        help_text=(
+            "Ordered graph edits applied atomically to a draft workflow: the stored graph is read, the ops "
+            "are applied in order, the result is fully validated, and it's saved only if valid — otherwise the "
+            "workflow is unchanged. Reference nodes/edges by id so you never resend the whole graph. The full "
+            "updated workflow is returned."
+        ),
+    )
+
+
 class HogFlowInvocationSerializer(serializers.Serializer):
     configuration = HogFlowSerializer(
         write_only=True, required=False, help_text="Optional override; omit to use saved definition."
@@ -656,7 +885,12 @@ class HogFlowInvocationSerializer(serializers.Serializer):
         help_text="True (default) mocks HTTP/email/SMS. False fires real side effects.",
     )
     current_action_id = serializers.CharField(
-        write_only=True, required=False, help_text="Start from this action ID instead of the trigger."
+        write_only=True,
+        required=False,
+        help_text=(
+            "Start execution from this action ID instead of the trigger. Each test run executes a single node and "
+            "returns the next action id."
+        ),
     )
 
 
@@ -670,10 +904,25 @@ class HogFlowFilterSet(FilterSet):
         fields = ["id", "created_by", "created_at", "updated_at", "status"]
 
 
+class HogFlowPagination(LimitOffsetPagination):
+    # Bumped from the global default of 100 so the workflows list page loads all flows in one
+    # request — the frontend list/search runs client-side over a single page (no pagination UI yet).
+    default_limit = 200
+    max_limit = 500
+
+
 @extend_schema(extensions={"x-product": "workflows"})
 class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, viewsets.ModelViewSet):
     scope_object = "hog_flow"
-    scope_object_read_actions = ["list", "retrieve", "logs", "metrics", "metrics_totals", "user_blast_radius"]
+    scope_object_read_actions = [
+        "list",
+        "retrieve",
+        "logs",
+        "metrics",
+        "metrics_totals",
+        "metrics_global",
+        "user_blast_radius",
+    ]
     scope_object_write_actions = [
         "create",
         "update",
@@ -682,12 +931,15 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         "invocations",
         "schedule_detail",
         "bulk_delete",
+        "graph",
     ]
     queryset = HogFlow.objects.all()
+    pagination_class = HogFlowPagination
     filter_backends = [DjangoFilterBackend]
     filterset_class = HogFlowFilterSet
     log_source = "hog_flow"
     app_source = "hog_flow"
+    function_kind = "hog_flow"
 
     def dangerously_get_required_scopes(self, request, view) -> Optional[list[str]]:
         # Dual-method custom actions need method-aware scopes — the action-name-based read/write
@@ -701,6 +953,12 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         # session auth, so live sizing while editing is unaffected.
         if self.action == "user_blast_radius":
             return ["hog_flow:read", "person:read"]
+        # Invocation inspection returns distinct_id / person_id and the raw triggering payload
+        # (invocation_globals: event/person/groups), so it's person-data access — require person:read
+        # on top of workflow read, same as user_blast_radius. A hog_flow:read-only token must not be
+        # able to enumerate who a workflow ran for.
+        if self.action in ("invocation_results", "invocation_result"):
+            return ["hog_flow:read", "person:read"]
         # A test invocation resolves the event's $groups into real group properties server-side, so a
         # hog_flow:write-only token could branch on group_0.properties and read the returned logs/variables
         # as a group-property oracle. Require group:read on top. The web builder uses session auth, so
@@ -711,6 +969,15 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
 
     def get_serializer_class(self) -> type[BaseSerializer]:
         return HogFlowMinimalSerializer if self.action == "list" else HogFlowSerializer
+
+    def get_serializer_context(self) -> dict:
+        # Drives draft strictness in the serializers: web-builder drafts stay lenient, programmatic
+        # (MCP/API) drafts validate fully. Set here so the decision is tied to the request entry point,
+        # not inferred deep in the serializer (which would also catch internal re-saves like the refresh
+        # command). See _should_validate_strictly.
+        context = super().get_serializer_context()
+        context["event_source"] = get_event_source(self.request)
+        return context
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         if self.action == "list":
@@ -739,7 +1006,7 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         if self._is_mcp_request(self.request) and serializer.validated_data.get("status") == HogFlow.State.ACTIVE:
             raise exceptions.ValidationError(
                 "You can't one-shot active workflows via MCP. "
-                "Create as draft, test with workflows-run, then enable with workflows-enable."
+                "Create as draft, test with workflows-test-run, then enable with workflows-enable."
             )
 
         serializer.save()
@@ -776,14 +1043,9 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
             has_status = "status" in keys
             has_non_status = bool(keys - {"status"})
 
-            # Active workflows are read-only via MCP for now: edits can break runs already scheduled or in flight,
-            # and there's no revision history to roll back. Status-only PATCHes (the lifecycle tools) pass through.
+            # Active workflows are read-only via MCP for now. Status-only PATCHes (lifecycle tools) pass through.
             if serializer.instance.status == HogFlow.State.ACTIVE and has_non_status:
-                raise exceptions.ValidationError(
-                    "Editing an active workflow isn't supported via MCP yet — changes can break runs already "
-                    "scheduled or in flight, and there's no revision history to roll back. Don't disable and "
-                    "re-enable it to work around this. If you need different behavior, create a new draft workflow."
-                )
+                raise exceptions.ValidationError(MCP_ACTIVE_EDIT_REJECTION)
 
             # Status transitions must go through the dedicated lifecycle tools (status-only PATCHes); a mixed
             # status + field payload is rejected so MCP can't sneak a transition through a field update.
@@ -832,6 +1094,45 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
             except Exception as e:
                 logger.warning("Failed to capture hog_flow_activated event", error=str(e))
 
+    @extend_schema(request=HogFlowGraphUpdateSerializer, responses={200: HogFlowSerializer})
+    @action(detail=True, methods=["PATCH"])
+    def graph(self, request: Request, *args, **kwargs):
+        # Surgical graph editing: apply a small, id-addressed op list to the stored graph instead of
+        # re-transmitting every action and edge. Reads, applies, validates, and saves atomically so a
+        # rejected batch leaves the workflow untouched (and concurrent edits can't interleave).
+        op_serializer = HogFlowGraphUpdateSerializer(data=request.data)
+        op_serializer.is_valid(raise_exception=True)
+        operations = op_serializer.validated_data["operations"]
+
+        # Authorize + team-scope via the normal lookup, then re-read FOR UPDATE inside the transaction.
+        instance = self.get_object()
+
+        with transaction.atomic():
+            # nosemgrep: semgrep.rules.idor-lookup-without-team (re-fetch of already-authorized instance, locked for update)
+            locked = HogFlow.objects.select_for_update().get(pk=instance.pk)
+
+            if self._is_mcp_request(request) and locked.status == HogFlow.State.ACTIVE:
+                raise exceptions.ValidationError(MCP_ACTIVE_EDIT_REJECTION)
+
+            new_actions, new_edges = apply_graph_operations(
+                list(locked.actions or []), list(locked.edges or []), operations
+            )
+
+            serializer = self.get_serializer(locked, data={"actions": new_actions, "edges": new_edges}, partial=True)
+            # The surgical endpoint is the one path where structural corruption would be newly introduced,
+            # so it enforces graph validation as a hard error (unlike the lenient full-save path).
+            serializer.context["enforce_graph_structure"] = True
+            serializer.is_valid(raise_exception=True)
+
+            # nosemgrep: semgrep.rules.idor-lookup-without-team (re-fetch of already-authorized instance for activity logging)
+            before_update = HogFlow.objects.get(pk=instance.pk)
+            # save() mutates and returns `locked` in place, so it's the saved HogFlow from here on.
+            serializer.save()
+
+        log_activity_from_viewset(self, locked, name=locked.name, previous=before_update)
+
+        return Response(self.get_serializer(locked).data)
+
     @extend_schema(request=HogFlowInvocationSerializer, responses={200: _FallbackSerializer})
     @action(detail=True, methods=["POST"])
     def invocations(self, request: Request, *args, **kwargs):
@@ -869,6 +1170,111 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         result = get_user_blast_radius(self.team, filters, group_type_index)
 
         return Response(BlastRadiusSerializer(result).data)
+
+    @extend_schema(
+        operation_id="hog_flows_invocation_results_retrieve",
+        parameters=[HogInvocationResultsRequestSerializer],
+        responses=HogInvocationResultSerializer(many=True),
+    )
+    @action(detail=True, methods=["GET"], pagination_class=None, filter_backends=[])
+    def invocation_results(self, request: Request, *args, **kwargs):
+        obj = self.get_object()
+        tag_invocation_results_query(self.function_kind)
+
+        param_serializer = HogInvocationResultsRequestSerializer(data=request.query_params)
+        param_serializer.is_valid(raise_exception=True)
+        params = param_serializer.validated_data
+
+        after_date = None
+        before_date = None
+        if params.get("after"):
+            after_date, _, _ = relative_date_parse_with_delta_mapping(params["after"], self.team.timezone_info)
+        if params.get("before"):
+            before_date, _, _ = relative_date_parse_with_delta_mapping(params["before"], self.team.timezone_info)
+
+        data = fetch_hog_invocation_results(
+            team_id=self.team_id,
+            function_kind=self.function_kind,
+            function_id=str(obj.id),
+            limit=params["limit"],
+            status=params["status"].split(",") if params.get("status") else None,
+            distinct_id=params.get("distinct_id"),
+            after=after_date,
+            before=before_date,
+        )
+        return Response(HogInvocationResultSerializer(data, many=True).data)
+
+    @extend_schema(
+        operation_id="hog_flows_invocation_result_retrieve",
+        parameters=[OpenApiParameter("invocation_id", str, OpenApiParameter.PATH)],
+        responses=HogInvocationResultDetailSerializer,
+    )
+    @action(
+        detail=True,
+        methods=["GET"],
+        url_path="invocation_results/(?P<invocation_id>[^/.]+)",
+        filter_backends=[],
+    )
+    def invocation_result(self, request: Request, *args, **kwargs):
+        obj = self.get_object()
+        tag_invocation_results_query(self.function_kind)
+
+        data = fetch_hog_invocation_result(
+            team_id=self.team_id,
+            function_kind=self.function_kind,
+            function_id=str(obj.id),
+            invocation_id=kwargs["invocation_id"],
+        )
+        if data is None:
+            raise exceptions.NotFound("Invocation not found.")
+        return Response(HogInvocationResultDetailSerializer(data).data)
+
+    @extend_schema(
+        operation_id="hog_flows_metrics_global_retrieve",
+        parameters=[WorkflowGlobalStatsRequestSerializer],
+        responses=WorkflowStatsRowSerializer(many=True),
+    )
+    @action(detail=False, methods=["GET"], pagination_class=None, filter_backends=[], url_path="metrics/global")
+    def metrics_global(self, request: Request, *args, **kwargs):
+        param_serializer = WorkflowGlobalStatsRequestSerializer(data=request.query_params)
+        param_serializer.is_valid(raise_exception=True)
+        params = param_serializer.validated_data
+
+        tag_queries(product=ProductKey.WORKFLOWS, feature=Feature.QUERY)
+
+        after_date, _, _ = relative_date_parse_with_delta_mapping(params["after"], self.team.timezone_info)
+        before_date = None
+        if params.get("before"):
+            before_date, _, _ = relative_date_parse_with_delta_mapping(params["before"], self.team.timezone_info)
+
+        totals = fetch_app_metric_totals_by_source(
+            team_id=self.team_id,
+            app_source=self.app_source,
+            after=after_date,
+            before=before_date,
+        )
+        # The ClickHouse query is only team-scoped, so intersect with the workflows the caller can
+        # actually see. Keeps the aggregate consistent with workflows-list/-get access control (hog
+        # flows aren't an access-control resource today, so this is a no-op now but won't silently
+        # become a bypass if they become one), and drops orphaned metrics for since-deleted workflows.
+        accessible_ids = {
+            str(pk)
+            for pk in self.user_access_control.filter_queryset_by_access_level(self.get_queryset()).values_list(
+                "id", flat=True
+            )
+        }
+        rows: list[dict[str, object]] = [
+            {
+                "workflow_id": workflow_id,
+                "succeeded": counts.get("succeeded", 0),
+                "failed": counts.get("failed", 0),
+            }
+            for workflow_id, counts in totals.items()
+            if workflow_id in accessible_ids
+        ]
+        # Surface the most-failing workflows first — this is the at-a-glance triage view.
+        rows.sort(key=lambda row: cast(int, row["failed"]), reverse=True)
+        return Response(WorkflowStatsRowSerializer(rows, many=True).data)
 
     @action(methods=["POST"], detail=False)
     def bulk_delete(self, request: Request, **kwargs):

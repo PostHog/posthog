@@ -66,7 +66,7 @@ export const getColumnConfigurationsListUrl = (projectId: string, params?: Colum
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -176,7 +176,7 @@ export const getElementsListUrl = (projectId: string, params?: ElementsListParam
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -279,9 +279,9 @@ export const getElementsStatsRetrieveUrl = (projectId: string) => {
 
 /**
  * The original version of this API always and only returned $autocapture elements
-If no include query parameter is sent this remains true.
-Now, you can pass a combination of include query parameters to get different types of elements
-Currently only $autocapture and $rageclick and $dead_click are supported
+ * If no include query parameter is sent this remains true.
+ * Now, you can pass a combination of include query parameters to get different types of elements
+ * Currently only $autocapture and $rageclick and $dead_click are supported
  */
 export const elementsStatsRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getElementsStatsRetrieveUrl(projectId), {
@@ -306,7 +306,7 @@ export const getInsightsListUrl = (projectId: string, params?: InsightsListParam
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -319,11 +319,11 @@ export const getInsightsListUrl = (projectId: string, params?: InsightsListParam
 
 /**
  * DRF ViewSet mixin that gates coalesced responses behind permission checks.
-
-The QueryCoalescingMiddleware attaches cached response data to
-request.META["_coalesced_response"] for followers. This mixin runs DRF's
-initial() (auth + permissions + throttling) before returning the
-cached response, ensuring the request is authorized.
+ *
+ * The QueryCoalescingMiddleware attaches cached response data to
+ * request.META["_coalesced_response"] for followers. This mixin runs DRF's
+ * initial() (auth + permissions + throttling) before returning the
+ * cached response, ensuring the request is authorized.
  */
 export const insightsList = async (
     projectId: string,
@@ -341,7 +341,7 @@ export const getInsightsCreateUrl = (projectId: string, params?: InsightsCreateP
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -354,11 +354,11 @@ export const getInsightsCreateUrl = (projectId: string, params?: InsightsCreateP
 
 /**
  * DRF ViewSet mixin that gates coalesced responses behind permission checks.
-
-The QueryCoalescingMiddleware attaches cached response data to
-request.META["_coalesced_response"] for followers. This mixin runs DRF's
-initial() (auth + permissions + throttling) before returning the
-cached response, ensuring the request is authorized.
+ *
+ * The QueryCoalescingMiddleware attaches cached response data to
+ * request.META["_coalesced_response"] for followers. This mixin runs DRF's
+ * initial() (auth + permissions + throttling) before returning the
+ * cached response, ensuring the request is authorized.
  */
 export const insightsCreate = async (
     projectId: string,
@@ -379,7 +379,7 @@ export const getInsightsRetrieveUrl = (projectId: string, id: number | string, p
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -392,11 +392,11 @@ export const getInsightsRetrieveUrl = (projectId: string, id: number | string, p
 
 /**
  * DRF ViewSet mixin that gates coalesced responses behind permission checks.
-
-The QueryCoalescingMiddleware attaches cached response data to
-request.META["_coalesced_response"] for followers. This mixin runs DRF's
-initial() (auth + permissions + throttling) before returning the
-cached response, ensuring the request is authorized.
+ *
+ * The QueryCoalescingMiddleware attaches cached response data to
+ * request.META["_coalesced_response"] for followers. This mixin runs DRF's
+ * initial() (auth + permissions + throttling) before returning the
+ * cached response, ensuring the request is authorized.
  */
 export const insightsRetrieve = async (
     projectId: string,
@@ -415,7 +415,7 @@ export const getInsightsUpdateUrl = (projectId: string, id: number | string, par
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -428,11 +428,11 @@ export const getInsightsUpdateUrl = (projectId: string, id: number | string, par
 
 /**
  * DRF ViewSet mixin that gates coalesced responses behind permission checks.
-
-The QueryCoalescingMiddleware attaches cached response data to
-request.META["_coalesced_response"] for followers. This mixin runs DRF's
-initial() (auth + permissions + throttling) before returning the
-cached response, ensuring the request is authorized.
+ *
+ * The QueryCoalescingMiddleware attaches cached response data to
+ * request.META["_coalesced_response"] for followers. This mixin runs DRF's
+ * initial() (auth + permissions + throttling) before returning the
+ * cached response, ensuring the request is authorized.
  */
 export const insightsUpdate = async (
     projectId: string,
@@ -458,7 +458,7 @@ export const getInsightsPartialUpdateUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -471,11 +471,11 @@ export const getInsightsPartialUpdateUrl = (
 
 /**
  * DRF ViewSet mixin that gates coalesced responses behind permission checks.
-
-The QueryCoalescingMiddleware attaches cached response data to
-request.META["_coalesced_response"] for followers. This mixin runs DRF's
-initial() (auth + permissions + throttling) before returning the
-cached response, ensuring the request is authorized.
+ *
+ * The QueryCoalescingMiddleware attaches cached response data to
+ * request.META["_coalesced_response"] for followers. This mixin runs DRF's
+ * initial() (auth + permissions + throttling) before returning the
+ * cached response, ensuring the request is authorized.
  */
 export const insightsPartialUpdate = async (
     projectId: string,
@@ -497,7 +497,7 @@ export const getInsightsDestroyUrl = (projectId: string, id: number | string, pa
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -532,7 +532,7 @@ export const getInsightsActivityRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -567,7 +567,7 @@ export const getInsightsAnalyzeRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -580,11 +580,11 @@ export const getInsightsAnalyzeRetrieveUrl = (
 
 /**
  * DRF ViewSet mixin that gates coalesced responses behind permission checks.
-
-The QueryCoalescingMiddleware attaches cached response data to
-request.META["_coalesced_response"] for followers. This mixin runs DRF's
-initial() (auth + permissions + throttling) before returning the
-cached response, ensuring the request is authorized.
+ *
+ * The QueryCoalescingMiddleware attaches cached response data to
+ * request.META["_coalesced_response"] for followers. This mixin runs DRF's
+ * initial() (auth + permissions + throttling) before returning the
+ * cached response, ensuring the request is authorized.
  */
 export const insightsAnalyzeRetrieve = async (
     projectId: string,
@@ -607,7 +607,7 @@ export const getInsightsSuggestionsRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -620,11 +620,11 @@ export const getInsightsSuggestionsRetrieveUrl = (
 
 /**
  * DRF ViewSet mixin that gates coalesced responses behind permission checks.
-
-The QueryCoalescingMiddleware attaches cached response data to
-request.META["_coalesced_response"] for followers. This mixin runs DRF's
-initial() (auth + permissions + throttling) before returning the
-cached response, ensuring the request is authorized.
+ *
+ * The QueryCoalescingMiddleware attaches cached response data to
+ * request.META["_coalesced_response"] for followers. This mixin runs DRF's
+ * initial() (auth + permissions + throttling) before returning the
+ * cached response, ensuring the request is authorized.
  */
 export const insightsSuggestionsRetrieve = async (
     projectId: string,
@@ -647,7 +647,7 @@ export const getInsightsSuggestionsCreateUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -660,11 +660,11 @@ export const getInsightsSuggestionsCreateUrl = (
 
 /**
  * DRF ViewSet mixin that gates coalesced responses behind permission checks.
-
-The QueryCoalescingMiddleware attaches cached response data to
-request.META["_coalesced_response"] for followers. This mixin runs DRF's
-initial() (auth + permissions + throttling) before returning the
-cached response, ensuring the request is authorized.
+ *
+ * The QueryCoalescingMiddleware attaches cached response data to
+ * request.META["_coalesced_response"] for followers. This mixin runs DRF's
+ * initial() (auth + permissions + throttling) before returning the
+ * cached response, ensuring the request is authorized.
  */
 export const insightsSuggestionsCreate = async (
     projectId: string,
@@ -686,7 +686,7 @@ export const getInsightsAllActivityRetrieveUrl = (projectId: string, params?: In
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -716,7 +716,7 @@ export const getInsightsBulkUpdateTagsCreateUrl = (projectId: string, params?: I
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -729,22 +729,22 @@ export const getInsightsBulkUpdateTagsCreateUrl = (projectId: string, params?: I
 
 /**
  * Bulk update tags on multiple objects.
-
-PAT access: this action has no ``required_scopes=`` on the decorator —
-inheriting viewsets must add ``"bulk_update_tags"`` to their
-``scope_object_write_actions`` list to accept personal API keys.
-Without that opt-in, ``APIScopePermission`` rejects PAT requests with
-"This action does not support personal API key access". Done per-viewset
-so granting ``<scope>:write`` for one resource doesn't leak access to
-sibling resources that share this mixin.
-
-Accepts:
-- {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
-
-Actions:
-- "add": Add tags to existing tags on each object
-- "remove": Remove specific tags from each object
-- "set": Replace all tags on each object with the provided list
+ *
+ * PAT access: this action has no ``required_scopes=`` on the decorator —
+ * inheriting viewsets must add ``"bulk_update_tags"`` to their
+ * ``scope_object_write_actions`` list to accept personal API keys.
+ * Without that opt-in, ``APIScopePermission`` rejects PAT requests with
+ * "This action does not support personal API key access". Done per-viewset
+ * so granting ``<scope>:write`` for one resource doesn't leak access to
+ * sibling resources that share this mixin.
+ *
+ * Accepts:
+ * - {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
+ *
+ * Actions:
+ * - "add": Add tags to existing tags on each object
+ * - "remove": Remove specific tags from each object
+ * - "set": Replace all tags on each object with the provided list
  */
 export const insightsBulkUpdateTagsCreate = async (
     projectId: string,
@@ -765,7 +765,7 @@ export const getInsightsCancelCreateUrl = (projectId: string, params?: InsightsC
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -778,11 +778,11 @@ export const getInsightsCancelCreateUrl = (projectId: string, params?: InsightsC
 
 /**
  * DRF ViewSet mixin that gates coalesced responses behind permission checks.
-
-The QueryCoalescingMiddleware attaches cached response data to
-request.META["_coalesced_response"] for followers. This mixin runs DRF's
-initial() (auth + permissions + throttling) before returning the
-cached response, ensuring the request is authorized.
+ *
+ * The QueryCoalescingMiddleware attaches cached response data to
+ * request.META["_coalesced_response"] for followers. This mixin runs DRF's
+ * initial() (auth + permissions + throttling) before returning the
+ * cached response, ensuring the request is authorized.
  */
 export const insightsCancelCreate = async (
     projectId: string,
@@ -806,7 +806,7 @@ export const getInsightsGenerateMetadataCreateUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -839,7 +839,7 @@ export const getInsightsMyLastViewedRetrieveUrl = (projectId: string, params?: I
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -869,7 +869,7 @@ export const getInsightsTrendingRetrieveUrl = (projectId: string, params?: Insig
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -899,7 +899,7 @@ export const getInsightsViewedCreateUrl = (projectId: string, params?: InsightsV
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 

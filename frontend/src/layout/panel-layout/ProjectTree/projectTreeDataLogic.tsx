@@ -10,9 +10,9 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { capitalizeFirstLetter, humanList, identifierToHuman, pluralize } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
+import { capitalizeFirstLetter, humanList, identifierToHuman, pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -1135,6 +1135,19 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                             } as FileSystemImport
                         })
                         .filter((p): p is FileSystemImport => p !== null)
+
+                    // Auto-pin items the manifest marks `pinnedByDefault` once their flag is on.
+                    for (const product of allProducts) {
+                        if (
+                            product.pinnedByDefault &&
+                            product.flag &&
+                            (featureFlags as Record<string, boolean>)[product.flag] &&
+                            !selectedProductPaths.has(product.path)
+                        ) {
+                            selectedProductPaths.add(product.path)
+                            selectedProducts.push(product)
+                        }
+                    }
 
                     return convertFileSystemEntryToTreeDataItem({
                         root: 'custom-products://',

@@ -296,16 +296,21 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
  */
 export const LogsAlertsDestinationsCreateBody = /* @__PURE__ */ zod.object({
     type: zod
-        .enum(['slack', 'webhook'])
-        .describe('\* `slack` - slack\n\* `webhook` - webhook')
-        .describe('Destination type — slack or webhook.\n\n\* `slack` - slack\n\* `webhook` - webhook'),
+        .enum(['slack', 'webhook', 'teams'])
+        .describe('\* `slack` - slack\n\* `webhook` - webhook\n\* `teams` - teams')
+        .describe(
+            'Destination type — slack, webhook, or teams.\n\n\* `slack` - slack\n\* `webhook` - webhook\n\* `teams` - teams'
+        ),
     slack_workspace_id: zod
         .number()
         .optional()
         .describe('Integration ID for the Slack workspace. Required when type=slack.'),
     slack_channel_id: zod.string().optional().describe('Slack channel ID. Required when type=slack.'),
     slack_channel_name: zod.string().optional().describe('Human-readable channel name for display.'),
-    webhook_url: zod.url().optional().describe('HTTPS endpoint to POST to. Required when type=webhook.'),
+    webhook_url: zod
+        .url()
+        .optional()
+        .describe('HTTPS endpoint to POST to. Required when type=webhook, or the Teams webhook URL when type=teams.'),
 })
 
 /**
@@ -582,8 +587,8 @@ export const LogsCountRangesCreateBody = /* @__PURE__ */ zod.object({
 
 /**
  * Explain a log entry using AI.
-
-POST /api/environments/:id/logs/explainLogWithAI/
+ *
+ * POST /api/environments/:id/logs/explainLogWithAI/
  */
 export const logsExplainLogWithAICreateBodyForceRefreshDefault = false
 

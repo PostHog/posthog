@@ -53,6 +53,10 @@ class CreateRunInput:
     purpose: str = "review"
     # Run-level metadata (pr_title, ci_job_url, base_branch, etc.)
     metadata: dict = field(default_factory=dict)
+    # True when CI only rendered a subset of the suite.
+    # Tells the classifier to leave omitted baseline identifiers alone instead
+    # of marking them as removed.
+    is_partial: bool = False
 
 
 @dataclass(frozen=True)
@@ -93,6 +97,7 @@ class FinalizeRunRequestInput:
 
     approve_all: bool = False
     commit_to_github: bool = True
+    add_images_to_comment_on_pr: bool = False
 
 
 # --- Output DTOs ---
@@ -217,6 +222,19 @@ class Snapshot:
     change_kind: str = ""
     cluster_summary: ClusterSummary | None = None
     size_mismatch: bool = False
+
+
+@dataclass(frozen=True)
+class RunSnapshots:
+    """A run's snapshots plus the count of its currently-quarantined identifiers.
+
+    `quarantined_count` always reflects the full run regardless of whether
+    quarantined snapshots were filtered out of `snapshots`, so callers can
+    surface "N hidden" without a second fetch.
+    """
+
+    snapshots: list[Snapshot]
+    quarantined_count: int
 
 
 @dataclass(frozen=True)

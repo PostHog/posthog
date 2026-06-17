@@ -1,11 +1,10 @@
 import datetime as dt
-import dataclasses
 from collections.abc import Callable
 from typing import Any, Optional, cast
 
 import structlog
 import temporalio
-from drf_spectacular.utils import extend_schema_field
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
@@ -16,14 +15,14 @@ from posthog.hogql.database.database import Database
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.exceptions_capture import capture_exception
-from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
-from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.user import User
 from posthog.temporal.data_imports.cdc.adapters import get_cdc_adapter
 from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.temporal.data_imports.sources.common.base import WebhookSource
 from posthog.temporal.data_imports.sources.common.sql import (
+    RowFilterValidationError,
     filter_dwh_columns_by_enabled_columns as _filter_dwh_columns_by_enabled_columns,
+    validate_and_coerce_row_filters,
 )
 
 from products.data_warehouse.backend.data_load.service import (
@@ -41,6 +40,7 @@ from products.data_warehouse.backend.direct_postgres import hide_direct_postgres
 from products.data_warehouse.backend.external_data_source.webhooks import (
     create_and_register_webhook,
     get_or_create_webhook_hog_function,
+    reconcile_webhook_events,
 )
 from products.data_warehouse.backend.postgres_helpers import (
     get_postgres_source_location,
@@ -129,6 +129,55 @@ def _reset_cdc_for_full_resnapshot(instance: ExternalDataSchema) -> None:
 CDC_ONLY_SYNC_FREQUENCIES = {"1min"}
 
 
+@extend_schema_field(
+    {
+        "type": "array",
+        "nullable": True,
+        "items": {
+            "type": "object",
+            "properties": {
+                "column": {"type": "string"},
+                # Not an OpenAPI `enum`: the operators are punctuation with no nameable identifier,
+                # so orval collapses the enum to duplicate empty-string keys (`'': '>'`, …) in the
+                # generated clients. Keep it a plain string and list the allowed values in the
+                # description; validation is enforced server-side regardless.
+                "operator": {
+                    "type": "string",
+                    "description": 'One of: > >= < <= = != IN "NOT IN".',
+                },
+                "value": {
+                    "description": (
+                        "Comparison value; must match the column's type. For `IN` / `NOT IN`, a "
+                        "comma-separated list (e.g. `1, 2, 3` or `'a','b'`)."
+                    )
+                },
+            },
+            "required": ["column", "operator", "value"],
+        },
+    }
+)
+class RowFiltersField(serializers.JSONField):
+    """Typed JSON field for the list of `{column, operator, value}` row-filter predicates."""
+
+
+def unsupported_row_filter_reason(*, is_direct_postgres: bool, is_cdc: bool) -> str | None:
+    """Row filters are only enforced on snapshot-style syncs, which apply them as a `WHERE`
+    clause. Direct Postgres queries tables live and CDC streams WAL changes — both bypass that
+    query, so a saved filter would silently leave excluded rows visible. Reject those up front.
+    """
+    if is_direct_postgres:
+        return (
+            "Row filters are not supported for direct Postgres sources — "
+            "tables are queried live and filters cannot be enforced at the source."
+        )
+    if is_cdc:
+        return (
+            "Row filters are not supported for CDC schemas — change-stream rows are "
+            "replicated without these predicates, so filtered rows would still sync."
+        )
+    return None
+
+
 class ExternalDataSchemaSerializer(serializers.ModelSerializer):
     table = serializers.SerializerMethodField(read_only=True)
     incremental = serializers.SerializerMethodField(read_only=True)
@@ -191,6 +240,17 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "even if not listed here."
         ),
     )
+    row_filters = RowFiltersField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Predicates ANDed onto the source query so only matching rows sync. Each is "
+            "`{column, operator, value}`; `null`/empty (default) syncs all rows. The operator "
+            'must be one of `> >= < <= = != IN "NOT IN"` and the value must match the column\'s '
+            "type (for `IN`/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). "
+            "Applied on the next sync — not retroactive to already-synced rows."
+        ),
+    )
     available_columns = serializers.SerializerMethodField(
         read_only=True,
         help_text="Source-side column metadata (name, data type, nullable) discovered for this schema. "
@@ -227,6 +287,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "primary_key_columns",
             "cdc_table_mode",
             "enabled_columns",
+            "row_filters",
             "available_columns",
             "source",
         ]
@@ -406,6 +467,21 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                             f"Unknown columns in enabled_columns: {sorted(unknown)}. "
                             "Run `Pull new schemas` to refresh available columns."
                         )
+
+        # Validate against the schema's columns; raw filters are persisted as-is and re-coerced at sync time.
+        if "row_filters" in validated_data and validated_data["row_filters"] is not None:
+            incoming_sync_type = data.get("sync_type")
+            target_is_cdc = (
+                incoming_sync_type == ExternalDataSchema.SyncType.CDC if "sync_type" in data else instance.is_cdc
+            )
+            if reason := unsupported_row_filter_reason(
+                is_direct_postgres=instance.source.is_direct_postgres, is_cdc=target_is_cdc
+            ):
+                raise ValidationError(reason)
+            try:
+                validate_and_coerce_row_filters(validated_data["row_filters"], instance.schema_metadata)
+            except RowFilterValidationError as e:
+                raise ValidationError(f"Invalid row filter: {e}")
 
         sync_type = data.get("sync_type")
 
@@ -650,10 +726,16 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                         pause_external_data_schedule(str(updated_instance.id))
                     elif should_sync is True:
                         unpause_external_data_schedule(str(updated_instance.id))
-                elif should_sync is True:
+                elif should_sync_value:
+                    # No schedule yet but the schema should be syncing — create (or recover) it. The
+                    # schedule is built from the current frequency, so a cadence-only edit on an
+                    # enabled-but-unscheduled schema still takes effect.
                     sync_external_data_job_workflow(updated_instance, create=True, should_sync=should_sync_value)
 
-                if was_sync_frequency_updated or was_sync_time_of_day_updated:
+                # Re-issue an existing schedule when the cadence changed. A disabled schema with no
+                # schedule has nothing to update — updating a missing schedule raises "workflow not
+                # found" — so its new cadence is just saved and applies if/when it is enabled.
+                if (was_sync_frequency_updated or was_sync_time_of_day_updated) and schedule_exists:
                     sync_external_data_job_workflow(updated_instance, create=False, should_sync=should_sync_value)
 
             self._run_temporal_side_effect(update_schedule)
@@ -751,6 +833,31 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                         f"Failed to register webhook on your source: {result.error or 'Unknown error'}. "
                         "You can set up the webhook manually from the Webhook tab."
                     )
+            else:
+                # Deferred to keep the provider call out of the surrounding transaction.
+                # Fully non-fatal: the table is already enabled by the time this runs, so any
+                # failure (bad creds, provider 403, network) must never propagate — it would
+                # otherwise 500 the post-commit hook on the bulk path, or roll back the enable
+                # on the single-update path. Data still flows once the user fixes provider events.
+                def reconcile() -> None:
+                    try:
+                        reconcile_result = reconcile_webhook_events(
+                            source_impl, config, hog_fn_result, schema.team_id, [schema.name]
+                        )
+                        if not reconcile_result.success:
+                            logger.warning(
+                                "Failed to reconcile webhook events on schema enable",
+                                error=reconcile_result.error,
+                                schema_id=str(schema.id),
+                            )
+                    except Exception as e:
+                        logger.warning(
+                            "Error reconciling webhook events on schema enable",
+                            error=str(e),
+                            schema_id=str(schema.id),
+                        )
+
+                self._run_temporal_side_effect(reconcile)
         except ValidationError:
             raise
         except Exception as e:
@@ -805,6 +912,7 @@ class SimpleExternalDataSchemaSerializer(serializers.ModelSerializer):
         fields = ["id", "name", "label", "should_sync", "last_synced_at", "sync_type"]
 
 
+@extend_schema(extensions={"x-product": "warehouse_sources"})
 class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "external_data_source"
     scope_object_write_actions = [
@@ -1015,60 +1123,3 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         }
 
         return Response(status=status.HTTP_200_OK, data=data)
-
-
-@dataclasses.dataclass(frozen=True)
-class ExternalDataSchemaContext(ActivityContextBase):
-    name: str
-    sync_type: str | None
-    sync_frequency: str | None
-    source_id: str
-    source_type: str
-
-
-@mutable_receiver(model_activity_signal, sender=ExternalDataSchema)
-def handle_external_data_schema_change(
-    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
-):
-    if activity == "created":
-        # We don't want to log the creation of schemas as they get bulk created on source creation
-        return
-
-    external_data_schema = after_update or before_update
-
-    if not external_data_schema:
-        return
-
-    source = external_data_schema.source
-    source_type = source.source_type if source else ""
-
-    sync_frequency = None
-    if external_data_schema.sync_frequency_interval:
-        from products.warehouse_sources.backend.models.external_data_schema import (
-            sync_frequency_interval_to_sync_frequency,
-        )
-
-        sync_frequency = sync_frequency_interval_to_sync_frequency(external_data_schema.sync_frequency_interval)
-
-    context = ExternalDataSchemaContext(
-        name=external_data_schema.name or "",
-        sync_type=external_data_schema.sync_type,
-        sync_frequency=sync_frequency,
-        source_id=str(source.id) if source else "",
-        source_type=source_type,
-    )
-
-    log_activity(
-        organization_id=external_data_schema.team.organization_id,
-        team_id=external_data_schema.team_id,
-        user=user,
-        was_impersonated=was_impersonated,
-        item_id=external_data_schema.id,
-        scope=scope,
-        activity=activity,
-        detail=Detail(
-            changes=changes_between(scope, previous=before_update, current=after_update),
-            name=external_data_schema.name,
-            context=context,
-        ),
-    )

@@ -1,11 +1,13 @@
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 from posthog.test.base import APIBaseTest
 from unittest import mock
 
+from parameterized import parameterized
 from rest_framework import status
 
 from products.engineering_analytics.backend.facade import contracts
+from products.engineering_analytics.backend.tests.test_views import connect_github_source_without_data
 
 _VIEWS = "products.engineering_analytics.backend.presentation.views.api"
 
@@ -52,16 +54,25 @@ def _pr_list_item() -> contracts.PullRequestListItem:
 
 def _workflow_health() -> contracts.WorkflowHealthItem:
     return contracts.WorkflowHealthItem(
+        repo=contracts.RepoRef(provider="github", owner="PostHog", name="posthog"),
         workflow_name="CI",
         run_count=10,
         success_rate=0.9,
         p50_seconds=120.0,
         p95_seconds=600.0,
         last_failure_at=datetime(2026, 1, 20, tzinfo=UTC),
+        daily=[contracts.WorkflowHealthDay(day=date(2026, 1, 20), run_count=10, completed=8, successes=7)],
     )
 
 
 class TestEngineeringAnalyticsAPI(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        # Source resolution precedes input validation, so the non-mocked bad-input tests below
+        # (window too large, malformed repo) need a connected source for those errors to surface
+        # rather than the no-source error. The mocked tests bypass resolution entirely.
+        connect_github_source_without_data(self.team, prefix="presentation")
+
     def _url(self, action: str) -> str:
         return f"/api/projects/{self.team.id}/engineering_analytics/{action}/"
 
@@ -78,6 +89,20 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "GitHub" in response.json()["detail"]
+
+    def test_ci_cards_forwards_source_id(self) -> None:
+        source_id = "0192f000-0000-7000-8000-000000000000"
+        with mock.patch(f"{_VIEWS}.get_ci_cards", return_value=_cards()) as get:
+            response = self.client.get(self._url("ci_cards"), {"source_id": source_id})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert get.call_args.kwargs["source_id"] == source_id
+
+    def test_ci_cards_400_on_bad_source_id(self) -> None:
+        with mock.patch(f"{_VIEWS}.get_ci_cards", side_effect=ValueError("source_id must be a UUID")):
+            response = self.client.get(self._url("ci_cards"), {"source_id": "nope"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_pull_requests_serializes(self) -> None:
         result = contracts.PullRequestList(items=[_pr_list_item()], truncated=False, limit=1000)
@@ -134,8 +159,15 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_requires_authentication(self) -> None:
+    def test_workflow_health_400_when_window_too_large(self) -> None:
+        response = self.client.get(self._url("workflow_health"), {"date_from": "2000-01-01"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "the maximum is 366" in response.json()["detail"]
+
+    @parameterized.expand(["ci_cards", "pull_requests", "workflow_health", "pr_lifecycle"])
+    def test_requires_authentication(self, action: str) -> None:
         self.client.logout()
-        response = self.client.get(self._url("pr_lifecycle"))
+        response = self.client.get(self._url(action))
 
         assert response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)

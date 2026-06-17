@@ -31,11 +31,14 @@ import {
     stripRecentContext,
 } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
 import { hasPinnedContext } from 'lib/components/TaxonomicFilter/taxonomicFilterPinnedPropertiesLogic'
+import { legacyTaxonomicSurface } from 'lib/components/TaxonomicFilter/taxonomicFilterSurface'
 import {
     DataWarehousePopoverField,
     ExcludedProperties,
     ListStorage,
     QuickFilterItem,
+    META_GROUP_TYPES,
+    OPEN_AS_SELF_ON_REOPEN,
     SelectedProperties,
     SimpleOption,
     SkeletonItem,
@@ -50,9 +53,12 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { IconCohort } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { capitalizeFirstLetter, isString, objectsEqual, pluralize, toParams } from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
-import { getPrimaryPropertyForEvent } from 'lib/utils/primaryEventProperty'
+import { getPrimaryPropertyForEvent } from 'lib/utils/events'
+import { isString } from 'lib/utils/guards'
+import { objectsEqual } from 'lib/utils/objects'
+import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'
+import { toParams } from 'lib/utils/url'
 import {
     getEventDefinitionIcon,
     getEventMetadataDefinitionIcon,
@@ -376,28 +382,18 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         openRevealBarrier: true,
         setIncludeStaleEvents: (includeStaleEvents: boolean) => ({ includeStaleEvents }),
     })),
-    reducers(({ props, selectors }) => ({
+    reducers(({ props }) => ({
         searchQuery: [
             props.initialSearchQuery || '',
             {
                 setSearchQuery: (_, { searchQuery }) => searchQuery,
             },
         ],
-        activeTab: [
-            (state: any): TaxonomicFilterGroupType => {
-                const groupTypes = selectors.taxonomicGroupTypes(state)
-                const propsGroupType = selectors.groupType(state)
-                // If there's an existing filter type (e.g., SQL expression being edited),
-                // use that instead of defaulting to SuggestedFilters
-                if (propsGroupType && groupTypes.includes(propsGroupType)) {
-                    return propsGroupType
-                }
-                if (groupTypes.includes(TaxonomicFilterGroupType.SuggestedFilters)) {
-                    return TaxonomicFilterGroupType.SuggestedFilters
-                }
-                const metaTypes = selectors.metaGroupTypes(state)
-                return groupTypes.find((t) => !metaTypes.has(t)) ?? groupTypes[0]
-            },
+        explicitActiveTab: [
+            // Only an explicit user/programmatic choice lands here; `activeTab` derives
+            // from it so the default can keep tracking late-arriving groups (e.g. the
+            // SuggestedFilters tab injected once feature flags resolve after mount).
+            null as TaxonomicFilterGroupType | null,
             {
                 setActiveTab: (_, { activeTab }) => activeTab,
             },
@@ -1045,6 +1041,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         type: TaxonomicFilterGroupType.SpanAttributes,
                         endpoint: combineUrl(`api/environments/${projectId}/tracing/spans/attributes`, {
                             attribute_type: 'span_attribute',
+                            search_values: 'true',
                             ...endpointFilters,
                         }).url,
                         valuesEndpoint: (key) =>
@@ -1063,6 +1060,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         type: TaxonomicFilterGroupType.SpanResourceAttributes,
                         endpoint: combineUrl(`api/environments/${projectId}/tracing/spans/attributes`, {
                             attribute_type: 'span_resource_attribute',
+                            search_values: 'true',
                             ...endpointFilters,
                         }).url,
                         valuesEndpoint: (key) =>
@@ -1153,8 +1151,12 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         type: TaxonomicFilterGroupType.PageviewUrls,
                         endpoint: `api/environments/${teamId}/events/values/?key=$current_url&event_name=$pageview`,
                         searchAlias: 'value',
-                        getName: (option: SimpleOption) => option.name,
-                        getValue: (option: SimpleOption) => option.name,
+                        getName: (option: SimpleOption | QuickFilterItem) => option.name,
+                        // The collapsed "URL contains <query>" row is a QuickFilterItem whose
+                        // selection value is the typed query, so generic consumers reading the
+                        // committed value get the query (matching the rebuild menu), not the label.
+                        getValue: (option: SimpleOption | QuickFilterItem) =>
+                            isQuickFilterItem(option) ? option.filterValue : option.name,
                         getPopoverHeader: () => `Pageview URL`,
                         minSearchQueryLength: 3,
                         searchDescription: 'URLs seen on pageview events',
@@ -1475,8 +1477,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 new Set(taxonomicGroups.filter((g) => g.isMetaGroup).map((g) => g.type)),
         ],
         taxonomicGroupTypes: [
-            (s, p) => [p.taxonomicGroupTypes, s.taxonomicGroups, s.eventNames],
-            (groupTypes, taxonomicGroups, eventNames): TaxonomicFilterGroupType[] => {
+            (s, p) => [p.taxonomicGroupTypes, s.taxonomicGroups, s.eventNames, s.featureFlags],
+            (groupTypes, taxonomicGroups, eventNames, featureFlags): TaxonomicFilterGroupType[] => {
                 const availableGroupTypes = new Set(taxonomicGroups.map((group) => group.type))
                 const resolvedGroupTypes: TaxonomicFilterGroupType[] =
                     groupTypes || taxonomicGroups.map((group) => group.type)
@@ -1500,8 +1502,25 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     return availableGroupTypes.has(groupType)
                 })
 
-                // SuggestedFilters must be explicitly requested; RecentFilters and
-                // PinnedFilters are auto-injected after existing meta groups.
+                // In the pill variant the SuggestedFilters ("All") tab is the default
+                // cross-group landing spot whenever there's more than one substantive
+                // group to aggregate. It stays opt-in for the control variant, so the
+                // control arm only shows it where a call site explicitly requests it.
+                // The rebuild path (useTaxonomicFilter.ts) injects unconditionally
+                // because it has no per-variant arm to protect.
+                const pillVariant = featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN] === 'pill'
+                const substantiveGroupCount = filtered.filter((t) => !META_GROUP_TYPES.has(t)).length
+                if (
+                    pillVariant &&
+                    availableGroupTypes.has(TaxonomicFilterGroupType.SuggestedFilters) &&
+                    !filtered.includes(TaxonomicFilterGroupType.SuggestedFilters) &&
+                    substantiveGroupCount >= 2
+                ) {
+                    filtered.unshift(TaxonomicFilterGroupType.SuggestedFilters)
+                }
+
+                // RecentFilters and PinnedFilters are auto-injected after existing
+                // meta groups (including SuggestedFilters when present).
                 const metaGroupOrder = [
                     TaxonomicFilterGroupType.SuggestedFilters,
                     TaxonomicFilterGroupType.RecentFilters,
@@ -1640,6 +1659,34 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         ],
         value: [() => [(_, props) => props.value], (value) => value],
         groupType: [() => [(_, props) => props.groupType], (groupType) => groupType],
+        activeTab: [
+            (s) => [s.explicitActiveTab, s.groupType, s.taxonomicGroupTypes, s.metaGroupTypes],
+            (explicitActiveTab, propsGroupType, groupTypes, metaGroupTypes): TaxonomicFilterGroupType => {
+                if (explicitActiveTab && groupTypes.includes(explicitActiveTab)) {
+                    return explicitActiveTab
+                }
+                // Config/edit flows have no simple category "value" to verify on the All
+                // surface — reopen them on their own tab: a SQL/HogQL expression lands in its
+                // editor, a data-warehouse selection in its table/column picker.
+                if (
+                    propsGroupType &&
+                    OPEN_AS_SELF_ON_REOPEN.has(propsGroupType) &&
+                    groupTypes.includes(propsGroupType)
+                ) {
+                    return propsGroupType
+                }
+                // Otherwise lead with the All (Suggested filters) surface so reopening on an
+                // existing selection still shows recents/pinned + a cross-category search,
+                // rather than jumping to the selected item's category.
+                if (groupTypes.includes(TaxonomicFilterGroupType.SuggestedFilters)) {
+                    return TaxonomicFilterGroupType.SuggestedFilters
+                }
+                if (propsGroupType && groupTypes.includes(propsGroupType)) {
+                    return propsGroupType
+                }
+                return groupTypes.find((t) => !metaGroupTypes.has(t)) ?? groupTypes[0]
+            },
+        ],
         currentTabIndex: [
             (s) => [s.taxonomicGroupTypes, s.activeTab],
             (groupTypes, activeTab) => Math.max(groupTypes.indexOf(activeTab || ''), 0),
@@ -1766,6 +1813,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         // and inflates the abandonment metric (top sessions hit 100+ closes pre-gate).
         if (values.hadInteraction) {
             posthog.capture('taxonomic filter closed', {
+                surface: legacyTaxonomicSurface(values.featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]),
                 dwellMs: Date.now() - (cache.openedAt ?? Date.now()),
                 hadSelection: !!cache.hadSelection,
                 groupType: values.activeTab,
@@ -1797,6 +1845,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         : undefined
 
                 posthog.capture('taxonomic filter item selected', {
+                    surface: legacyTaxonomicSurface(
+                        values.featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]
+                    ),
                     groupType: values.activeTab,
                     sourceGroupType,
                     wasFromPinnedList,
@@ -1813,6 +1864,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         filterValue: item.filterValue,
                         propertyFilterType: item.propertyFilterType,
                         eventName: item.eventName,
+                        // Mirrors the rebuild menu's `wasUrlContainsShortcut` so contains-shortcut
+                        // adoption is comparable across arms, not muddied with keyword shortcuts.
+                        wasUrlContainsShortcut: item.isContainsShortcut === true,
                     }),
                 })
 
@@ -1950,6 +2004,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 const inputMode: 'pasted' | 'mixed' | 'typed' =
                     pastedChars >= totalLength && pastedChars > 0 ? 'pasted' : pastedChars > 0 ? 'mixed' : 'typed'
                 posthog.capture('taxonomic_filter_search_query', {
+                    surface: legacyTaxonomicSurface(
+                        values.featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]
+                    ),
                     searchQuery,
                     groupType: activeTaxonomicGroup?.type,
                     inputMode,

@@ -1,14 +1,15 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
+
+import { objectsEqual } from 'lib/utils/objects'
+import { pluralize } from 'lib/utils/strings'
 
 import api, { CountedPaginatedResponse } from '~/lib/api'
 import { Sorting } from '~/lib/lemon-ui/LemonTable'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
 import { PaginationManual } from '~/lib/lemon-ui/PaginationControl'
-import { tabAwareActionToUrl } from '~/lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareUrlToAction } from '~/lib/logic/scenes/tabAwareUrlToAction'
-import { objectsEqual, pluralize } from '~/lib/utils'
+import { trackedActionToUrl } from '~/lib/logic/scenes/trackedActionToUrl'
 import { sceneLogic } from '~/scenes/sceneLogic'
 import { urls } from '~/scenes/urls'
 import { Dataset } from '~/types'
@@ -32,14 +33,11 @@ function cleanFilters(values: Partial<DatasetFilters>): DatasetFilters {
     }
 }
 
-export interface AIObservabilityDatasetsLogicProps {
-    tabId?: string
-}
+export type AIObservabilityDatasetsLogicProps = Record<string, never>
 
 export const aiObservabilityDatasetsLogic = kea<aiObservabilityDatasetsLogicType>([
     path(['scenes', 'ai-observability', 'aiObservabilityDatasetsLogic']),
     props({} as AIObservabilityDatasetsLogicProps),
-    key((props) => props.tabId ?? 'default'),
 
     actions({
         setFilters: (filters: Partial<DatasetFilters>, merge: boolean = true, debounce: boolean = true) => ({
@@ -172,7 +170,7 @@ export const aiObservabilityDatasetsLogic = kea<aiObservabilityDatasetsLogicType
         },
     })),
 
-    tabAwareActionToUrl(({ values }) => {
+    trackedActionToUrl(({ values }) => {
         const changeUrl = ():
             | [
                   string,
@@ -194,7 +192,7 @@ export const aiObservabilityDatasetsLogic = kea<aiObservabilityDatasetsLogicType
         }
     }),
 
-    tabAwareUrlToAction(({ actions, values }) => ({
+    urlToAction(({ actions, values }) => ({
         [urls.aiObservabilityDatasets()]: (_, searchParams, __, { method }) => {
             const newFilters = cleanFilters(searchParams)
             if (!objectsEqual(values.filters, newFilters)) {

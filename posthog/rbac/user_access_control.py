@@ -60,6 +60,7 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "action",
     "customer_analytics",
     "dashboard",
+    "endpoint",
     "experiment",
     "external_data_source",
     "warehouse_objects",
@@ -293,6 +294,8 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return "session_recording_playlist"
     if name == "experimentsavedmetric":
         return "experiment_saved_metric"
+    if name == "endpointversion":
+        return "endpoint"
     if name == "externaldatasource":
         return "external_data_source"
     if name == "externaldataschema":
@@ -521,12 +524,23 @@ class UserAccessControl:
 
             filter_groups.append(self._access_controls_filters_for_object(resource, str(obj.id)))  # type: ignore
 
+        self._preload_filter_groups(filter_groups)
+
+    def _preload_filter_groups(self, filter_groups: list[dict]) -> None:
+        """Fill self._cache for these filter groups. When every group is team-scoped they're served
+        from the single bulk preload (_cached_access_controls) in memory - no extra query; otherwise
+        a targeted OR-combined query is issued for them."""
+        if not filter_groups:
+            return
+
+        if all(self._can_serve_from_preload(filters) for filters in filter_groups):
+            self._fill_filters_cache(filter_groups, self._cached_access_controls)
+            return
+
         q = Q()
         for filters in filter_groups:
             q = q | self._filter_options(filters)
-
-        access_controls = list(AccessControl.objects.filter(q))
-        self._fill_filters_cache(filter_groups, access_controls)
+        self._fill_filters_cache(filter_groups, list(AccessControl.objects.filter(q)))
 
     def preload_access_levels(self, team: Team, resource: APIScopeObject, resource_id: Optional[str] = None) -> None:
         """
@@ -549,12 +563,7 @@ class UserAccessControl:
         else:
             filter_groups.append(self._access_controls_filters_for_queryset(resource))
 
-        q = Q()
-        for filters in filter_groups:
-            q = q | self._filter_options(filters)
-
-        access_controls = list(AccessControl.objects.filter(q))
-        self._fill_filters_cache(filter_groups, access_controls)
+        self._preload_filter_groups(filter_groups)
 
     # ------------------------------------------------------------
     # Object level - checking conditions for specific items
@@ -585,7 +594,7 @@ class UserAccessControl:
             return highest_access_level(resource)
 
         # Org admins always have highest access
-        if org_membership.level >= OrganizationMembership.Level.ADMIN:
+        if self.is_organization_admin:
             return highest_access_level(resource)
 
         if resource == "organization":
@@ -604,7 +613,7 @@ class UserAccessControl:
         # Filter to specific access controls if requested
         if specific_only:
             access_controls = [
-                ac for ac in access_controls if ac.role is not None or ac.organization_member is not None
+                ac for ac in access_controls if ac.role_id is not None or ac.organization_member_id is not None
             ]
             # If we're looking for specific access controls and there are none we don't want to return the default access level
             if not access_controls:
@@ -688,7 +697,7 @@ class UserAccessControl:
             return AccessSource.CREATOR
 
         # Check if user is org admin
-        if org_membership.level >= OrganizationMembership.Level.ADMIN:
+        if self.is_organization_admin:
             return AccessSource.ORGANIZATION_ADMIN
 
         # If access controls aren't supported, return default
@@ -760,7 +769,7 @@ class UserAccessControl:
             return None
 
         # Org admins always have resource level access
-        if org_membership.level >= OrganizationMembership.Level.ADMIN:
+        if self.is_organization_admin:
             return highest_access_level(resource)
 
         if not self.access_controls_supported:
@@ -836,7 +845,7 @@ class UserAccessControl:
             return False
 
         # Org admins always have access
-        if org_membership.level >= OrganizationMembership.Level.ADMIN:
+        if self.is_organization_admin:
             return True
 
         # If access controls aren't supported, return False since we're looking for specific grants
@@ -847,8 +856,11 @@ class UserAccessControl:
         filters = self._access_controls_filters_for_queryset(resource)
         access_controls = self._get_access_controls(filters)
 
-        # These are already pre-loaded so filter what's in memory
-        access_controls = [ac for ac in access_controls if ac.role is not None or ac.organization_member is not None]
+        # These are already pre-loaded so filter what's in memory - read the FK id columns, not the
+        # .role / .organization_member accessors, which would lazy-load one query per row.
+        access_controls = [
+            ac for ac in access_controls if ac.role_id is not None or ac.organization_member_id is not None
+        ]
 
         # Check if any access control meets the required level
         for access_control in access_controls:
@@ -907,11 +919,8 @@ class UserAccessControl:
         if not resource:
             return queryset
 
-        if include_all_if_admin:
-            org_membership = self._organization_membership
-
-            if org_membership and org_membership.level >= OrganizationMembership.Level.ADMIN:
-                return queryset
+        if include_all_if_admin and self.is_organization_admin:
+            return queryset
 
         model_has_creator = hasattr(model, "created_by")
 
@@ -1013,11 +1022,11 @@ class UserAccessControl:
 
     @cached_property
     def blocked_resources(self) -> list[str]:
-        """Sorted list of resources the user has no access to at the resource level"""
+        """Sorted list of resources the user has no access to at the resource level."""
         if self.is_organization_admin:
             return []
-        resources = (*ACCESS_CONTROL_RESOURCES, *RESOURCE_INHERITANCE_MAP.keys())
-        return sorted(resource for resource in resources if not self.has_resource_access(resource))
+        candidate_resources = {ac.resource for ac in self._cached_access_controls if ac.resource_id is None}
+        return sorted(resource for resource in candidate_resources if not self.has_resource_access(resource))
 
     def filter_and_annotate_file_system_queryset(self, queryset: QuerySet["FileSystem"]) -> QuerySet["FileSystem"]:
         """
@@ -1025,10 +1034,9 @@ class UserAccessControl:
         and exclude items that end up with 'none', unless the user is the creator or project-admin or org-admin/staff.
         """
         user = self._user
-        org_membership = self._organization_membership
 
         # 1) If the user is staff or org-admin, they can see everything
-        if user.is_staff or (org_membership and org_membership.level >= OrganizationMembership.Level.ADMIN):
+        if user.is_staff or self.is_organization_admin:
             return queryset
 
         if not EE_AVAILABLE:

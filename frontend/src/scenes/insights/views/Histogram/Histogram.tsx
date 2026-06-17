@@ -5,23 +5,21 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { FunnelLayout } from 'lib/constants'
-// eslint-disable-next-line import/no-cycle
-import { animate, getOrCreateEl, wrap } from 'lib/d3/utils'
 import { D3Selector, D3Transition, useD3 } from 'lib/hooks/useD3'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-// eslint-disable-next-line import/no-cycle
 import { histogramLogic } from 'scenes/insights/views/Histogram/histogramLogic'
 
-import { D3HistogramDatum, INITIAL_CONFIG, createRoundedRectPath, getConfig } from './histogramUtils'
-
-export interface HistogramDatum {
-    id: string | number
-    bin0: number
-    bin1: number
-    count: number
-    label: string | number
-}
+import {
+    D3HistogramDatum,
+    INITIAL_CONFIG,
+    createRoundedRectPath,
+    getConfig,
+    animate,
+    getOrCreateEl,
+    wrap,
+} from './histogramUtils'
+import { HistogramDatum } from './types'
 
 interface HistogramProps {
     data: HistogramDatum[]

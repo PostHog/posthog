@@ -14,6 +14,8 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
+from django.conf import settings
+
 import structlog
 import posthoganalytics
 
@@ -45,13 +47,26 @@ _FILTERS_ELIGIBILITY_HASH_IGNORED_QUERY_FIELDS: frozenset[str] = frozenset(
     }
 )
 
-# Hourly UTC bucketing TTL schedule. Today gets 15 min so dashboards stay
-# fresh; older buckets get longer TTLs so we don't keep recomputing them.
+# Hourly UTC bucketing TTL schedule. Two jobs in one:
+#
+# 1. Freshness — today gets 2h (recomputing it more often buys nothing: the ~6h
+#    HogQL result cache already fronts these queries, so a cache hit never reads
+#    the precompute). Older windows get progressively longer TTLs.
+# 2. Job sizing — `split_ranges_by_ttl` merges *consecutive days with the same
+#    TTL* into one job. Distinct per-week TTLs therefore force weekly job
+#    boundaries, so a 31-day warm splits into ≤7-day jobs instead of one ~24-day
+#    block. That keeps each per-day INSERT's events↔sessions scan bounded — the
+#    24-day merge is what drove the multi-hundred-million-row scans that OOM the
+#    insert on very high-traffic teams.
 LAZY_TTL_SECONDS: dict[str, int] = {
-    "0d": 15 * 60,
-    "1d": 60 * 60,
-    "7d": 24 * 60 * 60,
-    "default": 7 * 24 * 60 * 60,
+    "0d": 2 * 60 * 60,  # today
+    "1d": 60 * 60,  # yesterday
+    "7d": 24 * 60 * 60,  # days 2–7   → one ~6d job
+    "14d": 2 * 24 * 60 * 60,  # days 8–14  → one 7d job
+    "21d": 4 * 24 * 60 * 60,  # days 15–21 → one 7d job
+    "28d": 7 * 24 * 60 * 60,  # days 22–28 → one 7d job
+    "35d": 10 * 24 * 60 * 60,  # days 29–35 → one 7d job (covers the tail of a 31d warm)
+    "default": 14 * 24 * 60 * 60,  # days 36+
 }
 
 # MVP user-filter allowlist: only an EventPropertyFilter on `$host` with
@@ -159,6 +174,21 @@ def is_org_feature_flag_enabled(team: Team) -> bool:
     )
 
 
+def is_precompute_enabled_for_team(team: Team) -> bool:
+    """Whether a team should take the lazy precompute path.
+
+    Short-circuits on the `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS` env-var
+    setting before evaluating the org rollout flag. The list is the shared
+    source of truth with the eager warmer, and — unlike the flag — does not rely
+    on local flag-definition evaluation, which isn't reliably available outside
+    the Django app (e.g. the Dagster warmer, where `only_evaluate_locally`
+    returned falsy and silently dropped the warmer onto the raw path).
+    """
+    if team.id in settings.WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS:
+        return True
+    return is_org_feature_flag_enabled(team)
+
+
 def check_common_eligibility(
     *,
     team: Team,
@@ -179,7 +209,7 @@ def check_common_eligibility(
     (org flag off, etc.) without touching `QueryDateRange.date_from()` —
     which can trigger a ClickHouse min-timestamp lookup for `-all` ranges.
     """
-    if not is_org_feature_flag_enabled(team):
+    if not is_precompute_enabled_for_team(team):
         raise OrgFeatureFlagDisabled()
 
     if use_web_analytics_precompute is not True:

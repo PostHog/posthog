@@ -112,19 +112,27 @@ class FakeSettings:
     """Required to trick temporal.io client to think its reading from django settings"""
 
     TEMPORAL_SECRET_KEY: str | bytes
-    TEMPORAL_FALLBACK_KEYS: Iterable[str | bytes] = dataclasses.field(default_factory=list)
+    TEMPORAL_FALLBACK_SECRET_KEYS: Iterable[str | bytes] = dataclasses.field(default_factory=list)
     TEST: bool = False
     DEBUG: bool = False
 
 
 async def _get_temporal_client(config: TemporalIOSourceConfig) -> Client:
+    if config.fallback_decryption_keys:
+        fallback_keys = [k.strip() for k in config.fallback_decryption_keys.split(",") if k.strip()]
+    else:
+        fallback_keys = []
+
     return await connect(
         host=config.host,
         port=config.port,
         namespace=config.namespace,
         client_cert=config.client_certificate,
         client_key=config.client_private_key,
-        settings=FakeSettings(config.encryption_key)
+        settings=FakeSettings(
+            TEMPORAL_SECRET_KEY=config.encryption_key,
+            TEMPORAL_FALLBACK_SECRET_KEYS=fallback_keys,
+        )
         if config.encryption_key and len(config.encryption_key) > 0
         else None,
     )

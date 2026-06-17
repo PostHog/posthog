@@ -147,6 +147,7 @@
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."ingested_production_event",
+         "posthog_team"."ingested_production_event_last_checked_at",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -271,7 +272,8 @@
          "posthog_project"."organization_id",
          "posthog_project"."name",
          "posthog_project"."created_at",
-         "posthog_project"."product_description"
+         "posthog_project"."product_description",
+         "posthog_project"."is_pending_deletion"
   FROM "posthog_project"
   WHERE "posthog_project"."id" = 99999
   LIMIT 21
@@ -343,33 +345,9 @@
   FROM "ee_accesscontrol"
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
-          AND "ee_accesscontrol"."resource" = 'project'
-          AND "ee_accesscontrol"."resource_id" = '99999'
           AND "ee_accesscontrol"."role_id" IS NULL
           AND "ee_accesscontrol"."team_id" = 99999)
          OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'project'
-             AND "ee_accesscontrol"."resource_id" = '99999'
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("ee_accesscontrol"."organization_member_id" IS NULL
-             AND "ee_accesscontrol"."resource" = 'notebook'
-             AND "ee_accesscontrol"."resource_id" IS NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'notebook'
-             AND "ee_accesscontrol"."resource_id" IS NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("ee_accesscontrol"."organization_member_id" IS NULL
-             AND "ee_accesscontrol"."resource" = 'notebook'
-             AND "ee_accesscontrol"."resource_id" IS NOT NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'notebook'
-             AND "ee_accesscontrol"."resource_id" IS NOT NULL
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999))
   '''
@@ -458,6 +436,7 @@
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."ingested_production_event",
+         "posthog_team"."ingested_production_event_last_checked_at",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -695,6 +674,7 @@
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."ingested_production_event",
+         "posthog_team"."ingested_production_event_last_checked_at",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -802,6 +782,7 @@
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."ingested_production_event",
+         "posthog_team"."ingested_production_event_last_checked_at",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -1176,7 +1157,8 @@
          "posthog_project"."organization_id",
          "posthog_project"."name",
          "posthog_project"."created_at",
-         "posthog_project"."product_description"
+         "posthog_project"."product_description",
+         "posthog_project"."is_pending_deletion"
   FROM "posthog_project"
   WHERE "posthog_project"."id" = 99999
   LIMIT 21
@@ -1201,6 +1183,7 @@
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."ingested_production_event",
+         "posthog_team"."ingested_production_event_last_checked_at",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -1325,7 +1308,8 @@
          "posthog_project"."organization_id",
          "posthog_project"."name",
          "posthog_project"."created_at",
-         "posthog_project"."product_description"
+         "posthog_project"."product_description",
+         "posthog_project"."is_pending_deletion"
   FROM "posthog_project"
   WHERE "posthog_project"."id" = 99999
   LIMIT 21
@@ -1397,33 +1381,9 @@
   FROM "ee_accesscontrol"
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
-          AND "ee_accesscontrol"."resource" = 'project'
-          AND "ee_accesscontrol"."resource_id" = '99999'
           AND "ee_accesscontrol"."role_id" IS NULL
           AND "ee_accesscontrol"."team_id" = 99999)
          OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'project'
-             AND "ee_accesscontrol"."resource_id" = '99999'
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("ee_accesscontrol"."organization_member_id" IS NULL
-             AND "ee_accesscontrol"."resource" = 'notebook'
-             AND "ee_accesscontrol"."resource_id" IS NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'notebook'
-             AND "ee_accesscontrol"."resource_id" IS NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("ee_accesscontrol"."organization_member_id" IS NULL
-             AND "ee_accesscontrol"."resource" = 'notebook'
-             AND "ee_accesscontrol"."resource_id" IS NOT NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'notebook'
-             AND "ee_accesscontrol"."resource_id" IS NOT NULL
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999))
   '''
@@ -1613,33 +1573,9 @@
   FROM "ee_accesscontrol"
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
-          AND "ee_accesscontrol"."resource" = 'project'
-          AND "ee_accesscontrol"."resource_id" = '99999'
           AND "ee_accesscontrol"."role_id" IS NULL
           AND "ee_accesscontrol"."team_id" = 99999)
          OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'project'
-             AND "ee_accesscontrol"."resource_id" = '99999'
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("ee_accesscontrol"."organization_member_id" IS NULL
-             AND "ee_accesscontrol"."resource" = 'notebook'
-             AND "ee_accesscontrol"."resource_id" IS NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'notebook'
-             AND "ee_accesscontrol"."resource_id" IS NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("ee_accesscontrol"."organization_member_id" IS NULL
-             AND "ee_accesscontrol"."resource" = 'notebook'
-             AND "ee_accesscontrol"."resource_id" IS NOT NULL
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'notebook'
-             AND "ee_accesscontrol"."resource_id" IS NOT NULL
              AND "ee_accesscontrol"."role_id" IS NULL
              AND "ee_accesscontrol"."team_id" = 99999))
   '''

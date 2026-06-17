@@ -254,7 +254,7 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_with_data_with_managed_viewsets_ff(self):
-        with patch("posthoganalytics.feature_enabled", return_value=True):
+        with patch("posthoganalytics.feature_enabled", side_effect=lambda flag, *args, **kwargs: flag != "hogql-warehouse-access-control"):
             self._create_managed_viewsets()
 
             results = self._run_revenue_analytics_overview_query().results
@@ -432,7 +432,7 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_with_events_data_with_managed_viewsets_ff(self):
-        with patch("posthoganalytics.feature_enabled", return_value=True):
+        with patch("posthoganalytics.feature_enabled", side_effect=lambda flag, *args, **kwargs: flag != "hogql-warehouse-access-control"):
             s1 = str(uuid7("2023-12-02"))
             s2 = str(uuid7("2024-01-03"))
             s3 = str(uuid7("2024-02-04"))

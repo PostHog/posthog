@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 
 import { getColorVar } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
-import { pluralize } from 'lib/utils'
+import { pluralize } from 'lib/utils/strings'
 
 import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/LineGraph'
 import { ChartDisplayType } from '~/types'
@@ -21,24 +21,31 @@ export function formatTotalDuration(bucketMinutes: number): string {
     return pluralize(Math.round(totalMinutes / 60), 'hour')
 }
 
-function fillBuckets(volume: ExceptionVolumeBucket[], bucketMinutes: number): ExceptionVolumeBucket[] {
+export function getBucketTimeline(bucketMinutes: number): number[] {
     const option = getBucketOption(bucketMinutes)
     const bucketMs = option.minutes * 60_000
+    const endMs = Math.floor(Date.now() / bucketMs) * bucketMs
+    const timeline: number[] = []
+    for (let i = option.bucketCount - 1; i >= 0; i--) {
+        timeline.push(endMs - i * bucketMs)
+    }
+    return timeline
+}
+
+function fillBuckets(volume: ExceptionVolumeBucket[], bucketMinutes: number): ExceptionVolumeBucket[] {
+    const bucketMs = getBucketOption(bucketMinutes).minutes * 60_000
     const counts = new Map<number, number>()
     volume.forEach((b) => {
         const aligned = Math.floor(dayjs(b.bucket).valueOf() / bucketMs) * bucketMs
         counts.set(aligned, b.count)
     })
-    const endMs = Math.floor(Date.now() / bucketMs) * bucketMs
-    const buckets: ExceptionVolumeBucket[] = []
-    for (let i = option.bucketCount - 1; i >= 0; i--) {
-        const ms = endMs - i * bucketMs
-        buckets.push({ bucket: dayjs(ms).toISOString(), count: counts.get(ms) ?? 0 })
-    }
-    return buckets
+    return getBucketTimeline(bucketMinutes).map((ms) => ({
+        bucket: dayjs(ms).toISOString(),
+        count: counts.get(ms) ?? 0,
+    }))
 }
 
-function formatBucketLabel(iso: string, bucketMinutes: number): string {
+export function formatBucketLabel(iso: string, bucketMinutes: number): string {
     const ts = dayjs(iso)
     if (bucketMinutes >= 1440) {
         return ts.format('MMM D')

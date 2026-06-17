@@ -57,6 +57,10 @@ export interface Series<Meta = unknown> {
             fromIndex?: number
             /** Index up to which the partial pattern applies (inclusive). Clamped to [0, data.length-1]. */
             toIndex?: number
+            /** Split the *final* segment at this fraction (0–1) of its length and dash only the part
+             *  beyond it — everything before stays solid. Lets a two-point line dash just its second
+             *  half without a phantom interior point. Takes precedence over `fromIndex`/`toIndex`. */
+            fromFraction?: number
             /** Dash pattern for the partial range. Defaults to [10, 10]. */
             pattern?: number[]
         }
@@ -187,6 +191,9 @@ export interface ChartConfig {
 
     /** Show horizontal grid lines at y-axis tick positions. */
     showGrid?: boolean
+    /** Draw only the L-shaped axis baselines (left + bottom) without interior grid lines. Ignored
+     *  when `showGrid` is true, since the grid already frames the plot. */
+    showAxisLines?: boolean
     /** Tooltip behaviour. Defaults to enabled with no pinning and `follow-data` placement. */
     tooltip?: TooltipConfig
     /** Show a vertical crosshair line that follows the cursor. */
@@ -235,6 +242,8 @@ export type ValueDomain =
 
 /** Bar appearance + band-layout details. Grouped under {@link BarChartConfig.bars} to keep the
  *  config flat at the top level. `barLayout` stays top-level as the primary discriminator. */
+export type BarFillStyle = 'flat' | 'gradient' | 'gloss'
+
 export interface BarsConfig {
     /** Corner radius in px for the rounded end(s) of a bar. Stacked bars only round the topmost
      *  segment. Defaults to 0 (square). */
@@ -242,10 +251,15 @@ export interface BarsConfig {
     /** Draw a faint hatched track behind each bar, spanning the full plot height — for
      *  funnel-style charts where every bar is a share of a whole. Only honored when
      *  `barLayout: 'grouped'`; ignored for stacked/percent (the "share of a whole"
-     *  semantics don't apply when bars share a band). Defaults to `false`. */
-    track?: boolean
+     *  semantics don't apply when bars share a band). Defaults to `false`. `true` also
+     *  highlights the track region on hover; pass `{ hover: false }` to draw the track
+     *  but leave it inert (no highlight when the cursor is over the empty remainder). */
+    track?: boolean | { hover?: boolean }
     /** Drop shadow under each bar so it reads as layered over a `track`. */
     shadow?: boolean | { color: string; blur: number; offsetX?: number; offsetY?: number }
+    /** Bar fill treatment. `flat` (default) is a solid color. `gradient` is a smooth diagonal
+     *  light→dark sheen. `gloss` is a curved radial highlight for a glassy look. */
+    fillStyle?: BarFillStyle
     /** Stacked layout only — use d3.stackOffsetDiverging so negative values stack below the zero
      *  baseline (positives above). Default `false` clamps negatives to 0. */
     divergingStack?: boolean
@@ -266,6 +280,11 @@ export interface BarsConfig {
     fitToHeight?: boolean
     /** Value-axis domain control — omit for data-derived auto-scaling. See {@link ValueDomain}. */
     valueDomain?: ValueDomain
+    /** Px of headroom reserved past the bars at the value-axis data end(s), so overlays have room
+     *  beyond the bar tip — e.g. a `ValueLabels` overlay can float beside/above each bar instead of
+     *  being flipped onto it (an on-bar label looks like the bar grows when it lifts on hover). The
+     *  axis range converts px → value units, so the gap stays visually constant. Defaults to 0. */
+    valuePadding?: number
     /** Stacked layouts only — round both *outer* ends of the whole stack so it reads as one pill,
      *  rather than only the topmost segment's cap. Implemented by clipping the bar layer to a
      *  rounded rect spanning each band's full extent and drawing the segments square, so the outer
@@ -342,6 +361,20 @@ export interface YAxisScale {
 export interface BandSlot {
     x: number
     width: number
+}
+
+/** A laid-out box-and-whisker for a single (series, x) slot — pre-computed pixel coordinates so
+ *  the draw primitives don't touch scales. Same shape contract as a bar's `BarRect`. */
+export interface BoxRect {
+    x: number
+    width: number
+    top: number
+    bottom: number
+    medianY: number
+    mean: { x: number; y: number }
+    whiskerTop: number
+    whiskerBottom: number
+    dataIndex: number
 }
 
 /** Generic scale interface that Chart uses for shared overlays and interaction. */

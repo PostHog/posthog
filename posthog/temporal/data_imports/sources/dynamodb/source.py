@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,7 @@ class DynamoDBSource(SimpleSource[DynamoDBSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.DYNAMO_DB,
+            category=DataWarehouseSourceCategory.DATABASES,
             label="DynamoDB",
             iconPath="/static/services/dynamodb.png",
             fields=cast(list[FieldType], []),
