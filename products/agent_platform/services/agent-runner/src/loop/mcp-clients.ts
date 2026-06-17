@@ -10,9 +10,19 @@
  *
  * Auth resolution:
  *   - `auth.integration` → `integrations[ref].access_token` →
- *     `Authorization: Bearer <token>`.
+ *     `Authorization: Bearer <token>`. Host-bound by the worker's
+ *     `integrationHostValidator` so a spec author can't redirect a team's
+ *     OAuth token to an arbitrary URL.
  *   - `secrets[]` → resolve each name via `secrets[NAME]`; substitute
- *     `${NAME}` placeholders in the URL before opening the transport.
+ *     `${NAME}` placeholders in the URL + author-supplied headers before
+ *     opening the transport. Each substitution is gated on the secret's
+ *     declared `spec.secrets[].allowed_hosts` against the FINAL request host
+ *     (via `secretAllowedHosts`), identical to `@posthog/http-request`: a
+ *     bare-string (unbound) secret fails closed, and a host outside the
+ *     secret's allowlist is refused before the value is ever stamped onto the
+ *     wire. Without this an author could set `headers.Authorization = 'Bearer
+ *     ${SLACK_BOT_TOKEN}'` and point `url` at a host they control, exfiltrating
+ *     an encrypted-env secret they otherwise can't read.
  *
  * Failure during open: a single ref failing to connect (transport error,
  * upstream 401, auth resolution issue) no longer kills the session. The
@@ -35,7 +45,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js'
 
-import { HttpFetcher, IntegrationCredentials, McpRef } from '@posthog/agent-shared'
+import { HttpFetcher, IntegrationCredentials, McpRef, secretHostMatches } from '@posthog/agent-shared'
 
 /** Remote tool descriptor as returned by `client.listTools()`. */
 export interface RemoteMcpTool {
@@ -100,7 +110,7 @@ export interface McpOpenFailure {
 export function categorizeMcpOpenError(err: Error): McpFailureCategory {
     const msg = err.message.toLowerCase()
     if (
-        msg.includes('mcp_secret_not_resolved') ||
+        msg.includes('mcp_secret_') ||
         msg.includes('mcp_integration_') ||
         msg.includes('no token') ||
         msg.includes('unauthor') ||
@@ -157,6 +167,19 @@ export interface OpenMcpClientsDeps {
      *  already threads through). Only the names listed on a given ref's
      *  `secrets[]` are substituted into that ref's URL. */
     secrets: Record<string, string>
+    /**
+     * Resolve a secret's declared `allowed_hosts` binding by name — the worker
+     * wires `(name) => getSecretAllowedHosts(spec, name)`. Three-way return:
+     *   - `string[]`  — secret pinned to these hosts.
+     *   - `null`      — declared as a bare string (no host binding); fail closed.
+     *   - `undefined` — not declared in `spec.secrets[]` at all.
+     * Gates every `${NAME}` substitution in the MCP URL + headers on the FINAL
+     * request host, identical to `@posthog/http-request`. Fail-closed when
+     * unset: any referenced secret is treated as unbound, so a deploy that
+     * forgets to wire this can't silently regress to "send the secret to any
+     * host." See `SecretRefSchema` for the binding shape + threat model.
+     */
+    secretAllowedHosts?: (name: string) => readonly string[] | null | undefined
     transportFactory?: McpTransportFactory
     log?: (level: 'info' | 'warn' | 'error', msg: string, meta?: Record<string, unknown>) => void
     /** Identity sent during the MCP `initialize` handshake. Defaults to the
@@ -308,7 +331,16 @@ async function resolveTarget(
     // link-local / cloud-IMDS + closes the DNS-rebinding gap via per-IP
     // resolution at connect time. The runner only handles the logical-binding
     // check (integration → host allowlist), which smokescreen can't do.
-    const url = substituteSecrets(ref.url, ref.secrets, deps.secrets)
+    //
+    // Fail-closed when the host lookup isn't wired: treat every secret as
+    // unbound so substitution refuses rather than sending it to any host.
+    const allowedHostsFor = deps.secretAllowedHosts ?? (() => null)
+    // URL is substituted first so we know the FINAL host; every `${NAME}` in the
+    // URL + headers is then validated against that host via the secret's
+    // `allowed_hosts`, so an author can't point `url` at a host they control and
+    // exfiltrate a secret stamped into a header. Same shape as
+    // `@posthog/http-request`'s URL-first host binding.
+    const { url, host } = substituteUrlAndExtractHost(ref.url, ref.secrets, allowedHostsFor, deps.secrets)
     const headers: Record<string, string> = {}
     if (ref.auth?.integration) {
         const cred = deps.integrations[ref.auth.integration]
@@ -350,33 +382,122 @@ async function resolveTarget(
     // Author-supplied headers — the BYO-bearer-token path. Walked after the
     // integration / dev-bearer blocks so explicit author entries take
     // precedence on duplicate keys (matches `http-request`'s "caller-set
-    // values are not silently overwritten" rule). Substituted from the
-    // ref's `secrets[]` declarations — missing-secret throws the same
-    // mcp_secret_not_resolved error as the URL path.
+    // values are not silently overwritten" rule). Each `${NAME}` is gated on
+    // the secret's `allowed_hosts` against the final URL host — a header
+    // secret can't be sent to a host the author isn't authorised for.
     if (ref.headers) {
         for (const [name, raw] of Object.entries(ref.headers)) {
-            headers[name] = substituteSecrets(raw, ref.secrets, deps.secrets)
+            headers[name] = substituteSecretsForHost(raw, host, ref.secrets, allowedHostsFor, deps.secrets)
         }
     }
     return { url, headers }
 }
 
+type AllowedHostsFor = (name: string) => readonly string[] | null | undefined
+
+/**
+ * Resolve a single `${NAME}` reference to its plaintext value, gated by the
+ * secret's declared host binding against `host` (the FINAL request host).
+ * Mirrors `@posthog/http-request`'s `resolveSecretForHost`:
+ *   - `mcp_secret_not_resolved`     — name isn't resolvable (missing value, or
+ *                                      not declared in `spec.secrets[]`).
+ *   - `mcp_secret_no_host_binding`  — name is a bare-string entry (declared but
+ *                                      not pinned to any host); fail closed.
+ *   - `mcp_secret_host_not_allowed` — host isn't in the secret's allowlist.
+ */
+function resolveSecretForHost(
+    name: string,
+    host: string,
+    allowedHostsFor: AllowedHostsFor,
+    available: Record<string, string>
+): string {
+    const value = available[name]
+    if (value === undefined) {
+        throw new Error(`mcp_secret_not_resolved: ${name}`)
+    }
+    const allowed = allowedHostsFor(name)
+    if (allowed === null) {
+        throw new Error(`mcp_secret_no_host_binding: ${name}`)
+    }
+    if (allowed === undefined) {
+        throw new Error(`mcp_secret_not_resolved: ${name}`)
+    }
+    if (!allowed.some((pattern) => secretHostMatches(pattern, host))) {
+        throw new Error(`mcp_secret_host_not_allowed: ${name} -> ${host}`)
+    }
+    return value
+}
+
 /**
  * Substitute `${NAME}` placeholders in `input` for each name listed on the
- * ref's `secrets[]`. Missing names throw at open time rather than passing a
- * literal `${NAME}` to the remote server — the latter would silently fail at
- * the protocol layer with no useful error.
+ * ref's `secrets[]`, gating each on the secret's `allowed_hosts` against
+ * `host`. Used for author-supplied headers, where `host` is the already-known
+ * final URL host.
  */
-function substituteSecrets(input: string, declared: readonly string[], available: Record<string, string>): string {
+function substituteSecretsForHost(
+    input: string,
+    host: string,
+    declared: readonly string[],
+    allowedHostsFor: AllowedHostsFor,
+    available: Record<string, string>
+): string {
     let out = input
     for (const name of declared) {
+        const token = `\${${name}}`
+        if (!out.includes(token)) {
+            continue
+        }
+        out = out.split(token).join(resolveSecretForHost(name, host, allowedHostsFor, available))
+    }
+    return out
+}
+
+/**
+ * Substitute `${NAME}` placeholders in the URL and extract the final host. The
+ * chicken-and-egg case (a secret may appear inside the host, e.g.
+ * `https://${TENANT}.example.com`) forces two passes:
+ *   1. Substitute referenced secrets, enforcing existence + the bare-string
+ *      refusal (neither depends on knowing the host yet).
+ *   2. Parse the final URL, extract its host, and revalidate every referenced
+ *      secret's `allowed_hosts` against it.
+ * Only names declared on the ref's `secrets[]` are substituted; a literal
+ * `${FOO}` for an undeclared name is left untouched (matches prior behaviour).
+ */
+function substituteUrlAndExtractHost(
+    template: string,
+    declared: readonly string[],
+    allowedHostsFor: AllowedHostsFor,
+    available: Record<string, string>
+): { url: string; host: string } {
+    const referenced: string[] = []
+    let url = template
+    for (const name of declared) {
+        const token = `\${${name}}`
+        if (!url.includes(token)) {
+            continue
+        }
         const value = available[name]
         if (value === undefined) {
             throw new Error(`mcp_secret_not_resolved: ${name}`)
         }
-        out = out.split(`\${${name}}`).join(value)
+        const allowed = allowedHostsFor(name)
+        if (allowed === null) {
+            throw new Error(`mcp_secret_no_host_binding: ${name}`)
+        }
+        if (allowed === undefined) {
+            throw new Error(`mcp_secret_not_resolved: ${name}`)
+        }
+        referenced.push(name)
+        url = url.split(token).join(value)
     }
-    return out
+    const host = new URL(url).host
+    for (const name of referenced) {
+        const allowed = allowedHostsFor(name) as readonly string[]
+        if (!allowed.some((pattern) => secretHostMatches(pattern, host))) {
+            throw new Error(`mcp_secret_host_not_allowed: ${name} -> ${host}`)
+        }
+    }
+    return { url, host }
 }
 
 async function closeAll(opened: readonly OpenedMcp[], log: NonNullable<OpenMcpClientsDeps['log']>): Promise<void> {

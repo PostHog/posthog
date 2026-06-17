@@ -32,6 +32,7 @@ import {
     CredentialBroker,
     FailureNotifier,
     GatewayClient,
+    getSecretAllowedHosts,
     HttpFetcher,
     LogSink,
     MemoryStore,
@@ -456,6 +457,7 @@ export class Worker {
                 const opened = await openMcpClients(rev.spec.mcps, {
                     integrations,
                     secrets,
+                    secretAllowedHosts: (name) => getSecretAllowedHosts(rev.spec, name),
                     transportFactory: this.deps.mcpTransportFactory,
                     integrationHostValidator: this.deps.integrationHostValidator,
                     devMcpBearerToken: this.deps.devMcpBearerToken,

@@ -316,4 +316,85 @@ describe('validateRevisionBundle', () => {
             expect(report.ok).toBe(true)
         })
     })
+
+    describe('mcp secret host binding', () => {
+        it('flags ${NAME} in an mcp header when the secret is declared as a bare string', async () => {
+            const bundles = makeBundles()
+            await bundles.write('rev1', 'agent.md', 'hi')
+            const report = await validateRevisionBundle(
+                mkRev({
+                    secrets: ['GITHUB_TOKEN'],
+                    mcps: [
+                        {
+                            id: 'github',
+                            url: 'https://api.githubcopilot.com/mcp',
+                            secrets: ['GITHUB_TOKEN'],
+                            headers: { Authorization: 'Bearer ${GITHUB_TOKEN}' },
+                        },
+                    ],
+                }),
+                bundles
+            )
+            expect(report.ok).toBe(false)
+            expect(report.errors).toEqual([
+                {
+                    code: 'secret_no_host_binding',
+                    pointer: 'spec.mcps[0].headers.Authorization',
+                    message: expect.stringContaining('GITHUB_TOKEN'),
+                },
+            ])
+        })
+
+        it('flags ${NAME} in an mcp url when the secret is declared as a bare string', async () => {
+            const bundles = makeBundles()
+            await bundles.write('rev1', 'agent.md', 'hi')
+            const report = await validateRevisionBundle(
+                mkRev({
+                    secrets: ['TENANT'],
+                    mcps: [{ id: 'tenant', url: 'https://${TENANT}.example.com/mcp', secrets: ['TENANT'] }],
+                }),
+                bundles
+            )
+            expect(report.errors).toEqual([
+                {
+                    code: 'secret_no_host_binding',
+                    pointer: 'spec.mcps[0].url',
+                    message: expect.stringContaining('TENANT'),
+                },
+            ])
+        })
+
+        it('accepts an mcp header secret declared in object form with allowed_hosts', async () => {
+            const bundles = makeBundles()
+            await bundles.write('rev1', 'agent.md', 'hi')
+            const report = await validateRevisionBundle(
+                mkRev({
+                    secrets: [{ name: 'GITHUB_TOKEN', allowed_hosts: ['api.githubcopilot.com'] }],
+                    mcps: [
+                        {
+                            id: 'github',
+                            url: 'https://api.githubcopilot.com/mcp',
+                            secrets: ['GITHUB_TOKEN'],
+                            headers: { Authorization: 'Bearer ${GITHUB_TOKEN}' },
+                        },
+                    ],
+                }),
+                bundles
+            )
+            expect(report.ok).toBe(true)
+        })
+
+        it('does NOT flag a declared mcp secret that is never referenced as ${NAME}', async () => {
+            const bundles = makeBundles()
+            await bundles.write('rev1', 'agent.md', 'hi')
+            const report = await validateRevisionBundle(
+                mkRev({
+                    secrets: ['GITHUB_TOKEN'],
+                    mcps: [{ id: 'github', url: 'https://api.githubcopilot.com/mcp', secrets: ['GITHUB_TOKEN'] }],
+                }),
+                bundles
+            )
+            expect(report.ok).toBe(true)
+        })
+    })
 })

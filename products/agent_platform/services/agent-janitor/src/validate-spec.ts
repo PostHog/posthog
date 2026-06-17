@@ -217,6 +217,7 @@ export async function validateRevisionBundle(rev: AgentRevision, bundle: BundleS
     }
 
     await checkSecretHostBindings(rev, bundle, errors)
+    checkMcpSecretHostBindings(rev.spec, errors)
 
     return {
         ok: errors.length === 0,
@@ -284,6 +285,52 @@ async function checkSecretHostBindings(
                 message: secretBindingMessage(name, target.path, rev.spec),
                 pointer: target.pointer,
             })
+        }
+    }
+}
+
+/**
+ * Cross-check `spec.mcps[].url` + `spec.mcps[].headers` against each ref's
+ * declared `secrets[]`. A `${NAME}` reference to a bare-string `spec.secrets[]`
+ * entry is `mcp_secret_no_host_binding` at session start (the runner refuses to
+ * substitute an unbound secret into an author-chosen URL / header — that's the
+ * MCP-header exfiltration guard), so catch it here rather than letting the MCP
+ * fail to open. Unlike the markdown scan above, MCP refs carry their own
+ * `secrets[]` list and may use lowercase names, so we walk the declared names
+ * and look for `${name}` tokens rather than regex-matching the body.
+ */
+function checkMcpSecretHostBindings(spec: AgentSpec, errors: ValidationError[]): void {
+    for (const [i, ref] of spec.mcps.entries()) {
+        const fields: Array<{ value: string; pointer: string }> = [{ value: ref.url, pointer: `spec.mcps[${i}].url` }]
+        for (const [header, value] of Object.entries(ref.headers ?? {})) {
+            fields.push({ value, pointer: `spec.mcps[${i}].headers.${header}` })
+        }
+        const seen = new Set<string>()
+        for (const field of fields) {
+            for (const name of ref.secrets) {
+                if (!field.value.includes(`\${${name}}`)) {
+                    continue
+                }
+                // null = bare-string (declared, unbound). undefined = not declared
+                // at all → mcp_secret_not_resolved, a different runtime error
+                // outside this validator's scope.
+                if (getSecretAllowedHosts(spec, name) !== null) {
+                    continue
+                }
+                const key = `${field.pointer}|${name}`
+                if (seen.has(key)) {
+                    continue
+                }
+                seen.add(key)
+                errors.push({
+                    code: 'secret_no_host_binding',
+                    message:
+                        `spec.mcps[${i}] ("${ref.id}") references \${${name}} but spec.secrets[] declares "${name}" ` +
+                        `as a bare string; the runner will refuse to substitute it (mcp_secret_no_host_binding). ` +
+                        `Convert to the object form: { "name": "${name}", "allowed_hosts": ["api.example.com"] }.`,
+                    pointer: field.pointer,
+                })
+            }
         }
     }
 }
