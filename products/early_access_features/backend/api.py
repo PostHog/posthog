@@ -120,19 +120,20 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
         serialized_previous = MinimalEarlyAccessFeatureSerializer(instance).data
 
         if instance.stage != stage:
-            if "stage" in self.initial_data and instance.feature_flag is not None:
-                assert_feature_flag_write_scope(
-                    request,
-                    action="early_access_feature.stage_change",
-                    team_id=instance.team_id,
-                    feature_flag_id=instance.feature_flag.id,
-                    resource_scope="early_access_feature:write",
-                )
             send_events_for_early_access_feature_stage_change.delay(str(instance.id), instance.stage, stage)
 
+        # The branches below each mutate the linked flag's enrollment filters, so they require
+        # feature_flag:write. A stage change that writes no flag row is intentionally not gated.
         if instance.stage != stage and stage == EarlyAccessFeature.Stage.GENERAL_AVAILABILITY and rollout_to_all:
             related_feature_flag = instance.feature_flag
             if related_feature_flag:
+                assert_feature_flag_write_scope(
+                    request,
+                    action="early_access_feature.stage_change",
+                    resource_scope="early_access_feature:write",
+                    team_id=instance.team_id,
+                    feature_flag_id=related_feature_flag.id,
+                )
                 serialized_data_filters = _set_enrollment_filters(
                     related_feature_flag.filters,
                     enrolled=None,
@@ -150,6 +151,13 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
         elif instance.stage not in EarlyAccessFeature.ActiveStage and stage in EarlyAccessFeature.ActiveStage:
             related_feature_flag = instance.feature_flag
             if related_feature_flag:
+                assert_feature_flag_write_scope(
+                    request,
+                    action="early_access_feature.stage_change",
+                    resource_scope="early_access_feature:write",
+                    team_id=instance.team_id,
+                    feature_flag_id=related_feature_flag.id,
+                )
                 serialized_data_filters = _set_enrollment_filters(related_feature_flag.filters, enrolled=True)
 
                 serializer = FeatureFlagSerializer(
@@ -163,6 +171,13 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
         elif stage is not None and (stage not in EarlyAccessFeature.ActiveStage):
             related_feature_flag = instance.feature_flag
             if related_feature_flag:
+                assert_feature_flag_write_scope(
+                    request,
+                    action="early_access_feature.stage_change",
+                    resource_scope="early_access_feature:write",
+                    team_id=instance.team_id,
+                    feature_flag_id=related_feature_flag.id,
+                )
                 related_feature_flag.filters = _set_enrollment_filters(related_feature_flag.filters, enrolled=None)
                 related_feature_flag.save()
 
@@ -254,14 +269,6 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
     def create(self, validated_data):
         validated_data["team_id"] = self.context["team_id"]
 
-        assert_feature_flag_write_scope(
-            self.context["request"],
-            action="early_access_feature.create",
-            team_id=self.context["team_id"],
-            feature_flag_id=validated_data.get("feature_flag_id"),
-            resource_scope="early_access_feature:write",
-        )
-
         feature_flag_id = validated_data.get("feature_flag_id", None)
 
         default_condition = [
@@ -271,7 +278,16 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
         if feature_flag_id:
             feature_flag = FeatureFlag.objects.get(pk=feature_flag_id, team_id=self.context["team_id"])
 
+            # Only require feature_flag:write when we actually mutate the linked flag (active
+            # stage). Linking an existing flag without changing it is not a flag write.
             if validated_data.get("stage") in EarlyAccessFeature.ActiveStage:
+                assert_feature_flag_write_scope(
+                    self.context["request"],
+                    action="early_access_feature.create",
+                    resource_scope="early_access_feature:write",
+                    team_id=self.context["team_id"],
+                    feature_flag_id=feature_flag.id,
+                )
                 serialized_data_filters = _set_enrollment_filters(feature_flag.filters, enrolled=True)
 
                 serializer = FeatureFlagSerializer(
@@ -283,6 +299,13 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
                 serializer.is_valid(raise_exception=True)
                 serializer.save()
         else:
+            # No existing flag: we create one, which is a flag write.
+            assert_feature_flag_write_scope(
+                self.context["request"],
+                action="early_access_feature.create",
+                resource_scope="early_access_feature:write",
+                team_id=self.context["team_id"],
+            )
             feature_flag_key = slugify(validated_data["name"])
 
             filters: dict[str, Any] = {

@@ -41,7 +41,6 @@ from posthog.auth import (
     IDJagAccessTokenAuthentication,
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
-    ProjectSecretAPIKeyAuthentication,
     TeamSecretTokenAuthentication,
 )
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
@@ -59,7 +58,7 @@ from posthog.models.person.point_in_time_properties import (
     get_person_and_distinct_ids_for_identifier,
 )
 from posthog.models.property import Property
-from posthog.permissions import TeamSecretTokenPermission
+from posthog.permissions import TeamSecretTokenPermission, get_authenticator_scopes
 from posthog.queries.base import determine_parsed_date_for_property_matching
 from posthog.rate_limit import BurstRateThrottle, ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
@@ -156,32 +155,32 @@ def _is_enforce_feature_flag_write_scope_enabled(request, *, team_id: int | None
 
 
 def _scope_audit_identity(authenticator) -> tuple[list[str], str, str | None, str | None] | None:
-    # (scopes, auth_kind, auth_id, auth_label) for a scoped token, or None for session
-    # and other non-token auth that carries no API scopes. Covers every token type the
-    # scope-permission layer recognises (see APIScopePermission.has_permission).
+    # (scopes, auth_kind, auth_id, auth_label) for a scoped token, or None for session and
+    # other non-token auth. Scope extraction is single-sourced via get_authenticator_scopes
+    # so the enforcement decision can't drift from APIScopePermission; the auth_kind/id/label
+    # below are audit-log metadata only.
+    scopes = get_authenticator_scopes(authenticator)
+    if scopes is None:
+        return None
     if isinstance(authenticator, PersonalAPIKeyAuthentication):
         key = authenticator.personal_api_key
-        return list(key.scopes or []), "personal_api_key", key.id, key.label
+        return scopes, "personal_api_key", key.id, key.label
     if isinstance(authenticator, OAuthAccessTokenAuthentication):
-        token = authenticator.access_token
-        raw_id = getattr(token, "id", None)
-        scopes = str(token.scope or "").split()
+        raw_id = getattr(authenticator.access_token, "id", None)
         return scopes, "oauth_access_token", str(raw_id) if raw_id is not None else None, None
     if isinstance(authenticator, IDJagAccessTokenAuthentication):
-        return list(authenticator.scopes or []), "id_jag_access_token", None, None
-    if isinstance(authenticator, ProjectSecretAPIKeyAuthentication):
-        psak = authenticator.project_secret_api_key
-        return list(psak.scopes or []), "project_secret_api_key", str(getattr(psak, "id", "")) or None, None
-    return None
+        return scopes, "id_jag_access_token", None, None
+    psak = authenticator.project_secret_api_key
+    return scopes, "project_secret_api_key", str(getattr(psak, "id", "")) or None, None
 
 
 def assert_feature_flag_write_scope(
     request,
     *,
     action: str,
+    resource_scope: str,
     team_id: int | None = None,
     feature_flag_id: int | None = None,
-    resource_scope: str = "survey:write",
 ) -> None:
     # Survey and Early Access Feature endpoints write FeatureFlag rows under their own
     # scope. Require feature_flag:write for those writes too: always audit-log when it's

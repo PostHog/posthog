@@ -96,3 +96,23 @@ class TestEnforcementGateTargetsTeamOrg(APIBaseTest):
     def test_gate_fails_closed_without_team_id(self):
         request = SimpleNamespace(user=self.user)
         assert _is_enforce_feature_flag_write_scope_enabled(request, team_id=None) is False
+
+    def test_gate_returns_false_for_anonymous_user(self):
+        request = SimpleNamespace(user=SimpleNamespace(is_anonymous=True))
+        assert _is_enforce_feature_flag_write_scope_enabled(request, team_id=self.team.id) is False
+
+    def test_gate_fails_closed_and_logs_on_error(self):
+        # A nonexistent team raises during org resolution; the gate logs and fails open.
+        request = SimpleNamespace(user=self.user)
+        with patch("products.feature_flags.backend.api.feature_flag.logger") as mock_logger:
+            result = _is_enforce_feature_flag_write_scope_enabled(request, team_id=999_999_999)
+        assert result is False
+        assert mock_logger.warning.called
+
+    def test_gate_returns_feature_enabled_result(self):
+        request = SimpleNamespace(user=self.user)
+        with patch(
+            "products.feature_flags.backend.api.feature_flag.posthoganalytics.feature_enabled",
+            return_value=False,
+        ):
+            assert _is_enforce_feature_flag_write_scope_enabled(request, team_id=self.team.id) is False

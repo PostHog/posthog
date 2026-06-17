@@ -1553,6 +1553,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             assert_feature_flag_write_scope(
                 self.context["request"],
                 action="survey.create",
+                resource_scope="survey:write",
                 team_id=self.context["team_id"],
             )
             targeting_feature_flag = self._create_or_update_targeting_flag(
@@ -1594,6 +1595,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 assert_feature_flag_write_scope(
                     self.context["request"],
                     action="survey.update.remove_targeting_flag",
+                    resource_scope="survey:write",
                     team_id=self.context["team_id"],
                     feature_flag_id=instance.targeting_flag_id,
                 )
@@ -1615,6 +1617,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             assert_feature_flag_write_scope(
                 self.context["request"],
                 action="survey.update.targeting_flag_filters",
+                resource_scope="survey:write",
                 team_id=self.context["team_id"],
                 feature_flag_id=instance.targeting_flag_id,
             )
@@ -1726,6 +1729,11 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
         should_flag_be_active = self._should_survey_flags_be_active(instance)
 
+        # Intentionally NOT gated on feature_flag:write: this only syncs the active state of
+        # the survey's OWN dedicated targeting flag to the survey's running state (start/stop/
+        # archive), which survey:write already controls. The flag's definition (its filters)
+        # can only be set via the gated targeting_flag_filters path. Enforcement covers
+        # definition writes, not this lifecycle mirror.
         if instance.targeting_flag:
             instance.targeting_flag.active = should_flag_be_active
             instance.targeting_flag.save()
@@ -2069,6 +2077,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             assert_feature_flag_write_scope(
                 request,
                 action="survey.destroy",
+                resource_scope="survey:write",
                 team_id=self.team_id,
                 feature_flag_id=related_targeting_flag.id,
             )

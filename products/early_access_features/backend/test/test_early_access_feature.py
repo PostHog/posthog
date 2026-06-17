@@ -1391,6 +1391,12 @@ class TestEarlyAccessFeatureScopeEnforcement(PersonalAPIKeysBaseTest, APIBaseTes
         )
         assert response.status_code == status.HTTP_200_OK, response.json()
 
+    def test_create_linking_existing_flag_without_mutation_is_allowed(self):
+        # Linking an existing flag at a non-active stage writes no flag row, so it is not gated.
+        flag = FeatureFlag.objects.create(team=self.team, key="eaf-link-only", created_by=self.user)
+        response = self._create_feature(feature_flag_id=flag.id, stage="concept")
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
     def test_destroy_is_denied(self):
         feature_id = self._create_feature_as_admin()
         response = self.client.delete(
