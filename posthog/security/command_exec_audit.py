@@ -60,6 +60,16 @@ _INLINE_ENV_RE = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*)=(\S+)")
 # `has_encoded_blob` flag on the entry, keeping the obfuscation itself an alertable signal.
 _BLOB_RE = re.compile(r"[A-Za-z0-9+/]{64,}={0,2}")
 
+# Credentials in URL/DSN userinfo (scheme://user:pass@host) carry no hint word, so name-based
+# redaction misses them — common in code that shells out to git/psql/etc. Redact the userinfo.
+_URL_USERINFO_RE = re.compile(r"://[^/\s@]+@")
+_URL_USERINFO_REPL = f"://{_REDACTED}@"
+
+# Map control chars to spaces so attacker-influenced argv can't forge a second audit line
+# under a non-JSON log renderer (e.g. an embedded newline).
+_CONTROL_CHARS = dict.fromkeys(range(0x20), " ")
+_CONTROL_CHARS[0x7F] = " "
+
 # Characters that let one command string spawn or chain into another.
 _SHELL_OPERATORS = frozenset(";|&$`<>\n")
 
@@ -79,16 +89,22 @@ _QUERY_TAG_FIELDS = (
 )
 
 
+def _to_text(value: Any) -> str:
+    # Raw bytes/path/str -> str, no sanitization (used for detection scans on the real command).
+    if isinstance(value, str):
+        return value
+    if isinstance(value, bytes):
+        return value.decode("utf-8", "replace")
+    if hasattr(value, "__fspath__"):
+        path = os.fspath(value)
+        return path.decode("utf-8", "replace") if isinstance(path, bytes) else path
+    return str(value)
+
+
 def _coerce_str(value: Any) -> str:
+    # Sanitized for storage: neutralize control chars that could forge a second audit line.
     try:
-        if isinstance(value, str):
-            return value
-        if isinstance(value, bytes):
-            return value.decode("utf-8", "replace")
-        if hasattr(value, "__fspath__"):
-            path = os.fspath(value)
-            return path.decode("utf-8", "replace") if isinstance(path, bytes) else path
-        return str(value)
+        return _to_text(value).translate(_CONTROL_CHARS)
     except Exception:
         return _REDACTED
 
@@ -99,7 +115,10 @@ def _is_sensitive(token: str) -> bool:
     return any(hint in normalized for hint in _SECRET_HINTS)
 
 
-def _redact_blobs(text: str) -> str:
+def _redact_value(text: str) -> str:
+    # Value-based redaction for tokens with no secret hint word: URL/DSN userinfo and long
+    # base64 payloads.
+    text = _URL_USERINFO_RE.sub(_URL_USERINFO_REPL, text)
     return _BLOB_RE.sub(_REDACTED, text)
 
 
@@ -115,8 +134,9 @@ def _scrub_args(tokens: Any) -> list[str]:
             redact_next = False
             continue
         if not _is_sensitive(token):
-            # Redact embedded base64 payloads (smuggled secrets or obfuscated commands alike).
-            result.append(_redact_blobs(token)[:_MAX_LEN])
+            # Catch creds with no hint word: URL userinfo and base64 payloads (smuggled secrets
+            # or obfuscated commands alike).
+            result.append(_redact_value(token)[:_MAX_LEN])
             continue
         if "=" in token:
             name = token.split("=", 1)[0]
@@ -140,9 +160,9 @@ def _scrub_command_string(command: str) -> str:
         # Space-join (not shlex.join) keeps the audit string readable — it's for logs, not re-execution.
         return " ".join(_scrub_args(shlex.split(command)))
     except Exception:
-        # Fall back to redacting inline ``KEY=value`` secrets and base64 blobs when the line
-        # can't be tokenized.
-        return _redact_blobs(
+        # Fall back to redacting inline ``KEY=value`` secrets, URL userinfo, and base64 blobs
+        # when the line can't be tokenized.
+        return _redact_value(
             _INLINE_ENV_RE.sub(
                 lambda m: f"{m.group(1)}={_REDACTED}" if _is_sensitive(m.group(1)) else m.group(0),
                 command,
@@ -206,27 +226,25 @@ def _emit(
     token = _in_audit.set(True)
     try:
         payload: dict[str, Any] = {"component": component, "sink": sink, "shell": bool(shell)}
+        # raw = the real command (un-redacted) for detection scans; scrubbed = what we store.
         if isinstance(command, (list, tuple)):
-            raw = " ".join(_coerce_str(token) for token in command)
+            raw = " ".join(_to_text(token) for token in command)
             scrubbed = _scrub_args(command)
             payload["command"] = scrubbed
             payload["binary"] = binary or (scrubbed[0] if scrubbed else None)
-            scanned = " ".join(scrubbed)
         else:
-            raw = _coerce_str(command)
-            scrubbed_str = _scrub_command_string(raw)
-            payload["command"] = scrubbed_str
+            raw = _to_text(command)
+            payload["command"] = _scrub_command_string(raw)
             payload["binary"] = binary
-            scanned = scrubbed_str
 
-        # Flag shell command lines carrying operators (chaining, pipes, substitution) — the
-        # shape that turns an interpolated value into command injection. Only meaningful when a
-        # shell interprets the line; in argv form (shell=False) these chars are passed literally.
-        if shell and any(char in _SHELL_OPERATORS for char in scanned):
+        # Scan the raw command, not the scrubbed copy: an operator inside a redacted token (e.g.
+        # `--token=$(cat x)`) would otherwise vanish before this check. Only meaningful under a
+        # shell; in argv form (shell=False) these chars are passed literally.
+        if shell and any(char in _SHELL_OPERATORS for char in raw):
             payload["has_shell_operators"] = True
 
-        # Detect on the raw command (the redacted body no longer contains the blob): an encoded
-        # payload is worth surfacing whether it's a smuggled secret or an evasion technique.
+        # An encoded payload is worth surfacing whether it's a smuggled secret or an evasion
+        # technique — even though we redact the body itself from `command`.
         if _BLOB_RE.search(raw):
             payload["has_encoded_blob"] = True
 

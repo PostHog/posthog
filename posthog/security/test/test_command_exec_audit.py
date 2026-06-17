@@ -96,6 +96,17 @@ class TestCommandExecAuditScrubbing(TestCase):
         # Ordinary short identifiers/flags must survive — blob redaction targets long runs only.
         self.assertEqual(_scrub_args(["ls", "-la", "abc123DEF456"]), ["ls", "-la", "abc123DEF456"])
 
+    def test_url_userinfo_is_redacted(self) -> None:
+        # Credentials in a URL/DSN have no hint word; redact the userinfo segment.
+        self.assertEqual(
+            _scrub_args(["git", "clone", "https://alice:Xy9Zq0pw@github.com/o/r"]),
+            ["git", "clone", f"https://{_R}@github.com/o/r"],
+        )
+
+    def test_coerce_str_neutralizes_control_chars(self) -> None:
+        # Embedded control chars (e.g. newlines) could forge a second audit line — neutralize them.
+        self.assertEqual(command_exec_audit._coerce_str("a\nb\rc\td"), "a b c d")
+
     def test_summarize_env_redacts_non_allowlisted(self) -> None:
         allowed, redacted = _summarize_env({"PATH": "/usr/bin", "AWS_SECRET_KEY": "xxx", "FOO": "bar"})
         self.assertEqual(allowed, {"PATH": "/usr/bin"})
@@ -184,6 +195,16 @@ class TestCommandExecAuditPatching(TestCase):
         entry = self._find(logs, "subprocess.Popen")
         assert entry is not None
         self.assertNotIn("has_shell_operators", entry)
+
+    def test_shell_operators_detected_inside_redacted_token(self) -> None:
+        # The operator scan runs on the raw command, so a `$(...)` inside a redacted token
+        # (here `--token=...`) is still flagged rather than vanishing with the redaction.
+        with structlog.testing.capture_logs() as logs:
+            subprocess.run("true --token=$(echo x)", shell=True, check=True)
+        entry = self._find(logs, "subprocess.Popen")
+        assert entry is not None
+        self.assertTrue(entry["has_shell_operators"])
+        self.assertNotIn("echo", entry["command"])
 
     def test_encoded_blob_redacted_but_flagged(self) -> None:
         # The base64 body must be unrecoverable, yet the entry still signals an encoded payload.
