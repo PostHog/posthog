@@ -134,6 +134,17 @@ class TestIdentityProviderConfigSync(BaseTest):
             domain.full_clean()
         assert "identity_provider_config" in exc_info.value.message_dict
 
+    def test_dangling_config_link_fails_validation(self):
+        domain = self._create_domain(id_jag_issuer_url="https://issuer.example.com")
+        config_id = domain.identity_provider_config_id
+        assert config_id is not None
+        # Delete the row out from under the FK without nulling the link
+        IdentityProviderConfig.objects.filter(pk=config_id).delete()
+
+        with pytest.raises(ValidationError) as exc_info:
+            domain.full_clean()
+        assert "identity_provider_config" in exc_info.value.message_dict
+
     def test_deleting_config_nulls_domain_link(self):
         domain = self._create_domain(id_jag_issuer_url="https://issuer.example.com")
         assert domain.identity_provider_config is not None
