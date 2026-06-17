@@ -26,6 +26,7 @@ from posthog.temporal.data_imports.sources.google_search_console.google_search_c
     google_search_console_session,
     google_search_console_source,
     list_sites,
+    normalize_site_url,
 )
 from posthog.temporal.data_imports.sources.google_search_console.settings import (
     SEARCH_ANALYTICS_INCREMENTAL_FIELD,
@@ -149,7 +150,7 @@ class GoogleSearchConsoleSource(
             return False, f"Failed to list Google Search Console sites: {e}"
 
         normalized = {site.get("siteUrl"): site.get("permissionLevel") for site in sites}
-        site_url = config.site_url
+        site_url = normalize_site_url(config.site_url)
         if site_url not in normalized:
             return (
                 False,

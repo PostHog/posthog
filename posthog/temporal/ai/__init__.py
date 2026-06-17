@@ -5,12 +5,12 @@ from posthog.temporal.ai.chat_agent import (
     process_chat_agent_activity,
     process_conversation_activity,
 )
-from posthog.temporal.ai.posthog_code_slack_interactivity import (
+from posthog.temporal.ai.research_agent import ResearchAgentWorkflow, process_research_agent_activity
+from posthog.temporal.ai.slack_app import SLACK_APP_ACTIVITIES
+from posthog.temporal.ai.slack_app.posthog_code_slack_interactivity import (
     PostHogCodeSlackTerminateTaskWorkflow,
     process_posthog_code_terminate_task_activity,
 )
-from posthog.temporal.ai.research_agent import ResearchAgentWorkflow, process_research_agent_activity
-from posthog.temporal.ai.slack_app import SLACK_APP_ACTIVITIES
 from posthog.temporal.ai.slack_app.posthog_code_slack_mention import PostHogCodeSlackMentionWorkflow
 from posthog.temporal.ai.slack_app.posthog_code_slack_mention_command import PostHogCodeSlackMentionCommandWorkflow
 from posthog.temporal.ai.slack_conversation import (
@@ -32,10 +32,10 @@ from .sync_vectors import (
     get_approximate_actions_count,
 )
 
-# The PostHog Code Slack workflows handed off to ProcessTaskWorkflow on the tasks
-# queue once a repo was picked, so the two queues were already paired. Exposing
-# them as a subset lets the tasks-agent worker register them alongside the AI
-# worker during the migration to a single queue.
+# PostHog Code Slack workflows live on TASKS_TASK_QUEUE alongside ProcessTaskWorkflow,
+# the worker they hand off to once a repo is picked. The subset is kept exported so
+# start_temporal_worker can register it on that queue without pulling in unrelated AI
+# workflows.
 POSTHOG_CODE_SLACK_WORKFLOWS = [
     PostHogCodeSlackMentionWorkflow,
     PostHogCodeSlackMentionCommandWorkflow,
@@ -54,7 +54,6 @@ AI_WORKFLOWS = [
     ResearchAgentWorkflow,
     SummarizeLLMTracesWorkflow,
     SlackConversationRunnerWorkflow,
-    *POSTHOG_CODE_SLACK_WORKFLOWS,
     AnomalyInvestigationWorkflow,
 ]
 
@@ -67,7 +66,6 @@ AI_ACTIVITIES = [
     process_research_agent_activity,
     summarize_llm_traces_activity,
     process_slack_conversation_activity,
-    *POSTHOG_CODE_SLACK_ACTIVITIES,
     investigate_anomaly_activity,
 ]
 
