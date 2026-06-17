@@ -93,8 +93,8 @@ tools:
         enrich_url: '{id}/workflow'
         title: Create workflow
         description: >
-            Create a workflow (always created as a draft; activate with workflows-enable). Provide an actions array
-            with exactly one type='trigger' (config.type: event|webhook|manual|batch|tracking_pixel) plus action nodes
+            Create a workflow (always created as a draft; activate with workflows-enable). Provide an actions array with
+            exactly one type='trigger' (config.type: event|webhook|manual|batch|tracking_pixel) plus action nodes
             (function/function_email/function_sms, delay, conditional_branch, wait_until_condition, ...) connected by
             edges. Read the building-workflows skill for node shapes before composing: a node that mismatches the
             per-type schema saves but breaks the visual editor. Two traps that save but break: (1) a conditional_branch
