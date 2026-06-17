@@ -71,15 +71,12 @@ fn prepare_one<E: Event>(ev: &E, ctx: &RequestContext) -> anyhow::Result<Option<
 /// `serialize` impl that panics) is recorded as a failure instead of aborting
 /// the batch / poisoning the worker.
 fn run_one<E: Event>(ev: &E, ctx: &RequestContext) -> Slot {
-    let outcome = std::panic::catch_unwind(AssertUnwindSafe(|| (ev.uuid(), prepare_one(ev, ctx))));
-    match outcome {
-        Ok((_, Ok(Some(prepared)))) => Slot::Prepared(prepared),
-        Ok((_, Ok(None))) => Slot::Skipped,
-        Ok((uuid, Err(e))) => {
-            Slot::Failed(SerializationFailure::from_error(uuid, format!("{e:#}")))
-        }
-        // uuid() ran inside catch_unwind, so a panic leaves us without the id.
-        Err(_) => Slot::Failed(SerializationFailure::panicked(Uuid::nil())),
+    let uuid = ev.uuid();
+    match std::panic::catch_unwind(AssertUnwindSafe(|| prepare_one(ev, ctx))) {
+        Ok(Ok(Some(prepared))) => Slot::Prepared(prepared),
+        Ok(Ok(None)) => Slot::Skipped,
+        Ok(Err(e)) => Slot::Failed(SerializationFailure::from_error(uuid, format!("{e:#}"))),
+        Err(_) => Slot::Failed(SerializationFailure::panicked(uuid)),
     }
 }
 
@@ -101,6 +98,7 @@ where
         let slots = events.iter().map(|ev| run_one(ev, ctx)).collect();
         (events, slots)
     } else {
+        let uuids: Vec<Uuid> = events.iter().map(|ev| ev.uuid()).collect();
         let events = Arc::new(events);
         let ctx = Arc::new(ctx.clone());
         let mut set: JoinSet<(usize, Slot)> = JoinSet::new();
@@ -121,7 +119,8 @@ where
         }
         let slots = indexed
             .into_iter()
-            .map(|slot| slot.unwrap_or(Slot::Failed(SerializationFailure::panicked(Uuid::nil()))))
+            .enumerate()
+            .map(|(i, slot)| slot.unwrap_or(Slot::Failed(SerializationFailure::panicked(uuids[i]))))
             .collect();
         // Every worker has been joined, so all worker Arc clones are dropped and
         // this is the sole owner — recover the Vec to hand back to the caller.
@@ -296,25 +295,32 @@ mod tests {
         }
     }
 
+    #[rstest]
+    #[case::sequential(3)]
+    #[case::parallel(16)]
     #[tokio::test]
-    async fn skips_non_publishable_without_failure() {
+    async fn skips_non_publishable_without_failure(#[case] n: usize) {
         let ctx = test_context();
-        let events = vec![
-            FakeEvent::ok("a", "k0"),
-            FakeEvent::ok("b", "k1").not_publishable(),
-            FakeEvent::ok("c", "k2"),
-        ];
-        let (events, out) = serialize_batch(events, &ctx).await;
+        let mut events = ordered_events(n);
+        events[1] = FakeEvent::ok("ignored", "key-1").not_publishable();
 
-        assert_eq!(
-            events.len(),
-            3,
-            "non-publishable events are returned, not dropped"
-        );
-        assert_eq!(out.prepared.len(), 2);
+        let (returned, out) = serialize_batch(events, &ctx).await;
+
+        assert_eq!(returned.len(), n, "all events handed back intact");
+        assert_eq!(out.prepared.len(), n - 1);
         assert!(out.failures.is_empty());
-        assert_eq!(out.prepared[0].payload.as_ref(), b"a");
-        assert_eq!(out.prepared[1].payload.as_ref(), b"c");
+        // Payloads preserve input order, skipping index 1.
+        let mut expected_idx = 0;
+        for prepared in &out.prepared {
+            if expected_idx == 1 {
+                expected_idx += 1;
+            }
+            assert_eq!(
+                prepared.payload.as_ref(),
+                format!("payload-{expected_idx}").as_bytes()
+            );
+            expected_idx += 1;
+        }
     }
 
     /// A serialize error is isolated: the good events still come through and the
@@ -360,6 +366,25 @@ mod tests {
         assert_eq!(out.failures.len(), 1);
         assert_eq!(out.failures[0].cause(), Some("serialization_panic"));
         assert_eq!(out.failures[0].outcome(), Outcome::FatalError);
+    }
+
+    /// Panic failures preserve the correct event UUID (not nil).
+    #[rstest]
+    #[case::sequential(3)]
+    #[case::parallel(16)]
+    #[tokio::test]
+    async fn panic_failure_preserves_uuid(#[case] n: usize) {
+        let ctx = test_context();
+        let mut events = ordered_events(n);
+        let panic_uuid = events[1].uuid;
+        events[1] = FakeEvent::ok("ignored", "key-1").with_behavior(Behavior::Panic);
+        events[1].uuid = panic_uuid;
+
+        let (_events, out) = serialize_batch(events, &ctx).await;
+
+        assert_eq!(out.failures.len(), 1);
+        assert_eq!(out.failures[0].key(), panic_uuid);
+        assert_eq!(out.failures[0].cause(), Some("serialization_panic"));
     }
 
     #[tokio::test]
