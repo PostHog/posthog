@@ -62,11 +62,12 @@ export function MemberMultiSelect({
         setShowPopover(false)
     }
 
-    useEffect(() => {
-        if (showPopover) {
+    const handleVisibilityChange = (visible: boolean): void => {
+        setShowPopover(visible)
+        if (visible) {
             ensureAllMembersLoaded()
         }
-    }, [showPopover]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }
 
     // Load members when the selection is non-empty even before the popover opens, so a value
     // pre-populated from the URL resolves to a name rather than falling back to the default label.
@@ -98,7 +99,7 @@ export function MemberMultiSelect({
             matchWidth={false}
             placement="bottom-start"
             actionable
-            onVisibilityChange={(visible) => setShowPopover(visible)}
+            onVisibilityChange={handleVisibilityChange}
             overlay={
                 <div className="max-w-100 deprecated-space-y-2">
                     <LemonInput
