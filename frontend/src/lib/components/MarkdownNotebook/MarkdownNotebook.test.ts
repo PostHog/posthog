@@ -3262,12 +3262,13 @@ ${queryMarkdown}`)
                 source: 'slash',
                 responseNodeId: expect.any(String),
                 responseMarker: 'Thinking...',
-                markdown: `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nThinking...\n\n<Agent id="ai" name="AI" cursor={{"nodeIndex":1,"offset":11}} />`,
-                markdownWithResponse: `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nThinking...\n\n<Agent id="ai" name="AI" cursor={{"nodeIndex":1,"offset":11}} />`,
+                markdown: `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nThinking...`,
+                markdownWithResponse: `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nThinking...`,
                 selectedMarkdown: undefined,
             })
         )
         expect(aiRequest.query).toContain('Current notebook markdown, for read-only context')
+        expect(aiRequest.query).not.toContain('<Agent')
         expect(aiRequest.query).toContain('Use tools or artifacts when the request needs live product data')
         expect(aiRequest.query).toContain('Use <Query query={{...}} /> for insights and charts')
     })
