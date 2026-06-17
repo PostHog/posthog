@@ -2260,6 +2260,10 @@ snapshots:
         hash: v1.k794b7964.91d6de8992e7b49f3dbe2989778ae54a5e9478a6136e1f5b34eb1eab4356711f.lWuIgyArPItzhZJDTIwVB-xZL8uCnt67DTANC5OKtJY
     insights-funnellinechart--with-legend--light:
         hash: v1.k794b7964.6b4d0969a75cf3df9e5c989ce373d153c77d1eedaedb72105ee78145fd9414e3.ve7yvcN4Bx2DPN9sNmeG1y-KKrJXxjH8IJdRtMg2nks
+    insights-funnellinechart-tooltip--breakdown-ordered-by-conversion--dark:
+        hash: v1.k794b7964.28fcb86c4f61884b1c2d0d6956482149d06c7a49a8425aa040b4ae36e2ac6c50.i5loD1ggBoEypNfx7cLJUjqPTUWcUXid0YcZUP0igpM
+    insights-funnellinechart-tooltip--breakdown-ordered-by-conversion--light:
+        hash: v1.k794b7964.c49fe1a8841b7a749961b5211db4b7bc4cbd830ad12e7aad45c5ebcbcbcc4183.RGiYqt2JTZvwcW0YsGiabk4O3F5Kb_mBIrdxp4w8saA
     insights-funnelpropertycorrelationtable--default--dark:
         hash: v1.k794b7964.c35a775de5f646fde698940d41eef4f82a28c73a3343a2cd5ae88bb65d5c7dda.zrfCnSRUrx6zbKiA_UyVw7m7hKgwbLbkgjnuwMUxk00
     insights-funnelpropertycorrelationtable--default--light:

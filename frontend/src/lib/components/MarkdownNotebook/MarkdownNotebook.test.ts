@@ -2307,14 +2307,10 @@ Tail paragraph`
             expect(anchorClick).toHaveBeenCalledTimes(1)
             expect(createObjectURL).toHaveBeenCalledTimes(1)
 
+            // The global Blob is node:buffer's (see jest.polyfills.js), which jsdom's
+            // FileReader rejects — but it has .text(), which jsdom's Blob lacked.
             const blob = createObjectURL.mock.calls[0][0]
-            // jsdom's Blob has no .text()
-            const blobText = await new Promise<string>((resolve, reject) => {
-                const reader = new FileReader()
-                reader.onload = () => resolve(String(reader.result))
-                reader.onerror = () => reject(reader.error as Error)
-                reader.readAsText(blob)
-            })
+            const blobText = await blob.text()
             const entries = blobText
                 .trim()
                 .split('\n')
