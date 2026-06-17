@@ -18,8 +18,8 @@ describe('dataNodeLogic - query cancellation', () => {
         featureFlagLogic.mount()
         useMocks({
             get: {
-                '/api/environments/:team_id/insights/trend/': async (req) => {
-                    if (req.url.searchParams.get('date_from') === '-180d') {
+                '/api/environments/:team_id/insights/trend/': async ({ request }) => {
+                    if (new URL(request.url).searchParams.get('date_from') === '-180d') {
                         // delay for a second before response without pausing
                         return new Promise<[number, { result: string[] }]>((resolve) =>
                             setTimeout(() => {
