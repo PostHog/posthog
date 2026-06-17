@@ -245,7 +245,7 @@ def make_insight(**overrides: object) -> JsonObject:
         "title": "Flaky test test_acheck_query_found",
         "summary": "fails intermittently with a ClickHouse query id collision",
         "hypothesis_confidence": 90,
-        "status": "proposed",
+        "status": "open",
         "source_ref": {"workflow_name": "Backend CI"},
     }
     insight.update(overrides)
@@ -259,11 +259,9 @@ def matcher() -> CiInsightsSource:
 @pytest.mark.parametrize(
     ("overrides", "should_match"),
     [
-        pytest.param({"status": "proposed"}, True, id="status-proposed"),
-        pytest.param({"status": "in_review"}, True, id="status-in-review"),
-        pytest.param({"status": "in_progress"}, True, id="status-in-progress"),
-        pytest.param({"status": "rejected"}, False, id="status-rejected"),
-        pytest.param({"status": "open"}, False, id="status-open-not-actionable"),
+        pytest.param({"status": "open"}, True, id="status-open"),
+        pytest.param({"status": "resolved"}, False, id="status-resolved"),
+        pytest.param({"status": "dismissed"}, False, id="status-dismissed"),
         pytest.param({"hypothesis_confidence": 50}, False, id="below-confidence-threshold"),
         pytest.param(
             {"title": "test_acheck_query_found regression", "summary": "a deterministic failure"},

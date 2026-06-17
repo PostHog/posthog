@@ -20,8 +20,9 @@ from typing import Literal, Protocol, cast
 JsonObject = dict[str, object]
 DecisionAction = Literal["rerun", "skip deterministic", "skip unknown", "skip cap reached"]
 
-# Insight lifecycle states worth acting on, mirroring hogli ci:insights' actionable set.
-ACTIVE_INSIGHT_STATUSES = {"proposed", "in_progress", "in_review"}
+# Active insight statuses worth acting on. Live insight `status` values are open/resolved/dismissed;
+# only `open` is an unresolved flake (resolved and dismissed are terminal).
+ACTIVE_INSIGHT_STATUSES = {"open"}
 DEFAULT_ALLOWED_WORKFLOWS = ("Backend CI", "Dagster CI", "E2E CI Playwright")
 MAX_QUERY_COUNT = 8
 MAX_INSIGHTS_PER_QUERY = 3
