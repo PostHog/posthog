@@ -148,7 +148,7 @@ describe('supportSettingsLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.removeTeamsChannelPair('ch-1')
             })
-                .toDispatchActions(['removeTeamsChannelPair', 'loadCurrentTeam'])
+                .toDispatchActions(['removeTeamsChannelPair', 'loadCurrentTeam', 'setTeamsChannelPairLoading'])
                 .toMatchValues({ teamsChannelPairLoading: null })
         })
     })
