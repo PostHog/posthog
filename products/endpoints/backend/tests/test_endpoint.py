@@ -1297,6 +1297,26 @@ class TestMaterializationPreview(ClickhouseTestMixin, APIBaseTest):
         assert data["range_pairs"][0]["column"] == "timestamp"
         assert set(data["range_pairs"][0]["variables"]) == {"start_ts", "end_ts"}
 
+    def test_preview_builds_execution_query_before_materialization(self):
+        # The backing table ({name}_v{version}) doesn't exist until materialization completes.
+        # The execution-query preview must still render (without type resolution) rather than
+        # raising "Unknown table" and polluting error tracking.
+        self._create_endpoint_with_variables()
+
+        with mock.patch("products.endpoints.backend.services.materialization.capture_exception") as mock_capture:
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/range-endpoint/materialization_preview/",
+                {},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["can_materialize"] is True
+        assert data["execution_query"] is not None
+        assert "range-endpoint_v1" in data["execution_query"]
+        mock_capture.assert_not_called()
+
     def test_preview_with_bucket_override(self):
         self._create_endpoint_with_variables()
 
