@@ -183,6 +183,20 @@ message DeletePersonsBatchForTeamResponse {
   int64 deleted_count = 1;
 }
 
+// DeletePersonlessDistinctIdsBatchForTeamRequest deletes up to batch_size
+// posthog_personlessdistinctid rows for a team. These rows have no person FK, so
+// they aren't covered by person deletion. Callers should loop until deleted_count is 0.
+message DeletePersonlessDistinctIdsBatchForTeamRequest {
+  int64 team_id = 1;
+  // Max rows to delete per call. Must be > 0 and <= 50000.
+  int64 batch_size = 2;
+}
+
+message DeletePersonlessDistinctIdsBatchForTeamResponse {
+  // Number of rows deleted. 0 means no more rows to delete.
+  int64 deleted_count = 1;
+}
+
 // SplitPersonRequest splits specific distinct_ids off of a person onto new persons.
 // Each distinct_id gets a new person with a deterministic UUID (UUIDv5 from team_id:distinct_id).
 // The operation is atomic per request: all splits succeed or none do.

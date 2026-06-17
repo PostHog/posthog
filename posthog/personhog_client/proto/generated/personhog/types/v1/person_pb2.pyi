@@ -389,6 +389,22 @@ class DeletePersonsBatchForTeamResponse(_message.Message):
 
     def __init__(self, deleted_count: _Optional[int] = ...) -> None: ...
 
+class DeletePersonlessDistinctIdsBatchForTeamRequest(_message.Message):
+    __slots__ = ("team_id", "batch_size")
+    TEAM_ID_FIELD_NUMBER: _ClassVar[int]
+    BATCH_SIZE_FIELD_NUMBER: _ClassVar[int]
+    team_id: int
+    batch_size: int
+
+    def __init__(self, team_id: _Optional[int] = ..., batch_size: _Optional[int] = ...) -> None: ...
+
+class DeletePersonlessDistinctIdsBatchForTeamResponse(_message.Message):
+    __slots__ = ("deleted_count",)
+    DELETED_COUNT_FIELD_NUMBER: _ClassVar[int]
+    deleted_count: int
+
+    def __init__(self, deleted_count: _Optional[int] = ...) -> None: ...
+
 class SplitPersonRequest(_message.Message):
     __slots__ = ("team_id", "person_id", "distinct_ids_to_split")
     TEAM_ID_FIELD_NUMBER: _ClassVar[int]

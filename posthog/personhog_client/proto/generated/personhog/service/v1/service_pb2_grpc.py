@@ -261,6 +261,12 @@ class PersonHogServiceStub:
             response_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.DeletePersonsBatchForTeamResponse.FromString,
             _registered_method=True,
         )
+        self.DeletePersonlessDistinctIdsBatchForTeam = channel.unary_unary(
+            "/personhog.service.v1.PersonHogService/DeletePersonlessDistinctIdsBatchForTeam",
+            request_serializer=personhog_dot_types_dot_v1_dot_person__pb2.DeletePersonlessDistinctIdsBatchForTeamRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.DeletePersonlessDistinctIdsBatchForTeamResponse.FromString,
+            _registered_method=True,
+        )
         self.SplitPerson = channel.unary_unary(
             "/personhog.service.v1.PersonHogService/SplitPerson",
             request_serializer=personhog_dot_types_dot_v1_dot_person__pb2.SplitPersonRequest.SerializeToString,
@@ -501,6 +507,12 @@ class PersonHogServiceServicer:
         context.set_details("Method not implemented!")
         raise NotImplementedError("Method not implemented!")
 
+    def DeletePersonlessDistinctIdsBatchForTeam(self, request, context):
+        """WARNING: Same routing caveat as DeletePersons above."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
     def SplitPerson(self, request, context):
         """Person split
         WARNING: Same routing caveat as DeletePersons above — write operation on person data
@@ -697,6 +709,11 @@ def add_PersonHogServiceServicer_to_server(servicer, server):
             servicer.DeletePersonsBatchForTeam,
             request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.DeletePersonsBatchForTeamRequest.FromString,
             response_serializer=personhog_dot_types_dot_v1_dot_person__pb2.DeletePersonsBatchForTeamResponse.SerializeToString,
+        ),
+        "DeletePersonlessDistinctIdsBatchForTeam": grpc.unary_unary_rpc_method_handler(
+            servicer.DeletePersonlessDistinctIdsBatchForTeam,
+            request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.DeletePersonlessDistinctIdsBatchForTeamRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_person__pb2.DeletePersonlessDistinctIdsBatchForTeamResponse.SerializeToString,
         ),
         "SplitPerson": grpc.unary_unary_rpc_method_handler(
             servicer.SplitPerson,
@@ -1813,6 +1830,36 @@ class PersonHogService:
             "/personhog.service.v1.PersonHogService/DeletePersonsBatchForTeam",
             personhog_dot_types_dot_v1_dot_person__pb2.DeletePersonsBatchForTeamRequest.SerializeToString,
             personhog_dot_types_dot_v1_dot_person__pb2.DeletePersonsBatchForTeamResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
+    def DeletePersonlessDistinctIdsBatchForTeam(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.service.v1.PersonHogService/DeletePersonlessDistinctIdsBatchForTeam",
+            personhog_dot_types_dot_v1_dot_person__pb2.DeletePersonlessDistinctIdsBatchForTeamRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_person__pb2.DeletePersonlessDistinctIdsBatchForTeamResponse.FromString,
             options,
             channel_credentials,
             insecure,

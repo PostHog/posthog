@@ -72,6 +72,8 @@ service PersonHogService {
   rpc DeletePersons(personhog.types.v1.DeletePersonsRequest) returns (personhog.types.v1.DeletePersonsResponse);
   // WARNING: Same routing caveat as DeletePersons above.
   rpc DeletePersonsBatchForTeam(personhog.types.v1.DeletePersonsBatchForTeamRequest) returns (personhog.types.v1.DeletePersonsBatchForTeamResponse);
+  // WARNING: Same routing caveat as DeletePersons above.
+  rpc DeletePersonlessDistinctIdsBatchForTeam(personhog.types.v1.DeletePersonlessDistinctIdsBatchForTeamRequest) returns (personhog.types.v1.DeletePersonlessDistinctIdsBatchForTeamResponse);
 
   // Person split
   // WARNING: Same routing caveat as DeletePersons above — write operation on person data
