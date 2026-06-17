@@ -2414,6 +2414,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 payload=command_payload,
             )
 
+            self._capture_relay_command_event(task_run, method, params, success=agent_response.ok)
             if agent_response.ok:
                 return Response(agent_response.json())
 
@@ -2438,22 +2439,74 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         except http_requests.ConnectionError:
             logger.warning(f"Agent server unreachable for task run {task_run.id}")
+            self._capture_relay_command_event(task_run, method, params, success=False)
             return Response(
                 TaskRunErrorResponseSerializer({"error": "Agent server is not reachable"}).data,
                 status=status.HTTP_502_BAD_GATEWAY,
             )
         except http_requests.Timeout:
             logger.warning(f"Agent server request timed out for task run {task_run.id}")
+            self._capture_relay_command_event(task_run, method, params, success=False)
             return Response(
                 TaskRunErrorResponseSerializer({"error": "Agent server request timed out"}).data,
                 status=status.HTTP_504_GATEWAY_TIMEOUT,
             )
         except Exception:
             logger.exception(f"Failed to proxy command to agent server for task run {task_run.id}")
+            self._capture_relay_command_event(task_run, method, params, success=False)
             return Response(
                 TaskRunErrorResponseSerializer({"error": "Failed to send command to agent server"}).data,
                 status=status.HTTP_502_BAD_GATEWAY,
             )
+
+    # Relay control verbs whose outcome PostHog AI funnels track. Emitted here (keyed on
+    # origin_product) so the generic relay stays product-agnostic while the conversation layer
+    # stops firing them as the renderer drives permission/cancel through `runs/{run}/command/`.
+    _POSTHOG_AI_TELEMETRY_METHODS: frozenset[str] = frozenset({"cancel", "permission_response"})
+
+    def _capture_relay_command_event(
+        self, task_run: TaskRun, method: str, params: dict | None, *, success: bool
+    ) -> None:
+        """Emit PostHog AI control-verb telemetry for a relayed command.
+
+        Preserves the `task_run_cancelled` / `permission_responded` funnels once the renderer moves
+        permission/cancel onto the generic relay. `conversation_id` is intentionally null (the relay
+        has no conversation); `task_run.capture_event` already stamps `origin_product` as the
+        discriminator so generic-task usage stays out of the PostHog AI funnels. Mirrors the old
+        conversation-layer semantics: a cancel is recorded only when it actually reached the agent,
+        while a permission response is recorded with its forward `success` either way.
+        """
+        if method not in self._POSTHOG_AI_TELEMETRY_METHODS:
+            return
+        if task_run.task.origin_product != Task.OriginProduct.POSTHOG_AI:
+            return
+
+        params = params or {}
+        if method == "cancel":
+            if not success:
+                return
+            task_run.capture_event(
+                "task_run_cancelled",
+                {
+                    "execution_type": "sandbox",
+                    "surface": "relay",
+                    "conversation_id": None,
+                    "cancel_source": "user",
+                },
+            )
+            return
+
+        task_run.capture_event(
+            "permission_responded",
+            {
+                "execution_type": "sandbox",
+                "surface": "relay",
+                "conversation_id": None,
+                "request_id": params.get("requestId"),
+                "option_id": params.get("optionId"),
+                "success": success,
+            },
+        )
 
     @staticmethod
     def _is_valid_sandbox_url(url: str) -> bool:

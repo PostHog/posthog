@@ -3,8 +3,6 @@ import '@testing-library/jest-dom'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
 
-import api from 'lib/api'
-
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -66,8 +64,7 @@ describe('QuestionInput', () => {
     const flush = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
 
     it('does not release a sandbox pre-warm when blur moves to the send button', async () => {
-        const releaseSpy = jest.spyOn(api.conversations, 'prewarmRelease').mockResolvedValue(undefined as any)
-        // Simulate a completed warm so a release would issue a DELETE.
+        // Simulate a completed warm; a release would clear the flag (and relay-cancel the warm Run).
         threadLogicInstance.cache.prewarmed = true
         threadLogicInstance.cache.prewarming = false
 
@@ -79,12 +76,11 @@ describe('QuestionInput', () => {
         fireEvent.blur(input, { relatedTarget: sendButton })
         await flush()
 
-        expect(releaseSpy).not.toHaveBeenCalled()
+        // Blur-to-send does not trigger releaseSandboxPrewarm, so the warm is untouched.
         expect(threadLogicInstance.cache.prewarmed).toBe(true)
     })
 
     it('releases a sandbox pre-warm when blur leaves the input for somewhere else', async () => {
-        const releaseSpy = jest.spyOn(api.conversations, 'prewarmRelease').mockResolvedValue(undefined as any)
         threadLogicInstance.cache.prewarmed = true
         threadLogicInstance.cache.prewarming = false
 
@@ -93,7 +89,7 @@ describe('QuestionInput', () => {
         fireEvent.blur(input, { relatedTarget: null })
         await flush()
 
-        expect(releaseSpy).toHaveBeenCalledTimes(1)
+        // Blur-away triggers releaseSandboxPrewarm, which clears the flag (and relay-cancels any warm Run).
         expect(threadLogicInstance.cache.prewarmed).toBe(false)
     })
 

@@ -1422,45 +1422,51 @@ describe('maxThreadLogic', () => {
             await flush()
         }
 
+        const warmHandle = {
+            task_id: 'task-1',
+            run_id: 'run-1',
+            trace_id: null,
+            run_status: 'in_progress' as const,
+            just_created_run: true,
+        }
+
         it('releases a warm sandbox abandoned while the warm POST was still in flight', async () => {
             await mountIdleSandbox()
 
-            let resolvePrewarm: () => void = () => {}
-            const prewarmSpy = jest
-                .spyOn(api.conversations, 'prewarm')
-                .mockReturnValue(new Promise<void>((resolve) => (resolvePrewarm = resolve)) as any)
-            const releaseSpy = jest.spyOn(api.conversations, 'prewarmRelease').mockResolvedValue(undefined as any)
+            // Warm = open with content: null. Keep the POST in flight so the abandon races it.
+            let resolvePrewarm: (handle: typeof warmHandle) => void = () => {}
+            const openSpy = jest
+                .spyOn(api.conversations, 'open')
+                .mockReturnValue(new Promise<typeof warmHandle>((resolve) => (resolvePrewarm = resolve)) as any)
 
-            // Warm starts; the POST is in flight (not yet resolved).
             logic.actions.prewarmSandbox()
             await flush()
-            expect(prewarmSpy).toHaveBeenCalledTimes(1)
+            expect(openSpy).toHaveBeenCalledWith(MOCK_CONVERSATION_ID, { content: null })
 
-            // User abandons the input before the warm resolves — the release can't issue a DELETE
-            // yet (nothing is warm), so it must be deferred, not dropped.
-            logic.actions.releaseSandboxPrewarm()
+            // User abandons the input before the warm resolves — nothing is warm yet, so the release
+            // is deferred (pendingRelease), not dropped, and no cancel fires.
+            await expectLogic(logic, () => {
+                logic.actions.releaseSandboxPrewarm()
+            }).toNotHaveDispatchedActions(['cancelSandboxRun'])
             await flush()
-            expect(releaseSpy).not.toHaveBeenCalled()
 
-            // The warm POST resolves — the deferred release fires so the sandbox isn't leaked.
-            resolvePrewarm()
-            await flush()
-            await flush()
-            expect(releaseSpy).toHaveBeenCalledTimes(1)
-            expect(releaseSpy).toHaveBeenCalledWith(MOCK_CONVERSATION_ID)
+            // The warm POST resolves — the deferred release fires cancelSandboxRun so the sandbox
+            // isn't leaked.
+            await expectLogic(logic, () => {
+                resolvePrewarm(warmHandle)
+            }).toDispatchActions(['cancelSandboxRun'])
         })
 
         it('does not release a warm that resolved with no pending abandon', async () => {
             await mountIdleSandbox()
 
-            jest.spyOn(api.conversations, 'prewarm').mockResolvedValue(undefined as any)
-            const releaseSpy = jest.spyOn(api.conversations, 'prewarmRelease').mockResolvedValue(undefined as any)
+            jest.spyOn(api.conversations, 'open').mockResolvedValue(warmHandle)
 
-            logic.actions.prewarmSandbox()
+            await expectLogic(logic, () => {
+                logic.actions.prewarmSandbox()
+            }).toNotHaveDispatchedActions(['cancelSandboxRun'])
             await flush()
             await flush()
-
-            expect(releaseSpy).not.toHaveBeenCalled()
         })
     })
 
@@ -3178,7 +3184,7 @@ describe('maxThreadLogic', () => {
         })
 
         it('holds the streaming lock until the sandbox turn completes and releases exactly once', async () => {
-            jest.spyOn(api.conversations, 'sandboxCreate').mockResolvedValue(sandboxRunResponse)
+            jest.spyOn(api.conversations, 'open').mockResolvedValue(sandboxRunResponse)
 
             await expectLogic(logic, () => {
                 logic.actions.streamConversation(
@@ -3191,7 +3197,7 @@ describe('maxThreadLogic', () => {
             expect(maxLogicInstance.values.activeStreamingThreads).toEqual(1)
 
             // The thread logic connects to the instance keyed by its own conversationId
-            const sandboxStreamInstance = sandboxStreamLogic({ conversationId: MOCK_CONVERSATION_ID })
+            const sandboxStreamInstance = sandboxStreamLogic({ streamKey: MOCK_CONVERSATION_ID })
 
             // The release listeners are synchronous, so the lock state settles with the dispatch
             sandboxStreamInstance.actions.markTurnComplete()
@@ -3205,7 +3211,7 @@ describe('maxThreadLogic', () => {
         })
 
         it('does not release the lock on a non-terminal task_run_state frame', async () => {
-            jest.spyOn(api.conversations, 'sandboxCreate').mockResolvedValue(sandboxRunResponse)
+            jest.spyOn(api.conversations, 'open').mockResolvedValue(sandboxRunResponse)
 
             await expectLogic(logic, () => {
                 logic.actions.streamConversation(
@@ -3214,7 +3220,7 @@ describe('maxThreadLogic', () => {
                 )
             }).toDispatchActions(['openSandboxSse'])
 
-            const sandboxStreamInstance = sandboxStreamLogic({ conversationId: MOCK_CONVERSATION_ID })
+            const sandboxStreamInstance = sandboxStreamLogic({ streamKey: MOCK_CONVERSATION_ID })
 
             // queued / in_progress frames arrive before the turn is done — the lock must stay held.
             sandboxStreamInstance.actions.handleTerminalStatus({ status: 'queued' })
@@ -3228,7 +3234,7 @@ describe('maxThreadLogic', () => {
         })
 
         it('releases the lock immediately and surfaces an error when the send POST fails', async () => {
-            jest.spyOn(api.conversations, 'sandboxCreate').mockRejectedValue(new Error('boom'))
+            jest.spyOn(api.conversations, 'open').mockRejectedValue(new Error('boom'))
 
             await expectLogic(logic, () => {
                 logic.actions.streamConversation(
@@ -3239,7 +3245,7 @@ describe('maxThreadLogic', () => {
 
             expect(maxLogicInstance.values.activeStreamingThreads).toEqual(0)
             expect(
-                sandboxStreamLogic({ conversationId: MOCK_CONVERSATION_ID }).values.threadItems.some(
+                sandboxStreamLogic({ streamKey: MOCK_CONVERSATION_ID }).values.threadItems.some(
                     (item) =>
                         item.type === 'error' && item.errorMessage === 'Failed to send your message. Please try again.'
                 )
@@ -3247,7 +3253,7 @@ describe('maxThreadLogic', () => {
         })
 
         it('releases the lock immediately when no run was started', async () => {
-            const sandboxCreateSpy = jest.spyOn(api.conversations, 'sandboxCreate')
+            const openSpy = jest.spyOn(api.conversations, 'open')
 
             await expectLogic(logic, () => {
                 logic.actions.streamConversation(
@@ -3256,7 +3262,7 @@ describe('maxThreadLogic', () => {
                 )
             }).toDispatchActions(['decrActiveStreamingThreads'])
 
-            expect(sandboxCreateSpy).not.toHaveBeenCalled()
+            expect(openSpy).not.toHaveBeenCalled()
             expect(maxLogicInstance.values.activeStreamingThreads).toEqual(0)
         })
     })
@@ -3277,7 +3283,7 @@ describe('maxThreadLogic', () => {
                 addEventListener(): void {}
                 close(): void {}
             }
-            jest.spyOn(api.conversations, 'sandboxCreate').mockResolvedValue(sandboxRunResponse)
+            jest.spyOn(api.conversations, 'open').mockResolvedValue(sandboxRunResponse)
         })
 
         afterEach(() => {
@@ -3292,7 +3298,7 @@ describe('maxThreadLogic', () => {
                 )
             }).toDispatchActions(['openSandboxSse'])
             expect(logic.values.streamingActive).toBe(true)
-            return sandboxStreamLogic({ conversationId: MOCK_CONVERSATION_ID })
+            return sandboxStreamLogic({ streamKey: MOCK_CONVERSATION_ID })
         }
 
         it('tears down streamingActive on markTurnComplete', async () => {
@@ -3388,7 +3394,7 @@ describe('maxThreadLogic', () => {
         it('history-replay terminal events do not fire teardown while streamingActive is false', async () => {
             // No live turn: streamingActive is false (no streamConversation was dispatched)
             expect(logic.values.streamingActive).toBe(false)
-            const sandboxStreamInstance = sandboxStreamLogic({ conversationId: MOCK_CONVERSATION_ID })
+            const sandboxStreamInstance = sandboxStreamLogic({ streamKey: MOCK_CONVERSATION_ID })
 
             await expectLogic(logic, () => {
                 sandboxStreamInstance.actions.handleTerminalStatus({ status: 'completed', replayedFromHistory: true })

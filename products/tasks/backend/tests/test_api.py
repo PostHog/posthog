@@ -5960,6 +5960,155 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertEqual(call_kwargs["json"]["params"]["configId"], "mode")
         self.assertEqual(call_kwargs["json"]["params"]["value"], "plan")
 
+    def _create_posthog_ai_task(self, created_by: User | None = None):
+        return Task.objects.create(
+            team=self.team,
+            created_by=created_by or self.user,
+            title="Max session",
+            description="Max session",
+            origin_product=Task.OriginProduct.POSTHOG_AI,
+        )
+
+    def _capture_calls_for_event(self, mock_capture, event):
+        return [call for call in mock_capture.call_args_list if call.kwargs.get("event") == event]
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    @patch("products.tasks.backend.api.http_requests.post")
+    def test_command_emits_permission_responded_telemetry_for_posthog_ai(self, mock_post, mock_capture):
+        reset_sandbox_jwt_key_cache()
+        self._mock_agent_response(mock_post, {"jsonrpc": "2.0", "id": "req-4", "result": {"acknowledged": True}})
+        task = self._create_posthog_ai_task()
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            {
+                "jsonrpc": "2.0",
+                "method": "permission_response",
+                "params": {"requestId": "perm-1", "optionId": "allow"},
+                "id": "req-4",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        calls = self._capture_calls_for_event(mock_capture, "permission_responded")
+        self.assertEqual(len(calls), 1)
+        props = calls[0].kwargs["properties"]
+        self.assertEqual(props["origin_product"], Task.OriginProduct.POSTHOG_AI)
+        self.assertEqual(props["run_id"], str(run.id))
+        self.assertEqual(props["request_id"], "perm-1")
+        self.assertEqual(props["option_id"], "allow")
+        self.assertTrue(props["success"])
+        self.assertEqual(props["surface"], "relay")
+        self.assertIsNone(props["conversation_id"])
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    @patch("products.tasks.backend.api.http_requests.post")
+    def test_command_emits_task_run_cancelled_telemetry_for_posthog_ai(self, mock_post, mock_capture):
+        reset_sandbox_jwt_key_cache()
+        self._mock_agent_response(mock_post, {"jsonrpc": "2.0", "id": "req-2", "result": {"cancelled": True}})
+        task = self._create_posthog_ai_task()
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            {"jsonrpc": "2.0", "method": "cancel", "id": "req-2"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        calls = self._capture_calls_for_event(mock_capture, "task_run_cancelled")
+        self.assertEqual(len(calls), 1)
+        props = calls[0].kwargs["properties"]
+        self.assertEqual(props["origin_product"], Task.OriginProduct.POSTHOG_AI)
+        self.assertEqual(props["cancel_source"], "user")
+        self.assertEqual(props["surface"], "relay")
+        self.assertIsNone(props["conversation_id"])
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    @patch("products.tasks.backend.api.http_requests.post")
+    def test_command_no_control_verb_telemetry_for_non_posthog_ai(self, mock_post, mock_capture):
+        reset_sandbox_jwt_key_cache()
+        self._mock_agent_response(mock_post, {"jsonrpc": "2.0", "id": "req-2", "result": {"cancelled": True}})
+        # USER_CREATED task (e.g. PostHog Code) — the generic relay must not emit PostHog AI funnels.
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            {"jsonrpc": "2.0", "method": "cancel", "id": "req-2"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(self._capture_calls_for_event(mock_capture, "task_run_cancelled"), [])
+        self.assertEqual(self._capture_calls_for_event(mock_capture, "permission_responded"), [])
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    @patch("products.tasks.backend.api.http_requests.post")
+    def test_command_permission_telemetry_marks_forward_failure(self, mock_post, mock_capture):
+        reset_sandbox_jwt_key_cache()
+        self._mock_agent_response(mock_post, {"error": "agent rejected"}, status_code=502)
+        task = self._create_posthog_ai_task()
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            {
+                "jsonrpc": "2.0",
+                "method": "permission_response",
+                "params": {"requestId": "perm-1", "optionId": "allow"},
+                "id": "req-4",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
+        calls = self._capture_calls_for_event(mock_capture, "permission_responded")
+        self.assertEqual(len(calls), 1)
+        self.assertFalse(calls[0].kwargs["properties"]["success"])
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    @patch("products.tasks.backend.api.http_requests.post")
+    def test_command_cancel_failure_emits_no_telemetry(self, mock_post, mock_capture):
+        # The conversation layer recorded a cancel only when it actually reached the agent;
+        # the relay mirrors that — a failed forward records nothing.
+        reset_sandbox_jwt_key_cache()
+        self._mock_agent_response(mock_post, {"error": "agent rejected"}, status_code=502)
+        task = self._create_posthog_ai_task()
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            {"jsonrpc": "2.0", "method": "cancel", "id": "req-2"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
+        self.assertEqual(self._capture_calls_for_event(mock_capture, "task_run_cancelled"), [])
+
+    def test_command_denied_for_other_users_posthog_ai_run(self):
+        # Auth equivalence for the relay cutover: a same-team user who did not create the PostHog AI
+        # task cannot command its run (404 via task_visibility_q), matching the conversation layer's
+        # `conversation.user == request.user` check. Removing the conversation-layer check is safe.
+        other_user = self.create_organization_user("victim")
+        task = self._create_posthog_ai_task(created_by=other_user)
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            {"jsonrpc": "2.0", "method": "cancel", "id": "req-2"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
     def test_command_fails_without_sandbox_url(self):
         task = self.create_task()
         run = TaskRun.objects.create(

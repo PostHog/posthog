@@ -28,11 +28,8 @@ import type {
     PaginatedTicketViewListApi,
     PatchedConversationApi,
     PatchedTicketApi,
-    PermissionResponseApi,
-    PermissionResponseResultApi,
-    SandboxCancelResponseApi,
-    SandboxMessageApi,
     SandboxMessageResponseApi,
+    SandboxOpenApi,
     SuggestReplyResponseApi,
     TicketApi,
     TicketMessageApi,
@@ -168,79 +165,40 @@ export const getConversationsCancelPartialUpdateUrl = (projectId: string, conver
 }
 
 /**
- * Cancel the conversation's in-progress run (sandbox or LangGraph).
+ * Cancel the conversation's in-progress LangGraph run.
  */
 export const conversationsCancelPartialUpdate = async (
     projectId: string,
     conversation: string,
     patchedConversationApi?: NonReadonly<PatchedConversationApi>,
     options?: RequestInit
-): Promise<SandboxCancelResponseApi | void> => {
-    return apiMutator<SandboxCancelResponseApi | void>(
-        getConversationsCancelPartialUpdateUrl(projectId, conversation),
-        {
-            ...options,
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedConversationApi),
-        }
-    )
+): Promise<void> => {
+    return apiMutator<void>(getConversationsCancelPartialUpdateUrl(projectId, conversation), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedConversationApi),
+    })
 }
 
-export const getConversationsPermissionCreateUrl = (projectId: string, conversation: string) => {
-    return `/api/projects/${projectId}/conversations/${conversation}/permission/`
+export const getConversationsOpenCreateUrl = (projectId: string, conversation: string) => {
+    return `/api/projects/${projectId}/conversations/${conversation}/open/`
 }
 
 /**
- * Forward a sandbox-runtime approval reply to the backing products/tasks run.
+ * Create-or-resume a sandbox conversation — the single sandbox session opener. With `content`, processes the turn (first message, in-progress follow-up, or terminal resume); without `content`, warms a sandbox that idles awaiting the first message. Returns the `(task, run)` handle the frontend opens SSE against. The conversation row is created on first use from the URL id.
  */
-export const conversationsPermissionCreate = async (
+export const conversationsOpenCreate = async (
     projectId: string,
     conversation: string,
-    permissionResponseApi: PermissionResponseApi,
+    sandboxOpenApi?: SandboxOpenApi,
     options?: RequestInit
-): Promise<PermissionResponseResultApi> => {
-    return apiMutator<PermissionResponseResultApi>(getConversationsPermissionCreateUrl(projectId, conversation), {
+): Promise<SandboxMessageResponseApi | void> => {
+    return apiMutator<SandboxMessageResponseApi | void>(getConversationsOpenCreateUrl(projectId, conversation), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(permissionResponseApi),
-    })
-}
-
-export const getConversationsPrewarmCreateUrl = (projectId: string, conversation: string) => {
-    return `/api/projects/${projectId}/conversations/${conversation}/prewarm/`
-}
-
-/**
- * Eagerly provision a sandbox for a sandbox-runtime conversation while the user is typing. POST warms a Run in-process (no pending message); DELETE releases it if the user abandons. Both idempotent and sandbox runtime only.
- */
-export const conversationsPrewarmCreate = async (
-    projectId: string,
-    conversation: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getConversationsPrewarmCreateUrl(projectId, conversation), {
-        ...options,
-        method: 'POST',
-    })
-}
-
-export const getConversationsPrewarmDestroyUrl = (projectId: string, conversation: string) => {
-    return `/api/projects/${projectId}/conversations/${conversation}/prewarm/`
-}
-
-/**
- * Eagerly provision a sandbox for a sandbox-runtime conversation while the user is typing. POST warms a Run in-process (no pending message); DELETE releases it if the user abandons. Both idempotent and sandbox runtime only.
- */
-export const conversationsPrewarmDestroy = async (
-    projectId: string,
-    conversation: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getConversationsPrewarmDestroyUrl(projectId, conversation), {
-        ...options,
-        method: 'DELETE',
+        body: JSON.stringify(sandboxOpenApi),
     })
 }
 
@@ -327,27 +285,6 @@ export const conversationsQueueClearCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(conversationApi),
-    })
-}
-
-export const getConversationsSandboxCreateUrl = (projectId: string, conversation: string) => {
-    return `/api/projects/${projectId}/conversations/${conversation}/sandbox/`
-}
-
-/**
- * Non-streaming routing endpoint for sandbox-runtime conversations. Wraps + dedupes the message, then starts a Run / signals a follow-up / resumes via in-process products/tasks calls and returns the IDs the frontend opens SSE against. Sandbox runtime only — LangGraph conversations stream via the unchanged `/stream/` path.
- */
-export const conversationsSandboxCreate = async (
-    projectId: string,
-    conversation: string,
-    sandboxMessageApi: SandboxMessageApi,
-    options?: RequestInit
-): Promise<SandboxMessageResponseApi> => {
-    return apiMutator<SandboxMessageResponseApi>(getConversationsSandboxCreateUrl(projectId, conversation), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(sandboxMessageApi),
     })
 }
 

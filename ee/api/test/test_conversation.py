@@ -29,14 +29,13 @@ from posthog.schema import (
     SpendHistoryItem,
 )
 
-from posthog.exceptions import QuotaLimitExceeded
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.rate_limit import AIBurstRateThrottle
 from posthog.temporal.ai.chat_agent import ChatAgentWorkflow, ChatAgentWorkflowInputs
 from posthog.temporal.ai.research_agent import ResearchAgentWorkflow, ResearchAgentWorkflowInputs
 
-from products.posthog_ai.backend.message_routing import SandboxCancelResult, SandboxRouteResult
+from products.posthog_ai.backend.message_routing import SandboxRouteResult
 from products.posthog_ai.backend.models.assistant import Conversation
 from products.tasks.backend.models import Task, TaskRun
 
@@ -1266,7 +1265,7 @@ class TestConversationSandboxRoute(APIBaseTest):
             agent_runtime=Conversation.AgentRuntime.SANDBOX,
         )
 
-    def test_sandbox_route_reachable_and_delegates_to_handler(self):
+    def test_open_with_content_reachable_and_delegates_to_session(self):
         conversation = self._sandbox_conversation()
         sentinel = SandboxRouteResult(
             task_id="t",
@@ -1277,21 +1276,22 @@ class TestConversationSandboxRoute(APIBaseTest):
             attached_context_count=2,
         )
         with (
-            patch("ee.api.conversation.MessageRoutingService") as m_service,
+            patch("ee.api.conversation.SandboxSession") as m_session,
             patch("ee.api.conversation.report_user_action") as m_telemetry,
         ):
-            m_service.return_value.handle.return_value = sentinel
+            m_session.return_value.open.return_value = sentinel
             response = self.client.post(
-                f"/api/environments/{self.team.id}/conversations/{conversation.id}/sandbox/",
+                f"/api/environments/{self.team.id}/conversations/{conversation.id}/open/",
                 {"content": "hello", "trace_id": str(uuid.uuid4())},
+                format="json",
             )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         # attached_context_count is internal telemetry plumbing, excluded from the response body.
         self.assertEqual(response.json(), sentinel.model_dump(exclude={"attached_context_count"}))
-        m_service.return_value.handle.assert_called_once()
-        # The service receives the resolved conversation, not just an id.
-        passed_conversation = m_service.call_args[0][0]
+        m_session.return_value.open.assert_called_once()
+        # The session receives the resolved conversation, not just an id.
+        passed_conversation = m_session.call_args[0][0]
         self.assertEqual(passed_conversation.id, conversation.id)
         # Telemetry fires once at the API boundary with sandbox-path field parity, derived
         # from the routing result.
@@ -1302,45 +1302,142 @@ class TestConversationSandboxRoute(APIBaseTest):
         self.assertTrue(props["has_attached_context"])
         self.assertEqual(props["attached_context_count"], 2)
 
-    def test_sandbox_route_blocked_when_quota_limited(self):
+    def test_open_with_content_creates_new_conversation_row(self):
+        # `open` is create-or-resume — a brand-new conversation has no row yet; the first message
+        # creates it (origin product posthog_ai, born sandbox under the flag) and returns the handle.
+        conversation_id = str(uuid.uuid4())
+        sentinel = SandboxRouteResult(
+            task_id="t", run_id="r", trace_id=None, run_status="queued", just_created_run=True
+        )
+        with (
+            patch("ee.api.conversation.has_sandbox_mode_feature_flag", return_value=True),
+            patch("ee.api.conversation.SandboxSession") as m_session,
+            patch("ee.api.conversation.report_user_action"),
+        ):
+            m_session.return_value.open.return_value = sentinel
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/conversations/{conversation_id}/open/",
+                {"content": "first message please", "trace_id": str(uuid.uuid4())},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), sentinel.model_dump(exclude={"attached_context_count"}))
+        conversation = Conversation.objects.get(id=conversation_id)
+        self.assertEqual(conversation.user, self.user)
+        self.assertEqual(conversation.team, self.team)
+        self.assertEqual(conversation.agent_runtime, Conversation.AgentRuntime.SANDBOX)
+        # The first message stamps the title from the content.
+        self.assertEqual(conversation.title, "first message please")
+        passed_conversation = m_session.call_args[0][0]
+        self.assertEqual(str(passed_conversation.id), str(conversation.id))
+
+    def test_open_without_content_warms(self):
+        # A null/absent content warms a sandbox; the session returns a fresh warm handle (200), or
+        # None (204) when the pool provisioned nothing.
+        conversation = self._sandbox_conversation()
+        sentinel = SandboxRouteResult(
+            task_id="t", run_id="r", trace_id=None, run_status="queued", just_created_run=True
+        )
+        with (
+            patch("ee.api.conversation.SandboxSession") as m_session,
+            patch("ee.api.conversation.report_user_action") as m_telemetry,
+        ):
+            m_session.return_value.open.return_value = sentinel
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/conversations/{conversation.id}/open/",
+                {"content": None},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), sentinel.model_dump(exclude={"attached_context_count"}))
+        m_session.return_value.open.assert_called_once()
+        # A warm carries no message, so it must not fire "prompt sent" telemetry.
+        m_telemetry.assert_not_called()
+
+    def test_open_warm_provisioning_nothing_returns_204(self):
+        # When the warm pool is full, the session returns None — the action surfaces a 204.
+        conversation = self._sandbox_conversation()
+        with (
+            patch("ee.api.conversation.SandboxSession") as m_session,
+            patch("ee.api.conversation.report_user_action") as m_telemetry,
+        ):
+            m_session.return_value.open.return_value = None
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/conversations/{conversation.id}/open/",
+                {},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        m_session.return_value.open.assert_called_once()
+        m_telemetry.assert_not_called()
+
+    def test_open_blocked_when_quota_limited(self):
         conversation = self._sandbox_conversation()
         with (
             patch("ee.api.conversation.is_team_limited", return_value=True),
-            patch("ee.api.conversation.MessageRoutingService") as m_service,
+            patch("ee.api.conversation.SandboxSession") as m_session,
         ):
             response = self.client.post(
-                f"/api/environments/{self.team.id}/conversations/{conversation.id}/sandbox/",
+                f"/api/environments/{self.team.id}/conversations/{conversation.id}/open/",
                 {"content": "hello"},
+                format="json",
             )
         self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
-        m_service.assert_not_called()
+        m_session.assert_not_called()
 
-    def test_sandbox_route_validates_request_body(self):
+    def test_open_validates_request_body(self):
         conversation = self._sandbox_conversation()
         bad_payloads = [
             {"content": "x" * 40001},  # over the content length cap
             {"content": "hello", "trace_id": "not-a-uuid"},  # malformed trace id
-            {"trace_id": str(uuid.uuid4())},  # missing content
         ]
         for payload in bad_payloads:
-            with patch("ee.api.conversation.MessageRoutingService") as m_service:
+            with patch("ee.api.conversation.SandboxSession") as m_session:
                 response = self.client.post(
-                    f"/api/environments/{self.team.id}/conversations/{conversation.id}/sandbox/",
+                    f"/api/environments/{self.team.id}/conversations/{conversation.id}/open/",
                     payload,
+                    format="json",
                 )
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, payload)
-            m_service.assert_not_called()
+            m_session.assert_not_called()
+
+    def test_open_rejects_other_users_conversation(self):
+        other_user = User.objects.create_and_join(
+            organization=self.organization,
+            email="other-open@posthog.com",
+            password="password",
+            first_name="Other",
+        )
+        conversation = Conversation.objects.create(
+            user=other_user,
+            team=self.team,
+            title="A chat",
+            type=Conversation.Type.ASSISTANT,
+            agent_runtime=Conversation.AgentRuntime.SANDBOX,
+        )
+        with patch("ee.api.conversation.SandboxSession") as m_session:
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/conversations/{conversation.id}/open/",
+                {"content": "hello"},
+                format="json",
+            )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        m_session.assert_not_called()
 
     @override_settings(DEBUG=False)
-    def test_get_throttles_returns_empty_for_sandbox_action(self):
-        # Like create, the sandbox action's AI throttles are applied conditionally in check_throttles().
+    def test_get_throttles_returns_empty_for_open_action(self):
+        # Like create, the open action's AI throttles are applied conditionally in check_throttles().
         viewset = ConversationViewSet()
-        viewset.action = "sandbox"
+        viewset.action = "open"
         viewset.team_id = self.team.id
         viewset.organization = self.organization
         self.assertEqual(viewset.get_throttles(), [])
 
-    def test_sandbox_route_rejects_langgraph_conversation(self):
+    def test_open_rejects_langgraph_conversation_not_converting(self):
+        # A non-sandbox LangGraph conversation that isn't converting (no flag) is rejected.
         conversation = Conversation.objects.create(
             user=self.user,
             team=self.team,
@@ -1348,151 +1445,36 @@ class TestConversationSandboxRoute(APIBaseTest):
             type=Conversation.Type.ASSISTANT,
             agent_runtime=Conversation.AgentRuntime.LANGGRAPH,
         )
-        with patch("ee.api.conversation.MessageRoutingService") as m_service:
+        with (
+            patch("ee.api.conversation.has_sandbox_mode_feature_flag", return_value=False),
+            patch("ee.api.conversation.SandboxSession") as m_session,
+        ):
             response = self.client.post(
-                f"/api/environments/{self.team.id}/conversations/{conversation.id}/sandbox/",
+                f"/api/environments/{self.team.id}/conversations/{conversation.id}/open/",
                 {"content": "hello"},
+                format="json",
             )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        m_service.assert_not_called()
-
-    def test_cancel_sandbox_conversation_delegates_to_sandbox_handler(self):
-        conversation = self._sandbox_conversation()
-        sentinel = SandboxCancelResult(task_id="t", run_id="r", run_status="cancelled", cancel_requested=True)
-        with (
-            patch("ee.api.conversation.MessageRoutingService") as m_service,
-            patch("ee.api.conversation.report_user_action") as m_telemetry,
-        ):
-            m_service.return_value.cancel.return_value = sentinel
-            response = self.client.patch(
-                f"/api/environments/{self.team.id}/conversations/{conversation.id}/cancel/",
-            )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        # cancel_requested only gates telemetry; it's excluded from the response body.
-        self.assertEqual(response.json(), sentinel.model_dump(exclude={"cancel_requested"}))
-        m_service.return_value.cancel.assert_called_once()
-        # A real cancel fires task_run_cancelled with the user source.
-        m_telemetry.assert_called_once()
-        self.assertEqual(m_telemetry.call_args[0][1], "task_run_cancelled")
-        props = m_telemetry.call_args[0][2]
-        self.assertEqual(props["execution_type"], "sandbox")
-        self.assertEqual(props["cancel_source"], "user")
-        self.assertEqual(props["run_id"], "r")
-
-    def test_cancel_sandbox_conversation_skips_telemetry_for_terminal_noop(self):
-        conversation = self._sandbox_conversation()
-        # cancel_requested defaults False — an already-terminal run was a no-op.
-        sentinel = SandboxCancelResult(task_id="t", run_id="r", run_status="completed")
-        with (
-            patch("ee.api.conversation.MessageRoutingService") as m_service,
-            patch("ee.api.conversation.report_user_action") as m_telemetry,
-        ):
-            m_service.return_value.cancel.return_value = sentinel
-            response = self.client.patch(
-                f"/api/environments/{self.team.id}/conversations/{conversation.id}/cancel/",
-            )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        m_telemetry.assert_not_called()
-
-    def test_prewarm_post_delegates_to_warm_handler(self):
-        conversation = self._sandbox_conversation()
-        with patch("ee.api.conversation.MessageRoutingService") as m_service:
-            response = self.client.post(
-                f"/api/environments/{self.team.id}/conversations/{conversation.id}/prewarm/",
-            )
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        # The service receives the resolved conversation, and POST warms (never releases).
-        passed_conversation = m_service.call_args[0][0]
-        self.assertEqual(passed_conversation.id, conversation.id)
-        m_service.return_value.prewarm.assert_called_once()
-        m_service.return_value.prewarm_release.assert_not_called()
-
-    def test_prewarm_delete_delegates_to_release_handler(self):
-        conversation = self._sandbox_conversation()
-        with patch("ee.api.conversation.MessageRoutingService") as m_service:
-            response = self.client.delete(
-                f"/api/environments/{self.team.id}/conversations/{conversation.id}/prewarm/",
-            )
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        m_service.return_value.prewarm_release.assert_called_once()
-        m_service.return_value.prewarm.assert_not_called()
-
-    def test_prewarm_rejects_langgraph_conversation(self):
-        conversation = Conversation.objects.create(
-            user=self.user,
-            team=self.team,
-            title="A chat",
-            type=Conversation.Type.ASSISTANT,
-            agent_runtime=Conversation.AgentRuntime.LANGGRAPH,
-        )
-        with patch("ee.api.conversation.MessageRoutingService") as m_service:
-            response = self.client.post(
-                f"/api/environments/{self.team.id}/conversations/{conversation.id}/prewarm/",
-            )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        m_service.assert_not_called()
-
-    def test_prewarm_post_surfaces_quota_error_from_service(self):
-        # The AI-credit gate now lives inside warm_run (which prewarm() delegates to); the action just
-        # surfaces the resulting QuotaLimitExceeded as a 402.
-        conversation = self._sandbox_conversation()
-        with patch("ee.api.conversation.MessageRoutingService") as m_service:
-            m_service.return_value.prewarm.side_effect = QuotaLimitExceeded("over limit")
-            response = self.client.post(
-                f"/api/environments/{self.team.id}/conversations/{conversation.id}/prewarm/",
-            )
-        self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
-        m_service.return_value.prewarm.assert_called_once()
-
-    def test_prewarm_release_is_not_quota_gated(self):
-        # Releasing frees a sandbox — a quota-limited team must still be able to do it.
-        conversation = self._sandbox_conversation()
-        with (
-            patch("ee.api.conversation.is_team_limited", return_value=True),
-            patch("ee.api.conversation.MessageRoutingService") as m_service,
-        ):
-            response = self.client.delete(
-                f"/api/environments/{self.team.id}/conversations/{conversation.id}/prewarm/",
-            )
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        m_service.return_value.prewarm_release.assert_called_once()
+        m_session.assert_not_called()
 
     @override_settings(DEBUG=False)
-    def test_prewarm_post_applies_ai_throttles(self):
-        # Warming provisions a sandbox, so the POST takes the AI-throttle branch and is rejected
-        # once the burst throttle denies.
+    def test_open_applies_ai_throttles(self):
+        # `open` provisions a sandbox Run whether or not it carries a message, so it takes the
+        # AI-throttle branch and is rejected once the burst throttle denies.
         viewset = ConversationViewSet()
-        viewset.action = "prewarm"
+        viewset.action = "open"
         viewset.team_id = self.team.id
         viewset.organization = self.organization
 
-        warm = APIRequestFactory().post("/")
+        request = APIRequestFactory().post("/")
         with (
             patch.object(ConversationViewSet, "_is_research_request", return_value=False) as m_research,
             patch.object(AIBurstRateThrottle, "allow_request", return_value=False),
             patch.object(AIBurstRateThrottle, "wait", return_value=30),
         ):
             with self.assertRaises(Throttled):
-                viewset.check_throttles(warm)
+                viewset.check_throttles(request)
         m_research.assert_called_once()
-
-    @override_settings(DEBUG=False)
-    def test_prewarm_delete_uses_default_throttles(self):
-        # Release (DELETE) frees resources, so it falls through to the default throttles instead
-        # of the AI rate limit.
-        viewset = ConversationViewSet()
-        viewset.action = "prewarm"
-        viewset.team_id = self.team.id
-        viewset.organization = self.organization
-
-        release = APIRequestFactory().delete("/")
-        with (
-            patch.object(ConversationViewSet, "_is_research_request") as m_research,
-            patch("rest_framework.views.APIView.check_throttles") as m_super,
-        ):
-            viewset.check_throttles(release)
-        m_research.assert_not_called()
-        m_super.assert_called_once()
 
 
 class TestConversationListTaskHandle(APIBaseTest):
@@ -1626,7 +1608,7 @@ class TestConversationLegacyHistoryConversion(APIBaseTest):
         conversation = self._langgraph_conversation()
         with (
             patch("ee.api.conversation.has_sandbox_mode_feature_flag", return_value=True),
-            patch("ee.api.conversation.MessageRoutingService") as m_routing,
+            patch("ee.api.conversation.SandboxSession") as m_routing,
             patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock),
         ):
             response = self.client.get(f"/api/environments/{self.team.id}/conversations/{conversation.id}/")
@@ -1645,16 +1627,16 @@ class TestConversationLegacyHistoryConversion(APIBaseTest):
         with (
             patch("ee.api.conversation.has_sandbox_mode_feature_flag", return_value=True),
             patch("ee.api.conversation.ContextService") as m_ctx,
-            patch("ee.api.conversation.MessageRoutingService") as m_routing,
+            patch("ee.api.conversation.SandboxSession") as m_routing,
             patch("ee.api.conversation.report_user_action"),
         ):
             m_ctx.return_value.abuild_resumed_legacy_context = AsyncMock(return_value=block)
-            m_routing.return_value.handle.return_value = self._sentinel_result()
+            m_routing.return_value.open.return_value = self._sentinel_result()
             response = self._send(conversation)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        m_routing.return_value.handle.assert_called_once()
-        kwargs = m_routing.return_value.handle.call_args.kwargs
+        m_routing.return_value.open.assert_called_once()
+        kwargs = m_routing.return_value.open.call_args.kwargs
         self.assertTrue(kwargs["convert_to_acp"])
         self.assertEqual(kwargs["resumed_context"], block)
 
@@ -1664,17 +1646,17 @@ class TestConversationLegacyHistoryConversion(APIBaseTest):
         with (
             patch("ee.api.conversation.has_sandbox_mode_feature_flag", return_value=True),
             patch("ee.api.conversation.ContextService") as m_ctx,
-            patch("ee.api.conversation.MessageRoutingService") as m_routing,
+            patch("ee.api.conversation.SandboxSession") as m_routing,
             patch("ee.api.conversation.capture_exception") as m_capture,
             patch("ee.api.conversation.report_user_action"),
         ):
             m_ctx.return_value.abuild_resumed_legacy_context = AsyncMock(side_effect=RuntimeError("boom"))
-            m_routing.return_value.handle.return_value = self._sentinel_result()
+            m_routing.return_value.open.return_value = self._sentinel_result()
             response = self._send(conversation)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         m_capture.assert_called_once()
-        kwargs = m_routing.return_value.handle.call_args.kwargs
+        kwargs = m_routing.return_value.open.call_args.kwargs
         self.assertTrue(kwargs["convert_to_acp"])
         self.assertIsNone(kwargs["resumed_context"])
 
@@ -1684,15 +1666,15 @@ class TestConversationLegacyHistoryConversion(APIBaseTest):
         with (
             patch("ee.api.conversation.has_sandbox_mode_feature_flag", return_value=True),
             patch("ee.api.conversation.ContextService") as m_ctx,
-            patch("ee.api.conversation.MessageRoutingService") as m_routing,
+            patch("ee.api.conversation.SandboxSession") as m_routing,
             patch("ee.api.conversation.report_user_action"),
         ):
-            m_routing.return_value.handle.return_value = self._sentinel_result()
+            m_routing.return_value.open.return_value = self._sentinel_result()
             response = self._send(conversation)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         m_ctx.return_value.abuild_resumed_legacy_context.assert_not_called()
-        kwargs = m_routing.return_value.handle.call_args.kwargs
+        kwargs = m_routing.return_value.open.call_args.kwargs
         self.assertFalse(kwargs["convert_to_acp"])
         self.assertIsNone(kwargs["resumed_context"])
 
@@ -1702,7 +1684,7 @@ class TestConversationLegacyHistoryConversion(APIBaseTest):
         conversation = self._langgraph_conversation()
         with (
             patch("ee.api.conversation.has_sandbox_mode_feature_flag", return_value=False),
-            patch("ee.api.conversation.MessageRoutingService") as m_routing,
+            patch("ee.api.conversation.SandboxSession") as m_routing,
             patch("ee.hogai.core.executor.AgentExecutor.astream", return_value=_async_generator()),
             patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._mock_streaming_response),
         ):
@@ -1719,7 +1701,7 @@ class TestConversationLegacyHistoryConversion(APIBaseTest):
         conversation = self._langgraph_conversation(status=Conversation.Status.IN_PROGRESS)
         with (
             patch("ee.api.conversation.has_sandbox_mode_feature_flag", return_value=True),
-            patch("ee.api.conversation.MessageRoutingService") as m_routing,
+            patch("ee.api.conversation.SandboxSession") as m_routing,
         ):
             response = self._send(conversation)
 

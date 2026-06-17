@@ -35434,37 +35434,6 @@ export namespace Schemas {
       timestamp: string;
     }
 
-    /**
-     * Approval reply for a sandbox-runtime `permission_request`.
-     */
-    export interface PermissionResponse {
-      /**
-         * The ACP permission request id the user is responding to.
-         * @maxLength 200
-         */
-      requestId: string;
-      /**
-         * The selected option id (e.g. 'allow_once', 'reject', 'reject_with_feedback').
-         * @maxLength 100
-         */
-      optionId: string;
-      /**
-         * Optional feedback text sent with a 'reject_with_feedback' decision.
-         * @maxLength 10000
-         */
-      customInput?: string;
-      /** Trace id the client associated with the run, for PERMISSION_RESPONDED telemetry correlation. */
-      traceId?: string;
-    }
-
-    /**
-     * Result of forwarding a permission response to the sandbox agent.
-     */
-    export interface PermissionResponseResult {
-      /** 'ok' once the response was forwarded to the sandbox. */
-      status: string;
-    }
-
     export interface PersonBulkDeleteRequest {
       /** A list of PostHog person UUIDs to delete (max 1000). */
       ids?: string[];
@@ -39972,18 +39941,6 @@ export namespace Schemas {
       value?: string;
     }
 
-    /**
-     * Response for `PATCH /conversations/{id}/cancel/` on a sandbox-runtime conversation.
-     */
-    export interface SandboxCancelResponse {
-      /** The products/tasks Task backing the conversation. */
-      task_id: string;
-      /** The Run that was targeted for cancellation. */
-      run_id: string;
-      /** Status of the Run after the cancel command was issued. */
-      run_status: string;
-    }
-
     export interface SandboxEnvironment {
       readonly id: string;
       /** @maxLength 255 */
@@ -40017,22 +39974,7 @@ export namespace Schemas {
     }
 
     /**
-     * Request body for the non-streaming `POST /conversations/{id}/sandbox/` route.
-     */
-    export interface SandboxMessage {
-      /**
-         * The user's message text.
-         * @maxLength 40000
-         */
-      content: string;
-      /** Client-generated trace id correlated with the resulting Run's SSE stream. */
-      trace_id?: string;
-      /** Typed PostHog entities (and free text) attached to this message. */
-      attached_context?: SandboxAttachedContextItem[];
-    }
-
-    /**
-     * Response for `POST /conversations/{id}/sandbox/` — the IDs the frontend opens SSE against.
+     * Response for `POST /conversations/{id}/open/` — the IDs the frontend opens SSE against.
      */
     export interface SandboxMessageResponse {
       /** The products/tasks Task backing the conversation. */
@@ -40046,8 +39988,25 @@ export namespace Schemas {
       trace_id: string | null;
       /** Current status of the targeted Run (e.g. `queued`, `in_progress`). */
       run_status: string;
-      /** True when a new Run was created (first message or terminal resume); false for an in-progress follow-up. */
+      /** True when a new Run was created (first message, terminal resume, or fresh warm); false for an in-progress follow-up or a reused warm Run. */
       just_created_run: boolean;
+    }
+
+    /**
+     * Request body for `POST /conversations/{id}/open/`. A string `content` processes a turn; a
+     * null/absent `content` warms a sandbox that idles awaiting the first message.
+     */
+    export interface SandboxOpen {
+      /**
+         * The user's message text. Omit or null to warm a sandbox (boot + idle) ahead of the first message.
+         * @maxLength 40000
+         * @nullable
+         */
+      content?: string | null;
+      /** Client-generated trace id correlated with the resulting Run's SSE stream. */
+      trace_id?: string;
+      /** Typed PostHog entities (and free text) attached to this message. */
+      attached_context?: SandboxAttachedContextItem[];
     }
 
     export interface SavedHeatmapListResponse {

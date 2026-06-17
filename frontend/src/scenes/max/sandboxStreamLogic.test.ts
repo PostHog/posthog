@@ -7,6 +7,8 @@ import { projectLogic } from 'scenes/projectLogic'
 
 import { initKeaTests } from '~/test/init'
 
+import { tasksRunsCommandCreate } from 'products/tasks/frontend/generated/api'
+
 import {
     mapHttpStatusToStreamError,
     MAX_CUMULATIVE_RECONNECT_ATTEMPTS,
@@ -21,6 +23,10 @@ import {
     SSE_RECONNECT_MAX_DELAY_MS,
 } from './sandboxStreamLogic'
 import type { PermissionRequestFrame, StoredLogEntry } from './types/sandboxWireTypes'
+
+jest.mock('products/tasks/frontend/generated/api', () => ({
+    tasksRunsCommandCreate: jest.fn(),
+}))
 
 function notification(method: string, params: Record<string, unknown>): StoredLogEntry {
     return { type: 'notification', notification: { method, params } }
@@ -91,7 +97,8 @@ describe('sandboxStreamLogic', () => {
         ;(global as any).EventSource = MockEventSource
         projectLogic.mount()
         projectLogic.actions.loadCurrentProjectSuccess({ id: 997 } as any)
-        logic = sandboxStreamLogic({ conversationId: 'test-conversation' })
+        ;(tasksRunsCommandCreate as jest.Mock).mockReset().mockResolvedValue({ jsonrpc: '2.0' })
+        logic = sandboxStreamLogic({ streamKey: 'test-conversation', conversationId: 'test-conversation' })
         logic.mount()
     })
 
@@ -569,7 +576,7 @@ describe('sandboxStreamLogic', () => {
 
     describe('per-conversation isolation', () => {
         it('keeps thread state independent between two mounted conversations', async () => {
-            const otherLogic = sandboxStreamLogic({ conversationId: 'other-conversation' })
+            const otherLogic = sandboxStreamLogic({ streamKey: 'other-conversation' })
             otherLogic.mount()
 
             await expectLogic(logic, () => {
@@ -1480,8 +1487,7 @@ describe('sandboxStreamLogic', () => {
             )
         })
 
-        it('forwards the trace_id to the permission endpoint for PERMISSION_RESPONDED correlation', async () => {
-            const permissionSpy = jest.spyOn(api.conversations, 'permission').mockResolvedValue({ status: 'ok' } as any)
+        it('commands the streamed run via the tasks relay on respondToPermission', async () => {
             logic.actions.openSseForRun({
                 taskId: 'task-1',
                 runId: 'run-1',
@@ -1490,16 +1496,42 @@ describe('sandboxStreamLogic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.respondToPermission({
-                    conversationId: 'conv-1',
                     requestId: 'req-1',
                     optionId: 'allow_once',
                 })
             }).toFinishAllListeners()
 
-            expect(permissionSpy).toHaveBeenCalledWith(
-                'conv-1',
-                expect.objectContaining({ requestId: 'req-1', optionId: 'allow_once', traceId: 'trace-1' })
-            )
+            // "Command the latest run": the reply targets the (task, run) the renderer is streaming.
+            expect(tasksRunsCommandCreate).toHaveBeenCalledWith('997', 'task-1', 'run-1', {
+                jsonrpc: '2.0',
+                method: 'permission_response',
+                params: { requestId: 'req-1', optionId: 'allow_once', customInput: undefined },
+            })
+        })
+
+        it('cancelRun cancels the streamed run via the tasks relay', async () => {
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+
+            await expectLogic(logic, () => {
+                logic.actions.cancelRun()
+            }).toFinishAllListeners()
+
+            expect(tasksRunsCommandCreate).toHaveBeenCalledWith('997', 'task-1', 'run-1', {
+                jsonrpc: '2.0',
+                method: 'cancel',
+            })
+        })
+
+        it('cancelRun cancels an explicit (warm) run the renderer is not streaming', async () => {
+            // A warm Run is released by id without the renderer ever opening SSE against it.
+            await expectLogic(logic, () => {
+                logic.actions.cancelRun({ taskId: 'warm-task', runId: 'warm-run' })
+            }).toFinishAllListeners()
+
+            expect(tasksRunsCommandCreate).toHaveBeenCalledWith('997', 'warm-task', 'warm-run', {
+                jsonrpc: '2.0',
+                method: 'cancel',
+            })
         })
 
         it('suppresses run lifecycle telemetry while replaying history on bootstrap', async () => {
@@ -1810,7 +1842,6 @@ describe('sandboxStreamLogic', () => {
         })
 
         it('auto-approves a non-destructive PostHog exec without showing a card', async () => {
-            const permissionSpy = jest.spyOn(api.conversations, 'permission').mockResolvedValue({ status: 'ok' } as any)
             const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
             logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
             const source = MockEventSource.latest()
@@ -1827,10 +1858,11 @@ describe('sandboxStreamLogic', () => {
             }).toFinishAllListeners()
 
             expect(logic.values.pendingPermissionRequest).toBeNull()
-            expect(permissionSpy).toHaveBeenCalledWith(
-                'test-conversation',
-                expect.objectContaining({ requestId: 'req-auto', optionId: 'allow_once' })
-            )
+            expect(tasksRunsCommandCreate).toHaveBeenCalledWith('997', 'task-1', 'run-1', {
+                jsonrpc: '2.0',
+                method: 'permission_response',
+                params: { requestId: 'req-auto', optionId: 'allow_once' },
+            })
             expect(captureSpy).toHaveBeenCalledWith(
                 'permission_auto_approved',
                 expect.objectContaining({ request_id: 'req-auto', execution_type: 'sandbox' })
@@ -1838,7 +1870,6 @@ describe('sandboxStreamLogic', () => {
         })
 
         it('auto-approves a built-in tool without showing a card', async () => {
-            const permissionSpy = jest.spyOn(api.conversations, 'permission').mockResolvedValue({ status: 'ok' } as any)
             logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
             const source = MockEventSource.latest()
 
@@ -1857,14 +1888,15 @@ describe('sandboxStreamLogic', () => {
             }).toFinishAllListeners()
 
             expect(logic.values.pendingPermissionRequest).toBeNull()
-            expect(permissionSpy).toHaveBeenCalledWith(
-                'test-conversation',
-                expect.objectContaining({ requestId: 'req-bash', optionId: 'allow' })
-            )
+            expect(tasksRunsCommandCreate).toHaveBeenCalledWith('997', 'task-1', 'run-1', {
+                jsonrpc: '2.0',
+                method: 'permission_response',
+                params: { requestId: 'req-bash', optionId: 'allow' },
+            })
         })
 
         it('falls back to a manual card when the auto-approve POST fails', async () => {
-            jest.spyOn(api.conversations, 'permission').mockRejectedValue({ status: 502 })
+            ;(tasksRunsCommandCreate as jest.Mock).mockRejectedValue({ status: 502 })
             jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
             logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
             const source = MockEventSource.latest()
@@ -1883,13 +1915,39 @@ describe('sandboxStreamLogic', () => {
             expect(logic.values.pendingPermissionRequest?.requestId).toEqual('req-fail')
         })
 
-        it('clears the pending request and POSTs the reply on respondToPermission', async () => {
-            const permissionSpy = jest.spyOn(api.conversations, 'permission').mockResolvedValue({ status: 'ok' } as any)
+        it('drives a generic task viewer with no conversation id', async () => {
+            // The renderer must work for runs created by other products that never mint a Conversation:
+            // keyed by task id, commanding the relay by (task, run), with conversation_id absent from telemetry.
+            const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+            const viewerLogic = sandboxStreamLogic({ streamKey: 'task-7' })
+            viewerLogic.mount()
+            try {
+                viewerLogic.actions.openSseForRun({ taskId: 'task-7', runId: 'run-7' })
+                viewerLogic.actions.ingestPermissionRequest(parsePermissionRequestFrame(permissionFrame)!)
+                await expectLogic(viewerLogic, () => {
+                    viewerLogic.actions.respondToPermission({ requestId: 'req-1', optionId: 'allow_once' })
+                }).toFinishAllListeners()
+
+                expect(tasksRunsCommandCreate).toHaveBeenCalledWith('997', 'task-7', 'run-7', {
+                    jsonrpc: '2.0',
+                    method: 'permission_response',
+                    params: { requestId: 'req-1', optionId: 'allow_once', customInput: undefined },
+                })
+                const permRequested = captureSpy.mock.calls.find((c) => c[0] === 'permission_requested')
+                expect(permRequested).not.toBeUndefined()
+                expect((permRequested?.[1] as any).conversation_id).toBeUndefined()
+                expect((permRequested?.[1] as any).task_id).toEqual('task-7')
+            } finally {
+                viewerLogic.unmount()
+            }
+        })
+
+        it('clears the pending request and commands the run on respondToPermission', async () => {
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
             logic.actions.ingestPermissionRequest(parsePermissionRequestFrame(permissionFrame)!)
 
             await expectLogic(logic, () => {
                 logic.actions.respondToPermission({
-                    conversationId: 'conv-1',
                     requestId: 'req-1',
                     optionId: 'allow_once',
                 })
@@ -1897,22 +1955,22 @@ describe('sandboxStreamLogic', () => {
 
             expect(logic.values.pendingPermissionRequest).toBeNull()
             expect(logic.values.respondingToPermission).toEqual(false)
-            expect(permissionSpy).toHaveBeenCalledWith('conv-1', {
-                requestId: 'req-1',
-                optionId: 'allow_once',
-                customInput: undefined,
+            expect(tasksRunsCommandCreate).toHaveBeenCalledWith('997', 'task-1', 'run-1', {
+                jsonrpc: '2.0',
+                method: 'permission_response',
+                params: { requestId: 'req-1', optionId: 'allow_once', customInput: undefined },
             })
         })
 
-        it('keeps the card pending and surfaces an error when the reply POST fails', async () => {
-            jest.spyOn(api.conversations, 'permission').mockRejectedValue({ status: 502 })
+        it('keeps the card pending and surfaces an error when the reply command fails', async () => {
+            ;(tasksRunsCommandCreate as jest.Mock).mockRejectedValue({ status: 502 })
             const exceptionSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
             const toastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => undefined as any)
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
             logic.actions.ingestPermissionRequest(parsePermissionRequestFrame(permissionFrame)!)
 
             await expectLogic(logic, () => {
                 logic.actions.respondToPermission({
-                    conversationId: 'conv-1',
                     requestId: 'req-1',
                     optionId: 'allow_once',
                 })
@@ -1928,7 +1986,6 @@ describe('sandboxStreamLogic', () => {
         })
 
         it('ignores a replayed permission_request envelope once the request is resolved', async () => {
-            jest.spyOn(api.conversations, 'permission').mockResolvedValue({ status: 'ok' } as any)
             const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
             logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
             const source = MockEventSource.latest()
@@ -1938,7 +1995,6 @@ describe('sandboxStreamLogic', () => {
             }).toFinishAllListeners()
             await expectLogic(logic, () => {
                 logic.actions.respondToPermission({
-                    conversationId: 'conv-1',
                     requestId: 'req-1',
                     optionId: 'allow_once',
                 })

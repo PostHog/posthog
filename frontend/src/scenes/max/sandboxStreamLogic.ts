@@ -5,6 +5,8 @@ import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { projectLogic } from 'scenes/projectLogic'
 
+import { tasksRunsCommandCreate } from 'products/tasks/frontend/generated/api'
+
 import type { sandboxStreamLogicType } from './sandboxStreamLogicType'
 import { defaultPermissionDecision, findAllowOptionId } from './sandboxToolPolicy'
 import type {
@@ -40,7 +42,14 @@ export type SandboxSseStatus = 'idle' | 'connecting' | 'open' | 'reconnecting' |
 export type SandboxRunStatus = 'queued' | 'in_progress' | 'completed' | 'failed' | 'cancelled'
 
 export interface SandboxStreamLogicProps {
-    conversationId: string
+    /**
+     * Stable logic key. PostHog AI passes the conversation id; a generic task viewer (no conversation)
+     * passes the task id. The logic operates on `(taskId, runId)` internally, so it never needs the
+     * conversation beyond this key and the optional telemetry tag below.
+     */
+    streamKey: string
+    /** Optional telemetry tag — present for PostHog AI conversations, absent for a generic task viewer. */
+    conversationId?: string
 }
 
 /** Reconnect/backoff constants for the SSE drop-recovery loop. */
@@ -462,12 +471,12 @@ export function parsePermissionRequestFrame(
  * the `logs/` replay, HTTP-status error mapping, and the `bootstrapRun` history-replay-then-SSE
  * helper.
  *
- * Keyed by conversation id so concurrent conversations keep independent stream state and
- * EventSource connections.
+ * Keyed by `streamKey` (the conversation id for PostHog AI, the task id for a generic task viewer)
+ * so concurrent streams keep independent stream state and EventSource connections.
  */
 export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
     props({} as SandboxStreamLogicProps),
-    key((props) => props.conversationId),
+    key((props) => props.streamKey),
     path((key) => ['scenes', 'max', 'sandboxStreamLogic', key]),
     connect(() => ({
         values: [projectLogic, ['currentProjectId']],
@@ -524,13 +533,13 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
          * request clears only once the POST succeeds, so a failure keeps the card for retry.
          * `customInput` carries `reject_with_feedback` text.
          */
-        respondToPermission: (payload: {
-            conversationId: string
-            requestId: string
-            optionId: string
-            customInput?: string
-        }) => payload,
+        respondToPermission: (payload: { requestId: string; optionId: string; customInput?: string }) => payload,
         clearPermissionRequest: true,
+        /**
+         * Cancel a run via the generic tasks relay. With no argument, cancels the streamed run
+         * (`cache.activeRun`); pass an explicit run to cancel a warm Run the renderer isn't streaming.
+         */
+        cancelRun: (run?: { taskId: string; runId: string }) => ({ run }),
         /**
          * Internal: the reply POST failed. Resets the in-flight flag (so the surviving card's
          * buttons re-enable for retry) without coupling that reset to unrelated stream errors.
@@ -1145,15 +1154,20 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 task_id: activeRun?.taskId,
                 execution_type: 'sandbox',
             })
+            if (!activeRun || values.currentProjectId == null) {
+                // No active run to command yet — fall back to the manual card so the user can respond.
+                actions.ingestPermissionRequest(record)
+                return
+            }
             try {
-                await api.conversations.permission(props.conversationId, {
-                    requestId: record.requestId,
-                    optionId,
-                    traceId: values.traceId ?? undefined,
+                await tasksRunsCommandCreate(String(values.currentProjectId), activeRun.taskId, activeRun.runId, {
+                    jsonrpc: '2.0',
+                    method: 'permission_response',
+                    params: { requestId: record.requestId, optionId },
                 })
                 actions.markPermissionRequestResolved(record.requestId)
             } catch (error) {
-                // The auto-approve POST failed — don't leave the agent silently blocked. Fall back to
+                // The auto-approve command failed — don't leave the agent silently blocked. Fall back to
                 // the manual card so the user can respond.
                 posthog.captureException(error)
                 actions.ingestPermissionRequest(record)
@@ -1177,18 +1191,23 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 execution_type: 'sandbox',
             })
         },
-        respondToPermission: async ({ conversationId, requestId, optionId, customInput }) => {
+        respondToPermission: async ({ requestId, optionId, customInput }) => {
+            const activeRun = cache.activeRun as { taskId: string; runId: string } | undefined
+            if (!activeRun || values.currentProjectId == null) {
+                // No live run to command — keep the card so the user can retry once the stream resolves.
+                actions.permissionResponseFailed()
+                lemonToast.error('Failed to send approval. Please try again.')
+                return
+            }
             try {
-                // PERMISSION_RESPONDED telemetry is emitted server-side by the /permission/ handler;
-                // forward the trace_id so it can correlate with the rest of this run's events. The
-                // server targets the conversation's current run on its own — sandboxes are persistent,
-                // so a run transition only happens when the old sandbox dies and the successor run is
-                // exactly where the reply belongs.
-                await api.conversations.permission(conversationId, {
-                    requestId,
-                    optionId,
-                    customInput,
-                    traceId: values.traceId ?? undefined,
+                // PERMISSION_RESPONDED telemetry is emitted server-side by the tasks relay. The renderer
+                // commands the run it is streaming (`cache.activeRun`); on a persistent sandbox the run
+                // only advances when the old one dies and the successor takes over — which is exactly the
+                // run the renderer has re-resolved, so the reply lands where it belongs.
+                await tasksRunsCommandCreate(String(values.currentProjectId), activeRun.taskId, activeRun.runId, {
+                    jsonrpc: '2.0',
+                    method: 'permission_response',
+                    params: { requestId, optionId, customInput },
                 })
                 actions.markPermissionRequestResolved(requestId)
             } catch (error) {
@@ -1199,6 +1218,24 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 posthog.captureException(error)
                 actions.permissionResponseFailed()
                 lemonToast.error('Failed to send approval. Please try again.')
+            }
+        },
+        cancelRun: async ({ run }) => {
+            // Cancel a run through the generic tasks relay — the same command PostHog Code issues. The
+            // SSE then receives a terminal task_run_state; cancellation telemetry is emitted server-side
+            // by the relay. `run` defaults to the streamed run; a warm Run (not streamed) is passed in.
+            // Fire-and-forget: a failure leaves the run alive for a retry.
+            const target = run ?? (cache.activeRun as { taskId: string; runId: string } | undefined)
+            if (!target || values.currentProjectId == null) {
+                return
+            }
+            try {
+                await tasksRunsCommandCreate(String(values.currentProjectId), target.taskId, target.runId, {
+                    jsonrpc: '2.0',
+                    method: 'cancel',
+                })
+            } catch (error) {
+                posthog.captureException(error)
             }
         },
         handleTerminalStatus: ({ status, errorMessage, replayedFromHistory }) => {

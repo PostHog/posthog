@@ -12,7 +12,6 @@ from django.utils import timezone
 
 import pydantic
 import structlog
-import posthoganalytics
 from asgiref.sync import async_to_sync as asgi_async_to_sync
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
@@ -57,11 +56,9 @@ from products.posthog_ai.backend.context_wrapper import (
     ALLOWED_TYPES as ALLOWED_ATTACHED_CONTEXT_TYPES,
     ContextService,
 )
-from products.posthog_ai.backend.message_routing import MessageRoutingService
+from products.posthog_ai.backend.message_routing import SandboxSession
 from products.posthog_ai.backend.models.assistant import Conversation
 from products.tasks.backend.models import Task, TaskRun
-from products.tasks.backend.services.agent_command import send_permission_response
-from products.tasks.backend.services.connection_token import create_sandbox_connection_token
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 from ee.hogai.api.serializers import ConversationMinimalSerializer, ConversationSerializer
@@ -93,37 +90,6 @@ class MessageMinimalSerializer(serializers.Serializer):
     """Serializer for appending a message to an existing conversation without triggering AI processing."""
 
     content = serializers.CharField(required=True, max_length=10000)
-
-
-class PermissionResponseSerializer(serializers.Serializer):
-    """Approval reply for a sandbox-runtime `permission_request`."""
-
-    requestId = serializers.CharField(
-        required=True,
-        max_length=200,
-        help_text="The ACP permission request id the user is responding to.",
-    )
-    optionId = serializers.CharField(
-        required=True,
-        max_length=100,
-        help_text="The selected option id (e.g. 'allow_once', 'reject', 'reject_with_feedback').",
-    )
-    customInput = serializers.CharField(
-        required=False,
-        allow_blank=True,
-        max_length=10000,
-        help_text="Optional feedback text sent with a 'reject_with_feedback' decision.",
-    )
-    traceId = serializers.UUIDField(
-        required=False,
-        help_text="Trace id the client associated with the run, for PERMISSION_RESPONDED telemetry correlation.",
-    )
-
-
-class PermissionResponseResultSerializer(serializers.Serializer):
-    """Result of forwarding a permission response to the sandbox agent."""
-
-    status = serializers.CharField(help_text="'ok' once the response was forwarded to the sandbox.")
 
 
 def _strip_large_spend_history(billing_context: MaxBillingContext, threshold: int = 20) -> MaxBillingContext:
@@ -246,11 +212,16 @@ class SandboxAttachedContextItemSerializer(serializers.Serializer):
     value = serializers.CharField(required=False, help_text="Free-text content. Only for `text` attachments.")
 
 
-class SandboxMessageSerializer(serializers.Serializer):
-    """Request body for the non-streaming `POST /conversations/{id}/sandbox/` route."""
+class SandboxOpenSerializer(serializers.Serializer):
+    """Request body for `POST /conversations/{id}/open/`. A string `content` processes a turn; a
+    null/absent `content` warms a sandbox that idles awaiting the first message."""
 
     content = serializers.CharField(
-        required=True, allow_blank=False, max_length=40000, help_text="The user's message text."
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        max_length=40000,
+        help_text="The user's message text. Omit or null to warm a sandbox (boot + idle) ahead of the first message.",
     )
     trace_id = serializers.UUIDField(
         required=False, help_text="Client-generated trace id correlated with the resulting Run's SSE stream."
@@ -263,23 +234,15 @@ class SandboxMessageSerializer(serializers.Serializer):
 
 
 class SandboxMessageResponseSerializer(serializers.Serializer):
-    """Response for `POST /conversations/{id}/sandbox/` — the IDs the frontend opens SSE against."""
+    """Response for `POST /conversations/{id}/open/` — the IDs the frontend opens SSE against."""
 
     task_id = serializers.CharField(help_text="The products/tasks Task backing the conversation.")
     run_id = serializers.CharField(help_text="The Run the frontend opens SSE against.")
     trace_id = serializers.CharField(allow_null=True, help_text="Echo of the request trace id, if provided.")
     run_status = serializers.CharField(help_text="Current status of the targeted Run (e.g. `queued`, `in_progress`).")
     just_created_run = serializers.BooleanField(
-        help_text="True when a new Run was created (first message or terminal resume); false for an in-progress follow-up."
+        help_text="True when a new Run was created (first message, terminal resume, or fresh warm); false for an in-progress follow-up or a reused warm Run."
     )
-
-
-class SandboxCancelResponseSerializer(serializers.Serializer):
-    """Response for `PATCH /conversations/{id}/cancel/` on a sandbox-runtime conversation."""
-
-    task_id = serializers.CharField(help_text="The products/tasks Task backing the conversation.")
-    run_id = serializers.CharField(help_text="The Run that was targeted for cancellation.")
-    run_status = serializers.CharField(help_text="Status of the Run after the cancel command was issued.")
 
 
 @extend_schema(tags=["max"])
@@ -341,8 +304,8 @@ class ConversationViewSet(
         return queryset
 
     def get_throttles(self):
-        # For message-sending actions, throttling is handled in check_throttles() for conditional logic
-        if self.action in ("create", "sandbox"):
+        # For message-sending / warming actions, throttling is handled in check_throttles() for conditional logic
+        if self.action in ("create", "open"):
             return []
         return super().get_throttles()
 
@@ -367,11 +330,9 @@ class ConversationViewSet(
         return False
 
     def check_throttles(self, request: Request):
-        # Apply the AI throttles to message-sending actions and to sandbox prewarm POSTs —
-        # warming provisions a real sandbox, so it must share the same rate limit. Release
-        # (DELETE) frees resources and keeps the default throttles.
-        is_prewarm_warm = self.action == "prewarm" and request.method == "POST"
-        if self.action not in ("create", "sandbox") and not is_prewarm_warm:
+        # Apply the AI throttles to the message-sending / warming actions — `open` provisions a real
+        # sandbox Run whether or not it carries a message, so it shares the same rate limit as `create`.
+        if self.action not in ("create", "open"):
             return super().check_throttles(request)
 
         # Skip throttling in local development
@@ -712,29 +673,105 @@ class ConversationViewSet(
         return self._queue_response(queue_store, queue_store.clear())
 
     @extend_schema(
-        request=SandboxMessageSerializer,
-        responses={200: SandboxMessageResponseSerializer},
+        request=SandboxOpenSerializer,
+        responses={
+            200: SandboxMessageResponseSerializer,
+            204: OpenApiResponse(description="Warm request that provisioned nothing (pool full / released)."),
+            400: OpenApiResponse(description="Conversation is not on the sandbox runtime."),
+        },
         description=(
-            "Non-streaming routing endpoint for sandbox-runtime conversations. Wraps + dedupes the "
-            "message, then starts a Run / signals a follow-up / resumes via in-process products/tasks calls and "
-            "returns the IDs the frontend opens SSE against. Sandbox runtime only — LangGraph conversations stream "
-            "via the unchanged `/stream/` path."
+            "Create-or-resume a sandbox conversation — the single sandbox session opener. With `content`, "
+            "processes the turn (first message, in-progress follow-up, or terminal resume); without `content`, "
+            "warms a sandbox that idles awaiting the first message. Returns the `(task, run)` handle the "
+            "frontend opens SSE against. The conversation row is created on first use from the URL id."
         ),
     )
-    @action(detail=True, methods=["POST"], url_path="sandbox")
-    def sandbox(self, request: Request, *args, **kwargs):
-        # Same billing gate as `create` — this is the follow-up path, so skipping it
-        # would let quota-limited teams keep launching runs.
+    @action(detail=True, methods=["POST"], url_path="open")
+    def open(self, request: Request, *args, **kwargs):
+        # Both warming and messaging launch a Run, so gate both on the AI-credit quota.
         if is_team_limited(self.team.api_token, QuotaResource.AI_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY):
             raise QuotaLimitExceeded(
                 "Your organization reached its AI credit usage limit. Increase the limits in Billing settings, or ask an org admin to do so."
             )
-        serializer = SandboxMessageSerializer(data=request.data)
+        serializer = SandboxOpenSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        conversation = self.get_object()
-        if conversation.agent_runtime != Conversation.AgentRuntime.SANDBOX:
+
+        conversation = self._get_or_create_sandbox_conversation(request)
+        has_content = bool(serializer.validated_data.get("content"))
+        convert_to_acp, resumed_context = self._compute_sandbox_conversion(request, conversation, has_content)
+
+        # Sandbox-only endpoint. A converting LangGraph thread is still LANGGRAPH here (the flip happens
+        # inside the routing service), so allow it through; reject any other non-sandbox conversation.
+        if conversation.agent_runtime != Conversation.AgentRuntime.SANDBOX and not convert_to_acp:
             raise exceptions.ValidationError("This conversation is not on the sandbox runtime.")
-        return self._route_sandbox_message(request, conversation)
+
+        if has_content and conversation.title is None:
+            conversation.title = serializer.validated_data["content"][:80]
+            conversation.save(update_fields=["title"])
+
+        return self._route_sandbox_message(
+            request, conversation, resumed_context=resumed_context, convert_to_acp=convert_to_acp
+        )
+
+    def _get_or_create_sandbox_conversation(self, request: Request) -> Conversation:
+        """Resolve the URL-keyed conversation, creating it on first use (the client mints the id).
+
+        `open` is create-or-resume: a brand-new conversation (first warm or first message) has no row
+        yet, so a plain `get_object()` would 404. The runtime is stamped once here from the sandbox flag
+        and never re-evaluated, mirroring `create`.
+        """
+        conversation_id = self.kwargs[self.lookup_url_kwarg]
+        user = cast(User, request.user)
+        try:
+            # nosemgrep: idor-lookup-without-team, idor-taint-user-input-to-model-get (user+team checked below)
+            conversation = Conversation.objects.get(id=conversation_id)
+        except Conversation.DoesNotExist:
+            return Conversation.objects.create(
+                user=user,
+                team=self.team,
+                id=conversation_id,
+                type=Conversation.Type.ASSISTANT,
+                is_internal=is_impersonated_session(request),
+                agent_runtime=(
+                    Conversation.AgentRuntime.SANDBOX
+                    if has_sandbox_mode_feature_flag(self.team, user)
+                    else Conversation.AgentRuntime.LANGGRAPH
+                ),
+            )
+        if conversation.user != user or conversation.team != self.team:
+            raise exceptions.PermissionDenied("Cannot access other users' conversations")
+        if conversation.deleted:
+            raise exceptions.NotFound("Conversation does not exist")
+        return conversation
+
+    def _compute_sandbox_conversion(
+        self, request: Request, conversation: Conversation, has_content: bool
+    ) -> tuple[bool, str | None]:
+        """Detect + prepare a legacy LangGraph→sandbox conversion on the first new message.
+
+        A reopened LangGraph thread converts to sandbox on its first message: read the current
+        conversation window into a one-time resumed-context block (while still LangGraph), then the
+        routing service flips the runtime + links the Task atomically. Warm (`content`-less) never
+        converts. A failed read never blocks — the user continues, the legacy thread stays rendered.
+        """
+        convert_to_acp = bool(
+            has_content
+            and conversation.agent_runtime == Conversation.AgentRuntime.LANGGRAPH
+            and conversation.task_id is None
+            and conversation.status == Conversation.Status.IDLE
+            and has_sandbox_mode_feature_flag(self.team, cast(User, request.user))
+        )
+        if not convert_to_acp:
+            return False, None
+        try:
+            resumed_context = asgi_async_to_sync(ContextService().abuild_resumed_legacy_context)(
+                conversation, self.team, cast(User, request.user)
+            )
+        except Exception as e:
+            # A failed read must not block the conversion — continue with no resumed context.
+            capture_exception(e)
+            resumed_context = None
+        return True, resumed_context
 
     def _route_sandbox_message(
         self,
@@ -745,98 +782,45 @@ class ConversationViewSet(
         convert_to_acp: bool = False,
     ) -> Response:
         user = cast(User, request.user)
-        result = MessageRoutingService(conversation, user).handle(
+        result = SandboxSession(conversation, user).open(
             request.data, resumed_context=resumed_context, convert_to_acp=convert_to_acp
         )
-        report_user_action(
-            user,
-            "prompt sent",
-            {
-                "trace_id": result.trace_id,
-                "conversation_id": str(conversation.id),
-                "execution_type": "sandbox",
-                "agent_runtime": "sandbox",
-                "converted_to_acp": convert_to_acp,
-                "just_created_run": result.just_created_run,
-                "has_attached_context": result.attached_context_count > 0,
-                "attached_context_count": result.attached_context_count,
-            },
-            team=self.team,
-            request=request,
-        )
+        if result is None:
+            # Warm intent that provisioned nothing (pool full / released) — no run to open.
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        content = request.data.get("content")
+        if isinstance(content, str) and content.strip():
+            report_user_action(
+                user,
+                "prompt sent",
+                {
+                    "trace_id": result.trace_id,
+                    "conversation_id": str(conversation.id),
+                    "execution_type": "sandbox",
+                    "agent_runtime": "sandbox",
+                    "converted_to_acp": convert_to_acp,
+                    "just_created_run": result.just_created_run,
+                    "has_attached_context": result.attached_context_count > 0,
+                    "attached_context_count": result.attached_context_count,
+                },
+                team=self.team,
+                request=request,
+            )
         # attached_context_count is internal telemetry plumbing — keep it out of the response body.
         return Response(result.model_dump(exclude={"attached_context_count"}), status=status.HTTP_200_OK)
 
     @extend_schema(
-        request=None,
+        description="Cancel the conversation's in-progress LangGraph run.",
         responses={
-            204: OpenApiResponse(description="Sandbox warmed (booting or ready), or already warm / released."),
-            400: OpenApiResponse(description="Conversation is not on the sandbox runtime."),
-        },
-        description=(
-            "Eagerly provision a sandbox for a sandbox-runtime conversation while the user is typing. "
-            "POST warms a Run in-process (no pending message); DELETE releases it if the user abandons. "
-            "Both idempotent and sandbox runtime only."
-        ),
-    )
-    @action(detail=True, methods=["POST", "DELETE"], url_path="prewarm")
-    def prewarm(self, request: Request, *args, **kwargs):
-        """Per-conversation eager sandbox warm.
-
-        Sandbox runtime only. POST delegates to the in-process products/tasks warm
-        path; DELETE cancels a warm Run. No HTTP-to-self, no provisioning reimplemented.
-        """
-        conversation = self.get_object()
-        if conversation.agent_runtime != Conversation.AgentRuntime.SANDBOX:
-            raise exceptions.ValidationError("This conversation is not on the sandbox runtime.")
-
-        user = cast(User, request.user)
-        service = MessageRoutingService(conversation, user)
-        if request.method == "DELETE":
-            service.prewarm_release()
-        else:
-            # The AI-credit quota gate and the warm-pool cap now live inside `warm_run`, which
-            # `prewarm()` delegates to; the HTTP-layer AI rate throttle stays in `check_throttles`.
-            service.prewarm()
-        return Response(status=status.HTTP_204_NO_CONTENT)
-
-    @extend_schema(
-        description="Cancel the conversation's in-progress run (sandbox or LangGraph).",
-        responses={
-            200: SandboxCancelResponseSerializer,
-            204: OpenApiResponse(description="LangGraph cancellation accepted, or already cancelling."),
-            400: OpenApiResponse(description="Sandbox conversation has no backing task or active run."),
-            422: OpenApiResponse(description="Failed to cancel the LangGraph conversation."),
-            502: OpenApiResponse(description="Sandbox agent unreachable or rejected the cancel command."),
+            204: OpenApiResponse(description="Cancellation accepted, or already cancelling."),
+            422: OpenApiResponse(description="Failed to cancel the conversation."),
         },
     )
     @action(detail=True, methods=["PATCH"])
     def cancel(self, request: Request, *args, **kwargs):
+        # Sandbox runs cancel through the generic tasks relay (`runs/{run}/command/`); this endpoint
+        # serves the LangGraph runtime only.
         conversation = self.get_object()
-
-        if conversation.agent_runtime == Conversation.AgentRuntime.SANDBOX:
-            # Sandbox runs are cancelled in-process via the products/tasks command
-            # path; no LangGraph workflow is involved.
-            user = cast(User, request.user)
-            result = MessageRoutingService(conversation, user).cancel()
-            if result.cancel_requested:
-                # Only when a live run was actually signalled — an already-terminal no-op
-                # cancelled nothing. The endpoint is always user-initiated; sandbox idle
-                # shutdowns surface separately as a terminal task_run_state.
-                report_user_action(
-                    user,
-                    "task_run_cancelled",
-                    {
-                        "conversation_id": str(conversation.id),
-                        "run_id": result.run_id,
-                        "execution_type": "sandbox",
-                        "cancel_source": "user",
-                    },
-                    team=self.team,
-                    request=request,
-                )
-            # cancel_requested only gates the telemetry above — keep it out of the response body.
-            return Response(result.model_dump(exclude={"cancel_requested"}), status=status.HTTP_200_OK)
 
         # IDLE is intentionally not short-circuited: during the handoff between the main
         # workflow completing and a queued workflow starting, the status is briefly IDLE
@@ -855,85 +839,6 @@ class ConversationViewSet(
             return Response({"error": "Failed to cancel conversation"}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
 
         return Response(status=status.HTTP_204_NO_CONTENT)
-
-    @extend_schema(
-        request=PermissionResponseSerializer,
-        responses={
-            200: PermissionResponseResultSerializer,
-            400: OpenApiResponse(description="No sandbox run for this conversation, or invalid request"),
-            502: OpenApiResponse(description="Sandbox agent unreachable or rejected the response"),
-        },
-        description="Forward a sandbox-runtime approval reply to the backing products/tasks run.",
-    )
-    @action(detail=True, methods=["POST"], url_path="permission")
-    def permission(self, request: Request, *args, **kwargs):
-        """Sandbox-runtime approval reply.
-
-        Resolves the conversation's backing TaskRun and delegates in-process to the products/tasks
-        `permission_response` command path. Thin routing wrapper — not a relay.
-        """
-        conversation: Conversation = self.get_object()
-
-        serializer = PermissionResponseSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        # Always target the conversation's current run. Sandboxes are persistent, so `current_run`
-        # only advances when the old sandbox dies and a successor run takes over the same Task — and
-        # that successor is exactly where a follow-up reply belongs, since the dead run can no longer
-        # receive it.
-        task_run = conversation.current_run
-        if task_run is None or task_run.team_id != self.team.pk:
-            return Response({"error": "Conversation has no active sandbox run"}, status=status.HTTP_400_BAD_REQUEST)
-
-        request_id = serializer.validated_data["requestId"]
-        option_id = serializer.validated_data["optionId"]
-        custom_input = serializer.validated_data.get("customInput")
-        # UUIDField yields a UUID instance; stringify for the analytics payload.
-        trace_id = serializer.validated_data.get("traceId")
-        trace_id = str(trace_id) if trace_id else None
-
-        user = cast(User, request.user)
-        # The sandbox agent-server authenticates `/command` against the RS256 connection
-        # JWT — without it the reply is rejected with 401 (the Docker provider has no Modal
-        # connect token to fall back on). Mirror the Temporal activity command paths.
-        auth_token: str | None = None
-        if user.id:
-            distinct_id = user.distinct_id or f"user_{user.id}"
-            auth_token = create_sandbox_connection_token(task_run, user_id=user.id, distinct_id=distinct_id)
-
-        result = send_permission_response(
-            task_run,
-            request_id=request_id,
-            option_id=option_id,
-            custom_input=custom_input,
-            auth_token=auth_token,
-        )
-
-        if user.distinct_id:
-            # `success` distinguishes a reply that actually reached the sandbox from one that
-            # failed to forward (the endpoint returns 502 below) — without it a 502 would still
-            # record a success-looking event and corrupt the approval funnel.
-            posthoganalytics.capture(
-                distinct_id=user.distinct_id,
-                event="permission_responded",
-                properties={
-                    "conversation_id": str(conversation.id),
-                    "trace_id": trace_id,
-                    "request_id": request_id,
-                    "option_id": option_id,
-                    "run_id": str(task_run.id),
-                    "success": result.success,
-                    "execution_type": "sandbox",
-                },
-            )
-
-        if not result.success:
-            return Response(
-                {"error": result.error or "Failed to forward permission response"},
-                status=status.HTTP_502_BAD_GATEWAY,
-            )
-
-        return Response(PermissionResponseResultSerializer({"status": "ok"}).data)
 
     @extend_schema(
         description="Delete a conversation.",

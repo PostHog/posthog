@@ -16,7 +16,7 @@ from django.db import transaction
 
 import structlog
 from pydantic import BaseModel
-from rest_framework import exceptions, status
+from rest_framework import exceptions
 
 from posthog.exceptions import Conflict
 from posthog.models.user import User
@@ -35,8 +35,6 @@ from products.posthog_ai.backend.run_state import PostHogAIRunState
 from products.posthog_ai.backend.system_prompt import PromptService
 from products.posthog_ai.backend.wire_types import UnknownFrame, is_user_message_params, parse_log_entry
 from products.tasks.backend.models import Task, TaskRun
-from products.tasks.backend.services.agent_command import send_cancel
-from products.tasks.backend.services.connection_token import create_sandbox_connection_token
 from products.tasks.backend.services.warm import SandboxWarmer
 from products.tasks.backend.temporal.client import execute_task_processing_workflow, signal_task_followup_message
 
@@ -53,25 +51,6 @@ class SandboxRouteResult(BaseModel):
     just_created_run: bool
     # Count of attached context items the message carried, for the routing endpoint's telemetry.
     attached_context_count: int = 0
-
-
-class SandboxCancelResult(BaseModel):
-    """Outcome of cancelling the conversation's current sandbox Run."""
-
-    task_id: str
-    run_id: str
-    run_status: str
-    # True only when a live run was actually signalled to cancel (not an already-terminal no-op),
-    # so the cancel handler emits cancellation telemetry exactly once per real cancel.
-    cancel_requested: bool = False
-
-
-class SandboxCommandError(exceptions.APIException):
-    """A control command could not be delivered to the sandbox agent."""
-
-    status_code = status.HTTP_502_BAD_GATEWAY
-    default_detail = "Failed to deliver the command to the sandbox agent."
-    default_code = "sandbox_command_failed"
 
 
 @contextmanager
@@ -100,13 +79,13 @@ def lock_conversation_for_followup(conversation_id: str, team_id: int) -> Iterat
         yield conversation
 
 
-class MessageRoutingService(BaseSandboxService):
-    """Route a sandbox-runtime conversation message to a products/tasks Run, in-process.
+class SandboxSession(BaseSandboxService):
+    """Resolve a sandbox conversation to a products/tasks `(task, run)` and drive one turn in-process.
 
-    Branches on the conversation's current Run:
-    - No Task yet → first message creates the Task + Run.
-    - Current Run in-progress → signal a follow-up onto the live Run.
-    - Current Run terminal → resume into a brand-new successor Run.
+    The session opener for the sandbox runtime. `open()` either warms (no message), starts the first
+    Run, signals a follow-up onto the live Run, or resumes into a successor after a terminal Run.
+    Control verbs (cancel, permission reply, warm release) are not here — they go through the generic
+    `runs/{run}/command/` relay.
     """
 
     # Entity types whose id must be an integer (vs short_id / UUID strings).
@@ -119,12 +98,14 @@ class MessageRoutingService(BaseSandboxService):
         super().__init__(team=conversation.team, user=user)
         self.conversation = conversation
 
-    def handle(
+    def open(
         self, data: Mapping[str, Any], *, resumed_context: str | None = None, convert_to_acp: bool = False
-    ) -> SandboxRouteResult:
+    ) -> SandboxRouteResult | None:
         content = data.get("content")
         if not isinstance(content, str) or not content.strip():
-            raise exceptions.ValidationError("`content` is required.")
+            # No message — warm intent: boot a Run that idles awaiting the first `user_message`.
+            # Returns the warm handle, or None when the pool is full and nothing was provisioned.
+            return self._warm(trace_id=data.get("trace_id"))
 
         trace_id = data.get("trace_id")
         attached_context = self._validate_attached_context(data.get("attached_context"))
@@ -167,75 +148,30 @@ class MessageRoutingService(BaseSandboxService):
             attached_context=attached_context,
         )
 
-    def cancel(self) -> SandboxCancelResult:
-        """Cancel the conversation's current sandbox Run in-process.
+    def _warm(self, *, trace_id: str | None) -> SandboxRouteResult | None:
+        """Boot a sandbox Run ahead of the first message (the message-less `open`).
 
-        Delegates to the products/tasks command path with `{"method": "cancel"}` —
-        the same control command PostHog Code issues. Returns the resulting
-        `run_status`; the frontend SSE then receives a terminal `task_run_state`.
-        """
-        if self.conversation.task_id is None:
-            raise exceptions.ValidationError("This conversation has no backing task to cancel.")
-
-        run = self.conversation.current_run
-        if run is None:
-            raise exceptions.ValidationError("This conversation has no active run to cancel.")
-
-        if run.is_terminal:
-            # Nothing to cancel — report the already-terminal status idempotently, no telemetry.
-            return SandboxCancelResult(
-                task_id=str(self.conversation.task_id), run_id=str(run.id), run_status=run.status
-            )
-
-        result = send_cancel(run, auth_token=self._connection_token(run))
-        if not result.success:
-            # Agent unreachable (no sandbox URL, blocked URL, connection error, timeout) —
-            # the run is still live, so a 200 here would falsely tell the frontend it's cancelling.
-            raise SandboxCommandError(f"Failed to cancel the run: {result.error}")
-        run.refresh_from_db(fields=["status"])
-
-        return SandboxCancelResult(
-            task_id=str(self.conversation.task_id),
-            run_id=str(run.id),
-            run_status=run.status,
-            cancel_requested=True,
-        )
-
-    def prewarm(self) -> None:
-        """Eagerly provision a sandbox Run while the user is typing.
-
-        Boots the sandbox + ACP session ahead of the first submit so first-token
-        latency drops from a cold boot to roughly model-invocation time. The warm
-        Run carries the standard system prompt but no pending user message and no
-        attached context — it opens the session and idles awaiting a `user_message`
-        command. When the user submits, `handle` finds the Run in-progress and
-        routes through the follow-up branch.
-
-        Ensures the conversation's Task exists under the row lock (so two tabs can't
-        create two Tasks), then hands provisioning to the shared `SandboxWarmer`,
-        which enforces the AI-credit quota and the warm-pool cap, serializes on the
-        Task row, and dispatches the workflow after commit. Idempotent: a non-terminal
-        current Run is a no-op.
+        Ensures the conversation's Task exists under the row lock (so two tabs can't create two
+        Tasks), then hands provisioning to the shared `SandboxWarmer`, which enforces the AI-credit
+        quota + warm-pool cap, serializes on the Task row, and dispatches the workflow after commit.
+        Returns the warm Run's handle so the caller can open SSE / later release it through the relay;
+        returns None when the pool is full and nothing was provisioned (best-effort — the AI-credit
+        quota still surfaces as 402). Idempotent: an existing non-terminal Run is reused, not duplicated.
         """
         # Gate before creating the Task: an over-quota or over-cap warm must not leave the conversation
-        # with a runless Task that the next message can't continue. `SandboxWarmer.warm` re-checks both
-        # (a cheap cached read + a state query) so it stays self-contained for any future caller.
+        # with a runless Task that the next message can't continue. `SandboxWarmer.warm` re-checks both.
         SandboxWarmer.enforce_quota(Task.OriginProduct.POSTHOG_AI, self.team, self.user)
         if SandboxWarmer.at_capacity(Task.OriginProduct.POSTHOG_AI, self.team, self.user):
             logger.info(
-                "sandbox_prewarm_capacity_reached",
+                "sandbox_warm_capacity_reached",
                 conversation_id=str(self.conversation.id),
                 user_id=self.user.pk,
             )
-            return
+            return None
 
         system_prompt = PromptService(self.team, self.user).build()
 
         with lock_conversation_for_followup(str(self.conversation.id), self.team.pk) as locked:
-            current_run = locked.current_run
-            if current_run is not None and current_run.status in self._IN_PROGRESS_STATUSES:
-                # A non-terminal Run already exists (warm or active) — nothing to warm.
-                return
             task = locked.task
             if task is None:
                 task = Task.create_without_run(
@@ -250,51 +186,26 @@ class MessageRoutingService(BaseSandboxService):
                 locked.save(update_fields=["task", "updated_at"])
 
         # Conversation lock released. `SandboxWarmer` provisions under its own Task-row lock and
-        # dispatches the workflow on commit; `systemPrompt` is the one PostHog AI-specific Run-state key
-        # the generic warmer can't know.
+        # dispatches the workflow on commit; it is idempotent (an existing non-terminal Run is returned
+        # as-is). `systemPrompt` is the one PostHog AI-specific Run-state key the generic warmer can't know.
         try:
-            SandboxWarmer(task, user=self.user).warm(extra_state={"systemPrompt": system_prompt})
+            result = SandboxWarmer(task, user=self.user).warm(extra_state={"systemPrompt": system_prompt})
         except exceptions.Throttled:
-            # Warm-pool cap reached. Prewarm is best-effort (fire-and-forget from the composer), so a
-            # full pool is a silent no-op rather than a surfaced 429. The AI-credit quota (402) still
-            # propagates — it is enforced above, before the Task is created.
+            # Warm-pool cap reached between the pre-check and the lock — best-effort no-op (no handle).
             logger.info(
-                "sandbox_prewarm_capacity_reached",
+                "sandbox_warm_capacity_reached",
                 conversation_id=str(self.conversation.id),
                 user_id=self.user.pk,
             )
-
-    def prewarm_release(self) -> None:
-        """Release a warm Run if the user abandons the input.
-
-        Cancels the conversation's current non-terminal Run via the in-process
-        command path, letting it transition to terminal; the conversation can warm
-        again on the next typing session. Idempotent: no warm Run is a no-op.
-        """
-        if self.conversation.task_id is None:
-            return
-
-        run = self.conversation.current_run
-        if run is None or run.is_terminal:
-            return
-
-        if run.status not in self._IN_PROGRESS_STATUSES:
-            return
-
-        send_cancel(run, auth_token=self._connection_token(run))
-
-    def _connection_token(self, run: TaskRun) -> str | None:
-        """Mint the agent-server connection JWT for an in-process control command.
-
-        The sandbox agent-server authenticates `/command` against this RS256 token; the
-        Modal connect token alone is not accepted, and the Docker provider has no connect
-        token at all. Temporal activities mint this per turn — the in-process cancel path
-        must do the same or the agent rejects the command with 401.
-        """
-        if not self.user.id:
             return None
-        distinct_id = self.user.distinct_id or f"user_{self.user.id}"
-        return create_sandbox_connection_token(run, user_id=self.user.id, distinct_id=distinct_id)
+
+        return SandboxRouteResult(
+            task_id=str(task.id),
+            run_id=str(result.run.id),
+            trace_id=trace_id,
+            run_status=result.run.status,
+            just_created_run=result.just_created,
+        )
 
     def _handle_first_message(
         self,

@@ -6656,90 +6656,41 @@ const api = {
         },
 
         /**
-         * Sandbox-runtime message routing endpoint (`agent_runtime === 'sandbox'`). Non-streaming:
-         * wraps + dedupes context, creates/continues the backing products/tasks Run, and returns the
-         * IDs the frontend needs to open SSE directly against the products/tasks stream endpoint.
+         * Single sandbox session opener (`agent_runtime === 'sandbox'`). Create-or-resume: the
+         * conversation row is created on first use from the client-minted id. With `content`,
+         * processes the turn (first message, in-progress follow-up, or terminal resume); with
+         * null/omitted `content`, warms a sandbox that idles awaiting the first message. Returns the
+         * `(task, run)` handle to open SSE against, or `null` on a 204 (a warm that provisioned
+         * nothing — the pool was full). Control verbs (cancel, permission reply, warm release) go
+         * through the generic `runs/{run}/command/` relay, not this endpoint.
          */
-        sandbox(
+        async open(
             conversationId: string,
             data: {
-                content: string
-                trace_id: string
+                content?: string | null
+                trace_id?: string
                 attached_context?: AttachedContext[]
             }
         ): Promise<{
             task_id: string
             run_id: string
-            trace_id: string
+            trace_id: string | null
             run_status: 'queued' | 'in_progress'
             just_created_run: boolean
-        }> {
-            return new ApiRequest().conversation(conversationId).withAction('sandbox').create({ data })
-        },
-
-        /**
-         * First message of a NEW sandbox conversation. The `/sandbox/` routing endpoint requires an
-         * existing conversation row, but a new conversation isn't created until its first message —
-         * so the first turn goes through the conversation-create endpoint with `is_sandbox: true`,
-         * which creates the conversation and routes to `handle_sandbox_message`, returning the same
-         * run IDs (not an SSE stream). Read them directly so the frontend can bootstrap the sandbox
-         * stream. Follow-ups use `sandbox()`.
-         */
-        async sandboxCreate(data: {
-            content: string
-            conversation: string
-            trace_id: string
-            attached_context?: AttachedContext[]
-        }): Promise<{
-            task_id: string
-            run_id: string
-            trace_id: string
-            run_status: 'queued' | 'in_progress'
-            just_created_run: boolean
-        }> {
-            const response = await api.createResponse(new ApiRequest().conversations().assembleFullUrl(), {
-                ...data,
-                is_sandbox: true,
-            })
+        } | null> {
+            const response = await api.createResponse(
+                new ApiRequest().conversation(conversationId).withAction('open').assembleFullUrl(),
+                data
+            )
+            if (response.status === 204) {
+                return null
+            }
             return response.json()
         },
 
+        /** Cancel an in-progress LangGraph run. Sandbox runs cancel through the tasks relay. */
         cancel(conversationId: string): Promise<void> {
             return new ApiRequest().conversation(conversationId).withAction('cancel').update()
-        },
-
-        /**
-         * Eagerly provision a sandbox while the user is typing. Sandbox runtime only; idempotent.
-         * Returns 204 — warms a Run in-process with no pending message so the session boots and
-         * idles awaiting input. Submitting later follows the in-progress branch.
-         */
-        prewarm(conversationId: string): Promise<void> {
-            return new ApiRequest().conversation(conversationId).withAction('prewarm').create()
-        },
-
-        /**
-         * Release / cancel an eager prewarm if the user abandons. Idempotent;
-         * a DELETE on a conversation with no warm Run is a no-op.
-         */
-        prewarmRelease(conversationId: string): Promise<void> {
-            return new ApiRequest().conversation(conversationId).withAction('prewarm').delete()
-        },
-
-        /**
-         * Sandbox-runtime approval reply. Routes in-process to the products/tasks
-         * `permission_response` command path. `customInput` carries the optional
-         * `reject_with_feedback` text.
-         */
-        permission(
-            conversationId: string,
-            data: {
-                requestId: string
-                optionId: string
-                customInput?: string
-                traceId?: string
-            }
-        ): Promise<{ status: string }> {
-            return new ApiRequest().conversation(conversationId).withAction('permission').create({ data })
         },
 
         list(): Promise<PaginatedResponse<Conversation>> {

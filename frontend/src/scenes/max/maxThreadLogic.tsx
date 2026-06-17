@@ -171,7 +171,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             // Surfaces the sandbox stream's input-area state to components outside SandboxThread's
             // BindLogic subtree (the input area renders for LangGraph conversations too, so they
             // can't bind the keyed stream logic themselves).
-            sandboxStreamLogic({ conversationId }),
+            sandboxStreamLogic({ streamKey: conversationId, conversationId }),
             ['pendingPermissionRequest as pendingSandboxPermissionRequest', 'currentMode as sandboxCurrentMode'],
         ],
         actions: [
@@ -193,13 +193,14 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             // conversation's stream logic as a dependency, so its listeners actually run. SandboxThread
             // only mounts it while a sandbox conversation is rendered — too late for the first message
             // of a new one.
-            sandboxStreamLogic({ conversationId }),
+            sandboxStreamLogic({ streamKey: conversationId, conversationId }),
             [
                 'openSseForRun as openSandboxSse',
                 'pushHumanMessage as pushSandboxHumanMessage',
                 'pushErrorItem as pushSandboxError',
                 'bootstrapRun as bootstrapSandboxRun',
                 'reset as resetSandboxStream',
+                'cancelRun as cancelSandboxRun',
             ],
             posthogAiContextLogic({ conversationId }),
             ['clearAttachments as clearSandboxAttachments'],
@@ -684,37 +685,38 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 try {
                     const conversationId = values.conversation?.id || values.conversationId
                     if (conversationId && streamData.content) {
-                        const { task_id, run_id, just_created_run } = isExistingSandboxConversation
-                            ? await api.conversations.sandbox(conversationId, {
-                                  content: streamData.content,
-                                  trace_id: traceId,
-                                  attached_context: values.sandboxAttachments,
-                              })
-                            : await api.conversations.sandboxCreate({
-                                  conversation: conversationId,
-                                  content: streamData.content,
-                                  trace_id: traceId,
-                                  attached_context: values.sandboxAttachments,
-                              })
-                        actions.openSandboxSse({
-                            taskId: task_id,
-                            runId: run_id,
-                            // Fresh runs need everything from the top; follow-ups resume from latest.
-                            startLatest: !just_created_run,
-                            // Correlate SSE-side telemetry with the trace this run was sent under.
-                            traceId,
+                        // Single create-or-resume opener: it creates the conversation row on first use,
+                        // starts/continues the Run, and returns the (task, run) handle. A message always
+                        // provisions a run (a null handle only happens on a warm with a full pool).
+                        const handle = await api.conversations.open(conversationId, {
+                            content: streamData.content,
+                            trace_id: traceId,
+                            attached_context: values.sandboxAttachments,
                         })
-                        // The streaming lock must span the whole SSE stream so the input stays
-                        // guarded until `_posthog/turn_complete` or a terminal/error event —
-                        // mirrors the LangGraph path holding the lock for its entire stream.
-                        // Released exactly once by the sandboxStreamLogic listeners below; the
-                        // closure nulls itself so a second terminal event is a no-op.
-                        cache.sandboxStreamRelease = (): void => {
-                            cache.sandboxStreamRelease = null
-                            actions.decrActiveStreamingThreads()
-                            releaseStreamingLock()
+                        if (handle) {
+                            // The sent message consumes any in-flight warm — it's now the active run, so
+                            // drop the release handle to avoid cancelling the run out from under it.
+                            cache.warmRun = null
+                            actions.openSandboxSse({
+                                taskId: handle.task_id,
+                                runId: handle.run_id,
+                                // Fresh runs need everything from the top; follow-ups resume from latest.
+                                startLatest: !handle.just_created_run,
+                                // Correlate SSE-side telemetry with the trace this run was sent under.
+                                traceId,
+                            })
+                            // The streaming lock must span the whole SSE stream so the input stays
+                            // guarded until `_posthog/turn_complete` or a terminal/error event —
+                            // mirrors the LangGraph path holding the lock for its entire stream.
+                            // Released exactly once by the sandboxStreamLogic listeners below; the
+                            // closure nulls itself so a second terminal event is a no-op.
+                            cache.sandboxStreamRelease = (): void => {
+                                cache.sandboxStreamRelease = null
+                                actions.decrActiveStreamingThreads()
+                                releaseStreamingLock()
+                            }
+                            return
                         }
-                        return
                     }
                 } catch (e) {
                     posthog.captureException(e)
@@ -945,7 +947,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
     // ended — on turn completion, a terminal run status, or a stream error. Its action types are
     // per-instance (the key is in the path), so they're resolved from props at build time.
     listeners(({ props, cache, actions, values }) => {
-        const sandboxStreamActionTypes = sandboxStreamLogic({ conversationId: props.conversationId }).actionTypes
+        const sandboxStreamActionTypes = sandboxStreamLogic({ streamKey: props.conversationId }).actionTypes
         // Normal turn completion: full turn-end, including the sandbox queue-drain that starts the
         // next queued message (completeThreadGeneration's intended next-turn behavior).
         const completeSandboxTurn = (): void => {
@@ -1047,7 +1049,11 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             cache.prewarming = true
             cache.pendingRelease = false
             try {
-                await api.conversations.prewarm(values.conversationId)
+                // Warm = open with no message: boots a Run that idles awaiting the first message. The
+                // returned handle lets a later release cancel exactly that Run via the relay (a full
+                // pool returns null — nothing to release).
+                const warm = await api.conversations.open(values.conversationId, { content: null })
+                cache.warmRun = warm ? { taskId: warm.task_id, runId: warm.run_id } : null
                 cache.prewarmed = true
                 // If the user abandoned the input while this POST was in flight, the blur/empty
                 // release hit the early-exit (nothing was warm yet). Honor it now so the freshly
@@ -1078,10 +1084,12 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             }
             // A warm consumed by a sent message must not be released — only release on abandon.
             cache.prewarmed = false
-            try {
-                await api.conversations.prewarmRelease(values.conversationId)
-            } catch (e) {
-                posthog.captureException(e)
+            const warmRun = cache.warmRun as { taskId: string; runId: string } | undefined
+            cache.warmRun = null
+            if (warmRun) {
+                // Release = cancel the warm Run through the generic relay (owned by the renderer logic);
+                // it transitions to terminal and drops out of the warm-pool count.
+                actions.cancelSandboxRun(warmRun)
             }
         },
         enqueueQueuedMessage: async ({ content, contextualTools, uiContext, billingContext, agentMode }) => {
@@ -1220,6 +1228,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             cache.disposables.dispose('prewarm-debounce')
             cache.disposables.dispose('prewarm-release')
             cache.prewarmed = false
+            cache.warmRun = null
             // A sent message consumes the warm — drop any in-flight release intent so the
             // run the message follows up on isn't cancelled out from under it.
             cache.pendingRelease = false
@@ -1350,7 +1359,12 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             }
 
             try {
-                await api.conversations.cancel(values.conversation.id)
+                if (values.conversation.agent_runtime === 'sandbox') {
+                    // Sandbox runs cancel through the generic tasks relay (the renderer owns the run id).
+                    actions.cancelSandboxRun()
+                } else {
+                    await api.conversations.cancel(values.conversation.id)
+                }
                 cache.generationController?.abort()
                 actions.clearQueuedMessages()
                 actions.resetThread()

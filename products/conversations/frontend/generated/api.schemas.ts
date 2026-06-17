@@ -482,49 +482,6 @@ export interface PatchedConversationApi {
 }
 
 /**
- * Response for `PATCH /conversations/{id}/cancel/` on a sandbox-runtime conversation.
- */
-export interface SandboxCancelResponseApi {
-    /** The products/tasks Task backing the conversation. */
-    task_id: string
-    /** The Run that was targeted for cancellation. */
-    run_id: string
-    /** Status of the Run after the cancel command was issued. */
-    run_status: string
-}
-
-/**
- * Approval reply for a sandbox-runtime `permission_request`.
- */
-export interface PermissionResponseApi {
-    /**
-     * The ACP permission request id the user is responding to.
-     * @maxLength 200
-     */
-    requestId: string
-    /**
-     * The selected option id (e.g. 'allow_once', 'reject', 'reject_with_feedback').
-     * @maxLength 100
-     */
-    optionId: string
-    /**
-     * Optional feedback text sent with a 'reject_with_feedback' decision.
-     * @maxLength 10000
-     */
-    customInput?: string
-    /** Trace id the client associated with the run, for PERMISSION_RESPONDED telemetry correlation. */
-    traceId?: string
-}
-
-/**
- * Result of forwarding a permission response to the sandbox agent.
- */
-export interface PermissionResponseResultApi {
-    /** 'ok' once the response was forwarded to the sandbox. */
-    status: string
-}
-
-/**
  * * `action` - action
  * * `dashboard` - dashboard
  * * `error_tracking_issue` - error_tracking_issue
@@ -572,14 +529,16 @@ export interface SandboxAttachedContextItemApi {
 }
 
 /**
- * Request body for the non-streaming `POST /conversations/{id}/sandbox/` route.
+ * Request body for `POST /conversations/{id}/open/`. A string `content` processes a turn; a
+ * null/absent `content` warms a sandbox that idles awaiting the first message.
  */
-export interface SandboxMessageApi {
+export interface SandboxOpenApi {
     /**
-     * The user's message text.
+     * The user's message text. Omit or null to warm a sandbox (boot + idle) ahead of the first message.
      * @maxLength 40000
+     * @nullable
      */
-    content: string
+    content?: string | null
     /** Client-generated trace id correlated with the resulting Run's SSE stream. */
     trace_id?: string
     /** Typed PostHog entities (and free text) attached to this message. */
@@ -587,7 +546,7 @@ export interface SandboxMessageApi {
 }
 
 /**
- * Response for `POST /conversations/{id}/sandbox/` — the IDs the frontend opens SSE against.
+ * Response for `POST /conversations/{id}/open/` — the IDs the frontend opens SSE against.
  */
 export interface SandboxMessageResponseApi {
     /** The products/tasks Task backing the conversation. */
@@ -601,7 +560,7 @@ export interface SandboxMessageResponseApi {
     trace_id: string | null
     /** Current status of the targeted Run (e.g. `queued`, `in_progress`). */
     run_status: string
-    /** True when a new Run was created (first message or terminal resume); false for an in-progress follow-up. */
+    /** True when a new Run was created (first message, terminal resume, or fresh warm); false for an in-progress follow-up or a reused warm Run. */
     just_created_run: boolean
 }
 

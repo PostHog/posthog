@@ -67,55 +67,24 @@ export const ConversationsAppendMessageCreateBody = /* @__PURE__ */ zod
     .describe('Serializer for appending a message to an existing conversation without triggering AI processing.')
 
 /**
- * Cancel the conversation's in-progress run (sandbox or LangGraph).
+ * Cancel the conversation's in-progress LangGraph run.
  */
 export const ConversationsCancelPartialUpdateBody = /* @__PURE__ */ zod.looseObject({})
 
 /**
- * Forward a sandbox-runtime approval reply to the backing products/tasks run.
+ * Create-or-resume a sandbox conversation — the single sandbox session opener. With `content`, processes the turn (first message, in-progress follow-up, or terminal resume); without `content`, warms a sandbox that idles awaiting the first message. Returns the `(task, run)` handle the frontend opens SSE against. The conversation row is created on first use from the URL id.
  */
-export const conversationsPermissionCreateBodyRequestIdMax = 200
+export const conversationsOpenCreateBodyContentMax = 40000
 
-export const conversationsPermissionCreateBodyOptionIdMax = 100
-
-export const conversationsPermissionCreateBodyCustomInputMax = 10000
-
-export const ConversationsPermissionCreateBody = /* @__PURE__ */ zod
+export const ConversationsOpenCreateBody = /* @__PURE__ */ zod
     .object({
-        requestId: zod
+        content: zod
             .string()
-            .max(conversationsPermissionCreateBodyRequestIdMax)
-            .describe('The ACP permission request id the user is responding to.'),
-        optionId: zod
-            .string()
-            .max(conversationsPermissionCreateBodyOptionIdMax)
-            .describe("The selected option id (e.g. 'allow_once', 'reject', 'reject_with_feedback')."),
-        customInput: zod
-            .string()
-            .max(conversationsPermissionCreateBodyCustomInputMax)
-            .optional()
-            .describe("Optional feedback text sent with a 'reject_with_feedback' decision."),
-        traceId: zod
-            .uuid()
-            .optional()
-            .describe('Trace id the client associated with the run, for PERMISSION_RESPONDED telemetry correlation.'),
-    })
-    .describe('Approval reply for a sandbox-runtime `permission_request`.')
-
-export const ConversationsQueueCreateBody = /* @__PURE__ */ zod.looseObject({})
-
-export const ConversationsQueuePartialUpdateBody = /* @__PURE__ */ zod.looseObject({})
-
-export const ConversationsQueueClearCreateBody = /* @__PURE__ */ zod.looseObject({})
-
-/**
- * Non-streaming routing endpoint for sandbox-runtime conversations. Wraps + dedupes the message, then starts a Run / signals a follow-up / resumes via in-process products/tasks calls and returns the IDs the frontend opens SSE against. Sandbox runtime only — LangGraph conversations stream via the unchanged `/stream/` path.
- */
-export const conversationsSandboxCreateBodyContentMax = 40000
-
-export const ConversationsSandboxCreateBody = /* @__PURE__ */ zod
-    .object({
-        content: zod.string().max(conversationsSandboxCreateBodyContentMax).describe("The user's message text."),
+            .max(conversationsOpenCreateBodyContentMax)
+            .nullish()
+            .describe(
+                "The user's message text. Omit or null to warm a sandbox (boot + idle) ahead of the first message."
+            ),
         trace_id: zod
             .uuid()
             .optional()
@@ -158,7 +127,15 @@ export const ConversationsSandboxCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe('Typed PostHog entities (and free text) attached to this message.'),
     })
-    .describe('Request body for the non-streaming `POST \/conversations\/{id}\/sandbox\/` route.')
+    .describe(
+        'Request body for `POST \/conversations\/{id}\/open\/`. A string `content` processes a turn; a\nnull\/absent `content` warms a sandbox that idles awaiting the first message.'
+    )
+
+export const ConversationsQueueCreateBody = /* @__PURE__ */ zod.looseObject({})
+
+export const ConversationsQueuePartialUpdateBody = /* @__PURE__ */ zod.looseObject({})
+
+export const ConversationsQueueClearCreateBody = /* @__PURE__ */ zod.looseObject({})
 
 export const ConversationsTicketsCreateBody = /* @__PURE__ */ zod
     .object({

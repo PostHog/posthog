@@ -466,7 +466,7 @@ export function InputFormArea(): JSX.Element | null {
         return (
             <SandboxPermissionInput
                 key={pendingSandboxPermissionRequest.requestId}
-                conversationId={conversationId}
+                streamKey={conversationId}
                 request={pendingSandboxPermissionRequest}
             />
         )

@@ -23,7 +23,7 @@ jest.mock('../maxThreadLogic', () => ({
 }))
 
 jest.mock('../sandboxStreamLogic', () => ({
-    // Keyed logic — the component binds it with `sandboxStreamLogic({ conversationId })`.
+    // Keyed logic — the component binds it with `sandboxStreamLogic({ streamKey })`.
     sandboxStreamLogic: jest.fn(() => ({ __mock: 'sandboxStreamLogicInstance' })),
 }))
 
@@ -73,7 +73,7 @@ describe('Sandbox approval input area', () => {
 
     describe('SandboxPermissionInput', () => {
         it('renders one button per non-feedback option plus the feedback toggle', () => {
-            render(<SandboxPermissionInput conversationId="conv-1" request={makeRequest()} />)
+            render(<SandboxPermissionInput streamKey="conv-1" request={makeRequest()} />)
 
             expect(screen.getByText('Approval required')).toBeInTheDocument()
             expect(screen.getByText('Approve')).toBeInTheDocument()
@@ -83,12 +83,11 @@ describe('Sandbox approval input area', () => {
         })
 
         it('posts the chosen optionId on click', () => {
-            render(<SandboxPermissionInput conversationId="conv-1" request={makeRequest()} />)
+            render(<SandboxPermissionInput streamKey="conv-1" request={makeRequest()} />)
 
             fireEvent.click(screen.getByText('Approve'))
 
             expect(respondToPermission).toHaveBeenCalledWith({
-                conversationId: 'conv-1',
                 requestId: 'req-1',
                 optionId: 'opt-allow',
             })
@@ -98,7 +97,7 @@ describe('Sandbox approval input area', () => {
             // The logic's respondingToPermission flag drives the loading state — it flips
             // synchronously on dispatch and resets on success and on failure alike.
             ;(useValues as jest.Mock).mockReturnValue({ respondingToPermission: true })
-            render(<SandboxPermissionInput conversationId="conv-1" request={makeRequest()} />)
+            render(<SandboxPermissionInput streamKey="conv-1" request={makeRequest()} />)
 
             // Loading message replaces the option list, so nothing can be clicked.
             expect(screen.getByText('Sending response...')).toBeInTheDocument()
@@ -108,7 +107,7 @@ describe('Sandbox approval input area', () => {
         })
 
         it('sends feedback text through the reject_with_feedback option', () => {
-            render(<SandboxPermissionInput conversationId="conv-1" request={makeRequest()} />)
+            render(<SandboxPermissionInput streamKey="conv-1" request={makeRequest()} />)
 
             // Open the feedback text field via the feedback-only decline toggle.
             fireEvent.click(screen.getByText('Decline with feedback'))
@@ -117,7 +116,6 @@ describe('Sandbox approval input area', () => {
             fireEvent.click(screen.getByRole('button', { name: 'Send' }))
 
             expect(respondToPermission).toHaveBeenCalledWith({
-                conversationId: 'conv-1',
                 requestId: 'req-1',
                 optionId: 'opt-feedback',
                 customInput: 'Use a funnel instead',
@@ -131,13 +129,12 @@ describe('Sandbox approval input area', () => {
                     { optionId: 'opt-reject', name: 'No', kind: 'reject_once', customInput: true },
                 ],
             })
-            render(<SandboxPermissionInput conversationId="conv-1" request={request} />)
+            render(<SandboxPermissionInput streamKey="conv-1" request={request} />)
 
             // No optional-feedback affordance — the decline is a plain one-click button.
             expect(screen.queryByText('Add feedback…')).not.toBeInTheDocument()
             fireEvent.click(screen.getByText('No'))
             expect(respondToPermission).toHaveBeenCalledWith({
-                conversationId: 'conv-1',
                 requestId: 'req-1',
                 optionId: 'opt-reject',
             })
@@ -158,7 +155,7 @@ describe('Sandbox approval input area', () => {
             ],
         ])('shows plan copy when %s', (_case, arrange, request) => {
             arrange()
-            render(<SandboxPermissionInput conversationId="conv-1" request={request} />)
+            render(<SandboxPermissionInput streamKey="conv-1" request={request} />)
 
             expect(screen.getByText('Approve this plan?')).toBeInTheDocument()
         })
@@ -166,7 +163,7 @@ describe('Sandbox approval input area', () => {
         it('does not show plan copy just because the title mentions a plan', () => {
             render(
                 <SandboxPermissionInput
-                    conversationId="conv-1"
+                    streamKey="conv-1"
                     request={makeRequest({ title: 'Create a data retention plan' })}
                 />
             )
@@ -177,7 +174,7 @@ describe('Sandbox approval input area', () => {
         it('falls back to showing every option when filtering would leave none', () => {
             render(
                 <SandboxPermissionInput
-                    conversationId="conv-1"
+                    streamKey="conv-1"
                     request={makeRequest({
                         options: [{ optionId: 'opt-always', name: '', kind: 'allow_always' }],
                     })}

@@ -3,33 +3,24 @@ from contextlib import contextmanager
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from django.test import override_settings
-
 from rest_framework import exceptions
 
 from posthog.exceptions import Conflict, QuotaLimitExceeded
 
 from products.posthog_ai.backend.context_wrapper import MAX_ATTACHED_ITEMS, MAX_TEXT_LENGTH
-from products.posthog_ai.backend.message_routing import (
-    MessageRoutingService,
-    SandboxCommandError,
-    lock_conversation_for_followup,
-)
+from products.posthog_ai.backend.message_routing import SandboxSession, lock_conversation_for_followup
 from products.posthog_ai.backend.models.assistant import Conversation
 from products.posthog_ai.backend.run_state import PostHogAIRunState
 from products.posthog_ai.backend.system_prompt import PromptService
 from products.tasks.backend.models import Task, TaskRun
-from products.tasks.backend.services.agent_command import CommandResult
-from products.tasks.backend.services.connection_token import reset_sandbox_jwt_key_cache
 from products.tasks.backend.services.warm import SandboxWarmer
-from products.tasks.backend.tests.test_api import TEST_RSA_PRIVATE_KEY
 
 ROUTING = "products.posthog_ai.backend.message_routing"
 WARM = "products.tasks.backend.services.warm"
 _CAPS = SandboxWarmer.ORIGIN_PRODUCT_CAPS[Task.OriginProduct.POSTHOG_AI]
 
 
-class TestHandleSandboxMessage(APIBaseTest):
+class TestOpenSandboxMessage(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.conversation = Conversation.objects.create(
@@ -38,8 +29,8 @@ class TestHandleSandboxMessage(APIBaseTest):
             agent_runtime=Conversation.AgentRuntime.SANDBOX,
         )
 
-    def _service(self) -> MessageRoutingService:
-        return MessageRoutingService(self.conversation, self.user)
+    def _service(self) -> SandboxSession:
+        return SandboxSession(self.conversation, self.user)
 
     def _stub_task(self) -> tuple[Task, TaskRun]:
         task = Task.objects.create(
@@ -63,7 +54,7 @@ class TestHandleSandboxMessage(APIBaseTest):
         task, run = self._stub_task()
         car, workflow, sysprompt = self._patches(task)
         with car as m_car, workflow as m_workflow, sysprompt:
-            result = self._service().handle(
+            result = self._service().open(
                 {
                     "content": "Why did checkout drop?",
                     "trace_id": "trace-1",
@@ -71,6 +62,7 @@ class TestHandleSandboxMessage(APIBaseTest):
                 }
             )
 
+        assert result is not None
         assert result.task_id == str(task.id)
         assert result.run_id == str(run.id)
         assert result.just_created_run is True
@@ -105,32 +97,28 @@ class TestHandleSandboxMessage(APIBaseTest):
         task, run = self._stub_task()
         car, workflow, sysprompt = self._patches(task)
         with car, workflow, sysprompt:
-            self._service().handle({"content": "Hello", "trace_id": "t"})
+            self._service().open({"content": "Hello", "trace_id": "t"})
 
         run.refresh_from_db()
         assert run.state["pending_user_message"] == "Hello"
         assert run.state["attached_context"] == []
 
-    def test_missing_content_raises(self):
-        with self.assertRaises(exceptions.ValidationError):
-            self._service().handle({"trace_id": "t"})
-
     def test_unknown_attached_context_type_raises(self):
         with self.assertRaises(exceptions.ValidationError):
-            self._service().handle({"content": "x", "attached_context": [{"type": "bogus", "id": 1}]})
+            self._service().open({"content": "x", "attached_context": [{"type": "bogus", "id": 1}]})
 
     def test_dashboard_id_must_be_integer(self):
         with self.assertRaises(exceptions.ValidationError):
-            self._service().handle({"content": "x", "attached_context": [{"type": "dashboard", "id": "abc"}]})
+            self._service().open({"content": "x", "attached_context": [{"type": "dashboard", "id": "abc"}]})
 
     def test_attached_context_item_cap(self):
         items = [{"type": "insight", "id": str(i)} for i in range(MAX_ATTACHED_ITEMS + 1)]
         with self.assertRaises(exceptions.ValidationError):
-            self._service().handle({"content": "x", "attached_context": items})
+            self._service().open({"content": "x", "attached_context": items})
 
     def test_text_length_cap(self):
         with self.assertRaises(exceptions.ValidationError):
-            self._service().handle(
+            self._service().open(
                 {"content": "x", "attached_context": [{"type": "text", "value": "a" * (MAX_TEXT_LENGTH + 1)}]}
             )
 
@@ -148,7 +136,7 @@ class TestHandleSandboxMessage(APIBaseTest):
             patch(f"{ROUTING}.signal_task_followup_message") as m_signal,
             patch.object(TaskRun, "append_log") as m_append,
         ):
-            result = self._service().handle(
+            result = self._service().open(
                 {
                     "content": "and the mobile funnel?",
                     "trace_id": "trace-2",
@@ -156,6 +144,7 @@ class TestHandleSandboxMessage(APIBaseTest):
                 }
             )
 
+        assert result is not None
         assert result.task_id == str(task.id)
         assert result.run_id == str(run.id)
         assert result.just_created_run is False
@@ -189,7 +178,7 @@ class TestHandleSandboxMessage(APIBaseTest):
             patch(f"{ROUTING}.signal_task_followup_message"),
             patch.object(TaskRun, "append_log"),
         ):
-            self._service().handle({"content": "go", "attached_context": []})
+            self._service().open({"content": "go", "attached_context": []})
 
         run.refresh_from_db()
         assert "await_user_message" not in run.state
@@ -205,7 +194,7 @@ class TestHandleSandboxMessage(APIBaseTest):
             patch.object(TaskRun, "append_log") as m_append,
         ):
             with self.assertRaises(Conflict):
-                self._service().handle({"content": "follow up", "attached_context": []})
+                self._service().open({"content": "follow up", "attached_context": []})
 
         # The signal never reached the agent, so the turn is not logged — a retry stays clean
         # instead of leaving a duplicated user_message behind.
@@ -221,9 +210,10 @@ class TestHandleSandboxMessage(APIBaseTest):
             patch(f"{ROUTING}.signal_task_followup_message") as m_signal,
             patch.object(TaskRun, "append_log", side_effect=RuntimeError("storage down")),
         ):
-            result = self._service().handle({"content": "follow up", "attached_context": []})
+            result = self._service().open({"content": "follow up", "attached_context": []})
 
         # The agent already has the message; a log-append failure must not fail the request.
+        assert result is not None
         m_signal.assert_called_once()
         assert result.run_id == str(run.id)
 
@@ -238,8 +228,9 @@ class TestHandleSandboxMessage(APIBaseTest):
             patch(f"{ROUTING}.execute_task_processing_workflow") as m_workflow,
             patch.object(PromptService, "build", return_value="SYS"),
         ):
-            result = self._service().handle({"content": "resume please", "trace_id": "trace-3"})
+            result = self._service().open({"content": "resume please", "trace_id": "trace-3"})
 
+        assert result is not None
         assert result.task_id == str(task.id)
         assert result.just_created_run is True
 
@@ -270,7 +261,7 @@ class TestHandleSandboxMessage(APIBaseTest):
             patch.object(PromptService, "build", return_value="SYS"),
             patch(f"{ROUTING}.object_storage.read", return_value=""),
         ):
-            self._service().handle(
+            self._service().open(
                 {
                     "content": "again",
                     "attached_context": [{"type": "dashboard", "id": 7}, {"type": "insight", "id": "new"}],
@@ -299,7 +290,7 @@ class TestHandleSandboxMessage(APIBaseTest):
         )
         self._attach_task(task)
         with self.assertRaises(exceptions.ValidationError):
-            self._service().handle({"content": "x"})
+            self._service().open({"content": "x"})
 
     def test_terminal_resume_conflicts_when_a_concurrent_followup_won(self):
         task, run = self._stub_task()
@@ -321,7 +312,7 @@ class TestHandleSandboxMessage(APIBaseTest):
             patch.object(PromptService, "build", return_value="SYS"),
         ):
             with self.assertRaises(Conflict):
-                self._service().handle({"content": "resume please"})
+                self._service().open({"content": "resume please"})
 
         # The winner's successor is the only new run — no duplicate create, no workflow dispatch.
         assert task.runs.count() == 2
@@ -348,88 +339,13 @@ class TestHandleSandboxMessage(APIBaseTest):
             patch(f"{ROUTING}.execute_task_processing_workflow"),
             patch.object(PromptService, "build", return_value="SYS"),
         ):
-            result = self._service().handle({"content": "resume please"})
+            result = self._service().open({"content": "resume please"})
 
+        assert result is not None
         new_run = task.runs.order_by("-created_at").first()
         assert new_run is not None
         assert str(new_run.id) == result.run_id
         assert new_run.state["resume_from_run_id"] != str(run.id)
-
-
-# cancel() mints a real connection JWT, so a signing key must be configured; the downstream
-# send_cancel HTTP call is mocked, so any valid key works.
-@override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
-class TestHandleSandboxCancel(APIBaseTest):
-    def setUp(self):
-        super().setUp()
-        reset_sandbox_jwt_key_cache()
-        self.conversation = Conversation.objects.create(
-            user=self.user,
-            team=self.team,
-            agent_runtime=Conversation.AgentRuntime.SANDBOX,
-        )
-
-    def tearDown(self):
-        reset_sandbox_jwt_key_cache()
-        super().tearDown()
-
-    def _service(self) -> MessageRoutingService:
-        return MessageRoutingService(self.conversation, self.user)
-
-    def _task_with_run(self, status: str) -> tuple[Task, TaskRun]:
-        task = Task.objects.create(
-            team=self.team,
-            title="t",
-            description="d",
-            origin_product=Task.OriginProduct.POSTHOG_AI,
-            created_by=self.user,
-        )
-        run = task.create_run(mode="interactive")
-        run.status = status
-        run.save(update_fields=["status"])
-        self.conversation.task = task
-        self.conversation.save(update_fields=["task"])
-        return task, run
-
-    def test_cancel_delegates_to_command_path(self):
-        task, run = self._task_with_run(TaskRun.Status.IN_PROGRESS)
-
-        with patch(f"{ROUTING}.send_cancel", return_value=CommandResult(success=True, status_code=200)) as m_cancel:
-            result = self._service().cancel()
-
-        # The command is delivered; the run stays live until the agent acts on it,
-        # so the response reports the current (not yet terminal) status.
-        assert result.task_id == str(task.id)
-        assert result.run_id == str(run.id)
-        assert result.run_status == TaskRun.Status.IN_PROGRESS
-        # A live run was actually signalled — the routing endpoint emits cancellation telemetry.
-        assert result.cancel_requested is True
-        m_cancel.assert_called_once()
-
-    def test_cancel_delivery_failure_raises_502(self):
-        self._task_with_run(TaskRun.Status.IN_PROGRESS)
-
-        with patch(
-            f"{ROUTING}.send_cancel",
-            return_value=CommandResult(success=False, status_code=0, error="connection refused"),
-        ):
-            with self.assertRaises(SandboxCommandError) as ctx:
-                self._service().cancel()
-
-        assert ctx.exception.status_code == 502
-
-    def test_cancel_terminal_run_is_idempotent(self):
-        task, run = self._task_with_run(TaskRun.Status.COMPLETED)
-        with patch(f"{ROUTING}.send_cancel") as m_cancel:
-            result = self._service().cancel()
-        assert result.run_status == TaskRun.Status.COMPLETED
-        # Nothing was cancelled, so no cancellation telemetry should fire.
-        assert result.cancel_requested is False
-        m_cancel.assert_not_called()
-
-    def test_cancel_without_task_raises(self):
-        with self.assertRaises(exceptions.ValidationError):
-            self._service().cancel()
 
 
 class TestLockConversationForFollowup(APIBaseTest):
@@ -453,25 +369,19 @@ class TestLockConversationForFollowup(APIBaseTest):
             self.assertEqual(locked.id, conversation.id)
 
 
-# prewarm_release() mints a real connection JWT, so a signing key must be configured; the
-# downstream send_cancel HTTP call is mocked, so any valid key works.
-@override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
-class TestSandboxPrewarm(APIBaseTest):
+class TestSandboxWarmViaOpen(APIBaseTest):
+    """Warming via the message-less `open({})` — boot a Run that idles awaiting the first message."""
+
     def setUp(self):
         super().setUp()
-        reset_sandbox_jwt_key_cache()
         self.conversation = Conversation.objects.create(
             user=self.user,
             team=self.team,
             agent_runtime=Conversation.AgentRuntime.SANDBOX,
         )
 
-    def tearDown(self):
-        reset_sandbox_jwt_key_cache()
-        super().tearDown()
-
-    def _service(self) -> MessageRoutingService:
-        return MessageRoutingService(self.conversation, self.user)
+    def _service(self) -> SandboxSession:
+        return SandboxSession(self.conversation, self.user)
 
     def _stub_task(self) -> tuple[Task, TaskRun]:
         task = Task.objects.create(
@@ -484,21 +394,24 @@ class TestSandboxPrewarm(APIBaseTest):
         run = task.create_run(mode="interactive")
         return task, run
 
-    def test_prewarm_first_creates_warm_run_without_pending_message(self):
+    def test_warm_first_creates_warm_run_without_pending_message(self):
         with (
             patch(f"{WARM}.execute_task_processing_workflow") as m_workflow,
             patch(f"{WARM}.is_team_limited", return_value=False),
             patch.object(PromptService, "build", return_value="SYS"),
             self.captureOnCommitCallbacks(execute=True),
         ):
-            self._service().prewarm()
+            result = self._service().open({})
 
+        assert result is not None
         self.conversation.refresh_from_db()
         assert self.conversation.task_id is not None
         task = self.conversation.task
         assert task.origin_product == Task.OriginProduct.POSTHOG_AI
         run = task.latest_run
         assert run is not None
+        assert str(run.id) == result.run_id
+        assert result.just_created_run is True
         assert run.state["systemPrompt"] == "SYS"
         assert run.state["await_user_message"] is True
         assert run.state["initial_permission_mode"] == "default"
@@ -507,7 +420,7 @@ class TestSandboxPrewarm(APIBaseTest):
         assert "attached_context" not in run.state
         m_workflow.assert_called_once()
 
-    def test_prewarm_is_noop_when_run_already_in_progress(self):
+    def test_warm_is_idempotent_when_run_already_in_progress(self):
         task, run = self._stub_task()
         run.status = TaskRun.Status.IN_PROGRESS
         run.save(update_fields=["status"])
@@ -520,12 +433,16 @@ class TestSandboxPrewarm(APIBaseTest):
             patch.object(PromptService, "build", return_value="SYS"),
             self.captureOnCommitCallbacks(execute=True),
         ):
-            self._service().prewarm()
+            result = self._service().open({})
 
+        # The existing non-terminal Run is reused, not duplicated.
+        assert result is not None
+        assert result.run_id == str(run.id)
+        assert result.just_created_run is False
         m_workflow.assert_not_called()
         assert task.runs.count() == 1
 
-    def test_prewarm_rewarms_after_terminal_run(self):
+    def test_warm_rewarms_after_terminal_run(self):
         task, run = self._stub_task()
         run.status = TaskRun.Status.COMPLETED
         run.save(update_fields=["status"])
@@ -538,55 +455,29 @@ class TestSandboxPrewarm(APIBaseTest):
             patch.object(PromptService, "build", return_value="SYS"),
             self.captureOnCommitCallbacks(execute=True),
         ):
-            self._service().prewarm()
+            result = self._service().open({})
 
+        assert result is not None
         new_run = task.latest_run
         assert new_run is not None
+        assert str(new_run.id) == result.run_id
         assert new_run.id != run.id
         assert new_run.state["await_user_message"] is True
         assert new_run.state["systemPrompt"] == "SYS"
         assert new_run.state["resume_from_run_id"] == str(run.id)
         m_workflow.assert_called_once()
 
-    def test_prewarm_over_quota_raises_and_creates_no_task(self):
+    def test_warm_over_quota_raises_and_creates_no_task(self):
         # The AI-credit gate now lives in SandboxWarmer; an over-quota warm must not leave a runless Task.
         with (
             patch(f"{WARM}.is_team_limited", return_value=True),
             patch.object(PromptService, "build", return_value="SYS"),
             self.assertRaises(QuotaLimitExceeded),
         ):
-            self._service().prewarm()
+            self._service().open({})
 
         self.conversation.refresh_from_db()
         assert self.conversation.task_id is None
-
-    def test_release_cancels_warm_run(self):
-        task, run = self._stub_task()
-        run.status = TaskRun.Status.IN_PROGRESS
-        run.save(update_fields=["status"])
-        self.conversation.task = task
-        self.conversation.save(update_fields=["task"])
-
-        with patch(f"{ROUTING}.send_cancel") as m_cancel:
-            self._service().prewarm_release()
-
-        m_cancel.assert_called_once()
-
-    def test_release_without_task_is_noop(self):
-        with patch(f"{ROUTING}.send_cancel") as m_cancel:
-            self._service().prewarm_release()
-        m_cancel.assert_not_called()
-
-    def test_release_terminal_run_is_noop(self):
-        task, run = self._stub_task()
-        run.status = TaskRun.Status.COMPLETED
-        run.save(update_fields=["status"])
-        self.conversation.task = task
-        self.conversation.save(update_fields=["task"])
-
-        with patch(f"{ROUTING}.send_cancel") as m_cancel:
-            self._service().prewarm_release()
-        m_cancel.assert_not_called()
 
     def _warm_run(self, *, created_by=None) -> TaskRun:
         """A non-terminal warm Run (awaiting its first message) that counts toward the warm-pool cap."""
@@ -599,7 +490,7 @@ class TestSandboxPrewarm(APIBaseTest):
         )
         return task.create_run(mode="interactive", extra_state={"await_user_message": True})  # QUEUED
 
-    def test_prewarm_skips_when_user_at_capacity(self):
+    def test_warm_skips_when_user_at_capacity(self):
         for _ in range(_CAPS.per_user):
             self._warm_run()
 
@@ -609,14 +500,16 @@ class TestSandboxPrewarm(APIBaseTest):
             patch.object(PromptService, "build", return_value="SYS"),
             self.captureOnCommitCallbacks(execute=True),
         ):
-            self._service().prewarm()
+            result = self._service().open({})
 
+        # Pool full and nothing provisioned — the warm handle is None.
+        assert result is None
         m_workflow.assert_not_called()
         # The cap is pre-checked before Task creation, so a brand-new conversation gets no runless Task.
         self.conversation.refresh_from_db()
         assert self.conversation.task_id is None
 
-    def test_prewarm_skips_when_org_at_capacity(self):
+    def test_warm_skips_when_org_at_capacity(self):
         other = self._create_user("warmer@posthog.com")
         # Stay under the per-user cap (a different creator) but fill the org cap.
         for _ in range(_CAPS.per_org):
@@ -628,11 +521,12 @@ class TestSandboxPrewarm(APIBaseTest):
             patch.object(PromptService, "build", return_value="SYS"),
             self.captureOnCommitCallbacks(execute=True),
         ):
-            self._service().prewarm()
+            result = self._service().open({})
 
+        assert result is None
         m_workflow.assert_not_called()
 
-    def test_prewarm_ignores_terminal_runs_for_capacity(self):
+    def test_warm_ignores_terminal_runs_for_capacity(self):
         # Terminal runs don't hold a sandbox, so they must not count toward the cap.
         for _ in range(_CAPS.per_user + 1):
             run = self._warm_run()
@@ -645,13 +539,14 @@ class TestSandboxPrewarm(APIBaseTest):
             patch.object(PromptService, "build", return_value="SYS"),
             self.captureOnCommitCallbacks(execute=True),
         ):
-            self._service().prewarm()
+            result = self._service().open({})
 
+        assert result is not None
         m_workflow.assert_called_once()
         self.conversation.refresh_from_db()
         assert self.conversation.task_id is not None
 
-    def test_prewarm_ignores_activated_runs_for_capacity(self):
+    def test_warm_ignores_activated_runs_for_capacity(self):
         # Activated Runs (await_user_message cleared) are active, not warm, so they don't count toward
         # the warm cap — the warm and AI-credit budgets are disjoint.
         for _ in range(_CAPS.per_user + 1):
@@ -664,11 +559,12 @@ class TestSandboxPrewarm(APIBaseTest):
             patch.object(PromptService, "build", return_value="SYS"),
             self.captureOnCommitCallbacks(execute=True),
         ):
-            self._service().prewarm()
+            result = self._service().open({})
 
+        assert result is not None
         m_workflow.assert_called_once()
 
-    def test_prewarm_first_serializes_on_conversation_lock(self):
+    def test_warm_first_serializes_on_conversation_lock(self):
         # The first warm runs under the conversation row lock, so a second concurrent warm can't
         # create a duplicate Task on a task-less conversation.
         with (
@@ -678,7 +574,7 @@ class TestSandboxPrewarm(APIBaseTest):
             patch(f"{ROUTING}.lock_conversation_for_followup", wraps=lock_conversation_for_followup) as m_lock,
             self.captureOnCommitCallbacks(execute=True),
         ):
-            self._service().prewarm()
+            self._service().open({})
 
         m_lock.assert_called_once_with(str(self.conversation.id), self.team.pk)
 
@@ -713,9 +609,9 @@ class TestSandboxFirstMessageConversion(APIBaseTest):
     def _block(self) -> str:
         return "<posthog_context>This session was resumed from the legacy implementation.\nUser: hi</posthog_context>"
 
-    def _handle(self, *, resumed_context=None, convert_to_acp=False, content="continue here"):
+    def _open(self, *, resumed_context=None, convert_to_acp=False, content="continue here"):
         with patch(f"{ROUTING}.execute_task_processing_workflow") as m_workflow:
-            result = MessageRoutingService(self.conversation, self.user).handle(
+            result = SandboxSession(self.conversation, self.user).open(
                 {"content": content, "trace_id": "t"},
                 resumed_context=resumed_context,
                 convert_to_acp=convert_to_acp,
@@ -723,7 +619,7 @@ class TestSandboxFirstMessageConversion(APIBaseTest):
         return result, m_workflow
 
     def test_first_message_conversion_flips_runtime_and_links_task(self):
-        result, m_workflow = self._handle(resumed_context=self._block(), convert_to_acp=True)
+        result, m_workflow = self._open(resumed_context=self._block(), convert_to_acp=True)
 
         self.conversation.refresh_from_db()
         assert self.conversation.agent_runtime == Conversation.AgentRuntime.SANDBOX
@@ -734,16 +630,17 @@ class TestSandboxFirstMessageConversion(APIBaseTest):
         # The live first run, not a synthetic terminal one.
         assert task.runs.count() == 1
         assert task.runs.first().status != TaskRun.Status.COMPLETED
+        assert result is not None
         assert result.just_created_run is True
         m_workflow.assert_called_once()
 
     def test_first_message_conversion_does_not_seed_s3_log(self):
         with patch.object(TaskRun, "append_log") as m_append:
-            self._handle(resumed_context=self._block(), convert_to_acp=True)
+            self._open(resumed_context=self._block(), convert_to_acp=True)
         m_append.assert_not_called()
 
     def test_first_message_conversion_prepends_window_context(self):
-        self._handle(resumed_context=self._block(), convert_to_acp=True)
+        self._open(resumed_context=self._block(), convert_to_acp=True)
 
         self.conversation.refresh_from_db()
         run = self.conversation.task.runs.first()
@@ -764,7 +661,7 @@ class TestSandboxFirstMessageConversion(APIBaseTest):
         Conversation.objects.filter(id=self.conversation.id).update(task=other_task)
 
         with self.assertRaises(Conflict):
-            self._handle(resumed_context=self._block(), convert_to_acp=True)
+            self._open(resumed_context=self._block(), convert_to_acp=True)
 
         self.conversation.refresh_from_db()
         assert self.conversation.task_id == other_task.id
@@ -772,7 +669,7 @@ class TestSandboxFirstMessageConversion(APIBaseTest):
     def test_first_message_conversion_reverts_on_workflow_start_failure(self):
         with patch(f"{ROUTING}.execute_task_processing_workflow", side_effect=RuntimeError("boom")):
             with self.assertRaises(RuntimeError):
-                MessageRoutingService(self.conversation, self.user).handle(
+                SandboxSession(self.conversation, self.user).open(
                     {"content": "continue here", "trace_id": "t"},
                     resumed_context=self._block(),
                     convert_to_acp=True,
@@ -787,11 +684,12 @@ class TestSandboxFirstMessageConversion(APIBaseTest):
         self.conversation.agent_runtime = Conversation.AgentRuntime.SANDBOX
         self.conversation.save(update_fields=["agent_runtime"])
 
-        result, m_workflow = self._handle()
+        result, m_workflow = self._open()
 
         self.conversation.refresh_from_db()
         assert self.conversation.agent_runtime == Conversation.AgentRuntime.SANDBOX
         assert self.conversation.task_id is not None
+        assert result is not None
         assert result.just_created_run is True
         m_workflow.assert_called_once()
 
@@ -799,7 +697,7 @@ class TestSandboxFirstMessageConversion(APIBaseTest):
         self.conversation.agent_runtime = Conversation.AgentRuntime.SANDBOX
         self.conversation.save(update_fields=["agent_runtime"])
 
-        self._handle(content="just this please")
+        self._open(content="just this please")
 
         self.conversation.refresh_from_db()
         run = self.conversation.task.runs.first()

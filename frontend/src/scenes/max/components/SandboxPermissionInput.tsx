@@ -10,7 +10,7 @@ import { sandboxStreamLogic } from '../sandboxStreamLogic'
 import type { PermissionRequestRecord } from '../types/sandboxStreamTypes'
 
 interface SandboxPermissionInputProps {
-    conversationId: string
+    streamKey: string
     request: PermissionRequestRecord
 }
 
@@ -26,8 +26,8 @@ interface SandboxPermissionInputProps {
  * `respondingToPermission` drives the loading/double-submit guard and re-enables the controls when
  * the POST fails (the pending request only clears on success).
  */
-export function SandboxPermissionInput({ conversationId, request }: SandboxPermissionInputProps): JSX.Element {
-    const boundLogic = sandboxStreamLogic({ conversationId })
+export function SandboxPermissionInput({ streamKey, request }: SandboxPermissionInputProps): JSX.Element {
+    const boundLogic = sandboxStreamLogic({ streamKey })
     const { respondToPermission } = useActions(boundLogic)
     const { respondingToPermission, currentMode } = useValues(boundLogic)
 
@@ -52,7 +52,7 @@ export function SandboxPermissionInput({ conversationId, request }: SandboxPermi
         if (respondingToPermission) {
             return
         }
-        respondToPermission({ conversationId, requestId: request.requestId, optionId })
+        respondToPermission({ requestId: request.requestId, optionId })
     }
 
     const submitFeedback = (): void => {
@@ -61,7 +61,6 @@ export function SandboxPermissionInput({ conversationId, request }: SandboxPermi
             return
         }
         respondToPermission({
-            conversationId,
             requestId: request.requestId,
             optionId: feedbackOption.optionId,
             customInput: trimmed,
