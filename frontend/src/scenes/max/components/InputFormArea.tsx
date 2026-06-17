@@ -3,7 +3,7 @@ import { useCallback, useMemo, useRef, useState } from 'react'
 import useResizeObserver from 'use-resize-observer'
 
 import { IconCheck, IconWarning, IconX } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonTabs, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonTabs, LemonTag, Spinner } from '@posthog/lemon-ui'
 
 import {
     DangerousOperationResponse,
@@ -15,6 +15,7 @@ import { MarkdownMessage } from '../MarkdownMessage'
 import { maxThreadLogic } from '../maxThreadLogic'
 import { Option, OptionSelector } from './OptionSelector'
 import { MultiFieldQuestion, QuestionField, isFieldValid } from './QuestionField'
+import { SandboxPermissionInput } from './SandboxPermissionInput'
 
 function isQuestionComplete(
     q: MultiQuestionFormQuestion,
@@ -402,10 +403,37 @@ function DangerousOperationInput({ operation }: DangerousOperationInputProps): J
     )
 }
 
+/**
+ * Compact badge showing the active ACP permission mode (e.g. plan vs default) for sandbox
+ * conversations. Hidden when no mode has been reported. Reads the mode via `maxThreadLogic`'s
+ * alias — this renders outside SandboxThread's BindLogic subtree, so it cannot bind the keyed
+ * stream logic itself.
+ */
+export function SandboxModeBadge(): JSX.Element | null {
+    const { conversation, sandboxCurrentMode } = useValues(maxThreadLogic)
+
+    if (conversation?.agent_runtime !== 'sandbox' || !sandboxCurrentMode) {
+        return null
+    }
+
+    const isPlan = sandboxCurrentMode === 'plan'
+    return (
+        <LemonTag size="small" type={isPlan ? 'highlight' : 'muted'}>
+            {isPlan ? 'Plan mode' : 'Default mode'}
+        </LemonTag>
+    )
+}
+
 export function InputFormArea(): JSX.Element | null {
     // Use raw state values instead of selector to ensure re-renders on state changes
-    const { activeMultiQuestionForm, pendingApprovalProposalId, pendingApprovalsData, resolvedApprovalStatuses } =
-        useValues(maxThreadLogic)
+    const {
+        activeMultiQuestionForm,
+        pendingApprovalProposalId,
+        pendingApprovalsData,
+        resolvedApprovalStatuses,
+        conversationId,
+        pendingSandboxPermissionRequest,
+    } = useValues(maxThreadLogic)
 
     // Build the approval object to display - only show if not yet resolved
     // Resolved approvals are shown as summaries in the chat thread, not in the input area
@@ -429,6 +457,20 @@ export function InputFormArea(): JSX.Element | null {
             payload: approval.payload as Record<string, unknown>,
         }
     }, [pendingApprovalProposalId, pendingApprovalsData, resolvedApprovalStatuses])
+
+    // Sandbox permission requests take precedence in the input area, mirroring the LangGraph
+    // dangerous-operation flow but driven by sandboxStreamLogic. A pending request only ever
+    // originates from the sandbox stream, so its presence is sufficient — gating on `agent_runtime`
+    // would strand approvals on new conversations whose runtime isn't resolved yet.
+    if (pendingSandboxPermissionRequest) {
+        return (
+            <SandboxPermissionInput
+                key={pendingSandboxPermissionRequest.requestId}
+                streamKey={conversationId}
+                request={pendingSandboxPermissionRequest}
+            />
+        )
+    }
 
     if (activeDangerousOperationApproval) {
         return (

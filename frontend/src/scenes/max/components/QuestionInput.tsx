@@ -164,8 +164,14 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         queuedMessages,
         queueSubmitting,
     } = useValues(maxThreadLogic)
-    const { askMax, stopGeneration, completeThreadGeneration, setSupportOverrideEnabled, updateQueuedMessage } =
-        useActions(maxThreadLogic)
+    const {
+        askMax,
+        stopGeneration,
+        completeThreadGeneration,
+        setSupportOverrideEnabled,
+        updateQueuedMessage,
+        releaseSandboxPrewarm,
+    } = useActions(maxThreadLogic)
     const { isActive: handsFreeActive } = useValues(handsFreeLogic({ panelId: maxPanelId }))
     // Only the hands-free row needs bottom-aligned pills — it has the mic + submit pair
     // pinned to the bottom and pills sitting in normal flow look misaligned next to them.
@@ -183,7 +189,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
     const displayQueuedMessages = useMemo(() => [...queuedMessages].reverse(), [queuedMessages])
     const hasQuestion = question.trim().length > 0
     const isQueueingSubmission = queueingEnabled && threadLoading && hasQuestion
-    const showStopButton = threadLoading && !isQueueingSubmission
+    const showStopButton = threadLoading && !isQueueingSubmission && !cancelLoading
 
     // Update autocomplete visibility when question changes
     useEffect(() => {
@@ -327,6 +333,22 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                         ref={textAreaRef}
                                         value={isSharedThread ? '' : question}
                                         onChange={(value) => setQuestion(value)}
+                                        onBlur={(e) => {
+                                            // Release any sandbox pre-warm when the user leaves the
+                                            // input without sending. No-op on LangGraph / unwarmed
+                                            // conversations.
+                                            //
+                                            // But clicking the send button blurs the textarea *before*
+                                            // its onClick fires the send — releasing here would cancel
+                                            // the very warm Run the send is about to consume. When focus
+                                            // moves to the send button, skip the release and let the send
+                                            // path consume the warm (it does so without a DELETE).
+                                            const next = e.relatedTarget as HTMLElement | null
+                                            if (next?.closest('[data-attr="max-send-message"]')) {
+                                                return
+                                            }
+                                            releaseSandboxPrewarm()
+                                        }}
                                         onPressEnter={() => {
                                             if (
                                                 hasQuestion &&
