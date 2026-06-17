@@ -344,6 +344,7 @@ class AssistantStringOrBooleanValuePropertyFilterOperator(StrEnum):
 
 class AssistantTool(StrEnum):
     SEARCH_SESSION_RECORDINGS = "search_session_recordings"
+    CREATE_AI_TRACE_PARSER = "create_ai_trace_parser"
     FIX_HOGQL_QUERY = "fix_hogql_query"
     ANALYZE_USER_INTERVIEWS = "analyze_user_interviews"
     CREATE_USER_INTERVIEW_TOPIC = "create_user_interview_topic"
@@ -1767,6 +1768,7 @@ class ExternalDataSourceType(StrEnum):
     WIKIPEDIA_PAGEVIEWS = "WikipediaPageviews"
     YAHOO_FINANCE = "YahooFinance"
     CLARIFAI = "Clarifai"
+    ADAPTY = "Adapty"
     CUSTOM = "Custom"
 
 
@@ -2440,6 +2442,7 @@ class NodeKind(StrEnum):
     TRACE_SPANS_AGGREGATION_QUERY = "TraceSpansAggregationQuery"
     TRACE_SPANS_TREE_QUERY = "TraceSpansTreeQuery"
     TRACE_SPANS_ATTRIBUTE_BREAKDOWN_QUERY = "TraceSpansAttributeBreakdownQuery"
+    TRACE_SPANS_SYMBOL_STATS_QUERY = "TraceSpansSymbolStatsQuery"
     SESSION_BATCH_EVENTS_QUERY = "SessionBatchEventsQuery"
     DATA_TABLE_NODE = "DataTableNode"
     DATA_VISUALIZATION_NODE = "DataVisualizationNode"
@@ -3146,6 +3149,11 @@ class SurveyWidgetType(StrEnum):
     BUTTON = "button"
     TAB = "tab"
     SELECTOR = "selector"
+
+
+class SymbolStatsGranularity(StrEnum):
+    LINE = "line"
+    SYMBOL = "symbol"
 
 
 class TaskExecutionStatus(StrEnum):

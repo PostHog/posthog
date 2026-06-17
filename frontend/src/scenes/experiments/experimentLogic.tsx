@@ -6,6 +6,7 @@ import { router } from 'kea-router'
 import api from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic, type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
@@ -78,6 +79,7 @@ import {
     MetricInsightId,
 } from './constants'
 import type { experimentLogicType } from './experimentLogicType'
+import { experimentMetricsLogic } from './experimentMetricsLogic'
 import { experimentSceneLogic } from './experimentSceneLogic'
 import {
     experimentsLogic,
@@ -1365,8 +1367,8 @@ export const experimentLogic = kea<experimentLogicType>([
                         `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`,
                         {
                             ...values.experiment,
-                            parameters: {
-                                ...values.experiment?.parameters,
+                            running_time_calculation: {
+                                ...values.experiment?.running_time_calculation,
                                 recommended_running_time: recommendedRunningTime,
                                 recommended_sample_size: recommendedSampleSize,
                                 minimum_detectable_effect: minimumDetectableEffect,
@@ -1396,7 +1398,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 } else {
                     response = await api.create(`api/projects/${values.currentProjectId}/experiments`, {
                         ...values.experiment,
-                        parameters:
+                        running_time_calculation:
                             /**
                              * only if we are creating a new experiment we need to reset
                              * the recommended running time. If we are duplicating we want to
@@ -1404,12 +1406,12 @@ export const experimentLogic = kea<experimentLogicType>([
                              */
                             values.formMode === FORM_MODES.create
                                 ? {
-                                      ...values.experiment?.parameters,
+                                      ...values.experiment?.running_time_calculation,
                                       recommended_running_time: recommendedRunningTime,
                                       recommended_sample_size: recommendedSampleSize,
                                       minimum_detectable_effect: minimumDetectableEffect,
                                   }
-                                : values.experiment?.parameters,
+                                : values.experiment?.running_time_calculation,
                         ...(!draft && { start_date: dayjs() }),
                         ...(typeof folder === 'string' ? { _create_in_folder: folder } : {}),
                     })
@@ -1457,8 +1459,8 @@ export const experimentLogic = kea<experimentLogicType>([
             const duration = experiment?.start_date ? dayjs().diff(experiment.start_date, 'second') : null
             experiment && actions.reportExperimentViewed(experiment, duration)
 
-            // Load metrics for launched experiments (sets up auto-refresh once the load completes).
-            // Shows cached results immediately, then force-refreshes once if the experiment is warming up.
+            // Load metrics for launched experiments (will set up auto-refresh after load completes).
+            // refreshExperimentResults branches on the recalculation feature flag internally.
             if (experiment && isLaunched(experiment)) {
                 actions.refreshExperimentResults(false, payload?.triggeredBy ?? 'manual', true)
             }
@@ -1598,11 +1600,26 @@ export const experimentLogic = kea<experimentLogicType>([
 
             let caughtError = false
             try {
-                await Promise.all([
-                    asyncActions.loadPrimaryMetricsResults(forceRefresh, refreshId),
-                    asyncActions.loadSecondaryMetricsResults(forceRefresh, refreshId),
-                    asyncActions.loadExposures(forceRefresh),
-                ])
+                const recalculationFlow = values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]
+                if (recalculationFlow) {
+                    // A config change (date / metric / exposure criteria / settings) invalidates the
+                    // cached results, so kick off a fresh recalculation. Page loads, manual reloads and
+                    // auto-refresh are handled elsewhere (afterMount / the reload button), so don't
+                    // re-trigger here for those. Fire BEFORE loading exposures so an exposures failure
+                    // can't skip the metric recalculation — the two are independent.
+                    if (triggeredBy === 'config_change' && values.experiment) {
+                        experimentMetricsLogic({ experiment: values.experiment }).actions.triggerRecalculation()
+                    }
+                    // Metric results come from experimentMetricsLogic (mounted by the metrics view);
+                    // here we only refresh exposures, which still live in experimentLogic.
+                    await asyncActions.loadExposures(forceRefresh)
+                } else {
+                    await Promise.all([
+                        asyncActions.loadPrimaryMetricsResults(forceRefresh, refreshId),
+                        asyncActions.loadSecondaryMetricsResults(forceRefresh, refreshId),
+                        asyncActions.loadExposures(forceRefresh),
+                    ])
+                }
             } catch (error) {
                 caughtError = true
                 throw error
@@ -1723,8 +1740,8 @@ export const experimentLogic = kea<experimentLogicType>([
             const { recommendedRunningTime, recommendedSampleSize, minimumDetectableEffect } = values
 
             actions.updateExperiment({
-                parameters: {
-                    ...values.experiment?.parameters,
+                running_time_calculation: {
+                    ...values.experiment?.running_time_calculation,
                     recommended_running_time: recommendedRunningTime,
                     recommended_sample_size: recommendedSampleSize,
                     minimum_detectable_effect: minimumDetectableEffect || 0,
@@ -2392,7 +2409,11 @@ export const experimentLogic = kea<experimentLogicType>([
 
             actions.updateExperiment(updatePayload)
 
-            if (isPrimary) {
+            // Adding a breakdown changes how the metric is computed, so re-run results — recalculation
+            // flow triggers a fresh recalc via config_change; legacy flow reloads per-metric results.
+            if (values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]) {
+                actions.refreshExperimentResults(true, 'config_change')
+            } else if (isPrimary) {
                 actions.loadPrimaryMetricsResults(true)
             } else {
                 actions.loadSecondaryMetricsResults(true)
@@ -2423,7 +2444,12 @@ export const experimentLogic = kea<experimentLogicType>([
 
             actions.updateExperiment(updatePayload)
 
-            if (isPrimary) {
+            // Removing a breakdown changes how the metric is computed, so re-run results. On the
+            // recalculation flow this routes through refreshExperimentResults('config_change') (which
+            // triggers a fresh recalculation); the legacy flow reloads the per-metric results directly.
+            if (values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]) {
+                actions.refreshExperimentResults(true, 'config_change')
+            } else if (isPrimary) {
                 actions.loadPrimaryMetricsResults(true)
             } else {
                 actions.loadSecondaryMetricsResults(true)
@@ -2450,9 +2476,15 @@ export const experimentLogic = kea<experimentLogicType>([
                         },
                     }
                 )
-                // Re-fetch metric and exposure results since the variant set changed.
-                actions.loadPrimaryMetricsResults(true)
-                actions.loadSecondaryMetricsResults(true)
+                // Re-fetch results since the variant set changed. On the recalculation flow this means a
+                // fresh recalc; on the legacy flow it's the per-metric loaders. Exposures refresh either way.
+                if (values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]) {
+                    values.experiment &&
+                        experimentMetricsLogic({ experiment: values.experiment }).actions.triggerRecalculation()
+                } else {
+                    actions.loadPrimaryMetricsResults(true)
+                    actions.loadSecondaryMetricsResults(true)
+                }
                 actions.loadExposures(true)
             } catch (error) {
                 lemonToast.error('Could not update variant exclusion. Please try again.')
@@ -2700,7 +2732,9 @@ export const experimentLogic = kea<experimentLogicType>([
         minimumDetectableEffect: [
             (s) => [s.experiment, s.defaultMinimumDetectableEffect],
             (newExperiment, defaultMinimumDetectableEffect): number => {
-                return newExperiment?.parameters?.minimum_detectable_effect ?? defaultMinimumDetectableEffect
+                return (
+                    newExperiment?.running_time_calculation?.minimum_detectable_effect ?? defaultMinimumDetectableEffect
+                )
             },
         ],
         recommendedSampleSize: [

@@ -63,6 +63,7 @@ from products.signals.backend.models import (
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
+from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.report_generation.resolve_reviewers import (
     get_org_member_github_login_to_user_map,
     get_org_member_github_logins_by_user_uuid,
@@ -398,6 +399,7 @@ class SignalReportViewSet(
         qs = self._apply_signal_report_implementation_pr_filter(qs)
         qs = self._apply_signal_report_suggested_reviewer_filter(qs)
         qs = self._annotate_latest_actionability_value(qs)
+        qs = self._apply_signal_report_actionability_filter(qs)
         qs = self._annotate_signal_report_status_rank(qs)
         qs = self._annotate_signal_report_priority(qs)
         qs = self._apply_signal_report_priority_filter(qs)
@@ -567,6 +569,34 @@ class SignalReportViewSet(
 
         return queryset.filter(priority_rank__in=values)
 
+    def _apply_signal_report_actionability_filter(self, queryset):
+        # Filters on the `latest_actionability_value` annotation (the actionability
+        # choice from the latest actionability_judgment artefact), which must be
+        # annotated first. Powers the inbox's actionability-keyed tabs: the Reports
+        # tab passes the two actionable values, the staff-only Not-actionable tab
+        # passes `not_actionable`. Reports without an actionability judgment
+        # (annotation is NULL) are excluded when this filter is set. Absent or empty
+        # param leaves the list unchanged; an unrecognized value is a 400.
+        actionability_filter = self.request.query_params.get("actionability")
+        if not actionability_filter:
+            return queryset
+
+        values = [a.strip() for a in actionability_filter.split(",") if a.strip()]
+        if not values:
+            return queryset
+
+        allowed = {choice.value for choice in ActionabilityChoice}
+        invalid = [v for v in values if v not in allowed]
+        if invalid:
+            raise serializers.ValidationError(
+                {
+                    "actionability": f"Invalid actionability value(s): {', '.join(sorted(set(invalid)))}. "
+                    f"Allowed: {', '.join(sorted(allowed))}."
+                }
+            )
+
+        return queryset.filter(latest_actionability_value__in=values)
+
     def _annotate_signal_report_status_rank(self, queryset):
         # `ordering=status` uses semantic stage rank (annotation), not lexicographic `status` column order.
         # `status=ready` splits into two virtual stages (requires `latest_actionability_value`):
@@ -651,6 +681,13 @@ class SignalReportViewSet(
                     type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT
                 ).order_by("-created_at"),
                 to_attr="prefetched_actionability_artefacts",
+            ),
+            Prefetch(
+                "artefacts",
+                queryset=SignalReportArtefact.objects.filter(type=SignalReportArtefact.ArtefactType.DISMISSAL).order_by(
+                    "-created_at"
+                ),
+                to_attr="prefetched_dismissal_artefacts",
             ),
         )
 
@@ -1016,6 +1053,11 @@ class SignalReportViewSet(
                     type=SignalReportArtefact.ArtefactType.DISMISSAL,
                     content=json.dumps(artefact_content),
                 )
+                # get_object() evaluated the dismissal prefetch before this artefact
+                # existed; drop the stale cache so the response serializer re-reads the
+                # just-written reason/note instead of the previous (or empty) dismissal.
+                if hasattr(report, "prefetched_dismissal_artefacts"):
+                    del report.prefetched_dismissal_artefacts
 
         return Response(SignalReportSerializer(report, context=self._enriched_report_context(report)).data)
 

@@ -60,7 +60,6 @@
         "@floating-ui/react": "^0.27.19",
         "@marsidev/react-turnstile": "^1.4.2",
         "@mathjax/src": "^4.1.2",
-        "@medv/finder": "^4.0.2",
         "@memlab/lens": "2.0.0",
         "@microlink/react-json-view": "^1.31.18",
         "@microsoft/fetch-event-source": "^2.0.1",
@@ -322,7 +321,7 @@
         "less": "^3.12.2",
         "lint-staged": "catalog:",
         "mockdate": "^3.0.5",
-        "msw": "^0.49.0",
+        "msw": "^2.14.6",
         "safe-stable-stringify": "^2.4.3",
         "sass": "^1.26.2",
         "stream-browserify": "^3.0.0",
@@ -334,8 +333,8 @@
         "ts-node": "^10.9.1",
         "tsconfig-paths": "^4.2.0",
         "typescript": "catalog:",
-        "vite": "^7.3.3",
-        "whatwg-fetch": "^3.6.2"
+        "undici": "^6.25.0",
+        "vite": "^7.3.3"
     },
     "optionalDependencies": {
         "fsevents": "^2.3.2"

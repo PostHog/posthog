@@ -134,8 +134,8 @@ describe('accountsViewsLogic', () => {
         useMocks({
             get: { '/api/environments/:team_id/column_configurations/': { count: 1, results: [buildView()] } },
             patch: {
-                '/api/environments/:team_id/column_configurations/:id/': async (req: any) => {
-                    patchedBody = await req.json()
+                '/api/environments/:team_id/column_configurations/:id/': async ({ request }) => {
+                    patchedBody = await request.json()
                     return [200, buildView({ name: patchedBody.name })]
                 },
             },
@@ -165,8 +165,8 @@ describe('accountsViewsLogic', () => {
                 },
             },
             patch: {
-                '/api/environments/:team_id/column_configurations/:id/': async (req: any) => {
-                    patchedBody = await req.json()
+                '/api/environments/:team_id/column_configurations/:id/': async ({ request }) => {
+                    patchedBody = await request.json()
                     return [200, buildView({ properties: patchedBody.properties })]
                 },
             },
@@ -240,8 +240,8 @@ describe('accountsViewsLogic', () => {
                 },
             },
             patch: {
-                '/api/environments/:team_id/column_configurations/:id/': async (req: any) => {
-                    const body = await req.json()
+                '/api/environments/:team_id/column_configurations/:id/': async ({ request }) => {
+                    const body = (await request.json()) as any
                     return [200, buildView({ properties: body.properties })]
                 },
             },

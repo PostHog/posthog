@@ -1,6 +1,8 @@
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events
+from unittest.mock import patch
 
 from django.core.cache import cache
 from django.utils.timezone import now
@@ -12,7 +14,7 @@ from posthog.models import Comment, SessionRecordingPlaylist
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.utils import uuid7
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
-from posthog.session_recordings.synthetic_playlists import FrustrationSignalsPlaylistSource
+from posthog.session_recordings.synthetic_playlists import ExpiringPlaylistSource, FrustrationSignalsPlaylistSource
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 
@@ -58,6 +60,33 @@ class TestSyntheticPlaylists(APIBaseTest):
             expected.append("synthetic-summarised")
 
         assert sorted(synthetic_short_ids) == sorted(expected)
+
+    def test_expiring_playlist_caches_and_shares_one_scan(self) -> None:
+        cache.clear()
+
+        now_ts = datetime.now(UTC)
+        recordings = [
+            SimpleNamespace(session_id="expiring-soon", expiry_time=now_ts + timedelta(days=3)),
+            SimpleNamespace(session_id="expiring-later", expiry_time=now_ts + timedelta(days=40)),
+            SimpleNamespace(session_id="no-expiry", expiry_time=None),
+        ]
+
+        source = ExpiringPlaylistSource()
+
+        with patch(
+            "posthog.session_recordings.synthetic_playlists.list_recordings_from_query",
+            return_value=(recordings, False, None, None),
+        ) as mock_query:
+            count = source.count_session_ids(self.team, self.user)
+            session_ids = source.get_session_ids(self.team, self.user)
+            # a second list load within the cache TTL must not re-scan
+            recount = source.count_session_ids(self.team, self.user)
+
+        assert count == 1
+        assert recount == 1
+        assert session_ids == ["expiring-soon"]
+        # count + get_session_ids + recount share a single cached scan
+        assert mock_query.call_count == 1
 
     def test_retrieve_synthetic_playlist(self) -> None:
         playlist = self._get_synthetic_playlist("synthetic-watch-history")

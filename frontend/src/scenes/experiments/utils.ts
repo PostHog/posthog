@@ -711,10 +711,10 @@ export const isLegacyExperimentQuery = (query: unknown): query is ExperimentTren
  */
 export const isLegacyExperiment = ({ metrics, metrics_secondary, saved_metrics }: Experiment): boolean => {
     // saved_metrics has a different structure and so we need to check for it separately
-    if (saved_metrics.some(isLegacySharedMetric)) {
+    if ((saved_metrics ?? []).some(isLegacySharedMetric)) {
         return true
     }
-    return [...metrics, ...metrics_secondary].some(isLegacyExperimentQuery)
+    return [...(metrics ?? []), ...(metrics_secondary ?? [])].some(isLegacyExperimentQuery)
 }
 
 export const isLegacySharedMetric = ({ query }: SharedMetric): boolean => isLegacyExperimentQuery(query)
@@ -951,3 +951,87 @@ export function getOrderedMetricsWithResults(
             metricIndex: originalIndexMap.get(metric.uuid) ?? index, // Original position for retry
         }))
 }
+
+export type MetricWithResult = {
+    metric: ExperimentMetric
+    result: CachedNewExperimentQueryResponse | undefined
+    error: unknown
+    displayIndex: number
+    metricIndex: number
+}
+
+/**
+ * Narrows to a real, saved experiment: present and not the "new"/draft sentinel id. Used by the
+ * recalculation-flow component wrappers before mounting experiment-keyed child logics.
+ */
+export const isSavedExperiment = (experiment: Experiment | null | undefined): experiment is Experiment =>
+    experiment?.id != null && experiment.id !== 'new'
+
+/**
+ * Pure zip of one metric type (`primary` | `secondary`) with its results and errors, in display order.
+ * Same shaping as {@link getOrderedMetricsWithResults} but curried over the experiment, so a caller can
+ * bind it once per experiment instance and reuse it for both primary and secondary:
+ *
+ *   const zip = metricResults(experiment)
+ *   const primary = zip(primaryResults, primaryErrors, 'primary')
+ *   const secondary = zip(secondaryResults, secondaryErrors, 'secondary')
+ *
+ * Used by the recalculation flow; the legacy per-metric path keeps using getOrderedMetricsWithResults.
+ */
+export const metricResults =
+    (experiment: Experiment) =>
+    (
+        results: CachedNewExperimentQueryResponse[],
+        errors: unknown[],
+        type: 'primary' | 'secondary'
+    ): MetricWithResult[] => {
+        const regularMetrics = (
+            type === 'secondary' ? experiment.metrics_secondary || [] : experiment.metrics || []
+        ) as ExperimentMetric[]
+
+        /**
+         * Reshape saved/shared metrics into the inline ExperimentMetric shape so both can be merged and
+         * ordered together below.
+         */
+        const sharedMetrics = (experiment.saved_metrics || [])
+            .filter((sharedMetric) => sharedMetric.metadata?.type === type)
+            .map((sharedMetric) => ({
+                ...sharedMetric.query,
+                name: sharedMetric.name,
+                sharedMetricId: sharedMetric.saved_metric,
+                isSharedMetric: true,
+                breakdownFilter: {
+                    ...sharedMetric.query?.breakdownFilter,
+                    breakdowns: sharedMetric.metadata?.breakdowns || [],
+                },
+            })) as ExperimentMetric[]
+
+        /**
+         * Merge inline + shared metrics, dropping any without a uuid (defensive). One entry per metric
+         * carries everything the output row needs, keyed by uuid for the ordering pass below.
+         */
+        const byUuid = new Map(
+            [...regularMetrics, ...sharedMetrics]
+                .map((metric, index) => ({ metric, result: results[index], error: errors[index], index }))
+                .filter((entry): entry is { metric: ExperimentMetric & { uuid: string } } & typeof entry =>
+                    Boolean(entry.metric.uuid)
+                )
+                .map((entry) => [entry.metric.uuid, entry])
+        )
+
+        const orderedUuids =
+            type === 'secondary'
+                ? experiment.secondary_metrics_ordered_uuids || []
+                : experiment.primary_metrics_ordered_uuids || []
+
+        return orderedUuids
+            .map((uuid) => byUuid.get(uuid))
+            .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
+            .map(({ metric, result, error, index }, displayIndex) => ({
+                metric,
+                result,
+                error,
+                displayIndex,
+                metricIndex: index,
+            }))
+    }

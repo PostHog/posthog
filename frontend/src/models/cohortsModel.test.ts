@@ -58,8 +58,8 @@ describe('cohortsModel', () => {
                 '/api/projects/:team/cohorts/:id/': { success: true },
             },
             patch: {
-                '/api/projects/:team/cohorts/:id/': (req) => {
-                    const data = req.body as Record<string, any>
+                '/api/projects/:team/cohorts/:id/': async ({ request }) => {
+                    const data = (await request.json()) as Record<string, any>
                     return { ...MOCK_COHORTS.results[0], ...data }
                 },
             },

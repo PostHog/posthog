@@ -3,6 +3,7 @@ from unittest.mock import MagicMock
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from posthog.temporal.data_imports.sources.common.sql import Table, TableStats
+from posthog.temporal.data_imports.sources.common.sql.predicates import ColumnTypeCategory, ValidatedRowFilter
 from posthog.temporal.data_imports.sources.generated_configs import MSSQLSourceConfig
 from posthog.temporal.data_imports.sources.mssql.mssql import (
     MSSQLColumn,
@@ -109,6 +110,64 @@ class TestBuildQuery:
         assert "WHERE [created_at]" in query
         assert "%(incremental_value)s" in query
         assert args == {"incremental_value": "2025-01-01"}
+
+    def test_row_filters_full_refresh(self):
+        query, args = _build_query(
+            schema="dbo",
+            table_name="users",
+            should_use_incremental_field=False,
+            incremental_field=None,
+            incremental_field_type=None,
+            db_incremental_field_last_value=None,
+            row_filters=[ValidatedRowFilter(column="age", operator=">", value=21, category=ColumnTypeCategory.INTEGER)],
+        )
+        assert "WHERE [age] > %(row_filter_0)s" in query
+        assert args == {"row_filter_0": 21}
+
+    def test_in_filter_expands_to_named_placeholders(self):
+        query, args = _build_query(
+            schema="dbo",
+            table_name="users",
+            should_use_incremental_field=False,
+            incremental_field=None,
+            incremental_field_type=None,
+            db_incremental_field_last_value=None,
+            row_filters=[
+                ValidatedRowFilter(column="age", operator="IN", value=[21, 30], category=ColumnTypeCategory.INTEGER)
+            ],
+        )
+        assert "WHERE [age] IN (%(row_filter_0_0)s, %(row_filter_0_1)s)" in query
+        assert args == {"row_filter_0_0": 21, "row_filter_0_1": 30}
+
+    def test_row_filters_compose_with_incremental(self):
+        query, args = _build_query(
+            schema="dbo",
+            table_name="users",
+            should_use_incremental_field=True,
+            incremental_field="created_at",
+            incremental_field_type=IncrementalFieldType.DateTime,
+            db_incremental_field_last_value="2025-01-01",
+            row_filters=[ValidatedRowFilter(column="age", operator=">", value=21, category=ColumnTypeCategory.INTEGER)],
+        )
+        assert "WHERE [created_at] > %(incremental_value)s AND [age] > %(row_filter_0)s" in query
+        assert args == {"incremental_value": "2025-01-01", "row_filter_0": 21}
+
+    def test_row_filter_value_never_interpolated(self):
+        query, args = _build_query(
+            schema="dbo",
+            table_name="users",
+            should_use_incremental_field=False,
+            incremental_field=None,
+            incremental_field_type=None,
+            db_incremental_field_last_value=None,
+            row_filters=[
+                ValidatedRowFilter(
+                    column="name", operator="=", value="x'; DROP TABLE y; --", category=ColumnTypeCategory.STRING
+                )
+            ],
+        )
+        assert "DROP TABLE" not in query
+        assert args == {"row_filter_0": "x'; DROP TABLE y; --"}
 
     def test_add_limit_uses_top_100(self):
         query, _ = _build_query(
@@ -512,5 +571,21 @@ class TestMSSQLSourceNonRetryableErrors:
         ],
     )
     def test_invalid_object_name_is_non_retryable(self, error_msg):
+        non_retryable = MSSQLSource().get_non_retryable_errors()
+        assert any(pattern in error_msg for pattern in non_retryable.keys()), error_msg
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # SQL Server error 207 — a referenced column no longer exists (dropped/renamed at the
+            # source, or a view body that selects a column that's gone). Real pymssql message.
+            "SQL Server message 207, severity 16, state 1, procedure b'\\xb0z\\x16,\\xff\\xff', line 39:\n"
+            "Invalid column name 'usr_modelo'.DB-Lib error message 20018, severity 16:\n"
+            "General SQL Server error: Check messages from the SQL Server",
+            # Different column name must still match the stable substring.
+            "Invalid column name 'created_at'.",
+        ],
+    )
+    def test_invalid_column_name_is_non_retryable(self, error_msg):
         non_retryable = MSSQLSource().get_non_retryable_errors()
         assert any(pattern in error_msg for pattern in non_retryable.keys()), error_msg
