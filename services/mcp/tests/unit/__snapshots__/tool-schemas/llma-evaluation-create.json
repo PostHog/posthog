@@ -70,13 +70,24 @@
                     },
                     "required": ["source"],
                     "type": "object"
+                },
+                {
+                    "properties": {
+                        "source": {
+                            "default": "user_messages",
+                            "description": "Classify sentiment from user messages in the generation input.",
+                            "enum": ["user_messages"],
+                            "type": "string"
+                        }
+                    },
+                    "type": "object"
                 }
             ],
-            "description": "Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}."
+            "description": "Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}."
         },
         "evaluation_type": {
-            "description": "'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code.\n\n* `llm_judge` - LLM as a judge\n* `hog` - Hog",
-            "enum": ["llm_judge", "hog"],
+            "description": "'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment.\n\n* `llm_judge` - LLM as a judge\n* `hog` - Hog\n* `sentiment` - Sentiment analysis",
+            "enum": ["llm_judge", "hog", "sentiment"],
             "type": "string"
         },
         "model_configuration": {
@@ -149,8 +160,8 @@
             "type": "object"
         },
         "output_type": {
-            "description": "Output format. Currently only 'boolean' is supported.\n\n* `boolean` - Boolean (Pass/Fail)",
-            "enum": ["boolean"],
+            "description": "Output format. Use 'boolean' for pass/fail evaluations and 'sentiment' for sentiment analysis.\n\n* `boolean` - Boolean (Pass/Fail)\n* `sentiment` - Sentiment",
+            "enum": ["boolean", "sentiment"],
             "type": "string"
         }
     },
