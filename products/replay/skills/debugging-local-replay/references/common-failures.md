@@ -1,5 +1,15 @@
 # Common local replay failures
 
+## Contents
+
+- Orphaned Node processes
+- Processes stuck at bin/wait-for-docker
+- tsx watch silently swallowing crashes
+- Port conflicts between Docker and host
+- Cargo build lock contention on startup
+- Recorder script build failure
+- Kafka consumer group stuck
+
 ## Orphaned Node processes
 
 **Symptoms:** New phrocs processes start but recordings don't flow.

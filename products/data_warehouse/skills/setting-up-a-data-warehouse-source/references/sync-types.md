@@ -3,6 +3,17 @@
 Every table in a data warehouse source needs a `sync_type`. The choice determines how data flows on every sync, how
 much it costs, how fresh the data is, and what shape it has after import.
 
+## Contents
+
+- The five sync types
+- How to choose
+- Picking an `incremental_field`
+- `incremental_field_type` values
+- `primary_key_columns`
+- `cdc_table_mode` (CDC only)
+- Webhooks are a two-step setup
+- Sync frequency
+
 ## The five sync types
 
 | Sync type      | What it does                                             | Requires                                       | Good for                                             |
