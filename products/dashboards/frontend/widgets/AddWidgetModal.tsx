@@ -147,16 +147,18 @@ export function AddWidgetModal({ isOpen, onClose, loading, onAdd }: AddWidgetMod
                                         {group.groupLabel}
                                     </h5>
                                     {productIsNew && productIntro ? (
-                                        <div className="ml-auto flex flex-wrap items-center gap-x-2 gap-y-1 rounded bg-accent-highlight-secondary px-2 py-1 text-xs">
-                                            <IconLightBulb className="shrink-0 text-base text-accent" />
-                                            <span className="text-primary">{productIntro.valueProp}</span>
-                                            <Link
-                                                to={productIntro.docsHref}
-                                                target="_blank"
-                                                onClick={() => handleProductIntroClicked(productIntro.productKey)}
-                                            >
-                                                {productIntro.ctaLabel}
-                                            </Link>
+                                        <div className="ml-auto flex items-start gap-2 rounded bg-accent-highlight-secondary px-2 py-1.5 text-xs">
+                                            <IconLightBulb className="mt-0.5 shrink-0 text-base text-accent" />
+                                            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                                                <span className="text-primary">{productIntro.valueProp}</span>
+                                                <Link
+                                                    to={productIntro.docsHref}
+                                                    target="_blank"
+                                                    onClick={() => handleProductIntroClicked(productIntro.productKey)}
+                                                >
+                                                    {productIntro.ctaLabel}
+                                                </Link>
+                                            </div>
                                         </div>
                                     ) : null}
                                 </div>
