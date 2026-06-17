@@ -1,5 +1,5 @@
 from textwrap import dedent
-from typing import Any, Literal, Union
+from typing import TYPE_CHECKING, Any, Literal, Union
 
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
@@ -18,6 +18,22 @@ from products.notebooks.backend.models import Notebook, ResourceNotebook
 
 from ee.hogai.tool import MaxTool
 from ee.hogai.tools.create_notebook.tiptap import markdown_to_tiptap_nodes
+
+if TYPE_CHECKING:
+    from posthog.models import Team
+
+
+async def _aget_account_by_id(team: "Team", account_id: str) -> Account | None:
+    """Resolve an account by id within a team. Account is fail-closed, so the
+    unscoped manager is used with an explicit team filter."""
+    account_id = str(account_id).strip()
+    if not account_id:
+        return None
+    try:
+        return await Account.objects.unscoped().aget(id=account_id, team=team)
+    except (Account.DoesNotExist, ValidationError, ValueError):
+        return None
+
 
 OPEN_ACCOUNT_TOOL_DESCRIPTION = dedent("""
     Open an account in the Accounts list and jump to one of its tabs — Notes, Users, or Usage.
@@ -196,7 +212,7 @@ class UpsertAccountTool(MaxTool):
         )
 
     async def _handle_update(self, action: UpdateAccountAction) -> tuple[str, dict[str, Any]]:
-        account = await self._resolve_account(action.account_id)
+        account = await _aget_account_by_id(self._team, action.account_id)
         if account is None:
             return f"Account '{action.account_id}' not found.", {"error": "account_not_found"}
 
@@ -227,15 +243,6 @@ class UpsertAccountTool(MaxTool):
             "name": account.name,
             "external_id": account.external_id,
         }
-
-    async def _resolve_account(self, account_id: str) -> Account | None:
-        account_id = str(account_id).strip()
-        if not account_id:
-            return None
-        try:
-            return await Account.objects.unscoped().aget(id=account_id, team=self._team)
-        except (Account.DoesNotExist, ValidationError, ValueError):
-            return None
 
     @sync_to_async
     def _create_account(self, action: CreateAccountAction, properties: dict[str, Any]) -> Account:
@@ -328,7 +335,7 @@ class UpsertAccountNotebookTool(MaxTool):
         return await self._handle_update(action)
 
     async def _handle_create(self, action: CreateAccountNotebookAction) -> tuple[str, dict[str, Any]]:
-        account = await self._resolve_account(action.account_id)
+        account = await _aget_account_by_id(self._team, action.account_id)
         if account is None:
             return f"Account '{action.account_id}' not found.", {"error": "account_not_found"}
 
@@ -370,15 +377,6 @@ class UpsertAccountNotebookTool(MaxTool):
             "notebook_short_id": notebook.short_id,
             "title": notebook.title,
         }
-
-    async def _resolve_account(self, account_id: str) -> Account | None:
-        account_id = str(account_id).strip()
-        if not account_id:
-            return None
-        try:
-            return await Account.objects.unscoped().aget(id=account_id, team=self._team)
-        except (Account.DoesNotExist, ValidationError, ValueError):
-            return None
 
     async def _resolve_account_notebook(self, short_id: str) -> tuple[Notebook, Account] | None:
         short_id = str(short_id).strip()

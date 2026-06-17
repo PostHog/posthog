@@ -77,7 +77,7 @@ class TestCustomerAnalyticsFacade(BaseTest):
         assert count == 1
         assert [r.name for r in rows] == ["Acme Corp"]
         assert isinstance(rows[0], contracts.AccountRef)
-        assert rows[0].id == str(rows[0].id)
+        assert isinstance(rows[0].id, str)
 
     def test_list_accounts_newest_first_with_count(self):
         create_account(team_id=self.team.id, name="First")
