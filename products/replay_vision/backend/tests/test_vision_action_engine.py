@@ -9,7 +9,8 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from products.replay_vision.backend.models import VisionAction, VisionActionRun
+from products.replay_vision.backend.models import ReplayScanner, VisionAction, VisionActionRun
+from products.replay_vision.backend.models.replay_scanner import ScannerModel, ScannerType
 from products.replay_vision.backend.models.vision_action import TriggerType, VisionActionRunStatus
 from products.replay_vision.backend.temporal.vision_actions import activities as act
 from products.replay_vision.backend.temporal.vision_actions.synthesis import synthesize_action_activity
@@ -31,6 +32,14 @@ DAILY = "FREQ=DAILY;BYHOUR=9"
 
 
 def _action(team, **overrides) -> VisionAction:
+    if "scanner" not in overrides:
+        overrides["scanner"] = ReplayScanner.objects.create(
+            team=team,
+            name=f"scanner-{uuid.uuid4().hex[:8]}",
+            scanner_type=ScannerType.SUMMARIZER,
+            scanner_config={"prompt": "x"},
+            model=ScannerModel.GEMINI_3_FLASH,
+        )
     defaults: dict = {"team": team, "name": "a", "trigger_config": {"rrule": DAILY, "timezone": "UTC"}}
     defaults.update(overrides)
     a = VisionAction(**defaults)
@@ -106,7 +115,9 @@ class TestEngineActivities(BaseTest):
 
     def test_emit_captures_event(self) -> None:
         action = _action(self.team)
-        run = VisionActionRun(vision_action=action, team=self.team, idempotency_key="k", slack_text="hello *world*")
+        run = VisionActionRun(
+            vision_action=action, team=self.team, idempotency_key="k", output={"slack": "hello *world*"}
+        )
         run.save()
 
         captured = MagicMock()

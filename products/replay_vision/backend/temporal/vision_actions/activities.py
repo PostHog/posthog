@@ -67,7 +67,7 @@ def _create_run(inputs: CreateVisionActionRunInputs) -> UUID:
             "team_id": inputs.team_id,
             "temporal_workflow_id": inputs.temporal_workflow_id,
             "scheduled_at": inputs.scheduled_at,
-            "status": VisionActionRunStatus.STARTING,
+            "status": VisionActionRunStatus.RUNNING,
         },
     )
     return run.id
@@ -138,7 +138,7 @@ def _emit(inputs: EmitActionReadyInputs) -> None:
         "vision_action_id": str(action.id),
         "scanner_id": str(action.scanner_id) if action.scanner_id else None,
         "vision_action_run_id": str(run.id),
-        "slack_text": run.slack_text,
+        "slack_text": run.output.get("slack", ""),
         "action_url": action_url,
     }
     result = capture_internal_routed(
