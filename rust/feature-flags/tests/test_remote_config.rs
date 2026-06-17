@@ -8,7 +8,12 @@
 
 mod common;
 
-use feature_flags::{config::Config, utils::test_utils::TestContext};
+use feature_flags::{
+    config::Config,
+    utils::test_utils::{
+        setup_redis_client, update_team_in_hypercache_without_project_id, TestContext,
+    },
+};
 use serde_json::Value;
 
 // Ciphertext produced by Django's FlagPayloadCodec (see flag_payload_decryptor.rs).
@@ -1266,4 +1271,51 @@ async fn test_remote_config_personal_key_encrypted_missing_true_returns_empty_bo
 
     assert_eq!(response.status(), 200);
     assert_eq!(response.text().await.unwrap(), "");
+}
+
+#[tokio::test]
+async fn test_remote_config_token_path_resolves_project_id_from_db_when_cache_lacks_it() {
+    // The project_id fallback (cached team has no project_id -> project_id_for_team's
+    // `SELECT project_id::bigint`) is otherwise never hit: every `?token=` test resolves the team
+    // via Team::from_pg, which always populates project_id. Seed a raw team-cache entry that omits
+    // project_id (a pre-field entry) so verify_token_and_get_team returns project_id=None, forcing
+    // the fallback query. A wrong column or cast there would 404 the flag.
+    let config = Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+    let (team, secret_token, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+    insert_rc_flag(
+        &context,
+        team.id,
+        "rc-stale-cache",
+        "plain-payload",
+        true,
+        false,
+    )
+    .await;
+
+    // Cache the team WITHOUT project_id so the handler must fall back to the DB query.
+    let redis = setup_redis_client(Some(config.redis_url.clone())).await;
+    update_team_in_hypercache_without_project_id(redis, &team)
+        .await
+        .unwrap();
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let response = reqwest::Client::new()
+        .get(format!(
+            "http://{}/api/projects/@current/feature_flags/rc-stale-cache/remote_config?token={}",
+            server.addr, team.api_token
+        ))
+        .header("Authorization", format!("Bearer {secret_token}"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 200);
+    assert_eq!(
+        response.json::<Value>().await.unwrap(),
+        Value::String("plain-payload".to_string())
+    );
 }
