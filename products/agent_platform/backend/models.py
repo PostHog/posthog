@@ -176,6 +176,12 @@ class AgentSession(ProductTeamModel, UUIDModel):
             '{"tokens_in": 0, "tokens_out": 0, "cache_read": 0, "cache_write": 0, "cost_input": 0, "cost_output": 0, "cost_cache_read": 0, "cost_cache_write": 0, "cost_total": 0}'
         ),
     )
+    # Set by the `meta-sleep` native tool: the session parks in `waiting` until
+    # `wake_at`, when the janitor sweep re-queues it. `slept_at` records when the
+    # sleep began so the resumed turn can tell the model how long it actually
+    # slept vs. requested. Both are cleared on claim. See docs/session-sleep.md.
+    wake_at = models.DateTimeField(null=True, blank=True)
+    slept_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True, db_default=Now())
     updated_at = models.DateTimeField(auto_now=True, db_default=Now())
 
@@ -188,6 +194,11 @@ class AgentSession(ProductTeamModel, UUIDModel):
                 fields=["application_id", "external_key"],
                 name="agent_sess_extkey_idx",
                 condition=Q(external_key__isnull=False),
+            ),
+            models.Index(
+                fields=["state", "wake_at"],
+                name="agent_sess_wake_idx",
+                condition=Q(wake_at__isnull=False),
             ),
         ]
         constraints = [

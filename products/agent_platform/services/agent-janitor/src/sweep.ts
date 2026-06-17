@@ -99,6 +99,8 @@ export interface SweepResult {
     poisoned: number
     /** Idle completed sessions that aged out past `idleCompletedThresholdMs` and were closed. */
     closed: number
+    /** Slept (`waiting`) sessions whose `wake_at` elapsed and were re-queued this sweep. */
+    woken: number
     /** Queued approval requests aged past `expires_at` that were terminated this sweep. */
     expired_approvals: number
     /** Sessions whose `idempotency_key` was nulled by the retention sweep. */
@@ -117,6 +119,12 @@ export async function sweepOnce(deps: SweepDeps): Promise<SweepResult> {
 
     // Policy 1: re-queue stuck running OR poison-pill if past retry budget.
     const { requeued, poisoned } = await deps.queue.reapStuckRunning(runningTtl, maxRetries)
+
+    // Policy 1b: wake slept sessions whose timer elapsed. `meta-sleep` parks a
+    // session in `waiting` with a future `wake_at`; this flips it back to
+    // `queued` once due so a runner re-claims it. (A /send wakes one sooner via
+    // the resume path — this only covers the timer.)
+    const woken = await deps.queue.wakeReadyWaiting(now)
 
     // Policy 2: auto-close idle completed sessions. Under the new state
     // machine `completed` is open by default — the user can still /send.
@@ -231,6 +239,7 @@ export async function sweepOnce(deps: SweepDeps): Promise<SweepResult> {
         requeued,
         poisoned,
         closed,
+        woken,
         expired_approvals: expiredApprovals,
         cleared_idempotency_keys: clearedIdempotencyKeys,
         reaped_sandboxes: reapedSandboxes,

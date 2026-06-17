@@ -76,6 +76,14 @@ export type SessionEventKind =
      */
     | 'closed'
     | 'failed'
+    /**
+     * Fires for `meta-sleep`. The session parked itself until `wake_at`;
+     * state is `waiting` (live, not terminal). Carries
+     * `{ wake_at, requested_minutes, reason? }`. SSE consumers can show a
+     * "sleeping until <wake_at>" affordance; the stream resumes when the
+     * timer elapses or a /send wakes it early.
+     */
+    | 'sleeping'
 
 /**
  * High-cardinality delta events that fire many times per turn. Filtered out

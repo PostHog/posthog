@@ -224,6 +224,40 @@ export type RunOutcome =
     | { state: 'closed'; summary?: string; turns: number }
     | { state: 'suspended'; reason: 'shutdown'; turns: number }
     | { state: 'failed'; reason: string; turns: number }
+    /** `meta-sleep`: park the session until `wakeAt`. `sleptAt` is persisted so the resume notice can report actual-vs-requested. */
+    | { state: 'waiting'; wakeAt: string; sleptAt: string; turns: number }
+
+/**
+ * One-shot notice injected when a session resumes from `meta-sleep`. Tells the
+ * model how long it requested vs. actually slept and whether a new message woke
+ * it early, so it can decide to continue or sleep again. Returned as a `user`
+ * message (the prior turn ended on the sleep tool's result, so a fresh input is
+ * what drives the next turn — same shape the approval/elevation resumes use).
+ */
+function buildSleepWakeNotice(
+    sleptAtIso: string,
+    wakeAtIso: string | null | undefined,
+    nowMs: number
+): ConversationMessage | undefined {
+    const sleptAt = Date.parse(sleptAtIso)
+    if (!Number.isFinite(sleptAt)) {
+        return undefined
+    }
+    const wakeAt = wakeAtIso ? Date.parse(wakeAtIso) : Number.NaN
+    const actualMin = Math.max(0, Math.round((nowMs - sleptAt) / 60_000))
+    const requestedMin = Number.isFinite(wakeAt) ? Math.max(0, Math.round((wakeAt - sleptAt) / 60_000)) : actualMin
+    // 5s tolerance so a timer wake firing a hair early isn't reported as "early".
+    const wokeEarly = Number.isFinite(wakeAt) && nowMs < wakeAt - 5_000
+    const why = wokeEarly
+        ? 'A new message arrived, so you were woken before your sleep timer elapsed.'
+        : 'Your sleep timer elapsed.'
+    const text =
+        `System notice: you are resuming from a sleep you requested with meta-sleep. ` +
+        `You asked to sleep ~${requestedMin} minute(s); you actually slept ~${actualMin} minute(s). ${why} ` +
+        `Your sandbox was torn down while you slept and a fresh one is now attached — only the conversation survived. ` +
+        `Decide whether to continue now or call meta-sleep again.`
+    return { role: 'user', content: [{ type: 'text', text }], timestamp: nowMs }
+}
 
 export async function runSession(rev: AgentRevision, session: AgentSession, deps: RunSessionDeps): Promise<RunOutcome> {
     // Fail-closed: never run a session with approval gating disabled. `Worker`
@@ -452,6 +486,13 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
         let lastControl: MetaControl | undefined
         let controlThisTurn: MetaControl | undefined
         let lastTurnContinued = false
+        // One-shot notice for a session resuming from meta-sleep. `slept_at` is
+        // present only when the claim restored a slept session (the queue clears
+        // it on claim but hands back the pre-claim value here). Delivered on the
+        // first steering pass, then cleared.
+        let sleepWakeNotice: ConversationMessage | undefined = session.slept_at
+            ? buildSleepWakeNotice(session.slept_at, session.wake_at, Date.now())
+            : undefined
         // Trace-level summary state — the input that opened the session and the
         // last assistant output, used to name + populate the `$ai_trace` event.
         const traceInput: ConversationMessage[] = [...session.conversation]
@@ -905,12 +946,20 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                     // re-appended via `inputs.appendPendingInput` so the next
                     // resume retries instead of losing the user's approval.
                     getSteeringMessages: async (): Promise<AgentMessage[]> => {
-                        const pending = await deps.inputs.drainPendingInputs(session.id)
-                        if (pending.length === 0) {
-                            return []
-                        }
                         const out: ConversationMessage[] = []
                         const kept: ConversationMessage[] = []
+                        // Deliver the meta-sleep resume notice once, ahead of any
+                        // drained /send so the model sees "you woke up" before the
+                        // message that woke it. A timer wake has no pending inputs,
+                        // so this is the only thing that drives the resumed turn.
+                        if (sleepWakeNotice) {
+                            out.push(sleepWakeNotice)
+                            sleepWakeNotice = undefined
+                        }
+                        const pending = await deps.inputs.drainPendingInputs(session.id)
+                        if (pending.length === 0) {
+                            return out as unknown as AgentMessage[]
+                        }
                         for (const msg of pending) {
                             // Interactive client-tool result marker (from /send).
                             const clientToolResult = parseClientToolResultMarker(
@@ -1146,6 +1195,13 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
         } else if (lastControl?.kind === 'close') {
             await emit('closed', { turns: turn, summary: lastControl.summary })
             outcome = { state: 'closed', summary: lastControl.summary, turns: turn }
+        } else if (lastControl?.kind === 'sleep') {
+            await emit('sleeping', {
+                wake_at: lastControl.wakeAt,
+                requested_minutes: lastControl.requestedMinutes,
+                ...(lastControl.reason ? { reason: lastControl.reason } : {}),
+            })
+            outcome = { state: 'waiting', wakeAt: lastControl.wakeAt, sleptAt: lastControl.sleptAt, turns: turn }
         } else if (lastStopReason === 'error') {
             runLog.error({ turn, reason: lastError, ...errorContext() }, 'model.error')
             await emitFailure(lastError ?? 'model_error', { turns: turn, ...errorContext() })

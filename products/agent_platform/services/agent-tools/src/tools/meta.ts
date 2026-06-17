@@ -22,6 +22,14 @@
 
 import { defineNativeTool, Type } from '@posthog/agent-shared'
 
+/**
+ * Upper bound on a single `meta-sleep`. Enforced in the runner
+ * (`makeControlFlowTool` clamps to this) because TypeBox `returns`/`args`
+ * bounds aren't validated at call time. Kept here so the tool description and
+ * the runner clamp can't drift.
+ */
+export const MAX_SLEEP_MINUTES = 60
+
 export const endTurnTool = defineNativeTool({
     id: '@posthog/meta-end-turn',
     description:
@@ -48,6 +56,43 @@ export const endSessionTool = defineNativeTool({
     cost_hint: 'cheap',
     async run(_args, _ctx) {
         return { ended: true as const }
+    },
+})
+
+export const sleepTool = defineNativeTool({
+    id: '@posthog/meta-sleep',
+    description: [
+        `Put this session to sleep for up to ${MAX_SLEEP_MINUTES} minutes, then resume automatically.`,
+        'Unlike waiting in a loop, this RELEASES all resources — your sandbox is torn down and',
+        'a worker only re-claims the session when the timer elapses. Use it to back off before',
+        'retrying, to poll an external job on an interval, or to wait for something to finish.',
+        'IMPORTANT: the sandbox filesystem (working dir, git checkout, scratch files) does NOT',
+        'survive sleep — persist anything you need (git commit/push, memory-write, table-append)',
+        'BEFORE calling this. Your conversation history is preserved. A new user message wakes you',
+        'early; on resume you are told how long you actually slept so you can decide whether to',
+        'sleep again. duration_minutes is clamped to [1, ' + MAX_SLEEP_MINUTES + '].',
+    ].join(' '),
+    args: Type.Object({
+        duration_minutes: Type.Integer({
+            minimum: 1,
+            maximum: MAX_SLEEP_MINUTES,
+            description: `How long to sleep, in minutes (1–${MAX_SLEEP_MINUTES}).`,
+        }),
+        reason: Type.Optional(
+            Type.String({ description: 'Short note on why you are sleeping — shown in the session timeline.' })
+        ),
+    }),
+    returns: Type.Object({
+        sleeping: Type.Literal(true),
+        wake_at: Type.String({ description: 'ISO timestamp the session is scheduled to resume.' }),
+    }),
+    requires: { integrations: [], scopes: [] },
+    cost_hint: 'cheap',
+    async run(_args, _ctx) {
+        // Runner intercepts this in `makeControlFlowTool` — never actually
+        // called. The fallback keeps the contract total if interception is
+        // ever bypassed (e.g. a direct unit call): report a no-op sleep.
+        return { sleeping: true as const, wake_at: new Date().toISOString() }
     },
 })
 

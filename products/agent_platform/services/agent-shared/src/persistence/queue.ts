@@ -49,8 +49,12 @@ export interface AggregateStats {
     failedInWindowCount: number
 }
 
-/** Live (non-terminal) session states. `completed`/`closed`/`cancelled`/`failed` are terminal. */
-export const LIVE_SESSION_STATES: AgentSession['state'][] = ['queued', 'running']
+/**
+ * Live (non-terminal) session states. `completed`/`closed`/`cancelled`/`failed`
+ * are terminal. `waiting` is live — a slept session that will resume on its
+ * timer or on the next /send.
+ */
+export const LIVE_SESSION_STATES: AgentSession['state'][] = ['queued', 'running', 'waiting']
 
 export interface ListSessionsOpts {
     limit?: number
@@ -189,4 +193,13 @@ export interface SessionQueue extends SessionInputsStore {
      * may still be retained.
      */
     listIdleCompleted(floorMaxAgeMs: number, limit?: number): Promise<AgentSession[]>
+    /**
+     * Wake slept sessions whose timer has elapsed: `waiting` rows with
+     * `wake_at <= now` are flipped back to `queued` so a runner claims them
+     * via the normal path. `wake_at`/`slept_at` are deliberately left on the
+     * row — the runner reads them on claim to build the resume notice, then
+     * clears them. A /send wakes a `waiting` session sooner via the resume
+     * path; this only covers the timer. Returns the number of sessions woken.
+     */
+    wakeReadyWaiting(now: Date): Promise<number>
 }

@@ -68,6 +68,7 @@ describe('janitor: real e2e', () => {
             requeued: 0,
             poisoned: 0,
             closed: 0,
+            woken: 0,
             expired_approvals: 0,
             cleared_idempotency_keys: 0,
             reaped_sandboxes: 0,
@@ -96,6 +97,7 @@ describe('janitor: real e2e', () => {
             requeued: number
             poisoned: number
             closed: number
+            woken: number
             expired_approvals: number
             cleared_idempotency_keys: number
         }> => {
@@ -113,6 +115,7 @@ describe('janitor: real e2e', () => {
             requeued: 1,
             poisoned: 0,
             closed: 0,
+            woken: 0,
             expired_approvals: 0,
             cleared_idempotency_keys: 0,
             reaped_sandboxes: 0,
@@ -126,6 +129,7 @@ describe('janitor: real e2e', () => {
             requeued: 1,
             poisoned: 0,
             closed: 0,
+            woken: 0,
             expired_approvals: 0,
             cleared_idempotency_keys: 0,
             reaped_sandboxes: 0,
@@ -139,6 +143,7 @@ describe('janitor: real e2e', () => {
             requeued: 0,
             poisoned: 1,
             closed: 0,
+            woken: 0,
             expired_approvals: 0,
             cleared_idempotency_keys: 0,
             reaped_sandboxes: 0,

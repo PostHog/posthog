@@ -41,7 +41,7 @@ import {
     Sandbox,
     ToolContext,
 } from '@posthog/agent-shared'
-import { getNativeTool, hasNativeTool } from '@posthog/agent-tools'
+import { getNativeTool, hasNativeTool, MAX_SLEEP_MINUTES } from '@posthog/agent-tools'
 
 import type { OpenedMcp, RemoteMcpTool } from './mcp-clients'
 import { buildToolNameMap } from './provider-safe-names'
@@ -53,10 +53,31 @@ import { buildToolNameMap } from './provider-safe-names'
  */
 export const ALWAYS_ON_NATIVE_TOOL_IDS = ['@posthog/meta-end-turn', '@posthog/meta-end-session']
 
-const CONTROL_FLOW_IDS = new Set(ALWAYS_ON_NATIVE_TOOL_IDS)
+/**
+ * `@posthog/meta-sleep` is intercepted like the always-on meta tools, but it is
+ * opt-in (an agent only gets it if its spec lists it) — sleeping changes session
+ * semantics, so we don't force it on every agent. Promote it into
+ * `ALWAYS_ON_NATIVE_TOOL_IDS` to make it universal later.
+ */
+export const SLEEP_TOOL_ID = '@posthog/meta-sleep'
+
+const CONTROL_FLOW_IDS = new Set([...ALWAYS_ON_NATIVE_TOOL_IDS, SLEEP_TOOL_ID])
 
 /** Control signal a meta tool surfaces to the driver via `AgentToolResult.details`. */
-export type MetaControl = { kind: 'end_turn' } | { kind: 'close'; summary?: string }
+export type MetaControl =
+    | { kind: 'end_turn' }
+    | { kind: 'close'; summary?: string }
+    | {
+          /** `meta-sleep`: park the session until `wakeAt`, then resume. */
+          kind: 'sleep'
+          /** ISO timestamp the session should become claimable again. */
+          wakeAt: string
+          /** ISO timestamp the sleep began — paired with `wakeAt` to report actual-vs-requested on resume. */
+          sleptAt: string
+          /** Clamped requested duration, in minutes. */
+          requestedMinutes: number
+          reason?: string
+      }
 
 /** `details` shape every tool in this adapter returns. */
 export interface ToolResultDetails {
@@ -281,6 +302,23 @@ function makeControlFlowTool(id: string): AgentTool<TSchema, ToolResultDetails> 
         description: native.schema.description,
         parameters: native.schema.args,
         execute: async (_callId, args): Promise<AgentToolResult<ToolResultDetails>> => {
+            if (id === SLEEP_TOOL_ID) {
+                const a = args as { duration_minutes?: number; reason?: string }
+                // Clamp in code: TypeBox bounds on args aren't enforced at call
+                // time, so a model could ask for 0 or 10_000. Floor at 1 minute.
+                const requestedMinutes = Math.min(
+                    MAX_SLEEP_MINUTES,
+                    Math.max(1, Math.round(typeof a.duration_minutes === 'number' ? a.duration_minutes : 1))
+                )
+                const now = Date.now()
+                const sleptAt = new Date(now).toISOString()
+                const wakeAt = new Date(now + requestedMinutes * 60_000).toISOString()
+                return {
+                    content: [{ type: 'text', text: JSON.stringify({ sleeping: true, wake_at: wakeAt }) }],
+                    details: { control: { kind: 'sleep', wakeAt, sleptAt, requestedMinutes, reason: a.reason } },
+                    terminate: true,
+                }
+            }
             if (id === '@posthog/meta-end-session') {
                 const summary = (args as { summary?: string }).summary
                 return {
