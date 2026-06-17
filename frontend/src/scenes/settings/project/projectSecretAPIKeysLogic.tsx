@@ -13,6 +13,7 @@ import {
     PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION,
     PROJECT_SECRET_API_KEY_SCOPE_PRESETS,
     ProjectSecretAPIKeyAllowedScope,
+    ProjectSecretAPIKeyScopePreset,
 } from 'lib/scopes'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
@@ -202,7 +203,7 @@ export const projectSecretAPIKeysLogic = kea<projectSecretAPIKeysLogicType>([
         ],
         availablePresets: [
             (s) => [s.featureFlags],
-            (featureFlags): typeof PROJECT_SECRET_API_KEY_SCOPE_PRESETS =>
+            (featureFlags): ProjectSecretAPIKeyScopePreset[] =>
                 PROJECT_SECRET_API_KEY_SCOPE_PRESETS.filter(
                     ({ value }) => value !== 'llm_gateway' || featureFlags[FEATURE_FLAGS.AI_GATEWAY]
                 ),
