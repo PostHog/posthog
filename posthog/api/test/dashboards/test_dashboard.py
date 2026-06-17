@@ -432,6 +432,20 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert isoparse(results_by_id[dashboard_recent_id]["last_viewed_at"]) == isoparse("2024-01-01T12:00:00+00:00")
         assert results_by_id[dashboard_unseen_id]["last_viewed_at"] is None
 
+    def test_list_includes_folder_from_filesystem(self):
+        filed_id, _ = self.dashboard_api.create_dashboard(
+            {"name": "Filed dashboard", "_create_in_folder": "Marketing/Website"}
+        )
+        unfiled_id, _ = self.dashboard_api.create_dashboard({"name": "Unfiled dashboard"})
+
+        response = self.dashboard_api.list_dashboards(parent="environment")
+        results_by_id = {dashboard["id"]: dashboard for dashboard in response["results"]}
+
+        # The folder is the file system path without the dashboard's own name
+        assert results_by_id[filed_id]["folder"] == "Marketing/Website"
+        # Dashboards created without an explicit folder land in the default unfiled folder
+        assert results_by_id[unfiled_id]["folder"] == "Unfiled/Dashboards"
+
     @snapshot_postgres_queries
     def test_retrieve_dashboard(self):
         dashboard = Dashboard.objects.create(team=self.team, name="private dashboard", created_by=self.user)
