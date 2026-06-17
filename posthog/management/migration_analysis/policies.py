@@ -441,6 +441,10 @@ class HotTableAlterPolicy(MigrationPolicy):
         "RemoveConstraint",
         "AddIndex",
         "RemoveIndex",
+        # ADD CONSTRAINT ... NOT VALID still takes a brief ACCESS EXCLUSIVE lock,
+        # so the helper is gated like a plain AddConstraint. (ValidateConstraint
+        # is not listed - VALIDATE takes only SHARE UPDATE EXCLUSIVE.)
+        "AddConstraintNotValid",
     }
     # Op types that carry the target model in `name`
     MODEL_LEVEL_OPS = {

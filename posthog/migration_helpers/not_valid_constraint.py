@@ -32,6 +32,10 @@ nothing:
         ValidateConstraint(model_name="mymodel", name="mymodel_amount_gte_0"),
     ]
 
+Both phases disable lock_timeout / statement_timeout first (like the concurrent
+index helpers): otherwise a deploy-time statement_timeout would kill the VALIDATE
+scan mid-flight on a large table and every bin/migrate retry would do the same.
+
 Both phases are idempotent (bin/migrate re-runs the whole migration on failure):
 the add skips if the constraint already exists, the validate skips if it is
 already validated.
@@ -42,6 +46,8 @@ from django.db.migrations.operations.base import Operation
 from django.db.models import CheckConstraint
 
 import structlog
+
+from posthog.migration_helpers.concurrent_index import _disable_timeouts
 
 logger = structlog.get_logger(__name__)
 
@@ -85,6 +91,7 @@ class AddConstraintNotValid(migrations.AddConstraint):
         model = to_state.apps.get_model(app_label, self.model_name)
         if not self.allow_migrate_model(schema_editor.connection.alias, model):
             return
+        _disable_timeouts(schema_editor)  # a deploy-time lock_timeout must not cancel the brief ACCESS EXCLUSIVE lock
         if _constraint_validity(schema_editor, model._meta.db_table, self.constraint.name) is not None:
             return  # already added; a bin/migrate retry is a no-op
         schema_editor.execute(f"{self.constraint.create_sql(model, schema_editor)} NOT VALID")
@@ -123,6 +130,7 @@ class ValidateConstraint(Operation):
         model = to_state.apps.get_model(app_label, self.model_name)
         if not self.allow_migrate_model(schema_editor.connection.alias, model):
             return
+        _disable_timeouts(schema_editor)  # statement_timeout must not kill the VALIDATE scan mid-flight
         if _constraint_validity(schema_editor, model._meta.db_table, self.name):
             return  # already validated; a bin/migrate retry is a no-op
         table = schema_editor.quote_name(model._meta.db_table)

@@ -210,6 +210,42 @@ def test_validate_constraint_reverse_is_noop(temp_model):
     assert _convalidated(name) is True  # constraint untouched by the reverse
 
 
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "op",
+    [
+        AddConstraintNotValid(model_name=MODEL_NAME, constraint=_check("tchk")),
+        ValidateConstraint(model_name=MODEL_NAME, name="tchk"),
+    ],
+)
+def test_database_forwards_disables_timeouts(op):
+    """Both phases must disable lock_timeout/statement_timeout before issuing DDL,
+    or a deploy-time statement_timeout kills the VALIDATE scan and every retry repeats.
+
+    collect_sql records the emitted statements instead of running them; the
+    constraint is absent, so the validity probe returns None and the op proceeds.
+    """
+    state = ProjectState()
+    state.add_model(
+        ModelState(
+            app_label="posthog",
+            name=MODEL_NAME,
+            fields=[("id", models.AutoField(primary_key=True)), ("amount", models.IntegerField(null=True))],
+        )
+    )
+
+    schema_editor = connection.schema_editor(atomic=False, collect_sql=True)
+    schema_editor.__enter__()
+    try:
+        op.database_forwards("posthog", schema_editor, from_state=state, to_state=state)
+    finally:
+        schema_editor.__exit__(None, None, None)
+
+    collected = "\n".join(schema_editor.collected_sql)
+    assert "SET lock_timeout = 0" in collected
+    assert "SET statement_timeout = 0" in collected
+
+
 @pytest.mark.parametrize(
     "op",
     [

@@ -2235,6 +2235,13 @@ class TestHotTableAlterPolicy:
         risk = self._analyze([op])
         assert not any("ACCESS EXCLUSIVE" in v for v in risk.policy_violations)
 
+    def test_validate_constraint_on_hot_model_not_flagged(self):
+        """VALIDATE CONSTRAINT takes only SHARE UPDATE EXCLUSIVE, so the helper is
+        not gated even on a hot table (unlike its AddConstraintNotValid sibling)."""
+        op = create_mock_operation(ValidateConstraint, model_name="team", name="team_some_check")
+        risk = self._analyze([op])
+        assert not any("ACCESS EXCLUSIVE" in v for v in risk.policy_violations)
+
     def test_alter_model_options_on_hot_model_not_flagged(self):
         op = MagicMock()
         op.__class__.__name__ = "AlterModelOptions"
