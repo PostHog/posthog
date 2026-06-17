@@ -74,10 +74,15 @@ class Command(BaseCommand):
                     f"  access_token={access_token.pk} user={user.id} old={sorted(old_scope)} new={sorted(new_scope)}"
                 )
                 if not dry_run:
-                    with transaction.atomic():
-                        locked = OAuthAccessToken.objects.select_for_update().get(pk=access_token.pk)
-                        locked.scoped_teams = new_scope
-                        locked.save(update_fields=["scoped_teams"])
+                    try:
+                        with transaction.atomic():
+                            locked = OAuthAccessToken.objects.select_for_update().get(pk=access_token.pk)
+                            locked.scoped_teams = new_scope
+                            locked.save(update_fields=["scoped_teams"])
+                    except OAuthAccessToken.DoesNotExist:
+                        # A concurrent refresh deleted this row between read and lock; skip
+                        # it rather than aborting the whole backfill.
+                        self.stdout.write(f"  access_token={access_token.pk} gone before lock; skipping")
 
             refresh_tokens = OAuthRefreshToken.objects.filter(
                 application=application,
@@ -98,10 +103,15 @@ class Command(BaseCommand):
                     f"  refresh_token={refresh_token.pk} user={user.id} old={sorted(old_scope)} new={sorted(new_scope)}"
                 )
                 if not dry_run:
-                    with transaction.atomic():
-                        locked = OAuthRefreshToken.objects.select_for_update().get(pk=refresh_token.pk)
-                        locked.scoped_teams = new_scope
-                        locked.save(update_fields=["scoped_teams"])
+                    try:
+                        with transaction.atomic():
+                            locked = OAuthRefreshToken.objects.select_for_update().get(pk=refresh_token.pk)
+                            locked.scoped_teams = new_scope
+                            locked.save(update_fields=["scoped_teams"])
+                    except OAuthRefreshToken.DoesNotExist:
+                        # A concurrent refresh removed this row between read and lock; skip
+                        # it rather than aborting the whole backfill.
+                        self.stdout.write(f"  refresh_token={refresh_token.pk} gone before lock; skipping")
 
         verb = "Would update" if dry_run else "Updated"
         self.stdout.write(
