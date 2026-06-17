@@ -73,7 +73,7 @@ class AccountRef:
 class AccountNote:
     """An internal note (notebook) attached to an account."""
 
-    title: str
+    title: str | None
     short_id: str
 
 
