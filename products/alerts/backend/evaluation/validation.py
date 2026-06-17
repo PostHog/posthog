@@ -9,6 +9,7 @@ from posthog.schema import (
     AlertConditionType,
     FunnelConversionMetric,
     FunnelsAlertConfig,
+    FunnelsQuery,
     HogQLAlertConfig,
     HogQLAlertEvaluation,
     InsightThreshold,
@@ -151,8 +152,17 @@ def _validate_funnels_alert_config(ctx: _AlertConfigValidationContext) -> None:
     except Exception:
         raise ValueError(f"Alert has invalid FunnelsAlertConfig: {ctx.config}")
     step = parsed.funnel_step
-    if step is not None and step < 0:
-        raise ValueError(f"funnel_step must be >= 0, got {step}")
+    if step is not None:
+        if step < 0:
+            raise ValueError(f"funnel_step must be >= 0, got {step}")
+        # The funnel's step count is known from the query at config time, so reject an out-of-range
+        # step now rather than letting the alert fail on its first check.
+        try:
+            funnels_query = FunnelsQuery.model_validate(ctx.query)
+        except Exception as e:
+            raise ValueError(f"Alert's insight has an invalid FunnelsQuery: {e}")
+        if step >= len(funnels_query.series):
+            raise ValueError(f"funnel_step {step} is out of range (funnel has {len(funnels_query.series)} steps)")
     if parsed.metric == FunnelConversionMetric.CONVERSION_FROM_PREVIOUS and step == 0:
         raise ValueError("conversion_from_previous is undefined at the first step; use conversion_from_start instead")
     _validate_condition_threshold_compatibility(ctx.parsed_condition, ctx.threshold_config)
