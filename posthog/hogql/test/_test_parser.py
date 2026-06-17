@@ -5371,6 +5371,24 @@ def parser_test_factory(backend: HogQLParserBackend):
             self.assertEqual(inner.end, 24, msg=f"{backend}: inner.end={inner.end}, expected 24")
             self.assertEqual(outer.end, 40, msg=f"{backend}: outer.end={outer.end}, expected 40")
 
+        def test_parenthesized_between_high_end_position_with_hoist(self):
+            # A BETWEEN whose high operand is parenthesized spans through the
+            # trailing `)`, but the high AST node's `end` is paren-stripped. In
+            # the hoist case (an alias / ternary / etc. parsed past the parens),
+            # the BetweenExpr span must be recovered from the source — else rust's
+            # BetweenExpr.end dropped the closing paren and diverged from cpp.
+            for src in (
+                "0 between 0 and (0) as x",
+                "0 not between 0 and (0) as x",
+                "0 between 0 and ((0)) as x",
+                "1 between 2 and (3) ? 4 : 5",
+                "1 between 2 and (3 + 4) as x",
+            ):
+                self._assert_ast(src, "expr")
+            # Guards: simple (no hoist) and a non-parenthesized high are unaffected.
+            for src in ("0 between 0 and (0)", "0 between 0 and 5 as x"):
+                self._assert_ast(src, "expr")
+
         def test_bare_asterisk_clause_body_after_comma(self):
             # `select a, where *` opens the WHERE clause with a bare `*` body; later LIMIT / GROUP BY / etc. is a normal subsequent clause.
             cases = (
@@ -8083,6 +8101,30 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "cast(1 as Tuple(UInt8, String))",
                 "cast(1 as Array(Tuple(UInt8, String)))",
             ):
+                self.assertEqual(
+                    parse_expr(query, backend="cpp-json"),
+                    parse_expr(query, backend=backend),
+                    msg=query,
+                )
+
+        def test_cast_type_enum_template_string_key_rejected(self):
+            # `enumValue: string '=' numberLiteral`, and `string` is
+            # STRING_LITERAL | templateString — so an `f'…'` key makes
+            # `cast(0 as a(f''=0))` a `ColumnTypeExprEnum` that cpp rejects as
+            # unsupported. rust used to check only STRING for the key and
+            # over-accept the template-keyed enum as a raw Param type name.
+            for query in (
+                "cast(0 as a(f''=0))",
+                "cast(0 as a(f'x'=1))",
+                "cast(0 as a(f'{1}'=2))",
+                "cast(0 as a('k'=1, f''=2))",
+                "try_cast(0 as a(f''=0))",
+            ):
+                with self.assertRaises(BaseHogQLError, msg=f"{backend}: {query}"):
+                    parse_expr(query, backend=backend)
+            # Guard: a template not followed by `= numberLiteral` is a Param type
+            # (not an enum), still accepted on both.
+            for query in ("cast(0 as a(b))", "cast(0 as a(f''))"):
                 self.assertEqual(
                     parse_expr(query, backend="cpp-json"),
                     parse_expr(query, backend=backend),

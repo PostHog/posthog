@@ -72,6 +72,17 @@ def _node_fields(node: Any) -> list[tuple[str, Any]]:
     return [(f.name, getattr(node, f.name, None)) for f in dataclasses.fields(node)]
 
 
+def asts_agree(oracle: Any, candidate: Any) -> bool:
+    """True when two parsed ASTs are equivalent. Mirrors the production shadow
+    comparison in `posthog/hogql/parser.py`: dataclass `==`, then a `repr()`
+    fallback so a NaN-bearing AST doesn't read as a spurious mismatch
+    (`float("nan") != float("nan")`, but `repr` is the stable `'nan'`). The
+    `repr` fallback only ever *upgrades* a `==` mismatch to agreement when the
+    two render identically, so it can't mask a real structural / positional
+    divergence."""
+    return oracle == candidate or repr(oracle) == repr(candidate)
+
+
 def _diff_path(oracle: Any, candidate: Any, path: list | None = None, depth: int = 0) -> list:
     """Walk both ASTs together; return the `.field` / `[i]` breadcrumbs
     from root to the first divergence, terminating with a 3-tuple
@@ -385,7 +396,7 @@ def _shape_for(
         return DivergenceShape(kind="candidate_reject", reject_signature=c_detail)
     if c_status == "crash":
         return None
-    if o_ast == c_ast:
+    if asts_agree(o_ast, c_ast):
         return None
     return _ast_mismatch_shape((_node_type(o_ast), _node_type(c_ast)), _diff_path(o_ast, c_ast))
 
@@ -833,7 +844,7 @@ def run_corpus_parity(
                 crash_buckets[crash_signature(c_detail or "")] += 1
                 failures.append(Failure("candidate_crash", query, c_detail or "<no traceback>", n_occ))
                 continue
-            if o_ast == c_ast:
+            if asts_agree(o_ast, c_ast):
                 counts["pass"] += 1
                 continue
             counts["ast_mismatch"] += 1

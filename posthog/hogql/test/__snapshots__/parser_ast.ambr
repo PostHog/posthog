@@ -10660,6 +10660,237 @@
   }
   '''
 # ---
+# name: test_parenthesized_between_high_end_position_with_hoist[0_between_0_and_0-791e981a]
+  '''
+  {
+    end: 19
+    expr: {
+      end: 1
+      start: 0
+      value: 0
+    }
+    high: {
+      end: 18
+      start: 17
+      value: 0
+    }
+    low: {
+      end: 11
+      start: 10
+      value: 0
+    }
+    negated: False
+    start: 0
+  }
+  '''
+# ---
+# name: test_parenthesized_between_high_end_position_with_hoist[0_between_0_and_0_as_x-17fd83ba]
+  '''
+  {
+    alias: "x"
+    end: 26
+    expr: {
+      end: 21
+      expr: {
+        end: 1
+        start: 0
+        value: 0
+      }
+      high: {
+        end: 19
+        start: 18
+        value: 0
+      }
+      low: {
+        end: 11
+        start: 10
+        value: 0
+      }
+      negated: False
+      start: 0
+    }
+    from_asterisk: False
+    hidden: False
+    start: 0
+  }
+  '''
+# ---
+# name: test_parenthesized_between_high_end_position_with_hoist[0_between_0_and_0_as_x-ed0ebee8]
+  '''
+  {
+    alias: "x"
+    end: 24
+    expr: {
+      end: 19
+      expr: {
+        end: 1
+        start: 0
+        value: 0
+      }
+      high: {
+        end: 18
+        start: 17
+        value: 0
+      }
+      low: {
+        end: 11
+        start: 10
+        value: 0
+      }
+      negated: False
+      start: 0
+    }
+    from_asterisk: False
+    hidden: False
+    start: 0
+  }
+  '''
+# ---
+# name: test_parenthesized_between_high_end_position_with_hoist[0_between_0_and_5_as_x-af6c11dc]
+  '''
+  {
+    alias: "x"
+    end: 22
+    expr: {
+      end: 17
+      expr: {
+        end: 1
+        start: 0
+        value: 0
+      }
+      high: {
+        end: 17
+        start: 16
+        value: 5
+      }
+      low: {
+        end: 11
+        start: 10
+        value: 0
+      }
+      negated: False
+      start: 0
+    }
+    from_asterisk: False
+    hidden: False
+    start: 0
+  }
+  '''
+# ---
+# name: test_parenthesized_between_high_end_position_with_hoist[0_not_between_0_and_0_as_x-af34ddad]
+  '''
+  {
+    alias: "x"
+    end: 28
+    expr: {
+      end: 23
+      expr: {
+        end: 1
+        start: 0
+        value: 0
+      }
+      high: {
+        end: 22
+        start: 21
+        value: 0
+      }
+      low: {
+        end: 15
+        start: 14
+        value: 0
+      }
+      negated: True
+      start: 0
+    }
+    from_asterisk: False
+    hidden: False
+    start: 0
+  }
+  '''
+# ---
+# name: test_parenthesized_between_high_end_position_with_hoist[1_between_2_and_3_4_5-d5932787]
+  '''
+  {
+    args: [
+      {
+        end: 19
+        expr: {
+          end: 1
+          start: 0
+          value: 1
+        }
+        high: {
+          end: 18
+          start: 17
+          value: 3
+        }
+        low: {
+          end: 11
+          start: 10
+          value: 2
+        }
+        negated: False
+        start: 0
+      },
+      {
+        end: 23
+        start: 22
+        value: 4
+      },
+      {
+        end: 27
+        start: 26
+        value: 5
+      }
+    ]
+    distinct: False
+    end: 27
+    name: "if"
+    start: 0
+  }
+  '''
+# ---
+# name: test_parenthesized_between_high_end_position_with_hoist[1_between_2_and_3_4_as_x-9fc935a7]
+  '''
+  {
+    alias: "x"
+    end: 28
+    expr: {
+      end: 23
+      expr: {
+        end: 1
+        start: 0
+        value: 1
+      }
+      high: {
+        end: 22
+        left: {
+          end: 18
+          start: 17
+          value: 3
+        }
+        op: "+"
+        right: {
+          end: 22
+          start: 21
+          value: 4
+        }
+        start: 17
+      }
+      low: {
+        end: 11
+        start: 10
+        value: 2
+      }
+      negated: False
+      start: 0
+    }
+    from_asterisk: False
+    hidden: False
+    start: 0
+  }
+  '''
+# ---
 # name: test_parse_order_expr_silently_drops_trailing_tokens[a_ASC_extra-7a36de73]
   '''
   {

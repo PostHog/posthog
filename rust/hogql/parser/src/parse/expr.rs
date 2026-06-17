@@ -3427,8 +3427,13 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         let mut pos = self.peek0.start;
         loop {
             let mut probe = Lexer::with_pos(self.src, pos);
-            // enumValue: STRING `=` numberLiteral
-            if !matches!(probe.next_token().map(|t| t.kind), Ok(TokenKind::String)) {
+            // enumValue: string `=` numberLiteral, where `string` is
+            // STRING_LITERAL | templateString — so an `f'…'` key (`a(f''=0)`) is
+            // an enum value too, which cpp rejects as `ColumnTypeExprEnum`.
+            if !matches!(
+                probe.next_token().map(|t| t.kind),
+                Ok(TokenKind::String | TokenKind::TemplateString)
+            ) {
                 return false;
             }
             if !matches!(probe.next_token().map(|t| t.kind), Ok(TokenKind::EqDouble)) {
@@ -4928,9 +4933,12 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                     // is now buried inside (e.g. as `Call(if, [BetweenExpr, …])` for the ternary hoist)
                     // and would not otherwise receive a span. cpp emits position info on BetweenExpr
                     // unconditionally — match that. Simple BETWEEN spans through the high operand's
-                    // last consumed token (incl. a parenthesized high's trailing `)`); only the
-                    // WIDE/hoist case needs `high.end` (last_consumed_end overshoots there).
-                    let high_end = self.emit.get_field(&high, "end");
+                    // last consumed token (incl. a parenthesized high's trailing `)`) via wrap_pos;
+                    // the WIDE/hoist case can't (last_consumed_end overshoots past the hoist), so it
+                    // stamps the high operand's end directly. The high node `end` is paren-stripped,
+                    // so recover a parenthesized high's trailing `)` via `high_operand_paren_end`.
+                    let high_end =
+                        high_operand_paren_end(self, &high).or_else(|| self.emit.get_field(&high, "end"));
                     let between_inner = self.emit.between(prev, low, high, true);
                     let mut between = if hoisted.is_empty() {
                         self.wrap_pos(between_inner, lhs_start)
@@ -4996,11 +5004,13 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 let prev = std::mem::replace(lhs, self.emit.null());
                 // The simple BETWEEN spans through the high operand's *last consumed*
                 // token — including a trailing `)` that a parenthesized high
-                // (`… and (3)`) strips from `high.end`. Only the WIDE/hoist case
-                // (`parse_between_body` absorbed a nested BETWEEN that is now hoisted
-                // back out) needs `high.end`, because there `last_consumed_end` is
-                // past the high we actually keep.
-                let high_end = self.emit.get_field(&high, "end");
+                // (`… and (3)`) strips from `high.end`. The WIDE/hoist case can't
+                // use `last_consumed_end` (it's past the hoist), so it stamps the
+                // high operand's end directly, recovering a parenthesized high's
+                // trailing `)` via `high_operand_paren_end` (the node `end` is
+                // paren-stripped).
+                let high_end =
+                    high_operand_paren_end(self, &high).or_else(|| self.emit.get_field(&high, "end"));
                 let between_inner = self.emit.between(prev, low, high, false);
                 let mut between = if hoisted.is_empty() {
                     self.wrap_pos(between_inner, lhs_start)
@@ -5937,23 +5947,33 @@ fn is_wholly_parenthesized<'a, E: Emitter + Clone>(
     parser: &Parser<'a, E>,
     node: &E::Value,
 ) -> bool {
-    let start = match pos_offset(&parser.emit, parser.emit.get_field(node, "start").as_ref()) {
-        Some(s) => s,
-        None => return false,
-    };
-    let end = match pos_offset(&parser.emit, parser.emit.get_field(node, "end").as_ref()) {
-        Some(e) => e,
-        None => return false,
-    };
+    let start = pos_offset(&parser.emit, parser.emit.get_field(node, "start").as_ref());
+    let end = pos_offset(&parser.emit, parser.emit.get_field(node, "end").as_ref());
+    match (start, end) {
+        (Some(s), Some(e)) => wholly_parenthesized_close(parser, s, e).is_some(),
+        _ => false,
+    }
+}
+
+/// If the byte range `[start, end)` is wholly wrapped in one balanced `( … )`
+/// (ignoring surrounding whitespace, and skipping string / quoted-identifier
+/// bodies and block comments so parens inside literals don't miscount),
+/// return that pair's `(` / `)` byte offsets `(lp, rp)`. ASCII byte-scan;
+/// callers gate on `parser.is_ascii_src`.
+fn wholly_parenthesized_close<'a, E: Emitter + Clone>(
+    parser: &Parser<'a, E>,
+    start: usize,
+    end: usize,
+) -> Option<(usize, usize)> {
     let bytes = parser.src.as_bytes();
     if start >= end || end > bytes.len() {
-        return false;
+        return None;
     }
     // Nearest non-whitespace byte before `start` must be an opening paren.
     let mut lp = start;
     loop {
         if lp == 0 {
-            return false;
+            return None;
         }
         lp -= 1;
         if !bytes[lp].is_ascii_whitespace() {
@@ -5961,7 +5981,7 @@ fn is_wholly_parenthesized<'a, E: Emitter + Clone>(
         }
     }
     if bytes[lp] != b'(' {
-        return false;
+        return None;
     }
     // Nearest non-whitespace byte at/after `end` must be a closing paren.
     let mut rp = end;
@@ -5969,7 +5989,7 @@ fn is_wholly_parenthesized<'a, E: Emitter + Clone>(
         rp += 1;
     }
     if rp >= bytes.len() || bytes[rp] != b')' {
-        return false;
+        return None;
     }
     // The `(` at `lp` must balance-match the `)` at `rp` exactly.
     let mut depth = 0i32;
@@ -6005,14 +6025,39 @@ fn is_wholly_parenthesized<'a, E: Emitter + Clone>(
             b')' => {
                 depth -= 1;
                 if depth == 0 {
-                    return i == rp;
+                    return (i == rp).then_some((lp, rp));
                 }
             }
             _ => {}
         }
         i += 1;
     }
-    false
+    None
+}
+
+/// The source offset just past a BETWEEN high operand, following any balanced
+/// wrapping parens. cpp's BetweenExpr span runs through a parenthesized high's
+/// trailing `)`, but the high AST node's `end` is the paren-stripped inner
+/// expr — so in the hoist case (where `last_consumed_end` has already moved
+/// past the hoist and can't be used) the node `end` undershoots by the closing
+/// paren(s). Returns a position object for the walked end, or `None` when the
+/// operand isn't parenthesized (caller keeps the node `end`) or src isn't ASCII.
+fn high_operand_paren_end<'a, E: Emitter + Clone>(
+    parser: &Parser<'a, E>,
+    high: &E::Value,
+) -> Option<E::Value> {
+    if !parser.is_ascii_src {
+        return None;
+    }
+    let mut s = pos_offset(&parser.emit, parser.emit.get_field(high, "start").as_ref())?;
+    let mut e = pos_offset(&parser.emit, parser.emit.get_field(high, "end").as_ref())?;
+    let mut extended = false;
+    while let Some((lp, rp)) = wholly_parenthesized_close(parser, s, e) {
+        s = lp;
+        e = rp + 1;
+        extended = true;
+    }
+    extended.then(|| parser.pos_obj(e))
 }
 
 /// `a and (b and c)` flattens to `And([a,b,c])` (cpp does the same for a

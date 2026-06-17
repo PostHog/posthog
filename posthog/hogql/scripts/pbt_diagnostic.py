@@ -95,6 +95,7 @@ from posthog.hogql.scripts._diagnostic_common import (
     _node_type,
     _probe_backend,
     _safe_parse,
+    asts_agree,
     shrink_to_shape,
 )
 from posthog.hogql.test._generated_grammar_strategies import expr_strategy, program_strategy, select_strategy
@@ -384,7 +385,7 @@ def main() -> int:
             )
             return
 
-        if o_ast == c_ast:
+        if asts_agree(o_ast, c_ast):
             counts["match"] += 1
             return
 
