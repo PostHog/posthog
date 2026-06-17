@@ -49,7 +49,7 @@ class TestVisionActionSynthesis(BaseTest):
     def _action(self, **overrides) -> VisionAction:
         defaults: dict = {
             "team": self.team,
-            "name": "digest",
+            "name": "summary",
             "scanner": self.scanner,
             "created_by": self.user,
             "trigger_config": {"rrule": "FREQ=DAILY", "timezone": "UTC"},

@@ -2,7 +2,7 @@
 
 Ported from `products/exports/backend/temporal/subscriptions/ai_subscription/delivery.py`
 rather than imported — that lives in a private (underscore) function and pulling it across
-the product boundary for one helper isn't worth the coupling. Synthesized digest content is
+the product boundary for one helper isn't worth the coupling. Synthesized group summary content is
 delivered to Slack (which auto-unfurls links), so injected/hallucinated URLs must be defanged
 to inert code spans before delivery; only PostHog hosts survive.
 """
