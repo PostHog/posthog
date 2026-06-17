@@ -251,7 +251,7 @@ class FeatureFlagStatusChecker:
         some_release_condition_fully_rolled_out = False
         fully_rolled_out_release_condition_variant_override: str | None = None
 
-        multivariate = (flag.filters or {}).get("multivariate", None)
+        multivariate = (flag.filters or {}).get("multivariate") or {}
         variants = multivariate.get("variants", [])
         for variant in variants:
             if variant.get("rollout_percentage") == 100:
