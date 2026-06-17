@@ -716,4 +716,57 @@ mod tests {
             Offset::Offset(19),
         );
     }
+
+    #[test]
+    fn manifest_commit_tpl_round_trips_a_multi_topic_live_capture() {
+        // The full restore round-trip: drive the real `OffsetManifest::capture` from seeded trackers
+        // across all three followers (not the hand-built `manifest_with`), then commit each topic.
+        // Distinct offsets per tracker/partition so a cross-wired capture would surface in the TPL.
+        let owned = [3, 7];
+        let merge = OffsetTracker::new();
+        let transfer = OffsetTracker::new();
+        let cascade = OffsetTracker::new();
+        for (tracker, base) in [(&merge, 10), (&transfer, 20), (&cascade, 30)] {
+            for (partition, bump) in [(3, 1), (7, 2)] {
+                let offset = base + bump;
+                tracker.mark_dispatched(partition, offset);
+                let _ = tracker.mark_processed(partition, offset);
+                tracker.mark_committed(partition, offset);
+            }
+        }
+
+        let manifest = OffsetManifest::capture(
+            &owned,
+            &[
+                ("person_merge_events", &merge),
+                ("cohort_merge_state_transfer", &transfer),
+                ("cohort_cascade_events", &cascade),
+            ],
+        );
+
+        for (topic, base) in [
+            ("person_merge_events", 10),
+            ("cohort_merge_state_transfer", 20),
+            ("cohort_cascade_events", 30),
+        ] {
+            let tpl = manifest_commit_tpl(topic, &manifest)
+                .unwrap_or_else(|| panic!("{topic} live capture must produce a commit list"));
+            assert_eq!(tpl.count(), 2, "{topic} commits both owned partitions");
+            assert_eq!(
+                tpl.find_partition(topic, 3).unwrap().offset(),
+                Offset::Offset(base + 1),
+            );
+            assert_eq!(
+                tpl.find_partition(topic, 7).unwrap().offset(),
+                Offset::Offset(base + 2),
+            );
+        }
+
+        // A topic never captured (the events topic was not among the trackers) is absent from the
+        // manifest, so the same live context yields `None` — pinning the negative arm alongside.
+        assert!(
+            manifest_commit_tpl("cohort_stream_events", &manifest).is_none(),
+            "a topic absent from the live capture must produce no commit",
+        );
+    }
 }

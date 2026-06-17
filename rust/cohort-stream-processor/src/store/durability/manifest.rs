@@ -190,6 +190,46 @@ mod tests {
     }
 
     #[test]
+    fn capture_records_present_follower_offsets() {
+        // Inverse of `capture_omits_an_absent_follower`: once the merge/transfer/cascade followers
+        // actually commit (Slice 3a), capture must record their offsets with content. Distinct offsets
+        // per tracker/partition so a cross-wired bug (e.g. reading the wrong tracker) would surface.
+        let owned = [3, 7];
+        let merge = OffsetTracker::new();
+        let transfer = OffsetTracker::new();
+        let cascade = OffsetTracker::new();
+        for (tracker, base) in [(&merge, 10), (&transfer, 20), (&cascade, 30)] {
+            for (partition, bump) in [(3, 1), (7, 2)] {
+                let offset = base + bump;
+                tracker.mark_dispatched(partition, offset);
+                let _ = tracker.mark_processed(partition, offset);
+                tracker.mark_committed(partition, offset);
+            }
+        }
+
+        let manifest = OffsetManifest::capture(
+            &owned,
+            &[
+                ("person_merge_events", &merge),
+                ("cohort_merge_state_transfer", &transfer),
+                ("cohort_cascade_events", &cascade),
+            ],
+        );
+
+        for (topic, base) in [
+            ("person_merge_events", 10),
+            ("cohort_merge_state_transfer", 20),
+            ("cohort_cascade_events", 30),
+        ] {
+            let inner = manifest.topics.get(topic).expect("follower topic recorded");
+            assert!(!inner.is_empty(), "{topic} follower map must be non-empty");
+            assert_eq!(inner.len(), 2, "{topic} records both owned partitions");
+            assert_eq!(manifest.offset_for(topic, 3), Some(base + 1));
+            assert_eq!(manifest.offset_for(topic, 7), Some(base + 2));
+        }
+    }
+
+    #[test]
     fn capture_records_only_owned_partitions() {
         // A tracker may carry committed offsets for partitions this pod no longer owns; capture is
         // filtered to `owned`, so an unowned-but-committed partition never lands in the manifest.

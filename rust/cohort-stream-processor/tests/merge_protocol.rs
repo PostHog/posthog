@@ -11,6 +11,7 @@ use cohort_stream_processor::merge::apply_handler::{
     handle_transfer, ApplyOutcome, MAX_TRANSFER_FORWARD_HOPS,
 };
 use cohort_stream_processor::merge::drain_handler::{handle_merge_event, DrainOutcome};
+use cohort_stream_processor::merge::tombstone_redirect::{resolve, Resolution};
 use cohort_stream_processor::merge::transfer::{
     MergeStateTransfer, PendingTransfer, PersonMergeEvent, Tombstone, MERGE_EVENT_SCHEMA_VERSION,
 };
@@ -1501,4 +1502,342 @@ fn write_tombstone(store: &CohortStore, on_partition: u16, old: Uuid, new: Uuid)
     store
         .write_batch(|b| b.put_tombstone(&key, &value.encode()))
         .unwrap();
+}
+
+// ---- Slice 3a: the four merge CFs survive a whole-DB `create_checkpoint` → disaster restore. ----
+//
+// Slice 2 added `CohortStore::create_checkpoint` (a whole-DB snapshot of every column family) but
+// shipped with the merge path inert, so nothing pinned that `cf_pending_transfers`,
+// `cf_merge_drains_applied`, `cf_merge_applied`, and `cf_merge_tombstones` round-trip through a
+// checkpoint and still enforce their idempotence/dedup contracts. These three drive merge state into
+// a live store, snapshot it, open the snapshot as a fresh DB (the disaster-restore path — NOT the
+// flush+reopen-same-dir reopen-live shortcut), and prove each CF's contract survives.
+
+/// Snapshot `store` to a checkpoint sibling of `dir`, drop the live handle (the live DB "goes away"),
+/// and reopen the checkpoint as a fresh, independent DB without wiping — the disaster-restore path.
+fn checkpoint_then_restore(dir: &TempDir, store: CohortStore) -> CohortStore {
+    let checkpoint = dir.path().join("checkpoint");
+    store.create_checkpoint(&checkpoint).unwrap();
+    drop(store);
+    CohortStore::open(&StoreConfig {
+        path: checkpoint,
+        wipe_on_start: false,
+        ..StoreConfig::default()
+    })
+    .expect("open the restored checkpoint")
+}
+
+/// The single pending transfer staged on `partition_id` (the seed stages exactly one).
+fn only_pending(store: &CohortStore, partition_id: u16) -> Vec<(PendingTransferKey, Vec<u8>)> {
+    store
+        .scan_pending_transfers(partition_id, usize::MAX)
+        .unwrap()
+}
+
+/// D5 — the riskiest interleaving: a whole-DB checkpoint taken *while a pending transfer is still
+/// staged* (before it was produced/cleared), then two independent redelivery routes both re-apply the
+/// same merge. The first applies; the second must dedup. Exercises all four merge CFs at once:
+/// `cf_pending_transfers` (recovered from the snapshot), `cf_merge_drains_applied` (short-circuits the
+/// replayed merge to `AlreadyDrained`), `cf_merge_applied` (source-coords dedup → `AlreadyApplied`),
+/// and `cf_merge_tombstones` (still resolves P_old → P_new). If any CF were lost across the
+/// checkpoint, a route would re-drain or re-apply and double-count P_new's daily buckets.
+#[test]
+fn checkpoint_restore_then_redrive_and_already_drained_replay_apply_once() {
+    let dir = TempDir::new().unwrap();
+    let (store, filters, p_new_part, p_new, transfer) = seed_and_drain(&dir);
+    // The seed drains at merge-message coords (5, 100); the transfer carries them as its source coords.
+    let p_old = transfer.old_person_uuid;
+    let p_old_part = part(p_old);
+    let merge_coords = (transfer.source_partition, transfer.source_offset);
+    assert_eq!(
+        merge_coords,
+        (5, 100),
+        "the seed drains at the known coords"
+    );
+
+    // Checkpoint WHILE the pending transfer is still staged (not yet produced/cleared), then restore.
+    let restored = checkpoint_then_restore(&dir, store);
+
+    // (1) All four CFs survived: the pending transfer, the drain marker, and the tombstone are present
+    //     in the snapshot opened as a fresh DB.
+    let recovered = only_pending(&restored, p_old_part);
+    assert_eq!(
+        recovered.len(),
+        1,
+        "the still-staged pending transfer survived the checkpoint",
+    );
+    let pending = PendingTransfer::decode(&recovered[0].1).unwrap();
+    assert_eq!(pending.transfer.old_person_uuid, p_old);
+    assert_eq!(
+        pending.transfer, transfer,
+        "the staged transfer round-tripped intact"
+    );
+    let drain_key = MergeDrainKey {
+        partition_id: p_old_part,
+        team_id: TEAM as u64,
+        old_person: p_old,
+        merge_msg_partition: merge_coords.0,
+        merge_msg_offset: merge_coords.1,
+    };
+    assert!(
+        restored
+            .get_merge_drain_applied(&drain_key)
+            .unwrap()
+            .is_some(),
+        "the drain marker survived the checkpoint",
+    );
+    let tombstone_key = TombstoneKey {
+        partition_id: p_old_part,
+        team_id: TEAM as u64,
+        person: p_old,
+    };
+    let tombstone_bytes = restored
+        .get_tombstone(&tombstone_key)
+        .unwrap()
+        .expect("the tombstone survived the checkpoint");
+    assert_eq!(
+        Tombstone::decode(&tombstone_bytes).unwrap().new_person,
+        p_new
+    );
+
+    // (2) Route 1 — eager redrive: apply the transfer recovered from the restored outbox. It applies
+    //     (the restored `cf_merge_applied` holds no marker yet), merging P_old + P_new's daily to 2.
+    let mut new_queue = EvictionQueue::<Stage1Key>::new();
+    let applied = handle_transfer(
+        p_new_part,
+        &restored,
+        &filters,
+        &pending.transfer,
+        (5, 7),
+        &mut new_queue,
+    )
+    .unwrap();
+    assert!(
+        matches!(applied, ApplyOutcome::Applied { .. }),
+        "the recovered transfer applies once against the restored DB",
+    );
+    let (single, daily, compressed) = behavioral_states(&restored, &filters, p_new_part, p_new);
+    assert!(matches!(
+        single,
+        Some(Stage1State::BehavioralSingle {
+            has_match: true,
+            ..
+        })
+    ));
+    assert_eq!(
+        daily_sum(&daily.unwrap()),
+        2,
+        "P_old + P_new daily merged to 2"
+    );
+    assert_eq!(compressed_sum(&compressed.unwrap()), 2);
+
+    // (3) Route 2 — AlreadyDrained merge replay: replay the ORIGINAL merge message. The restored
+    //     `cf_merge_drains_applied` short-circuits it, so P_old is NOT re-drained.
+    let mut old_queue = EvictionQueue::<Stage1Key>::new();
+    let replay_drain = handle_merge_event(
+        p_old_part,
+        &restored,
+        &filters,
+        &merge_event(p_old, p_new),
+        merge_coords,
+        &mut old_queue,
+    )
+    .unwrap();
+    assert_eq!(
+        replay_drain,
+        DrainOutcome::AlreadyDrained,
+        "the restored drain marker short-circuits the replayed merge",
+    );
+    // Re-apply the SAME transfer (same source coords) → the restored `cf_merge_applied` dedups it.
+    let replay_apply = handle_transfer(
+        p_new_part,
+        &restored,
+        &filters,
+        &pending.transfer,
+        (63, 9_999),
+        &mut new_queue,
+    )
+    .unwrap();
+    assert_eq!(
+        replay_apply,
+        ApplyOutcome::AlreadyApplied,
+        "the restored apply marker dedups the re-applied transfer by source coords",
+    );
+
+    // (4) P_new's state is NOT doubled, P_old stays drained, and the tombstone still resolves to P_new.
+    let (single_after, daily_after, compressed_after) =
+        behavioral_states(&restored, &filters, p_new_part, p_new);
+    assert!(matches!(
+        single_after,
+        Some(Stage1State::BehavioralSingle {
+            has_match: true,
+            ..
+        })
+    ));
+    assert_eq!(
+        daily_sum(&daily_after.unwrap()),
+        2,
+        "the double application was absorbed — daily is not doubled",
+    );
+    assert_eq!(compressed_sum(&compressed_after.unwrap()), 2);
+    let (s, d, c) = behavioral_states(&restored, &filters, p_old_part, p_old);
+    assert!(
+        s.is_none() && d.is_none() && c.is_none(),
+        "P_old's drained state is still absent after the restore",
+    );
+    assert_eq!(
+        Tombstone::decode(
+            &restored
+                .get_tombstone(&tombstone_key)
+                .unwrap()
+                .expect("tombstone still present")
+        )
+        .unwrap()
+        .new_person,
+        p_new,
+        "the tombstone still redirects P_old → P_new",
+    );
+}
+
+/// D6 (F3-on-restore) — a tombstone written in tenure 1, present after the whole-DB restore, still
+/// redirects a post-restore P_old straggler to P_new (P_old not rebuilt). F3-on-revoke is out of
+/// scope (Slice 3b); D6's unique contribution is the *checkpoint-survival* of `cf_merge_tombstones`.
+///
+/// The no-broker handler API exposed here is `process_event` (which is NOT tombstone-aware — it folds
+/// into whatever `person_id` the event carries) plus the merge handlers; the event-level rewrite
+/// (`handle_event` → `redirect_for_tombstone`) is a private worker concern and is not reachable from
+/// these tests. So D6 drives the redirect through `tombstone_redirect::resolve` directly — the exact
+/// resolver the worker's `redirect_for_tombstone`, the drain assist, and the apply path all consult —
+/// and asserts it redirects P_old → P_new against the restored DB. The event-level rewrite itself is
+/// pinned by the lib `tombstone_redirect_tests`.
+#[test]
+fn checkpoint_restore_preserves_the_tombstone_and_redirects_a_straggler() {
+    let dir = TempDir::new().unwrap();
+    let store = temp_store_in(&dir);
+    let filters = build_filters();
+
+    // Tenure 1: a realistic cross-partition drain leaves P_old drained and tombstoned to P_new.
+    let p_old = Uuid::from_u128(0x705B);
+    let p_old_part = part(p_old);
+    let p_new = person_not_on(p_old_part);
+    assert_ne!(p_old_part, part(p_new), "cross-partition pair");
+
+    fold_pageview(&store, &filters, p_old_part, p_old, 10, 0);
+    drain_cross(&store, &filters, p_old, p_new, (5, 100));
+    let (s, d, c) = behavioral_states(&store, &filters, p_old_part, p_old);
+    assert!(
+        s.is_none() && d.is_none() && c.is_none(),
+        "P_old's slice is drained in tenure 1",
+    );
+
+    // Whole-DB checkpoint → restore.
+    let restored = checkpoint_then_restore(&dir, store);
+
+    // The tombstone survives the restore and points at P_new.
+    let tombstone_key = TombstoneKey {
+        partition_id: p_old_part,
+        team_id: TEAM as u64,
+        person: p_old,
+    };
+    let tombstone = Tombstone::decode(
+        &restored
+            .get_tombstone(&tombstone_key)
+            .unwrap()
+            .expect("the tombstone survived the checkpoint"),
+    )
+    .unwrap();
+    assert_eq!(
+        tombstone.new_person, p_new,
+        "the restored tombstone targets P_new"
+    );
+
+    // A post-restore P_old straggler resolves through the restored CF to P_new (cross-partition, so it
+    // would be re-keyed and re-produced to P_new's worker — never folded back into the drained P_old).
+    // This is the redirect decision the worker, drain, and apply paths all make.
+    let resolution = resolve(&restored, p_old_part, TeamId(TEAM), p_old).unwrap();
+    assert_eq!(
+        resolution,
+        Resolution::CrossPartition {
+            target_person: p_new,
+            origin: p_old,
+        },
+        "post-restore, a P_old straggler redirects to P_new",
+    );
+
+    // Non-vacuity: if `cf_merge_tombstones` had NOT survived, `resolve` would return `NotMerged`. A
+    // never-tombstoned control person does return `NotMerged`, so the assertion above is meaningful.
+    let control = person_on(p_old_part);
+    assert_ne!(control, p_old);
+    assert_eq!(
+        resolve(&restored, p_old_part, TeamId(TEAM), control).unwrap(),
+        Resolution::NotMerged,
+        "a never-tombstoned person is not redirected — the P_new resolution is not vacuous",
+    );
+
+    // P_old's state is still absent after the restore — the tombstone did not rebuild it.
+    let (s, d, c) = behavioral_states(&restored, &filters, p_old_part, p_old);
+    assert!(
+        s.is_none() && d.is_none() && c.is_none(),
+        "the restored tombstone redirects, it does not resurrect P_old's state",
+    );
+}
+
+/// D7 — the seek window `[committed, processed]` can redeliver an already-applied merge message after
+/// a restore; the restored `cf_merge_drains_applied` must short-circuit it so the merge is not
+/// re-transferred. Distinct from D5's pending-entry focus: here the pending transfer is cleared
+/// *before* the checkpoint (the clean steady-state construction — the transfer was produced and
+/// acked), so the snapshot carries only the drain marker, isolating its contract.
+#[test]
+fn checkpoint_restore_preserves_the_drain_marker_so_a_replayed_merge_does_not_re_transfer() {
+    let dir = TempDir::new().unwrap();
+    let (store, filters, _p_new_part, p_new, transfer) = seed_and_drain(&dir);
+    let p_old = transfer.old_person_uuid;
+    let p_old_part = part(p_old);
+    let merge_coords = (transfer.source_partition, transfer.source_offset);
+
+    // Clear the pending transfer first (it was produced + acked), so the snapshot isolates the drain
+    // marker — D5 already covers the still-staged-pending case.
+    store
+        .clear_pending_transfer(&PendingTransferKey {
+            partition_id: p_old_part,
+            team_id: TEAM as u64,
+            old_person: p_old,
+        })
+        .unwrap();
+    assert!(
+        only_pending(&store, p_old_part).is_empty(),
+        "the outbox is empty before the checkpoint",
+    );
+
+    let restored = checkpoint_then_restore(&dir, store);
+    assert!(
+        only_pending(&restored, p_old_part).is_empty(),
+        "the restored outbox starts empty",
+    );
+
+    // Replay the SAME merge message → the restored drain marker short-circuits it.
+    let mut queue = EvictionQueue::<Stage1Key>::new();
+    let replay = handle_merge_event(
+        p_old_part,
+        &restored,
+        &filters,
+        &merge_event(p_old, p_new),
+        merge_coords,
+        &mut queue,
+    )
+    .unwrap();
+    assert_eq!(
+        replay,
+        DrainOutcome::AlreadyDrained,
+        "the restored drain marker short-circuits the redelivered merge",
+    );
+
+    // No new pending transfer was produced by the replay — the marker prevented a duplicate transfer.
+    // (Had the marker been lost, the replay would re-drain P_old; its state is gone so the re-drain
+    // packages nothing and stages no pending entry — but the `AlreadyDrained` outcome above is the
+    // discriminator that the marker, specifically, survived.)
+    assert!(
+        only_pending(&restored, p_old_part).is_empty(),
+        "the replayed merge did not stage a duplicate pending transfer",
+    );
 }
