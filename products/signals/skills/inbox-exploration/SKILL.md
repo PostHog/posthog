@@ -1,11 +1,13 @@
 ---
 name: inbox-exploration
 description: >
-  Explore PostHog's Inbox — the surface where signal reports surface as actionable issues and trends.
-  Use when the user asks "what's in my inbox?", "what should I look at?", "which reports are actionable?",
-  "what's PostHog flagged recently?", asks about a specific report by ID or title, or wants to see
-  which signal sources are configured. Covers listing, filtering, and drilling into reports, plus
-  pointers to the deeper `signals` skill when raw signals or semantic search are needed.
+  Explore PostHog's Inbox and act on what it surfaces — the place where signal reports cluster into
+  actionable issues and trends. Use when the user asks "what's in my inbox?", "what should I look at?",
+  "which reports are actionable?", "what's PostHog flagged recently?", asks about a specific report by
+  ID or title, wants to act on / fix / implement a report (turn it into a PR), wants to dismiss or
+  snooze a report, or wants to see which signal sources are configured. Covers listing, filtering,
+  drilling into, and acting on reports, plus pointers to the deeper `signals` skill when raw signals
+  or semantic search are needed.
 ---
 
 # Exploring the Inbox
@@ -29,6 +31,9 @@ the user's actual question.
 - "Are there any reports about <topic / product area>?"
 - "What signal sources are configured for this project?"
 - The user pastes a report ID or URL and wants context
+- "Fix this inbox item" / "turn this report into a PR" / "implement this report" — see
+  _Workflow: act on an actionable report_
+- "Dismiss this" / "snooze this report" — see _Workflow: dismiss or snooze a report_
 
 For deeper investigation, hand off to other skills and tools:
 
@@ -50,16 +55,20 @@ _underlying detail_ — pair them when the user wants to dig in.
 
 ## Available tools
 
-| Tool                                  | Purpose                                                             |
-| ------------------------------------- | ------------------------------------------------------------------- |
-| `inbox-reports-list`                  | Paginated list of reports with filters (status, search, etc.)       |
-| `inbox-reports-retrieve`              | Full detail for a single report                                     |
-| `inbox-source-configs-list`           | Configured signal sources (which products feed the inbox)           |
-| `inbox-source-configs-retrieve`       | Full record for a single source config                              |
-| `posthog:execute-sql` (signals skill) | HogQL access to underlying signals (read the `signals` skill first) |
+| Tool                                  | Purpose                                                                 |
+| ------------------------------------- | ----------------------------------------------------------------------- |
+| `inbox-reports-list`                  | Paginated list of reports with filters (status, search, etc.)           |
+| `inbox-reports-retrieve`              | Full detail for a single report                                         |
+| `inbox-reports-set-state`             | Dismiss (`suppressed`) or snooze (`potential`) a report — the one write |
+| `inbox-source-configs-list`           | Configured signal sources (which products feed the inbox)               |
+| `inbox-source-configs-retrieve`       | Full record for a single source config                                  |
+| `posthog:execute-sql` (signals skill) | HogQL access to underlying signals (read the `signals` skill first)     |
 
-All four `inbox-*` tools are read-only. Writes (pause processing, change source configs, manage
-per-user autonomy) are intentionally not exposed via MCP today.
+The `inbox-reports-*-list` / `-retrieve` and `inbox-source-configs-*` tools are read-only. The
+only exposed write is `inbox-reports-set-state` (dismiss / snooze — see _Workflow: dismiss or
+snooze a report_). Other writes (pause processing, change source configs, mark a report resolved,
+set `implementation_pr_url`) are not exposed via MCP today — those happen on the product surface
+when a PR is opened against a report.
 
 ## Terminology
 
@@ -239,6 +248,84 @@ Returns the full record including `signals_at_run` and `artefact_count`. Combine
 The two layers complement each other: the `inbox-*` tools give you the curated/judged view, and
 the `signals` skill lets you inspect the raw observations that produced it.
 
+## Workflow: act on an actionable report
+
+When the user wants to _do_ something about a report — "fix this inbox item", "turn this into a
+PR", "implement this" — not just read it. A `ready` report with
+`actionability: immediately_actionable` is the usual candidate. The discipline that matters here:
+**a report is a diagnosis, not ground truth — verify it against the actual code before you
+implement.** Reports from `signals_scout` (and any LLM-research source) are especially worth
+double-checking; their `summary` often reads as a confident root-cause with file and function
+names, but it can be stale or wrong.
+
+### Step 1 — Retrieve and check it isn't already handled
+
+```json
+inbox-reports-retrieve
+{ "id": "<report_uuid>" }
+```
+
+Before doing any work, look at:
+
+- `already_addressed` — if `true`, the fix may already be in flight or merged; confirm with the
+  user before duplicating it.
+- `implementation_pr_url` — if a PR is already linked, surface it instead of opening a second one.
+- `status` — only `ready` reports carry a finished judgment. A `candidate` / `pending_input`
+  report hasn't been researched yet; don't implement off a half-formed summary.
+
+### Step 2 — Verify the diagnosis against the code (do not skip)
+
+The report's `summary` will name files, functions, and sometimes line numbers. **Open them and
+confirm the claim holds** — that the cited code exists, still looks the way the report describes,
+and actually produces the described failure. Pull the underlying signals via the `signals` skill
+(`metadata.report_id`) if you need the raw evidence behind the summary. If the diagnosis doesn't
+hold up, say so and stop — a wrong report is itself a useful finding (and a candidate for
+_dismiss_ below), not a license to write a speculative fix.
+
+### Step 3 — Scope the fix to the right layer
+
+- If `source_products` includes `signals_scout` and the root cause is in a **scout's own
+  behavior** (the prompt it runs, a threshold it uses), the better fix is often the scout's
+  `SKILL.md`, not the harness. Note that per-team custom scouts live in the user's Skills Store,
+  not this repo, so the fix site may be out of reach of a repo PR — flag that to the user.
+- Otherwise treat it like any normal change: follow the repo's conventions (`CLAUDE.md`,
+  area-specific skills), make the change minimal, and add a regression test that would have caught
+  the reported failure.
+
+### Step 4 — Open the PR and link it back
+
+Open the PR following the repo's PR conventions. There is **no MCP tool to mark a report resolved
+or set `implementation_pr_url`** — that link is populated on the product surface when a PR is
+opened against the report. So reference the report in the PR description (its `_posthogUrl`) and
+tell the user which report the PR addresses, so the loop is traceable. Don't claim the report is
+"resolved" in the inbox — it isn't until the product surface records the merged PR.
+
+## Workflow: dismiss or snooze a report
+
+When the user has reviewed a report and wants it gone, or wants to defer it. This is the one
+inbox write exposed via MCP:
+
+```json
+inbox-reports-set-state
+{
+  "id": "<report_uuid>",
+  "state": "suppressed",
+  "dismissal_reason": "not_a_bug",
+  "dismissal_note": "Verified against products/foo/bar.py — the cited code path can't reach this state."
+}
+```
+
+- `state: "suppressed"` dismisses the report from the inbox; `state: "potential"` snoozes it back
+  into the pipeline. When snoozing, `snooze_for: <N>` holds it until it accumulates N more signals.
+- `dismissal_reason` is a short caller-owned code (`not_a_bug`, `wont_fix`, `duplicate`, …);
+  `dismissal_note` is free-form (≤ 4000 chars). Both persist as a DISMISSAL artefact, so the
+  rationale survives even if the report transitions again later — **always include them** so a
+  future reader knows _why_.
+- It's a destructive, non-idempotent transition and returns `409` if it isn't allowed from the
+  report's current status. Confirm with the user before suppressing, and capture _why_ in the note
+  — a dismissal with no rationale is worse than none. A report you dismissed because the diagnosis
+  was wrong (Step 2 above) is the textbook case: suppress it with the evidence in the note.
+
 ## Workflow: filter by topic or source
 
 "Are there any reports about <topic>?" — start with `search`:
@@ -305,9 +392,15 @@ The `status` field reflects the underlying data import or workflow:
   status; this is expected, not a bug — judgment hasn't run yet
 - `suppressed` reports are excluded by default; pass `status: "suppressed"` explicitly if the
   user wants to see hidden items
-- Don't try to write to the inbox via MCP — destroy / state changes / reingest endpoints are
-  intentionally not exposed. If the user wants to act on a report, point them at the
+- The only inbox write exposed via MCP is `inbox-reports-set-state` (dismiss / snooze). To
+  _act_ on a report (implement a fix), verify the diagnosis against the code first, then open a
+  PR — see _Workflow: act on an actionable report_. Marking a report resolved / setting
+  `implementation_pr_url` happens on the product surface, not via MCP; always also surface the
   `_posthogUrl` deep-link
+- **Never implement a report's fix straight from its `summary`.** Reports — especially
+  `signals_scout` ones — are LLM diagnoses; confirm the cited files / functions / behavior in the
+  actual code before writing a fix. A report that doesn't hold up is a dismissal candidate, not a
+  fix
 - For "what kinds of signals exist?" or "what's been happening recently across all sources?",
   drop into the `signals` skill — the report layer hides individual observations; you need
   HogQL on `document_embeddings` to see them

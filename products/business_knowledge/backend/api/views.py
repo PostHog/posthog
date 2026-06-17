@@ -36,6 +36,7 @@ from .serializers import (
     CreateTextSourceSerializer,
     CreateUrlSourceSerializer,
     KnowledgeDocumentWindowSerializer,
+    KnowledgeSearchResultSerializer,
     KnowledgeSourceSerializer,
     UpdateTextSourceSerializer,
     UpdateUrlSourceSerializer,
@@ -359,9 +360,9 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
 class KnowledgeDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
-    Read-only access to parsed knowledge documents. Currently exposes only the
-    `window` drill-down so an agent (PHAI or MCP) can pull a wider context span
-    around a chunk it found via search.
+    Read-only access to parsed knowledge documents. Exposes hybrid search
+    (``search``) and a drill-down window (``window``) so an agent (PHAI or
+    MCP) can find and explore business knowledge chunks.
     """
 
     scope_object = "business_knowledge"
@@ -424,6 +425,60 @@ class KnowledgeDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         results = logic.get_document_window(self.team_id, document_id, around_ordinal, radius=radius)
         return Response(KnowledgeDocumentWindowSerializer(instance=results, many=True).data)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "query",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="Natural-language search query. Runs hybrid (semantic + full-text) retrieval over all SAFE, READY knowledge chunks in this project.",
+            ),
+            OpenApiParameter(
+                "limit",
+                OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Maximum number of ranked chunks to return. Defaults to 10, capped at 20.",
+            ),
+            OpenApiParameter(
+                "rerank",
+                OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "When true, rerank search results with a listwise LLM pass for better relevance. "
+                    "Defaults to false (RRF order only). Falls back to RRF order on rerank failure."
+                ),
+            ),
+        ],
+        responses={200: KnowledgeSearchResultSerializer(many=True)},
+    )
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="search",
+        pagination_class=None,
+        required_scopes=["business_knowledge:read"],
+    )
+    def search(self, request: Request, **kwargs) -> Response:
+        query = request.query_params.get("query")
+        if not query or not query.strip():
+            raise exceptions.ValidationError({"query": "This query parameter is required."})
+        limit = self._parse_int_param(request, "limit", required=False, default=10)
+        rerank = self._parse_bool_param(request, "rerank", default=False)
+        search_limit = limit * 2 if rerank else limit
+        results = logic.search_knowledge_for_team(self.team, query.strip(), limit=search_limit)
+        if rerank:
+            results = logic.rerank_chunks(self.team, query.strip(), results, top_k=limit)
+        return Response(KnowledgeSearchResultSerializer(instance=results, many=True).data)
+
+    def _parse_bool_param(self, request: Request, name: str, *, default: bool) -> bool:
+        raw = request.query_params.get(name)
+        if raw is None:
+            return default
+        return raw.lower() in ("true", "1", "yes")
 
     def _parse_int_param(self, request: Request, name: str, *, required: bool, default: int | None = None) -> int:
         raw = request.query_params.get(name)

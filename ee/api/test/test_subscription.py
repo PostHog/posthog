@@ -1804,9 +1804,10 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
 
     @parameterized.expand(
         [
-            # The delivered report is query-derived only for AI prompt subscriptions, so its content
-            # is hidden from a query-restricted member there — but insight deliveries (no prompt) and
-            # members who keep query access still see the full snapshot.
+            # The delivered report is query-derived only for AI prompt subscriptions, so its content —
+            # including the ai_report_diagnostics generated HogQL — is hidden from a query-restricted
+            # member there, but insight deliveries (no prompt) and members who keep query access still
+            # see the full snapshot.
             ("ai_restricted", True, True, True),
             ("ai_with_access", True, False, False),
             ("insight_restricted", False, True, False),
@@ -1814,6 +1815,15 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
     )
     def test_ai_delivery_report_hidden_without_query_access(self, _name, is_ai, restrict, expect_hidden):
         subscription = self._create_ai_subscription() if is_ai else self.subscription
+        generated_hogql = "SELECT count() FROM events"
+        content_snapshot: dict = {"insights": [{"id": 1, "name": "Secret", "query_results": [[1, 2, 3]]}]}
+        if is_ai:
+            # AI deliveries also persist the rendered report and per-step query diagnostics; the
+            # diagnostics embed the generated HogQL, which must never reach a query-restricted caller.
+            content_snapshot["ai_report"] = "# Weekly report"
+            content_snapshot["ai_report_diagnostics"] = [
+                {"description": "weekly signups", "hogql": generated_hogql, "ok": True, "error_type": None}
+            ]
         delivery = SubscriptionDelivery.objects.create(
             subscription=subscription,
             team=self.team,
@@ -1823,7 +1833,7 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
             target_type="email",
             target_value="ai@posthog.com",
             status=SubscriptionDelivery.Status.COMPLETED,
-            content_snapshot={"insights": [{"id": 1, "name": "Secret", "query_results": [[1, 2, 3]]}]},
+            content_snapshot=content_snapshot,
             change_summary="Signups up 20% week over week",
             recipient_results=[{"recipient": "ai@posthog.com", "status": "success"}],
         )
@@ -1838,6 +1848,8 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
         if expect_hidden:
             assert data["content_snapshot"] == {}
             assert data["change_summary"] is None
+            # Defence-in-depth against a future per-key scrub: the generated HogQL must not appear at all.
+            assert generated_hogql not in str(data)
             # The list endpoint shares the same get_serializer_context path, so it scrubs too.
             list_response = self.client.get(
                 f"/api/environments/{self.team.id}/subscriptions/{subscription.id}/deliveries/"
@@ -1846,9 +1858,14 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
             row = next(r for r in list_response.json()["results"] if r["id"] == str(delivery.id))
             assert row["content_snapshot"] == {}
             assert row["change_summary"] is None
+            assert generated_hogql not in str(row)
         else:
             assert data["content_snapshot"]["insights"][0]["name"] == "Secret"
             assert data["change_summary"] == "Signups up 20% week over week"
+            if is_ai:
+                # A query-access caller on an AI delivery legitimately receives the diagnostics,
+                # including the generated HogQL — this is the intended debugging surface.
+                assert data["content_snapshot"]["ai_report_diagnostics"][0]["hogql"] == generated_hogql
         # Delivery metadata stays visible regardless — only the query-derived report is scrubbed.
         assert data["status"] == "completed"
         assert data["recipient_results"] == [{"recipient": "ai@posthog.com", "status": "success"}]
@@ -1966,10 +1983,10 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
         response = self.client.get(f"/api/environments/{self.team.id}/subscriptions/{self.subscription.id}/deliveries/")
         assert response.status_code == status.HTTP_200_OK
 
-    def test_deliveries_not_available_on_legacy_project_path(self):
+    def test_deliveries_available_on_project_path(self):
         self._create_delivery(idempotency_key="legacy-test")
         response = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{self.subscription.id}/deliveries/")
-        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert response.status_code == status.HTTP_200_OK
 
     def test_retrieve_delivery_not_found_when_row_belongs_to_different_subscription(self):
         other = Subscription.objects.create(

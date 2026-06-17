@@ -87,12 +87,37 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         for dashboard_name in dashboard_names:
             self.dashboard_api.create_dashboard({"name": dashboard_name})
 
-        with self.assertNumQueries(15):
+        with self.assertNumQueries(13):
             response_data = self.dashboard_api.list_dashboards()
         self.assertEqual(
             [dashboard["name"] for dashboard in response_data["results"]],
             dashboard_names,
         )
+
+    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    def test_non_web_retrieve_fires_dashboard_read_event(self, mock_report_user_action: mock.Mock) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "test"})
+        mock_report_user_action.reset_mock()
+
+        self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/", HTTP_X_POSTHOG_CLIENT="mcp")
+
+        mock_report_user_action.assert_any_call(
+            self.user,
+            "dashboard read",
+            {"dashboard_id": dashboard_id, "creation_mode": "default"},
+            team=ANY,
+            request=ANY,
+        )
+
+    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    def test_web_retrieve_does_not_fire_dashboard_read_event(self, mock_report_user_action: mock.Mock) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "test"})
+        mock_report_user_action.reset_mock()
+
+        self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/")
+
+        read_calls = [c for c in mock_report_user_action.call_args_list if c.args[1:2] == ("dashboard read",)]
+        self.assertEqual(read_calls, [])
 
     def test_retrieve_dashboard_list_includes_other_environments(self):
         other_team_in_project = Team.objects.create(organization=self.organization, project=self.project)
@@ -126,7 +151,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.dashboard_api.create_dashboard({"name": "also tagged", "tags": ["tag2"]})
         self.dashboard_api.create_dashboard({"name": "not tagged"})
 
-        with self.assertNumQueries(15):
+        with self.assertNumQueries(13):
             response = self.dashboard_api.list_dashboards(
                 expected_status=status.HTTP_200_OK, query_params={"tags": ["tag"]}
             )
@@ -140,7 +165,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.dashboard_api.create_dashboard({"name": "not tagged"})
         self.dashboard_api.create_dashboard({"name": "not with the right tag", "tags": ["wrong-tag"]})
 
-        with self.assertNumQueries(15):
+        with self.assertNumQueries(13):
             response = self.dashboard_api.list_dashboards(
                 expected_status=status.HTTP_200_OK, query_params={"tags": ["tag", "tag2"]}
             )
@@ -581,7 +606,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "insight": "TRENDS",
             }
 
-            baseline = 10
+            baseline = 9
             # Each dashboard GET that materializes at least one insight runner issues a single
             # `PropertyAccessControl` lookup, memoized across all runners on the dashboard by
             # `get_restricted_properties_for_team`'s per-scope cache (so it stays at +1 no
@@ -592,7 +617,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             with self.assertNumQueries(baseline + 11):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
-            # was baseline + 11 + 12, -1 after dropping duplicate session lookup
+            # baseline + 11 + 11 + property_access_control_lookup once at least one insight materializes
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
             with self.assertNumQueries(baseline + 11 + 11 + property_access_control_lookup):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
@@ -635,7 +660,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         self.client.force_login(user_with_collaboration)
 
-        with self.assertNumQueries(10):
+        with self.assertNumQueries(9):
             self.dashboard_api.list_dashboards()
 
         for i in range(5):
@@ -643,7 +668,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             for j in range(3):
                 self.dashboard_api.create_insight({"dashboards": [dashboard_id], "name": f"insight-{j}"})
 
-            with self.assertNumQueries(FuzzyInt(12, 13)):
+            with self.assertNumQueries(FuzzyInt(11, 13)):
                 self.dashboard_api.list_dashboards(query_params={"limit": 300})
 
     def test_listing_dashboards_does_not_include_tiles(self) -> None:
@@ -1412,6 +1437,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             "dashboard created",
             {
                 "created_at": mock.ANY,
+                "creation_mode": "template",
                 "dashboard_id": response["id"],
                 "duplicated": False,
                 "duplicated_from_dashboard_id": None,
@@ -1422,6 +1448,59 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "pinned": False,
                 "tags_count": 0,
                 "template_key": "DEFAULT_APP",
+            },
+            team=ANY,
+            request=ANY,
+        )
+
+    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    def test_soft_delete_reports_dashboard_deleted(self, mock_report_user_action):
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "to delete"})
+        self.dashboard_api.create_insight({"dashboards": [dashboard_id]})
+        self.dashboard_api.create_text_tile(dashboard_id)
+        mock_report_user_action.reset_mock()
+
+        self.dashboard_api.soft_delete(dashboard_id, "dashboards")
+
+        # item_count (insight tiles) and tile_count (all tiles) are snapshotted pre-delete, so they survive
+        # _delete_related_tiles: 1 insight tile, 2 tiles total (insight + text).
+        mock_report_user_action.assert_called_once_with(
+            self.user,
+            "dashboard deleted",
+            {
+                "created_at": mock.ANY,
+                "creation_mode": "default",
+                "dashboard_id": dashboard_id,
+                "has_description": False,
+                "is_shared": False,
+                "item_count": 1,
+                "pinned": False,
+                "tags_count": 0,
+                "tile_count": 2,
+            },
+            team=ANY,
+            request=ANY,
+        )
+
+    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    def test_update_reports_dashboard_updated_with_creation_mode(self, mock_report_user_action):
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "to rename"})
+        mock_report_user_action.reset_mock()
+
+        self.dashboard_api.update_dashboard(dashboard_id, {"name": "renamed"})
+
+        mock_report_user_action.assert_called_once_with(
+            self.user,
+            "dashboard updated",
+            {
+                "created_at": mock.ANY,
+                "creation_mode": "default",
+                "dashboard_id": dashboard_id,
+                "has_description": False,
+                "is_shared": False,
+                "item_count": 0,
+                "pinned": False,
+                "tags_count": 0,
             },
             team=ANY,
             request=ANY,
@@ -2430,6 +2509,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             {
                 "created_at": mock.ANY,
                 "creation_context": "onboarding",
+                "creation_mode": "default",
                 "dashboard_id": dashboard["id"],
                 "duplicated": False,
                 "from_template": True,

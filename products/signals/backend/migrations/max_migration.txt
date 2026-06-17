@@ -1,1 +1,1 @@
-0036_signalteamconfig_backfill_default_autostart_p2
+0041_alter_signalscoutconfig_run_interval_minutes

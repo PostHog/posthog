@@ -1,3 +1,5 @@
+from functools import lru_cache
+
 from posthog.hogql import ast
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
@@ -22,6 +24,8 @@ from posthog.hogql.database.schema.account_aggregates import (
     account_tags_lazy_join,
 )
 from posthog.hogql.parser import parse_expr
+
+from posthog.scopes import APIScopeObject
 
 
 class IngestionWarningsTable(Table):
@@ -1314,4 +1318,15 @@ class SystemTables(TableNode):
         "trace_review_scores": TableNode(name="trace_review_scores", table=trace_review_scores),
         "trace_reviews": TableNode(name="trace_reviews", table=trace_reviews),
         "usage_metrics": TableNode(name="usage_metrics", table=usage_metrics),
+    }
+
+
+@lru_cache(maxsize=1)
+def access_controlled_system_tables() -> dict[str, APIScopeObject]:
+    """Access-controlled system tables as {table_name: resource}, e.g. {"notebooks": "notebook"}.
+    SystemTables().children is static, so this is computed once and reused."""
+    return {
+        name: node.table.access_scope
+        for name, node in SystemTables().children.items()
+        if isinstance(node.table, PostgresTable) and node.table.access_scope is not None
     }

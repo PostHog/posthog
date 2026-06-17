@@ -10,8 +10,6 @@ live here.
 
 from posthog.hogql import ast
 
-from posthog.models.team import Team
-
 from products.engineering_analytics.backend.facade.contracts import (
     Author,
     PRLifecycle,
@@ -21,7 +19,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     PullRequest,
     RepoRef,
 )
-from products.engineering_analytics.backend.logic.queries import _curated
+from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 
 # The curated subqueries and the repo filter are filled with str.replace (trusted
 # constants), leaving the HogQL {value} placeholders untouched for parse_select.
@@ -38,7 +36,7 @@ _HEADER = """
 """
 
 _RUNS = """
-    SELECT workflow_name, status, conclusion, run_started_at, updated_at
+    SELECT id, workflow_name, status, conclusion, run_started_at, updated_at
     FROM __RUNS_SOURCE__ AS r
     WHERE head_sha = {head_sha}
     ORDER BY run_started_at ASC
@@ -47,7 +45,7 @@ _RUNS = """
 
 def query_pr_lifecycle(
     *,
-    team: Team,
+    curated: CuratedGitHubSource,
     pr_number: int,
     repo_owner: str | None,
     repo_name: str | None,
@@ -59,10 +57,9 @@ def query_pr_lifecycle(
         placeholders["repo_owner"] = ast.Constant(value=repo_owner)
         placeholders["repo_name"] = ast.Constant(value=repo_name)
 
-    header_sql = _HEADER.replace("__PR_SOURCE__", _curated.pr_source()).replace("__REPO_FILTER__", repo_filter)
-    header = _curated.run_query(
+    header_sql = _HEADER.replace("__PR_SOURCE__", curated.pr_source()).replace("__REPO_FILTER__", repo_filter)
+    header = curated.run(
         header_sql,
-        team=team,
         query_type="engineering_analytics.pr_lifecycle.header",
         placeholders=placeholders,
     )
@@ -106,9 +103,8 @@ def query_pr_lifecycle(
 
     events = [PRLifecycleEvent(kind=PRLifecycleEventKind.OPENED, at=created_at)]
     runs = (
-        _curated.run_query(
-            _RUNS.replace("__RUNS_SOURCE__", _curated.run_source()),
-            team=team,
+        curated.run(
+            _RUNS.replace("__RUNS_SOURCE__", curated.run_source()),
             query_type="engineering_analytics.pr_lifecycle.runs",
             placeholders={"head_sha": ast.Constant(value=head_sha)},
         )
@@ -116,13 +112,18 @@ def query_pr_lifecycle(
         else None
     )
     if runs is not None:
-        for workflow_name, status, conclusion, run_started_at, updated_at in runs.results:
+        for run_id, workflow_name, status, conclusion, run_started_at, updated_at in runs.results:
+            run_id = int(run_id) if run_id is not None else None
             events.append(
-                PRLifecycleEvent(kind=PRLifecycleEventKind.CI_STARTED, at=run_started_at, detail=workflow_name)
+                PRLifecycleEvent(
+                    kind=PRLifecycleEventKind.CI_STARTED, at=run_started_at, detail=workflow_name, run_id=run_id
+                )
             )
             if status == "completed":
                 detail = f"{workflow_name}: {conclusion}" if conclusion else workflow_name
-                events.append(PRLifecycleEvent(kind=PRLifecycleEventKind.CI_FINISHED, at=updated_at, detail=detail))
+                events.append(
+                    PRLifecycleEvent(kind=PRLifecycleEventKind.CI_FINISHED, at=updated_at, detail=detail, run_id=run_id)
+                )
 
     if merged_at is not None:
         events.append(PRLifecycleEvent(kind=PRLifecycleEventKind.MERGED, at=merged_at))

@@ -9,13 +9,13 @@ import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimi
 import { Combobox } from 'lib/ui/Combobox/Combobox'
 import { Label } from 'lib/ui/Label/Label'
 import { MenuSeparator } from 'lib/ui/Menus/Menus'
-import { getProjectSwitchTargetUrl } from 'lib/utils/router-utils'
+import { getProjectSwitchTargetUrl } from 'lib/utils/kea-router'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { globalModalsLogic } from '~/layout/GlobalModals'
+import { globalModalsLogic } from '~/layout/globalModalsLogic'
 import { AvailableFeature } from '~/types'
 
 import { pendingInvitesLogic } from './pendingInvitesLogic'
@@ -174,11 +174,16 @@ export function ProjectCombobox(): JSX.Element | null {
                 {preflight?.can_create_org && (
                     <Combobox.Item
                         asChild
-                        onClick={() =>
+                        onClick={() => {
+                            // The button below is rendered disabled when creation is forbidden, but the
+                            // Combobox still fires onClick/Enter — enforce the disabled state here too.
+                            if (projectCreationForbiddenReason) {
+                                return
+                            }
                             guardAvailableFeature(AvailableFeature.ORGANIZATIONS_PROJECTS, showCreateProjectModal, {
                                 currentUsage: currentOrganization?.teams?.length,
                             })
-                        }
+                        }}
                     >
                         <ButtonPrimitive
                             menuItem

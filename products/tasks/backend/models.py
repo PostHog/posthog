@@ -8,13 +8,14 @@ from collections.abc import Callable, Iterable
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
-from django.db.models.signals import post_delete, post_save
+from django.db.models.signals import post_save
 from django.dispatch import receiver
 
 from pydantic import BaseModel
 
 if TYPE_CHECKING:
     from products.slack_app.backend.slack_thread import SlackThreadContext
+    from products.tasks.backend.services.sandbox import SandboxResources
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
@@ -28,8 +29,8 @@ import posthoganalytics
 
 from posthog.event_usage import groups
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
-from posthog.models.file_system.constants import DESKTOP_SURFACE
-from posthog.models.file_system.file_system import delete_file
+from posthog.models.file_system.constants import DEFAULT_SURFACE, DESKTOP_SURFACE
+from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.integration import Integration
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
@@ -55,7 +56,7 @@ def resolve_schema(schema: type[BaseModel] | dict) -> dict:
     return schema.model_json_schema()
 
 
-class Task(DeletedMetaFields, models.Model):
+class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
     class OriginProduct(models.TextChoices):
         ERROR_TRACKING = "error_tracking", "Error Tracking"
         EVAL_CLUSTERS = "eval_clusters", "Eval Clusters"
@@ -69,6 +70,8 @@ class Task(DeletedMetaFields, models.Model):
         SIGNAL_REPORT = "signal_report", "Signal Report"
         # Headless Signals scout — proactively explores a project and emits signals.
         SIGNALS_SCOUT = "signals_scout", "Signals Scout"
+        # Conversations support reply pipeline — autonomous grounded draft replies.
+        SUPPORT_REPLY = "support_reply", "Support Reply"
 
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -174,11 +177,20 @@ class Task(DeletedMetaFields, models.Model):
         if is_new:
             self._track_task_created()
 
-    def get_file_system_representation(self, folder: str = "Tasks") -> FileSystemRepresentation:
-        # Tasks are filed into the tree only on explicit request; this describes where a filed task
-        # lives. Tasks live only on the desktop surface, never the web app tree.
+    @classmethod
+    def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> models.QuerySet["Task"]:
+        # Tasks live only on the desktop surface, never the web app tree.
+        if surface != DESKTOP_SURFACE:
+            return cls.objects.none()
+        base_qs = cls.objects.filter(team=team, deleted=False)
+        return cls._filter_unfiled_queryset(base_qs, team, type="task", ref_field="id", surface=surface)
+
+    def get_file_system_representation(self, folder: str | None = None) -> FileSystemRepresentation:
+        # Tasks live only on the desktop surface, never the web app tree. They land in
+        # Unfiled/Tasks/<title> on first save (via FileSystemSyncMixin) and stay there
+        # unless filed into another folder — e.g. a canvas channel.
         return FileSystemRepresentation(
-            base_folder=folder,
+            base_folder=folder or self._get_assigned_folder("Unfiled/Tasks"),
             type="task",
             ref=str(self.id),
             name=self.title or "Untitled",
@@ -211,6 +223,7 @@ class Task(DeletedMetaFields, models.Model):
                 event=event,
                 properties=all_properties,
                 groups=groups(team=self.team),
+                send_feature_flags=True,
             )
         except Exception as e:
             logger.warning("task.capture_event_failed", analytics_event=event, error=str(e))
@@ -321,12 +334,16 @@ class Task(DeletedMetaFields, models.Model):
         posthog_mcp_scopes: PosthogMcpScopes = "full",
         branch: str | None = None,
         signal_report_id: str | None = None,
+        ai_stage: str | None = None,
         sandbox_environment_id: str | None = None,
         internal: bool = False,
         output_schema: type[BaseModel] | dict | None = None,
         interaction_origin: str | None = None,
         model: str | None = None,
         initial_permission_mode: str | None = None,
+        sandbox_resources: "SandboxResources | None" = None,
+        sandbox_timeout_seconds: int | None = None,
+        inactivity_timeout_seconds: int | None = None,
     ) -> "Task":
         from products.tasks.backend.temporal.client import execute_task_processing_workflow
 
@@ -403,7 +420,7 @@ class Task(DeletedMetaFields, models.Model):
             **({"signal_report_id": signal_report_id} if signal_report_id else {}),
         )
 
-        extra_state: dict[str, str] = {}
+        extra_state: dict[str, Any] = {}
         if slack_thread_url:
             extra_state["slack_thread_url"] = slack_thread_url
         if interaction_origin:
@@ -427,8 +444,30 @@ class Task(DeletedMetaFields, models.Model):
         if model:
             extra_state["model"] = model
 
+        # Forwarded to the in-sandbox agent and lifted onto its $ai_generation traces as an
+        # `ai_stage` property (see TaskProcessingContext / agent-server configureEnvironment).
+        if ai_stage:
+            extra_state["ai_stage"] = ai_stage
+
         if initial_permission_mode:
             extra_state["initial_permission_mode"] = initial_permission_mode
+
+        # Optional per-task sandbox compute/timeout overrides. Read back into
+        # SandboxConfig at provision time (see TaskProcessingContext); unset
+        # fields keep the SandboxConfig defaults.
+        if sandbox_resources is not None:
+            if sandbox_resources.cpu_cores is not None:
+                extra_state["sandbox_cpu_cores"] = sandbox_resources.cpu_cores
+            if sandbox_resources.memory_gb is not None:
+                extra_state["sandbox_memory_gb"] = sandbox_resources.memory_gb
+        if sandbox_timeout_seconds is not None:
+            extra_state["sandbox_ttl_seconds"] = sandbox_timeout_seconds
+
+        # Optional per-task inactivity timeout override (seconds). Read back via
+        # TaskProcessingContext.inactivity_timeout(); unset falls back to the
+        # origin-aware default.
+        if inactivity_timeout_seconds is not None:
+            extra_state["inactivity_timeout_seconds"] = inactivity_timeout_seconds
 
         task_run = task.create_run(mode=mode, extra_state=extra_state or None, branch=branch)
 
@@ -913,6 +952,7 @@ class TaskRun(models.Model):
                 "event": event,
                 "properties": all_properties,
                 "groups": groups(team=self.team),
+                "send_feature_flags": True,
             }
             if event_uuid:
                 capture_kwargs["uuid"] = event_uuid
@@ -1533,23 +1573,3 @@ def track_task_run_completion(sender, instance: TaskRun, created: bool, **kwargs
             task_run_id=str(instance.id),
             error=str(e),
         )
-
-
-# Tasks are filed into the project tree only on explicit request (see TaskViewSet.file). These
-# receivers never create an entry — they only remove a filed task's entry when the task is deleted,
-# so the tree can't surface a dead reference. delete_file is a no-op when no entry exists.
-@receiver(post_save, sender=Task)
-def _unfile_task_on_soft_delete(sender, instance: Task, **kwargs):
-    update_fields = kwargs.get("update_fields")
-    if update_fields is not None and "deleted" not in update_fields:
-        return
-    if instance.deleted:
-        delete_file(team=instance.team, file_type="task", ref=str(instance.id), surface=DESKTOP_SURFACE)
-
-
-@receiver(post_delete, sender=Task)
-def _unfile_task_on_hard_delete(sender, instance: Task, **kwargs):
-    try:
-        delete_file(team=instance.team, file_type="task", ref=str(instance.id), surface=DESKTOP_SURFACE)
-    except Team.DoesNotExist:
-        pass

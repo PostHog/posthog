@@ -17,9 +17,9 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { isMobile, pluralize } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { openInAdminPanel } from 'lib/utils/person-actions'
+import { isMobile } from 'lib/utils/dom'
+import { pluralize } from 'lib/utils/strings'
 import { RelatedGroups } from 'scenes/groups/RelatedGroups'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { NotebookNodeType } from 'scenes/notebooks/types'
@@ -517,6 +517,22 @@ export function PersonScene(): JSX.Element | null {
 function OpenInAdminPanelButton({ size = 'small' }: { size?: LemonButtonProps['size'] }): JSX.Element {
     const { person } = useValues(personsLogic)
     const disabledReason = !person?.properties.email ? 'Person has no email' : undefined
+
+    const openInAdminPanel = async (email: string): Promise<void> => {
+        try {
+            const response = await api.users.list(email)
+
+            if (!response.results || response.results.length === 0) {
+                throw new Error('User not found')
+            }
+
+            const userId = response.results[0].id
+            window.open(`/admin/posthog/user/${userId}/change/`, '_blank')
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error)
+            lemonToast.error(`Failed to open admin panel: ${message}`)
+        }
+    }
 
     return (
         <LemonButton

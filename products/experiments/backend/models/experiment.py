@@ -32,14 +32,12 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
     # Filters define the target metric of an Experiment
     filters = models.JSONField(default=dict, blank=True)
 
-    # Parameters include configuration fields for the experiment: What the control & test variant are called,
-    # and any test significance calculation parameters
-    # We have 4 parameters today:
-    #   minimum_detectable_effect: number
-    #   recommended_running_time: number
-    #   recommended_sample_size: number
-    #   feature_flag_variants: { key: string, name: string, rollout_percentage: number }[]
-    #   custom_exposure_filter: Filter json
+    # DEPRECATED: catch-all config blob being split into dedicated homes.
+    # Feature flag config (feature_flag_variants, rollout_percentage, aggregation_group_type_index,
+    # feature_flag_payloads, ensure_experience_continuity) belongs on the linked FeatureFlag.
+    # Running-time calculator state (minimum_detectable_effect, recommended_running_time,
+    # recommended_sample_size, exposure_estimate_config) belongs in `running_time_calculation`.
+    # Do not add new keys here.
     parameters = models.JSONField(default=dict, null=True)
 
     # A list of filters for secondary metrics
@@ -71,6 +69,11 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
 
     stats_config = models.JSONField(default=dict, null=True, blank=True)
     scheduling_config = models.JSONField(default=dict, null=True, blank=True)
+
+    # Running-time calculator state: minimum_detectable_effect, recommended_running_time,
+    # recommended_sample_size, exposure_estimate_config. Canonical home for these keys,
+    # which historically lived in `parameters`.
+    running_time_calculation = models.JSONField(default=dict, null=True, blank=True)
 
     only_count_matured_users = models.BooleanField(default=False)
 
@@ -140,15 +143,21 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
             return Experiment.Status.RUNNING
         return Experiment.Status.DRAFT
 
+    @property
+    def status_label(self) -> str:
+        """Public status string (draft/running/paused/stopped) — single source for the API
+        serializer and dashboard widgets."""
+        if self.is_paused:
+            return "paused"
+        return self.status or self.computed_status.value
+
     def get_feature_flag_key(self):
         # Strip the soft-delete tombstone so the API and analytics surface the original
         # key, matching what the query runners resolve against historical events.
         return self.feature_flag.key_without_tombstone()
 
     def get_analytics_metadata(self) -> dict[str, Any]:
-        variants = (self.parameters or {}).get("feature_flag_variants")
-        if not variants:
-            variants = self.feature_flag.filters.get("multivariate", {}).get("variants", [])
+        variants = self.feature_flag.variants
 
         return {
             "experiment_id": self.id,

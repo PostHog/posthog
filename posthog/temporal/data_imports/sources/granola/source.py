@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -34,6 +35,7 @@ class GranolaSource(ResumableSource[GranolaSourceConfig, GranolaResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.GRANOLA,
+            category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Granola",
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your Granola API key to pull your meeting notes into the PostHog Data warehouse.

@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -34,9 +35,9 @@ class OmnisendSource(ResumableSource[OmnisendSourceConfig, OmnisendResumeConfig]
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.OMNISEND,
+            category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Omnisend",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Omnisend API key to automatically pull your Omnisend data into the PostHog Data warehouse.
 
 You can create an API key in your [Omnisend account settings](https://app.omnisend.com/settings/integrations/api-keys).

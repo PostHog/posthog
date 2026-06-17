@@ -6,7 +6,7 @@ import { LemonButton, LemonDialog, LemonInput, LemonModal, LemonTable, Link } fr
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { IconKey } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { humanFriendlyDetailedTime } from 'lib/utils'
+import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
 import { cimdVerificationTokensLogic, CIMDVerificationToken } from './cimdVerificationTokensLogic'
 
@@ -20,8 +20,9 @@ export function CIMDVerificationTokens(): JSX.Element {
         <div className="space-y-4">
             <p className="text-secondary">
                 Verification tokens link a CIMD partner application to this organization. Add the token to your CIMD
-                metadata document under <code>posthog_verification_token</code>. Verified partners get a higher default
-                rate limit for account provisioning and a clear identity trail. See the{' '}
+                metadata document as <code>verification_token</code> inside the <code>com.posthog</code> object.
+                Verified partners get a higher default rate limit for account provisioning and a clear identity trail.
+                See the{' '}
                 <Link
                     to="https://posthog.com/docs/integrate/provisioning#host-a-cimd-metadata-document"
                     target="_blank"
@@ -165,7 +166,8 @@ export function CIMDVerificationTokens(): JSX.Element {
                             revoke and create a new one.
                         </LemonBanner>
                         <p className="text-secondary">
-                            Add it to your CIMD metadata document as the <code>posthog_verification_token</code> field.
+                            Add it to your CIMD metadata document as <code>verification_token</code> inside the{' '}
+                            <code>com.posthog</code> object.
                         </p>
                         <CodeSnippet language={Language.Text}>{justCreatedToken.value}</CodeSnippet>
                     </div>

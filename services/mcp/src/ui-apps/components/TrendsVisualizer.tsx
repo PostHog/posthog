@@ -2,7 +2,7 @@ import { type ReactElement, useState } from 'react'
 
 import { emptyStateIllustration } from '@posthog/mcp-ui'
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia } from '@posthog/quill'
-import { BarChart as BarValueChart, TimeSeriesBarChart, TimeSeriesLineChart } from '@posthog/quill-charts'
+import { BarChart as BarValueChart, SlopeChart, TimeSeriesBarChart, TimeSeriesLineChart } from '@posthog/quill-charts'
 
 import { buildTrendsBarChartModel } from 'products/product_analytics/frontend/insights/trends/TrendsBarChart/trendsBarChartTransforms'
 import {
@@ -19,12 +19,16 @@ import { CHART_THEME, colorAt } from './charts/theme'
 import type { TrendsResultItem, TrendsVisualizerProps } from './types'
 import { formatDate, getDisplayType, getSeriesLabel, isBarChart } from './utils'
 
-type ChartMode = 'line' | 'bar'
+type ChartMode = 'line' | 'bar' | 'slope'
 
 const CHART_MODE_OPTIONS = [
     { value: 'line' as const, label: 'Line' },
     { value: 'bar' as const, label: 'Bar' },
 ]
+
+// "Slope" collapses each series to its first and last point — the start-vs-end view a user wants
+// when they ask "how much did X change between A and B?" rather than the path between them.
+const SLOPE_MODE_OPTION = { value: 'slope' as const, label: 'Slope' }
 
 const TOOLTIP_CONFIG = { pinnable: true, placement: 'top' as const }
 
@@ -45,7 +49,11 @@ function calculateTotal(results: TrendsResultItem[]): number {
 
 export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): ReactElement {
     const displayType = getDisplayType(query)
-    const [chartMode, setChartMode] = useState<ChartMode>(isBarChart(displayType) ? 'bar' : 'line')
+    // Honour the backend slope runner: a SlopeGraph query already comes back as two points per series,
+    // so open straight into slope mode rather than line + a manual toggle.
+    const [chartMode, setChartMode] = useState<ChartMode>(
+        isBarChart(displayType) ? 'bar' : displayType === 'SlopeGraph' ? 'slope' : 'line'
+    )
 
     if (!results || results.length === 0) {
         return (
@@ -91,12 +99,42 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
         label: getSeriesLabel(item, i),
         data: item.data ?? [],
         days: item.days,
+        incompleteEnd: !!item.incomplete_end,
     }))
     const yAxisLabel = results.length === 1 && results[0] ? getSeriesLabel(results[0], 0) : undefined
 
+    // A slope needs a start and an end, so only offer it when there are at least two time points.
+    const slopeAvailable = labels.length >= 2
+    const chartModeOptions = slopeAvailable ? [...CHART_MODE_OPTIONS, SLOPE_MODE_OPTION] : CHART_MODE_OPTIONS
+    // Results can shrink below two points after slope was selected; fall back rather than render blank.
+    const effectiveMode = chartMode === 'slope' && !slopeAvailable ? 'line' : chartMode
+
     // Build only the active mode's chart model — toggling shouldn't recompute the hidden one.
     const renderChart = (): ReactElement => {
-        if (chartMode === 'bar') {
+        if (effectiveMode === 'slope') {
+            // Hand quill the full series and labels — it reduces to the first and last point itself,
+            // so the slope shaping lives once in quill, not here. The backend's incomplete_end flag is
+            // forwarded so the provisional end dashes exactly as it does in the insight.
+            const slopeSeries = trendResults
+                .filter((item) => item.data.length >= 2)
+                .map((item) => ({
+                    key: String(item.id),
+                    label: item.label,
+                    color: colorAt(item.id),
+                    data: item.data,
+                    meta: item.incompleteEnd ? { incompleteEnd: true } : undefined,
+                }))
+            const slopeLabels = labels.map((label) => formatDate(String(label)))
+            return (
+                <SlopeChart
+                    series={slopeSeries}
+                    labels={slopeLabels}
+                    theme={CHART_THEME}
+                    config={{ showSeriesLabels: false, legend: { show: true, position: 'bottom' } }}
+                />
+            )
+        }
+        if (effectiveMode === 'bar') {
             const { series, config } = buildTrendsBarChartModel(trendResults, {
                 getColor: (_, index) => colorAt(index),
                 labels,
@@ -127,7 +165,7 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
         <div>
             <div className="mb-2 flex justify-end">
                 {/* eslint-disable-next-line react/forbid-elements */}
-                <Select value={chartMode} onChange={setChartMode} options={CHART_MODE_OPTIONS} />
+                <Select value={effectiveMode} onChange={setChartMode} options={chartModeOptions} />
             </div>
             <div className="flex flex-col w-full h-[400px]">{renderChart()}</div>
         </div>

@@ -1,13 +1,7 @@
 import uuid
-import dataclasses
-from typing import Optional
 from zoneinfo import ZoneInfo
 
-from django.contrib.postgres.search import TrigramSimilarity, TrigramWordSimilarity
-from django.db.models import F, OuterRef, Q, QuerySet, Subquery, Value
-from django.db.models.functions import Coalesce
-from django.db.models.signals import pre_delete
-from django.dispatch import receiver
+from django.db.models import OuterRef, QuerySet, Subquery
 
 from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema, extend_schema_view
 from rest_framework import serializers, viewsets
@@ -27,12 +21,10 @@ from posthog.schema import (
 from posthog.api.documentation import extend_schema_field
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
-from posthog.api.shared import UserBasicSerializer
+from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.event_usage import get_request_analytics_properties
-from posthog.helpers.trigram_search import MAX_SEARCH_LENGTH, MIN_NAME_TRIGRAM_SIMILARITY, normalize_search_term
+from posthog.helpers.trigram_search import MAX_SEARCH_LENGTH, NAME_FIELD, apply_trigram_search
 from posthog.models import User
-from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
-from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.tasks.alerts.detector import MAX_DETECTOR_BREAKDOWN_VALUES
@@ -45,8 +37,8 @@ from posthog.tasks.alerts.utils import (
 from posthog.utils import relative_date_parse
 
 from products.alerts.backend.api.alert_schedule_restriction import AlertScheduleRestriction
+from products.alerts.backend.evaluation.detector import simulate_detector_on_insight
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
-from products.product_analytics.backend.api.insight import InsightBasicSerializer
 from products.product_analytics.backend.models.insight import Insight
 
 
@@ -186,7 +178,7 @@ class RelativeDateTimeField(serializers.DateTimeField):
         return data
 
 
-class AlertSerializer(serializers.ModelSerializer):
+class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     checks = AlertCheckSerializer(
         many=True,
@@ -307,6 +299,7 @@ class AlertSerializer(serializers.ModelSerializer):
             "investigation_agent_enabled",
             "investigation_gates_notifications",
             "investigation_inconclusive_action",
+            "search_match_type",
         ]
         read_only_fields = [
             "id",
@@ -318,6 +311,11 @@ class AlertSerializer(serializers.ModelSerializer):
         ]
 
     def to_representation(self, instance):
+        # Deferred: the insight API serializer drags the product-analytics query-runner chain;
+        # keeping it out of module scope lets this module connect its delete receivers at
+        # AppConfig.ready() without pulling that chain onto startup.
+        from products.product_analytics.backend.api.insight import InsightBasicSerializer  # noqa: PLC0415
+
         data = super().to_representation(instance)
         data["subscribed_users"] = UserBasicSerializer(instance.subscribed_users.all(), many=True, read_only=True).data
         data["insight"] = InsightBasicSerializer(instance.insight).data
@@ -788,22 +786,12 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @staticmethod
     def _apply_search(queryset: QuerySet, search: str) -> QuerySet:
-        search = normalize_search_term(search)
-        if not search:
-            return queryset
-
-        zero = Value(0.0)
-        name_word_score = Coalesce(TrigramWordSimilarity(search, "name"), zero)
-        name_full_score = Coalesce(TrigramSimilarity("name", search), zero)
-
-        return (
-            queryset.annotate(
-                _name_word=name_word_score,
-                _name_full=name_full_score,
-            )
-            .filter(Q(_name_word__gt=MIN_NAME_TRIGRAM_SIMILARITY) | Q(_name_full__gt=MIN_NAME_TRIGRAM_SIMILARITY))
-            .annotate(_search_score=F("_name_word") + F("_name_full"))
-            .order_by("-_search_score", "-created_at")
+        return apply_trigram_search(
+            queryset,
+            search,
+            span_prefix="alert.search",
+            fields=(NAME_FIELD,),
+            tiebreakers=("-created_at",),
         )
 
     CHECKS_DEFAULT_LIMIT = 5
@@ -917,8 +905,6 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     @action(detail=False, methods=["POST"], url_path="simulate", required_scopes=["alert:read"])
     def simulate(self, request, *args, **kwargs):
-        from posthog.tasks.alerts.detector import simulate_detector_on_insight
-
         serializer = AlertSimulateSerializer(data=request.data, context=self.get_serializer_context())
         serializer.is_valid(raise_exception=True)
 
@@ -956,146 +942,3 @@ class ThresholdViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
     scope_object = "alert"
     queryset = Threshold.objects.all()
     serializer_class = ThresholdWithAlertSerializer
-
-
-@dataclasses.dataclass(frozen=True)
-class AlertConfigurationContext(ActivityContextBase):
-    insight_id: Optional[int] = None
-    insight_short_id: Optional[str] = None
-    insight_name: Optional[str] = "Insight"
-    alert_id: Optional[int] = None
-    alert_name: Optional[str] = "Alert"
-
-
-@dataclasses.dataclass(frozen=True)
-class AlertSubscriptionContext(AlertConfigurationContext):
-    subscriber_name: Optional[str] = None
-    subscriber_email: Optional[str] = None
-
-
-@mutable_receiver(model_activity_signal, sender=AlertConfiguration)
-def handle_alert_configuration_change(
-    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
-) -> None:
-    log_activity(
-        organization_id=after_update.team.organization_id,
-        team_id=after_update.team_id,
-        user=user,
-        was_impersonated=was_impersonated,
-        item_id=after_update.id,
-        scope=scope,
-        activity=activity,
-        detail=Detail(
-            changes=changes_between(scope, previous=before_update, current=after_update),
-            name=after_update.name or f"Alert for {after_update.insight.name}",
-            context=AlertConfigurationContext(
-                insight_id=after_update.insight_id,
-                insight_short_id=after_update.insight.short_id,
-                insight_name=after_update.insight.name,
-            ),
-        ),
-    )
-
-
-@mutable_receiver(model_activity_signal, sender=Threshold)
-def handle_threshold_change(
-    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
-) -> None:
-    alert_config = None
-    if hasattr(after_update, "alertconfiguration_set"):
-        alert_config = after_update.alertconfiguration_set.first()
-
-    if alert_config:
-        log_activity(
-            organization_id=alert_config.team.organization_id,
-            team_id=alert_config.team_id,
-            user=user,
-            was_impersonated=was_impersonated,
-            item_id=alert_config.id,
-            scope="AlertConfiguration",
-            activity=activity,
-            detail=Detail(
-                changes=changes_between("Threshold", previous=before_update, current=after_update),
-                type="threshold_change",
-                context=AlertConfigurationContext(
-                    insight_id=alert_config.insight_id,
-                    insight_short_id=alert_config.insight.short_id,
-                    insight_name=alert_config.insight.name,
-                    alert_name=alert_config.name,
-                ),
-            ),
-        )
-
-
-@mutable_receiver(model_activity_signal, sender=AlertSubscription)
-def handle_alert_subscription_change(
-    before_update, after_update, activity, user, was_impersonated=False, **kwargs
-) -> None:
-    alert_config = after_update.alert_configuration
-
-    if alert_config:
-        log_activity(
-            organization_id=alert_config.team.organization_id,
-            team_id=alert_config.team_id,
-            user=user,
-            was_impersonated=was_impersonated,
-            item_id=alert_config.id,
-            scope="AlertConfiguration",
-            activity=activity,
-            detail=Detail(
-                changes=changes_between("AlertSubscription", previous=before_update, current=after_update),
-                type="alert_subscription_change",
-                context=AlertSubscriptionContext(
-                    insight_id=alert_config.insight_id,
-                    insight_short_id=alert_config.insight.short_id,
-                    insight_name=alert_config.insight.name,
-                    subscriber_name=after_update.user.get_full_name(),
-                    subscriber_email=after_update.user.email,
-                    alert_name=alert_config.name,
-                ),
-            ),
-        )
-
-
-@receiver(pre_delete, sender=AlertConfiguration)
-def cleanup_alert_hog_functions(sender, instance: AlertConfiguration, **kwargs) -> None:
-    from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType
-
-    for hog_function in HogFunction.objects.filter(
-        team_id=instance.team_id,
-        type=HogFunctionType.INTERNAL_DESTINATION,
-        deleted=False,
-        filters__contains={"properties": [{"key": "alert_id", "value": str(instance.id)}]},
-    ):
-        hog_function.enabled = False
-        hog_function.deleted = True
-        hog_function.save()
-
-
-@receiver(pre_delete, sender=AlertSubscription)
-def handle_alert_subscription_delete(sender, instance, **kwargs) -> None:
-    from posthog.models.activity_logging.model_activity import get_current_user, get_was_impersonated
-
-    alert_config = instance.alert_configuration
-
-    if alert_config:
-        log_activity(
-            organization_id=alert_config.team.organization_id,
-            team_id=alert_config.team_id,
-            user=get_current_user(),
-            was_impersonated=get_was_impersonated(),
-            item_id=alert_config.id,
-            scope="AlertConfiguration",
-            activity="deleted",
-            detail=Detail(
-                type="alert_subscription_change",
-                context=AlertSubscriptionContext(
-                    insight_id=alert_config.insight_id,
-                    insight_short_id=alert_config.insight.short_id,
-                    insight_name=alert_config.insight.name,
-                    subscriber_name=instance.user.get_full_name(),
-                    subscriber_email=instance.user.email,
-                    alert_name=alert_config.name,
-                ),
-            ),
-        )

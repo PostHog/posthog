@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { passkeySettingsLogic } from 'scenes/settings/user/passkeySettingsLogic'
 import { personalAPIKeysLogic } from 'scenes/settings/user/personalAPIKeysLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -11,12 +12,12 @@ import type { credentialReviewLogicType } from './credentialReviewLogicType'
 
 export const credentialReviewLogic = kea<credentialReviewLogicType>([
     path(['scenes', 'authentication', 'account', 'credential-review', 'credentialReviewLogic']),
-    // connect (not a bare import call) so personalAPIKeysLogic is mounted as a dependency
+    // connect (not bare import calls) so both list logics are mounted as dependencies
     // of this scene logic. afterMount runs before the review component renders, so without
-    // this the loadKeys() call below hits an unmounted logic and throws, which sceneLogic
+    // this the load calls below hit an unmounted logic and throw, which sceneLogic
     // catches and turns into a 404 for the whole credential review screen.
     connect(() => ({
-        actions: [personalAPIKeysLogic, ['loadKeys']],
+        actions: [personalAPIKeysLogic, ['loadKeys'], passkeySettingsLogic, ['loadPasskeys']],
     })),
     actions({
         markComplete: true,
@@ -38,9 +39,9 @@ export const credentialReviewLogic = kea<credentialReviewLogicType>([
         },
     }),
     afterMount(({ actions }) => {
-        // personalAPIKeysLogic only auto-loads teams (not keys) when it mounts; the
-        // settings page calls loadKeys() from its own useEffect. Trigger it here so the
-        // review table isn't dismissable while empty.
+        // Neither logic auto-loads its list on mount, so trigger both here. Otherwise
+        // the review screen would render empty until the user hit the settings page.
         actions.loadKeys()
+        actions.loadPasskeys()
     }),
 ])

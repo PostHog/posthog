@@ -33,12 +33,25 @@ MAX_BLOCK_DEPTH = 2
 MAX_CHILD_PAGES_PER_PARENT = 50
 
 MAX_RETRY_WAIT_SECONDS = 30.0
+# Notion can ask us to back off for several minutes via Retry-After under sustained load (values
+# of 5+ minutes are common). Honor that instruction up to this bound instead of retrying early and
+# getting throttled again — retrying inside the penalty window just burns attempts and can extend
+# the penalty. Blocking this long is safe: the import activity has a week-long timeout and
+# heartbeats on an independent timer, so a waiting request won't trip the heartbeat. The bound is a
+# backstop against a pathologically large Retry-After.
+MAX_RETRY_AFTER_SECONDS = 600.0
 
 
 class NotionRetryableError(Exception):
     def __init__(self, message: str, retry_after: float | None = None) -> None:
         super().__init__(message)
         self.retry_after = retry_after
+
+
+class NotionNotFoundError(Exception):
+    """Notion returned 404 for a resource: the page/block was deleted or is no longer shared with
+    the integration. In the per-page fan-out streams (blocks/comments) a single page going missing
+    is recoverable — skip it and keep syncing the rest rather than crashing the whole sync."""
 
 
 @dataclasses.dataclass
@@ -76,12 +89,23 @@ def _wait_strategy(retry_state: RetryCallState) -> float:
     # Honor Notion's Retry-After on 429s; fall back to exponential backoff otherwise.
     exc = retry_state.outcome.exception() if retry_state.outcome is not None else None
     if isinstance(exc, NotionRetryableError) and exc.retry_after is not None:
-        return min(exc.retry_after, MAX_RETRY_WAIT_SECONDS)
+        return min(exc.retry_after, MAX_RETRY_AFTER_SECONDS)
     return _wait_exponential(retry_state)
 
 
 @retry(
-    retry=retry_if_exception_type((NotionRetryableError, requests.ReadTimeout, requests.ConnectionError)),
+    # ChunkedEncodingError is a sibling of ConnectionError (both RequestException, not subclasses of
+    # each other): Notion can break the connection mid-response, surfacing as a malformed chunk
+    # ("Connection broken: InvalidChunkLength"). It is a transient connection failure like the others,
+    # so retry it rather than letting it crash the sync.
+    retry=retry_if_exception_type(
+        (
+            NotionRetryableError,
+            requests.ReadTimeout,
+            requests.ConnectionError,
+            requests.exceptions.ChunkedEncodingError,
+        )
+    ),
     stop=stop_after_attempt(5),
     wait=_wait_strategy,
     reraise=True,
@@ -104,6 +128,12 @@ def _request(
 
     if response.status_code >= 500:
         raise NotionRetryableError(f"Notion API error (retryable): status={response.status_code}, url={url}")
+
+    # A 404 on a per-page resource (a page's comments or block children) means that page was deleted
+    # or unshared between enumeration and fetch. The fan-out streams catch this and skip the page;
+    # on the collection endpoints (search/users) it is unexpected and propagates as a sync failure.
+    if response.status_code == 404:
+        raise NotionNotFoundError(f"Notion resource not found: url={url}")
 
     if not response.ok:
         logger.error(f"Notion API error: status={response.status_code}, body={response.text}, url={url}")
@@ -234,7 +264,15 @@ def _iter_block_children(
         if cursor:
             params["start_cursor"] = cursor
 
-        data = _request(session, "GET", f"/v1/blocks/{block_id}/children", logger, params=params)
+        try:
+            data = _request(session, "GET", f"/v1/blocks/{block_id}/children", logger, params=params)
+        except NotionNotFoundError:
+            logger.warning(
+                "Notion: skipping missing or unshared block while fetching children",
+                page_id=page_id,
+                block_id=block_id,
+            )
+            return
         for block in data.get("results", []):
             block["_page_id"] = page_id
             yield block
@@ -279,7 +317,14 @@ def _comments_stream(session: requests.Session, logger: FilteringBoundLogger) ->
             if cursor:
                 params["start_cursor"] = cursor
 
-            data = _request(session, "GET", "/v1/comments", logger, params=params)
+            try:
+                data = _request(session, "GET", "/v1/comments", logger, params=params)
+            except NotionNotFoundError:
+                logger.warning(
+                    "Notion: skipping comments for missing or unshared page",
+                    page_id=page_id,
+                )
+                break
             for comment in data.get("results", []):
                 comment["_page_id"] = page_id
                 batcher.batch(comment)

@@ -8,12 +8,16 @@ from typing import Any
 
 from django.utils import timezone
 
+import posthoganalytics
+
+from posthog.event_usage import groups
 from posthog.models.team.team import Team
 from posthog.models.utils import uuid7
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.lazy_seed import sync_canonical_skills
+from products.signals.backend.scout_harness.limits import DEFAULT_MAX_RUNTIME_S
 from products.signals.backend.scout_harness.prompt import SignalScoutRunSummary, build_run_prompt
 from products.signals.backend.scout_harness.skill_loader import LoadedSkill, load_skill_for_run
 from products.signals.backend.temporal.agentic import (
@@ -150,6 +154,19 @@ async def arun_signals_scout(
             verbose=verbose,
         )
         runtime_s = time.monotonic() - started
+        emitted_count, _ = await database_sync_to_async(_read_run_metrics, thread_sensitive=False)(
+            run_id, team.parent_team_id or team.id
+        )
+        _capture_run_finished(
+            team=team,
+            config=config,
+            skill=skill,
+            run_id=run_id,
+            task_run_id=task_run_id,
+            status=TaskRun.Status.COMPLETED.value,
+            runtime_s=runtime_s,
+            emitted_count=emitted_count,
+        )
         return RunResult(
             run_id=str(run_id),
             task_run_id=task_run_id,
@@ -178,6 +195,26 @@ async def arun_signals_scout(
                 "row_persisted": row_persisted,
             },
         )
+        # A partial run can still have emitted (and have a linked TaskRun) before failing,
+        # so read both from the bridge row when it exists; otherwise it never ran far
+        # enough to persist either.
+        emitted_count, failed_task_run_id = (
+            await database_sync_to_async(_read_run_metrics, thread_sensitive=False)(
+                run_id, team.parent_team_id or team.id
+            )
+            if row_persisted
+            else (0, None)
+        )
+        _capture_run_finished(
+            team=team,
+            config=config,
+            skill=skill,
+            run_id=run_id,
+            task_run_id=failed_task_run_id,
+            status=TaskRun.Status.FAILED.value,
+            runtime_s=runtime_s,
+            emitted_count=emitted_count,
+        )
         return RunResult(
             run_id=str(run_id) if row_persisted else None,
             task_run_id=None,
@@ -205,6 +242,18 @@ async def arun_signals_scout(
                 "exception_type": type(exc).__name__,
                 "runtime_s": runtime_s,
             },
+        )
+        # Synchronous, no DB read — the loop is collapsing, so don't await anything here;
+        # `emitted_count` is left unknown rather than risk a query during cancellation.
+        _capture_run_finished(
+            team=team,
+            config=config,
+            skill=skill,
+            run_id=run_id,
+            task_run_id=None,
+            status=TaskRun.Status.CANCELLED.value,
+            runtime_s=runtime_s,
+            emitted_count=None,
         )
         raise
 
@@ -284,6 +333,16 @@ async def _spawn_and_run(
         verbose=verbose,
         origin_product=Task.OriginProduct.SIGNALS_SCOUT,
         on_task_run_created=_create_bridge_row,
+        # Keep the per-turn poll budget at the run's runtime cap so the dropped-finalization
+        # salvage fires before the activity's `start_to_close_timeout` (DEFAULT_MAX_RUNTIME_S +
+        # ACTIVITY_SLACK_S) cancels the activity. Default budget (MAX_POLL_SECONDS) exceeds the
+        # ceiling and would let the activity die before salvage could return the written summary.
+        max_poll_seconds=DEFAULT_MAX_RUNTIME_S,
+        # The close-out is free-text markdown — if the agent ends with prose or malformed JSON
+        # instead of a SignalScoutRunSummary object, keep the raw text as the summary rather than
+        # failing the whole run. A failed run never finalizes, so its scan-position close-out is
+        # lost and the next run inherits a doubled scan delta.
+        fallback_from_text=lambda text: SignalScoutRunSummary(summary=text),
     )
     try:
         # Persist the agent's end-of-turn close-out so non-emitting runs leave a
@@ -378,6 +437,67 @@ def _create_run_row(
 
 def _run_row_exists(run_id: Any, team_id: int) -> bool:
     return SignalScoutRun.objects.unscoped().filter(team_id=team_id, id=run_id).exists()
+
+
+def _read_run_metrics(run_id: Any, team_id: int) -> tuple[int, str | None]:
+    # The bridge row carries the authoritative emit tally (the emit tool bumps it in-run)
+    # and the FK to the linked TaskRun — the join key into LLM analytics, where the
+    # richer per-run metrics (tool calls, generations, tokens, cost) already live. Reading
+    # both here keeps that linkage on failed runs too, not just clean completions. Returns
+    # (0, None) when the row never persisted (failure before the first turn).
+    row = (
+        SignalScoutRun.objects.unscoped()
+        .filter(team_id=team_id, id=run_id)
+        .values_list("emitted_count", "task_run_id")
+        .first()
+    )
+    if row is None:
+        return 0, None
+    emitted_count, task_run_id = row
+    return emitted_count or 0, str(task_run_id) if task_run_id else None
+
+
+def _capture_run_finished(
+    *,
+    team: Team,
+    config: SignalScoutConfig,
+    skill: LoadedSkill,
+    run_id: Any,
+    task_run_id: str | None,
+    status: str,
+    runtime_s: float,
+    emitted_count: int | None,
+) -> None:
+    """Emit the scout-owned per-run analytics event.
+
+    Complements the generic `task_run_completed` / `task_run_failed` events (which only
+    differentiate scout runs by `origin_product="signals_scout"`) with the dimensions a
+    scout experiment segments on: skill identity, body version, outcome, duration, and
+    emit volume — keyed on the team so it joins both to the emit-side `signal_emitted`
+    events and to the team-level experiment exposure. Best-effort: a capture failure must
+    never fail or mask the run outcome.
+    """
+    try:
+        posthoganalytics.capture(
+            event="signals_scout_run_finished",
+            distinct_id=str(team.uuid),
+            properties={
+                "skill_name": skill.name,
+                "skill_version": skill.version,
+                "scout_config_id": str(config.id),
+                "run_id": str(run_id),
+                "task_run_id": task_run_id,
+                "status": status,
+                "runtime_seconds": round(runtime_s, 1),
+                "emitted_count": emitted_count,
+            },
+            groups=groups(team.organization, team),
+        )
+    except Exception:
+        logger.warning(
+            "signals_scout: failed to capture run-finished analytics event",
+            extra={"team_id": team.id, "run_id": str(run_id), "skill_name": skill.name},
+        )
 
 
 def _finalize_run_summary(*, run_id: Any, team_id: int, summary: str) -> None:

@@ -6,6 +6,7 @@ import { createPortal } from 'react-dom'
 import { DashboardTileRefreshDataButton } from 'lib/components/Cards/InsightCard/DashboardTileRefreshDataButton'
 import { dashboardWidgetMenusLogic } from 'lib/components/Cards/InsightCard/dashboardWidgetMenusLogic'
 import { DashboardWidgetPlacementMenus } from 'lib/components/Cards/InsightCard/DashboardWidgetPlacementMenus'
+import { EditModeEdge } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 
@@ -66,7 +67,7 @@ type DashboardWidgetItemProps = {
     toggleShowDescription?: () => void
     showResizeHandles?: boolean
     canEnterEditModeFromEdge?: boolean
-    onEnterEditModeFromEdge?: () => void
+    onEnterEditModeFromEdge?: (event: React.MouseEvent<HTMLDivElement>, edge: EditModeEdge) => void
     onDragHandleMouseDown?: React.MouseEventHandler<HTMLDivElement>
     showEditingControls?: boolean
     onDuplicate?: () => void
@@ -94,12 +95,14 @@ type DashboardWidgetItemBodyProps = {
     widget: NonNullable<DashboardTile<QueryBasedInsightModel>['widget']>
     definition: DashboardWidgetDefinition | undefined
     componentProps: DashboardWidgetComponentProps
+    dashboardId?: number | null
 }
 
 function DashboardWidgetItemBody({
     widget,
     definition,
     componentProps,
+    dashboardId,
 }: DashboardWidgetItemBodyProps): JSX.Element | null {
     const catalogEntry = getDashboardWidgetCatalogEntry(widget.widget_type)
     const WidgetComponent = definition?.Component
@@ -113,6 +116,9 @@ function DashboardWidgetItemBody({
         <WidgetRuntimeAvailabilityGuard
             availability={catalogEntry.availability}
             unavailableContentFallback={definition?.unavailableContentFallback}
+            widgetType={widget.widget_type}
+            widgetId={widget.id}
+            dashboardId={dashboardId}
         >
             <WidgetComponent {...componentProps} />
         </WidgetRuntimeAvailabilityGuard>
@@ -126,6 +132,7 @@ function DashboardWidgetItemContent({
     definition,
     headerCatalogEntry,
     isUnknownWidgetType,
+    dashboardId,
     result,
     loading,
     error,
@@ -206,6 +213,7 @@ function DashboardWidgetItemContent({
                 widgetTypeLabel={widgetTypeLabel}
                 config={widget.config}
                 headerMeta={headerCatalogEntry.headerMeta}
+                TopHeading={definition?.TopHeading}
                 description={description}
                 showDescription={showDescription}
                 loading={loading}
@@ -311,6 +319,7 @@ function DashboardWidgetItemContent({
                             widget={widget}
                             definition={definition}
                             componentProps={componentProps}
+                            dashboardId={dashboardId}
                         />
                     </ErrorBoundary>
                 </WidgetCardBody>
@@ -413,6 +422,7 @@ export const DashboardWidgetItem = React.forwardRef<HTMLDivElement, DashboardWid
                     definition={definition}
                     headerCatalogEntry={headerCatalogEntry}
                     isUnknownWidgetType={isUnknownWidgetType}
+                    dashboardId={dashboardId}
                     result={result}
                     loading={loading}
                     error={error}

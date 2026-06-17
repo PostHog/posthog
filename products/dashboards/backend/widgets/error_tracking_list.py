@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 from typing import Any, cast
 
 from posthog.schema import DateRange, ErrorTrackingIssueAssignee, ErrorTrackingQuery
@@ -13,18 +12,17 @@ from products.dashboards.backend.constants import MAX_WIDGET_RESULT_LIMIT
 from products.dashboards.backend.widget_specs.configs import ERROR_TRACKING_LIST_WIDGET_TYPE
 from products.dashboards.backend.widget_specs.registry import validate_widget_config
 from products.dashboards.backend.widgets.config import resolve_filter_test_accounts
+from products.dashboards.backend.widgets.list_widget import ListWidgetPage, run_list_widget
 from products.dashboards.backend.widgets.widget_filters import build_property_group_filter_from_widget_filters
-from products.error_tracking.backend.api.query import is_error_tracking_query_v3_enabled, query_v3_volume_resolution
-from products.error_tracking.backend.api.query_utils import (
+from products.error_tracking.backend.facade.queries import ErrorTrackingQueryRunner
+from products.error_tracking.backend.facade.query_utils import (
     ERROR_TRACKING_LISTING_VOLUME_RESOLUTION,
     LIST_ISSUE_FIELDS,
     build_date_range,
     get_page_info,
+    normalize_volume_resolution,
     pick_fields,
 )
-from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
-
-logger = logging.getLogger(__name__)
 
 ValidatedErrorTrackingListWidgetConfig = dict[str, Any]
 
@@ -43,14 +41,11 @@ def _build_error_tracking_list_query(
     *,
     team: Team,
     config: ValidatedErrorTrackingListWidgetConfig,
-    user: User | None,
     limit: int,
     offset: int,
     with_aggregations: bool,
 ) -> ErrorTrackingQuery:
     date_range_raw = config.get("dateRange")
-    use_query_v3 = is_error_tracking_query_v3_enabled(user, team) if user is not None else False
-    volume_resolution = ERROR_TRACKING_LISTING_VOLUME_RESOLUTION
     filter_group = build_property_group_filter_from_widget_filters(config.get("widgetFilters"))
     return ErrorTrackingQuery(
         kind="ErrorTrackingQuery",
@@ -63,8 +58,7 @@ def _build_error_tracking_list_query(
         orderDirection=config["orderDirection"],
         limit=limit,
         offset=offset,
-        volumeResolution=query_v3_volume_resolution(volume_resolution) if use_query_v3 else volume_resolution,
-        useQueryV3=use_query_v3 or None,
+        volumeResolution=normalize_volume_resolution(ERROR_TRACKING_LISTING_VOLUME_RESOLUTION),
         withAggregations=with_aggregations,
         withFirstEvent=False,
         withLastEvent=False,
@@ -77,28 +71,6 @@ def _run_error_tracking_list_query(team: Team, query: ErrorTrackingQuery, user: 
         return ErrorTrackingQueryRunner(team=team, query=query, user=user).calculate().model_dump(mode="json")
 
 
-def _count_matching_error_tracking_issues(
-    team: Team,
-    config: ValidatedErrorTrackingListWidgetConfig,
-    user: User | None,
-    *,
-    cap: int = MAX_WIDGET_RESULT_LIMIT,
-) -> tuple[int, bool]:
-    count_query = _build_error_tracking_list_query(
-        team=team,
-        config=config,
-        user=user,
-        limit=cap,
-        offset=0,
-        with_aggregations=True,
-    )
-    data = _run_error_tracking_list_query(team, count_query, user)
-    raw_results_value = data.get("results")
-    raw_results = raw_results_value if isinstance(raw_results_value, list) else []
-    count_has_more, _ = get_page_info(data, cap, 0)
-    return len(raw_results), count_has_more
-
-
 def run_error_tracking_list_widget(
     team: Team,
     config: dict[str, Any],
@@ -107,46 +79,29 @@ def run_error_tracking_list_widget(
     include_total_count: bool = True,
 ) -> dict[str, Any]:
     typed_config = validate_widget_config(ERROR_TRACKING_LIST_WIDGET_TYPE, config)
-    limit = typed_config["limit"]
-    offset = 0
-    data = _run_error_tracking_list_query(
-        team,
-        _build_error_tracking_list_query(
+
+    def fetch_page(page_limit: int) -> ListWidgetPage:
+        query = _build_error_tracking_list_query(
             team=team,
             config=typed_config,
-            user=user,
-            limit=limit,
-            offset=offset,
+            limit=page_limit,
+            offset=0,
             with_aggregations=True,
-        ),
-        user,
+        )
+        data = _run_error_tracking_list_query(team, query, user)
+        raw_results = data.get("results")
+        has_more, next_offset = get_page_info(data, page_limit, 0)
+        return ListWidgetPage(
+            results=raw_results if isinstance(raw_results, list) else [],
+            has_more=has_more,
+            next_offset=next_offset,
+        )
+
+    return run_list_widget(
+        limit=typed_config["limit"],
+        count_cap=MAX_WIDGET_RESULT_LIMIT,
+        include_total_count=include_total_count,
+        fetch_page=fetch_page,
+        transform_row=lambda issue: pick_fields(cast(dict[str, object], issue), LIST_ISSUE_FIELDS),
+        log_key="error_tracking_widget_total_count_failed",
     )
-    raw_results_value = data.get("results")
-    raw_results = cast(list[object], raw_results_value) if isinstance(raw_results_value, list) else []
-    results = [pick_fields(cast(dict[str, object], issue), LIST_ISSUE_FIELDS) for issue in raw_results[:limit]]
-    has_more, next_offset = get_page_info(data, limit, offset)
-    shown = len(results)
-
-    payload: dict[str, Any] = {
-        "results": results,
-        "hasMore": has_more,
-        "limit": limit,
-        "offset": offset,
-    }
-
-    if has_more:
-        if include_total_count:
-            try:
-                total_count, total_count_capped = _count_matching_error_tracking_issues(team, typed_config, user)
-                payload["totalCount"] = total_count
-                payload["totalCountCapped"] = total_count_capped
-            except Exception:
-                logger.exception("error_tracking_widget_total_count_failed")
-                payload["totalCount"] = shown
-                payload["totalCountCapped"] = True
-    else:
-        payload["totalCount"] = shown
-        payload["totalCountCapped"] = False
-    if next_offset is not None:
-        payload["nextOffset"] = next_offset
-    return payload

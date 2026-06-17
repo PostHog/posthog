@@ -73,7 +73,7 @@ export const _SpanPropertyFilterOperatorEnumApi = {
 } as const
 
 export interface _SpanPropertyFilterApi {
-    /** Attribute key. For type "span", use built-in fields (trace_id, span_id, duration, name, kind, status_code). For "span_attribute"/"span_resource_attribute", use the attribute key (e.g. "http.method"). */
+    /** Attribute key. For type "span", use built-in fields (trace_id, span_id, duration, name, kind, status_code, is_root_span). For "span_attribute"/"span_resource_attribute", use the attribute key (e.g. "http.method"). */
     key: string
     /** "span" filters built-in span fields. "span_attribute" filters span-level attributes. "span_resource_attribute" filters resource-level attributes.
      *
@@ -114,12 +114,98 @@ export interface _TracingAggregationRequestApi {
     query: _TracingAggregationQueryBodyApi
 }
 
+/**
+ * * `span_attribute` - span_attribute
+ * * `span_resource_attribute` - span_resource_attribute
+ */
+export type BreakdownTypeEnumApi = (typeof BreakdownTypeEnumApi)[keyof typeof BreakdownTypeEnumApi]
+
+export const BreakdownTypeEnumApi = {
+    SpanAttribute: 'span_attribute',
+    SpanResourceAttribute: 'span_resource_attribute',
+} as const
+
+/**
+ * * `count` - count
+ * * `error_count` - error_count
+ */
+export type _TracingAttributeBreakdownQueryBodyOrderByEnumApi =
+    (typeof _TracingAttributeBreakdownQueryBodyOrderByEnumApi)[keyof typeof _TracingAttributeBreakdownQueryBodyOrderByEnumApi]
+
+export const _TracingAttributeBreakdownQueryBodyOrderByEnumApi = {
+    Count: 'count',
+    ErrorCount: 'error_count',
+} as const
+
+export interface _TracingAttributeBreakdownQueryBodyApi {
+    /** Attribute key to group by (e.g. "server.address", "http.response.status_code"). Discover keys with apm-attributes-list. */
+    breakdownKey: string
+    /** Where the key lives: "span_attribute" for span-level attributes, "span_resource_attribute" for resource-level attributes.
+     *
+     * * `span_attribute` - span_attribute
+     * * `span_resource_attribute` - span_resource_attribute */
+    breakdownType: BreakdownTypeEnumApi
+    /** Order rows by span count or error count, descending. Defaults to count.
+     *
+     * * `count` - count
+     * * `error_count` - error_count */
+    orderBy?: _TracingAttributeBreakdownQueryBodyOrderByEnumApi
+    /** Date range for the primary window. Defaults to last hour. */
+    dateRange?: _TracingDateRangeApi
+    /** Optional comparison-window configuration. When omitted, only the primary window is returned. */
+    compareFilter?: _CompareFilterApi
+    /** Filter by service names. */
+    serviceNames?: string[]
+    /** Property filters scoping the spans the breakdown runs over (e.g. only error spans). */
+    filterGroup?: _SpanPropertyFilterApi[]
+}
+
+export interface _TracingAttributeBreakdownRequestApi {
+    /** The attribute breakdown query to execute. */
+    query: _TracingAttributeBreakdownQueryBodyApi
+}
+
+/**
+ * * `key` - key
+ * * `value` - value
+ */
+export type MatchedOnEnumApi = (typeof MatchedOnEnumApi)[keyof typeof MatchedOnEnumApi]
+
+export const MatchedOnEnumApi = {
+    Key: 'key',
+    Value: 'value',
+} as const
+
+export interface _TracingAttributeEntryApi {
+    /** Attribute key name. */
+    name: string
+    /** Property filter type: "span_attribute" or "span_resource_attribute". Use this as the `type` field when filtering. */
+    propertyFilterType: string
+    /** How the search query matched this row: "key" if the attribute key matched, "value" if a value matched.
+     *
+     * * `key` - key
+     * * `value` - value */
+    matchedOn: MatchedOnEnumApi
+    /**
+     * Sample matching value — only set when matchedOn is "value".
+     * @nullable
+     */
+    matchedValue?: string | null
+}
+
+export interface _TracingAttributesResponseApi {
+    /** Available attribute keys matching the filters. */
+    results: _TracingAttributeEntryApi[]
+    /** Total attribute keys matched (lower bound when searching values). */
+    count: number
+}
+
 export interface _TracingCountBodyApi {
     /** Date range for the count. Defaults to last hour. */
     dateRange?: _TracingDateRangeApi
     /** Filter by service names. */
     serviceNames?: string[]
-    /** Filter by HTTP status codes. */
+    /** Filter by OTel span status codes (0 Unset, 1 OK, 2 Error) — not HTTP status codes. Use [2] to select error spans. */
     statusCodes?: number[]
     /** Property filters for the count. */
     filterGroup?: _SpanPropertyFilterApi[]
@@ -133,6 +219,22 @@ export interface _TracingCountRequestApi {
 export interface _TracingCountResponseApi {
     /** Number of spans matching the filters. */
     count: number
+}
+
+export interface _TracingTimeseriesQueryBodyApi {
+    /** Date range for the query. Defaults to last hour. */
+    dateRange?: _TracingDateRangeApi
+    /** Filter by service names. */
+    serviceNames?: string[]
+    /** Filter by OTel span status codes (0 Unset, 1 OK, 2 Error) — not HTTP status codes. Use [2] to select error spans. */
+    statusCodes?: number[]
+    /** Property filters for the query. */
+    filterGroup?: _SpanPropertyFilterApi[]
+}
+
+export interface _TracingTimeseriesRequestApi {
+    /** The sparkline / duration-histogram query to execute. */
+    query: _TracingTimeseriesQueryBodyApi
 }
 
 export interface _HasSpansResponseApi {
@@ -168,7 +270,7 @@ export interface _TracingQueryBodyApi {
     dateRange?: _TracingDateRangeApi
     /** Filter by service names. */
     serviceNames?: string[]
-    /** Filter by HTTP status codes. */
+    /** Filter by OTel span status codes (0 Unset, 1 OK, 2 Error) — not HTTP status codes. Use [2] to select error spans. */
     statusCodes?: number[]
     /** Column to order by. Defaults to timestamp. Ordering by timestamp paginates via the keyset cursor ('after'); ordering by duration paginates via 'offset'.
      *
@@ -195,9 +297,11 @@ export interface _TracingQueryBodyApi {
     offset?: number
     /** Filter to root spans only. Defaults to true. */
     rootSpans?: boolean
+    /** Return the matching spans themselves, one row per span (root and child), instead of collapsing to traces. Use this to search by a child-span attribute (e.g. code.filepath) without the whole-trace grouping. Distinct from rootSpans. Defaults to false. */
+    flatSpans?: boolean
     /** Number of child spans to prefetch per trace (1-100). */
     prefetchSpans?: number
-    /** Omit the per-span attributes map from results to keep payloads compact. Defaults to false. */
+    /** Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false. */
     excludeAttributes?: boolean
 }
 
@@ -206,11 +310,139 @@ export interface _TracingQueryRequestApi {
     query: _TracingQueryBodyApi
 }
 
+export interface _SymbolStatsSymbolApi {
+    /**
+     * Opaque identifier (e.g. the function name) echoed back on the matching result row.
+     * @nullable
+     */
+    name?: string | null
+    /**
+     * First line of the symbol's range, inclusive.
+     * @minimum 1
+     */
+    startLine: number
+    /**
+     * Last line of the symbol's range, inclusive.
+     * @minimum 1
+     */
+    endLine: number
+}
+
+export interface _SymbolStatsQueryBodyApi {
+    /** Repo-relative path of the source file to aggregate (e.g. 'src/flags/flag_matching.rs'). Matched as a path suffix against the recorded OTel code.file.path / code.filepath, so a recorded path carrying an extra crate/workspace prefix still matches. Separators are normalized. */
+    filePath: string
+    /** Current period to aggregate over; the prior equal-length window is the comparison. Defaults to last 24h. */
+    dateRange?: _TracingDateRangeApi
+    /** Optional symbol (function) line ranges, supplied by the client from its own AST/LSP. When given, each span is attributed to the smallest enclosing range (one row per symbol). When omitted (or an empty list), spans are aggregated per source line (one row per line); pass a single whole-file range for a file-level total. */
+    symbols?: _SymbolStatsSymbolApi[]
+}
+
+export interface _SymbolStatsRequestApi {
+    /** The symbol-stats per-symbol aggregation query to execute. */
+    query: _SymbolStatsQueryBodyApi
+}
+
+export interface _SymbolStatsPeriodApi {
+    /** Number of spans attributed to this symbol in the period. */
+    count: number
+    /** Spans whose OTel status is Error (status_code = 2). */
+    error_count: number
+    /** Total wall-clock span duration in the period, in nanoseconds (additive across spans). */
+    sum_duration_nano: number
+    /** Median wall-clock span duration, in nanoseconds. */
+    p50_duration_nano: number
+    /** 95th-percentile wall-clock span duration, in nanoseconds. */
+    p95_duration_nano: number
+    /** 99th-percentile wall-clock span duration, in nanoseconds. */
+    p99_duration_nano: number
+    /** Spans in the period carrying an active/busy time attribute. 0 means busy_* are not meaningful. */
+    busy_count: number
+    /** Median active (busy) time, in nanoseconds. Excludes awaiting children. */
+    p50_busy_nano: number
+    /** 95th-percentile active (busy) time, in nanoseconds. */
+    p95_busy_nano: number
+    /** 99th-percentile active (busy) time, in nanoseconds. */
+    p99_busy_nano: number
+}
+
+export interface _SymbolStatsRowApi {
+    /** Number of spans attributed to this symbol in the period. */
+    count: number
+    /** Spans whose OTel status is Error (status_code = 2). */
+    error_count: number
+    /** Total wall-clock span duration in the period, in nanoseconds (additive across spans). */
+    sum_duration_nano: number
+    /** Median wall-clock span duration, in nanoseconds. */
+    p50_duration_nano: number
+    /** 95th-percentile wall-clock span duration, in nanoseconds. */
+    p95_duration_nano: number
+    /** 99th-percentile wall-clock span duration, in nanoseconds. */
+    p99_duration_nano: number
+    /** Spans in the period carrying an active/busy time attribute. 0 means busy_* are not meaningful. */
+    busy_count: number
+    /** Median active (busy) time, in nanoseconds. Excludes awaiting children. */
+    p50_busy_nano: number
+    /** 95th-percentile active (busy) time, in nanoseconds. */
+    p95_busy_nano: number
+    /** 99th-percentile active (busy) time, in nanoseconds. */
+    p99_busy_nano: number
+    /** Bucket anchor: the source line (line mode) or the symbol's startLine (symbol mode). */
+    line: number
+    /**
+     * Echoed name from the requested symbol (symbol mode only).
+     * @nullable
+     */
+    name?: string | null
+    /**
+     * endLine of the matched symbol's range (symbol mode only).
+     * @nullable
+     */
+    end_line?: number | null
+    /** The same metrics over the immediately-preceding equal-length period. */
+    previous: _SymbolStatsPeriodApi
+    /**
+     * Percentage change in count vs the previous period (180 = +180%). Null when there is no baseline (previous count 0). Use `previous.count` — not a null here — to detect a new symbol.
+     * @nullable
+     */
+    count_pct_change: number | null
+    /**
+     * Percentage change in p95 duration vs the previous period (180 = +180%). Null when the previous p95 is 0 (no comparable baseline), which can occur even when previous.count > 0 — do not read null as 'new symbol'.
+     * @nullable
+     */
+    p95_duration_pct_change: number | null
+}
+
+/**
+ * * `line` - line
+ * * `symbol` - symbol
+ */
+export type GranularityEnumApi = (typeof GranularityEnumApi)[keyof typeof GranularityEnumApi]
+
+export const GranularityEnumApi = {
+    Line: 'line',
+    Symbol: 'symbol',
+} as const
+
+export interface _SymbolStatsResponseApi {
+    /** One row per bucket, ordered by line ascending. */
+    results: _SymbolStatsRowApi[]
+    /** Bucketing applied: 'line' when no symbols were supplied, 'symbol' otherwise.
+     *
+     * * `line` - line
+     * * `symbol` - symbol */
+    granularity: GranularityEnumApi
+}
+
 export interface _TracingTraceRequestApi {
     /** Date range for the query. Defaults to last 24 hours. */
     dateRange?: _TracingDateRangeApi
-    /** Omit the per-span attributes map from results to keep payloads compact. Defaults to false. */
+    /** Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false. */
     excludeAttributes?: boolean
+    /**
+     * Pagination offset into the trace's spans (ordered by start time ascending). Each page returns up to 2000 spans; pass the response's `nextOffset` to load the next page. Defaults to 0.
+     * @minimum 0
+     */
+    offset?: number
 }
 
 export interface _TracingTreeQueryBodyApi {
@@ -258,6 +490,10 @@ export type TracingSpansAttributesRetrieveParams = {
      * @minLength 1
      */
     search?: string
+    /**
+     * When true, the search query also matches attribute values (not just keys), so a value such as a trace_id finds the key holding it.
+     */
+    search_values?: boolean
 }
 
 export type TracingSpansAttributesRetrieveAttributeType =

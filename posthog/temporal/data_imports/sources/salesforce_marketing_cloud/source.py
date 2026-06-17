@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,8 @@ class SalesforceMarketingCloudSource(SimpleSource[SalesforceMarketingCloudSource
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.SALESFORCE_MARKETING_CLOUD,
+            category=DataWarehouseSourceCategory.MARKETING___EMAIL,
+            keywords=["sfmc"],
             label="Salesforce Marketing Cloud",
             iconPath="/static/services/salesforce_marketing_cloud.png",
             fields=cast(list[FieldType], []),

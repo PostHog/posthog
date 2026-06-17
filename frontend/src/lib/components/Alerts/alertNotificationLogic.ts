@@ -5,13 +5,14 @@ import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import {
+    ALERT_NOTIFICATION_TYPE_DISCORD,
     ALERT_NOTIFICATION_TYPE_SLACK,
     ALERT_NOTIFICATION_TYPE_WEBHOOK,
     AlertNotificationType,
     PendingAlertNotification,
     buildAlertFilterConfig,
     buildHogFunctionPayload,
-} from 'lib/utils/alertUtils'
+} from 'lib/utils/alerts'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { projectLogic } from 'scenes/projectLogic'
 
@@ -21,6 +22,7 @@ import type { alertNotificationLogicType } from './alertNotificationLogicType'
 
 export const ALERT_NOTIFICATION_TYPE_OPTIONS = [
     { label: 'Slack', value: ALERT_NOTIFICATION_TYPE_SLACK },
+    { label: 'Discord', value: ALERT_NOTIFICATION_TYPE_DISCORD },
     { label: 'Webhook', value: ALERT_NOTIFICATION_TYPE_WEBHOOK },
 ]
 
