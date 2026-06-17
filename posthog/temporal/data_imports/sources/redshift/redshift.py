@@ -742,6 +742,15 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         except psycopg.errors.QueryCanceled:
             raise
         except Exception as e:
+            # A Redshift system-requested query abort (error code 1020, "system requested abort")
+            # is the cluster's WLM/QMR cancelling the query — the same transient, non-actionable
+            # class as `QueryCanceled`, which psycopg surfaces here as `InternalError_` rather than
+            # `QueryCanceled`. The duplicate-PK check is best-effort (the caller defaults to no
+            # duplicates), so skip gracefully instead of reporting an expected, non-actionable error
+            # to error tracking. Mirrors the graceful-skip probes elsewhere in this driver.
+            if "system requested abort" in str(e):
+                logger.debug(f"has_duplicate_primary_keys: query aborted by Redshift, skipping check: {e}")
+                return False
             capture_exception(e)
             return False
 

@@ -818,6 +818,21 @@ class ChartSettingsFormatting(BaseModel):
     suffix: str | None = None
 
 
+class ClientToolResultPayload(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    action: Literal["client_tool_result"] = "client_tool_result"
+    result: dict[str, Any] = Field(
+        ...,
+        description=("Result produced by the tool's client-side handler, returned verbatim to the tool awaiting it"),
+    )
+    tool_call_id: str | None = Field(
+        default=None,
+        description=("Tool call id this result answers — echoed back so misdelivery fails loudly instead of silently"),
+    )
+
+
 class CompareFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5871,8 +5886,10 @@ class ResultCustomization(RootModel[ResultCustomizationByValue | ResultCustomiza
     root: ResultCustomizationByValue | ResultCustomizationByPosition
 
 
-class ResumePayload(RootModel[ApprovalResumePayload | FormResumePayload | FormDismissPayload]):
-    root: ApprovalResumePayload | FormResumePayload | FormDismissPayload
+class ResumePayload(
+    RootModel[ApprovalResumePayload | FormResumePayload | FormDismissPayload | ClientToolResultPayload]
+):
+    root: ApprovalResumePayload | FormResumePayload | FormDismissPayload | ClientToolResultPayload
 
 
 class RetentionResult(BaseModel):
@@ -20582,14 +20599,6 @@ class AccountsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    accountExecutive: list[int] | None = Field(
-        default=None,
-        description=("Match accounts whose account executive is any of these user ids (OR semantics)."),
-    )
-    accountOwner: list[int] | None = Field(
-        default=None,
-        description=("Match accounts whose account owner is any of these user ids (OR semantics)."),
-    )
     allRolesUnassigned: bool | None = None
     assignedToUserIds: list[int] | None = Field(
         default=None,
@@ -20599,10 +20608,6 @@ class AccountsQuery(BaseModel):
             ' current user\'s id) and the shareable "Assigned to" filter — the ids are'
             " explicit so a shared URL resolves identically for every viewer."
         ),
-    )
-    csm: list[int] | None = Field(
-        default=None,
-        description="Match accounts whose CSM is any of these user ids (OR semantics).",
     )
     filterExpression: str | None = Field(
         default=None,

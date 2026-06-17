@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-06-16 11:45:46 UTC
+// Generated at: 2026-06-16 20:58:42 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -43,6 +43,7 @@ export type CanonicalProvider =
     | 'cohere'
     | 'darkbloom'
     | 'decart-fp4'
+    | 'deepinfra'
     | 'deepinfra-base'
     | 'deepinfra-bf16'
     | 'deepinfra-fp16'
