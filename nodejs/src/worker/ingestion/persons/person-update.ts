@@ -1,14 +1,14 @@
+import { personProfileIgnoredPropertiesCounter, personProfileUpdateOutcomeCounter } from '~/common/persons/metrics'
+import {
+    eventToPersonProperties,
+    initialEventToPersonProperties,
+    isFilteredPersonUpdateProperty,
+} from '~/common/persons/person-property-utils'
 import { PluginEvent, Properties } from '~/plugin-scaffold'
 import { cloneObject } from '~/utils/utils'
 
 import { InternalPerson } from '../../../types'
 import { logger } from '../../../utils/logger'
-import { personProfileIgnoredPropertiesCounter, personProfileUpdateOutcomeCounter } from './metrics'
-import {
-    eventToPersonProperties,
-    initialEventToPersonProperties,
-    isFilteredPersonUpdateProperty,
-} from './person-property-utils'
 
 export interface PropertyUpdates {
     toSet: Properties

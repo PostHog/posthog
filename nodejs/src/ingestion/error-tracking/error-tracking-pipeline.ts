@@ -10,12 +10,12 @@ import {
     TophogOutput,
 } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
 import { PluginEvent } from '~/plugin-scaffold'
 import { ErrorTrackingSettings, ErrorTrackingSettingsManager } from '~/utils/error-tracking-settings-manager'
 import { EventIngestionRestrictionManager } from '~/utils/event-ingestion-restrictions'
 import { PromiseScheduler } from '~/utils/promise-scheduler'
 import { TeamManager } from '~/utils/team-manager'
-import { PersonReadRepository } from '~/worker/ingestion/persons/repositories/person-repository'
 import { ReadOnlyGroupTypeManager } from '~/worker/ingestion/readonly-group-type-manager'
 
 import { CookielessManager } from '../cookieless/cookieless-manager'

@@ -5,12 +5,12 @@ import { DateTime } from 'luxon'
 import { INGESTION_WARNINGS_OUTPUT } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
+import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
 import { ASYNC_OUTPUT } from '~/ingestion/analytics/outputs'
 import { PipelineResultType, isDlqResult, isOkResult, isRedirectResult } from '~/ingestion/pipelines/results'
 import { PluginEvent } from '~/plugin-scaffold'
 import { BatchWritingPersonsStore } from '~/worker/ingestion/persons/batch-writing-person-store'
 import { BatchBoundPersonsStore } from '~/worker/ingestion/persons/persons-store-for-batch'
-import { PostgresPersonRepository } from '~/worker/ingestion/persons/repositories/postgres-person-repository'
 
 import {
     createOrganization,

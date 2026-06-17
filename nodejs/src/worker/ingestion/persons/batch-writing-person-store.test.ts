@@ -1,6 +1,12 @@
 import { DateTime } from 'luxon'
 
 import { INGESTION_WARNINGS_OUTPUT } from '~/common/outputs'
+import {
+    personProfileBatchIgnoredPropertiesCounter,
+    personProfileBatchUpdateOutcomeCounter,
+    personPropertyKeyUpdateCounter,
+} from '~/common/persons/metrics'
+import { fromInternalPerson } from '~/common/persons/person-update-batch'
 import { PERSONS_OUTPUT, PersonDistinctIdsOutput, PersonsOutput } from '~/ingestion/analytics/outputs'
 import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
 import { InternalPerson, TeamId } from '~/types'
@@ -9,12 +15,6 @@ import { PostgresRouter } from '~/utils/db/postgres'
 
 import { emitIngestionWarning } from '../../../ingestion/common/ingestion-warnings'
 import { BatchWritingPersonsStore } from './batch-writing-person-store'
-import {
-    personProfileBatchIgnoredPropertiesCounter,
-    personProfileBatchUpdateOutcomeCounter,
-    personPropertyKeyUpdateCounter,
-} from './metrics'
-import { fromInternalPerson } from './person-update-batch'
 import { BatchBoundPersonsStore } from './persons-store-for-batch'
 
 // Mock the ingestion warnings module
@@ -23,7 +23,7 @@ jest.mock('../../../ingestion/common/ingestion-warnings', () => ({
 }))
 
 // Mock metrics
-jest.mock('./metrics', () => ({
+jest.mock('~/common/persons/metrics', () => ({
     observeLatencyByVersion: jest.fn(),
     personCacheOperationsCounter: { inc: jest.fn() },
     personCacheSizeHistogram: { observe: jest.fn() },

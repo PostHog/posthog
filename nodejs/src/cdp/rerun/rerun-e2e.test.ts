@@ -6,12 +6,12 @@ import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
 import { DateTime } from 'luxon'
 import { Pool } from 'pg'
 
+import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { Clickhouse } from '~/tests/helpers/clickhouse'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { ensureKafkaTopics, resetKafka } from '~/tests/helpers/kafka'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
-import { PersonReadRepository } from '~/worker/ingestion/persons/repositories/person-repository'
 
 import { KAFKA_HOG_INVOCATION_RESULTS, KAFKA_INGESTION_WARNINGS } from '../../config/kafka-topics'
 import { KafkaProducerWrapper } from '../../kafka/producer'

@@ -1,4 +1,7 @@
 import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
+import { PostgresGroupRepository } from '~/common/groups/repositories/postgres-group-repository'
+import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from '~/common/personhog'
+import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 
 import { EncryptedFields } from '../../cdp/utils/encryption-utils'
@@ -9,11 +12,8 @@ import {
     createPosthogRedisConnectionConfig,
 } from '../../config/redis-pools'
 import { CookielessManager } from '../../ingestion/cookieless/cookieless-manager'
-import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from '../../ingestion/personhog'
 import { Hub, PluginsServerConfig } from '../../types'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
-import { PostgresGroupRepository } from '../../worker/ingestion/groups/repositories/postgres-group-repository'
-import { PostgresPersonRepository } from '../../worker/ingestion/persons/repositories/postgres-person-repository'
 import { isTestEnv } from '../env-utils'
 import { GeoIPService } from '../geoip'
 import { logger } from '../logger'

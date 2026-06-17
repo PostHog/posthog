@@ -1,5 +1,7 @@
 import { DateTime } from 'luxon'
 
+import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
+import { fetchDistinctIds } from '~/common/persons/repositories/test-helpers'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
 
@@ -19,8 +21,6 @@ import { createHogTransformerService } from '../cdp/hog-transformations/hog-tran
 import { InternalPerson } from '../types'
 import { parseJSON } from '../utils/json-parse'
 import { UUIDT } from '../utils/utils'
-import { ClickhouseGroupRepository } from '../worker/ingestion/groups/repositories/clickhouse-group-repository'
-import { fetchDistinctIds } from '../worker/ingestion/persons/repositories/test-helpers'
 import { IngestionConsumer } from './ingestion-consumer'
 
 // Mock the limiter so it always returns true

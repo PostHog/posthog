@@ -2,12 +2,12 @@ import { DateTime } from 'luxon'
 
 import { IngestionWarningsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { PersonMessage } from '~/common/persons/person-message'
 import { PluginEvent, Properties } from '~/plugin-scaffold'
 
 import { PersonDistinctIdsOutput, PersonsOutput } from '../../../ingestion/analytics/outputs'
 import { Team } from '../../../types'
 import { MergeMode } from './person-merge-types'
-import { PersonMessage } from './person-message'
 import { PersonsStoreForBatch } from './persons-store-for-batch'
 
 export type PersonOutputs = IngestionOutputs<PersonsOutput | PersonDistinctIdsOutput | IngestionWarningsOutput>

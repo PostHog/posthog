@@ -3,6 +3,8 @@ import { Redis } from 'ioredis'
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
+import { GroupRepository } from '~/common/groups/repositories/group-repository.interface'
+import { PersonRepository } from '~/common/persons/repositories/person-repository'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 import { Element, PluginEvent, Properties } from '~/plugin-scaffold'
 
@@ -28,8 +30,6 @@ import { GeoIPService } from './utils/geoip'
 import { PubSub } from './utils/pubsub'
 import { TeamManager } from './utils/team-manager'
 import { GroupTypeManager } from './worker/ingestion/group-type-manager'
-import { GroupRepository } from './worker/ingestion/groups/repositories/group-repository.interface'
-import { PersonRepository } from './worker/ingestion/persons/repositories/person-repository'
 
 export type { Element } from '~/plugin-scaffold' // Re-export Element from scaffolding, for backwards compat.
 

@@ -1,21 +1,6 @@
 import { DateTime } from 'luxon'
 import pLimit from 'p-limit'
 
-import { Properties } from '~/plugin-scaffold'
-import { NoRowsUpdatedError } from '~/utils/utils'
-
-import { emitIngestionWarning } from '../../../ingestion/common/ingestion-warnings'
-import {
-    InternalPerson,
-    PersonBatchWritingDbWriteMode,
-    PropertiesLastOperation,
-    PropertiesLastUpdatedAt,
-    Team,
-} from '../../../types'
-import { CreatePersonResult, MoveDistinctIdsResult } from '../../../utils/db/db'
-import { MessageSizeTooLarge } from '../../../utils/db/error'
-import { logger } from '../../../utils/logger'
-import { BatchWritingStore, BatchWritingStoreFlushStats } from '../stores/batch-writing-store'
 import {
     observeLatencyByVersion,
     personCacheOperationsCounter,
@@ -33,15 +18,34 @@ import {
     personPropertyKeyUpdateCounter,
     personWriteMethodAttemptCounter,
     totalPersonUpdateLatencyPerBatchHistogram,
-} from './metrics'
+} from '~/common/persons/metrics'
+import { isFilteredPersonUpdateProperty } from '~/common/persons/person-property-utils'
+import { PersonUpdate, fromInternalPerson, toInternalPerson } from '~/common/persons/person-update-batch'
+import {
+    PersonMessage,
+    PersonPropertiesSizeViolationError,
+    PersonRepository,
+} from '~/common/persons/repositories/person-repository'
+import { PersonRepositoryTransaction } from '~/common/persons/repositories/person-repository-transaction'
+import { Properties } from '~/plugin-scaffold'
+import { NoRowsUpdatedError } from '~/utils/utils'
+
+import { emitIngestionWarning } from '../../../ingestion/common/ingestion-warnings'
+import {
+    InternalPerson,
+    PersonBatchWritingDbWriteMode,
+    PropertiesLastOperation,
+    PropertiesLastUpdatedAt,
+    Team,
+} from '../../../types'
+import { CreatePersonResult, MoveDistinctIdsResult } from '../../../utils/db/db'
+import { MessageSizeTooLarge } from '../../../utils/db/error'
+import { logger } from '../../../utils/logger'
+import { BatchWritingStore, BatchWritingStoreFlushStats } from '../stores/batch-writing-store'
 import { PersonOutputs } from './person-context'
-import { isFilteredPersonUpdateProperty } from './person-property-utils'
 import { getMetricKey } from './person-update'
-import { PersonUpdate, fromInternalPerson, toInternalPerson } from './person-update-batch'
 import { FlushResult, PersonsStore } from './persons-store'
 import { PersonsStoreTransaction } from './persons-store-transaction'
-import { PersonMessage, PersonPropertiesSizeViolationError, PersonRepository } from './repositories/person-repository'
-import { PersonRepositoryTransaction } from './repositories/person-repository-transaction'
 
 type MethodName =
     | 'fetchForChecking'

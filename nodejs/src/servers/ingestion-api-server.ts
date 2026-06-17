@@ -2,9 +2,13 @@ import { Message } from 'node-rdkafka'
 import { Counter, Histogram } from 'prom-client'
 
 import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
+import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
+import { PostgresGroupRepository } from '~/common/groups/repositories/postgres-group-repository'
 import { ProducerName } from '~/common/outputs'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { createIngestionProducerRegistry } from '~/common/outputs/registry'
+import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from '~/common/personhog'
+import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
 
 import { initializePrometheusLabels } from '../api/router'
 import {
@@ -46,7 +50,6 @@ import {
 } from '../ingestion/config'
 import { CookielessManager } from '../ingestion/cookieless/cookieless-manager'
 import { parseSplitAiEventsConfig } from '../ingestion/event-processing/split-ai-events-step'
-import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from '../ingestion/personhog'
 import { createOkContext } from '../ingestion/pipelines/helpers'
 import { TopHog } from '../ingestion/tophog'
 import { MainLaneOverflowRedirect } from '../ingestion/utils/overflow-redirect/main-lane-overflow-redirect'
@@ -65,11 +68,8 @@ import { PubSub } from '../utils/pubsub'
 import { TeamManager } from '../utils/team-manager'
 import { GroupTypeManager } from '../worker/ingestion/group-type-manager'
 import { BatchWritingGroupStore } from '../worker/ingestion/groups/batch-writing-group-store'
-import { ClickhouseGroupRepository } from '../worker/ingestion/groups/repositories/clickhouse-group-repository'
-import { PostgresGroupRepository } from '../worker/ingestion/groups/repositories/postgres-group-repository'
 import { BatchWritingPersonsStore } from '../worker/ingestion/persons/batch-writing-person-store'
 import { PersonsStore } from '../worker/ingestion/persons/persons-store'
-import { PostgresPersonRepository } from '../worker/ingestion/persons/repositories/postgres-person-repository'
 import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from './base-server'
 
 export type IngestionApiServerConfig = BaseServerConfig &

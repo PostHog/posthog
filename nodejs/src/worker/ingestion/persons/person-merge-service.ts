@@ -1,6 +1,8 @@
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
+import { personMergeFailureCounter } from '~/common/persons/metrics'
+import { PersonMessage } from '~/common/persons/person-message'
 import { Properties } from '~/plugin-scaffold'
 
 import { emitIngestionWarning } from '../../../ingestion/common/ingestion-warnings'
@@ -9,7 +11,6 @@ import { timeoutGuard } from '../../../utils/db/utils'
 import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
 import { promiseRetry } from '../../../utils/retries'
-import { personMergeFailureCounter } from './metrics'
 import { PersonContext } from './person-context'
 import { PersonCreateService } from './person-create-service'
 import {
@@ -22,7 +23,6 @@ import {
     mergeError,
     mergeSuccess,
 } from './person-merge-types'
-import { PersonMessage } from './person-message'
 import { applyEventPropertyUpdates, computeEventPropertyUpdates } from './person-update'
 import { PersonsStoreTransactionForBatch } from './persons-store-for-batch'
 

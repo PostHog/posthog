@@ -140,10 +140,15 @@ on every iteration.
       `HogTransformer` interface + `HogTransformationResult` live in `common/hog-transformations`;
       ingestion imports the interface; cdp's `HogTransformerService implements HogTransformer`;
       servers construct the impl. Production ingestion->cdp imports are now zero.
-- [ ] Group 3: move person/group repositories + `personhog` -> `common/persons`, `common/groups`,
-      `common/personhog`.
+- [x] Group 3: move the persons/groups data-access core to common (Option B — data-access only,
+      not the whole domain). 27 files -> `common/persons`, `common/groups`, `common/personhog`
+      (repositories + personhog + low-level deps); 18 higher-level person/group processing files
+      stay in ingestion and import the core from common. Extracted `PERSONS_OUTPUT` /
+      `PERSON_DISTINCT_IDS_OUTPUT` to `common/outputs/persons`. 208 imports rewritten across 82 files.
 - [ ] Group 4: invert `event-processing` / `event-preprocessing` shared->lane edges.
-- [ ] Baseline shrinks; CDP no longer imports ingestion and vice versa.
+- [x] CDP no longer imports ingestion and vice versa (production): cdp->ingestion = 0,
+      cdp->worker/ingestion = 0, ingestion->cdp = 0. Test-only edges remain (Phase 3). Intra-ingestion
+      shared->lane edges (14 baselined) remain for Group 4.
 
 ### Phase 2 — consolidate into lanes
 
@@ -181,3 +186,9 @@ on every iteration.
   reach into `hogFunctionManager` is encapsulated as `prefetchTransformationStatesForTeams`.
   Production ingestion no longer imports cdp; tsc no new errors; guard green. Test-only
   ingestion->cdp edges remain (deferred to Phase 3).
+- Phase 1 Group 3 complete: persons/groups data-access core moved to common (Option B). 27 files
+  -> `common/persons`, `common/groups`, `common/personhog`; 18 higher-level processing files stay
+  in ingestion. `PERSONS_OUTPUT`/`PERSON_DISTINCT_IDS_OUTPUT` extracted to `common/outputs/persons`.
+  208 imports rewritten across 82 files; fixed a codemod file-mapping bug (importer extension).
+  tsc no new errors; guard green. Milestone: production cdp<->ingestion fully decoupled (0 edges
+  both directions). Remaining: Group 4 (intra-ingestion shared->lane inversions).

@@ -10,6 +10,7 @@ import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 import { v4 } from 'uuid'
 
+import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { resetKafka } from '~/tests/helpers/kafka'
 
@@ -20,7 +21,6 @@ import { KafkaProducerWrapper } from '../kafka/producer'
 import { Hub, PipelineEvent, PluginsServerConfig, ProjectId, Team } from '../types'
 import { closeHub, createHub } from '../utils/db/hub'
 import { UUIDT } from '../utils/utils'
-import { ClickhouseGroupRepository } from '../worker/ingestion/groups/repositories/clickhouse-group-repository'
 import { IngestionConsumer } from './ingestion-consumer'
 
 jest.mock('~/utils/token-bucket', () => {

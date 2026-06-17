@@ -1,9 +1,10 @@
+import { GroupRepository } from '~/common/groups/repositories/group-repository.interface'
+
 import { GroupTypeIndex, GroupTypeToColumnIndex, GroupTypesByProjectId, ProjectId, Team, TeamId } from '../../types'
 import { timeoutGuard } from '../../utils/db/utils'
 import { LazyLoader } from '../../utils/lazy-loader'
 import { captureTeamEvent } from '../../utils/posthog'
 import { TeamManager } from '../../utils/team-manager'
-import { GroupRepository } from './groups/repositories/group-repository.interface'
 
 /** How many unique group types to allow per team */
 export const MAX_GROUP_TYPES_PER_TEAM = 5

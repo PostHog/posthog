@@ -1,5 +1,9 @@
 import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
+import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
+import { PostgresGroupRepository } from '~/common/groups/repositories/postgres-group-repository'
 import { KafkaProducerRegistryComponent } from '~/common/outputs/registry'
+import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from '~/common/personhog'
+import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
 
 import { initializePrometheusLabels } from '../api/router'
 import {
@@ -39,7 +43,6 @@ import {
 import { CookielessManagerComponent } from '../ingestion/cookieless/cookieless-manager'
 import { createHeatmapsConsumer } from '../ingestion/heatmaps'
 import { IngestionConsumer, IngestionConsumerDeps } from '../ingestion/ingestion-consumer'
-import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from '../ingestion/personhog'
 import { PluginServerService, RedisPool } from '../types'
 import { ServerCommands } from '../utils/commands'
 import { PostgresRouter, PostgresRouterComponent } from '../utils/db/postgres'
@@ -49,9 +52,6 @@ import { logger } from '../utils/logger'
 import { PubSub } from '../utils/pubsub'
 import { TeamManagerComponent } from '../utils/team-manager'
 import { GroupTypeManager } from '../worker/ingestion/group-type-manager'
-import { ClickhouseGroupRepository } from '../worker/ingestion/groups/repositories/clickhouse-group-repository'
-import { PostgresGroupRepository } from '../worker/ingestion/groups/repositories/postgres-group-repository'
-import { PostgresPersonRepository } from '../worker/ingestion/persons/repositories/postgres-person-repository'
 import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from './base-server'
 
 /**

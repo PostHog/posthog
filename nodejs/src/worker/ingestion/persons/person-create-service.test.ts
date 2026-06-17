@@ -1,11 +1,12 @@
 import { DateTime } from 'luxon'
 
+import { PersonPropertiesSizeViolationError } from '~/common/persons/repositories/person-repository'
+
 import { emitIngestionWarning } from '../../../ingestion/common/ingestion-warnings'
 import { UUIDT } from '../../../utils/utils'
 import { PersonContext } from './person-context'
 import { PersonCreateService } from './person-create-service'
 import { createDefaultSyncMergeMode } from './person-merge-types'
-import { PersonPropertiesSizeViolationError } from './repositories/person-repository'
 
 jest.mock('../../../ingestion/common/ingestion-warnings', () => ({
     emitIngestionWarning: jest.fn().mockResolvedValue(undefined),

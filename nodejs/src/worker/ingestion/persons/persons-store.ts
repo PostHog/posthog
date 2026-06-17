@@ -1,13 +1,13 @@
 import { DateTime } from 'luxon'
 
+import { PersonMessage } from '~/common/persons/person-message'
+import { PersonRepositoryTransaction } from '~/common/persons/repositories/person-repository-transaction'
 import { Properties } from '~/plugin-scaffold'
 
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '../../../types'
 import { CreatePersonResult, MoveDistinctIdsResult } from '../../../utils/db/db'
 import { BatchWritingStore } from '../stores/batch-writing-store'
-import { PersonMessage } from './person-message'
 import { PersonsStoreTransaction } from './persons-store-transaction'
-import { PersonRepositoryTransaction } from './repositories/person-repository-transaction'
 
 export type FlushResult = {
     messages: PersonMessage[]

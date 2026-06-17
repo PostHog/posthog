@@ -109,7 +109,8 @@ function rewriteFor(spec, importer) {
         return null
     }
     const mTarget = mappingFor(target)
-    const mImporter = mappingFor(importer)
+    // Strip the importer's extension so file-level mappings (oldAbs has no extension) match it.
+    const mImporter = mappingFor(importer.replace(/\.tsx?$/, ''))
     if (!mTarget && !mImporter) {
         return null // neither side moves
     }

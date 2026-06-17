@@ -19,6 +19,7 @@ import { DateTime } from 'luxon'
 import { Pool } from 'pg'
 import { register } from 'prom-client'
 
+import { InternalPersonWithDistinctId, PersonReadRepository } from '~/common/persons/repositories/person-repository'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { resetKafka } from '~/tests/helpers/kafka'
@@ -31,10 +32,6 @@ import { Hub, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { PostgresUse } from '../../src/utils/db/postgres'
 import { UUIDT } from '../../src/utils/utils'
-import {
-    InternalPersonWithDistinctId,
-    PersonReadRepository,
-} from '../../src/worker/ingestion/persons/repositories/person-repository'
 import { createRedisV2PoolFromConfig } from '../common/redis/redis-v2'
 import { FixtureHogFlowBuilder } from './_tests/builders/hogflow.builder'
 import { HOG_FILTERS_EXAMPLES } from './_tests/examples'

@@ -1,5 +1,6 @@
 import { DateTime } from 'luxon'
 
+import { PersonPropertiesSizeViolationError } from '~/common/persons/repositories/person-repository'
 import { Properties } from '~/plugin-scaffold'
 
 import { emitIngestionWarning } from '../../../ingestion/common/ingestion-warnings'
@@ -7,7 +8,6 @@ import { InternalPerson, PropertyUpdateOperation } from '../../../types'
 import { uuidFromDistinctId } from '../person-uuid'
 import { PersonContext } from './person-context'
 import { PersonsStoreTransactionForBatch } from './persons-store-for-batch'
-import { PersonPropertiesSizeViolationError } from './repositories/person-repository'
 
 export class PersonCreateService {
     constructor(private context: PersonContext) {}

@@ -2,6 +2,9 @@ import { IntegrationManagerService } from '~/cdp/services/managers/integration-m
 import { ProducerName } from '~/common/outputs'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { createIngestionProducerRegistry } from '~/common/outputs/registry'
+import { createPersonHogClient } from '~/common/personhog'
+import { PersonHogGroupReadRepository } from '~/common/personhog/personhog-group-read-repository'
+import { PersonHogPersonReadRepository } from '~/common/personhog/personhog-person-read-repository'
 
 import { initializePrometheusLabels } from '../api/router'
 import {
@@ -34,9 +37,6 @@ import {
 } from '../ingestion/error-tracking/config'
 import { ErrorTrackingConsumer } from '../ingestion/error-tracking/error-tracking-consumer'
 import { createOutputsRegistry } from '../ingestion/error-tracking/outputs/registry'
-import { createPersonHogClient } from '../ingestion/personhog'
-import { PersonHogGroupReadRepository } from '../ingestion/personhog/personhog-group-read-repository'
-import { PersonHogPersonReadRepository } from '../ingestion/personhog/personhog-person-read-repository'
 import { PluginServerService, RedisPool } from '../types'
 import { ServerCommands } from '../utils/commands'
 import { PostgresRouter } from '../utils/db/postgres'

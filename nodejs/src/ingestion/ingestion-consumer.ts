@@ -1,6 +1,8 @@
 import { Message } from 'node-rdkafka'
 import { Gauge, Histogram } from 'prom-client'
 
+import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
+import { GroupRepository } from '~/common/groups/repositories/group-repository.interface'
 import { HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
 import {
     AppMetricsOutput,
@@ -11,6 +13,7 @@ import {
     TophogOutput,
 } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { PersonRepository } from '~/common/persons/repositories/person-repository'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
 import { CommonConfig } from '../common/config'
@@ -33,11 +36,8 @@ import { PromiseScheduler } from '../utils/promise-scheduler'
 import { TeamManager } from '../utils/team-manager'
 import { GroupTypeManager } from '../worker/ingestion/group-type-manager'
 import { BatchWritingGroupStore } from '../worker/ingestion/groups/batch-writing-group-store'
-import { ClickhouseGroupRepository } from '../worker/ingestion/groups/repositories/clickhouse-group-repository'
-import { GroupRepository } from '../worker/ingestion/groups/repositories/group-repository.interface'
 import { BatchWritingPersonsStore } from '../worker/ingestion/persons/batch-writing-person-store'
 import { PersonsStore } from '../worker/ingestion/persons/persons-store'
-import { PersonRepository } from '../worker/ingestion/persons/repositories/person-repository'
 import {
     JoinedIngestionPipelineConfig,
     JoinedIngestionPipelineContext,

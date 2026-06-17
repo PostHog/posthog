@@ -1,10 +1,10 @@
+import { personProfileIgnoredPropertiesCounter, personProfileUpdateOutcomeCounter } from '~/common/persons/metrics'
+import { FILTERED_PERSON_UPDATE_PROPERTIES } from '~/common/persons/person-property-utils'
 import { PluginEvent } from '~/plugin-scaffold'
 
-import { personProfileIgnoredPropertiesCounter, personProfileUpdateOutcomeCounter } from './metrics'
-import { FILTERED_PERSON_UPDATE_PROPERTIES } from './person-property-utils'
 import { applyEventPropertyUpdates, computeEventPropertyUpdates } from './person-update'
 
-jest.mock('./metrics', () => ({
+jest.mock('~/common/persons/metrics', () => ({
     personProfileUpdateOutcomeCounter: {
         labels: jest.fn().mockReturnValue({
             inc: jest.fn(),

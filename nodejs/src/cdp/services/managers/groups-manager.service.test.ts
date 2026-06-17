@@ -1,5 +1,5 @@
+import { GroupReadRepository } from '~/common/groups/repositories/group-repository.interface'
 import { TeamManager } from '~/utils/team-manager'
-import { GroupReadRepository } from '~/worker/ingestion/groups/repositories/group-repository.interface'
 
 import { createHogExecutionGlobals } from '../../_tests/fixtures'
 import { GroupsManagerService } from './groups-manager.service'

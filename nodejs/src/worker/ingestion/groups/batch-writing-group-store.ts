@@ -1,6 +1,9 @@
 import { DateTime } from 'luxon'
 import pLimit from 'p-limit'
 
+import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
+import { GroupRepositoryTransaction } from '~/common/groups/repositories/group-repository-transaction.interface'
+import { GroupRepository } from '~/common/groups/repositories/group-repository.interface'
 import { GroupsOutput, IngestionWarningsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { Properties } from '~/plugin-scaffold'
@@ -23,9 +26,6 @@ import {
     groupFetchPromisesCacheOperationsCounter,
     groupOptimisticUpdateConflictsPerBatchCounter,
 } from './metrics'
-import { ClickhouseGroupRepository } from './repositories/clickhouse-group-repository'
-import { GroupRepositoryTransaction } from './repositories/group-repository-transaction.interface'
-import { GroupRepository } from './repositories/group-repository.interface'
 
 class GroupCache {
     private cache: Map<string, GroupUpdate | null>

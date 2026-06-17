@@ -5,6 +5,10 @@ import { DateTime } from 'luxon'
 import { INGESTION_WARNINGS_OUTPUT } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
+import { PersonMessage } from '~/common/persons/person-message'
+import { fromInternalPerson } from '~/common/persons/person-update-batch'
+import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
+import { fetchDistinctIdValues } from '~/common/persons/repositories/test-helpers'
 import { KAFKA_INGESTION_WARNINGS, KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID } from '~/config/kafka-topics'
 import { ASYNC_OUTPUT, PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT } from '~/ingestion/analytics/outputs'
 import { PipelineResultType, isDlqResult, isOkResult, isRedirectResult } from '~/ingestion/pipelines/results'
@@ -12,7 +16,6 @@ import { KafkaProducerWrapper } from '~/kafka/producer'
 import { PluginEvent, Properties } from '~/plugin-scaffold'
 import { Clickhouse } from '~/tests/helpers/clickhouse'
 import { ensureKafkaTopics } from '~/tests/helpers/kafka'
-import { fromInternalPerson } from '~/worker/ingestion/persons/person-update-batch'
 import { BatchBoundPersonsStore, PersonsStoreForBatch } from '~/worker/ingestion/persons/persons-store-for-batch'
 
 import {
@@ -40,10 +43,7 @@ import {
     TargetPersonNotFoundError,
     createDefaultSyncMergeMode,
 } from '../../../src/worker/ingestion/persons/person-merge-types'
-import { PersonMessage } from '../../../src/worker/ingestion/persons/person-message'
 import { PersonPropertyService } from '../../../src/worker/ingestion/persons/person-property-service'
-import { PostgresPersonRepository } from '../../../src/worker/ingestion/persons/repositories/postgres-person-repository'
-import { fetchDistinctIdValues } from '../../../src/worker/ingestion/persons/repositories/test-helpers'
 import {
     createOrganization,
     createTeam,

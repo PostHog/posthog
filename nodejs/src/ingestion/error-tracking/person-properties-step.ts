@@ -1,6 +1,6 @@
+import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
 import { PluginEvent } from '~/plugin-scaffold'
 import { Person, Team } from '~/types'
-import { PersonReadRepository } from '~/worker/ingestion/persons/repositories/person-repository'
 
 import { BatchProcessingStep } from '../pipelines/base-batch-pipeline'
 import { PipelineResult, ok } from '../pipelines/results'

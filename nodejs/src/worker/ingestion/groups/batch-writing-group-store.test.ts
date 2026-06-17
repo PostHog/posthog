@@ -7,8 +7,8 @@ import { RaceConditionError } from '../../../utils/utils'
 
 import { BatchWritingGroupStore } from './batch-writing-group-store'
 import { groupCacheOperationsCounter } from './metrics'
-import { ClickhouseGroupRepository } from './repositories/clickhouse-group-repository'
-import { GroupRepository } from './repositories/group-repository.interface'
+import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
+import { GroupRepository } from '~/common/groups/repositories/group-repository.interface'
 
 // Mock the module before importing
 jest.mock('../../../ingestion/common/ingestion-warnings', () => ({

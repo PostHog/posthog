@@ -11,6 +11,7 @@ import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '~/cdp/_
 import { insertHogFunction as _insertHogFunction, insertBatchExport } from '~/cdp/_tests/fixtures'
 import { CdpApi } from '~/cdp/cdp-api'
 import { HogFunctionType } from '~/cdp/types'
+import { GroupReadRepository } from '~/common/groups/repositories/group-repository.interface'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { getFirstTeam, resetTestDatabase, updateOrganizationAvailableFeatures } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
@@ -19,7 +20,6 @@ import { UUIDT } from '~/utils/utils'
 
 import { GroupTypeIndex, TeamId } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
-import { GroupReadRepository } from '../../worker/ingestion/groups/repositories/group-repository.interface'
 import { GroupsManagerService } from './managers/groups-manager.service'
 
 describe('BatchExportHogFunctionService', () => {

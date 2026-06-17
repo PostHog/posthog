@@ -1,9 +1,10 @@
+import { PersonPropertiesSizeViolationError } from '~/common/persons/repositories/person-repository'
+
 import { InternalPerson } from '../../../types'
 import { defaultRetryConfig, promiseRetry } from '../../../utils/retries'
 import { PersonContext } from './person-context'
 import { PersonCreateService } from './person-create-service'
 import { applyEventPropertyUpdates, computeEventPropertyUpdates } from './person-update'
-import { PersonPropertiesSizeViolationError } from './repositories/person-repository'
 
 /**
  * Service responsible for handling person property updates and person creation.

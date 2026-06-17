@@ -1,12 +1,9 @@
 import { DateTime } from 'luxon'
 
+import { InternalPersonWithDistinctId, PersonReadRepository } from '~/common/persons/repositories/person-repository'
 import { createTestPluginEvent } from '~/tests/helpers/plugin-event'
 import { createTestTeam } from '~/tests/helpers/team'
 import { InternalPerson } from '~/types'
-import {
-    InternalPersonWithDistinctId,
-    PersonReadRepository,
-} from '~/worker/ingestion/persons/repositories/person-repository'
 
 import { PipelineResultType, isOkResult } from '../pipelines/results'
 import { createFetchPersonBatchStep } from './person-properties-step'
