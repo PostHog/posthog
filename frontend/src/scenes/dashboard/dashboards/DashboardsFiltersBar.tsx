@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useDebouncedCallback } from 'use-debounce'
 
-import { IconChevronDown, IconPin, IconPinFilled, IconShare } from '@posthog/icons'
+import { IconChevronDown, IconFolder, IconPin, IconPinFilled, IconShare, IconX } from '@posthog/icons'
 import { LemonInput, Popover } from '@posthog/lemon-ui'
 
 import { MemberSelect } from 'lib/components/MemberSelect'
@@ -144,6 +144,19 @@ export function DashboardsFiltersBar({ extraActions }: DashboardsFiltersBarProps
                             Shared
                         </LemonButton>
                     </div>
+                    {filters.folder != null && (
+                        <LemonButton
+                            active
+                            type="secondary"
+                            size="small"
+                            icon={<IconFolder />}
+                            sideIcon={<IconX />}
+                            onClick={() => setFilters({ folder: null })}
+                            tooltip="Clear folder filter"
+                        >
+                            {filters.folder || 'Project root'}
+                        </LemonButton>
+                    )}
                 </div>
                 {currentTab !== DashboardsTab.Yours && (
                     <div className="flex items-center gap-2">

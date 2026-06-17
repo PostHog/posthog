@@ -13794,6 +13794,11 @@ export namespace Schemas {
       last_accessed_at?: string | null;
       /** @nullable */
       readonly last_viewed_at: string | null;
+      /**
+         * Path of the project-tree folder this dashboard is filed under in the file system, e.g. 'Unfiled/Dashboards'. An empty string means the project root; null means the dashboard has no file system entry. The dashboard's own name is not part of the path.
+         * @nullable
+         */
+      readonly folder: string | null;
       readonly is_shared: boolean;
       deleted?: boolean;
       readonly creation_mode: CreationModeEnum;
@@ -13863,8 +13868,11 @@ export namespace Schemas {
       readonly last_accessed_at: string | null;
       /** @nullable */
       readonly last_viewed_at: string | null;
-      /** Path of the project-tree folder this dashboard is filed under in the file system, e.g. 'Unfiled/Dashboards'. An empty string means the project root; null means the dashboard has no file system entry. The dashboard's own name is not part of the path. */
-      readonly folder: string;
+      /**
+         * Path of the project-tree folder this dashboard is filed under in the file system, e.g. 'Unfiled/Dashboards'. An empty string means the project root; null means the dashboard has no file system entry. The dashboard's own name is not part of the path.
+         * @nullable
+         */
+      readonly folder: string | null;
       readonly is_shared: boolean;
       readonly deleted: boolean;
       readonly creation_mode: CreationModeEnum;
@@ -50042,6 +50050,10 @@ export namespace Schemas {
     };
 
     export type EnvironmentsDashboardsListParams = {
+    /**
+     * Optional. Return only dashboards filed directly in this project-tree folder, e.g. 'Unfiled/Dashboards'. An empty string matches dashboards at the project root. Nested sub-folders are not included.
+     */
+    folder?: string;
     format?: EnvironmentsDashboardsListFormat;
     /**
      * Number of results to return per page.
@@ -55740,6 +55752,10 @@ export namespace Schemas {
     } as const;
 
     export type DashboardsListParams = {
+    /**
+     * Optional. Return only dashboards filed directly in this project-tree folder, e.g. 'Unfiled/Dashboards'. An empty string matches dashboards at the project root. Nested sub-folders are not included.
+     */
+    folder?: string;
     format?: DashboardsListFormat;
     /**
      * Number of results to return per page.

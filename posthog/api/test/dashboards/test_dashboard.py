@@ -446,6 +446,25 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         # Dashboards created without an explicit folder land in the default unfiled folder
         assert results_by_id[unfiled_id]["folder"] == "Unfiled/Dashboards"
 
+    def test_list_filters_by_folder(self):
+        in_folder_id, _ = self.dashboard_api.create_dashboard(
+            {"name": "In folder", "_create_in_folder": "Marketing/Website"}
+        )
+        nested_id, _ = self.dashboard_api.create_dashboard(
+            {"name": "Nested deeper", "_create_in_folder": "Marketing/Website/Landing"}
+        )
+        other_id, _ = self.dashboard_api.create_dashboard({"name": "Other folder", "_create_in_folder": "Product"})
+
+        response = self.dashboard_api.list_dashboards(
+            parent="environment", query_params={"folder": "Marketing/Website"}
+        )
+        result_ids = {dashboard["id"] for dashboard in response["results"]}
+
+        # Only the dashboard filed directly in the folder matches — nested sub-folders and other folders are excluded
+        assert result_ids == {in_folder_id}
+        assert nested_id not in result_ids
+        assert other_id not in result_ids
+
     @snapshot_postgres_queries
     def test_retrieve_dashboard(self):
         dashboard = Dashboard.objects.create(team=self.team, name="private dashboard", created_by=self.user)

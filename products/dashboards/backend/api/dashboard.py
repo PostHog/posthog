@@ -18,6 +18,7 @@ from django.db.models import (
     CharField,
     Count,
     DateTimeField,
+    Exists,
     F,
     FilteredRelation,
     OuterRef,
@@ -139,6 +140,7 @@ DASHBOARD_SHARED_FIELDS = [
     "created_by",
     "last_accessed_at",
     "last_viewed_at",
+    "folder",
     "is_shared",
     "deleted",
     "creation_mode",
@@ -895,9 +897,13 @@ class DashboardBasicSerializer(
             return "v1"
         return "v2"
 
-    @extend_schema_field(OpenApiTypes.STR)
+    @extend_schema_field(serializers.CharField(allow_null=True))
     def get_folder(self, dashboard: Dashboard) -> str | None:
-        # `_folder_path` is annotated on the list queryset (DashboardsViewSet.dangerously_get_queryset).
+        # Don't expose the project-tree location to anonymous viewers of a publicly shared dashboard —
+        # the folder name can encode internal organisational structure.
+        if self.context.get("is_shared"):
+            return None
+        # `_folder_path` is annotated on DashboardsViewSet.dangerously_get_queryset (all actions).
         # The file system path's last segment is the dashboard's own name; the folder is everything above it.
         path = getattr(dashboard, "_folder_path", None)
         if not path:
@@ -1931,6 +1937,16 @@ class DashboardSerializer(DashboardMetadataSerializer):
                     "400 error."
                 ),
             ),
+            OpenApiParameter(
+                "folder",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description=(
+                    "Optional. Return only dashboards filed directly in this project-tree folder, e.g. "
+                    "'Unfiled/Dashboards'. An empty string matches dashboards at the project root. Nested "
+                    "sub-folders are not included."
+                ),
+            ),
         ],
     ),
     partial_update=extend_schema(request=PatchedDashboardOpenApiSerializer),
@@ -1977,7 +1993,28 @@ class DashboardsViewSet(
         if tags:
             queryset = queryset.filter(tagged_items__tag__name__in=tags).distinct()
 
+        folder = self.request.query_params.get("folder")
+        if folder is not None:
+            queryset = self._apply_folder_filter(queryset, folder)
+
         return queryset
+
+    @staticmethod
+    def _apply_folder_filter(queryset: QuerySet, folder: str) -> QuerySet:
+        # Keep dashboards whose default-surface, non-shortcut file system entry sits *directly* in `folder`
+        # (an empty string means the project root). `depth` pins it to direct children so dashboards nested in
+        # sub-folders don't leak in, and lets the filter ride the posthog_fs_team_s_typeref index via the
+        # correlated ref lookup. Stored paths are already escaped, so the prefix comparison stays segment-safe.
+        entries = FileSystem.objects.filter(
+            surface_q(DEFAULT_SURFACE),
+            team_id=OuterRef("team_id"),
+            type="dashboard",
+            ref=Cast(OuterRef("id"), output_field=CharField()),
+            depth=len(split_path(folder)) + 1 if folder else 1,
+        ).exclude(shortcut=True)
+        if folder:
+            entries = entries.filter(path__startswith=f"{folder}/")
+        return queryset.filter(Exists(entries))
 
     @tracer.start_as_current_span("DashboardViewSet.list")
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -2025,10 +2062,12 @@ class DashboardsViewSet(
         else:
             queryset = queryset.annotate(last_viewed_at=Value(None, output_field=DateTimeField()))
 
-        # Annotate the project-tree folder each dashboard is filed under, so the list page can show it
+        # Annotate the project-tree folder each dashboard is filed under, so responses can expose it
         # without an extra round-trip. A single-valued correlated subquery against the file system —
         # backed by the posthog_fs_team_s_typeref index on (team_id, surface, type, ref) — keeps this cheap
         # and avoids the row multiplication a join could cause when shortcuts/multiple surfaces exist.
+        # The default surface matches both NULL and "web" rows, so order by id to keep the picked path
+        # stable when more than one non-shortcut entry exists for the same dashboard.
         queryset = queryset.annotate(_ref_id=Cast(F("id"), output_field=CharField())).annotate(
             _folder_path=Subquery(
                 FileSystem.objects.filter(
@@ -2038,6 +2077,7 @@ class DashboardsViewSet(
                     ref=OuterRef("_ref_id"),
                 )
                 .exclude(shortcut=True)
+                .order_by("id")
                 .values("path")[:1],
                 output_field=CharField(),
             )

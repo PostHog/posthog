@@ -32,6 +32,8 @@ export interface DashboardsFilters {
     pinned: boolean
     shared: boolean
     tags?: string[]
+    /** Folder path to filter to, e.g. 'Unfiled/Dashboards' (empty string = project root). null means no folder filter. */
+    folder?: string | null
 }
 
 export const DEFAULT_FILTERS: DashboardsFilters = {
@@ -40,6 +42,7 @@ export const DEFAULT_FILTERS: DashboardsFilters = {
     pinned: false,
     shared: false,
     tags: [],
+    folder: null,
 }
 
 /** Router may coerce numeric-looking query values to numbers; search text must stay a string. */
@@ -117,7 +120,10 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                  * The 250ms `breakpoint` runs before the empty-term short-circuit so a stale
                  * in-flight request can't clobber a freshly cleared search.
                  */
-                loadSearchedDashboards: async ({ search, tags }: { search: string; tags: string[] }, breakpoint) => {
+                loadSearchedDashboards: async (
+                    { search, tags, folder }: { search: string; tags: string[]; folder: string | null },
+                    breakpoint
+                ) => {
                     await breakpoint(250)
                     const term = search.trim()
                     if (!term) {
@@ -132,11 +138,15 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                         limit: '200',
                         exclude_generated: 'true',
                     })
-                    // Push tag filtering to the server so MCP and API clients see the same
-                    // result shape as the UI (and so the limit:200 cap operates on the right
-                    // population — pre-tag-filtered, not post).
+                    // Push tag/folder filtering to the server so MCP and API clients see the same
+                    // result shape as the UI, and so the limit:200 cap operates on the right
+                    // population — filtered first, not after. Without this, a folder filter combined
+                    // with search would only narrow the top-200 global matches and silently drop the rest.
                     for (const tag of tags) {
                         params.append('tags', tag)
+                    }
+                    if (folder != null) {
+                        params.append('folder', folder)
                     }
                     const response: PaginatedResponse<DashboardBasicType> = await api.get(
                         `api/environments/${teamId}/dashboards/?${params.toString()}`
@@ -206,6 +216,9 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                 if (filters.tags && filters.tags.length > 0) {
                     haystack = haystack.filter((d) => filters.tags?.some((tag) => d.tags?.includes(tag)))
                 }
+                if (filters.folder != null) {
+                    haystack = haystack.filter((d) => d.folder === filters.folder)
+                }
                 return haystack
             },
         ],
@@ -259,6 +272,29 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
 
             return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
         },
+        setFilters: () => {
+            // Persist the folder filter so it survives reloads/sharing. `null` means no filter (param absent);
+            // an empty string is a valid value (project root), so we key off the param's presence, not its value.
+            const folder = values.filters.folder ?? null
+            const hadFolder = 'folder' in router.values.searchParams
+            const currentFolder = hadFolder ? urlSearchParamToString(router.values.searchParams['folder']) : null
+
+            if (folder === currentFolder) {
+                return
+            }
+
+            const searchParams: Record<string, any> = {
+                ...router.values.searchParams,
+            }
+
+            if (folder === null) {
+                delete searchParams['folder']
+            } else {
+                searchParams['folder'] = folder
+            }
+
+            return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
+        },
     })),
     urlToAction(({ actions }) => ({
         '/dashboard': (_, searchParams) => {
@@ -267,20 +303,28 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
 
             const search = urlSearchParamToString(searchParams['search'])
             actions.setSearch(search)
+
+            const folder = 'folder' in searchParams ? urlSearchParamToString(searchParams['folder']) : null
+            actions.setFilters({ folder })
         },
     })),
     listeners(({ actions, values }) => ({
         setSearch: ({ search }) => {
-            actions.loadSearchedDashboards({ search, tags: values.filters.tags ?? [] })
+            actions.loadSearchedDashboards({
+                search,
+                tags: values.filters.tags ?? [],
+                folder: values.filters.folder ?? null,
+            })
         },
         setFilters: ({ filters }) => {
-            // Tag changes refetch when a search is active so server-side filtering stays
+            // Tag/folder changes refetch when a search is active so server-side filtering stays
             // accurate. Other filter keys (pinned/shared/createdBy/currentTab) are still
             // applied client-side over the in-memory list so they don't refetch.
-            if ('tags' in filters && values.filters.search) {
+            if (('tags' in filters || 'folder' in filters) && values.filters.search) {
                 actions.loadSearchedDashboards({
                     search: values.filters.search,
                     tags: values.filters.tags ?? [],
+                    folder: values.filters.folder ?? null,
                 })
             }
         },

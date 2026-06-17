@@ -25,6 +25,7 @@ import {
     JsonType,
 } from '~/types'
 
+import { UNFILED_DASHBOARDS_FOLDER } from './dashboardConstants'
 import type { newDashboardLogicType } from './newDashboardLogicType'
 
 export interface NewDashboardForm {
@@ -262,7 +263,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                     {
                         template: dashboardJSON,
                         creation_context: creationContext,
-                        _create_in_folder: 'Unfiled/Dashboards',
+                        _create_in_folder: UNFILED_DASHBOARDS_FOLDER,
                     }
                 )
 

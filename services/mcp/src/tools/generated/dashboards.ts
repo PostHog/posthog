@@ -565,6 +565,7 @@ const dashboardsGetAll = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/`,
             query: {
+                folder: params.folder,
                 limit: params.limit,
                 offset: params.offset,
                 search: params.search,
