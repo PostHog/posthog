@@ -119,3 +119,7 @@ pub(super) const CAPTURE_V1_EVENTS_RESTRICTED: &str = "capture_v1_events_restric
 
 /// Counter for per-request batch outcome mix (labels: outcome, path).
 pub(super) const CAPTURE_V1_BATCH_OUTCOMES: &str = "capture_v1_batch_outcomes";
+
+/// Histogram for end-to-end processing time (parsing through sink publish).
+pub(super) const CAPTURE_V1_PROCESSING_DURATION_SECONDS: &str =
+    "capture_v1_processing_duration_seconds";

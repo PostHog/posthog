@@ -89,6 +89,16 @@ export interface SignalReportApi {
      * @nullable
      */
     readonly already_addressed: boolean | null
+    /**
+     * Reason code from the latest dismissal artefact, set when the report was suppressed (when present).
+     * @nullable
+     */
+    readonly dismissal_reason: string | null
+    /**
+     * Free-form note captured alongside the dismissal reason (when present).
+     * @nullable
+     */
+    readonly dismissal_note: string | null
     readonly is_suggested_reviewer: boolean
     /** Distinct source products contributing signals to this report (from ClickHouse). */
     readonly source_products: readonly string[]
@@ -1147,6 +1157,7 @@ export interface ForgetResponseApi {
  * * `pganalyze` - pganalyze
  * * `signals_scout` - Signals scout
  * * `logs` - Logs
+ * * `health_checks` - Health checks
  */
 export type SourceProductEnumApi = (typeof SourceProductEnumApi)[keyof typeof SourceProductEnumApi]
 
@@ -1161,6 +1172,7 @@ export const SourceProductEnumApi = {
     Pganalyze: 'pganalyze',
     SignalsScout: 'signals_scout',
     Logs: 'logs',
+    HealthChecks: 'health_checks',
 } as const
 
 /**
@@ -1173,6 +1185,7 @@ export const SourceProductEnumApi = {
  * * `issue_spiking` - Issue spiking
  * * `cross_source_issue` - Cross source issue
  * * `alert_state_change` - Alert state change
+ * * `health_issue` - Health issue
  */
 export type SignalSourceConfigSourceTypeEnumApi =
     (typeof SignalSourceConfigSourceTypeEnumApi)[keyof typeof SignalSourceConfigSourceTypeEnumApi]
@@ -1187,6 +1200,7 @@ export const SignalSourceConfigSourceTypeEnumApi = {
     IssueSpiking: 'issue_spiking',
     CrossSourceIssue: 'cross_source_issue',
     AlertStateChange: 'alert_state_change',
+    HealthIssue: 'health_issue',
 } as const
 
 export interface SignalSourceConfigApi {
@@ -1275,6 +1289,10 @@ export type SignalsProcessingListParams = {
 }
 
 export type SignalsReportsListParams = {
+    /**
+     * Filter reports by whether a shipped implementation pull request exists. 'true' keeps only reports with a PR; 'false' keeps only those without. Pair with limit=1 to count PR reports cheaply.
+     */
+    has_implementation_pr?: boolean
     /**
      * Number of results to return per page.
      */

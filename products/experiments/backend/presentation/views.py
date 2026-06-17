@@ -45,6 +45,7 @@ from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricsRecalculation,
     ExperimentTimeseriesRecalculation,
+    ExperimentToSavedMetric,
     experiment_has_legacy_metrics,
 )
 from products.experiments.backend.presentation.serializers import (
@@ -176,8 +177,11 @@ def _slugify_feature_flag_key(name: str, *, team_id: int) -> str:
             OpenApiParameter(
                 name="created_by_id",
                 location=OpenApiParameter.QUERY,
-                type=int,
-                description="Filter to experiments created by the given user ID.",
+                type=str,
+                description=(
+                    "Filter to experiments created by the given user(s). Accepts a single user ID, "
+                    "or a JSON-encoded / comma-separated list of user IDs to match any of them."
+                ),
                 required=False,
             ),
             OpenApiParameter(
@@ -235,17 +239,30 @@ class EnterpriseExperimentsViewSet(
 ):
     scope_object: Literal["experiment"] = "experiment"
     serializer_class = ExperimentSerializer
-    queryset = Experiment.objects.prefetch_related(
-        Prefetch(
-            "feature_flag__flag_evaluation_contexts",
-            queryset=FeatureFlagEvaluationContext.objects.select_related("evaluation_context"),
-        ),
-        "feature_flag",
-        "created_by",
-        "holdout",
-        "experimenttosavedmetric_set",
-        "saved_metrics",
-    ).all()
+    queryset = (
+        Experiment.objects.select_related(
+            "team",
+            "feature_flag",
+            "created_by",
+            "exposure_cohort",
+            "holdout__created_by",
+        )
+        .prefetch_related(
+            Prefetch(
+                "feature_flag__flag_evaluation_contexts",
+                queryset=FeatureFlagEvaluationContext.objects.select_related("evaluation_context"),
+            ),
+            Prefetch(
+                # order_by("id") keeps saved metrics in insertion order — select_related below adds
+                # joins that would otherwise leave the row order unspecified.
+                "experimenttosavedmetric_set",
+                queryset=ExperimentToSavedMetric.objects.select_related("saved_metric", "experiment__team").order_by(
+                    "id"
+                ),
+            ),
+        )
+        .all()
+    )
     ordering = "-created_at"
 
     def safely_get_queryset(self, queryset) -> QuerySet:

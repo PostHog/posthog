@@ -395,6 +395,7 @@ class SignalReportViewSet(
         qs = self._apply_signal_report_status_filter(qs)
         qs = self._apply_signal_report_search_filter(qs)
         qs = self._apply_signal_report_source_product_filter(qs)
+        qs = self._apply_signal_report_implementation_pr_filter(qs)
         qs = self._apply_signal_report_suggested_reviewer_filter(qs)
         qs = self._annotate_latest_actionability_value(qs)
         qs = self._annotate_signal_report_status_rank(qs)
@@ -475,6 +476,40 @@ class SignalReportViewSet(
 
         report_ids_with_source = fetch_report_ids_for_source_products(self.team, source_products)
         return queryset.filter(id__in=report_ids_with_source)
+
+    def _implementation_pr_exists_subquery(self):
+        # EXISTS over the latest implementation TaskRun that carries a non-empty
+        # `pr_url`. Mirrors `_annotate_implementation_pr_url`, but as a boolean
+        # EXISTS so it can be used as a filter (and counted) without the
+        # per-row PR-url annotation, which the list action skips for performance.
+        return Exists(
+            TaskRun.objects.filter(
+                task__signal_report_tasks__report_id=OuterRef("id"),
+                task__signal_report_tasks__relationship=SignalReportTask.Relationship.IMPLEMENTATION,
+                output__pr_url__isnull=False,
+            ).exclude(output__pr_url="")
+        )
+
+    def _apply_signal_report_implementation_pr_filter(self, queryset):
+        # `has_implementation_pr=true|false` filters reports by whether a shipped
+        # implementation PR exists. Lets the inbox count PR reports (the "Pull
+        # requests" tab) with a cheap `limit=1` count query instead of paging the
+        # whole list and filtering client-side. Absent or empty param leaves the
+        # list unchanged; an unrecognized value is a 400.
+        raw = self.request.query_params.get("has_implementation_pr")
+        if raw is None or not raw.strip():
+            return queryset
+        value = raw.strip().lower()
+        if value in ("1", "true", "yes"):
+            wants_pr = True
+        elif value in ("0", "false", "no"):
+            wants_pr = False
+        else:
+            raise serializers.ValidationError(
+                {"has_implementation_pr": f"Invalid value: {raw!r}. Allowed: true, false."}
+            )
+        pr_exists = self._implementation_pr_exists_subquery()
+        return queryset.filter(pr_exists if wants_pr else ~pr_exists)
 
     def _apply_signal_report_suggested_reviewer_filter(self, queryset):
         suggested_reviewer_filter = self.request.query_params.get("suggested_reviewers")
@@ -616,6 +651,13 @@ class SignalReportViewSet(
                     type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT
                 ).order_by("-created_at"),
                 to_attr="prefetched_actionability_artefacts",
+            ),
+            Prefetch(
+                "artefacts",
+                queryset=SignalReportArtefact.objects.filter(type=SignalReportArtefact.ArtefactType.DISMISSAL).order_by(
+                    "-created_at"
+                ),
+                to_attr="prefetched_dismissal_artefacts",
             ),
         )
 
@@ -798,6 +840,17 @@ class SignalReportViewSet(
                     "priority, created_at, updated_at, id. Defaults to '-is_suggested_reviewer,status,-updated_at'."
                 ),
             ),
+            OpenApiParameter(
+                name="has_implementation_pr",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Filter reports by whether a shipped implementation pull request exists. "
+                    "'true' keeps only reports with a PR; 'false' keeps only those without. "
+                    "Pair with limit=1 to count PR reports cheaply."
+                ),
+            ),
         ],
     )
     def list(self, request, *args, **kwargs):
@@ -970,6 +1023,11 @@ class SignalReportViewSet(
                     type=SignalReportArtefact.ArtefactType.DISMISSAL,
                     content=json.dumps(artefact_content),
                 )
+                # get_object() evaluated the dismissal prefetch before this artefact
+                # existed; drop the stale cache so the response serializer re-reads the
+                # just-written reason/note instead of the previous (or empty) dismissal.
+                if hasattr(report, "prefetched_dismissal_artefacts"):
+                    del report.prefetched_dismissal_artefacts
 
         return Response(SignalReportSerializer(report, context=self._enriched_report_context(report)).data)
 

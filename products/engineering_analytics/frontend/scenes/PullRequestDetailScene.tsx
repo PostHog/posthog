@@ -14,8 +14,9 @@ import {
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
-import { capitalizeFirstLetter, humanFriendlyDuration, pluralize } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
+import { humanFriendlyDuration } from 'lib/utils/durations'
+import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'

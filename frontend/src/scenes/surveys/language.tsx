@@ -1,4 +1,4 @@
-import { COUNTRY_CODE_TO_LONG_NAME, LANGUAGE_CODE_TO_NAME } from 'lib/utils/geography/country'
+import { COUNTRY_CODE_TO_LONG_NAME, LANGUAGE_CODE_TO_NAME } from 'lib/utils/country'
 
 import { Survey } from '~/types'
 

@@ -6,7 +6,7 @@ import { IconPencil, IconPlus } from '@posthog/icons'
 import { LemonInputSelect, LemonTag, LemonTagType } from '@posthog/lemon-ui'
 
 import { objectTagsLogic } from 'lib/components/ObjectTags/objectTagsLogic'
-import { colorForString } from 'lib/utils'
+import { colorForString } from 'lib/utils/colors'
 
 interface ObjectTagsPropsBase {
     tags: string[]

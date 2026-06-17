@@ -504,6 +504,21 @@ SPECTACULAR_SETTINGS = {
         "HeatmapType": "products.web_analytics.backend.models.heatmap_saved.SavedHeatmap.Type",
         # --- Inline value lists (type-hint enums, no x-spec-enum-id) ---
         "PropertyGroupOperator": ["AND", "OR"],
+        # Two serializers now expose an `op` ChoiceField (metrics filters and email-template design
+        # patches). Pin both to stable names so neither gets a component-prefixed auto-name on collision.
+        # "OpEnum" keeps the metrics filter enum at its pre-existing generated name.
+        "OpEnum": ["eq", "neq", "regex", "not_regex"],
+        "EmailTemplateDesignOperationEnum": [
+            "update_content",
+            "update_column",
+            "update_row",
+            "update_body",
+            "add_content",
+            "remove_content",
+            "move_content",
+            "add_row",
+            "remove_row",
+        ],
         "PropertyFilterTypeEnum": [
             "event",
             "event_metadata",
