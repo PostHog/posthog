@@ -95,7 +95,7 @@ jobs:
             # The tool drives the box via the SDK over hogplane's HTTP API
             # (HOG_TOKEN + --host) — no binary to fetch, no SSH key to mount.
             - name: Install hogland SDK
-              run: pip install --disable-pip-version-check ./tools/hogbox-preview/vendor/posthog_hogland-0.1.1-py3-none-any.whl
+              run: pip install --disable-pip-version-check ./tools/hogbox-preview/vendor/posthog_hogland-0.1.2-py3-none-any.whl
 
             - name: Bring up preview
               id: build
@@ -151,7 +151,7 @@ jobs:
               with:
                   python-version: '3.12'
             - name: Install hogland SDK
-              run: pip install --disable-pip-version-check ./tools/hogbox-preview/vendor/posthog_hogland-0.1.1-py3-none-any.whl
+              run: pip install --disable-pip-version-check ./tools/hogbox-preview/vendor/posthog_hogland-0.1.2-py3-none-any.whl
             - name: Destroy preview box
               working-directory: tools/hogbox-preview
               # Resolve the box by its deterministic name and tear it down.
