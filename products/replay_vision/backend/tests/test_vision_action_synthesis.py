@@ -203,7 +203,11 @@ class TestVisionActionSynthesis(BaseTest):
         ):
             _synthesize(SynthesizeActionInputs(run_id=run.id))
 
-        self.assertIn("focus on rage clicks", captured["human"])
+        human = captured["human"]
+        self.assertIn("focus on rage clicks", human)
+        # The guide is a trusted instruction and must lead, so the fenced untrusted observation
+        # block stays the last thing the model reads.
+        self.assertLess(human.index("focus on rage clicks"), human.index("<observations>"))
 
 
 class TestMarkdownToSlack(BaseTest):
@@ -234,6 +238,12 @@ class TestStripExternalLinks(BaseTest):
             ("single_quote_title", "[x](https://evil.example.com 't')"),
             ("paren_title", "[x](https://evil.example.com (t))"),
             ("bare_url", "visit https://evil.example.com now"),
+            # Whitespace before `)` is a valid CommonMark link — it must still be defanged, not
+            # slip past both the link rule and the bare-URL rule.
+            ("newline_before_paren", "[x](https://evil.example.com\n)"),
+            ("space_before_paren", "[x](https://evil.example.com )"),
+            # Not a CommonMark link, but the destination URL would otherwise survive bare after `](`.
+            ("newline_mid_dest", "[x](https://evil.example.com\nmore)"),
         ]
     )
     def test_non_posthog_urls_defanged(self, _label: str, markdown: str) -> None:
@@ -242,6 +252,12 @@ class TestStripExternalLinks(BaseTest):
         self.assertNotIn("](https://evil.example.com", out)
         self.assertNotIn("(https://evil.example.com", out)
 
-    def test_posthog_links_preserved(self) -> None:
-        out = strip_external_links_markdown("[docs](https://posthog.com/docs)")
+    @parameterized.expand(
+        [
+            ("plain", "[docs](https://posthog.com/docs)"),
+            ("trailing_space", "[docs](https://posthog.com/docs )"),
+        ]
+    )
+    def test_posthog_links_preserved(self, _label: str, markdown: str) -> None:
+        out = strip_external_links_markdown(markdown)
         self.assertIn("https://posthog.com/docs", out)

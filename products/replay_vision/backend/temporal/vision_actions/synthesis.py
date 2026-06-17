@@ -139,9 +139,11 @@ def _run_synthesis(team: Team, creator: User, action: VisionAction, lines: list[
     if isinstance(action.synthesis_config, dict):
         guide = action.synthesis_config.get("prompt_guide")
         if isinstance(guide, str) and guide.strip():
-            prompt_guide = f"\n\nThe team asked you to focus on: {guide.strip()}"
+            prompt_guide = f"The team asked you to focus on: {guide.strip()}\n\n"
 
-    human = _as_untrusted_data("observations", lines) + prompt_guide
+    # Lead with the (trusted) guide so the fenced untrusted observation block is always the last
+    # thing the model reads — nothing instruction-shaped trails it for injected text to blend into.
+    human = prompt_guide + _as_untrusted_data("observations", lines)
 
     chat = MaxChatOpenAI(
         model=SYNTHESIS_MODEL,

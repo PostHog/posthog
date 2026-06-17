@@ -15,8 +15,14 @@ from posthog.api.utils import hostname_in_allowed_url_list
 _ALLOWED_LINK_URLS = ["https://posthog.com", "https://*.posthog.com"]
 # Title may be double-quoted, single-quoted, or parenthesized (all CommonMark forms) — match all
 # three so a crafted title doesn't leave the URL un-defanged.
-_MARKDOWN_LINK_RE = re.compile(r"\[([^\]]*)\]\(((?:[^()\s]+|\([^)]*\))+)(?:\s+(?:\"[^\"]*\"|'[^']*'|\([^)]*\)))?\)")
+# Trailing `\s*` before the closing paren: CommonMark allows whitespace between the destination
+# (or title) and `)`, so `[x](url\n)` is a real link — without it the URL slips past this rule
+# and the bare-URL rule (which skips `](`-prefixed URLs), reaching Slack un-defanged.
+_MARKDOWN_LINK_RE = re.compile(r"\[([^\]]*)\]\(((?:[^()\s]+|\([^)]*\))+)(?:\s+(?:\"[^\"]*\"|'[^']*'|\([^)]*\)))?\s*\)")
 _MARKDOWN_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\([^)]*\)")
+# Destinations the link rule still won't span (e.g. `[x](url\nmore)`, not a valid CommonMark link)
+# leave the URL sitting after `](`; the bare-URL rule skips it, so defang it here as a safety net.
+_ORPHAN_DEST_RE = re.compile(r"\]\(((?:https?://|www\.)[^\s<>)\]`]+)", re.IGNORECASE)
 _AUTOLINK_RE = re.compile(r"<(https?://[^\s>]+)>", re.IGNORECASE)
 _BARE_URL_RE = re.compile(r"(?<!\]\()(?<![<`@])((?:https?://|www\.)[^\s<>)\]`]+)", re.IGNORECASE)
 
@@ -50,6 +56,9 @@ def strip_external_links_markdown(markdown: str) -> str:
         lambda m: m.group(0) if _is_allowed_link_url(m.group(2)) else m.group(1),
         md,
     )
+    # Backtick-wrap any non-PostHog destination still glued to a `](` (a malformed link the rule
+    # above couldn't match) so the bare-URL rule's backtick lookbehind keeps it inert.
+    md = _ORPHAN_DEST_RE.sub(lambda m: m.group(0) if _is_allowed_link_url(m.group(1)) else f"](`{m.group(1)}`", md)
     md = _AUTOLINK_RE.sub(lambda m: _neutralize_url(m.group(1), keep_as=m.group(0)), md)
     md = _BARE_URL_RE.sub(lambda m: _neutralize_url(m.group(1)), md)
     return md
