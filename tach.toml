@@ -185,7 +185,7 @@ path = "products.conversations"
 depends_on = [
     "ee",
     "posthog",
-    "products.posthog_ai",
+    "products.posthog_ai", "products.tasks", "products.business_knowledge",
 ]
 layer = "modules"
 
@@ -671,7 +671,7 @@ expose = [
     "backend\\.routes.*",
 ]
 from = [
-    "products\\.(experiments|mcp_analytics|mcp_store|metrics|notifications|tracing|user_interviews|visual_review)",
+    "products\\.(error_tracking|experiments|mcp_analytics|mcp_store|metrics|notifications|tracing|user_interviews|visual_review)",
 ]
 
 # TODO: Experiments-specific temporary interface
@@ -740,6 +740,24 @@ expose = [
 ]
 from = [
     "products.mcp_store",
+]
+
+# error_tracking exposes its ClickHouse DDL (sql / embedding / indexed_embedding) to
+# core's ClickHouse schema + frozen migrations, and its models / remote_config to core
+# model-class consumers (product_intent, remote_config, team deletion) and test fixtures.
+# The frozen-migration coupling cannot be rerouted, so this block is permanent rather than
+# shrinking to zero — which is why backend:contract-check stays off for this product.
+
+[[interfaces]]
+expose = [
+    "backend\\.embedding.*",
+    "backend\\.indexed_embedding.*",
+    "backend\\.models.*",
+    "backend\\.remote_config.*",
+    "backend\\.sql.*",
+]
+from = [
+    "products.error_tracking",
 ]
 
 [[interfaces]]
