@@ -5,7 +5,7 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, _create_person
 from unittest.mock import patch
 
-from posthog.schema import CachedEventTaxonomyQueryResponse
+from posthog.schema import CachedActorsPropertyTaxonomyQueryResponse, CachedEventTaxonomyQueryResponse
 
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import invalidate_group_types_cache
@@ -216,6 +216,43 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
                 "The property $virt_mrr is a virtual property computed at query time, "
                 "so the taxonomy does not have stored sample values.",
             )
+
+    @patch("ee.hogai.chat_agent.query_planner.toolkit.ActorsPropertyTaxonomyQueryRunner")
+    def test_retrieve_entity_property_values_virtual_person_property_with_empty_runner_results(self, mock_runner_class):
+        now = datetime(2024, 1, 1, tzinfo=UTC)
+        mock_runner_class.return_value.run.return_value = CachedActorsPropertyTaxonomyQueryResponse(
+            cache_key="test",
+            is_cached=True,
+            last_refresh=now,
+            next_allowed_client_refresh=now,
+            results=[],
+            timezone="UTC",
+        )
+        toolkit = DummyToolkit(self.team)
+        self.assertEqual(
+            toolkit.retrieve_entity_property_values("person", "$virt_initial_channel_type"),
+            '"Paid Search", "Organic Video", "Direct" and many more distinct values.',
+        )
+
+    @patch("ee.hogai.chat_agent.query_planner.toolkit.ActorsPropertyTaxonomyQueryRunner")
+    def test_retrieve_entity_property_values_virtual_group_property_with_empty_runner_results(self, mock_runner_class):
+        now = datetime(2024, 1, 1, tzinfo=UTC)
+        mock_runner_class.return_value.run.return_value = CachedActorsPropertyTaxonomyQueryResponse(
+            cache_key="test",
+            is_cached=True,
+            last_refresh=now,
+            next_allowed_client_refresh=now,
+            results=[],
+            timezone="UTC",
+        )
+        toolkit = DummyToolkit(self.team)
+        # Bypass the personhog-backed _groups lookup so the group entity is recognized.
+        toolkit.__dict__["_groups"] = [{"group_type": "proj", "group_type_index": 0}]
+        self.assertEqual(
+            toolkit.retrieve_entity_property_values("proj", "$virt_mrr"),
+            "The property $virt_mrr is a virtual property computed at query time, "
+            "so the taxonomy does not have stored sample values.",
+        )
 
     def test_group_names(self):
         create_group_type_mapping_without_created_at(

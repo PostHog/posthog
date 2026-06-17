@@ -411,6 +411,8 @@ class TaxonomyAgentToolkit:
             return f"The entity {entity} does not exist in the taxonomy."
 
         if not response.results:
+            if virtual_definition is not None:
+                return self._format_virtual_property_values(property_name, virtual_definition)
             return f"Property values for {property_name} do not exist in the taxonomy for the entity {entity}."
 
         # TRICKY. Remove when the toolkit supports multiple results.
