@@ -378,6 +378,7 @@ Return your response as a JSON object with keys: reply, citations, confidence, s
             model=SupportReplyDraft,
             step_name="support_reply",
             origin_product=Task.OriginProduct.SUPPORT_REPLY,
+            internal=True,
             max_poll_seconds=DRAFT_POLL_SECONDS,
         )
         return DraftOutput(
@@ -616,7 +617,7 @@ class SupportReplyWorkflow:
             # Track best-so-far by the validator's confidence (the trusted score, same
             # signal the threshold gate uses) — not the draft's self-reported confidence —
             # so an escalated note carries an honest confidence and the best-validated draft.
-            if validate_output.confidence > best_confidence:
+            if validate_output.confidence >= best_confidence:
                 best_reply = draft_output.reply
                 best_confidence = validate_output.confidence
                 best_citations = draft_output.citations
