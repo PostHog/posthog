@@ -1,5 +1,7 @@
 import { LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
+import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
+
 import {
     ExperimentMetric,
     isExperimentMeanMetric,
@@ -12,6 +14,7 @@ import {
     formatChanceToWinForGoal,
     formatDeltaPercent,
     formatMetricValue,
+    getMetricSubtitleValues,
     isBayesianResult,
 } from '~/scenes/experiments/MetricsView/shared/utils'
 
@@ -37,10 +40,14 @@ export function NotebookCompactTable({ result, metric }: NotebookCompactTablePro
             render: (_, item) => {
                 const value = formatMetricValue(item, metric)
                 const delta = item.isBaseline ? null : formatDeltaPercent(item)
+                const { numerator, denominator } = getMetricSubtitleValues(item, metric)
 
                 return (
                     <div className="flex flex-col">
                         <span className="font-semibold">{value}</span>
+                        <span className="text-xs text-muted">
+                            {humanFriendlyLargeNumber(numerator)} / {humanFriendlyLargeNumber(denominator)}
+                        </span>
                         {delta && (
                             <span
                                 className={`text-xs ${
