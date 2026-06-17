@@ -50,8 +50,16 @@ MAX_RUNS_PER_TICK = 1000
 # per day: cap × ticks/day), so a team registering many scouts degrades its own cadence,
 # not everyone else's. Sized well above the canonical fleet (~16 scouts) so a fully-enrolled
 # team is never trimmed; round-robin allocation still keeps any one team from starving the
-# others even when this is close to the global cap.
+# others even when this is close to the global cap. This is the DEFAULT — a per-team override
+# takes precedence when set in the `signals-scout` flag payload under `team_configs` (see
+# `_team_configs`), to give an important dogfooder more headroom or hold a noisy one lower,
+# no deploy.
 MAX_RUNS_PER_TEAM_PER_TICK = 50
+
+# Key inside a team's `team_configs` entry that overrides `MAX_RUNS_PER_TEAM_PER_TICK` for that
+# team. `team_configs` is a forward-looking per-team override bag — add more keys here as other
+# settings become per-team-tunable; each consumer reads + validates the key it cares about.
+TEAM_CONFIG_MAX_RUNS_PER_TICK = "max_runs_per_tick"
 
 # Coordinator tick cadence. Per-scout schedules are enforced via the due-check, so this is
 # just the polling granularity — the floor on how often any scout can run.
@@ -118,7 +126,10 @@ async def fetch_enabled_signals_scout_runs_activity(
         # cache, and database_sync_to_async's pool is sized for DB-bound work (mirrors the
         # asyncio.to_thread split in ai_observability/team_discovery.py).
         enrolled_team_ids = await asyncio.to_thread(_enrolled_team_ids)
-        planned = await database_sync_to_async(_collect_planned_runs, thread_sensitive=False)(enrolled_team_ids)
+        team_configs = await asyncio.to_thread(_team_configs)
+        planned = await database_sync_to_async(_collect_planned_runs, thread_sensitive=False)(
+            enrolled_team_ids, team_configs
+        )
     logger.info("signals_scout coordinator: planned runs", count=len(planned))
     return FetchEnabledRunsOutput(planned_runs=planned)
 
@@ -159,10 +170,11 @@ class _DueRun:
     skill_name: str
 
 
-def _collect_planned_runs(enrolled_team_ids: set[int]) -> list[PlannedRun]:
+def _collect_planned_runs(enrolled_team_ids: set[int], team_configs: dict[int, dict] | None = None) -> list[PlannedRun]:
     """Sync DB scan. Runs in a worker thread via Django's per-thread connection mgmt.
 
-    Takes the already-resolved enrolled team ids so the flag read stays off this DB pool.
+    Takes the already-resolved enrolled team ids (and optional per-team config overrides) so
+    the flag reads stay off this DB pool.
     """
     now = timezone.now()
     due: list[_DueRun] = []
@@ -193,35 +205,47 @@ def _collect_planned_runs(enrolled_team_ids: set[int]) -> list[PlannedRun]:
     if not due:
         return []
 
-    selected = _allocate_tick_budget(due)
+    selected = _allocate_tick_budget(due, team_configs)
     planned = [PlannedRun(team_id=d.team_id, skill_name=d.skill_name) for d in selected]
     # Stable order for predictable child-workflow ids within the tick.
     planned.sort(key=lambda p: (p.team_id, p.skill_name))
     return planned
 
 
-def _allocate_tick_budget(due: list[_DueRun]) -> list[_DueRun]:
+def _allocate_tick_budget(due: list[_DueRun], team_configs: dict[int, dict] | None = None) -> list[_DueRun]:
     """Apply the per-team and global tick caps fairly. Deterministic — no sampling.
 
-    Each team's due runs are ordered most-overdue-first and trimmed to
+    Each team's due runs are ordered most-overdue-first and trimmed to its per-team cap — the
+    `max_runs_per_tick` from its `team_configs` flag override if set, else
     `MAX_RUNS_PER_TEAM_PER_TICK`; the global `MAX_RUNS_PER_TICK` budget is then filled
-    round-robin across teams (one run per team per round) so a single team with many due
-    scouts can't monopolize the tick. Deferred runs stay unstamped, so they're the most
-    overdue next tick — a poor-man's queue, same catch-up semantics as before.
+    round-robin across teams (one run per team per round) so a single team with many due scouts
+    can't monopolize the tick. Deferred runs stay unstamped, so they're the most overdue next
+    tick — a poor-man's queue, same catch-up semantics as before.
     """
+    team_configs = team_configs or {}
+
+    def _team_cap(team_id: int) -> int:
+        # Per-team override takes precedence; validate the value here (the config blob is
+        # arbitrary flag JSON) and fall back to the global default if absent or invalid.
+        override = (team_configs.get(team_id) or {}).get(TEAM_CONFIG_MAX_RUNS_PER_TICK)
+        if isinstance(override, int) and not isinstance(override, bool) and override > 0:
+            return override
+        return MAX_RUNS_PER_TEAM_PER_TICK
+
     by_team: dict[int, list[_DueRun]] = {}
     for d in due:
         by_team.setdefault(d.team_id, []).append(d)
     for team_id, runs in by_team.items():
         runs.sort(key=lambda d: (-d.overdue_s, d.skill_name))
-        if len(runs) > MAX_RUNS_PER_TEAM_PER_TICK:
+        cap = _team_cap(team_id)
+        if len(runs) > cap:
             logger.warning(
                 "signals_scout coordinator: team over per-tick cap, deferring overflow",
                 team_id=team_id,
                 due=len(runs),
-                cap=MAX_RUNS_PER_TEAM_PER_TICK,
+                cap=cap,
             )
-            del runs[MAX_RUNS_PER_TEAM_PER_TICK:]
+            del runs[cap:]
 
     # Count after per-team trimming — that's the real candidate pool the global cap defers
     # against, so the warning doesn't fire on runs already dropped by the per-team caps.
@@ -236,7 +260,10 @@ def _allocate_tick_budget(due: list[_DueRun]) -> list[_DueRun]:
     # Most-overdue team first, team id as the deterministic tiebreak.
     team_order = sorted(by_team, key=lambda t: (-by_team[t][0].overdue_s, t))
     selected: list[_DueRun] = []
-    for round_idx in range(MAX_RUNS_PER_TEAM_PER_TICK):
+    # Lists are already trimmed to each team's cap, so the longest list is exactly the number
+    # of rounds needed — this naturally covers a team with a raised override too.
+    max_rounds = max((len(runs) for runs in by_team.values()), default=0)
+    for round_idx in range(max_rounds):
         if len(selected) >= MAX_RUNS_PER_TICK:
             break
         for team_id in team_order:
@@ -308,6 +335,49 @@ def _enrolled_team_ids() -> set[int]:
     except Exception as error:
         capture_exception(error)
         return set(fallback)
+
+
+def _team_configs() -> dict[int, dict]:
+    """Optional per-team config overrides, read from the same `signals-scout` flag payload as
+    enrollment. Returns `{team_id: config_dict}`.
+
+    Payload key `team_configs` is a `{team_id: {…}}` map — a forward-looking per-team override
+    bag. Today the only honored key is `max_runs_per_tick` (overrides `MAX_RUNS_PER_TEAM_PER_TICK`
+    for that team — give an important dogfooder more headroom or hold a noisy one lower, no
+    deploy); add more per-team settings under the same blob later. The override takes precedence
+    over the global default for its team; teams not listed keep the global default.
+
+    Absent/malformed → `{}` (everyone on the defaults). Defensive parse: JSON object keys arrive
+    as strings so they're coerced to int; entries whose value isn't a dict are dropped. Each
+    consumer validates the specific key it reads (see `_allocate_tick_budget._team_cap`). A read
+    error never breaks dispatch — it just falls back to the global defaults for all teams.
+    """
+    try:
+        payload = posthoganalytics.get_feature_flag_payload(
+            SIGNALS_SCOUT_DOGFOOD_FLAG, SIGNALS_SCOUT_DISCOVERY_DISTINCT_ID, match_value=True
+        )
+        if isinstance(payload, str):
+            payload = json.loads(payload)
+        if not isinstance(payload, dict):
+            return {}
+
+        raw = payload.get("team_configs", {})
+        if not isinstance(raw, dict):
+            return {}
+
+        configs: dict[int, dict] = {}
+        for key, value in raw.items():
+            if not isinstance(value, dict):
+                continue
+            try:
+                team_id = int(key)
+            except (TypeError, ValueError):
+                continue
+            configs[team_id] = value
+        return configs
+    except Exception as error:
+        capture_exception(error)
+        return {}
 
 
 def _overdue_seconds(config: SignalScoutConfig, now: datetime) -> float | None:

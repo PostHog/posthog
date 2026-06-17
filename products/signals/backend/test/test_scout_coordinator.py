@@ -31,6 +31,7 @@ from products.signals.backend.temporal.agentic.scout_coordinator import (
     SignalsScoutCoordinatorWorkflow,
     StampDispatchedRunsInput,
     _enrolled_team_ids,
+    _team_configs,
     fetch_enabled_signals_scout_runs_activity,
     stamp_dispatched_signals_scout_runs_activity,
 )
@@ -426,6 +427,79 @@ async def test_global_cap_is_split_fairly_across_teams(ateam, aother_team):
         (ateam.id, "signals-scout-a2"),
         (aother_team.id, "signals-scout-b1"),
     ]
+
+
+# ── Per-team config overrides via the flag payload (optional, opt-in per team) ───
+
+
+@pytest.mark.parametrize(
+    "payload,expected",
+    [
+        # String keys (JSON object keys) coerced to int; arbitrary config blob kept verbatim.
+        (
+            {"team_configs": {"5": {"max_runs_per_tick": 10}, "6": {"max_runs_per_tick": 3}}},
+            {5: {"max_runs_per_tick": 10}, 6: {"max_runs_per_tick": 3}},
+        ),
+        ('{"team_configs": {"9": {"max_runs_per_tick": 7}}}', {9: {"max_runs_per_tick": 7}}),  # JSON string payload
+        ({"team_configs": {"5": "nope"}}, {}),  # non-dict config value dropped
+        ({"team_configs": "nope"}, {}),  # wrong type → empty
+        ({}, {}),  # absent key → existing behaviour (no overrides)
+        (None, {}),  # no payload → no overrides
+    ],
+)
+@pytest.mark.flag_off
+def test_team_configs_parses_payload(payload, expected):
+    with patch(_PAYLOAD_PATH, return_value=payload):
+        assert _team_configs() == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_per_team_config_cap_override_takes_precedence(ateam):
+    # Three due scouts. A `team_configs` override caps THIS team at 1/tick (below the global
+    # default of 50), so only its single most-overdue scout dispatches — proving the per-team
+    # override is read from the flag payload and takes precedence.
+    now = timezone.now()
+    for name, hours in [("signals-scout-most", 10), ("signals-scout-mid", 5), ("signals-scout-least", 2)]:
+        await database_sync_to_async(_create_skill)(ateam, name)
+        await database_sync_to_async(_create_config)(
+            ateam, name, enabled=True, run_interval_minutes=60, last_run_at=now - timedelta(hours=hours)
+        )
+
+    def _payload(*_a, **_k):
+        return {
+            "guaranteed_team_ids": [int(t) for t in _FLAGGED_TEAM_IDS],
+            "team_configs": {str(ateam.id): {"max_runs_per_tick": 1}},
+        }
+
+    with patch(_PAYLOAD_PATH, side_effect=_payload):
+        planned = await _run_activity()
+
+    assert [p.skill_name for p in planned] == ["signals-scout-most"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_team_without_config_override_keeps_global_default(ateam):
+    # An override set for a DIFFERENT team must not affect this one — it keeps the global
+    # default. Both this team's due scouts dispatch (global default of 50 is not exceeded).
+    now = timezone.now()
+    for name, hours in [("signals-scout-most", 10), ("signals-scout-mid", 5)]:
+        await database_sync_to_async(_create_skill)(ateam, name)
+        await database_sync_to_async(_create_config)(
+            ateam, name, enabled=True, run_interval_minutes=60, last_run_at=now - timedelta(hours=hours)
+        )
+
+    def _payload(*_a, **_k):
+        return {
+            "guaranteed_team_ids": [int(t) for t in _FLAGGED_TEAM_IDS],
+            "team_configs": {"999999": {"max_runs_per_tick": 1}},  # some other team
+        }
+
+    with patch(_PAYLOAD_PATH, side_effect=_payload):
+        planned = await _run_activity()
+
+    assert sorted(p.skill_name for p in planned) == ["signals-scout-mid", "signals-scout-most"]
 
 
 @pytest.mark.asyncio
