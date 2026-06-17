@@ -492,12 +492,10 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             // 1` -> `[Field(distinct)]` + ORDER BY). FROM is the exception:
             // `SELECT DISTINCT FROM x` keeps DISTINCT a modifier and rejects via
             // the FROM-implicit-alias footgun, matching cpp.
-            // `distinct()` with empty parens is a zero-arg function call
-            // (`Call(distinct, [])`), NOT the DISTINCT modifier: cpp's ALL(*)
-            // can't read DISTINCT as the modifier when the only thing that
-            // follows is `()` (no column), so it backs off to
-            // ColumnExprFunction. `distinct(x)` keeps DISTINCT a modifier on
-            // the column `(x)`, so only EMPTY parens trigger the column read.
+            // `distinct()` (empty parens) is the zero-arg call `Call(distinct,
+            // [])`, not the modifier — cpp can't read DISTINCT as the modifier
+            // with only `()` (no column) after, so it backs off to a function
+            // call. `distinct(x)` stays the modifier on `(x)`; only empty `()`.
             let distinct_is_column = matches!(
                 self.peek(),
                 TokenKind::Comma | TokenKind::Eof | TokenKind::RParen | TokenKind::Semicolon

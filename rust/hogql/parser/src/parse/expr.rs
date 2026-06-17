@@ -3253,9 +3253,16 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         // all keep DISTINCT as a Field. The follow-set heuristic here
         // mirrors that: bail out when peek_next is Comma or any pure
         // infix/postfix op that can't start a fresh expression.
+        // `distinct()` with EMPTY parens is the zero-arg call `Call(distinct,
+        // [])`, not the args DISTINCT-marker: cpp reads `count(distinct())` as
+        // `count` over a nested `distinct()` call (cf. `SELECT distinct()`).
+        // `distinct(x)` keeps the marker, so only empty `()` triggers this.
+        let distinct_heads_empty_call =
+            self.peek_next() == TokenKind::LParen && self.peek_lparen_is_empty();
         let distinct = if self.peek() == TokenKind::Keyword(Kw::Distinct)
             && !matches!(self.peek_next(), TokenKind::Comma)
             && !is_pure_infix_op(self.peek_next())
+            && !distinct_heads_empty_call
         {
             self.bump()?;
             true
@@ -4351,12 +4358,11 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         Ok(args)
     }
 
-    /// Table-function argument list (cpp's `tableArgList`). A table-function
-    /// argument is a plain `columnExpr` or a named `ident := expr` — unlike a
-    /// general function call (cpp's `ColumnExprCallSelect`), a *bare* `SELECT …`
-    /// subquery is NOT a valid table arg: cpp rejects `FROM a(SELECT 1)` while
-    /// accepting the paren-wrapped `FROM a((SELECT 1))`. So this skips the
-    /// bare-`selectSetStmt` alt that `parse_arg_list` allows.
+    /// Table-function argument list (cpp's `tableArgList`): each arg is a plain
+    /// `columnExpr` or a named `ident := expr`. Unlike a general function call
+    /// (cpp's `ColumnExprCallSelect`), a *bare* `SELECT …` is not a valid table
+    /// arg — cpp rejects `FROM a(SELECT 1)` but accepts `FROM a((SELECT 1))` —
+    /// so this skips the bare-`selectSetStmt` alt that `parse_arg_list` allows.
     pub(crate) fn parse_table_arg_list(
         &mut self,
         terminator: TokenKind,
@@ -4377,11 +4383,10 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         Ok(args)
     }
 
-    /// One table-function argument: the named form `ident := expr`, else a
-    /// plain `columnExpr`. No bare-`SELECT` subquery alt — see
-    /// `parse_table_arg_list`. The named-arg gate mirrors
-    /// `parse_call_argument_with` (cpp's `ColumnExprNamedArg` admits the full
-    /// `identifier` rule, including keyword-as-identifier and `true`/`false`).
+    /// One table-function argument: a named `ident := expr`, else a plain
+    /// `columnExpr` (no bare-`SELECT` alt — see `parse_table_arg_list`). The
+    /// named-arg gate mirrors `parse_call_argument_with` (cpp's
+    /// `ColumnExprNamedArg` admits the full `identifier` rule).
     fn parse_table_argument(&mut self) -> Result<E::Value, ParseError> {
         let name_kw_ok =
             matches!(self.peek(), TokenKind::Keyword(kw) if kw_valid_as_identifier(kw));

@@ -4169,6 +4169,140 @@
   }
   '''
 # ---
+# name: test_distinct_with_empty_parens_is_a_function_call[count_distinct-a497c582]
+  '''
+  {
+    args: [
+      {
+        args: []
+        distinct: False
+        end: 16
+        name: "distinct"
+        start: 6
+      }
+    ]
+    distinct: False
+    end: 17
+    name: "count"
+    start: 0
+  }
+  '''
+# ---
+# name: test_distinct_with_empty_parens_is_a_function_call[count_distinct_1-bd3399dd]
+  '''
+  {
+    args: [
+      {
+        end: 20
+        left: {
+          args: []
+          distinct: False
+          end: 16
+          name: "distinct"
+          start: 6
+        }
+        op: "+"
+        right: {
+          end: 20
+          start: 19
+          value: 1
+        }
+        start: 6
+      }
+    ]
+    distinct: False
+    end: 21
+    name: "count"
+    start: 0
+  }
+  '''
+# ---
+# name: test_distinct_with_empty_parens_is_a_function_call[count_distinct_x-89c223b1]
+  '''
+  {
+    args: [
+      {
+        chain: [
+          "x"
+        ]
+        end: 16
+        from_asterisk: False
+        start: 15
+      }
+    ]
+    distinct: True
+    end: 18
+    name: "count"
+    start: 0
+  }
+  '''
+# ---
+# name: test_distinct_with_empty_parens_is_a_function_call[count_distinct_x-ba7e2428]
+  '''
+  {
+    args: [
+      {
+        chain: [
+          "x"
+        ]
+        end: 16
+        from_asterisk: False
+        start: 15
+      }
+    ]
+    distinct: True
+    end: 17
+    name: "count"
+    start: 0
+  }
+  '''
+# ---
+# name: test_distinct_with_empty_parens_is_a_function_call[f_distinct-390b20d3]
+  '''
+  {
+    args: [
+      {
+        args: []
+        distinct: False
+        end: 12
+        name: "distinct"
+        start: 2
+      }
+    ]
+    distinct: False
+    end: 13
+    name: "f"
+    start: 0
+  }
+  '''
+# ---
+# name: test_distinct_with_empty_parens_is_a_function_call[f_x_distinct-55bb2ea1]
+  '''
+  {
+    args: [
+      {
+        chain: [
+          "x"
+        ]
+        end: 3
+        from_asterisk: False
+        start: 2
+      },
+      {
+        args: []
+        distinct: False
+        end: 15
+        name: "distinct"
+        start: 5
+      }
+    ]
+    distinct: False
+    end: 16
+    name: "f"
+    start: 0
+  }
+  '''
+# ---
 # name: test_empty_paren_only_clauses_rejected[COLUMNS_REPLACE_a_AS_b-2108574c]
   '''
   {

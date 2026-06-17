@@ -1840,11 +1840,10 @@ def parser_test_factory(backend: HogQLParserBackend):
             )
 
         def test_table_function_arg_rejects_bare_select_subquery(self):
-            # A table-function argument is a `columnExpr` (cpp's `tableArgList`),
-            # so a *bare* `SELECT …` subquery is not a valid arg: cpp rejects
-            # `FROM a(SELECT 1)`. Only a paren-wrapped `(SELECT …)` is a valid
-            # arg. (A general function call DOES admit a bare subquery via cpp's
-            # `ColumnExprCallSelect`, but a table-function arg does not.)
+            # A table-function arg is a `columnExpr` (cpp's `tableArgList`), so a
+            # bare `SELECT …` is not valid — cpp rejects `FROM a(SELECT 1)`; only
+            # `(SELECT …)` paren-wrapped is. (A general call admits a bare subquery
+            # via `ColumnExprCallSelect`; a table-function arg does not.)
             for src in (
                 "SELECT * FROM a(SELECT 1)",
                 "SELECT * FROM events(SELECT 1)",
@@ -5991,10 +5990,8 @@ def parser_test_factory(backend: HogQLParserBackend):
 
         def test_full_template_string_empty_body_span(self):
             # The standalone `parse_string_template` entry has no trailing quote,
-            # so an empty body spans the whole synthetic `F'` token `[0, len]` —
-            # NOT one byte past it the way an inline `f''` (which carries a
-            # closing `'`) would. Position-sensitive, so asserted with the
-            # shared positioned snapshot.
+            # so an empty body spans the whole synthetic `F'` token `[0, len]`,
+            # not one byte past it like an inline `f''` would. Position-sensitive.
             self._assert_ast("", "template")
             # Guards: a non-empty literal body and a `{ … }` substitution.
             self._assert_ast("x", "template")
@@ -6467,11 +6464,9 @@ def parser_test_factory(backend: HogQLParserBackend):
                 self._assert_ast(src, "select")
 
         def test_cross_join_after_join_on_constraint(self):
-            # A comma after `JOIN … ON expr` begins a CROSS JOIN (a single-
-            # expression ON) when the post-comma element is a table carrying an
-            # alias or a `FINAL` — cpp reads `ON expr, t alias` / `…, t FINAL`
-            # that way, since the `ON columnExprList` alt can't absorb the
-            # trailing alias / FINAL and the enclosing statement can't either.
+            # A comma after `JOIN … ON expr` is a CROSS JOIN (single-expr ON) when
+            # the post-comma table carries an alias or `FINAL`: cpp reads
+            # `ON expr, t alias` / `…, t FINAL` that way, not as a multi-expr ON.
             for src in (
                 "SELECT 0 FROM a JOIN a ON '', a a",
                 "SELECT 1 FROM a JOIN b ON 1, c c",
@@ -6483,13 +6478,16 @@ def parser_test_factory(backend: HogQLParserBackend):
                 self._assert_ast(src, "select")
             # The comma stays a multi-expression ON (rejected on all backends)
             # when the post-comma element fully consumes as a columnExpr: a bare
-            # column, an `AS` alias (absorbed by the columnExpr), a field chain,
-            # or a trailing `SAMPLE` (taken at the statement level).
+            # column / `AS` alias / field chain, or a trailing `SAMPLE` (taken at
+            # the statement level). `y team_id` is a reserved alias (rejected on
+            # both); `c JOIN d ON y` has no alias/FINAL so it stays multi-expr ON.
             for src in (
                 "SELECT * FROM a JOIN b ON x, y AS z",
                 "SELECT * FROM a JOIN b ON x, y.z",
                 "SELECT * FROM a JOIN b ON x, y SAMPLE 0.1",
                 "SELECT * FROM a JOIN b ON x, y, z",
+                "SELECT * FROM a JOIN b ON x, y team_id",
+                "SELECT * FROM a JOIN b ON x, c JOIN d ON y",
             ):
                 with self.assertRaises((ExposedHogQLError, SyntaxError), msg=f"{backend}: {src!r}"):
                     parse_select(src, backend="cpp-json")
@@ -7578,16 +7576,21 @@ def parser_test_factory(backend: HogQLParserBackend):
                 parse_select("SELECT DISTINCT FROM x", backend=backend)
 
         def test_distinct_with_empty_parens_is_a_function_call(self):
-            # `distinct()` with EMPTY parens is a zero-arg function call
-            # (`Call(distinct, [])`), not the DISTINCT modifier: cpp's ALL(*)
-            # cannot read DISTINCT as the modifier with only `()` following (no
-            # column), so it backs off to ColumnExprFunction. Only EMPTY parens
-            # read `distinct` as the call head.
+            # `distinct()` with EMPTY parens is the zero-arg call `Call(distinct,
+            # [])`, not the DISTINCT modifier: cpp can't read DISTINCT as the
+            # modifier with only `()` (no column) after, so it backs off to a call.
             for src in ("SELECT distinct()", "SELECT distinct() FROM a"):
                 self._assert_ast(src, "select")
             # Guard: non-empty parens keep DISTINCT the modifier on the column.
             for src in ("SELECT distinct(x)", "SELECT distinct(x), y"):
                 self._assert_ast(src, "select")
+            # Same rule one level down: `count(distinct())` is `count` over a
+            # nested `distinct()` call, not the args DISTINCT-marker (empty `()` only).
+            for src in ("count(distinct())", "f(distinct())", "count(distinct() + 1)"):
+                self._assert_ast(src, "expr")
+            # Guards: non-empty parens / non-leading position keep the args-marker.
+            for src in ("count(distinct(x))", "count(distinct x)", "f(x, distinct())"):
+                self._assert_ast(src, "expr")
 
         def test_hogqlx_attribute_and_text_child_positions_match(self):
             # cpp positions each HogQLXAttribute (name start -> value end, or name end
