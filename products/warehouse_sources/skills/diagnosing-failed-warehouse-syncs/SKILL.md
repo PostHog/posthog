@@ -21,7 +21,7 @@ zero, which is rarely the right first step.
 - Data in a warehouse table is stale, missing rows, or looks corrupt
 - Latest rows aren't appearing despite the schema being marked `Completed`
 - The user is choosing between cancel / reload / resync / delete-data and isn't sure which
-- Another skill — typically `auditing-warehouse-data-health` — has surfaced a failing source or schema and the user
+- Another skill — typically `auditing-warehouse-source-health` — has surfaced a failing source or schema and the user
   wants to dig into it
 
 Both entry points (user-reported and audit-handoff) use the same workflow; the audit just means you already know

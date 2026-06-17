@@ -75,6 +75,12 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # so match the stable phrasing here. Retrying can't recover — the user must fix the
             # dataset or set the correct region.
             "was not found in location": "BigQuery couldn't find the configured dataset or table. It may have been deleted or renamed, or it may live in a different region — verify your dataset and table names, and set the dataset region in your source configuration if it isn't in the US.",
+            # Raised by google-cloud-bigquery's `TableReference.from_string` when a table id has
+            # more than the three `project.dataset.table` components. This happens when the
+            # Dataset ID field is set to `project.dataset` instead of just `dataset` — we then
+            # build `project.project.dataset.table` and the client rejects it. It's a deterministic
+            # config error, so retrying never succeeds.
+            "table_id must be a fully-qualified ID in standard SQL format": "Your BigQuery Dataset ID looks misconfigured — it should be just the dataset name (for example `analytics`), not `project.dataset`. Please update the Dataset ID in your source configuration.",
             # Raised from the shared `evolve_pyarrow_schema` in `pipelines/pipeline/utils.py`
             # when an integer column's source type was widened (e.g. `INT64` widened from a
             # narrower numeric type) after the destination table was created with the narrower
