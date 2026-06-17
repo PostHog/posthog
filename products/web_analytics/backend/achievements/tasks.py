@@ -1,5 +1,6 @@
 from datetime import date, datetime, timedelta
 from functools import partial
+from uuid import UUID
 
 from django.core.cache import cache
 from django.db import transaction
@@ -161,7 +162,7 @@ def _recompute_track(ctx: EvalContext, track: TrackDefinition) -> None:
     _apply_progress(ctx, track, progress.pk, new_value)
 
 
-def _apply_progress(ctx: EvalContext, track: TrackDefinition, progress_pk: int, new_value: int) -> list[int]:
+def _apply_progress(ctx: EvalContext, track: TrackDefinition, progress_pk: UUID, new_value: int) -> list[int]:
     with transaction.atomic():
         progress = WebAnalyticsAchievementProgress.objects.for_team(ctx.team.id).select_for_update().get(pk=progress_pk)
         is_cumulative = track.evaluator_key != "streak"
