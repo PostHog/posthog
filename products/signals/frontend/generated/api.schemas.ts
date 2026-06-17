@@ -1159,6 +1159,7 @@ export interface ForgetResponseApi {
  * * `logs` - Logs
  * * `health_checks` - Health checks
  * * `endpoints` - Endpoints
+ * * `replay_vision` - Replay Vision
  */
 export type SourceProductEnumApi = (typeof SourceProductEnumApi)[keyof typeof SourceProductEnumApi]
 
@@ -1175,6 +1176,7 @@ export const SourceProductEnumApi = {
     Logs: 'logs',
     HealthChecks: 'health_checks',
     Endpoints: 'endpoints',
+    ReplayVision: 'replay_vision',
 } as const
 
 /**
@@ -1190,6 +1192,7 @@ export const SourceProductEnumApi = {
  * * `health_issue` - Health issue
  * * `endpoint_execution_failed` - Endpoint execution failed
  * * `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded
+ * * `scanner_finding` - Scanner finding
  */
 export type SignalSourceConfigSourceTypeEnumApi =
     (typeof SignalSourceConfigSourceTypeEnumApi)[keyof typeof SignalSourceConfigSourceTypeEnumApi]
@@ -1207,6 +1210,7 @@ export const SignalSourceConfigSourceTypeEnumApi = {
     HealthIssue: 'health_issue',
     EndpointExecutionFailed: 'endpoint_execution_failed',
     EndpointBreakdownLimitExceeded: 'endpoint_breakdown_limit_exceeded',
+    ScannerFinding: 'scanner_finding',
 } as const
 
 export interface SignalSourceConfigApi {

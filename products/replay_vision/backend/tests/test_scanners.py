@@ -17,6 +17,7 @@ from products.replay_vision.backend.temporal.scanners import (
     SummarizerScanner,
     scanner_from_db,
 )
+from products.replay_vision.backend.temporal.scanners.base import SignalFinding
 from products.replay_vision.backend.temporal.types import EventTable
 
 
@@ -609,3 +610,45 @@ class TestToEventProperties:
         props = out.to_event_properties()
         assert "scanner_output_scanner_type" not in props
         assert "scanner_type" not in props
+
+
+class TestSignalSideMission:
+    def test_llm_response_model_excludes_signal_by_default(self) -> None:
+        scanner = scanner_from_db(_build_replay_scanner())
+        assert "signal" not in scanner.llm_response_model().model_json_schema()["properties"]
+
+    def test_llm_response_model_includes_signal_when_emitting(self) -> None:
+        scanner = scanner_from_db(_build_replay_scanner(emits_signals=True))
+        assert "signal" in scanner.llm_response_model().model_json_schema()["properties"]
+
+    @pytest.mark.parametrize(
+        "scanner_type, config, payload",
+        [
+            (ScannerType.MONITOR, {"prompt": "p"}, {"verdict": "yes", "reasoning": "r"}),
+            (ScannerType.CLASSIFIER, {"prompt": "p", "tags": ["a"]}, {"tags": ["a"], "reasoning": "r"}),
+            (ScannerType.SCORER, {"prompt": "p", "scale": {"min": 0, "max": 10}}, {"score": 5, "reasoning": "r"}),
+            (
+                ScannerType.SUMMARIZER,
+                {"prompt": "p"},
+                {"title": "t", "summary": "s", "intent": "i", "outcome": "o", "friction_points": [], "keywords": []},
+            ),
+        ],
+    )
+    def test_signal_parses_for_every_scanner_type(self, scanner_type: ScannerType, config: dict, payload: dict) -> None:
+        scanner = scanner_from_db(
+            _build_replay_scanner(scanner_type=scanner_type, scanner_config=config, emits_signals=True)
+        )
+        parsed = scanner.llm_response_model().model_validate(
+            {**payload, "confidence": 0.9, "signal": {"description": "Broken CTA on /cart", "confidence": 0.8}}
+        )
+        signal = getattr(parsed, "signal", None)
+        assert isinstance(signal, SignalFinding)
+        assert signal.description == "Broken CTA on /cart"
+        # `finalize` must still produce the persisted output; the finding travels separately on ScannerCallOutput.
+        assert scanner.finalize(parsed) is not None
+
+    @pytest.mark.parametrize("emits_signals, expected", [(True, True), (False, False)])
+    def test_prompt_includes_side_mission_only_when_emitting(self, emits_signals: bool, expected: bool) -> None:
+        scanner = scanner_from_db(_build_replay_scanner(emits_signals=emits_signals))
+        rendered = scanner.build_prompt(team_name="Acme", events=EventTable(columns=["event"], rows=[]))
+        assert ("signal_side_mission" in rendered) == expected

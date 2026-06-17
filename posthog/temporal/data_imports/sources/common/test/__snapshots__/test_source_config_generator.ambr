@@ -570,6 +570,8 @@
           ExternalDataSourceType.STIGG: StiggSourceConfig,
           ExternalDataSourceType.STOCKDATA: StockDataSourceConfig,
           ExternalDataSourceType.STRAVA: StravaSourceConfig,
+          ExternalDataSourceType.STREAMELEMENTS: StreamElementsSourceConfig,
+          ExternalDataSourceType.STREAMLABS: StreamlabsSourceConfig,
           ExternalDataSourceType.STRIPE: StripeSourceConfig,
           ExternalDataSourceType.SUPABASE: SupabaseSourceConfig,
           ExternalDataSourceType.SURVEYMONKEY: SurveyMonkeySourceConfig,

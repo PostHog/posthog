@@ -2,7 +2,7 @@
 
 from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, create_model
 
 from products.replay_vision.backend.temporal.scanners.prompt_env import render_prompt
 
@@ -23,6 +23,45 @@ class ChipSegment(BaseModel, frozen=True):
 
 
 Segment = Annotated[TextSegment | ChipSegment, Field(discriminator="kind")]
+
+
+# The side-mission calibration floor: templated into the prompt and enforced at emission.
+MIN_SIGNAL_CONFIDENCE = 0.4
+
+
+class SignalFinding(BaseModel, frozen=True):
+    """Optional side-mission finding: a product issue worth surfacing as a PostHog Signal."""
+
+    description: str = Field(
+        description=(
+            "Self-contained prose a reader with no session context can act on: what happened, where in the "
+            "product, and the user impact — concrete, per the side-mission instructions. "
+            "Plain prose, no `(event_uuid …)` citation markers."
+        )
+    )
+    confidence: float = Field(
+        ge=0,
+        le=1,
+        description="Calibrated confidence that this is a real, actionable issue. Apply the calibration rules.",
+    )
+
+
+def _with_signal_field(base: type[BaseModel]) -> type[BaseModel]:
+    """Extend an LLM response model with the optional side-mission `signal` field."""
+    return create_model(
+        f"{base.__name__}WithSignal",
+        __base__=base,
+        signal=(
+            SignalFinding | None,
+            Field(
+                default=None,
+                description=(
+                    "Only when the session surfaced a clear, actionable product issue per the side mission; "
+                    "null otherwise. Most sessions warrant null."
+                ),
+            ),
+        ),
+    )
 
 
 class BaseScannerOutput(BaseModel, frozen=True):
@@ -57,6 +96,10 @@ class BaseScanner(BaseModel, frozen=True):
         """Pydantic class the LLM emits, passed to Gemini's `response_json_schema`."""
         raise NotImplementedError
 
+    def llm_response_model(self) -> type[BaseModel]:
+        """The model the LLM must emit: `llm_response_schema`, gaining the side-mission `signal` field when `emits_signals`."""
+        return _with_signal_field(self.llm_response_schema) if self.emits_signals else self.llm_response_schema
+
     def prompt_context(self) -> dict[str, Any]:
         """Scanner-type-specific template variables. Subclasses override to inject their per-instance config."""
         return {}
@@ -90,5 +133,7 @@ class BaseScanner(BaseModel, frozen=True):
             url_mapping=url_mapping or {},
             window_mapping=window_mapping or {},
             session_metadata=session_metadata or {},
+            emits_signals=self.emits_signals,
+            min_signal_confidence=MIN_SIGNAL_CONFIDENCE,
             **self.prompt_context(),
         )
