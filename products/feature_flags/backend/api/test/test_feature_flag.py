@@ -10740,6 +10740,29 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
             },
         )
 
+        # Multivariate flag through the full serializer path — guards the is_multivariate field.
+        multivariate_flag = FeatureFlag.objects.create(
+            name="Multivariate flag",
+            key="multivariate-flag",
+            team=self.team,
+            active=True,
+            filters={
+                "multivariate": {"variants": [{"key": "control", "rollout_percentage": 100}]},
+                "groups": [{"rollout_percentage": 100, "properties": []}],
+            },
+            last_called_at=datetime.now(UTC),
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{multivariate_flag.id}/status")
+        self.assertEqual(
+            response.json()["rollout"],
+            {
+                "effectively_full_rollout": True,
+                "has_targeting_conditions": False,
+                "max_rollout_percentage": 100,
+                "is_multivariate": True,
+            },
+        )
+
     def test_get_flags_with_stale_filter_usage_and_config_based(self):
         """Test filtering by STALE status with both usage and config-based detection"""
         FeatureFlag.objects.all().delete()
