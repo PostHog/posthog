@@ -97,7 +97,7 @@ type DashboardWidgetGroupProductIntroConfig = {
 export const DASHBOARD_WIDGET_GROUP_PRODUCT_INTRO = {
     error_tracking: {
         productKey: ProductKey.ERROR_TRACKING,
-        valueProp: 'Catch and resolve the errors hurting your users — right alongside the rest of your dashboard.',
+        valueProp: 'Catch and resolve the errors hurting your users.',
         ctaLabel: 'Explore error tracking',
         docsHref: 'https://posthog.com/docs/error-tracking',
     },
@@ -109,7 +109,7 @@ export const DASHBOARD_WIDGET_GROUP_PRODUCT_INTRO = {
     },
     experiments: {
         productKey: ProductKey.EXPERIMENTS,
-        valueProp: 'Run A/B tests to measure the impact of everything you ship.',
+        valueProp: 'See whether a change actually helps your users before rolling it out to everyone.',
         ctaLabel: 'Explore experiments',
         docsHref: 'https://posthog.com/docs/experiments',
     },
