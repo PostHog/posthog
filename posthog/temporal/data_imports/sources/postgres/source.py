@@ -198,6 +198,18 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             "could not translate host name": None,
             "timeout expired connection to server at": None,
             "password authentication failed for user": None,
+            # AWS RDS Proxy reports bad credentials with its own wording instead of PostgreSQL's
+            # "password authentication failed for user" — it validates against Secrets Manager and
+            # returns "The password that was provided for the role <role> is wrong." None of the
+            # password keys above substring-match this, so without its own key Temporal keeps
+            # retrying a credential mismatch that can only be fixed on the customer's side. Match the
+            # stable prefix and exclude the volatile role name.
+            "The password that was provided for the role": (
+                "Your database proxy (for example AWS RDS Proxy) rejected the credentials "
+                '("the password that was provided for the role is wrong"). Check that the username '
+                "and password configured for this source match what the proxy expects, then "
+                "re-enable the sync."
+            ),
             "No primary key defined for table": None,
             "failed: timeout expired": None,
             # NOTE: "SSL connection has been closed unexpectedly" is intentionally NOT listed here.
