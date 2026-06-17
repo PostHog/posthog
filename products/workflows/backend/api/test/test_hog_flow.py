@@ -4,6 +4,8 @@ from typing import Optional
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
+
 from parameterized import parameterized
 from rest_framework import status
 
@@ -1632,6 +1634,61 @@ class TestHogFlowAPI(APIBaseTest):
             )
         assert response.status_code == 200, response.json()
         assert response.json() == {"affected": 1, "total": 10}
+
+    @parameterized.expand(
+        [
+            ("flag_only", [{"key": "my-other-flag", "type": "flag", "value": "true", "operator": "exact"}]),
+            (
+                "flag_mixed_with_person",
+                [
+                    {"key": "email", "type": "person", "value": "a@b.com", "operator": "exact"},
+                    {"key": "my-other-flag", "type": "flag", "value": "true", "operator": "exact"},
+                ],
+            ),
+        ]
+    )
+    def test_hog_flow_user_blast_radius_rejects_flag_condition(self, _name, properties):
+        # Feature flags can't be sized as a static batch audience — reject with a clean 400 before
+        # the condition reaches the blast-radius query (where it would otherwise 500).
+        with patch("products.workflows.backend.api.hog_flow.get_user_blast_radius") as mock_get_user_blast_radius:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
+                {"filters": {"properties": properties}},
+            )
+
+        assert response.status_code == 400, response.json()
+        assert "Feature flags can't be used as a batch audience condition" in response.json().get("detail", "")
+        mock_get_user_blast_radius.assert_not_called()
+
+    @override_settings(INTERNAL_API_SECRET="test-secret-123")
+    def test_internal_user_blast_radius_rejects_flag_condition(self):
+        with patch("products.workflows.backend.api.hog_flow.get_user_blast_radius") as mock_get_user_blast_radius:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/internal/hog_flows/user_blast_radius",
+                {"filters": {"properties": [{"key": "my-other-flag", "type": "flag", "value": "true"}]}},
+                format="json",
+                headers={"x-internal-api-secret": "test-secret-123"},
+            )
+
+        assert response.status_code == 400, response.json()
+        assert "Feature flags can't be used as a batch audience condition" in response.json().get("error", "")
+        mock_get_user_blast_radius.assert_not_called()
+
+    @override_settings(INTERNAL_API_SECRET="test-secret-123")
+    def test_internal_user_blast_radius_persons_rejects_flag_condition(self):
+        with patch(
+            "products.workflows.backend.api.hog_flow.get_user_blast_radius_persons"
+        ) as mock_get_user_blast_radius_persons:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/internal/hog_flows/user_blast_radius_persons",
+                {"filters": {"properties": [{"key": "my-other-flag", "type": "flag", "value": "true"}]}},
+                format="json",
+                headers={"x-internal-api-secret": "test-secret-123"},
+            )
+
+        assert response.status_code == 400, response.json()
+        assert "Feature flags can't be used as a batch audience condition" in response.json().get("error", "")
+        mock_get_user_blast_radius_persons.assert_not_called()
 
     def test_billable_action_types_computed_correctly(self):
         """Test that billable_action_types is computed correctly and cannot be overridden by clients"""

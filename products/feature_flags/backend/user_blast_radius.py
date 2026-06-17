@@ -37,11 +37,6 @@ def _normalize_property_value(prop: Property) -> None:
 def replace_proxy_properties(team: Team, feature_flag_condition: dict):
     prop_groups = Filter(data=feature_flag_condition, team=team).property_groups
 
-    if any(prop.type == "flag" for prop in prop_groups.flat):
-        raise ValidationError(
-            "Feature flag conditions are not supported for batch audiences. Use person properties or cohorts instead."
-        )
-
     for prop in prop_groups.flat:
         if prop.operator in ("is_date_before", "is_date_after"):
             relative_date = relative_date_parse_for_feature_flag_matching(str(prop.value))

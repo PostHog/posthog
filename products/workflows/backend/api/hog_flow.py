@@ -46,6 +46,7 @@ from posthog.cdp.validation import (
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.event_usage import EventSource, get_event_source
 from posthog.models import Team
+from posthog.models.filters import Filter
 from posthog.plugins.plugin_server_api import create_hog_flow_invocation_test, create_hog_flow_scheduled_invocation
 from posthog.utils import relative_date_parse_with_delta_mapping
 
@@ -78,6 +79,28 @@ MCP_ACTIVE_EDIT_REJECTION = (
     "scheduled or in flight, and there's no revision history to roll back. If you need different "
     "behavior, create a new draft workflow."
 )
+
+# A batch audience is a one-time snapshot of everyone matching the conditions at run time, so each
+# condition must resolve to a concrete set of persons/groups. Feature flag evaluation is dynamic
+# (rollout %, distinct_id hashing, super-conditions, holdouts) and has no such fixed membership, so a
+# flag condition can't be turned into an audience query — it falls through to a NotImplementedError
+# deeper in HogQL property compilation. Reject it up front with a clear 400 instead.
+BATCH_FLAG_CONDITION_REJECTION = (
+    "Feature flags can't be used as a batch audience condition. Use person properties or cohorts instead."
+)
+
+
+def reject_flag_conditions_in_audience(team: Team, filters: dict) -> None:
+    property_groups = Filter(data=filters or {}, team=team).property_groups
+    if any(prop.type == "flag" for prop in property_groups.flat):
+        raise exceptions.ValidationError(BATCH_FLAG_CONDITION_REJECTION)
+
+
+def _validation_error_message(error: exceptions.ValidationError) -> str:
+    detail = error.detail
+    if isinstance(detail, list) and detail:
+        return str(detail[0])
+    return str(detail)
 
 
 def _should_validate_strictly(context: dict, is_draft: Optional[bool]) -> bool:
@@ -1161,6 +1184,8 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         filters = request.data.get("filters", {})
         group_type_index = request.data.get("group_type_index", None)
 
+        reject_flag_conditions_in_audience(self.team, filters)
+
         result = get_user_blast_radius(self.team, filters, group_type_index)
 
         return Response(BlastRadiusSerializer(result).data)
@@ -1398,8 +1423,11 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
         group_type_index = request.data.get("group_type_index", None)
 
         try:
+            reject_flag_conditions_in_audience(team, filters)
             result = get_user_blast_radius(team, filters, group_type_index)
             return Response(BlastRadiusSerializer(result).data)
+        except exceptions.ValidationError as e:
+            return Response({"error": _validation_error_message(e)}, status=400)
         except Exception as e:
             logger.exception("Error in internal_user_blast_radius", error=str(e), team_id=team_id)
             return Response({"error": "Internal server error"}, status=500)
@@ -1425,6 +1453,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
         cursor = request.data.get("cursor", None)
 
         try:
+            reject_flag_conditions_in_audience(team, filters)
             users_affected = get_user_blast_radius_persons(team, filters, group_type_index, cursor)
             return Response(
                 {
@@ -1433,6 +1462,8 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
                     "has_more": len(users_affected) == PERSON_BATCH_SIZE,
                 }
             )
+        except exceptions.ValidationError as e:
+            return Response({"error": _validation_error_message(e)}, status=400)
         except Exception as e:
             logger.exception("Error in internal_user_blast_radius_persons", error=str(e), team_id=team_id)
             return Response({"error": "Internal server error"}, status=500)
