@@ -189,11 +189,6 @@ run_flags_read_store_migrations() {
     fi
 }
 
-# NOTE: the v2 agent platform schema is now Django-owned in the
-# `agent_platform` product DB — migrated by `migrate_product_databases`
-# via the top-level `bin/migrate` postgres scope. The old node-side
-# agent-runtime-queue scope was removed from here entirely.
-
 case "$MIGRATION_TYPE" in
     persons)
         run_persons_migrations

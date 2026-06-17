@@ -56,12 +56,7 @@ if [ -d "$SCRIPT_DIR/../rust/bin" ] && [ "${DEPLOYMENT:-}" != "hobby" ]; then
             exit 1
         fi
     fi
-
 fi
-
-# The v2 agent platform schema is now Django-owned in the `agent_platform`
-# product DB — migrated by `migrate_product_databases` under the `postgres`
-# scope below. The old node-side `agent_runtime` migration scope was removed.
 
 if run_scope "clickhouse"; then RUN_CLICKHOUSE=1; else RUN_CLICKHOUSE=0; fi
 if run_scope "postgres"; then RUN_POSTGRES=1; else RUN_POSTGRES=0; fi
