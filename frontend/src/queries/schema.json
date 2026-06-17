@@ -21250,6 +21250,7 @@
                 "Clarifai",
                 "Adapty",
                 "Braintrust",
+                "StreamElements",
                 "Custom"
             ],
             "type": "string"

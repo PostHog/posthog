@@ -2898,6 +2898,11 @@ class StravaSourceConfig(config.Config):
 
 
 @config.config
+class StreamElementsSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class StripeSourceConfig(config.Config):
     auth_method: StripeAuthMethodConfig
     stripe_account_id: str | None = None
@@ -3944,6 +3949,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.STIGG: StiggSourceConfig,
         ExternalDataSourceType.STOCKDATA: StockDataSourceConfig,
         ExternalDataSourceType.STRAVA: StravaSourceConfig,
+        ExternalDataSourceType.STREAMELEMENTS: StreamElementsSourceConfig,
         ExternalDataSourceType.STRIPE: StripeSourceConfig,
         ExternalDataSourceType.SUPABASE: SupabaseSourceConfig,
         ExternalDataSourceType.SURVEYMONKEY: SurveyMonkeySourceConfig,

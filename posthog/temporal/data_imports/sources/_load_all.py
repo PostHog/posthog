@@ -534,6 +534,7 @@ from .statuspage.source import StatuspageSource
 from .stigg.source import StiggSource
 from .stockdata.source import StockDataSource
 from .strava.source import StravaSource
+from .streamelements.source import StreamElementsSource
 from .stripe.source import StripeSource
 from .supabase.source import SupabaseSource
 from .surveymonkey.source import SurveyMonkeySource

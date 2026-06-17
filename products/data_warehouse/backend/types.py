@@ -661,6 +661,7 @@ class ExternalDataSourceType(models.TextChoices):
     CLARIFAI = "Clarifai", "Clarifai"
     ADAPTY = "Adapty", "Adapty"
     BRAINTRUST = "Braintrust", "Braintrust"
+    STREAMELEMENTS = "StreamElements", "StreamElements"
     CUSTOM = "Custom", "Custom"
 
 
