@@ -322,6 +322,7 @@ doesn't conflict with concurrent PRs.
 - customerly
 - databricks
 - datascope
+- datorama
 - db2
 - dbt
 - deputy
