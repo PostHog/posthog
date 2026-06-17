@@ -104,10 +104,10 @@ export async function queueApprovalResult(input: {
 
     // Posthog-code sessions render an in-chat approval card on top of every
     // queued tool call; the model echoing a "track it here: <url>" line on top
-    // of that card reads as either redundant or (when the URL points at the
-    // dying :3040 console) actively wrong. Drop the URL + approver hint so the
-    // model has nothing to repeat about how the user should approve. Other
-    // clients (Slack, MCP, the standalone console) still surface the URL.
+    // of that card is redundant when the user is already in the app the deep
+    // link would open. Drop the URL + approver hint so the model has nothing to
+    // repeat about how the user should approve. Other clients (Slack, MCP) still
+    // surface the deep link so the approval can be opened in PostHog Code.
     const suppressApprovalChannel = readSessionClientKind(input.session.trigger_metadata) === CLIENT_KIND_POSTHOG_CODE
     const buildUrl = input.buildApprovalUrl ?? defaultApprovalUrl
     const approval: Record<string, unknown> = {
@@ -222,10 +222,9 @@ function findLastAssistant(conv: ConversationMessage[]): AssistantMessageRecord 
     return null
 }
 
-// Fallback when the runner didn't wire `buildApprovalUrl` — a relative console
-// deep link (clickable in-console), not an opaque `urn:` the user can't act on.
-// Prod/dev wire an absolute URL via index.ts; this just keeps the unwired path
-// usable instead of cryptic.
+// Fallback when the runner didn't wire `buildApprovalUrl` (e.g. tests). Mirrors
+// the prod scheme so the unwired path stays usable instead of cryptic; index.ts
+// wires the dev/prod scheme via config.approvalLinkScheme.
 function defaultApprovalUrl(requestId: string): string {
-    return `/approvals?request=${requestId}`
+    return `posthog-code://approval/${requestId}`
 }

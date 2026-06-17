@@ -96,13 +96,11 @@ export const AgentRunnerConfigSchema = PlatformConfigSchema.extend({
         .describe(
             'PostHog capture host for the analytics sink (the region the runner’s teams live in). Defaults to `https://us.posthog.com` when unset. Setting it enables per-team routing even without a fallback key.'
         ),
-    consoleBaseUrl: z
+    approvalLinkScheme: z
         .string()
-        .url()
-        .optional()
-        .transform((v): string | undefined => v ?? (isDev() ? 'http://localhost:3040' : undefined))
+        .default(isDev() ? 'posthog-code-dev' : 'posthog-code')
         .describe(
-            'Base URL of the agent console. Used to build clickable approval links (`<base>/approvals?request=<id>`) surfaced to the model on a gated tool call. Dev defaults to the local console (`:3040`); prod sets the deployed host via the chart. Unset in prod → relative links (still clickable in-console, not in Slack).'
+            'Custom-protocol scheme that PostHog Code registers for deep links (the agent console now lives in the PostHog Code app). Used to build clickable approval links (`<scheme>://approval/<id>`) surfaced to the model on a gated tool call so non-PostHog-Code clients (Slack, MCP) can open the approval in the desktop app. Dev → `posthog-code-dev`, prod → `posthog-code`.'
         ),
     memoryS3Endpoint: requiredInProd(DEV_S3_ENDPOINT, 'AGENT_MEMORY_S3_ENDPOINT', { url: true }).describe(
         'S3-compatible endpoint for agent-memory file storage. Required everywhere — runner refuses to start without it (fail closed at config-load in prod). Dev defaults to local SeaweedFS via `hogli start`.'
@@ -244,7 +242,7 @@ const ENV_KEY_MAP = extendEnvKeyMap<AgentRunnerConfig>(PLATFORM_ENV_KEY_MAP, {
     MODEL_API_KEY: 'modelApiKey',
     POSTHOG_ANALYTICS_API_KEY: 'posthogAnalyticsApiKey',
     POSTHOG_ANALYTICS_HOST: 'posthogAnalyticsHost',
-    AGENT_CONSOLE_BASE_URL: 'consoleBaseUrl',
+    AGENT_APPROVAL_LINK_SCHEME: 'approvalLinkScheme',
     AGENT_MEMORY_S3_ENDPOINT: 'memoryS3Endpoint',
     AGENT_MEMORY_S3_REGION: 'memoryS3Region',
     AGENT_MEMORY_S3_BUCKET: 'memoryS3Bucket',

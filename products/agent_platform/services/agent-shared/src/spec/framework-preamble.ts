@@ -108,7 +108,7 @@ content is JSON like:
   "approval": {
     "request_id": "ar_...",
     "state": "queued",
-    "approval_url": "https://posthog.com/agents/<slug>/approvals/ar_..."
+    "approval_url": "posthog-code://approval/ar_..."
   }
 }
 \`\`\`

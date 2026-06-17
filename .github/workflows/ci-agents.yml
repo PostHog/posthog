@@ -1,12 +1,7 @@
 name: Agent services CI
 
 # Runs typecheck, lint, unit tests, and the agent-tests e2e suite for the
-# v2 agent platform Node.js services (services/agent-*) and the shared
-# packages/agent-chat library.
-#
-# The agent console (services/agent-console) has its own workflow
-# (ci-agent-console.yml) — it's a separate runtime (Next.js) with a
-# different build / test surface.
+# v2 agent platform Node.js services (services/agent-*).
 
 on:
     pull_request:
@@ -61,7 +56,6 @@ jobs:
                         - 'services/agent-tests/**'
                         - 'services/agent-sandbox-host/**'
                         - 'services/agents/**'
-                        - 'packages/agent-chat/**'
                         - 'pnpm-lock.yaml'
                         - 'pnpm-workspace.yaml'
                         - '.oxlintrc.json'
@@ -84,7 +78,6 @@ jobs:
                     - '@posthog/agent-tests'
                     - '@posthog/agent-sandbox-host'
                     - '@posthog/agents-image'
-                    - '@posthog/agent-chat'
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -123,7 +116,7 @@ jobs:
         timeout-minutes: 10
         # agent-tests is the e2e suite — runs in the separate `e2e-tests`
         # job below with the docker-compose stack.
-        # agents-image and agent-chat have no tests; covered by typecheck.
+        # agents-image has no tests; covered by typecheck.
         env:
             COMPOSE_FILE: docker-compose.dev.yml
             # Unit suites in the agent services now run against the same
