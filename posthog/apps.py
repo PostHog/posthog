@@ -39,6 +39,7 @@ class PostHogConfig(AppConfig):
         # django.setup(), so a process that never builds the router (celery, temporal, migrate,
         # shell) would lose them. They live in dedicated import-light modules — never wire
         # ready() through an API module, even one that looks light today.
+        import posthog.storage.checks  # noqa: F401, PLC0415
         import posthog.caching.organization_serializer_cache  # noqa: F401, PLC0415
         import posthog.models.activity_logging.signal_handlers  # noqa: F401, PLC0415
 

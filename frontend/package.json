@@ -60,7 +60,6 @@
         "@floating-ui/react": "^0.27.19",
         "@marsidev/react-turnstile": "^1.4.2",
         "@mathjax/src": "^4.1.2",
-        "@medv/finder": "^4.0.2",
         "@memlab/lens": "2.0.0",
         "@microlink/react-json-view": "^1.31.18",
         "@microsoft/fetch-event-source": "^2.0.1",

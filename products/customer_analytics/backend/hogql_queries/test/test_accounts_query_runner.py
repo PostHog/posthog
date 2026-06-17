@@ -441,6 +441,105 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
         runner = AccountsQueryRunner(query=AccountsQuery(select=["id", "name", "id"]), team=self.team)
         self.assertEqual(runner.columns, ["id", "name"])
 
+    FRONTEND_DEFAULT_SELECT = [
+        "name",
+        "accounts.tags.names AS tag_names",
+        "accounts.notebooks.count AS notebook_count",
+        "csm",
+        "account_executive",
+        "account_owner",
+    ]
+
+    def test_default_render_defers_tags_and_notebooks(self):
+        runner = AccountsQueryRunner(query=AccountsQuery(select=self.FRONTEND_DEFAULT_SELECT), team=self.team)
+        self.assertEqual({d.column_name for d in runner._deferred_columns}, {"tag_names", "notebook_count"})
+        # Deferred columns are pulled out of the paginated main query…
+        self.assertNotIn("tag_names", runner._main_column_names)
+        self.assertNotIn("notebook_count", runner._main_column_names)
+        # …but the full column set/order is still advertised to the frontend.
+        self.assertEqual(
+            runner.columns,
+            ["name", "tag_names", "notebook_count", "csm", "account_executive", "account_owner"],
+        )
+
+    def test_deferred_tags_and_notebooks_values_are_enriched(self):
+        billing_tag = Tag.objects.create(name="billing", team=self.team)
+        urgent_tag = Tag.objects.create(name="urgent", team=self.team)
+        tagged = create_account(team_id=self.team.id, name="Tagged")
+        tagged.tagged_items.create(tag=billing_tag)
+        tagged.tagged_items.create(tag=urgent_tag)
+        self._link_notebooks(tagged, 2)
+        bare = create_account(team_id=self.team.id, name="Bare")
+
+        select = ["name", "accounts.tags.names AS tag_names", "accounts.notebooks.count AS notebook_count"]
+        runner, response = self._run_query(select=select)
+        name_idx = runner.columns.index("name")
+        tags_idx = runner.columns.index("tag_names")
+        nb_idx = runner.columns.index("notebook_count")
+        by_id = {row[name_idx]["id"]: row for row in response.results}
+
+        self.assertEqual(by_id[str(tagged.id)][tags_idx], ["billing", "urgent"])
+        self.assertEqual(by_id[str(tagged.id)][nb_idx], 2)
+        # No junction rows → defaults matching the prior inline LEFT JOIN render.
+        self.assertEqual(by_id[str(bare.id)][tags_idx], [])
+        self.assertEqual(by_id[str(bare.id)][nb_idx], 0)
+
+    def test_deferred_columns_keep_full_column_order(self):
+        acct = create_account(team_id=self.team.id, name="A", external_id="ext")
+        select = [
+            "accounts.tags.names AS tag_names",
+            "name",
+            "external_id",
+            "accounts.notebooks.count AS notebook_count",
+        ]
+        runner, response = self._run_query(select=select)
+        self.assertEqual(runner.columns, ["tag_names", "name", "external_id", "notebook_count"])
+        row = response.results[0]
+        self.assertEqual(row[0], [])
+        self.assertEqual(row[1]["id"], str(acct.id))
+        self.assertEqual(row[2], "ext")
+        self.assertEqual(row[3], 0)
+
+    def test_deferred_columns_types_align_with_columns(self):
+        create_account(team_id=self.team.id, name="A")
+        runner, response = self._run_query(select=self.FRONTEND_DEFAULT_SELECT)
+        self.assertEqual(len(response.types), len(runner.columns))
+
+    def test_deferred_columns_with_empty_result_set(self):
+        create_account(team_id=self.team.id, name="Acme")
+        select = ["name", "accounts.tags.names AS tag_names", "accounts.notebooks.count AS notebook_count"]
+        _, response = self._run_query(select=select, search="nonexistent_substring_xyz")
+        self.assertEqual(response.results, [])
+
+    def test_deferred_tags_respect_team_isolation(self):
+        other_team = Team.objects.create(organization=self.organization)
+        other_tag = Tag.objects.create(name="secret", team=other_team)
+        other_account = create_account(team_id=other_team.id, name="Other")
+        other_account.tagged_items.create(tag=other_tag)
+
+        local_tag = Tag.objects.create(name="billing", team=self.team)
+        local_account = create_account(team_id=self.team.id, name="Mine")
+        local_account.tagged_items.create(tag=local_tag)
+
+        select = ["name", "accounts.tags.names AS tag_names"]
+        runner, response = self._run_query(select=select)
+        name_idx = runner.columns.index("name")
+        tags_idx = runner.columns.index("tag_names")
+        by_id = {row[name_idx]["id"]: row for row in response.results}
+        self.assertEqual(set(by_id), {str(local_account.id)})
+        self.assertEqual(by_id[str(local_account.id)][tags_idx], ["billing"])
+
+    def test_sorted_lazy_join_column_is_not_deferred(self):
+        runner = AccountsQueryRunner(
+            query=AccountsQuery(
+                select=["name", "accounts.notebooks.count AS notebook_count"],
+                orderBy=["notebook_count DESC"],
+            ),
+            team=self.team,
+        )
+        self.assertEqual(runner._deferred_columns, [])
+        self.assertIn("notebook_count", runner._main_column_names)
+
     def test_metrics_mode_returns_aggregations_and_no_rows(self):
         create_account(team_id=self.team.id, name="A")
         create_account(team_id=self.team.id, name="B")

@@ -238,6 +238,23 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             "No route to host": None,
             "password authentication failed connection": None,
             "connection timeout expired": None,
+            # TLS ALPN alert (RFC 7301 "no_application_protocol", alert 120) sent by the server
+            # during the TLS handshake. libpq (Postgres 17+) offers the "postgresql" ALPN protocol;
+            # an endpoint that negotiates ALPN but doesn't accept it rejects the handshake outright.
+            # In practice this means the configured host/port isn't a PostgreSQL server speaking TLS
+            # — it's an HTTP/proxy/edge endpoint, or simply the wrong port — so retrying re-runs into
+            # the same rejection. The raw psycopg message ("... SSL error: tlsv1 alert no application
+            # protocol") only matches when require_ssl=False leaves it unwrapped; with require_ssl=True
+            # it's surfaced as SSLRequiredError below instead. Match the stable alert text and exclude
+            # the volatile host/port so the condition is caught on both paths. Placed before the
+            # generic SSL entries so its accurate message wins if both happen to match.
+            "no application protocol": (
+                "PostHog couldn't complete a TLS handshake with the host and port you configured — "
+                'the server rejected the connection during TLS negotiation ("no application '
+                "protocol\"). This usually means the host and port don't point at a PostgreSQL server "
+                "speaking TLS (for example an HTTP, proxy, or edge endpoint, or the wrong port). "
+                "Check your host and port, then re-enable the sync."
+            ),
             "SSLRequiredError": None,
             "SSL/TLS connection is required": None,
             "Could not establish session to SSH gateway": None,
