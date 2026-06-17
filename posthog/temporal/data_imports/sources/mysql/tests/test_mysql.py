@@ -994,6 +994,7 @@ class TestMySQLSourceValidateCredentials:
                 2003, "Can't connect to MySQL server on 'db.example.com' ([Errno 111] Connection refused)"
             ),
             pymysql.err.OperationalError(1045, "Access denied for user 'u'@'1.2.3.4' (using password: YES)"),
+            pymysql.err.OperationalError(1129, "Host '1.2.3.4' is blocked because of many connection errors"),
         ],
     )
     def test_known_connection_errors_are_not_captured(self, source, mocker, raised):
