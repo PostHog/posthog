@@ -75,8 +75,10 @@ export interface RetentionActorRow {
     appearances: boolean[]
 }
 
-export function toRetentionActorRows(data: InsightActorsData): RetentionActorRow[] {
-    const periodCols = retentionPeriodColumns(data)
+export function toRetentionActorRows(
+    data: InsightActorsData,
+    periodCols: RetentionPeriodColumn[]
+): RetentionActorRow[] {
     const { columns, results } = data.results
     return results.map((row) => {
         const obj = rowToObject(columns, row)

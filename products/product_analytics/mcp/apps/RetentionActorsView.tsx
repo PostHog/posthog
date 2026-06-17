@@ -15,7 +15,7 @@ import {
 // and percentage (relative to the cohort), mirroring the app's retention persons modal.
 export function RetentionActorsView({ data }: { data: InsightActorsData }): ReactElement {
     const periodCols = useMemo(() => retentionPeriodColumns(data), [data])
-    const rows = useMemo(() => toRetentionActorRows(data), [data])
+    const rows = useMemo(() => toRetentionActorRows(data, periodCols), [data, periodCols])
     const summary = useMemo(() => summarizeRetentionIntervals(rows, periodCols), [rows, periodCols])
 
     const columns = useMemo((): DataTableColumn<RetentionActorRow>[] => {
