@@ -49,6 +49,7 @@ class TeamInline(TabularInlinePaginated):
             "api_token_display",
             "admit_state",
             "ai_gateway_actions",
+            "ai_gateway_wallet",
             "policy_cache_blob",
         )
     ] + ["displayed_name"]
