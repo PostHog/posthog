@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { ReactNode, useEffect, useMemo } from 'react'
 
-import { IconArrowRight, IconCheck, IconFilter, IconSort } from '@posthog/icons'
-import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
+import { IconCheck, IconFilter } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import {
     QuickFiltersModal,
@@ -38,11 +38,7 @@ import { FilterLogicalOperator, PropertyFilterType, QuickFilter, UniversalFilter
 
 import { AssigneeDropdown } from '../Assignee/AssigneeDropdown'
 import { assigneeSelectLogic } from '../Assignee/assigneeSelectLogic'
-import {
-    ErrorTrackingQueryOrderBy,
-    ORDER_BY_OPTIONS,
-    issueQueryOptionsLogic,
-} from '../IssueQueryOptions/issueQueryOptionsLogic'
+import { issueQueryOptionsLogic } from '../IssueQueryOptions/issueQueryOptionsLogic'
 import { TAXONOMIC_FILTER_LOGIC_KEY, TAXONOMIC_GROUP_TYPES } from './consts'
 import { DateRangeFilter } from './DateRange'
 import {
@@ -54,6 +50,7 @@ import {
     UniversalFilterGroup,
 } from './FilterGroup'
 import { issueFiltersLogic } from './issueFiltersLogic'
+import { SortControl } from './SortControl'
 import { STATUS_OPTIONS, statusOptionLabel } from './Status'
 
 // Synthetic group for the "Search … matching …" action row. No getValue on
@@ -265,8 +262,7 @@ const BarContents = ({
                 <>
                     <Separator />
                     <div className="flex items-center gap-0.5 shrink-0">
-                        <SortFieldButton />
-                        <SortDirectionButton />
+                        <SortControl />
                     </div>
                 </>
             )}
@@ -427,44 +423,6 @@ const AssigneeSubmenu = ({
                 setSearch('')
                 onChange(value)
             }}
-        />
-    )
-}
-
-const SortFieldButton = (): JSX.Element => {
-    const { orderBy } = useValues(issueQueryOptionsLogic)
-    const { setOrderBy } = useActions(issueQueryOptionsLogic)
-
-    return (
-        <LemonMenu
-            items={Object.entries(ORDER_BY_OPTIONS).map(([value, label]) => ({
-                label,
-                active: orderBy === value,
-                onClick: () => setOrderBy(value as ErrorTrackingQueryOrderBy),
-            }))}
-        >
-            <LemonButton size="small" type="tertiary" icon={<IconSort />} tooltip="Sort by">
-                {ORDER_BY_OPTIONS[orderBy]}
-            </LemonButton>
-        </LemonMenu>
-    )
-}
-
-const SortDirectionButton = (): JSX.Element => {
-    const { orderDirection } = useValues(issueQueryOptionsLogic)
-    const { setOrderDirection } = useActions(issueQueryOptionsLogic)
-
-    return (
-        <LemonButton
-            size="small"
-            type="tertiary"
-            icon={<IconArrowRight className={orderDirection === 'DESC' ? 'rotate-90' : '-rotate-90'} />}
-            onClick={() => setOrderDirection(orderDirection === 'DESC' ? 'ASC' : 'DESC')}
-            tooltip={
-                orderDirection === 'DESC'
-                    ? 'Newest first — click for oldest first'
-                    : 'Oldest first — click for newest first'
-            }
         />
     )
 }
