@@ -1492,8 +1492,11 @@ class OAuthAuthorizationServerMetadataView(APIView):
     authentication_classes = []
 
     def get(self, request, *args, **kwargs):
-        # Build base URL from request
-        base_url = request.build_absolute_uri("/").rstrip("/")
+        # Pin to SITE_URL rather than the request Host header so the advertised
+        # endpoints can't be steered to an attacker-controlled origin via Host on
+        # permissive ALLOWED_HOSTS, and so issuer matches the protected resource
+        # metadata's authorization_servers.
+        base_url = absolute_uri().rstrip("/")
 
         all_scopes = get_oauth_scopes_supported()
 
