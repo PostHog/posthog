@@ -249,15 +249,19 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             data={"type": "destination", "name": "X", "template_id": "template-hidden-dest", "inputs": {}},
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert "template_id" in response.json()
+        assert response.json()["attr"] == "template_id"
         assert not HogFunction.objects.filter(template_id="template-hidden-dest").exists()
 
     @parameterized.expand(
         [
             # An existing hidden-template function (created before the create-path block) can be disabled
-            # or deleted to clean it up, but must not be (re)enabled via the API/MCP.
+            # or deleted to clean it up, but must never be left enabled: enabling it or editing its config
+            # while it stays enabled is blocked; only disabling, deleting, or editing it while already
+            # disabled is allowed.
             ("enable_blocked", False, {"enabled": True}, status.HTTP_400_BAD_REQUEST),
+            ("edit_while_enabled_blocked", True, {"name": "renamed"}, status.HTTP_400_BAD_REQUEST),
             ("disable_allowed", True, {"enabled": False}, status.HTTP_200_OK),
+            ("edit_while_disabled_allowed", False, {"name": "renamed"}, status.HTTP_200_OK),
             ("delete_allowed", True, {"deleted": True}, status.HTTP_200_OK),
         ]
     )

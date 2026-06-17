@@ -215,15 +215,20 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             )
 
     def _validate_hidden_template_not_enabled(self, attrs: dict, is_create: bool) -> None:
-        # Creating from a hidden template is already blocked outright. For existing functions built from
-        # one (the unsupported standalone destinations this PR is about), allow disabling and deleting so
-        # they can be cleaned up, but never let them be (re)enabled via the API/MCP.
-        if is_create or attrs.get("enabled") is not True or not isinstance(self.instance, HogFunction):
+        # Creating from a hidden template is already blocked outright. For an existing function built from
+        # one (the unsupported standalone destinations this PR is about), allow disabling and deleting so it
+        # can be cleaned up, but never let it stay enabled — block any update that would leave it enabled,
+        # including content edits (hog/inputs/filters) that omit `enabled` while it is currently on.
+        if is_create or not isinstance(self.instance, HogFunction) or attrs.get("deleted") is True:
+            return
+        if attrs.get("enabled", self.instance.enabled) is not True:
             return
         template = HogFunctionTemplate.get_template(self.instance.template_id) if self.instance.template_id else None
         if template is not None and template.status == "hidden":
             raise serializers.ValidationError(
-                {"enabled": "This function was created from an internal template and cannot be enabled."}
+                {
+                    "enabled": "This function was created from an internal template and can only be disabled or deleted, not kept enabled."
+                }
             )
 
     # NOTE: All pre-validation should be done here such as loading the template info etc.
