@@ -107,13 +107,10 @@ def disable_migrations() -> None:
 
     class MigrateSilentCommand(posthog_migrate.Command):
         def handle(self, *args, **kwargs):
-            from django.db import DEFAULT_DB_ALIAS, connections
+            from django.db import connection
 
-            # :TRICKY: Create extension and function depended on by models. Product
-            # databases (e.g. visual_review) run on their own Postgres DB and also need
-            # pg_trgm for trigram search, so create it on whichever DB is being migrated.
-            db = kwargs.get("database") or DEFAULT_DB_ALIAS
-            with connections[db].cursor() as cursor:
+            # :TRICKY: Create extension and function depended on by models.
+            with connection.cursor() as cursor:
                 cursor.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
                 cursor.execute("CREATE EXTENSION IF NOT EXISTS ltree")
 
