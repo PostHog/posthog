@@ -2678,6 +2678,23 @@ def postgres_source(
                     return
 
                 raise
+            except psycopg.errors.QueryCanceled as e:
+                # A FETCH against the server cursor exhausted the 10-min
+                # statement_timeout. QueryCanceled subclasses OperationalError, so
+                # this clause must precede the connection-dropped handler below.
+                # Retrying is futile (usually a missing index on the incremental
+                # field or a scan too large to finish in time), so map it to the
+                # same non-retryable QueryTimeoutException the offset-chunking and
+                # windowed paths raise instead of leaking a raw, retryable
+                # QueryCanceled that Temporal keeps re-attempting.
+                timeout_error = _statement_timeout_as_non_retryable(
+                    e,
+                    should_use_incremental_field=should_use_incremental_field,
+                    incremental_field=incremental_field,
+                )
+                if timeout_error is not None:
+                    raise timeout_error from e
+                raise
             except _CONNECTION_DROPPED_ERROR_TYPES as e:
                 # The server cursor holds a transaction open across the slow
                 # delta-merge between yields; the source can cull the backend

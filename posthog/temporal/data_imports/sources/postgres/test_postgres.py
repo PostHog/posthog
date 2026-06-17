@@ -889,6 +889,120 @@ class TestStatementTimeoutAsNonRetryable:
         )
 
 
+class TestServerCursorStatementTimeout:
+    """The main server-cursor streaming path in `get_rows` must not leak a raw,
+    retryable QueryCanceled when a FETCH hits the statement_timeout — it must map
+    to a non-retryable QueryTimeoutException for incremental syncs (mirroring the
+    offset-chunking and windowed paths), and re-raise the raw error for full-table
+    syncs so a fresh re-sync can reorder rows safely.
+    """
+
+    class _Cursor:
+        def __init__(self, raise_on_fetch: bool):
+            self._raise_on_fetch = raise_on_fetch
+            col = mock.Mock()
+            col.name = "id"
+            self.description = [col]
+
+        def execute(self, *args, **kwargs):
+            return None
+
+        def fetchmany(self, _n: int):
+            if self._raise_on_fetch:
+                raise psycopg.errors.QueryCanceled("canceling statement due to statement timeout")
+            return []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    class _Connection:
+        def __init__(self):
+            self.autocommit = False
+            self.closed = False
+            self.adapters = mock.Mock()
+
+        def cursor(self, *args, **kwargs):
+            # A named cursor (`name=...`) is the streaming server cursor that must
+            # raise the timeout; the unnamed setup cursor stays benign.
+            return TestServerCursorStatementTimeout._Cursor(raise_on_fetch="name" in kwargs)
+
+        def commit(self):
+            return None
+
+        def close(self):
+            self.closed = True
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    def _run(self, *, should_use_incremental_field: bool):
+        from contextlib import contextmanager
+
+        @contextmanager
+        def fake_tunnel():
+            yield ("localhost", 5432)
+
+        fake_table = mock.Mock()
+        fake_table.to_arrow_schema.return_value = pa.schema([pa.field("id", pa.int64())])
+        fake_table.type = "table"
+        fake_table.columns = []
+        fake_table.__contains__ = mock.Mock(return_value=False)
+
+        module = "posthog.temporal.data_imports.sources.postgres.postgres"
+        with (
+            patch(f"{module}.psycopg.connect", return_value=self._Connection()),
+            patch(f"{module}.psycopg.Cursor", return_value=self._Cursor(raise_on_fetch=False)),
+            patch(f"{module}._get_table", return_value=fake_table),
+            patch(f"{module}._is_read_replica", return_value=False),
+            patch(f"{module}._get_primary_keys", return_value=["id"]),
+            patch(f"{module}._is_partitioned_table", return_value=False),
+            patch(f"{module}._get_table_chunk_size", return_value=100),
+            patch(f"{module}._get_rows_to_sync", return_value=10),
+            patch(f"{module}._role_subject_to_rls", return_value=False),
+            patch(f"{module}._get_partition_settings", return_value=None),
+        ):
+            response = postgres_source(
+                tunnel=lambda: fake_tunnel(),
+                user="u",
+                password="p",
+                database="db",
+                sslmode="prefer",
+                schema="public",
+                table_names=["companies"],
+                should_use_incremental_field=should_use_incremental_field,
+                logger=structlog.get_logger(),
+                db_incremental_field_last_value=datetime(2026, 6, 15, tzinfo=UTC)
+                if should_use_incremental_field
+                else None,
+                team_id=1,
+                incremental_field="updated_at" if should_use_incremental_field else None,
+                incremental_field_type=IncrementalFieldType.Timestamp if should_use_incremental_field else None,
+            )
+            list(cast(Iterable[Any], response.items()))
+
+    @pytest.mark.parametrize(
+        "should_use_incremental_field,expected_exception,expected_substr",
+        [
+            # Incremental syncs map the FETCH timeout to a non-retryable QueryTimeoutException.
+            (True, QueryTimeoutException, "updated_at"),
+            # Full-table syncs have no stable ORDER BY, so we re-raise the raw QueryCanceled
+            # to let a fresh re-sync reorder rows rather than giving up.
+            (False, psycopg.errors.QueryCanceled, None),
+        ],
+    )
+    def test_statement_timeout_handling(self, should_use_incremental_field, expected_exception, expected_substr):
+        with pytest.raises(expected_exception) as exc_info:
+            self._run(should_use_incremental_field=should_use_incremental_field)
+        if expected_substr is not None:
+            assert expected_substr in str(exc_info.value)
+
+
 class TestPostgresSourceForPipelineSchemaResolution:
     @pytest.fixture
     def source(self):
