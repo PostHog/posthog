@@ -200,7 +200,7 @@ class FeatureFlagStatusChecker:
         """
         filters = flag.filters or {}
         groups = filters.get("groups") or []
-        multivariate = filters.get("multivariate") or None
+        multivariate = filters.get("multivariate")
 
         has_targeting_conditions = False
         max_rollout_percentage: int | None = None

@@ -49,6 +49,19 @@ class TestFilterFlagsByActiveParam(BaseTest):
             },
             created_by=self.user,
         )
+        # Empty-variants stale: a present-but-empty multivariate block routes through the boolean
+        # branch (both the SQL filter's jsonb_array_length(variants)=0 and the checker's has_variants).
+        self.stale_empty_variants = FeatureFlag.objects.create(
+            team=self.team,
+            key="stale-empty-variants",
+            active=True,
+            created_at=timezone.now() - timedelta(days=60),
+            filters={
+                "multivariate": {"variants": []},
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+            },
+            created_by=self.user,
+        )
 
     def _filter(self, value):
         return set(
@@ -58,16 +71,28 @@ class TestFilterFlagsByActiveParam(BaseTest):
         )
 
     def test_filters_enabled(self):
-        assert self._filter("true") == {"enabled", "stale", "stale-by-usage", "stale-multivariate"}
+        assert self._filter("true") == {
+            "enabled",
+            "stale",
+            "stale-by-usage",
+            "stale-multivariate",
+            "stale-empty-variants",
+        }
 
     def test_filters_disabled(self):
         assert self._filter("false") == {"disabled"}
 
     def test_filters_stale(self):
-        assert self._filter("STALE") == {"stale", "stale-by-usage", "stale-multivariate"}
+        assert self._filter("STALE") == {"stale", "stale-by-usage", "stale-multivariate", "stale-empty-variants"}
 
     def test_accepts_native_booleans(self):
-        assert self._filter(True) == {"enabled", "stale", "stale-by-usage", "stale-multivariate"}
+        assert self._filter(True) == {
+            "enabled",
+            "stale",
+            "stale-by-usage",
+            "stale-multivariate",
+            "stale-empty-variants",
+        }
         assert self._filter(False) == {"disabled"}
 
     def test_stale_filter_agrees_with_status_checker(self):

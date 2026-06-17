@@ -392,6 +392,8 @@ def _get_flag_rollout_info(flag: FeatureFlag, checker: FeatureFlagStatusChecker)
     if summary.effectively_full_rollout:
         active_variant = None
         if summary.is_multivariate:
+            # summary already established full rollout; this only fetches the winning variant key.
+            # Both calls read the same in-memory flag, so they cannot disagree.
             _, active_variant = checker.is_multivariate_flag_fully_rolled_out(flag)
         return {"rollout_state": "fully_rolled_out", "active_variant": active_variant}
 

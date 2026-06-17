@@ -11286,6 +11286,16 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
                 },
             },
         )
+        # Empty-variants block routes through the boolean branch: a 100% group is fully rolled out.
+        empty_variants = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="empty_variants",
+            filters={
+                "groups": [{"rollout_percentage": 100, "properties": []}],
+                "multivariate": {"variants": []},
+            },
+        )
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
@@ -11295,13 +11305,14 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
                     zero_rollout.id,
                     partial.id,
                     multivariate.id,
+                    empty_variants.id,
                 ]
             },
         )
 
         assert response.status_code == 200
         data = response.json()
-        assert len(data["deleted"]) == 4
+        assert len(data["deleted"]) == 5
 
         by_key = {d["key"]: d for d in data["deleted"]}
 
@@ -11316,6 +11327,9 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
 
         assert by_key["multivariate_full"]["rollout_state"] == "fully_rolled_out"
         assert by_key["multivariate_full"]["active_variant"] == "winner"
+
+        assert by_key["empty_variants"]["rollout_state"] == "fully_rolled_out"
+        assert by_key["empty_variants"]["active_variant"] is None
 
     def test_bulk_delete_with_dependent_flags(self):
         """Test that flags with dependents cannot be deleted."""
