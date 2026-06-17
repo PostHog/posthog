@@ -4,6 +4,8 @@ from posthog.test.base import BaseTest
 
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from products.feature_flags.backend.flag_status import (
     FeatureFlagStatus,
     FeatureFlagStatusChecker,
@@ -83,66 +85,105 @@ class TestRolloutSummary(BaseTest):
         flag = FeatureFlag.objects.create(team=self.team, key="rollout-flag", filters=filters, created_by=self.user)
         return FeatureFlagStatusChecker(feature_flag=flag).get_rollout_summary(flag)
 
-    def test_blanket_full_rollout(self):
-        summary = self._summary({"groups": [{"properties": [], "rollout_percentage": 100}]})
-        assert summary.effectively_full_rollout is True
-        assert summary.has_targeting_conditions is False
-        assert summary.max_rollout_percentage == 100
-        assert summary.is_multivariate is False
-
-    def test_partial_rollout(self):
-        summary = self._summary({"groups": [{"properties": [], "rollout_percentage": 50}]})
-        assert summary.effectively_full_rollout is False
-        assert summary.has_targeting_conditions is False
-        assert summary.max_rollout_percentage == 50
-
-    def test_targeting_conditions(self):
-        summary = self._summary(
-            {"groups": [{"properties": [{"key": "email", "value": "x"}], "rollout_percentage": 100}]}
-        )
-        assert summary.effectively_full_rollout is False
-        assert summary.has_targeting_conditions is True
-        assert summary.max_rollout_percentage == 100
-
-    def test_missing_rollout_percentage_treated_as_full_for_max_only(self):
-        # A missing rollout_percentage evaluates to 100% at runtime, so max_rollout_percentage
-        # reflects that. effectively_full_rollout stays stricter (requires an explicit 100), to
-        # match the staleness detection it shares logic with.
-        summary = self._summary({"groups": [{"properties": []}]})
-        assert summary.max_rollout_percentage == 100
-        assert summary.effectively_full_rollout is False
-
-    def test_no_groups(self):
-        summary = self._summary({"groups": []})
-        # No release conditions means a boolean flag evaluates to true for everyone.
-        assert summary.effectively_full_rollout is True
-        assert summary.has_targeting_conditions is False
-        assert summary.max_rollout_percentage is None
-
-    def test_multivariate_fully_rolled_out(self):
-        summary = self._summary(
-            {
-                "multivariate": {"variants": [{"key": "control", "rollout_percentage": 100}]},
-                "groups": [{"properties": [], "rollout_percentage": 100}],
-            }
-        )
-        assert summary.is_multivariate is True
-        assert summary.effectively_full_rollout is True
-
-    def test_multivariate_not_fully_rolled_out(self):
-        summary = self._summary(
-            {
-                "multivariate": {
-                    "variants": [
-                        {"key": "control", "rollout_percentage": 50},
-                        {"key": "test", "rollout_percentage": 50},
+    # (name, filters, effectively_full_rollout, has_targeting_conditions, max_rollout_percentage, is_multivariate)
+    @parameterized.expand(
+        [
+            (
+                "blanket_full_rollout",
+                {"groups": [{"properties": [], "rollout_percentage": 100}]},
+                True,
+                False,
+                100,
+                False,
+            ),
+            (
+                "partial_rollout",
+                {"groups": [{"properties": [], "rollout_percentage": 50}]},
+                False,
+                False,
+                50,
+                False,
+            ),
+            (
+                "targeting_conditions",
+                {"groups": [{"properties": [{"key": "email", "value": "x"}], "rollout_percentage": 100}]},
+                False,
+                True,
+                100,
+                False,
+            ),
+            # A missing rollout_percentage evaluates to 100% at runtime, so max_rollout_percentage
+            # reflects that. effectively_full_rollout stays stricter (requires an explicit 100), to
+            # match the staleness detection it shares logic with.
+            ("missing_rollout_percentage", {"groups": [{"properties": []}]}, False, False, 100, False),
+            # No release conditions means a boolean flag evaluates to true for everyone.
+            ("no_groups", {"groups": []}, True, False, None, False),
+            (
+                "max_rollout_percentage_across_multiple_groups",
+                {
+                    "groups": [
+                        {"properties": [{"key": "email", "value": "x"}], "rollout_percentage": 30},
+                        {"properties": [], "rollout_percentage": 75},
                     ]
                 },
-                "groups": [{"properties": [], "rollout_percentage": 100}],
-            }
-        )
-        assert summary.is_multivariate is True
-        assert summary.effectively_full_rollout is False
+                False,
+                True,
+                75,
+                False,
+            ),
+            (
+                "multivariate_fully_rolled_out",
+                {
+                    "multivariate": {"variants": [{"key": "control", "rollout_percentage": 100}]},
+                    "groups": [{"properties": [], "rollout_percentage": 100}],
+                },
+                True,
+                False,
+                100,
+                True,
+            ),
+            (
+                "multivariate_not_fully_rolled_out",
+                {
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "rollout_percentage": 50},
+                            {"key": "test", "rollout_percentage": 50},
+                        ]
+                    },
+                    "groups": [{"properties": [], "rollout_percentage": 100}],
+                },
+                False,
+                False,
+                100,
+                True,
+            ),
+            # An empty variant list is treated as a boolean flag, so a 100% blanket group is a full
+            # rollout and is_multivariate is False — consistent with effectively_full_rollout.
+            (
+                "empty_multivariate_variants",
+                {"multivariate": {"variants": []}, "groups": [{"properties": [], "rollout_percentage": 100}]},
+                True,
+                False,
+                100,
+                False,
+            ),
+        ]
+    )
+    def test_rollout_summary(
+        self,
+        _name,
+        filters,
+        effectively_full_rollout,
+        has_targeting_conditions,
+        max_rollout_percentage,
+        is_multivariate,
+    ):
+        summary = self._summary(filters)
+        assert summary.effectively_full_rollout is effectively_full_rollout
+        assert summary.has_targeting_conditions is has_targeting_conditions
+        assert summary.max_rollout_percentage == max_rollout_percentage
+        assert summary.is_multivariate is is_multivariate
 
     def test_handles_none_filters(self):
         flag = FeatureFlag.objects.create(team=self.team, key="none-filters", created_by=self.user)

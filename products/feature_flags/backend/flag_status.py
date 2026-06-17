@@ -202,12 +202,19 @@ class FeatureFlagStatusChecker:
         groups = filters.get("groups") or []
         multivariate = filters.get("multivariate") or None
 
-        has_targeting_conditions = any(len(group.get("properties") or []) > 0 for group in groups)
-
-        rollout_percentages = [
-            100 if group.get("rollout_percentage") is None else group.get("rollout_percentage") for group in groups
-        ]
-        max_rollout_percentage = max(rollout_percentages) if rollout_percentages else None
+        has_targeting_conditions = False
+        max_rollout_percentage: int | None = None
+        for group in groups:
+            if group.get("properties"):
+                has_targeting_conditions = True
+            # A missing rollout_percentage evaluates to 100% at runtime, so it counts as 100 here.
+            # This is deliberately looser than effectively_full_rollout / is_group_fully_rolled_out,
+            # which require an explicit 100.
+            percentage = group.get("rollout_percentage")
+            percentage = 100 if percentage is None else percentage
+            max_rollout_percentage = (
+                percentage if max_rollout_percentage is None else max(max_rollout_percentage, percentage)
+            )
 
         is_fully_rolled_out, _ = self.is_flag_fully_rolled_out(flag)
 
@@ -220,13 +227,16 @@ class FeatureFlagStatusChecker:
 
     def is_flag_fully_rolled_out(self, flag: FeatureFlag) -> tuple[bool, FeatureFlagStatusReason]:
         multivariate = (flag.filters or {}).get("multivariate", None)
-        if multivariate:
+        # An empty/missing variant list is treated as boolean, matching the STALE SQL filter
+        # (which routes `jsonb_array_length(variants) = 0` into the boolean branch).
+        has_variants = bool(multivariate and multivariate.get("variants"))
+        if has_variants:
             is_multivariate_flag_fully_rolled_out, fully_rolled_out_variant_name = (
                 self.is_multivariate_flag_fully_rolled_out(flag)
             )
-        if multivariate and is_multivariate_flag_fully_rolled_out:
-            return True, f'This flag will always use the variant "{fully_rolled_out_variant_name}"'
-        elif not multivariate and self.is_boolean_flag_fully_rolled_out(flag):
+            if is_multivariate_flag_fully_rolled_out:
+                return True, f'This flag will always use the variant "{fully_rolled_out_variant_name}"'
+        elif self.is_boolean_flag_fully_rolled_out(flag):
             return True, 'This boolean flag will always evaluate to "true"'
 
         return False, ""

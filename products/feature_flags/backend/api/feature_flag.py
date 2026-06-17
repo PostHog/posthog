@@ -3544,10 +3544,12 @@ class FeatureFlagViewSet(
         flag_status, reason = checker.get_status()
         rollout = checker.get_rollout_summary(feature_flag)
 
-        return Response(
-            {"status": flag_status, "reason": reason, "rollout": asdict(rollout)},
-            status=status.HTTP_200_OK,
+        # Route through the declared serializer so it is the single source of truth for the
+        # response shape and the dataclass cannot silently drift from the OpenAPI/MCP schema.
+        response = FeatureFlagStatusResponseSerializer(
+            {"status": flag_status, "reason": reason, "rollout": asdict(rollout)}
         )
+        return Response(response.data, status=status.HTTP_200_OK)
 
     @validated_request(
         request_serializer=FeatureFlagTestEvaluationRequestSerializer,
