@@ -185,7 +185,7 @@ path = "products.conversations"
 depends_on = [
     "ee",
     "posthog",
-    "products.posthog_ai",
+    "products.posthog_ai", "products.tasks", "products.business_knowledge",
 ]
 layer = "modules"
 
