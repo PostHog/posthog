@@ -3,7 +3,13 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { LogEntryLevel } from '~/types'
 
-import { groupLogs, LogEntry, toAbsoluteClickhouseTimestamp } from './logsViewerLogic'
+import {
+    buildGroupedLogsQuery,
+    groupLogs,
+    LogEntry,
+    LogEntryParams,
+    toAbsoluteClickhouseTimestamp,
+} from './logsViewerLogic'
 
 const makeEntry = (instanceId: string, timestamp: string, level: LogEntryLevel = 'INFO'): LogEntry => ({
     instanceId,
@@ -153,6 +159,40 @@ describe('logsViewerLogic', () => {
             const groups = groupLogs(entries)
 
             expect(groups.map((g) => g.instanceId)).toEqual(['c', 'b', 'a'])
+        })
+    })
+
+    describe('buildGroupedLogsQuery', () => {
+        const makeParams = (overrides: Partial<LogEntryParams> = {}): LogEntryParams => ({
+            sourceType: 'hog_flow',
+            sourceId: 'batch-job-id',
+            levels: ['INFO', 'ERROR'],
+            searchGroups: [],
+            order: 'DESC',
+            ...overrides,
+        })
+
+        it('paginates the group subquery with limit and offset', () => {
+            const query = buildGroupedLogsQuery(makeParams(), 10, 20)
+            expect(query).toContain('LIMIT 10')
+            expect(query).toContain('OFFSET 20')
+        })
+
+        it('orders groups with a stable instance_id tiebreaker so offset pages do not skip or repeat', () => {
+            expect(buildGroupedLogsQuery(makeParams(), 10)).toContain('ORDER BY max(timestamp) DESC, instance_id DESC')
+        })
+
+        it('defaults to offset 0', () => {
+            expect(buildGroupedLogsQuery(makeParams(), 10)).toContain('OFFSET 0')
+        })
+
+        it('pages by offset alone, without introducing a timestamp cursor', () => {
+            // A batch fires every instance within the same millisecond, so successive pages must differ ONLY by
+            // the offset — never by a `timestamp < cursor` boundary, which would hide the remaining groups.
+            const firstPage = buildGroupedLogsQuery(makeParams(), 10, 0)
+            const secondPage = buildGroupedLogsQuery(makeParams(), 10, 10)
+
+            expect(firstPage.replace('OFFSET 0', 'OFFSET 10')).toEqual(secondPage)
         })
     })
 })
