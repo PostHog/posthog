@@ -85,9 +85,7 @@ def _build_source_url(account: Account) -> str:
     # Project-relative on purpose: the notifications side panel adds the project prefix on navigation
     # (same-project push or the cross-project urls.project(...) wrapper), so a `/project/<id>` prefix
     # here would double up.
-    return build_account_deeplink(
-        account_id=str(account.id), external_id=account.external_id, name=account.name, tab="usage"
-    )
+    return build_account_deeplink(account_id=str(account.id), tab="usage")
 
 
 def _find_account(

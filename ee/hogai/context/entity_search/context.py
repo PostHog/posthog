@@ -491,7 +491,7 @@ class EntitySearchContext:
 
         # Get URL if available
         try:
-            url = self._build_url(entity_type, result_id, self._team.id, extra_fields)
+            url = self._build_url(entity_type, result_id, self._team.id)
         except ValueError:
             url = ""
 
@@ -533,9 +533,7 @@ class EntitySearchContext:
         except ValidationError:
             return None
 
-    def _build_url(
-        self, entity_type: str, result_id: str, team_id: int, extra_fields: Mapping[str, Any] | None = None
-    ) -> str:
+    def _build_url(self, entity_type: str, result_id: str, team_id: int) -> str:
         """Build a URL for an entity based on its type and ID."""
         base_url = f"{settings.SITE_URL}/project/{team_id}"
         match entity_type:
@@ -560,8 +558,7 @@ class EntitySearchContext:
             case "alert_configuration":
                 return f"{base_url}/insights?tab=alerts&alert_id={result_id}"
             case "account":
-                # Deep-link to the specific account (reveal + expand) rather than the bare list.
-                fields = extra_fields or {}
-                return f"{base_url}{build_account_deeplink(account_id=result_id, external_id=fields.get('external_id'), name=fields.get('name'))}"
+                # Deep-link to the specific account (filtered + expanded) rather than the bare list.
+                return f"{base_url}{build_account_deeplink(account_id=result_id)}"
             case _:
                 raise ValueError(f"Unknown entity type: {entity_type}")

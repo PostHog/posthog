@@ -1,6 +1,4 @@
-import json
 from datetime import timedelta
-from urllib.parse import unquote
 
 import pytest
 from posthog.test.base import NonAtomicBaseTest
@@ -52,25 +50,13 @@ class TestEntitySearchContext(NonAtomicBaseTest):
             ("survey", "test_survey_id", "/project/{team_id}/surveys/test_survey_id"),
             ("error_tracking_issue", "test_issue_id", "/project/{team_id}/error_tracking/test_issue_id"),
             ("notebook", "test_notebook_id", "/project/{team_id}/notebooks/test_notebook_id"),
+            ("account", "test_account_id", "/project/{team_id}/customer_analytics/accounts/test_account_id"),
         ]
     )
     def test_build_url(self, entity_type, result_id, expected_path):
         url = self.context._build_url(entity_type, result_id, self.team.id)
         expected_url = f"{settings.SITE_URL}{expected_path.format(team_id=self.team.id)}"
         assert url == expected_url
-
-    def test_build_url_account_deeplinks_to_specific_account(self):
-        url = self.context._build_url(
-            "account", "test_account_id", self.team.id, {"name": "Acme Corp", "external_id": "acme-1"}
-        )
-        base, _, fragment = url.partition("#")
-        assert base == f"{settings.SITE_URL}/project/{self.team.id}/customer_analytics/accounts"
-        assert fragment.startswith("open=")
-        assert json.loads(unquote(fragment[len("open=") :])) == {
-            "id": "test_account_id",
-            "externalId": "acme-1",
-            "name": "Acme Corp",
-        }
 
     def test_build_url_unknown_entity_raises_value_error(self):
         with pytest.raises(ValueError, match="Unknown entity type"):

@@ -53,17 +53,7 @@ export const manifest: ProductManifest = {
     urls: {
         customerAnalytics: (): string => '/customer_analytics',
         customerAnalyticsDashboard: (): string => '/customer_analytics/dashboard',
-        // `open` deep-links to a specific account (reveal + expand + tab) — mirrors AccountsOpenUrlState
-        // and kea-router's hash encoding (see accountsLogic.ts). Omit it for the bare list.
-        customerAnalyticsAccounts: (open?: {
-            id: string
-            externalId?: string | null
-            name?: string
-            tab?: string
-        }): string =>
-            open
-                ? `/customer_analytics/accounts#open=${encodeURIComponent(JSON.stringify(open))}`
-                : '/customer_analytics/accounts',
+        customerAnalyticsAccounts: (): string => '/customer_analytics/accounts',
         // Path-based deep link to one account: filters the list to it, expands it, opens `tab`.
         customerAnalyticsAccount: (accountId: string, tab?: string): string =>
             `/customer_analytics/accounts/${accountId}${tab ? `/${tab}` : ''}`,

@@ -902,15 +902,7 @@ export const productUrls = {
     supportSettings: (): string => '/support/settings',
     customerAnalytics: (): string => '/customer_analytics',
     customerAnalyticsDashboard: (): string => '/customer_analytics/dashboard',
-    customerAnalyticsAccounts: (open?: {
-        id: string
-        externalId?: string | null
-        name?: string
-        tab?: string
-    }): string =>
-        open
-            ? `/customer_analytics/accounts#open=${encodeURIComponent(JSON.stringify(open))}`
-            : '/customer_analytics/accounts',
+    customerAnalyticsAccounts: (): string => '/customer_analytics/accounts',
     customerAnalyticsAccount: (accountId: string, tab?: string): string =>
         `/customer_analytics/accounts/${accountId}${tab ? `/${tab}` : ''}`,
     customerAnalyticsJourneys: (): string => '/customer_analytics/journeys',

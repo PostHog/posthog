@@ -123,17 +123,6 @@ export interface AccountsViewUrlState {
     tileFilter?: TileFilter
 }
 
-// One-shot directive to open a specific account on load (`#open=...`). Used by
-// deep links from elsewhere (e.g. usage-spike notifications) to land directly on
-// an account's expanded row and tab. Distinct from the persistent `#view=` state:
-// it's consumed once and dropped from the URL when the reveal rewrites the hash.
-export interface AccountsOpenUrlState {
-    id: string
-    externalId?: string | null
-    name?: string
-    tab?: AccountExpansionTab
-}
-
 export const accountsLogic = kea<accountsLogicType>([
     path(['scenes', 'customerAnalytics', 'accounts', 'accountsLogic']),
     connect(() => ({
@@ -659,18 +648,6 @@ export const accountsLogic = kea<accountsLogicType>([
                 const tileFilter = view.tileFilter ?? null
                 if (!objectsEqual(tileFilter, values.tileFilter)) {
                     actions.setTileFilter(tileFilter)
-                }
-
-                // Deep link: open (reveal + expand + tab + scroll) a specific account.
-                // openAccount's reveal rewrites the hash to `#view=` only, so `open`
-                // self-clears and never re-triggers.
-                const open: AccountsOpenUrlState | null =
-                    hashParams?.open && typeof hashParams.open === 'object' && typeof hashParams.open.id === 'string'
-                        ? hashParams.open
-                        : null
-                if (open) {
-                    const tab = open.tab && ACCOUNT_EXPANSION_TABS.includes(open.tab) ? open.tab : DEFAULT_ACCOUNT_TAB
-                    actions.openAccount(open.id, open.externalId ?? null, open.name ?? '', tab)
                 }
 
                 // Back on the bare list — drop any single-account path filter.
