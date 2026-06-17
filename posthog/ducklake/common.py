@@ -24,6 +24,8 @@ import duckdb
 import psycopg
 from psycopg import sql
 
+from posthog.utils import get_instance_region
+
 if TYPE_CHECKING:
     from posthog.ducklake.models import DuckgresServer, DuckLakeCatalog
 
@@ -235,6 +237,36 @@ def get_duckgres_server_for_organization(organization_id: str) -> DuckgresServer
         return DuckgresServer.objects.get(organization_id=organization_id)
     except DuckgresServer.DoesNotExist:
         return None
+
+
+# Managed-warehouse S3 bucket naming. The bucket is created by the duckgres Crossplane
+# composition (charts: crossplane-config) as "posthog-duckling-{organization_id}-{suffix}",
+# where the suffix identifies the managed-warehouse environment. The mapping is fixed per
+# deployment, so we derive it from the deployment region rather than reading it back.
+DUCKGRES_BUCKET_PREFIX = "posthog-duckling"
+DUCKGRES_BUCKET_REGION = "us-east-1"
+
+
+def _duckling_env_suffix() -> str:
+    """Managed-warehouse environment suffix for the org's S3 bucket name.
+
+    Mirrors the duckgres Crossplane composition, keyed off the deployment region. EU is not
+    enabled yet, so that path is a no-op (raises rather than fabricating a bucket name);
+    everything that isn't prod-US — hosted dev/staging, local dev — maps to "dev".
+    """
+    region = (get_instance_region() or "").upper()
+    if region == "EU":
+        raise NotImplementedError("Managed warehouse is not enabled in the EU region")
+    return "prod-us" if region == "US" else "dev"
+
+
+def derive_duckling_bucket(organization_id: str) -> tuple[str, str]:
+    """Derive the org's managed-warehouse S3 bucket name and region.
+
+    Deterministic — mirrors the duckgres Crossplane composition, which names the bucket
+    "posthog-duckling-{organization_id}-{suffix}". Returns (bucket_name, region).
+    """
+    return f"{DUCKGRES_BUCKET_PREFIX}-{organization_id}-{_duckling_env_suffix()}", DUCKGRES_BUCKET_REGION
 
 
 def get_duckgres_server_for_team(team_id: int) -> DuckgresServer | None:

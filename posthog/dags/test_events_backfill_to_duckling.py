@@ -19,10 +19,12 @@ from posthog.dags.events_backfill_to_duckling import (
     PERSONS_COLUMNS,
     PERSONS_CONCURRENCY_TAG,
     PERSONS_TABLE_DDL,
+    DucklingTarget,
     _connection_dropped,
     _duckgres_backfill_options,
     _DuckgresSession,
     _get_cluster,
+    _resolve_duckling_target,
     _set_table_partitioning,
     _validate_identifier,
     duckling_events_full_backfill_sensor,
@@ -33,6 +35,17 @@ from posthog.dags.events_backfill_to_duckling import (
     parse_partition_key_dates,
     table_exists,
 )
+
+
+class TestResolveDucklingTarget:
+    @patch("posthog.dags.events_backfill_to_duckling.derive_duckling_bucket", return_value=("bkt", "us-west-2"))
+    @patch("posthog.dags.events_backfill_to_duckling._get_org_id_for_team", return_value="org-1")
+    def test_builds_target_from_org_and_derived_bucket(self, mock_org: MagicMock, mock_derive: MagicMock):
+        target = _resolve_duckling_target(7)
+
+        assert target == DucklingTarget(team_id=7, organization_id="org-1", bucket="bkt", bucket_region="us-west-2")
+        mock_org.assert_called_once_with(7)
+        mock_derive.assert_called_once_with("org-1")
 
 
 class TestParsePartitionKey:
