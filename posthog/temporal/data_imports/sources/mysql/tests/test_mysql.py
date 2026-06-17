@@ -7,6 +7,8 @@ from unittest.mock import MagicMock
 
 import pymysql
 
+from posthog.schema import SourceFieldInputConfig
+
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from posthog.temporal.data_imports.sources.common.sql import Table, TableStats
 from posthog.temporal.data_imports.sources.generated_configs import MySQLSourceConfig
@@ -229,6 +231,7 @@ class TestSchemaDiscovery:
     def test_schema_field_is_optional(self):
         field = next(field for field in MySQLSource().get_source_config.fields if field.name == "schema")
 
+        assert isinstance(field, SourceFieldInputConfig)
         assert field.required is False
         assert (
             MySQLSourceConfig.from_dict(
@@ -727,8 +730,11 @@ class TestBuildPipelineSourceLocation:
         )
 
         assert source.name == "analytics_users"
-        assert MySQLImplementation.get_primary_keys_for_table.call_args.args[-2:] == ("analytics", "users")
-        assert MySQLImplementation.get_table_metadata.call_args.args[-2:] == ("analytics", "users")
+        assert cast(MagicMock, MySQLImplementation.get_primary_keys_for_table).call_args.args[-2:] == (
+            "analytics",
+            "users",
+        )
+        assert cast(MagicMock, MySQLImplementation.get_table_metadata).call_args.args[-2:] == ("analytics", "users")
 
 
 class TestStreamingConnectionTimeouts:
