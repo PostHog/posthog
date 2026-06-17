@@ -38,7 +38,6 @@ import hashlib
 
 from .backend import PreviewBackend
 
-
 # The tool's web override must reproduce the golden's baked preview env (hogland
 # scripts/posthog-preview-setup.sh) — constant across previews so web's config
 # never drifts per-box. JS_URL="" makes the SPA load assets relative to the

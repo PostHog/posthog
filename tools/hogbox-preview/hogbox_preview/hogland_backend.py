@@ -35,17 +35,9 @@ import subprocess
 import urllib.request
 from urllib.parse import urlsplit
 
-from hogland import (
-    AccessType,
-    AuthenticationError,
-    BoxSpec,
-    ConflictError,
-    Hogland,
-    NotFoundError,
-)
+from hogland import AccessType, AuthenticationError, BoxSpec, ConflictError, Hogland, NotFoundError
 
 from .backend import ExecResult, PreviewBackend
-
 
 # hogplane caps a single write_file body at 64 MiB (octet-stream PUT). Blobs over
 # that (the PR frontend dist tar) are shipped as sub-cap parts and `cat`'d back
@@ -310,7 +302,7 @@ class HoglandBackend(PreviewBackend):
         ``snapshot`` carries the ``alias:`` resolve hint; the pen stores the bare
         name (None when a concrete snap id was passed)."""
         prefix = "alias:"
-        return self.snapshot[len(prefix):] if self.snapshot.startswith(prefix) else None
+        return self.snapshot[len(prefix) :] if self.snapshot.startswith(prefix) else None
 
     def _pen_metadata(self) -> dict[str, str] | None:
         """Display-only attribution (repo / PR / author / backlink) read from the
@@ -323,7 +315,7 @@ class HoglandBackend(PreviewBackend):
         server = env.get("GITHUB_SERVER_URL", "https://github.com")
         pr = env.get("PR") or env.get("PR_NUMBER")
         if not pr and self.name.startswith("preview-pr-"):
-            pr = self.name[len("preview-pr-"):]
+            pr = self.name[len("preview-pr-") :]
         md: dict[str, str] = {}
         if repo:
             md["repo"] = repo
