@@ -56,15 +56,13 @@ class TestMultiSchemaCapability:
 
     @parameterized.expand(
         [
-            # Postgres has an optional `schema` (qualifies today); MySQL/unknown never do.
+            # SQL sources with an optional `schema` field qualify legacy rows; unknown sources never do.
             ("postgres", ExternalDataSourceType.POSTGRES, True),
-            ("mysql", ExternalDataSourceType.MYSQL, False),
+            ("snowflake", ExternalDataSourceType.SNOWFLAKE, True),
+            ("redshift", ExternalDataSourceType.REDSHIFT, True),
+            ("mssql", ExternalDataSourceType.MSSQL, True),
+            ("mysql", ExternalDataSourceType.MYSQL, True),
             ("unknown type", "NotARealSource", False),
-            # Tripwires: these have a *required* `schema` today. If a follow-up makes one optional,
-            # this flips True and forces a conscious update — the gate is no longer dormant for it.
-            ("mssql", ExternalDataSourceType.MSSQL, False),
-            ("snowflake", ExternalDataSourceType.SNOWFLAKE, False),
-            ("redshift", ExternalDataSourceType.REDSHIFT, False),
         ]
     )
     def test_capability_by_source_type(
@@ -112,7 +110,7 @@ class TestDetectSchemaClearTransition:
 
     def test_incapable_source_never_transitions(self) -> None:
         result = detect_schema_clear_transition(
-            source_type=ExternalDataSourceType.MYSQL,
+            source_type="NotARealSource",
             existing_job_inputs={"schema": "public"},
             incoming_job_inputs={"schema": ""},
         )
@@ -143,8 +141,8 @@ class TestQualifyNonPostgresRows(BaseTest):
 
         row.refresh_from_db()
         assert row.name == "dbo.users"
-        # dwh_storage_key locks the Delta path to the legacy folder so existing data is preserved.
-        assert row.sync_type_config.get("dwh_storage_key") == "users"
+        # s3_folder_name locks the Delta path to the legacy folder so existing data is preserved.
+        assert row.s3_folder_name == "users"
         metadata = row.sync_type_config.get("schema_metadata") or {}
         assert metadata.get("source_schema") == "dbo"
         assert metadata.get("source_table_name") == "users"
@@ -165,7 +163,7 @@ class TestQualifyNonPostgresRows(BaseTest):
         row.refresh_from_db()
         assert row.name == "sales.orders"
         assert substitutions == {"orders": "sales.orders"}
-        assert row.sync_type_config.get("dwh_storage_key") == "orders"
+        assert row.s3_folder_name == "orders"
 
     def test_apply_on_refresh_is_noop_for_already_qualified_rows(self) -> None:
         source = self._source(schema="")

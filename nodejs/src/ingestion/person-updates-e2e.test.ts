@@ -16,7 +16,7 @@ import { Message } from 'node-rdkafka'
 import { v4 } from 'uuid'
 
 import { waitForExpect } from '~/tests/helpers/expectations'
-import { resetKafka } from '~/tests/helpers/kafka'
+import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
 
 import { Clickhouse } from '../../tests/helpers/clickhouse'
 import { createTestIngestionOutputs, createTestMonitoringOutputs } from '../../tests/helpers/ingestion-outputs'
@@ -178,7 +178,7 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
 
     beforeAll(async () => {
         clickhouse = Clickhouse.create()
-        await resetKafka()
+        await ensureKafkaTopics(TEST_KAFKA_TOPICS)
         await resetTestDatabase()
         await clickhouse.resetTestDatabase()
     })

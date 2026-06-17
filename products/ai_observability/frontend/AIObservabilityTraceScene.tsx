@@ -48,7 +48,7 @@ import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { IconWithCount } from 'lib/lemon-ui/icons/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
-import { identifierToHuman, pluralize } from 'lib/utils'
+import { identifierToHuman, pluralize } from 'lib/utils/strings'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -67,7 +67,7 @@ import { ClustersTabContent } from './components/ClustersTabContent'
 import { CostBreakdownTooltip } from './components/CostBreakdownTooltip'
 import { EvalResultBadges } from './components/EvalResultBadges'
 import { EvalsTabContent } from './components/EvalsTabContent'
-import { EventContentDisplayAsync, EventContentGeneration } from './components/EventContentWithAsyncData'
+import { EventContentConversation } from './components/EventContentWithAsyncData'
 import { FeedbackTag } from './components/FeedbackTag'
 import { JSONValueDisplay } from './components/JSONValueDisplay'
 import { MetricTag } from './components/MetricTag'
@@ -108,6 +108,7 @@ import {
     formatLLMEventTitle,
     formatLLMLatency,
     formatLLMUsage,
+    formatModelRowLabel,
     getEventType,
     getSessionStartTimestamp,
     getTraceTimestamp,
@@ -1305,24 +1306,15 @@ const TreeNode = React.memo(function TraceNode({
 })
 
 export function renderModelRow(event: LLMTrace | LLMTraceEvent, searchQuery?: string): React.ReactNode | null {
-    if (isLLMEvent(event)) {
-        if (event.event === '$ai_generation') {
-            // if we don't have a span name, we don't want to render the model row as its covered by the event title
-            if (!event.properties.$ai_span_name) {
-                return null
-            }
-            let model = event.properties.$ai_model
-            if (event.properties.$ai_provider) {
-                model = `${model} (${event.properties.$ai_provider})`
-            }
-            return searchQuery?.trim() ? (
-                <SearchHighlight string={model} substring={searchQuery} className="flex-1" />
-            ) : (
-                <span className="flex-1 truncate"> {model} </span>
-            )
-        }
+    const model = formatModelRowLabel(event)
+    if (model === null) {
+        return null
     }
-    return null
+    return searchQuery?.trim() ? (
+        <SearchHighlight string={model} substring={searchQuery} className="flex-1" />
+    ) : (
+        <span className="flex-1 truncate"> {model} </span>
+    )
 }
 
 function TreeNodeChildren({
@@ -1390,8 +1382,8 @@ function EventContentDisplay({
         return <></>
     }
 
-    const inputMessages = normalizeMessages(input, 'user')
-    const outputMessages = normalizeMessages(output, 'assistant')
+    const inputMessages = normalizeMessages(input, 'user').messages
+    const outputMessages = normalizeMessages(output, 'assistant').messages
 
     if (inputMessages.length > 0 || outputMessages.length > 0) {
         return (
@@ -1698,8 +1690,9 @@ const EventContent = React.memo(
                                                 <>
                                                     {isLLMEvent(event) ? (
                                                         event.event === '$ai_generation' ? (
-                                                            <EventContentGeneration
+                                                            <EventContentConversation
                                                                 eventId={event.id}
+                                                                generationEventId={event.id}
                                                                 traceId={trace.id}
                                                                 rawInput={event.properties.$ai_input}
                                                                 rawOutput={
@@ -1715,20 +1708,25 @@ const EventContent = React.memo(
                                                                 highlightMessageIndex={highlightMessageIndex}
                                                             />
                                                         ) : event.event === '$ai_embedding' ? (
-                                                            <EventContentDisplayAsync
+                                                            <EventContentConversation
                                                                 eventId={event.id}
+                                                                traceId={trace.id}
                                                                 rawInput={event.properties.$ai_input}
                                                                 rawOutput="Embedding vector generated"
+                                                                searchQuery={searchQuery}
+                                                                displayOption={displayOption}
                                                             />
                                                         ) : (
-                                                            <EventContentDisplayAsync
+                                                            <EventContentConversation
                                                                 eventId={event.id}
+                                                                traceId={trace.id}
                                                                 rawInput={event.properties.$ai_input_state}
-                                                                rawOutput={
-                                                                    event.properties.$ai_output_state ??
-                                                                    event.properties.$ai_error
-                                                                }
+                                                                rawOutput={event.properties.$ai_output_state}
+                                                                errorData={event.properties.$ai_error}
+                                                                httpStatus={event.properties.$ai_http_status}
                                                                 raisedError={event.properties.$ai_is_error}
+                                                                searchQuery={searchQuery}
+                                                                displayOption={displayOption}
                                                             />
                                                         )
                                                     ) : (

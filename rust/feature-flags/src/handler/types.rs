@@ -274,6 +274,7 @@ mod tests {
     #[case("posthog-python/2.5.0", Library::PosthogPython)]
     #[case("posthog-php/3.0.0", Library::PosthogPhp)]
     #[case("posthog-ruby/2.3.0", Library::PosthogRuby)]
+    #[case("posthog-ruby2.3.0", Library::PosthogRuby)]
     #[case("posthog-go/1.0.0", Library::PosthogGo)]
     #[case("posthog-java/1.2.0", Library::PosthogJava)]
     #[case("posthog-dotnet/1.0.0", Library::PosthogDotnet)]

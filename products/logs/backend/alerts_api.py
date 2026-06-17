@@ -31,7 +31,13 @@ from posthog.utils import relative_date_parse
 from products.cdp.backend.api.hog_function import HogFunctionSerializer
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.logs.backend.alert_check_query import AlertCheckQuery, BucketedCount
-from products.logs.backend.alert_destinations import EVENT_KINDS, EventKind, build_slack_config, build_webhook_config
+from products.logs.backend.alert_destinations import (
+    EVENT_KINDS,
+    EventKind,
+    build_slack_config,
+    build_teams_config,
+    build_webhook_config,
+)
 from products.logs.backend.alert_state_machine import (
     AlertCheckOutcome,
     AlertSnapshot,
@@ -78,6 +84,7 @@ def _any_field_changed(instance: LogsAlertConfiguration, validated_data: dict, f
 class DestinationType(models.TextChoices):
     SLACK = "slack"
     WEBHOOK = "webhook"
+    TEAMS = "teams"
 
 
 class LogsAlertStateIntervalSerializer(serializers.Serializer):
@@ -349,13 +356,13 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             HogFunction.objects.filter(
                 team_id=team_id,
                 deleted=False,
-                template_id__in=["template-slack", "template-webhook"],
+                template_id__in=["template-slack", "template-webhook", "template-microsoft-teams"],
                 filters__properties__contains=[{"key": "alert_id", "value": str(obj.id)}],
             )
             .values_list("template_id", flat=True)
             .distinct()
         )
-        type_map = {"template-slack": "slack", "template-webhook": "webhook"}
+        type_map = {"template-slack": "slack", "template-webhook": "webhook", "template-microsoft-teams": "teams"}
         return sorted(type_map[tid] for tid in template_ids if tid in type_map)
 
     @extend_schema_field(serializers.CharField(allow_null=True))
@@ -657,7 +664,9 @@ class LogsAlertSimulateResponseSerializer(serializers.Serializer):
 
 
 class LogsAlertCreateDestinationSerializer(serializers.Serializer):
-    type = serializers.ChoiceField(choices=list(DestinationType), help_text="Destination type — slack or webhook.")
+    type = serializers.ChoiceField(
+        choices=list(DestinationType), help_text="Destination type — slack, webhook, or teams."
+    )
     slack_workspace_id = serializers.IntegerField(
         required=False, help_text="Integration ID for the Slack workspace. Required when type=slack."
     )
@@ -666,7 +675,8 @@ class LogsAlertCreateDestinationSerializer(serializers.Serializer):
         required=False, allow_blank=True, help_text="Human-readable channel name for display."
     )
     webhook_url = serializers.URLField(
-        required=False, help_text="HTTPS endpoint to POST to. Required when type=webhook."
+        required=False,
+        help_text="HTTPS endpoint to POST to. Required when type=webhook, or the Teams webhook URL when type=teams.",
     )
 
     def validate(self, attrs: dict) -> dict:
@@ -674,9 +684,9 @@ class LogsAlertCreateDestinationSerializer(serializers.Serializer):
         if destination_type == "slack":
             if not attrs.get("slack_workspace_id") or not attrs.get("slack_channel_id"):
                 raise ValidationError("slack_workspace_id and slack_channel_id are required for slack destinations.")
-        elif destination_type == "webhook":
+        elif destination_type in ("webhook", "teams"):
             if not attrs.get("webhook_url"):
-                raise ValidationError("webhook_url is required for webhook destinations.")
+                raise ValidationError(f"webhook_url is required for {destination_type} destinations.")
         return attrs
 
 
@@ -851,7 +861,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         responses={201: LogsAlertDestinationResponseSerializer},
         description="Create a notification destination for this alert. One HogFunction is created per alert event kind (firing, resolved, ...) atomically.",
     )
-    @action(detail=True, methods=["POST"], url_path="destinations")
+    @action(detail=True, methods=["POST"], url_path="destinations", required_scopes=["logs:write"])
     def create_destination(self, request: Request, *args: object, **kwargs: object) -> Response:
         alert = self.get_object()
         serializer = LogsAlertCreateDestinationSerializer(data=request.data)
@@ -874,7 +884,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         responses={204: None},
         description="Delete a notification destination by deleting its HogFunction group atomically.",
     )
-    @action(detail=True, methods=["POST"], url_path="destinations/delete")
+    @action(detail=True, methods=["POST"], url_path="destinations/delete", required_scopes=["logs:write"])
     def delete_destination(self, request: Request, *args: object, **kwargs: object) -> Response:
         alert = self.get_object()
         serializer = LogsAlertDeleteDestinationSerializer(data=request.data)
@@ -913,6 +923,8 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 slack_channel_id=data["slack_channel_id"],
                 slack_channel_name=data.get("slack_channel_name"),
             )
+        elif data["type"] == "teams":
+            config = build_teams_config(alert, kind, webhook_url=data["webhook_url"])
         else:
             config = build_webhook_config(alert, kind, webhook_url=data["webhook_url"])
 
@@ -936,7 +948,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "and they carry no forensic value. Optional `?kind=...` narrows to a single kind."
         ),
     )
-    @action(detail=True, methods=["GET"], url_path="events")
+    @action(detail=True, methods=["GET"], url_path="events", required_scopes=["logs:read"])
     def events(self, request: Request, *args: object, **kwargs: object) -> Response:
         alert = self.get_object()
         queryset = (
@@ -967,7 +979,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         responses={200: LogsAlertConfigurationSerializer},
         description="Reset a broken alert. Clears the consecutive-failure counter and schedules an immediate recheck.",
     )
-    @action(detail=True, methods=["POST"], url_path="reset")
+    @action(detail=True, methods=["POST"], url_path="reset", required_scopes=["logs:write"])
     def reset(self, request: Request, *args: object, **kwargs: object) -> Response:
         alert = self.get_object()
         previous_failures = alert.consecutive_failures
@@ -1018,7 +1030,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         description="Simulate a logs alert on historical data using the full state machine. "
         "Read-only — no alert check records are created.",
     )
-    @action(detail=False, methods=["POST"], url_path="simulate")
+    @action(detail=False, methods=["POST"], url_path="simulate", required_scopes=["logs:read"])
     def simulate(self, request: Request, *args: object, **kwargs: object) -> Response:
         serializer = LogsAlertSimulateRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)

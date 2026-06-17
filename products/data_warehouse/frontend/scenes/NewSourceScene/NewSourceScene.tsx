@@ -19,8 +19,6 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { nonHogFunctionTemplatesLogic } from 'scenes/data-pipelines/utils/nonHogFunctionTemplatesLogic'
-import { HogFunctionTemplateList } from 'scenes/hog-functions/list/HogFunctionTemplateList'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -30,6 +28,7 @@ import { ExternalDataSourceType, SourceConfig } from '~/queries/schema/schema-ge
 import { AccessControlLevel, AccessControlResourceType, Breadcrumb } from '~/types'
 
 import SchemaForm from '../../shared/components/forms/SchemaForm'
+import { supportsDirectQuery } from '../../shared/components/forms/schemaGroupingUtils'
 import SourceForm, { SourceAccessMethodSelector } from '../../shared/components/forms/SourceForm'
 import { SyncProgressStep } from '../../shared/components/forms/SyncProgressStep'
 import { WebhookSetupForm } from '../../shared/components/forms/WebhookSetupForm'
@@ -40,6 +39,7 @@ import { BillingLimitNotice } from './components/BillingLimitNotice'
 import { SelfManagedSourceForm } from './components/SelfManagedSourceForm'
 import type { newSourceSceneLogicType } from './NewSourceSceneType'
 import { selfManagedSourceLogic } from './selfManagedSourceLogic'
+import { SourceCatalog } from './SourceCatalog'
 import { type SourceWizardLogicProps, sourceWizardLogic } from './sourceWizardLogic'
 
 export const getEffectiveAccessMethod = (
@@ -187,7 +187,7 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
         sourceConnectionDetails?.access_method,
         source.access_method
     )
-    const showAccessMethodSelector = currentStep === 2 && selectedConnector?.name === 'Postgres'
+    const showAccessMethodSelector = currentStep === 2 && supportsDirectQuery(selectedConnector?.name)
     const { tableLoading: manualLinkIsLoading } = useValues(selfManagedSourceLogic)
 
     const mainContainer = useFloatingContainer()
@@ -437,37 +437,12 @@ CREATE PUBLICATION "${pubName}" FOR TABLE ${tableList}
 
 function FirstStep({ allowedSources }: NewSourcesWizardProps): JSX.Element {
     const { availableSourcesLoading } = useValues(availableSourcesLogic)
-    const { connectors } = useValues(sourceWizardLogic)
 
-    // Filter out sources for onboarding flow
-    const sources = connectors.reduce(
-        (acc, cur) => {
-            if (allowedSources) {
-                if (allowedSources.indexOf(cur.name) !== -1) {
-                    acc[cur.name] = cur
-                }
-            } else {
-                acc[cur.name] = cur
-            }
+    if (availableSourcesLoading) {
+        return <LemonSkeleton className="h-64" />
+    }
 
-            return acc
-        },
-        {} as Record<string, SourceConfig>
-    )
-
-    const { hogFunctionTemplatesDataWarehouseSources } = useValues(
-        nonHogFunctionTemplatesLogic({
-            availableSources: sources ?? {},
-        })
-    )
-
-    return (
-        <HogFunctionTemplateList
-            type="source_webhook"
-            manualTemplates={hogFunctionTemplatesDataWarehouseSources}
-            manualTemplatesLoading={availableSourcesLoading}
-        />
-    )
+    return <SourceCatalog allowedSources={allowedSources} />
 }
 
 function SecondStep({ sourceWizardLogicProps }: { sourceWizardLogicProps?: SourceWizardLogicProps }): JSX.Element {

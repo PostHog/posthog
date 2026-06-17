@@ -42,6 +42,10 @@ class MultiTurnSession:
     printed_lines: int = 0
     verbose: bool = False
     output_fn: OutputFn = field(default=None)
+    # Per-turn poll budget. None falls back to `poll_for_turn`'s default (`MAX_POLL_SECONDS`).
+    # Set this below the caller's Temporal activity `start_to_close_timeout` so the
+    # dropped-finalization salvage can fire before the activity is cancelled.
+    max_poll_seconds: int | None = None
     _workflow_handle: WorkflowHandle | None = field(default=None, repr=False)
 
     @classmethod
@@ -57,8 +61,10 @@ class MultiTurnSession:
         output_fn: OutputFn = None,
         origin_product: Task.OriginProduct | None = None,
         signal_report_id: str | None = None,
+        ai_stage: str | None = None,
         internal: bool = False,
         on_task_run_created: Callable[[TaskRun], Awaitable[None]] | None = None,
+        max_poll_seconds: int | None = None,
     ) -> tuple[MultiTurnSession, _ModelT]:
         """Start a multi-turn sandbox session and wait for the first structured response.
 
@@ -67,6 +73,8 @@ class MultiTurnSession:
         TaskRun to be queryable during that first turn use this — e.g. the Signals
         scout creates its `SignalScoutRun` bridge here so first-turn finding emits
         can resolve the run by id instead of 404ing on a not-yet-created row.
+
+        `max_poll_seconds` caps each turn's poll budget — see the field docstring.
         """
         session, last_message = await cls.start_raw(
             prompt=prompt,
@@ -77,8 +85,10 @@ class MultiTurnSession:
             output_fn=output_fn,
             origin_product=origin_product,
             signal_report_id=signal_report_id,
+            ai_stage=ai_stage,
             internal=internal,
             on_task_run_created=on_task_run_created,
+            max_poll_seconds=max_poll_seconds,
         )
         try:
             parsed = cls._parse_and_validate(last_message, model, label="initial turn")
@@ -103,13 +113,17 @@ class MultiTurnSession:
         output_fn: OutputFn = None,
         origin_product: Task.OriginProduct | None = None,
         signal_report_id: str | None = None,
+        ai_stage: str | None = None,
         internal: bool = False,
         on_task_run_created: Callable[[TaskRun], Awaitable[None]] | None = None,
+        max_poll_seconds: int | None = None,
     ) -> tuple[MultiTurnSession, str]:
         """Start a multi-turn sandbox session and return the first raw agent response.
 
         `on_task_run_created`, if given, is awaited once the `TaskRun` exists but
         BEFORE the agent's first turn runs — see `start` for the rationale.
+
+        `max_poll_seconds` caps each turn's poll budget — see the field docstring.
         """
         task, task_run = await create_task_and_trigger(
             prompt,
@@ -118,6 +132,7 @@ class MultiTurnSession:
             step_name=step_name,
             origin_product=origin_product,
             signal_report_id=signal_report_id,
+            ai_stage=ai_stage,
             internal=internal,
         )
         logger.info("multi_turn: started task=%s run=%s step=%s", task.id, task_run.id, step_name or "unknown")
@@ -130,6 +145,7 @@ class MultiTurnSession:
             task_run=task_run,
             verbose=verbose,
             output_fn=output_fn,
+            max_poll_seconds=max_poll_seconds,
             _workflow_handle=workflow_handle,
         )
         if on_task_run_created is not None:
@@ -147,7 +163,11 @@ class MultiTurnSession:
         started_at = time.monotonic()
         try:
             last_message, _, session.log_lines_seen, session.printed_lines = await poll_for_turn(
-                task_run, verbose=verbose, output_fn=output_fn, workflow_handle=workflow_handle
+                task_run,
+                verbose=verbose,
+                output_fn=output_fn,
+                workflow_handle=workflow_handle,
+                max_poll_seconds=max_poll_seconds,
             )
             logger.info(
                 "multi_turn: initial turn completed run=%s duration=%.2fs",
@@ -224,6 +244,7 @@ class MultiTurnSession:
                 verbose=self.verbose,
                 output_fn=self.output_fn,
                 workflow_handle=self._workflow_handle,
+                max_poll_seconds=self.max_poll_seconds,
             )
             return last_message
         # Catch empty turns, raise everything else

@@ -63,7 +63,8 @@ it is exercised via the `run_signals_scout` management command (see `../manageme
     counts off the activity log, cross-cutting orientation across every entity type),
     and per-entity recent inventory (`recent_surveys`, `recent_feature_flags`,
     `recent_experiments`, `recent_alerts`, `recent_hog_functions`, `recent_hog_flows`,
-    `recent_notebooks`, `recent_cohorts`, `recent_actions`, `recent_dashboards`).
+    `recent_notebooks`, `recent_cohorts`, `recent_actions`, `recent_dashboards`,
+    `business_knowledge`).
     Per-entity sections are deliberately light (counts + 5 most-recent items with
     name, status, timestamp); deep drilldowns go via the per-entity MCP list tools.
     See the module docstring at `profile/builders.py` for the authoritative section
@@ -137,7 +138,7 @@ one sandbox session → zero or more emitted signals.
 
 - **Coordinator** — `temporal/agentic/scout_coordinator.py` and `scout_scheduler.py`.
   Polls every `COORDINATOR_INTERVAL_MINUTES = 30`; dispatches each scout whose
-  per-scout schedule (`run_interval_minutes`, default hourly) is due, most-overdue
+  per-scout schedule (`run_interval_minutes`, default every 3 hours) is due, most-overdue
   first, hard cap `MAX_RUNS_PER_TICK = 50` per tick, `ScheduleOverlapPolicy.SKIP` to
   drop ticks rather than queue them.
 - **Models** — `SignalScoutConfig`, `SignalScoutRun`, `SignalScratchpad`,

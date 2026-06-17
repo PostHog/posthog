@@ -68,7 +68,7 @@ Follow this order. Each step maps to TODOs in `source.template`.
    - `externalDataSources` at `frontend/src/queries/schema/schema-general.ts` (`lower-kebab-case`)
 
 3. **Pick the base class** (see above) and rename the class / `source_type` return.
-4. **Define `get_source_config`** — name, label, caption, docsUrl, iconPath, fields. Use appropriate field types (see below).
+4. **Define `get_source_config`** — name, **category** (required — see "Source category & keywords"), label, caption, docsUrl, iconPath, fields, and optional `keywords`. Use appropriate field types (see below).
 5. **Register** the source — add an import line to `posthog/temporal/data_imports/sources/__init__.py` and include it in `__all__`. (The `@SourceRegistry.register` decorator on the class handles runtime registration.)
 6. **Run the config generator**: `pnpm run generate:source-configs`. Confirm the new config class appears in `posthog/temporal/data_imports/sources/generated_configs.py`. **Do not edit that file by hand.** Every time you change `get_source_config.fields`, re-run the generator.
 7. **Swap the generic `Config` type** in `source.py` for the generated `{Source}SourceConfig` class.
@@ -105,6 +105,49 @@ For REST sources that mix top-level and fan-out endpoints, keep endpoint metadat
 1. endpoint-specific custom iterators (only when required),
 2. generic fan-out helper path,
 3. top-level endpoint path.
+
+## Source category & keywords
+
+Every source **must** set `category` on its `SourceConfig` — it groups the source in the new-source wizard
+catalog (a category rail + tile grid). A test (`tests/test_source_categories.py`) fails if any registered
+source has no category, so this is non-optional. Import the enum from `posthog.schema`:
+
+```python
+from posthog.schema import DataWarehouseSourceCategory
+...
+return SourceConfig(
+    name=SchemaExternalDataSourceType.STRIPE,
+    category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
+    keywords=["billing", "subscriptions"],
+    ...
+)
+```
+
+Pick the single closest bucket. The enum members (note the triple underscore where the label has " & "):
+
+- `DATABASES` — OLTP/OLAP databases, warehouses, data streams (Postgres, Snowflake, BigQuery, Kafka, …)
+- `FILE_STORAGE` — object/file stores & file transfer (S3, Azure Blob, GCS, Google Drive, SFTP, …)
+- `ADVERTISING` — ad platforms & mobile attribution (Google Ads, Meta Ads, Reddit Ads, Adjust, …)
+- `MARKETING___EMAIL` — email/SMS/marketing automation (Klaviyo, Mailchimp, Braze, SendGrid, …)
+- `CRM` — CRM & sales intelligence (HubSpot, Salesforce, Attio, Pipedrive, ZoomInfo, …)
+- `SALES` — sales engagement/enablement, contracts (Salesloft, Outreach, Gong, DocuSign, …)
+- `CUSTOMER_SUPPORT` — helpdesk/support/CX (Zendesk, Intercom, Freshdesk, Front, …)
+- `PAYMENTS___BILLING` — payment processors & subscription billing (Stripe, Chargebee, PayPal, …)
+- `FINANCE___ACCOUNTING` — accounting/ERP/expense/spend (QuickBooks, Xero, NetSuite, SAP ERP, …)
+- `ANALYTICS` — product/web/marketing analytics & experimentation (Amplitude, Mixpanel, GA, …)
+- `ENGINEERING___MONITORING` — dev tooling, CI, error/uptime monitoring, feature flags, identity/auth (GitHub, Datadog, Sentry, LaunchDarkly, Auth0, …)
+- `PRODUCTIVITY` — project mgmt, docs, forms, scheduling (Notion, Airtable, Jira, Linear, Typeform, …)
+- `HR___RECRUITING` — HRIS/ATS/payroll/people (Ashby, Greenhouse, BambooHR, Workday, Gusto, …)
+- `COMMUNICATION` — messaging/meetings/telephony/social (Slack, Zoom, Microsoft Teams, Twilio, …)
+- `E_COMMERCE` — online store/commerce (Shopify, WooCommerce, BigCommerce, …)
+
+The category list is the source of truth in `frontend/src/queries/schema/schema-general.ts`
+(`dataWarehouseSourceCategories`); `pnpm run schema:build` regenerates the Python `DataWarehouseSourceCategory`
+enum. Adding a **new** category means editing that array and rebuilding — don't invent ad-hoc strings.
+
+`keywords` is an optional list of lowercase search aliases — only add when the source has a common acronym or
+alternate spelling a user might type (e.g. `["ga4", "ga"]`, `["sql server"]`, `["facebook ads"]`). Skip it when
+the name already obviously matches; don't add noise.
 
 ## Source fields (the form the user fills in)
 
@@ -182,6 +225,26 @@ Save state **after** yielding each batch, not before — so if we crash we re-yi
 - In `source_for_pipeline`, call `self.get_webhook_source_manager(inputs)` and pass its iterator alongside the pull iterator so a single sync pulls historical + webhook-delivered rows.
 - Populate `SourceSchema.supports_webhooks=True` only for endpoints where webhooks are actually viable (usually incremental/append-only ones).
 
+## Multi-schema SQL database sources
+
+SQL DB sources (Postgres, MSSQL, Snowflake, Redshift today) can import tables from **every namespace (schema) in one connection**: a blank namespace field discovers tables across all non-system namespaces, the wizard groups them by namespace, and sync writes one warehouse table per `namespace.table`. Reference implementation: `postgres/postgres.py` + `PostgresImplementation`; the shared seam lives in `common/sql/`.
+
+The capability marker is the source's `schema` field being **optional** (`required=False`) in `get_source_config` — `is_multi_schema_capable_sql_source()` (`products/data_warehouse/backend/sql_warehouse_migration.py`) keys off it, so flipping the field optional is what turns on the viewset migration behavior. Treat `None` / `""` / whitespace as "all namespaces" (`normalize_namespace` in `common/sql/location.py`) and never emit `WHERE table_schema = ''`.
+
+Checklist for bringing a SQL source to multi-schema parity:
+
+1. **Namespace field optional** — `required=False` on the `schema` field, rerun `pnpm run generate:source-configs`. Keep `database` required: the database/catalog stays fixed per connection.
+2. **Multi-namespace discovery** — in `get_columns`, `get_primary_keys`, index/row-count/foreign-key helpers: when the namespace is blank, drop the `WHERE table_schema = <ns>` predicate (excluding system namespaces like `information_schema`, `pg_catalog`, `sys`) and return **qualified display names** (`namespace.table`). Keep the single-namespace fast path when the field is set.
+3. **Implement `get_source_metadata`** — return `SourceMetadata(catalog_by_table, schema_by_table, table_name_by_table)` keyed by the qualified display name. `SQLSource.get_schemas` stamps it onto each `SourceSchema`, and `reconcile_schema_metadata` persists it into `ExternalDataSchema.sync_type_config["schema_metadata"]`.
+4. **Per-row routing in `build_pipeline`** — resolve `(schema, table_name, response_name)` with `resolve_source_location` (`common/sql/location.py`): per-row metadata → dotted-name self-heal → config namespace. Run SQL against the resolved schema + **unqualified** table; set `SourceResponse.name = response_name` (`dwh_storage_key or schema.name`, normalized) — never the bare table name, or the row's Delta path moves and orphans synced data.
+5. **Thread the resolved namespace through every streaming/stats helper** — table metadata, row stats, average row size, partition settings, chunk size, primary-key lookup all take `(schema, table)`. Missing one degrades silently (no partitioning / wrong stats).
+6. **Never feed a dotted display name to an identifier quoter** — `quote("a.b")` yields one wrong identifier. Split into `(schema, table)` first and use `quote_qualified` (`common/sql/identifiers.py`).
+7. **Naming layers are derived, never stored** — display name `analytics.users`; S3/Delta subdir `analytics_users` (normalized `response_name`); HogQL table `{prefix}_analytics_users`. The one stored exception is `dwh_storage_key`, which pins a migrated legacy row to its original Delta path.
+8. **Legacy migration is capability-driven, not source-type-gated** — when a user clears the namespace on an existing single-schema source, `sql_warehouse_migration.py` renames rows to qualified form and stamps `dwh_storage_key`, preserving synced data with no re-sync. Don't add `source_type == "..."` branches to the shared layer.
+9. **Tests** — two namespaces with the same table name stay distinct end to end; blank-namespace discovery excludes system namespaces; per-row routing hits the right namespace; legacy single-namespace sources keep working; migrated rows keep their legacy Delta path.
+
+Discovery cost: `validate_credentials` and `database_schema` run discovery with no name filter, so a blank namespace on a catalog with hundreds of schemas must not issue per-table queries per namespace — batch the listing queries or cap enumeration (see Snowflake's `SHOW PRIMARY KEYS` handling).
+
 ## Outbound HTTP must go through the tracked transport
 
 Every HTTP call from `posthog/temporal/data_imports/sources/**` must go through `make_tracked_session()` (from
@@ -249,7 +312,7 @@ source, also append a short "Notes on partially-tracked sources" entry explainin
 - Register with `@SourceRegistry.register`.
 - Inherit `SimpleSource[GeneratedConfig]` unless resumable/webhook behavior is required.
 - API sources should usually return `table_format="delta"` in endpoint resources.
-- `primary_keys` are endpoint-specific (declare in `settings.py`, not always `id`). Use composite keys when no single field is unique.
+- `primary_keys` are endpoint-specific (declare in `settings.py`, not always `id`). Use composite keys when no single field is unique. **The key must be unique across the whole table, not per parent**: fan-out child endpoints aggregate rows from every parent, so include the parent identifier in the key (e.g. `["form_id", "token"]`) unless the API explicitly documents global uniqueness. Non-unique keys seed duplicate rows in the Delta table, and every later merge multi-matches them — merges get slower each sync until the pod OOMs.
 - Add partitioning for new sources where possible:
   - API sources: `partition_mode="datetime"` with a **stable** datetime field.
   - Database sources: `partition_count` and `partition_size`.
@@ -266,7 +329,9 @@ source, also append a short "Notes on partially-tracked sources" entry explainin
 - **Per-endpoint sort enums vary.** Don't hardcode `?sorting=created_at` (or whatever) globally. Verify each list endpoint's allowed sort values against the API spec **and** with a curl smoke-test against the live API — APIs frequently document one set of options and silently reject another, or use a different timestamp column on certain resources.
 - **Pass `?sorting=` explicitly on a stable monotonic field when paginating.** For incremental sources, the request sort must match `SourceResponse.sort_mode` (`"asc"` typically; `"desc"` only when forced by the API — see `stripe/stripe.py`, `github/settings.py`) so the pipeline's cursor watermark advances correctly. For full-refresh sources, an explicit sort prevents page-boundary skips/duplicates if the API's implicit default is unstable or shifts as rows are inserted during the sync.
 - If the API only supports cursor pagination, still declare incremental fields if reliable and let merge semantics dedupe.
+- **`sort_mode` must match the order rows actually arrive in — verify it, don't assume it.** The pipeline trusts `sort_mode="asc"` to checkpoint the incremental watermark after every batch and to allow safe mid-sync worker shutdowns; declaring `asc` while the API returns newest-first corrupts the watermark and breaks resume semantics. Check the API's _default_ sort (it applies when you can't pass `sort`), and remember cursor pagination often rejects or ignores sort params entirely.
 - `sort_mode="desc"` only if the endpoint truly cannot return ascending. For descending sources, handle `db_incremental_field_earliest_value` to scroll earlier rows before newer ones (see Stripe).
+- **Incremental pagination must terminate at the watermark.** Some APIs reject mixing their time-window filter with cursor pagination, so only the first page is windowed and later pages walk back through history unbounded. If the server can't keep the filter on every page, the paginator must stop client-side once an entire page predates `db_incremental_field_last_value` (see `typeform/typeform.py:TypeformResponsesPaginator`) — otherwise **every incremental sync re-fetches and re-merges each parent's full history**, which is both an API-cost bug and a per-sync memory amplifier.
 - Default unknown endpoints to full refresh first; enable incremental only after confirming a stable filter field and API ordering semantics.
 - Confirm partition keys against response schemas, not endpoint names.
 
@@ -276,7 +341,8 @@ Before finalizing endpoint logic, verify from docs **and** with curl against the
 
 - Response shape: list vs object vs wrapped data (`{"data": [...]}`).
 - Pagination: Link header vs body cursor vs offset/page; how next-page termination is signaled.
-- Ordering guarantees: ascending/descending/undefined for time fields, and the API's _default_ sort if you don't pass one.
+- Ordering guarantees: ascending/descending/undefined for time fields, and the API's _default_ sort if you don't pass one. If you paginate with a cursor (`before`/`after` tokens), confirm whether the API allows `sort` and time-window params alongside it — many reject or ignore them, which dictates both your `sort_mode` and how pagination terminates on incremental syncs.
+- **Primary key uniqueness scope:** is the id unique globally, or only within its parent resource? For fan-out children, assume per-parent unless the docs say otherwise and put the parent id in the composite key.
 - **Sort enum per endpoint:** which `sorting=` values does each list endpoint accept? Some APIs vary the allowed enum per resource. Confirm with curl that the value you intend to pass returns 200, and probe with a future-date cutoff to confirm whether timestamp filters are honored or silently ignored.
 - **Server-side timestamp filter:** does `<field>_gte` / `since` / `modified_after` actually filter, or does the API accept it and ignore it? Test by passing a future date and checking whether the row drops out.
 - Rate-limit headers (window reset timestamp, concurrent limits).
@@ -433,6 +499,7 @@ Add at least two test modules:
   - for dependent-resource fan-out: mock `rest_api_resources`, pass rows with `_<parent>_<field>` keys to exercise parent-field injection and rename behavior
   - expected return schema checks for each declared endpoint in `settings.py`
   - for resumable sources: resume-from-saved-state path (manager returns state, transport uses it as starting point); state is saved after each batch
+  - for incremental cursor pagination: the paginator stops once a page predates the watermark, and keeps walking when no watermark is set (first sync)
 
 Prefer behavior tests over config-shape tests. Avoid brittle assertions on internal config dict structure unless they protect a known regression that cannot be asserted via output behavior.
 
@@ -448,12 +515,16 @@ Bootstrapping:
 - [ ] Class inherits from SimpleSource / ResumableSource / WebhookSource (or combo) — see "Picking the right base class"
 
 Source implementation:
+- [ ] Set category on get_source_config (required — DataWarehouseSourceCategory; groups the source in the wizard catalog)
+- [ ] Add keywords if the source has a common acronym / alternate spelling (optional, lowercase)
 - [ ] Define source fields in get_source_config
 - [ ] Implement validate_credentials
 - [ ] Implement get_schemas
 - [ ] Add endpoint settings (settings.py)
 - [ ] Implement transport + paginator ({source}.py)
 - [ ] Return SourceResponse with correct primary_keys, partitioning, sort_mode
+      (keys unique table-wide — parent id in fan-out child keys; sort_mode verified against actual response order;
+      incremental cursor pagination stops at the watermark)
 - [ ] Implement get_resumable_source_manager if ResumableSource
 - [ ] Implement webhook methods if WebhookSource
 - [ ] Add get_non_retryable_errors for auth/permission errors
@@ -487,8 +558,11 @@ After changing source fields, re-run `pnpm run generate:source-configs` and `pnp
 ## Common pitfalls
 
 - Source not visible in wizard: not registered/imported in `sources/__init__.py`, or `schema:build` not rerun.
+- `test_source_categories` failing: the source's `get_source_config` is missing `category` — set it to the closest `DataWarehouseSourceCategory` bucket.
 - Generated config class still empty: forgot `generate:source-configs` after updating fields.
 - Incremental sync misbehaving: wrong field name/type or wrong sort assumptions.
+- Pod OOMs on a busy table: primary key not actually unique (usually a fan-out child missing the parent id in its key) — duplicate rows accumulate and every merge multi-matches them; often paired with a paginator that re-walks full history each sync because the time filter only applies to page one.
+- `sort_mode="asc"` declared on an API that returns newest-first: the watermark checkpoints to ≈now after the first batch and mid-sync shutdowns lose data ordering guarantees.
 - Endless retries for bad credentials: missing `get_non_retryable_errors`.
 - Resumable state never saved: forgot to call `save_state` after yielding a batch; or saved before yield and a crash causes data loss.
 - Webhook rows not landing: schema `is_webhook=False`, or `initial_sync_complete=False`.
