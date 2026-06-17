@@ -1,9 +1,12 @@
 from typing import Any
 
+from django.db.models import Q
+
 from croniter import croniter  # type: ignore[import-untyped,unused-ignore]
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import serializers, viewsets
+from rest_framework.exceptions import PermissionDenied
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -231,6 +234,18 @@ class ScheduledChangeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = ScheduledChangeSerializer
     queryset = ScheduledChange.objects.all()
 
+    # Scheduled changes only target feature flags, so gate personal API key / OAuth access
+    # on feature_flag scopes. The viewset stays INTERNAL (no implicit scope mapping); these
+    # per-action overrides selectively open it to programmatic reads/writes — the same pattern
+    # used by OrganizationFeatureFlagViewSet.copy_flags. `*` consent still cannot reach an
+    # INTERNAL viewset (see posthog/permissions.py).
+    def dangerously_get_required_scopes(self, request: Any, view: Any) -> list[str] | None:
+        if self.action in ("list", "retrieve"):
+            return ["feature_flag:read"]
+        if self.action in ("create", "update", "partial_update", "destroy"):
+            return ["feature_flag:write"]
+        return None
+
     @extend_schema(
         parameters=[
             OpenApiParameter(
@@ -261,4 +276,45 @@ class ScheduledChangeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if record_id is not None:
             queryset = queryset.filter(record_id=record_id)
 
+        # A scheduled change inherits the access control of the flag it targets, but the viewset is
+        # INTERNAL so the generic per-object ACL filter never runs. Hide schedules whose target flag
+        # the caller cannot read, mirroring FeatureFlagViewSet's list/retrieve filtering. Schedules
+        # for non-existent (deleted) flags are left visible so orphans stay cleanable.
+        blocked_flag_ids = self._unreadable_feature_flag_ids()
+        if blocked_flag_ids:
+            queryset = queryset.exclude(
+                Q(model_name=ScheduledChange.AllowedModels.FEATURE_FLAG) & Q(record_id__in=blocked_flag_ids)
+            )
+
         return queryset
+
+    def _unreadable_feature_flag_ids(self) -> set[str]:
+        """IDs (as strings, to match record_id) of flags in this project the caller cannot read."""
+        from products.feature_flags.backend.models.feature_flag import FeatureFlag
+
+        project_flags = FeatureFlag.objects.filter(team__project_id=self.project_id)
+        readable_ids = self.user_access_control.filter_queryset_by_access_level(
+            project_flags, include_all_if_admin=True
+        ).values_list("id", flat=True)
+        blocked = project_flags.exclude(id__in=readable_ids).values_list("id", flat=True)
+        return {str(flag_id) for flag_id in blocked}
+
+    def perform_destroy(self, instance):
+        # Deleting a schedule changes which mutations get applied to the target flag, so require the
+        # same edit permission as create/update (which enforce it through the serializer).
+        self._check_target_edit_permission(instance)
+        super().perform_destroy(instance)
+
+    def _check_target_edit_permission(self, instance) -> None:
+        if instance.model_name != ScheduledChange.AllowedModels.FEATURE_FLAG or not instance.record_id:
+            return
+        from products.feature_flags.backend.models.feature_flag import FeatureFlag
+
+        try:
+            feature_flag = FeatureFlag.objects.get(id=instance.record_id, team_id=instance.team_id)
+        except FeatureFlag.DoesNotExist:
+            # Target flag is gone; there is no flag-level permission to enforce and removing the
+            # orphaned schedule is harmless.
+            return
+        if not CanEditFeatureFlag().has_object_permission(self.request, self, feature_flag):
+            raise PermissionDenied("You don't have edit permissions for this feature flag")

@@ -26,6 +26,9 @@ import { HogFlowScheduleService } from './cdp/services/hogflow-schedule/hogflow-
 import { CyclotronJobQueueKafka } from './cdp/services/job-queue/job-queue-kafka'
 import { CyclotronJobQueuePostgres } from './cdp/services/job-queue/job-queue-postgres'
 import { CyclotronJobQueuePostgresV2 } from './cdp/services/job-queue/job-queue-postgres-v2'
+import { CyclotronJobQueueRateLimitedPostgresV2 } from './cdp/services/job-queue/job-queue-rate-limited-postgres-v2'
+import { createSesRateLimiterValkeyPool } from './cdp/services/rate-limiter/rate-limiter-valkey-pool'
+import { RateLimiterService } from './cdp/services/rate-limiter/rate-limiter.service'
 import { EncryptedFields } from './cdp/utils/encryption-utils'
 import { defaultConfig } from './config/config'
 import { createIngestionRedisConnectionConfig, createPosthogRedisConnectionConfig } from './config/redis-pools'
@@ -275,7 +278,20 @@ export class PluginServer implements NodeServer {
         if (capabilities.cdpCyclotronWorkerEmail) {
             serviceLoaders.push(async () => {
                 // Dedicated queue instance — see note on cdpCyclotronWorkerHogFlow above.
-                const queue = new CyclotronJobQueuePostgresV2(this.config.CONSUMER_BATCH_SIZE, this.config)
+                // When the SES rate-limiter Valkey is configured, use the rate-limited
+                // variant so dequeue is gated by a Valkey-backed token bucket. Without
+                // the env var (typical for local dev outside k8s) we fall back to the
+                // plain queue and dequeue is unthrottled.
+                const sesValkey = createSesRateLimiterValkeyPool(this.config)
+                const queue = sesValkey
+                    ? new CyclotronJobQueueRateLimitedPostgresV2(this.config.CONSUMER_BATCH_SIZE, this.config, {
+                          limiter: new RateLimiterService(sesValkey, { name: 'ses' }),
+                          key: '@posthog/ses/global',
+                          capacity: this.config.CDP_SES_RATE_LIMIT_CAPACITY,
+                          refillPerSecond: this.config.CDP_SES_RATE_LIMIT_REFILL_PER_SECOND,
+                          throttledPollDelayMs: this.config.CDP_SES_RATE_LIMIT_THROTTLED_POLL_DELAY_MS,
+                      })
+                    : new CyclotronJobQueuePostgresV2(this.config.CONSUMER_BATCH_SIZE, this.config)
                 const worker = new CdpCyclotronWorkerEmail(this.config, cdpDeps!, queue)
                 await worker.start()
                 return worker.service

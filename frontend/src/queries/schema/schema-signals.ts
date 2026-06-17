@@ -14,6 +14,7 @@ export enum SignalSourceProduct {
     PGANALYZE = 'pganalyze',
     SIGNALS_SCOUT = 'signals_scout',
     LOGS = 'logs',
+    HEALTH_CHECKS = 'health_checks',
 }
 
 export enum SignalSourceType {
@@ -29,6 +30,7 @@ export enum SignalSourceType {
     ENDPOINT_EXECUTION_FAILED = 'endpoint_execution_failed',
     CROSS_SOURCE_ISSUE = 'cross_source_issue',
     ALERT_STATE_CHANGE = 'alert_state_change',
+    HEALTH_ISSUE = 'health_issue',
 }
 
 // ── Shared optional remediation ──────────────────────────────────────────────────
@@ -363,6 +365,29 @@ export interface LogsAlertStateChangeSignalInput extends SignalInputBase {
     extra: LogsAlertStateChangeSignalExtra
 }
 
+// Health-check issue (instrumentation problem detected by a HealthCheck)
+
+export type HealthCheckSeverity = 'critical' | 'warning' | 'info'
+
+export interface HealthCheckSignalExtra extends SignalExtraBase {
+    kind: string
+    severity: HealthCheckSeverity
+    issue_id: string
+    title: string
+    summary: string
+    /** Relative in-app path to the resource, e.g. '/web'. */
+    link: string
+    /** Absolute URL ({project.url} + link). */
+    url: string
+    payload: Record<string, unknown>
+}
+
+export interface HealthCheckSignalInput extends SignalInputBase {
+    source_type: 'health_issue'
+    source_product: 'health_checks'
+    extra: HealthCheckSignalExtra
+}
+
 // ── Report reviewer types ────────────────────────────────────────────────────────
 
 export interface RelevantCommit {
@@ -404,3 +429,4 @@ export type SignalInput =
     | PgAnalyzeIssueSignalInput
     | SignalsScoutSignalInput
     | LogsAlertStateChangeSignalInput
+    | HealthCheckSignalInput

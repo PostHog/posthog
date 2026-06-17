@@ -87,7 +87,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         for dashboard_name in dashboard_names:
             self.dashboard_api.create_dashboard({"name": dashboard_name})
 
-        with self.assertNumQueries(15):
+        with self.assertNumQueries(13):
             response_data = self.dashboard_api.list_dashboards()
         self.assertEqual(
             [dashboard["name"] for dashboard in response_data["results"]],
@@ -126,7 +126,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.dashboard_api.create_dashboard({"name": "also tagged", "tags": ["tag2"]})
         self.dashboard_api.create_dashboard({"name": "not tagged"})
 
-        with self.assertNumQueries(15):
+        with self.assertNumQueries(13):
             response = self.dashboard_api.list_dashboards(
                 expected_status=status.HTTP_200_OK, query_params={"tags": ["tag"]}
             )
@@ -140,7 +140,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.dashboard_api.create_dashboard({"name": "not tagged"})
         self.dashboard_api.create_dashboard({"name": "not with the right tag", "tags": ["wrong-tag"]})
 
-        with self.assertNumQueries(15):
+        with self.assertNumQueries(13):
             response = self.dashboard_api.list_dashboards(
                 expected_status=status.HTTP_200_OK, query_params={"tags": ["tag", "tag2"]}
             )
@@ -581,7 +581,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "insight": "TRENDS",
             }
 
-            baseline = 10
+            baseline = 9
             # Each dashboard GET that materializes at least one insight runner issues a single
             # `PropertyAccessControl` lookup, memoized across all runners on the dashboard by
             # `get_restricted_properties_for_team`'s per-scope cache (so it stays at +1 no
@@ -592,7 +592,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             with self.assertNumQueries(baseline + 11):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
-            # was baseline + 11 + 12, -1 after dropping duplicate session lookup
+            # baseline + 11 + 11 + property_access_control_lookup once at least one insight materializes
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
             with self.assertNumQueries(baseline + 11 + 11 + property_access_control_lookup):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
@@ -635,7 +635,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         self.client.force_login(user_with_collaboration)
 
-        with self.assertNumQueries(10):
+        with self.assertNumQueries(9):
             self.dashboard_api.list_dashboards()
 
         for i in range(5):
@@ -643,7 +643,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             for j in range(3):
                 self.dashboard_api.create_insight({"dashboards": [dashboard_id], "name": f"insight-{j}"})
 
-            with self.assertNumQueries(FuzzyInt(12, 13)):
+            with self.assertNumQueries(FuzzyInt(11, 13)):
                 self.dashboard_api.list_dashboards(query_params={"limit": 300})
 
     def test_listing_dashboards_does_not_include_tiles(self) -> None:

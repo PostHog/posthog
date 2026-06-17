@@ -9,6 +9,7 @@ Kept out of ``sources/__init__.py`` so that importing a leaf (e.g.
 
 from .active_campaign.source import ActiveCampaignSource
 from .acuity_scheduling.source import AcuitySchedulingSource
+from .adapty.source import AdaptySource
 from .adjust.source import AdjustSource
 from .adobe_analytics.source import AdobeAnalyticsSource
 from .adobe_commerce.source import AdobeCommerceSource
