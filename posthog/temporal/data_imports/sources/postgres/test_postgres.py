@@ -923,6 +923,9 @@ class TestServerCursorStatementTimeout:
         def __init__(self):
             self.autocommit = False
             self.closed = False
+            # Real psycopg connections expose `broken`; the setup path probes it via
+            # `_raise_if_setup_connection_broken`, so the fake must carry it too.
+            self.broken = False
             self.adapters = mock.Mock()
 
         def cursor(self, *args, **kwargs):

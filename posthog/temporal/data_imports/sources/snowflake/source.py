@@ -219,6 +219,10 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             # narrower type. Delta Lake can't widen an existing column in place, so retrying
             # won't help — the table must be reset and fully re-synced to adopt the new type.
             "Source column type changed": "A column's type changed in your source database (for example an integer column was widened to bigint) and no longer fits the type we stored. We can't widen an existing column in place — please reset and fully re-sync this table to adopt the new type.",
+            # Snowflake SQL compilation error 002057: a view's declared column list no longer
+            # matches the columns its query produces, so the view itself fails to compile. This is
+            # a broken object on the source side that retrying can't repair.
+            "but view query produces": "A Snowflake view in your source is invalid — the columns it declares no longer match the columns its query returns. Please recreate the view in Snowflake so the two agree, then resync.",
         }
 
     def validate_credentials(
