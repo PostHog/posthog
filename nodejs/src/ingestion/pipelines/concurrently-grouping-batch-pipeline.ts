@@ -1,7 +1,7 @@
 import { BatchPipeline, BatchPipelineResultWithContext, OkResultWithContext } from './batch-pipeline.interface'
 import { InterleavingBatchPipeline, PullOutcome } from './interleaving-batch-pipeline'
 import { Pipeline, PipelineResultWithContext } from './pipeline.interface'
-import { resettableSignal } from './resettable-signal'
+import { ResettableSignal } from './resettable-signal'
 import { isOkResult } from './results'
 
 export type GroupingFunction<TInput, TKey> = (input: TInput) => TKey
@@ -48,7 +48,7 @@ export class ConcurrentlyGroupingBatchPipeline<
     // Resolved whenever any group finishes (pushing to completedResults or
     // recording a failure), so a next() parked waiting on active groups wakes
     // even for a group that started after it parked.
-    private groupCompleted = resettableSignal()
+    private groupCompleted = new ResettableSignal()
 
     // First processor error seen; once set, the pipeline is poisoned and every
     // next() that exhausts completed results rethrows it (mirroring the previous
@@ -109,7 +109,7 @@ export class ConcurrentlyGroupingBatchPipeline<
             if (this.completedResults.length > 0 || this.failure !== undefined) {
                 continue
             }
-            await this.groupCompleted.promise
+            await this.groupCompleted.wait()
         }
     }
 

@@ -1,5 +1,5 @@
 /**
- * A one-shot wake-up that can be re-armed. `next()` loops await `promise` to
+ * A one-shot wake-up that can be re-armed. `next()` loops await `wait()` to
  * park until something interesting happens; `feed()` calls `resolve()` to wake
  * a parked loop. After observing a wake-up the loop calls `reset()` to arm a
  * fresh promise for the next park.
@@ -8,29 +8,26 @@
  * to a concurrent feed() delivering new input (see ConcurrentlyGroupingBatchPipeline
  * and FilterMapBatchPipeline).
  */
-export interface ResettableSignal {
-    readonly promise: Promise<void>
-    resolve: () => void
-    reset: () => void
-}
+export class ResettableSignal {
+    private promise!: Promise<void>
+    private resolveFn!: () => void
 
-export function resettableSignal(): ResettableSignal {
-    let resolveFn!: () => void
-    let promise!: Promise<void>
-
-    const arm = (): void => {
-        promise = new Promise<void>((resolve) => {
-            resolveFn = resolve
-        })
+    constructor() {
+        this.reset()
     }
 
-    arm()
+    /** Park until the next resolve(). Capture the returned promise to race it. */
+    public wait(): Promise<void> {
+        return this.promise
+    }
 
-    return {
-        get promise(): Promise<void> {
-            return promise
-        },
-        resolve: (): void => resolveFn(),
-        reset: arm,
+    public resolve(): void {
+        this.resolveFn()
+    }
+
+    public reset(): void {
+        this.promise = new Promise<void>((resolve) => {
+            this.resolveFn = resolve
+        })
     }
 }

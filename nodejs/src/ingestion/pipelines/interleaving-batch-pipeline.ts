@@ -1,5 +1,5 @@
 import { BatchPipeline, BatchPipelineResultWithContext, OkResultWithContext } from './batch-pipeline.interface'
-import { resettableSignal } from './resettable-signal'
+import { ResettableSignal } from './resettable-signal'
 
 /**
  * What {@link InterleavingCallbacks.onSourcePull} reports after pulling one
@@ -51,7 +51,7 @@ export interface InterleavingCallbacks<TInput, TOutput, CInput, COutput, R exten
 export class InterleavingBatchPipeline<TInput, TOutput, CInput, COutput, R extends string = never>
     implements BatchPipeline<TInput, TOutput, CInput, COutput, R>
 {
-    private newInputSignal = resettableSignal()
+    private newInputSignal = new ResettableSignal()
     // Memoized across iterations and across next() calls: the subpipeline is not
     // safe for concurrent callers, so a feed waking us mid-drain must re-await
     // the same pending next() rather than issue a second one.
@@ -96,7 +96,7 @@ export class InterleavingBatchPipeline<TInput, TOutput, CInput, COutput, R exten
                     (result) => ({ source: 'sub' as const, result }),
                     (error: unknown) => ({ source: 'sub-error' as const, error })
                 ),
-                this.newInputSignal.promise.then(() => ({ source: 'signal' as const })),
+                this.newInputSignal.wait().then(() => ({ source: 'signal' as const })),
             ])
 
             if (winner.source === 'signal') {
