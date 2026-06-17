@@ -146,27 +146,25 @@ export function AddWidgetModal({ isOpen, onClose, loading, onAdd }: AddWidgetMod
                         return (
                             <Fragment key={group.groupId}>
                                 {groupIndex > 0 ? <LemonDivider className="col-span-full my-0" /> : null}
-                                <div className="col-span-full flex flex-wrap items-center gap-x-3 gap-y-1">
-                                    <h5 className="mx-0 my-0 flex items-center gap-1.5">
-                                        {GroupIcon ? <GroupIcon className="text-base text-secondary" /> : null}
-                                        {group.groupLabel}
-                                    </h5>
-                                    {showProductIntro && productIntro ? (
-                                        <div className="ml-auto flex items-start gap-2 rounded bg-accent-highlight-secondary px-2 py-1.5 text-xs">
-                                            <IconLightBulb className="mt-0.5 shrink-0 text-base text-accent" />
-                                            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                                                <span className="text-primary">{productIntro.valueProp}</span>
-                                                <Link
-                                                    to={productIntro.docsHref}
-                                                    target="_blank"
-                                                    onClick={() => handleProductIntroClicked(productIntro.productKey)}
-                                                >
-                                                    {productIntro.ctaLabel}
-                                                </Link>
-                                            </div>
-                                        </div>
-                                    ) : null}
-                                </div>
+                                <h5 className="col-span-full mx-0 my-0 flex items-center gap-1.5">
+                                    {GroupIcon ? <GroupIcon className="text-base text-secondary" /> : null}
+                                    {group.groupLabel}
+                                </h5>
+                                {showProductIntro && productIntro ? (
+                                    <p className="col-span-full -mt-3 m-0 flex items-start gap-1.5 text-xs text-secondary">
+                                        <IconLightBulb className="mt-0.5 shrink-0 text-sm text-accent" />
+                                        <span>
+                                            {productIntro.valueProp}{' '}
+                                            <Link
+                                                to={productIntro.docsHref}
+                                                target="_blank"
+                                                onClick={() => handleProductIntroClicked(productIntro.productKey)}
+                                            >
+                                                {productIntro.ctaLabel}
+                                            </Link>
+                                        </span>
+                                    </p>
+                                ) : null}
                                 {group.widgets.map(({ widgetType, entry }) => (
                                     <AddWidgetCatalogPicker
                                         key={widgetType}
