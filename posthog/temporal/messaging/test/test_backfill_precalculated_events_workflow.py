@@ -1,3 +1,5 @@
+from contextlib import asynccontextmanager
+
 import pytest
 from unittest.mock import Mock, patch
 
@@ -7,6 +9,7 @@ from parameterized import parameterized
 from posthog.temporal.messaging.backfill_precalculated_events_workflow import (
     BackfillPrecalculatedEventsInputs,
     backfill_precalculated_events_activity,
+    bytecode_references_properties,
     evaluate_event_combined_filters_sync,
     evaluate_event_filters_with_fallback_sync,
     evaluate_event_individual_filters_sync,
@@ -32,6 +35,41 @@ class TestParseEventProperties:
     )
     def test_parse_event_properties(self, _name, raw_input, expected):
         assert parse_event_properties(raw_input, "test-uuid") == expected
+
+
+class TestBytecodeReferencesProperties:
+    @parameterized.expand(
+        [
+            # Pure event-name filter (event == '$pageview') — never reads properties.
+            (
+                "event_name_only",
+                [
+                    "_H",
+                    1,
+                    Operation.STRING,
+                    "$pageview",
+                    Operation.STRING,
+                    "event",
+                    Operation.GET_GLOBAL,
+                    1,
+                    Operation.EQ,
+                ],
+                False,
+            ),
+            ("constant_true", ["_H", 1, Operation.TRUE], False),
+            ("empty", [], False),
+            # properties.foo access — the global root "properties" is a literal string operand.
+            (
+                "property_access",
+                ["_H", 1, Operation.STRING, "foo", Operation.STRING, "properties", Operation.GET_GLOBAL, 2],
+                True,
+            ),
+            # Nested (e.g. inside a declared function body) is still detected.
+            ("nested", ["_H", 1, [Operation.STRING, "properties", Operation.GET_GLOBAL, 1]], True),
+        ]
+    )
+    def test_detects_properties_reference(self, _name, bytecode, expected):
+        assert bytecode_references_properties(bytecode) is expected
 
 
 class TestFlushKafkaBatchAsync:
@@ -209,6 +247,98 @@ class TestBackfillPrecalculatedEventsActivity:
 
         assert result.events_processed == 0
         assert result.events_produced == 0
+
+    async def _run_activity_capturing_query(self, filters, event_names, combined_bytecodes, rows):
+        """Run the activity with ClickHouse/Kafka mocked, returning (executed_query, result)."""
+        captured: dict[str, str] = {}
+
+        async def fake_stream(query, query_parameters=None):
+            captured["query"] = query
+            for row in rows:
+                yield row
+
+        mock_client = Mock()
+        mock_client.stream_query_as_jsonl = fake_stream
+
+        @asynccontextmanager
+        async def fake_get_client(**_kwargs):
+            yield mock_client
+
+        @asynccontextmanager
+        async def fake_heartbeater(**_kwargs):
+            yield Mock(details=None)
+
+        inputs = BackfillPrecalculatedEventsInputs(
+            team_id=1,
+            filter_storage_key="some_key",
+            cohort_ids=[1],
+            start_time="2024-01-01T00:00:00+00:00",
+            end_time="2024-01-02T00:00:00+00:00",
+        )
+
+        module = "posthog.temporal.messaging.backfill_precalculated_events_workflow"
+        with (
+            patch(f"{module}.get_event_filters", return_value=(filters, event_names, combined_bytecodes)),
+            patch(f"{module}.get_producer", return_value=Mock()),
+            patch(f"{module}.get_client", fake_get_client),
+            patch(f"{module}.Heartbeater", fake_heartbeater),
+            patch(f"{module}.asyncio.to_thread", side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs)),
+        ):
+            result = await backfill_precalculated_events_activity(inputs)
+
+        return captured["query"], result
+
+    @pytest.mark.asyncio
+    async def test_skips_properties_column_when_no_filter_reads_properties(self):
+        # Pure event-name filter — bytecode never references properties.
+        bytecode = ["_H", 1, Operation.TRUE]
+        filters = [
+            BehavioralEventFilter(
+                condition_hash="hash1",
+                bytecode=bytecode,
+                cohort_ids=[1],
+                event_name="$pageview",
+                time_value=30,
+                time_interval="day",
+            )
+        ]
+        rows = [{"uuid": "u1", "event": "$pageview", "date": "2024-01-01", "distinct_id": "d1", "person_id": "p1"}]
+
+        query, result = await self._run_activity_capturing_query(filters, ["$pageview"], {}, rows)
+
+        assert "properties" not in query
+        # The row carries no properties column, yet evaluation still runs and matches.
+        assert result.events_processed == 1
+
+    @pytest.mark.asyncio
+    async def test_reads_properties_column_when_a_filter_references_properties(self):
+        # properties.foo access — "properties" appears in the bytecode.
+        bytecode = ["_H", 1, Operation.STRING, "foo", Operation.STRING, "properties", Operation.GET_GLOBAL, 2]
+        filters = [
+            BehavioralEventFilter(
+                condition_hash="hash1",
+                bytecode=bytecode,
+                cohort_ids=[1],
+                event_name="$pageview",
+                time_value=30,
+                time_interval="day",
+            )
+        ]
+        rows = [
+            {
+                "uuid": "u1",
+                "event": "$pageview",
+                "date": "2024-01-01",
+                "distinct_id": "d1",
+                "person_id": "p1",
+                "properties": "{}",
+            }
+        ]
+
+        query, result = await self._run_activity_capturing_query(filters, ["$pageview"], {}, rows)
+
+        assert "properties" in query
+        assert result.events_processed == 1
 
 
 class TestBackfillPrecalculatedEventsInputs:

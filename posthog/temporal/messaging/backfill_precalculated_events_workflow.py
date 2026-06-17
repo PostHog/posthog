@@ -35,6 +35,23 @@ def format_cohort_ids_for_logging(cohort_ids: list[int]) -> str:
     return str(cohort_ids)
 
 
+def bytecode_references_properties(bytecode: Any) -> bool:
+    """Whether a HogVM bytecode program can read the ``properties`` global.
+
+    Behavioral filters that only match on the event name never touch ``properties``, so for those we
+    can skip reading the (large) ``properties`` column entirely. The ``properties`` global is loaded
+    via a ``GET_GLOBAL`` chain whose root is pushed as the literal string ``"properties"``, so if that
+    string appears nowhere in the program, ``properties`` is provably unused. Detection is conservative:
+    a coincidental string literal only makes us keep the column (a missed optimization), never drops a
+    match. Recurses so nested bytecode (e.g. declared functions) is covered.
+    """
+    if isinstance(bytecode, str):
+        return bytecode == "properties"
+    if isinstance(bytecode, list | tuple):
+        return any(bytecode_references_properties(item) for item in bytecode)
+    return False
+
+
 def parse_event_properties(properties_raw: Any, event_uuid: str) -> dict[str, Any]:
     """Parse event properties from ClickHouse, handling both string and dict formats."""
     if isinstance(properties_raw, str):
@@ -214,6 +231,15 @@ async def backfill_precalculated_events_activity(
     for f in filters:
         filters_by_event.setdefault(f.event_name, []).append(f)
 
+    # Only read the (large) properties column if some bytecode actually references it. Behavioral
+    # cohorts that just count event occurrences never touch properties, so for them we skip reading
+    # the column entirely. Checked across both combined and individual bytecodes, since either can run.
+    candidate_bytecodes: list[Any] = [bc for bc in combined_bytecodes_by_event.values() if bc]
+    candidate_bytecodes.extend(f.bytecode for f in filters)
+    needs_properties = any(bytecode_references_properties(bc) for bc in candidate_bytecodes)
+    if not needs_properties:
+        logger.info("No event filter references properties; skipping the properties column read")
+
     logger.info(
         f"Starting event backfill for time range {inputs.start_time} to {inputs.end_time}, "
         f"scanning {len(event_names)} event names: {event_names}"
@@ -235,19 +261,19 @@ async def backfill_precalculated_events_activity(
             logger.warning("Invalid BACKFILL_EVENTS_KAFKA_FLUSH_BATCH_SIZE, using default 1000")
             KAFKA_FLUSH_BATCH_SIZE = 1000
 
+        # Static column list (no user input) — properties is included only when some bytecode reads it.
+        select_columns = ["uuid", "event", "toDate(timestamp) as date", "distinct_id", "person_id"]
+        if needs_properties:
+            select_columns.append("properties")
+
         # No ORDER BY: each event is evaluated independently and there is no cursor, so ordering is
         # not needed. Events within a day are not physically timestamp-ordered (the events sort key
         # is (team_id, toDate(timestamp), event, ...)), so ORDER BY timestamp would force a full sort
         # of every matched event and block streaming. Without it, ClickHouse streams rows as it reads
         # them in primary-key order — lower memory and faster time-to-first-row.
-        events_query = """
+        events_query = f"""
             SELECT
-                uuid,
-                event,
-                toDate(timestamp) as date,
-                distinct_id,
-                person_id,
-                properties
+                {", ".join(select_columns)}
             FROM events
             WHERE team_id = %(team_id)s
               AND event IN %(event_names)s
@@ -289,7 +315,7 @@ async def backfill_precalculated_events_activity(
                     event_date = str(row["date"])
                     distinct_id = str(row["distinct_id"])
                     person_id = str(row["person_id"])
-                    event_properties = parse_event_properties(row["properties"], event_uuid)
+                    event_properties = parse_event_properties(row["properties"], event_uuid) if needs_properties else {}
 
                     # Look up the combined bytecode for this event name
                     combined_bytecode = combined_bytecodes_by_event.get(event_name)
