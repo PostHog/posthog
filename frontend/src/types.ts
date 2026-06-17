@@ -5501,6 +5501,7 @@ export type APIScopeObject =
     | 'account'
     | 'activity_log'
     | 'agents'
+    | 'agent_approvals'
     | 'alert'
     | 'annotation'
     | 'approvals'
@@ -5724,6 +5725,7 @@ export enum ActivityScope {
     ANNOTATION = 'Annotation',
     BATCH_EXPORT = 'BatchExport',
     BATCH_IMPORT = 'BatchImport',
+    EXPORTED_ASSET = 'ExportedAsset',
     FEATURE_FLAG = 'FeatureFlag',
     PERSON = 'Person',
     PERSONAL_API_KEY = 'PersonalAPIKey',

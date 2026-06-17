@@ -162,7 +162,7 @@ function ComboboxItem({
     return (
         <ComboboxPrimitive.Item
             data-slot="combobox-item"
-            className={cn('quill-combobox__item quill-menu-item--inset', className)}
+            className={cn('quill-combobox__item', className)}
             title={title ?? (typeof children === 'string' ? children : undefined)}
             render={<Button left className="min-w-0 aria-selected:bg-fill-selected" />}
             {...props}

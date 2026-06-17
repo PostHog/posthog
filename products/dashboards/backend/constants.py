@@ -15,9 +15,22 @@ ACTIVITY_EVENTS_DEFAULT_LIMIT = 25
 MAX_WIDGETS_BATCH_SIZE = 10
 
 # Preset relative ranges only — widgets don't accept arbitrary HogQL date strings.
-WIDGET_DATE_FROM_VALUES_ORDERED: tuple[str, ...] = ("-1h", "-3h", "-24h", "-7d", "-14d", "-30d", "-90d")
+# Note: `M` is minutes, `m` would be months (see posthog.utils relative-date parsing).
+WIDGET_DATE_FROM_VALUES_ORDERED: tuple[str, ...] = (
+    "-1M",
+    "-30M",
+    "-1h",
+    "-3h",
+    "-24h",
+    "-7d",
+    "-14d",
+    "-30d",
+    "-90d",
+)
 
 WIDGET_DATE_FROM_LABELS: dict[str, str] = {
+    "-1M": "Last minute",
+    "-30M": "Last 30 minutes",
     "-1h": "Last hour",
     "-3h": "Last 3 hours",
     "-24h": "Last 24 hours",
