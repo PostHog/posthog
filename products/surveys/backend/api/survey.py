@@ -3147,10 +3147,16 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         question_choices = None
         if survey.questions and question_id:
             # Find the question with the matching ID
-            for question in survey.questions:
+            for idx, question in enumerate(survey.questions):
                 if question.get("id", None) == question_id:
                     question_text = question.get("question")
                     question_choices = question.get("choices")
+                    # Backfill the index so the index-based response key fallback works.
+                    # Without this, fetch_responses passes question_index=None into the
+                    # getSurveyResponse() HogQL function, which requires an integer first
+                    # argument and raises QueryError -> 500.
+                    if question_index is None:
+                        question_index = idx
                     break
         elif survey.questions and question_index is not None:
             # Fallback to question index if question_id is not provided
