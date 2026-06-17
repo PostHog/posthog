@@ -46,7 +46,11 @@ def get_default_metric_title(metric_dict: dict) -> str:
 logger = logging.getLogger(__name__)
 
 
-def refresh_action_names_in_metric(query: dict[str, Any] | None, team: Team) -> dict[str, Any] | None:
+def refresh_action_names_in_metric(
+    query: dict[str, Any] | None,
+    team: Team,
+    actions_by_id: dict[int, str] | None = None,
+) -> dict[str, Any] | None:
     """
     Update ActionsNode names in a metric query to reflect current action names.
 
@@ -61,6 +65,9 @@ def refresh_action_names_in_metric(query: dict[str, Any] | None, team: Team) -> 
     Args:
         query: The metric query dictionary (ExperimentMetric)
         team: The team to fetch actions for
+        actions_by_id: Optional preloaded {action_id: name} map. When provided, the
+            per-call DB query is skipped — callers serializing many experiments can
+            resolve every action in one batched query and pass the result in here.
 
     Returns:
         Updated query dict with refreshed action names, or original query if errors occur
@@ -79,11 +86,12 @@ def refresh_action_names_in_metric(query: dict[str, Any] | None, team: Team) -> 
         if not action_ids:
             return query
 
-        # Fetch all actions in a single query
-        # Only include actions that still exist (not deleted)
-        actions_by_id = {
-            action.id: action.name for action in Action.objects.filter(id__in=action_ids, team=team, deleted=False)
-        }
+        if actions_by_id is None:
+            # Fetch all actions in a single query
+            # Only include actions that still exist (not deleted)
+            actions_by_id = {
+                action.id: action.name for action in Action.objects.filter(id__in=action_ids, team=team, deleted=False)
+            }
 
         # Update action names throughout the query
         # If an action was deleted, its ID won't be in actions_by_id and the old name will be preserved
@@ -135,6 +143,24 @@ def _update_action_names(obj: Any, actions_by_id: dict[int, str]) -> None:
     elif isinstance(obj, list):
         for item in obj:
             _update_action_names(item, actions_by_id)
+
+
+def resolve_action_names(metrics: list[dict[str, Any] | None], team: Team) -> dict[int, str]:
+    """Resolve {action_id: name} for every ActionsNode across many metric queries in one query.
+
+    Lets callers serializing a page of experiments batch action-name resolution instead of
+    issuing a separate query per metric. Pass the result into ``refresh_action_names_in_metric``.
+    Returns an empty map (no query) when no actions are referenced.
+    """
+    action_ids: set[int] = set()
+    for metric in metrics:
+        if metric:
+            _collect_action_ids(metric, action_ids)
+
+    if not action_ids:
+        return {}
+
+    return {action.id: action.name for action in Action.objects.filter(id__in=action_ids, team=team, deleted=False)}
 
 
 def _collect_event_names_and_action_ids(obj: Any, event_names: set[str], action_ids: set[int]) -> None:

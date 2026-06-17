@@ -37,9 +37,12 @@ class ExperimentToSavedMetricSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance: ExperimentToSavedMetric):
         data = super().to_representation(instance)
-        # Refresh action names to show current names instead of stale cached values
+        # Refresh action names to show current names instead of stale cached values.
+        # actions_by_id is preloaded once per page by ExperimentListSerializer (shared via the
+        # parent serializer context); None when used standalone, falling back to a per-call query.
         team = instance.experiment.team
-        data["query"] = refresh_action_names_in_metric(data.get("query"), team)
+        actions_by_id = self.context.get("actions_by_id")
+        data["query"] = refresh_action_names_in_metric(data.get("query"), team, actions_by_id)
         return data
 
 
