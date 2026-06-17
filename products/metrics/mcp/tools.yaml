@@ -9,6 +9,19 @@ feature: metrics
 url_prefix: /metrics
 ui_apps: {}
 tools:
+    characterize-metric-anomaly:
+        operation: metrics_characterize_create
+        enabled: true
+        scopes:
+            - metrics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Characterize metric anomaly
+        description_file: ./prompts/characterize-metric-anomaly.md
+        system_prompt_hint: First call when investigating "metric X looks wrong" — magnitude, onset, which labels moved
+        feature_flag: metrics
     metric-names-list:
         operation: metrics_values_retrieve
         enabled: true

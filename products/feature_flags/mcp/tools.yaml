@@ -43,6 +43,8 @@ tools:
             - evaluation_contexts
             - is_remote_configuration
             - ensure_experience_continuity
+            - evaluation_runtime
+            - bucketing_identifier
         param_overrides:
             is_remote_configuration:
                 description:
@@ -54,6 +56,14 @@ tools:
                     Whether to persist the flag's value for a user across the anonymous-to-identified transition (the "persist
                     across authentication steps" option in the UI). Keeps a user's evaluated value stable once they log
                     in. Incompatible with `device_id` bucketing.
+            evaluation_runtime:
+                description:
+                    Where this flag is allowed to evaluate — `server` (server-side SDKs only), `client` (client-side SDKs
+                    only), or `all` (both). Defaults to `all`.
+            bucketing_identifier:
+                description:
+                    Identifier used to bucket users into rollout percentages and variants — `distinct_id` (user ID, the
+                    default) or `device_id`. Using `device_id` is incompatible with `ensure_experience_continuity=true`.
     delete-feature-flag:
         operation: feature_flags_destroy
         enabled: true
@@ -433,6 +443,8 @@ tools:
             - evaluation_contexts
             - is_remote_configuration
             - ensure_experience_continuity
+            - evaluation_runtime
+            - bucketing_identifier
         param_overrides:
             id:
                 cast: string-int
@@ -446,3 +458,11 @@ tools:
                     Whether to persist the flag's value for a user across the anonymous-to-identified transition (the "persist
                     across authentication steps" option in the UI). Keeps a user's evaluated value stable once they log
                     in. Incompatible with `device_id` bucketing.
+            evaluation_runtime:
+                description:
+                    Where this flag is allowed to evaluate — `server` (server-side SDKs only), `client` (client-side SDKs
+                    only), or `all` (both). Defaults to `all`.
+            bucketing_identifier:
+                description:
+                    Identifier used to bucket users into rollout percentages and variants — `distinct_id` (user ID, the
+                    default) or `device_id`. Using `device_id` is incompatible with `ensure_experience_continuity=true`.
