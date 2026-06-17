@@ -350,6 +350,16 @@ class TestBuildThreadContextUpdateBlock:
         assert block.count(f"<{_THREAD_CONTEXT_UPDATE_TAG}>") == 1
         assert block.count(f"</{_THREAD_CONTEXT_UPDATE_TAG}>") == 1
 
+    def test_returns_none_and_keeps_watermark_when_event_ts_missing(self):
+        # Without an `event_ts`, we can't safely identify the just-arrived message —
+        # the window would have no upper bound and the arriving message would land
+        # both in the diff and the user_text. Bail and leave the watermark alone so
+        # the next follow-up retries the same window from a fresh fetch.
+        msgs = [{"user": "mira", "user_id": "U_MIRA", "text": "x", "ts": "1.500"}]
+        block, new_watermark = build_thread_context_update_block(msgs, last_forwarded_ts="1.000", event_ts=None)
+        assert block is None
+        assert new_watermark == "1.000"
+
     def test_skips_messages_with_empty_text(self):
         msgs = [
             {"user": "mira", "user_id": "U_MIRA", "text": "", "ts": "1.500"},

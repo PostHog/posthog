@@ -1,5 +1,8 @@
 import re
+import textwrap
 from typing import Any
+
+from django.db import models
 
 import structlog
 from temporalio import activity
@@ -30,6 +33,31 @@ def _strip_context_update_tag(text: str) -> str:
     return re.sub(rf"</?\s*{_THREAD_CONTEXT_UPDATE_TAG}\s*/?>", "", text, flags=re.IGNORECASE)
 
 
+def _max_ts(*candidates: str | None) -> str:
+    """Return the largest Slack `ts` among the candidates, comparing as floats.
+
+    Slack `ts` values are decimal strings (``"1706012345.001234"``). Sorting them
+    lexicographically agrees with float ordering today because every ts is the same
+    width, but that invariant breaks when the integer part eventually changes width
+    (year 2286 — well beyond any practical concern, but the float compare costs
+    nothing and removes the latent trap). Returns ``""`` if every candidate is blank
+    or unparseable.
+    """
+    best = ""
+    best_val = float("-inf")
+    for c in candidates:
+        if not c:
+            continue
+        try:
+            v = float(c)
+        except ValueError:
+            continue
+        if v > best_val:
+            best = c
+            best_val = v
+    return best
+
+
 def _format_author_token(user_id: str | None, display_name: str | None) -> str:
     """Render a message author as a labeled Slack mention when we have the raw id.
 
@@ -47,9 +75,12 @@ def _format_author_token(user_id: str | None, display_name: str | None) -> str:
 
 
 def _indent_body(text: str, indent: str = "  ") -> str:
-    """Indent every line of `text` so multi-line message bodies nest under the author header."""
-    lines = text.splitlines() or [""]
-    return "\n".join(f"{indent}{line}" if line else indent.rstrip() for line in lines)
+    """Indent every non-blank line of `text` so multi-line message bodies nest under the author header.
+
+    Thin wrapper over ``textwrap.indent`` — its default predicate (skip whitespace-only
+    lines) gives the same rendering and removes a custom loop to reason about.
+    """
+    return textwrap.indent(text, indent)
 
 
 def _build_posthog_code_task_description(
@@ -209,7 +240,15 @@ def build_thread_context_update_block(
     When the window contains more than ``max_messages`` entries (chatty channel that
     mostly ignored the bot), we keep the most recent slice and prefix the block with
     a truncation note so the agent knows it isn't seeing the full history.
+
+    Without an ``event_ts`` we can't safely identify the just-arrived message — the
+    window would be unbounded on the upper end and the arriving message would land in
+    both the diff and the user_text. Bail out and return the current watermark so the
+    caller doesn't advance past anything it didn't actually show the agent.
     """
+    if not event_ts:
+        return None, last_forwarded_ts
+
     in_window: list[dict[str, str]] = []
     max_seen_ts: str | None = last_forwarded_ts
     for msg in thread_messages:
@@ -421,10 +460,17 @@ def create_posthog_code_task_for_repo_activity(
         # `last_forwarded_ts` seeds the follow-up diff watermark — anything
         # strictly newer than this when a follow-up arrives is rendered into a
         # `<slack_thread_context_update>` block so the agent catches up on
-        # messages it never saw. We use the initiator message's `ts` because
-        # everything up to and including that message is already baked into the
-        # original `<slack_thread_context>` block at task creation.
-        initial_watermark = user_message_ts or thread_ts
+        # messages it never saw. The natural anchor is the initiator's `ts`, but
+        # if other participants posted between Slack delivering the event and the
+        # workflow actually fetching the thread, those messages were already
+        # baked into the original `<slack_thread_context>` block; surfacing them
+        # again on the first follow-up would just duplicate context. Take the
+        # max across everything we know the agent has already seen.
+        initial_watermark = _max_ts(
+            user_message_ts,
+            thread_ts,
+            *(m.get("ts") or "" for m in thread_messages),
+        )
         SlackThreadTaskMapping.objects.update_or_create(
             integration=integration,
             channel=channel,
@@ -578,7 +624,7 @@ def forward_posthog_code_followup_activity(
         return True
 
     from products.slack_app.backend.services.slack_messages import (  # noqa: PLC0415
-        cached_collect_thread_messages,
+        collect_thread_messages,
         decode_slack_event_text,
     )
 
@@ -590,14 +636,23 @@ def forward_posthog_code_followup_activity(
 
     # Catch the agent up on any messages posted in the thread between the last time
     # we forwarded and now. Without this the agent sees only the new follow-up text,
-    # missing constraints/clarifications other participants posted in between. The
-    # cached fetch collapses a classifier-then-forwarder pair in the same workflow
-    # onto a single Slack `conversations.replies` call. Best-effort: if the fetch or
-    # diff build raises, we still forward the follow-up so the user isn't blocked.
+    # missing constraints/clarifications other participants posted in between.
+    # Uncached: the diff is only correct against the *current* thread state — a stale
+    # snapshot would silently drop messages and then advance the watermark past them.
+    # Best-effort: if the fetch or diff build raises, we still forward the follow-up
+    # so the user isn't blocked, and we DO NOT advance the watermark — the next
+    # follow-up retries the same window from a fresh fetch.
     update_block: str | None = None
-    new_watermark = user_message_ts or mapping.last_forwarded_ts
+    new_watermark: str | None = None
     try:
-        thread_messages = cached_collect_thread_messages(slack, integration, channel, thread_ts, our_bot_id=None)
+        our_bot_id = (slack.client.auth_test() or {}).get("bot_id")
+    except Exception:
+        # `auth.test` is cheap and very reliable; fall back to no bot filter rather
+        # than dropping the diff entirely. The agent already learns to ignore its own
+        # voice via the system prompt, so the worst case is some redundant context.
+        our_bot_id = None
+    try:
+        thread_messages = collect_thread_messages(slack, integration, channel, thread_ts, our_bot_id)
         update_block, new_watermark = build_thread_context_update_block(
             thread_messages,
             last_forwarded_ts=mapping.last_forwarded_ts,
@@ -668,13 +723,22 @@ def forward_posthog_code_followup_activity(
     )
 
     # Advance the diff watermark so the next follow-up doesn't re-surface anything we
-    # just sent (or the just-arrived message itself). Concurrent follow-ups can race
-    # here — the loser overwriting with a slightly older `ts` would at worst cause one
-    # message to show up twice in the next update, which is preferable to losing it.
-    if new_watermark and new_watermark != mapping.last_forwarded_ts:
-        mapping.last_forwarded_ts = new_watermark
+    # just sent (or the just-arrived message itself). Only advance forward — concurrent
+    # follow-ups racing on the same mapping must not be able to write an older `ts`
+    # back, which would cause a future follow-up to replay messages the agent has
+    # already seen. We compare against the *current* DB value rather than the
+    # in-memory `mapping.last_forwarded_ts` we read at the top, and rely on a
+    # conditional UPDATE so the late arrival of a stale event is a no-op.
+    if new_watermark:
         try:
-            mapping.save(update_fields=["last_forwarded_ts", "updated_at"])
+            updated = (
+                type(mapping)
+                .objects.filter(pk=mapping.pk)
+                .filter(models.Q(last_forwarded_ts__isnull=True) | models.Q(last_forwarded_ts__lt=new_watermark))
+                .update(last_forwarded_ts=new_watermark)
+            )
+            if updated:
+                mapping.last_forwarded_ts = new_watermark
         except Exception:
             logger.exception(
                 "slack_app_followup_watermark_save_failed",
