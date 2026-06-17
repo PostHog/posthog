@@ -44,7 +44,7 @@ class TestVisionActionModel(BaseTest):
         action = self._create_action()
         self.assertEqual(action.enabled, True)
         self.assertEqual(action.trigger_type, TriggerType.SCHEDULE)
-        self.assertEqual(action.mode, ActionMode.SUMMARY)
+        self.assertEqual(action.mode, ActionMode.GROUP_SUMMARY)
         self.assertEqual(action.selection, {"scanner_type": "summarizer", "window_days": 1})
         self.assertEqual(action.synthesis_config, {})
         self.assertEqual(action.delivery_config, [])

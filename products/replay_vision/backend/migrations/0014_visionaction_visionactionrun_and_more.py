@@ -46,11 +46,11 @@ class Migration(migrations.Migration):
                     "mode",
                     models.CharField(
                         choices=[
-                            ("summary", "Summary"),
+                            ("group_summary", "Group summary"),
                             ("per_observation", "Per observation"),
                         ],
-                        default="summary",
-                        help_text="What the action produces. MVP supports 'summary' only.",
+                        default="group_summary",
+                        help_text="What the action produces. MVP supports 'group_summary' only.",
                         max_length=20,
                     ),
                 ),
