@@ -8,11 +8,12 @@ import { extractVisualizationArtifact } from './extractors'
  * artifact lands (pending / in-progress / malformed output) we fall back to the generic card so
  * the call still renders something.
  */
-export function CreateInsightWidget({ message, isLastInGroup }: McpToolRendererProps): JSX.Element {
+export function CreateInsightWidget(props: McpToolRendererProps): JSX.Element {
+    const { message } = props
     const artifact = message.status === 'completed' ? extractVisualizationArtifact(message) : null
 
     if (!artifact) {
-        return <FallbackMcpToolRenderer message={message} isLastInGroup={isLastInGroup} />
+        return <FallbackMcpToolRenderer {...props} />
     }
 
     const target = getArtifactOpenTarget(artifact.envelope, artifact.content)

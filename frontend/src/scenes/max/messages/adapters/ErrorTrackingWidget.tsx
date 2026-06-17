@@ -9,11 +9,12 @@ import { extractErrorTrackingResponse } from './extractors'
  * pushes filters into the error-tracking scene when it is active). Pre-completion or missing output
  * falls back to the generic card.
  */
-export function ErrorTrackingWidget({ message, isLastInGroup }: McpToolRendererProps): JSX.Element {
+export function ErrorTrackingWidget(props: McpToolRendererProps): JSX.Element {
+    const { message } = props
     const filters = message.status === 'completed' ? extractErrorTrackingResponse(message) : null
 
     if (!filters) {
-        return <FallbackMcpToolRenderer message={message} isLastInGroup={isLastInGroup} />
+        return <FallbackMcpToolRenderer {...props} />
     }
 
     return <ErrorTrackingFiltersWidget toolCallId={message.id} filters={filters} />

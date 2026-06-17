@@ -155,13 +155,25 @@ export interface SessionUpdateToolCall {
     input?: Record<string, unknown>
     locations?: { path: string; line?: number }[]
     content?: unknown[]
+    _meta?: SessionUpdateToolCallMeta
 }
 
-/** Set on failed updates since ACP adapter v0.42 — carries the permission-denial reason. */
+/**
+ * Claude adapter metadata stamped under `_meta.claudeCode` on every Claude tool frame. `toolName`
+ * is the stable SDK tool name (e.g. "Edit", "TodoWrite") — built-ins carry no top-level `toolName`,
+ * so this is the only place the real name is reachable. `toolResponse` is present on a permission
+ * denial and free-form otherwise. Mirrors Twig's `ToolUpdateMeta`.
+ */
+export interface SessionUpdateClaudeCodeMeta {
+    toolName?: string
+    /** Present on a permission denial; free-form on other frames. */
+    toolResponse?: { decisionReason?: string; decisionReasonType?: string; message?: string } | unknown
+    parentToolCallId?: string
+    bashCommand?: string
+}
+
 export interface SessionUpdateToolCallMeta {
-    decision_reason?: string
-    decision_reason_type?: string
-    message?: string
+    claudeCode?: SessionUpdateClaudeCodeMeta
 }
 
 export interface SessionUpdateToolCallUpdate {

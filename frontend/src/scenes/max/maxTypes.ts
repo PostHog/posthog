@@ -253,6 +253,8 @@ export interface McpToolCallMessage {
     rawServerName: string
     rawToolName: string
     innerToolName?: string
+    /** Stable SDK tool name from `_meta.claudeCode.toolName` — set for Claude built-ins. */
+    claudeToolName?: string
     /** rawInput at `tool_call` (for `exec`, includes the wrapper `{ command }`). */
     rawInput: Record<string, unknown>
     /** JSON-parsed inner args when `innerToolName` is set. */

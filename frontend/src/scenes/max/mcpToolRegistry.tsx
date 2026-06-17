@@ -1,21 +1,33 @@
 import type { ComponentType } from 'react'
 
 import {
+    IconAI,
     IconDashboard,
+    IconDocument,
+    IconEye,
     IconFunnels,
+    IconGlobe,
     IconGraph,
     IconLifecycle,
+    IconListCheck,
     IconLlmAnalytics,
+    IconMagicWand,
     IconNotebook,
+    IconPencil,
     IconPerson,
     IconRetention,
     IconRewindPlay,
+    IconSearch,
     IconStickiness,
+    IconTerminal,
     IconTrends,
     IconUserPaths,
     IconWarning,
     IconWrench,
 } from '@posthog/icons'
+
+// IconRobot is not exported from @posthog/icons — it lives only in the legacy lib icon set.
+import { IconRobot } from 'lib/lemon-ui/icons'
 
 import type { McpToolCallMessage } from './maxTypes'
 import { CreateInsightWidget } from './messages/adapters/CreateInsightWidget'
@@ -29,6 +41,14 @@ import { FallbackMcpToolRenderer } from './messages/FallbackMcpToolRenderer'
 export interface McpToolRendererProps {
     message: McpToolCallMessage
     isLastInGroup: boolean
+    /**
+     * Resolved registry entry's icon — the registry's contribution to the card. Renderers that fall
+     * through to `FallbackMcpToolRenderer` use it for the header icon (built-ins get their friendly
+     * icon instead of the generic wrench). Optional so direct mounts default to the wrench.
+     */
+    icon?: JSX.Element
+    /** Resolved registry entry's stable display name, used as the header label when no title exists. */
+    displayName?: string
 }
 
 export interface McpToolRegistryEntry {
@@ -148,6 +168,35 @@ const QUERY_WRAPPER_TOOLS: { key: string; displayName: string; icon: JSX.Element
 ]
 for (const { key, displayName, icon } of QUERY_WRAPPER_TOOLS) {
     mcpToolRegistry.register({ key, displayName, icon, Renderer: QueryWidget })
+}
+
+// --- Claude built-in tools ---
+// Keyed by the stable SDK tool name (reachable via `_meta.claudeCode.toolName`). All reuse the
+// fallback card — the goal is a friendly title + icon, not a bespoke widget. The fallback header
+// already prefers Twig's rich `title` (e.g. "Edit `foo.ts`"), so these supply the icon and a stable
+// `displayName` for any frame whose title is empty. `MultiEdit`/`Skill` are registered speculatively
+// (not enumerated in Twig's tools.ts) — zero cost if never emitted.
+const BUILTIN_TOOLS: { keys: string[]; displayName: string; icon: JSX.Element }[] = [
+    { keys: ['Read', 'NotebookRead'], displayName: 'Read', icon: <IconEye /> },
+    { keys: ['Edit', 'Write', 'NotebookEdit', 'MultiEdit'], displayName: 'Edit', icon: <IconPencil /> },
+    { keys: ['Grep', 'Glob', 'LS'], displayName: 'Search', icon: <IconSearch /> },
+    { keys: ['Bash', 'BashOutput', 'KillShell'], displayName: 'Terminal', icon: <IconTerminal /> },
+    { keys: ['WebSearch', 'WebFetch'], displayName: 'Web', icon: <IconGlobe /> },
+    { keys: ['Task', 'Agent'], displayName: 'Subagent', icon: <IconRobot /> },
+    {
+        keys: ['TaskCreate', 'TaskUpdate', 'TaskGet', 'TaskList', 'TodoWrite'],
+        displayName: 'Tasks',
+        icon: <IconListCheck />,
+    },
+    { keys: ['Skill'], displayName: 'Skill', icon: <IconMagicWand /> },
+    { keys: ['ToolSearch'], displayName: 'Tool search', icon: <IconSearch /> },
+    { keys: ['ExitPlanMode'], displayName: 'Plan', icon: <IconDocument /> },
+    { keys: ['AskUserQuestion'], displayName: 'Question', icon: <IconAI /> },
+]
+for (const { keys, displayName, icon } of BUILTIN_TOOLS) {
+    for (const key of keys) {
+        mcpToolRegistry.register({ key, displayName, icon, Renderer: FallbackMcpToolRenderer })
+    }
 }
 
 /** Looks up the renderer entry for a resolved tool key, falling back to the generic card. */

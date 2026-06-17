@@ -28,6 +28,8 @@ export interface ToolInvocation {
      * `__posthog_exec_*__` sentinel for discovery verbs, or the wire tool name otherwise.
      */
     resolvedKey: string
+    /** Stable SDK tool name from `_meta.claudeCode.toolName` — set for Claude built-ins, which carry no wire `toolName`. */
+    claudeToolName?: string
     /** rawInput at `tool_call` time (for `exec`, includes the wrapper `{ command }`). */
     input: Record<string, unknown>
     /** JSON-parsed inner args when `innerToolName` is set. */

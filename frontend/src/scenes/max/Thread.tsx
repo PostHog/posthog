@@ -133,6 +133,7 @@ function toolInvocationToMessage(
         rawServerName: invocation.rawServerName,
         rawToolName: invocation.rawToolName,
         innerToolName: invocation.innerToolName,
+        claudeToolName: invocation.claudeToolName,
         rawInput: invocation.input,
         innerInput: invocation.innerInput,
         rawOutput: invocation.output,
@@ -197,7 +198,15 @@ function SandboxThread(): JSX.Element {
                         return null
                     }
                     const entry = lookupMcpToolRenderer(message.resolvedKey)
-                    return <entry.Renderer key={item.id} message={message} isLastInGroup />
+                    return (
+                        <entry.Renderer
+                            key={item.id}
+                            message={message}
+                            isLastInGroup
+                            icon={entry.icon}
+                            displayName={entry.displayName}
+                        />
+                    )
                 }
                 if (item.type === 'error') {
                     return (
