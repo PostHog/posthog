@@ -1,0 +1,3 @@
+# Regenerable run artifacts (reports, logs). The committed docs explain how to recreate them.
+out/
+*.network-audit.json

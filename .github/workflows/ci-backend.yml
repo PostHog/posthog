@@ -621,6 +621,11 @@ jobs:
         runs-on: depot-ubuntu-latest
         timeout-minutes: 40
         name: Product tests (${{ matrix.group }})
+        # Record-only network egress audit (see tools/network-audit). No-op on branches
+        # that haven't rebased past the conftest enabler, so it can't break unrebased PRs.
+        env:
+            NETWORK_AUDIT: '1'
+            NETWORK_AUDIT_OUT_DIR: /tmp/network-audit
         strategy:
             fail-fast: false
             matrix:
@@ -809,6 +814,15 @@ jobs:
                   path: /tmp/patches/
                   if-no-files-found: ignore
                   retention-days: 1
+
+            - name: Upload network-audit reports
+              if: always()
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: network-audit-products-${{ strategy.job-index }}
+                  path: /tmp/network-audit/
+                  if-no-files-found: ignore
+                  retention-days: 3
 
     # Lightweight repo-wide checks that only need Python + uv (no Docker/DB).
     # Consolidates checks that previously each spun up their own runner.
@@ -2023,6 +2037,12 @@ jobs:
         # Runner type is performance-critical — consult #team-devex before changing
         runs-on: depot-ubuntu-latest
 
+        # Record-only network egress audit (see tools/network-audit). No-op on branches
+        # that haven't rebased past the conftest enabler, so it can't break unrebased PRs.
+        env:
+            NETWORK_AUDIT: '1'
+            NETWORK_AUDIT_OUT_DIR: /tmp/network-audit
+
         strategy:
             fail-fast: false
             matrix:
@@ -2475,6 +2495,15 @@ jobs:
               with:
                   name: junit-results-backend-${{ matrix.artifact_key }}
                   path: junit-*.xml
+
+            - name: Upload network-audit reports
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              if: always()
+              with:
+                  name: network-audit-backend-${{ matrix.artifact_key }}
+                  path: /tmp/network-audit/
+                  if-no-files-found: ignore
+                  retention-days: 3
 
     # Aggregate and commit snapshot changes from all matrix jobs
 

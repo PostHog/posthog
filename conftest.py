@@ -1,7 +1,14 @@
 import gc
+import os
 import warnings
 
 import pytest
+
+# Dormant by default. Set NETWORK_AUDIT=1 to load the egress sensor
+# (tools/network-audit/pytest_network_audit.py), which flags outbound connections to
+# third-party hosts. With nothing set this line never runs, so normal runs are unaffected.
+if os.getenv("NETWORK_AUDIT"):
+    pytest_plugins = ["pytest_network_audit"]
 
 # Test-session boot — plugin imports and importing every collected test module —
 # allocates almost exclusively permanent objects, so automatic cyclic GC during that
