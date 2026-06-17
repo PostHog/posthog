@@ -25606,19 +25606,28 @@ export namespace Schemas {
       status: LLMSkillMarketplaceCommandStatusEnum;
       /** Whether this user already has a marketplace credential for the team's skill store. */
       connected: boolean;
-      /** The Claude Code plugin name the command installs. */
+      /** The plugin name the command installs (Claude Code and Codex). */
       plugin_name: string;
+      /** The marketplace name, used by the Codex install command. */
+      marketplace_name: string;
       /** Label of this user's marketplace credential (Project Secret API Key). */
       label: string;
       /** The marketplace git repository URL, with no credential embedded. */
       repo_url: string;
       /**
-         * Ready-to-paste `/plugin marketplace add` command with the live token embedded. Returned only when a token was just issued (status created/rotated); null otherwise.
+         * Claude Code: ready-to-paste `/plugin marketplace add` command with the live token embedded. Returned only when a token was just issued (status created/rotated); null otherwise.
          * @nullable
          */
       command: string | null;
-      /** The install command with a YOUR_PHS_TOKEN placeholder instead of a live token; always present. */
+      /** Claude Code install command with a YOUR_PHS_TOKEN placeholder instead of a live token; always present. */
       command_template: string;
+      /**
+         * OpenAI Codex: two-line `codex plugin marketplace add` + `codex plugin add` command with the live token embedded. Returned only when a token was just issued (status created/rotated); null otherwise.
+         * @nullable
+         */
+      codex_command: string | null;
+      /** Codex install command with a YOUR_PHS_TOKEN placeholder instead of a live token; always present. */
+      codex_command_template: string;
       /**
          * The raw read-only `phs_` credential. Returned once, only when minted or rotated; it cannot be retrieved again afterwards.
          * @nullable

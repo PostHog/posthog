@@ -589,18 +589,29 @@ class LLMSkillMarketplaceCommandSerializer(serializers.Serializer):
     connected = serializers.BooleanField(
         help_text="Whether this user already has a marketplace credential for the team's skill store."
     )
-    plugin_name = serializers.CharField(help_text="The Claude Code plugin name the command installs.")
+    plugin_name = serializers.CharField(help_text="The plugin name the command installs (Claude Code and Codex).")
+    marketplace_name = serializers.CharField(help_text="The marketplace name, used by the Codex install command.")
     label = serializers.CharField(help_text="Label of this user's marketplace credential (Project Secret API Key).")
     repo_url = serializers.CharField(help_text="The marketplace git repository URL, with no credential embedded.")
     command = serializers.CharField(
         allow_null=True,
         help_text=(
-            "Ready-to-paste `/plugin marketplace add` command with the live token embedded. "
+            "Claude Code: ready-to-paste `/plugin marketplace add` command with the live token embedded. "
             "Returned only when a token was just issued (status created/rotated); null otherwise."
         ),
     )
     command_template = serializers.CharField(
-        help_text="The install command with a YOUR_PHS_TOKEN placeholder instead of a live token; always present."
+        help_text="Claude Code install command with a YOUR_PHS_TOKEN placeholder instead of a live token; always present."
+    )
+    codex_command = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "OpenAI Codex: two-line `codex plugin marketplace add` + `codex plugin add` command with the live "
+            "token embedded. Returned only when a token was just issued (status created/rotated); null otherwise."
+        ),
+    )
+    codex_command_template = serializers.CharField(
+        help_text="Codex install command with a YOUR_PHS_TOKEN placeholder instead of a live token; always present."
     )
     token = serializers.CharField(
         allow_null=True,

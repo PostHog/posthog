@@ -84,10 +84,25 @@ def marketplace_repo_url(team_id: int, host: str, scheme: str) -> str:
     return f"{scheme}://{host}/api/projects/{team_id}/llm_skills/marketplace.git"
 
 
-def build_install_command(team_id: int, host: str, scheme: str, token: str | None) -> str:
-    """The ``/plugin marketplace add`` command. Embeds the token, or a placeholder when absent."""
+def _marketplace_git_url(team_id: int, host: str, scheme: str, token: str | None) -> str:
     credential = token or "YOUR_PHS_TOKEN"
-    return (
-        f"/plugin marketplace add "
-        f"{scheme}://x-access-token:{credential}@{host}/api/projects/{team_id}/llm_skills/marketplace.git"
-    )
+    return f"{scheme}://x-access-token:{credential}@{host}/api/projects/{team_id}/llm_skills/marketplace.git"
+
+
+def build_install_command(team_id: int, host: str, scheme: str, token: str | None) -> str:
+    """Claude Code: the ``/plugin marketplace add`` command. Embeds the token, or a placeholder."""
+    return f"/plugin marketplace add {_marketplace_git_url(team_id, host, scheme, token)}"
+
+
+def build_codex_install_command(
+    team_id: int, host: str, scheme: str, token: str | None, *, plugin_name: str, marketplace_name: str
+) -> str:
+    """OpenAI Codex: add the same git marketplace, then install the plugin (two lines).
+
+    The marketplace is the identical git endpoint Claude Code clones — Codex reads our
+    ``.claude-plugin/marketplace.json`` directly (verified against codex-cli), so no Codex-specific
+    manifest is needed. Codex's git source requires ``https`` in practice.
+    """
+    add = f'codex plugin marketplace add "{_marketplace_git_url(team_id, host, scheme, token)}"'
+    install = f"codex plugin add {plugin_name}@{marketplace_name}"
+    return f"{add}\n{install}"

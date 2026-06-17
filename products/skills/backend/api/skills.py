@@ -33,9 +33,10 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
 from products.ai_observability.backend.api.metrics import llma_track_latency
 
-from ..marketplace.adapters import PLUGIN_NAME, load_skill_export
+from ..marketplace.adapters import MARKETPLACE_NAME, PLUGIN_NAME, load_skill_export
 from ..marketplace.credentials import (
     MarketplaceCredentialLimitError,
+    build_codex_install_command,
     build_install_command,
     get_marketplace_credential,
     issue_marketplace_credential,
@@ -628,14 +629,23 @@ class LLMSkillViewSet(
         team_id = self.team.id
         host = request.get_host()
         scheme = request.scheme
+
+        def codex(tok: str | None) -> str:
+            return build_codex_install_command(
+                team_id, host, scheme, tok, plugin_name=PLUGIN_NAME, marketplace_name=MARKETPLACE_NAME
+            )
+
         return {
             "status": status_str,
             "connected": key is not None,
             "plugin_name": PLUGIN_NAME,
+            "marketplace_name": MARKETPLACE_NAME,
             "label": marketplace_credential_label(cast(User, request.user).id),
             "repo_url": marketplace_repo_url(team_id, host, scheme),
             "command": build_install_command(team_id, host, scheme, token) if token else None,
             "command_template": build_install_command(team_id, host, scheme, None),
+            "codex_command": codex(token) if token else None,
+            "codex_command_template": codex(None),
             "token": token,
             "mask_value": key.mask_value if key is not None else None,
             "created_at": key.created_at if key is not None else None,

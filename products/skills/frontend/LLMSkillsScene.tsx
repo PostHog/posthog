@@ -269,7 +269,8 @@ function GroupedSkillsView({
 }
 
 function MarketplaceCredentialSection(): JSX.Element {
-    const { marketplaceCommand, marketplaceState, marketplaceLoading, issuingCredential } = useValues(llmSkillsLogic)
+    const { marketplaceCommand, codexCommand, marketplaceState, marketplaceLoading, issuingCredential } =
+        useValues(llmSkillsLogic)
     const { issueMarketplaceCommand } = useActions(llmSkillsLogic)
 
     if (marketplaceLoading && !marketplaceState) {
@@ -312,9 +313,6 @@ function MarketplaceCredentialSection(): JSX.Element {
                     ready-to-paste command.
                 </p>
             )}
-            <CodeSnippet language={Language.Bash} thing="marketplace command">
-                {marketplaceCommand}
-            </CodeSnippet>
             {!justIssued && (
                 <div>
                     <AccessControlAction
@@ -334,10 +332,26 @@ function MarketplaceCredentialSection(): JSX.Element {
                     </AccessControlAction>
                 </div>
             )}
-            <p className="m-0 text-xs text-secondary">
-                Then run <code>/plugin</code> in Claude Code, install <b>posthog-skill-store</b>, and your skills are
-                available as <code>/posthog-skill-store:&lt;name&gt;</code> — auto-updating as you publish.
-            </p>
+            <div className="flex flex-col gap-1">
+                <p className="m-0 text-xs font-semibold text-secondary">Claude Code</p>
+                <CodeSnippet language={Language.Bash} thing="Claude Code command">
+                    {marketplaceCommand}
+                </CodeSnippet>
+                <p className="m-0 text-xs text-secondary">
+                    Paste into Claude Code, then install <b>posthog-skill-store</b> via <code>/plugin</code> — skills
+                    appear as <code>/posthog-skill-store:&lt;name&gt;</code>, auto-updating as you publish.
+                </p>
+            </div>
+            <div className="flex flex-col gap-1">
+                <p className="m-0 text-xs font-semibold text-secondary">Codex</p>
+                <CodeSnippet language={Language.Bash} thing="Codex command">
+                    {codexCommand}
+                </CodeSnippet>
+                <p className="m-0 text-xs text-secondary">
+                    Run both lines in your terminal — the same marketplace, added to Codex and installed. Codex loads
+                    the skills automatically.
+                </p>
+            </div>
         </>
     )
 }
@@ -350,13 +364,13 @@ function ConnectToClaudeCodeModal(): JSX.Element {
         <LemonModal
             isOpen={connectModalOpen}
             onClose={() => setConnectModalOpen(false)}
-            title="Connect to Claude Code"
-            description="Install your team's skills into Claude Code as a plugin marketplace — or let any MCP-connected agent load them directly."
+            title="Connect a coding agent"
+            description="Install your team's skills into Claude Code or Codex as a plugin marketplace — or let any MCP-connected agent load them directly."
             width={640}
         >
             <div className="flex flex-col gap-4">
                 <section className="flex flex-col gap-2">
-                    <h4 className="m-0 font-semibold">Claude Code (plugin marketplace)</h4>
+                    <h4 className="m-0 font-semibold">Plugin marketplace (Claude Code &amp; Codex)</h4>
                     <MarketplaceCredentialSection />
                 </section>
 
@@ -425,9 +439,9 @@ export function LLMSkillsScene(): JSX.Element {
                         <LemonButton
                             type="secondary"
                             onClick={() => setConnectModalOpen(true)}
-                            data-attr="connect-claude-code-button"
+                            data-attr="connect-coding-agent-button"
                         >
-                            Connect to Claude Code
+                            Connect agent
                         </LemonButton>
                         <AccessControlAction
                             resourceType={AccessControlResourceType.LlmAnalytics}

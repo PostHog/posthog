@@ -311,6 +311,13 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
                 marketplaceState?.command ?? marketplaceState?.command_template ?? buildMarketplaceCommand(null),
         ],
 
+        codexCommand: [
+            (s) => [s.marketplaceState],
+            (marketplaceState: LLMSkillMarketplaceCommandApi | null): string =>
+                // Same per-user credential; the Codex two-line command. Only shown once state loads.
+                marketplaceState?.codex_command ?? marketplaceState?.codex_command_template ?? '',
+        ],
+
         sorting: [
             (s) => [s.filters],
             (filters: SkillFilters): Sorting | null => {

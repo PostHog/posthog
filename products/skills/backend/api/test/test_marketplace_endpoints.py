@@ -353,6 +353,11 @@ class TestMarketplaceInstallCommand(APIBaseTest):
         assert "x-access-token:" in body["command"]
         assert f"/api/projects/{self.team.id}/llm_skills/marketplace.git" in body["command"]
 
+        # Codex command carries the same token and the two-step add/install sequence.
+        assert body["token"] in body["codex_command"]
+        assert "codex plugin marketplace add" in body["codex_command"]
+        assert f"codex plugin add posthog-skill-store@{body['marketplace_name']}" in body["codex_command"]
+
         key = self._credential()
         assert key is not None
         assert key.scopes == ["llm_skill:read"]
