@@ -7,7 +7,7 @@ import { IconCheckCircle } from '@posthog/icons'
 import { LemonLabel, LemonModal } from '@posthog/lemon-ui'
 
 import { CLOUD_HOSTNAMES } from 'lib/constants'
-import { countryCodeToFlag } from 'lib/utils/geography/country'
+import { countryCodeToFlag } from 'lib/utils/country'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { Region } from '~/types'
