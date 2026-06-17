@@ -3,12 +3,15 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
+use anyhow::ensure;
 use common_database::PoolConfig;
 use common_kafka::config::KafkaConfig;
 use common_types::cohort::TeamAllowlist;
 use envconfig::Envconfig;
 use rdkafka::ClientConfig;
+use tracing::warn;
 
+use crate::store::durability::DurabilityConfig;
 use crate::store::StoreConfig;
 use crate::workers::{CascadeConfig, TransferRetryPolicy};
 
@@ -248,6 +251,107 @@ pub struct Config {
     /// restored yet. See [`Self::effective_wipe_on_start`].
     #[envconfig(from = "DURABLE_RESTORE_ENABLED", default = "false")]
     pub durable_restore_enabled: bool,
+
+    /// Operator assertion that this is a single-pod, static-membership shadow deploy. Default off.
+    ///
+    /// Required to run `DURABLE_RESTORE_ENABLED` together with `COHORT_CASCADE_ENABLED`: a single pod
+    /// with static membership reclaims its own partitions on a restart and never triggers a live
+    /// rebalance. `pod_identity()` cannot gate this because it is set on every k8s pod (single or
+    /// multi), so the single-vs-multi assertion needs its own flag.
+    #[envconfig(from = "DURABLE_RESTORE_SINGLE_POD", default = "false")]
+    pub durable_restore_single_pod: bool,
+
+    /// Master gate for the whole-DB checkpoint + S3 backup/restore layer. Default off.
+    #[envconfig(from = "CHECKPOINT_ENABLED", default = "false")]
+    pub checkpoint_enabled: bool,
+
+    /// How often a local PVC checkpoint is taken (ms).
+    #[envconfig(default = "300000")]
+    pub checkpoint_interval_ms: u64,
+
+    /// How often the local checkpoint is also uploaded to S3 (ms). The upload rides every Nth local
+    /// tick (`N = max(1, this / checkpoint_interval_ms)`), so the checkpoint is taken once and
+    /// conditionally uploaded — never two racing `create_checkpoint`s.
+    #[envconfig(default = "900000")]
+    pub checkpoint_s3_upload_interval_ms: u64,
+
+    /// Base directory for local checkpoints. Must be a subtree separate from `store_path` on the same
+    /// filesystem (RocksDB refuses to checkpoint into its own directory and hard-links SSTs).
+    #[envconfig(default = "cohort-checkpoints")]
+    pub checkpoint_local_dir: String,
+
+    /// S3 bucket for checkpoint uploads. Empty (default) makes the uploader unavailable, so uploads
+    /// no-op.
+    #[envconfig(default = "")]
+    pub checkpoint_s3_bucket: String,
+
+    /// S3 key prefix (bucket namespace) under which checkpoint attempts are stored.
+    #[envconfig(default = "cohort-stream-checkpoints")]
+    pub checkpoint_s3_prefix: String,
+
+    /// AWS region for S3 (None → SDK default / IRSA-provided region).
+    #[envconfig(from = "CHECKPOINT_S3_REGION")]
+    pub checkpoint_s3_region: Option<String>,
+
+    /// S3 endpoint override for S3-compatible stores (MinIO/SeaweedFS in dev). None → real AWS S3.
+    #[envconfig(from = "CHECKPOINT_S3_ENDPOINT")]
+    pub checkpoint_s3_endpoint: Option<String>,
+
+    /// S3 access key id for local dev without an IAM role. None → IRSA → env → default chain.
+    #[envconfig(from = "CHECKPOINT_S3_ACCESS_KEY_ID")]
+    pub checkpoint_s3_access_key_id: Option<String>,
+
+    /// S3 secret access key for local dev without an IAM role.
+    #[envconfig(from = "CHECKPOINT_S3_SECRET_ACCESS_KEY")]
+    pub checkpoint_s3_secret_access_key: Option<String>,
+
+    /// Force path-style S3 URLs (required for MinIO/SeaweedFS).
+    #[envconfig(default = "false")]
+    pub checkpoint_s3_force_path_style: bool,
+
+    /// Max concurrent S3 file uploads during a checkpoint export.
+    #[envconfig(default = "40")]
+    pub checkpoint_max_concurrent_uploads: usize,
+
+    /// Max concurrent S3 file downloads during a checkpoint import.
+    #[envconfig(default = "40")]
+    pub checkpoint_max_concurrent_downloads: usize,
+
+    /// Max upload futures actively polled per export (bounds memory: each holds read + write
+    /// buffers).
+    #[envconfig(default = "40")]
+    pub checkpoint_max_upload_buffers: usize,
+
+    /// Retries per S3 operation before giving up.
+    #[envconfig(default = "3")]
+    pub checkpoint_s3_max_retries: usize,
+
+    /// Total timeout for one S3 operation including retries (secs).
+    #[envconfig(default = "120")]
+    pub checkpoint_s3_operation_timeout_secs: u64,
+
+    /// Timeout for a single S3 operation attempt (secs).
+    #[envconfig(default = "20")]
+    pub checkpoint_s3_attempt_timeout_secs: u64,
+
+    /// Max age of a local PVC checkpoint before it is distrusted on restore and the service falls
+    /// back to S3 (secs). Tighter than the S3 listing window: if a pod was down longer than this,
+    /// another pod likely consumed the partitions and the local copy is behind.
+    #[envconfig(default = "7200")]
+    pub checkpoint_local_max_staleness_secs: u64,
+
+    /// Hours prior to now the S3 importer searches for checkpoint attempts in a PVC-lost recovery.
+    #[envconfig(default = "24")]
+    pub checkpoint_import_window_hours: u32,
+
+    /// Historical S3 checkpoint attempts to try (newest first) before giving up on import.
+    #[envconfig(default = "10")]
+    pub checkpoint_import_attempt_depth: usize,
+
+    /// Max time for a complete S3 checkpoint import — list + metadata + all files + fallbacks (secs).
+    /// Kept under `max.poll.interval.ms` so a long restore does not get the consumer kicked.
+    #[envconfig(default = "240")]
+    pub checkpoint_import_timeout_secs: u64,
 }
 
 impl Config {
@@ -324,6 +428,94 @@ impl Config {
     /// How often the merge-CF GC sweep fires.
     pub fn merge_gc_interval(&self) -> Duration {
         Duration::from_millis(self.merge_gc_interval_ms)
+    }
+
+    /// How often a local PVC checkpoint is taken.
+    pub fn checkpoint_interval(&self) -> Duration {
+        Duration::from_millis(self.checkpoint_interval_ms)
+    }
+
+    /// How often a local checkpoint is also uploaded to S3.
+    pub fn checkpoint_s3_upload_interval(&self) -> Duration {
+        Duration::from_millis(self.checkpoint_s3_upload_interval_ms)
+    }
+
+    /// Max age of a local PVC checkpoint before it is distrusted on restore.
+    pub fn checkpoint_local_max_staleness(&self) -> Duration {
+        Duration::from_secs(self.checkpoint_local_max_staleness_secs)
+    }
+
+    /// Resolved durability knobs for the S3 client / uploader / downloader / importer. Maps the
+    /// `CHECKPOINT_*` fields onto [`DurabilityConfig`].
+    pub fn durability_config(&self) -> DurabilityConfig {
+        DurabilityConfig {
+            local_checkpoint_dir: self.checkpoint_local_dir.clone(),
+            s3_bucket: self.checkpoint_s3_bucket.clone(),
+            s3_key_prefix: self.checkpoint_s3_prefix.clone(),
+            aws_region: self.checkpoint_s3_region.clone(),
+            s3_endpoint: self.checkpoint_s3_endpoint.clone(),
+            s3_access_key_id: self.checkpoint_s3_access_key_id.clone(),
+            s3_secret_access_key: self.checkpoint_s3_secret_access_key.clone(),
+            s3_force_path_style: self.checkpoint_s3_force_path_style,
+            checkpoint_import_window_hours: self.checkpoint_import_window_hours,
+            s3_operation_timeout: Duration::from_secs(self.checkpoint_s3_operation_timeout_secs),
+            s3_attempt_timeout: Duration::from_secs(self.checkpoint_s3_attempt_timeout_secs),
+            s3_max_retries: self.checkpoint_s3_max_retries,
+            checkpoint_import_attempt_depth: self.checkpoint_import_attempt_depth,
+            max_concurrent_checkpoint_file_downloads: self.checkpoint_max_concurrent_downloads,
+            max_concurrent_checkpoint_file_uploads: self.checkpoint_max_concurrent_uploads,
+            max_upload_buffers: self.checkpoint_max_upload_buffers,
+            checkpoint_import_timeout: Duration::from_secs(self.checkpoint_import_timeout_secs),
+            local_checkpoint_max_staleness: self.checkpoint_local_max_staleness(),
+        }
+    }
+
+    /// Validate the durability-related startup combination, refusing unsafe combos. Pure (no I/O) so
+    /// it is unit-testable without a broker.
+    ///
+    /// Two guards:
+    ///
+    /// 1. `checkpoint_enabled` requires `durable_restore_enabled`. A checkpoint restore materializes
+    ///    the store at `store_path` and then relies on `effective_wipe_on_start()` keeping it; without
+    ///    durable restore the restored DB is wiped on open, silently discarding the restore.
+    ///
+    /// 2. `durable_restore_enabled` + `cohort_cascade_enabled` is allowed only when the operator
+    ///    asserts a single-pod, static-membership shadow (`durable_restore_single_pod == true` and
+    ///    `pod_identity().is_some()`): such a pod reclaims its own partitions on a restart and never
+    ///    triggers a live rebalance, so a rebalance cannot lose a committed merge tombstone.
+    ///    `pod_identity()` alone is not a single-pod signal (it is set on every k8s pod), so the
+    ///    single-vs-multi assertion needs its own opt-in flag.
+    pub fn validate_durability_startup(&self) -> anyhow::Result<()> {
+        // Checkpoint requires reopen-live, else the restored DB is wiped on open.
+        ensure!(
+            !self.checkpoint_enabled || self.durable_restore_enabled,
+            "CHECKPOINT_ENABLED requires DURABLE_RESTORE_ENABLED: restoring a checkpoint without \
+             reopen-live is meaningless.",
+        );
+
+        // Durable restore + cascade is allowed only on an asserted single-pod static-membership shadow.
+        if self.durable_restore_enabled && self.cohort_cascade_enabled {
+            let single_pod_static =
+                self.durable_restore_single_pod && self.pod_identity().is_some();
+            ensure!(
+                single_pod_static,
+                "DURABLE_RESTORE_ENABLED=true is unsafe with COHORT_CASCADE_ENABLED=true: merge \
+                 column families are not restored yet. Disable one of them, or set \
+                 DURABLE_RESTORE_SINGLE_POD=true on a single-pod static-membership (POD_NAME/HOSTNAME \
+                 set) shadow deploy.",
+            );
+            warn!(
+                durable_restore_single_pod = self.durable_restore_single_pod,
+                pod_identity = self.pod_identity().unwrap_or("<none>"),
+                "DURABLE_RESTORE_ENABLED + COHORT_CASCADE_ENABLED allowed on a single-pod \
+                 static-membership shadow. RESIDUALS deferred to Slice 3: multi-pod rebalance \
+                 F3-on-revoke and the post-join↔delete REVOKE race are NOT covered (single-pod \
+                 membership sidesteps them); merge column-family *content* resume after an S3 restore \
+                 is validated only on this shadow, NOT production multi-pod merge durability.",
+            );
+        }
+
+        Ok(())
     }
 
     /// Whether to wipe the store on start, folding in the durable-restore gate: keep the live store
@@ -520,6 +712,28 @@ mod tests {
             store_path: "cohort-store".to_string(),
             wipe_store_on_start: true,
             durable_restore_enabled: false,
+            durable_restore_single_pod: false,
+            checkpoint_enabled: false,
+            checkpoint_interval_ms: 300_000,
+            checkpoint_s3_upload_interval_ms: 900_000,
+            checkpoint_local_dir: "cohort-checkpoints".to_string(),
+            checkpoint_s3_bucket: String::new(),
+            checkpoint_s3_prefix: "cohort-stream-checkpoints".to_string(),
+            checkpoint_s3_region: None,
+            checkpoint_s3_endpoint: None,
+            checkpoint_s3_access_key_id: None,
+            checkpoint_s3_secret_access_key: None,
+            checkpoint_s3_force_path_style: false,
+            checkpoint_max_concurrent_uploads: 40,
+            checkpoint_max_concurrent_downloads: 40,
+            checkpoint_max_upload_buffers: 40,
+            checkpoint_s3_max_retries: 3,
+            checkpoint_s3_operation_timeout_secs: 120,
+            checkpoint_s3_attempt_timeout_secs: 20,
+            checkpoint_local_max_staleness_secs: 7200,
+            checkpoint_import_window_hours: 24,
+            checkpoint_import_attempt_depth: 10,
+            checkpoint_import_timeout_secs: 240,
         }
     }
 
@@ -659,6 +873,217 @@ mod tests {
             .collect();
         let config = Config::init_from_hashmap(&env).unwrap();
         assert!(config.durable_restore_enabled);
+    }
+
+    #[test]
+    fn durable_restore_single_pod_defaults_off_and_overrides_from_env() {
+        let defaults = Config::init_from_hashmap(&std::collections::HashMap::new()).unwrap();
+        assert!(
+            !defaults.durable_restore_single_pod,
+            "the single-pod assertion defaults off (inert)",
+        );
+
+        let env: std::collections::HashMap<String, String> =
+            [("DURABLE_RESTORE_SINGLE_POD", "true")]
+                .into_iter()
+                .map(|(key, value)| (key.to_string(), value.to_string()))
+                .collect();
+        let config = Config::init_from_hashmap(&env).unwrap();
+        assert!(config.durable_restore_single_pod);
+    }
+
+    #[test]
+    fn durability_startup_guard_passes_for_the_default_config() {
+        assert!(test_config().validate_durability_startup().is_ok());
+    }
+
+    #[test]
+    fn durability_startup_guard_passes_for_a_plain_durable_restore() {
+        let mut config = test_config();
+        config.durable_restore_enabled = true;
+        assert!(config.validate_durability_startup().is_ok());
+    }
+
+    #[test]
+    fn durability_startup_guard_refuses_durable_plus_cascade_without_the_opt_in() {
+        let mut config = test_config();
+        config.durable_restore_enabled = true;
+        config.cohort_cascade_enabled = true;
+        config.pod_name = Some("pod-0".to_string());
+        let err = config
+            .validate_durability_startup()
+            .expect_err("durable + cascade without the opt-in must be refused");
+        assert!(
+            err.to_string().contains("DURABLE_RESTORE_SINGLE_POD"),
+            "the refusal points the operator at the single-pod opt-in: {err}",
+        );
+    }
+
+    #[test]
+    fn durability_startup_guard_refuses_durable_plus_cascade_with_opt_in_but_no_pod_identity() {
+        let mut config = test_config();
+        config.durable_restore_enabled = true;
+        config.cohort_cascade_enabled = true;
+        config.durable_restore_single_pod = true;
+        config.pod_name = None;
+        config.pod_hostname = None;
+        assert!(
+            config.validate_durability_startup().is_err(),
+            "single-pod opt-in without a pod identity must still refuse the combo",
+        );
+    }
+
+    #[test]
+    fn durability_startup_guard_allows_durable_plus_cascade_with_opt_in_and_pod_identity() {
+        let mut config = test_config();
+        config.durable_restore_enabled = true;
+        config.cohort_cascade_enabled = true;
+        config.durable_restore_single_pod = true;
+        config.pod_name = Some("cohort-stream-processor-0".to_string());
+        assert!(
+            config.validate_durability_startup().is_ok(),
+            "durable + cascade is allowed on a single-pod static-membership deploy",
+        );
+    }
+
+    #[test]
+    fn durability_startup_guard_refuses_checkpoint_without_durable_restore() {
+        let mut config = test_config();
+        config.checkpoint_enabled = true;
+        config.durable_restore_enabled = false;
+        let err = config
+            .validate_durability_startup()
+            .expect_err("checkpoint without durable restore must be refused");
+        assert!(
+            err.to_string().contains("DURABLE_RESTORE_ENABLED"),
+            "the refusal names the durable-restore requirement: {err}",
+        );
+    }
+
+    #[test]
+    fn durability_startup_guard_allows_checkpoint_with_durable_restore() {
+        let mut config = test_config();
+        config.checkpoint_enabled = true;
+        config.durable_restore_enabled = true;
+        assert!(config.validate_durability_startup().is_ok());
+    }
+
+    #[test]
+    fn checkpoint_config_defaults_off_and_overrides_from_env() {
+        let defaults = Config::init_from_hashmap(&std::collections::HashMap::new()).unwrap();
+        assert!(
+            !defaults.checkpoint_enabled,
+            "the checkpoint master gate defaults off",
+        );
+        assert_eq!(
+            defaults.checkpoint_interval(),
+            Duration::from_millis(300_000)
+        );
+        assert_eq!(
+            defaults.checkpoint_s3_upload_interval(),
+            Duration::from_millis(900_000),
+        );
+        assert_eq!(defaults.checkpoint_local_dir, "cohort-checkpoints");
+        assert!(
+            defaults.checkpoint_s3_bucket.is_empty(),
+            "no S3 bucket by default → uploader inert",
+        );
+        assert_eq!(
+            defaults.checkpoint_local_max_staleness(),
+            Duration::from_secs(7200),
+        );
+        assert_eq!(defaults.checkpoint_import_window_hours, 24);
+        assert_eq!(defaults.checkpoint_import_attempt_depth, 10);
+
+        let env: std::collections::HashMap<String, String> = [
+            ("CHECKPOINT_ENABLED", "true"),
+            ("CHECKPOINT_INTERVAL_MS", "60000"),
+            ("CHECKPOINT_S3_UPLOAD_INTERVAL_MS", "120000"),
+            ("CHECKPOINT_LOCAL_DIR", "/data/ckpt"),
+            ("CHECKPOINT_S3_BUCKET", "my-bucket"),
+            ("CHECKPOINT_S3_PREFIX", "ckpt-prefix"),
+            ("CHECKPOINT_S3_REGION", "us-east-1"),
+            ("CHECKPOINT_S3_ENDPOINT", "http://minio:9000"),
+            ("CHECKPOINT_S3_ACCESS_KEY_ID", "ak"),
+            ("CHECKPOINT_S3_SECRET_ACCESS_KEY", "sk"),
+            ("CHECKPOINT_S3_FORCE_PATH_STYLE", "true"),
+            ("CHECKPOINT_MAX_CONCURRENT_UPLOADS", "8"),
+            ("CHECKPOINT_MAX_CONCURRENT_DOWNLOADS", "9"),
+            ("CHECKPOINT_MAX_UPLOAD_BUFFERS", "10"),
+            ("CHECKPOINT_S3_MAX_RETRIES", "5"),
+            ("CHECKPOINT_S3_OPERATION_TIMEOUT_SECS", "60"),
+            ("CHECKPOINT_S3_ATTEMPT_TIMEOUT_SECS", "11"),
+            ("CHECKPOINT_LOCAL_MAX_STALENESS_SECS", "3600"),
+            ("CHECKPOINT_IMPORT_WINDOW_HOURS", "12"),
+            ("CHECKPOINT_IMPORT_ATTEMPT_DEPTH", "4"),
+            ("CHECKPOINT_IMPORT_TIMEOUT_SECS", "90"),
+        ]
+        .into_iter()
+        .map(|(key, value)| (key.to_string(), value.to_string()))
+        .collect();
+
+        let config = Config::init_from_hashmap(&env).unwrap();
+        assert!(config.checkpoint_enabled);
+        assert_eq!(config.checkpoint_interval(), Duration::from_millis(60_000));
+        assert_eq!(
+            config.checkpoint_s3_upload_interval(),
+            Duration::from_millis(120_000),
+        );
+        assert_eq!(config.checkpoint_local_dir, "/data/ckpt");
+        assert_eq!(config.checkpoint_s3_bucket, "my-bucket");
+        assert_eq!(config.checkpoint_import_window_hours, 12);
+        assert_eq!(config.checkpoint_import_attempt_depth, 4);
+    }
+
+    #[test]
+    fn durability_config_maps_the_checkpoint_fields() {
+        let mut config = test_config();
+        config.checkpoint_local_dir = "/data/ckpt".to_string();
+        config.checkpoint_s3_bucket = "bkt".to_string();
+        config.checkpoint_s3_prefix = "pfx".to_string();
+        config.checkpoint_s3_region = Some("eu-central-1".to_string());
+        config.checkpoint_s3_endpoint = Some("http://seaweedfs:8333".to_string());
+        config.checkpoint_s3_access_key_id = Some("ak".to_string());
+        config.checkpoint_s3_secret_access_key = Some("sk".to_string());
+        config.checkpoint_s3_force_path_style = true;
+        config.checkpoint_max_concurrent_uploads = 7;
+        config.checkpoint_max_concurrent_downloads = 8;
+        config.checkpoint_max_upload_buffers = 9;
+        config.checkpoint_s3_max_retries = 2;
+        config.checkpoint_s3_operation_timeout_secs = 60;
+        config.checkpoint_s3_attempt_timeout_secs = 11;
+        config.checkpoint_local_max_staleness_secs = 3600;
+        config.checkpoint_import_window_hours = 6;
+        config.checkpoint_import_attempt_depth = 4;
+        config.checkpoint_import_timeout_secs = 90;
+
+        let durability = config.durability_config();
+        assert_eq!(durability.local_checkpoint_dir, "/data/ckpt");
+        assert_eq!(durability.s3_bucket, "bkt");
+        assert_eq!(durability.s3_key_prefix, "pfx");
+        assert_eq!(durability.aws_region.as_deref(), Some("eu-central-1"));
+        assert_eq!(
+            durability.s3_endpoint.as_deref(),
+            Some("http://seaweedfs:8333"),
+        );
+        assert_eq!(durability.s3_access_key_id.as_deref(), Some("ak"));
+        assert!(durability.s3_force_path_style);
+        assert_eq!(durability.max_concurrent_checkpoint_file_uploads, 7);
+        assert_eq!(durability.max_concurrent_checkpoint_file_downloads, 8);
+        assert_eq!(durability.max_upload_buffers, 9);
+        assert_eq!(durability.s3_max_retries, 2);
+        assert_eq!(durability.s3_operation_timeout, Duration::from_secs(60));
+        assert_eq!(durability.s3_attempt_timeout, Duration::from_secs(11));
+        assert_eq!(
+            durability.local_checkpoint_max_staleness,
+            Duration::from_secs(3600),
+        );
+        assert_eq!(durability.checkpoint_import_window_hours, 6);
+        assert_eq!(durability.checkpoint_import_attempt_depth, 4);
+        assert_eq!(
+            durability.checkpoint_import_timeout,
+            Duration::from_secs(90)
+        );
     }
 
     #[test]

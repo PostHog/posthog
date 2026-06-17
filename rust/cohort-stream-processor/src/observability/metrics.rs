@@ -65,6 +65,54 @@ pub const DURABLE_RESTORE_PARTITIONS_WIPED_STALE_TOTAL: &str =
 /// `cf_stage1` keys re-seeded into a worker's `EvictionQueue` on spawn during a durable restart,
 /// labelled by `partition` (counter). Re-fires a dormant person's `Left`.
 pub const EVICTION_QUEUE_REBUILT_KEYS_TOTAL: &str = "eviction_queue_rebuilt_keys_total";
+/// Owned partitions that had at least one `cf_pending_transfers` entry re-produced by the eager boot
+/// redrive on a durable restart (counter). Incremented once per partition that recovered ≥1 transfer.
+pub const DURABLE_RESTORE_PENDING_TRANSFERS_RECOVERED_PARTITIONS_TOTAL: &str =
+    "durable_restore_pending_transfers_recovered_partitions_total";
+
+// === Durability: RocksDB Checkpoint + S3 backup/restore ===
+// Histograms are `_seconds`. Whole-DB checkpoint, so these are per-pod, not per-partition.
+
+/// Wall-clock duration of one whole-DB `Checkpoint::create_checkpoint` (histogram, seconds).
+pub const CHECKPOINT_DURATION_SECONDS: &str = "checkpoint_duration_seconds";
+/// On-disk size of a freshly-taken checkpoint directory (histogram, bytes).
+pub const CHECKPOINT_SIZE_BYTES: &str = "checkpoint_size_bytes";
+/// File count in a freshly-taken checkpoint directory (histogram).
+pub const CHECKPOINT_FILE_COUNT: &str = "checkpoint_file_count";
+/// Checkpoint S3 uploads, labelled by `result` (`success`|`error`|`cancelled`|`unavailable`); when
+/// `result=cancelled`, an additional `cause` label (`rebalance`|`shutdown`|`unknown`) (counter).
+pub const CHECKPOINT_UPLOADS_TOTAL: &str = "checkpoint_uploads_total";
+/// Wall-clock duration of one checkpoint S3 upload, labelled by `result` (histogram, seconds).
+pub const CHECKPOINT_UPLOAD_DURATION_SECONDS: &str = "checkpoint_upload_duration_seconds";
+/// Individual checkpoint files uploaded to S3, labelled by `status` (`success`|`error`|`cancelled`)
+/// (counter).
+pub const CHECKPOINT_FILES_UPLOADED_TOTAL: &str = "checkpoint_files_uploaded_total";
+/// Individual checkpoint files downloaded from S3, labelled by `status`
+/// (`success`|`error`|`cancelled`) (counter).
+pub const CHECKPOINT_FILES_DOWNLOADED_TOTAL: &str = "checkpoint_files_downloaded_total";
+/// Files seen during incremental checkpoint planning, labelled by `action`
+/// (`added`|`replaced`|`retained`) (counter).
+pub const CHECKPOINT_PLAN_FILES_TOTAL: &str = "checkpoint_plan_files_total";
+/// Latency of one metadata.json fetch from S3 into memory (histogram, seconds).
+pub const CHECKPOINT_FILE_FETCH_DURATION_SECONDS: &str = "checkpoint_file_fetch_duration_seconds";
+/// Latency of fetching a whole checkpoint's files to disk (the parallel fanout) (histogram, seconds).
+pub const CHECKPOINT_FILES_FETCH_DURATION_SECONDS: &str = "checkpoint_files_fetch_duration_seconds";
+/// Latency of fetching and storing a single checkpoint file to disk (histogram, seconds).
+pub const CHECKPOINT_FILE_FETCH_STORE_DURATION_SECONDS: &str =
+    "checkpoint_file_fetch_store_duration_seconds";
+/// Latency of listing a checkpoint's recent attempt folders from S3 (histogram, seconds).
+pub const CHECKPOINT_LIST_DURATION_SECONDS: &str = "checkpoint_list_duration_seconds";
+/// Boot restores, labelled by `source` (`reopen_live`|`pvc`|`s3`|`cold`) (counter).
+pub const CHECKPOINT_RESTORE_TOTAL: &str = "checkpoint_restore_total";
+/// Wall-clock duration of one boot restore (histogram, seconds).
+pub const CHECKPOINT_RESTORE_DURATION_SECONDS: &str = "checkpoint_restore_duration_seconds";
+/// End-to-end checkpoint import (list + metadata + files + fallbacks), labelled by `result`
+/// (`success`|`failed`|`cancelled`|`timeout`) (histogram, seconds).
+pub const CHECKPOINT_IMPORT_DURATION_SECONDS: &str = "checkpoint_import_duration_seconds";
+/// Duration of one import attempt (one checkpoint's files), labelled by `result`
+/// (`success`|`failed`) (histogram, seconds).
+pub const CHECKPOINT_IMPORT_ATTEMPT_DURATION_SECONDS: &str =
+    "checkpoint_import_attempt_duration_seconds";
 
 /// RocksDB batch commits, labelled by `op` (counter).
 pub const STORE_WRITE_BATCH_TOTAL: &str = "store_write_batch_total";
@@ -201,7 +249,8 @@ pub const OUTPUT_TRANSITIONS_UNMAPPED: &str = "output_transitions_unmapped_total
 /// Produce failures to `cohort_membership_changed_shadow` (counter).
 pub const OUTPUT_PRODUCE_ERRORS: &str = "output_produce_errors_total";
 
-/// Sweep cycles that fired, labelled by `loop` (`eviction`|`redrive`|`merge_gc`) (counter).
+/// Sweep cycles that fired, labelled by `loop` (`eviction`|`redrive`|`merge_gc`|`checkpoint`)
+/// (counter).
 pub const SWEEP_CYCLES_TOTAL: &str = "sweep_cycles_total";
 /// Wall-clock duration of one sweep cycle, labelled by `loop` (histogram, seconds).
 pub const SWEEP_CYCLE_DURATION_SECONDS: &str = "sweep_cycle_duration_seconds";
@@ -295,5 +344,60 @@ mod tests {
             "cascade_cycle_detected_runtime_total",
         );
         assert_eq!(CASCADE_FANOUT_CAPPED_TOTAL, "cascade_fanout_capped_total");
+    }
+
+    #[test]
+    fn durability_metric_names_are_stable() {
+        // Pin the wire names: a rename must not silently break dashboards or alerts.
+        assert_eq!(CHECKPOINT_DURATION_SECONDS, "checkpoint_duration_seconds");
+        assert_eq!(CHECKPOINT_SIZE_BYTES, "checkpoint_size_bytes");
+        assert_eq!(CHECKPOINT_FILE_COUNT, "checkpoint_file_count");
+        assert_eq!(CHECKPOINT_UPLOADS_TOTAL, "checkpoint_uploads_total");
+        assert_eq!(
+            CHECKPOINT_UPLOAD_DURATION_SECONDS,
+            "checkpoint_upload_duration_seconds",
+        );
+        assert_eq!(
+            CHECKPOINT_FILES_UPLOADED_TOTAL,
+            "checkpoint_files_uploaded_total",
+        );
+        assert_eq!(
+            CHECKPOINT_FILES_DOWNLOADED_TOTAL,
+            "checkpoint_files_downloaded_total",
+        );
+        assert_eq!(CHECKPOINT_PLAN_FILES_TOTAL, "checkpoint_plan_files_total");
+        assert_eq!(
+            CHECKPOINT_FILE_FETCH_DURATION_SECONDS,
+            "checkpoint_file_fetch_duration_seconds",
+        );
+        assert_eq!(
+            CHECKPOINT_FILES_FETCH_DURATION_SECONDS,
+            "checkpoint_files_fetch_duration_seconds",
+        );
+        assert_eq!(
+            CHECKPOINT_FILE_FETCH_STORE_DURATION_SECONDS,
+            "checkpoint_file_fetch_store_duration_seconds",
+        );
+        assert_eq!(
+            CHECKPOINT_LIST_DURATION_SECONDS,
+            "checkpoint_list_duration_seconds",
+        );
+        assert_eq!(CHECKPOINT_RESTORE_TOTAL, "checkpoint_restore_total");
+        assert_eq!(
+            CHECKPOINT_RESTORE_DURATION_SECONDS,
+            "checkpoint_restore_duration_seconds",
+        );
+        assert_eq!(
+            CHECKPOINT_IMPORT_DURATION_SECONDS,
+            "checkpoint_import_duration_seconds",
+        );
+        assert_eq!(
+            CHECKPOINT_IMPORT_ATTEMPT_DURATION_SECONDS,
+            "checkpoint_import_attempt_duration_seconds",
+        );
+        assert_eq!(
+            DURABLE_RESTORE_PENDING_TRANSFERS_RECOVERED_PARTITIONS_TOTAL,
+            "durable_restore_pending_transfers_recovered_partitions_total",
+        );
     }
 }

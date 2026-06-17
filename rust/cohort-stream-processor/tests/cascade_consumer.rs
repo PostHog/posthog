@@ -549,6 +549,7 @@ async fn spawn_instance(
         COMMIT_INTERVAL,
         NUM_PARTITIONS as usize,
         command_rx,
+        None,
     );
     tasks.push(tokio::spawn(events_consumer.process()));
 

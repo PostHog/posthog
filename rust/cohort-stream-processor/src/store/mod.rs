@@ -1,6 +1,7 @@
 //! RocksDB state store.
 
 pub mod column_families;
+pub mod durability;
 pub mod keys;
 pub mod rocks;
 pub mod secondary_index;

@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -5,7 +6,8 @@ use anyhow::{Context, Result};
 use common_database::get_pool_with_config;
 use envconfig::Envconfig;
 use lifecycle::{ComponentOptions, Handle, Manager};
-use rdkafka::consumer::{Consumer, ConsumerContext, StreamConsumer};
+use rdkafka::consumer::{CommitMode, Consumer, ConsumerContext, StreamConsumer};
+use rdkafka::{Offset, TopicPartitionList};
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 use tracing::{info, warn};
@@ -29,6 +31,10 @@ use cohort_stream_processor::partitions::{
 use cohort_stream_processor::producer::{
     CascadeSink, KafkaCascadeSink, KafkaMembershipSink, KafkaStreamEventSink, KafkaTransferSink,
     MembershipSink, NoopCascadeSink, StreamEventSink, TransferSink,
+};
+use cohort_stream_processor::store::durability::{
+    run_boot_restore, upload_cadence, CheckpointExporter, CheckpointSweeper, OffsetManifest,
+    S3Uploader, TrackedTopic, CHECKPOINT_LOOP_NAME,
 };
 use cohort_stream_processor::store::CohortStore;
 use cohort_stream_processor::sweep::{run_sweep_loop, DispatchSweeper};
@@ -54,14 +60,7 @@ async fn async_main(config: Config) -> Result<()> {
     init_tracing();
     log_startup(&config);
 
-    // Durable restore does not yet restore the merge CFs (`cf_merge_*`), so reopening a live store
-    // while merges flow would lose a committed tombstone and resurrect tombstoned P_old state. The
-    // cascade gate is the proxy for "merges are live" (they roll out together) — refuse the combo.
-    anyhow::ensure!(
-        !(config.durable_restore_enabled && config.cohort_cascade_enabled),
-        "DURABLE_RESTORE_ENABLED=true is unsafe with COHORT_CASCADE_ENABLED=true: merge column \
-         families are not restored yet. Disable one of them.",
-    );
+    config.validate_durability_startup()?;
 
     let mut manager = Manager::builder(SERVICE_NAME)
         .with_global_shutdown_timeout(Duration::from_secs(90))
@@ -124,6 +123,13 @@ async fn async_main(config: Config) -> Result<()> {
             "initial filter catalog load failed; catalog is empty until the refresh task succeeds",
         ),
     }
+
+    // Decide where the live store comes from and, on the disaster paths, materialize it at
+    // `store_path` before the store is opened and before the checkpoint sweep loop is spawned (so no
+    // TOCTOU with the sweeper's prune). A restored DB dropped at `store_path` makes the
+    // `effective_wipe_on_start` logic below see `db_dir_exists == true` and keep it.
+    let restore = run_boot_restore(&config, &PathBuf::from(&config.store_path)).await;
+    info!(restore_source = ?restore.source, "boot restore complete");
 
     let store_config = config.store_config();
     // Whether this boot wipes or reopens the store; the per-partition breakdown follows from the boot
@@ -191,6 +197,15 @@ async fn async_main(config: Config) -> Result<()> {
         cascade_tracker: Arc::new(OffsetTracker::new()),
         cascade: config.cascade_config(),
     });
+
+    // Cheap `Arc` clones taken before the originals move into the dispatcher: the checkpoint sweeper
+    // needs its own handle on the store and each per-topic tracker to capture the offset manifest.
+    // Captured unconditionally to satisfy the borrow checker; consumed only when `checkpoint_enabled`.
+    let store_for_checkpoint = store.clone();
+    let events_tracker_for_checkpoint = offset_tracker.clone();
+    let merge_tracker_for_checkpoint = merge_deps.merge_tracker.clone();
+    let transfer_tracker_for_checkpoint = merge_deps.transfer_tracker.clone();
+    let cascade_tracker_for_checkpoint = merge_deps.cascade_tracker.clone();
 
     let dispatcher = Arc::new(EventDispatcher::new(
         router,
@@ -273,6 +288,30 @@ async fn async_main(config: Config) -> Result<()> {
         );
     }
 
+    // Seed each follower group's committed offset from the restore manifest before the rebalance
+    // worker mirrors the assignment, so the follower `incremental_assign` at `Offset::Stored` resolves
+    // to the manifest position rather than the broker's last commit. A strict no-op when the manifest
+    // carries no entries for a follower's topic.
+    if let Some(manifest) = restore.manifest.as_ref() {
+        commit_follower_offsets_from_manifest(
+            &merges_follower_consumer,
+            &config.person_merge_events_topic,
+            manifest,
+        );
+        commit_follower_offsets_from_manifest(
+            &transfers_follower_consumer,
+            &config.cohort_merge_state_transfer_topic,
+            manifest,
+        );
+        if let Some(cascade_consumer) = &cascade_follower_consumer {
+            commit_follower_offsets_from_manifest(
+                cascade_consumer,
+                &config.cohort_cascade_events_topic,
+                manifest,
+            );
+        }
+    }
+
     let mut follower_mirrors = vec![
         Follower::new(
             merges_follower_consumer.clone(),
@@ -343,6 +382,54 @@ async fn async_main(config: Config) -> Result<()> {
         consumer_handle.shutdown_token(),
     ));
 
+    // Whole-DB checkpoint → PVC + incremental S3 sweep loop. Spawned only when the master gate is on,
+    // so a default deploy starts no checkpoint task. The cascade tracker is included only when cascade
+    // is on; otherwise it is idle and would contribute an empty manifest entry.
+    if config.checkpoint_enabled {
+        let uploader = S3Uploader::new(config.durability_config())
+            .await
+            .context("building checkpoint S3 uploader")?;
+        let exporter = CheckpointExporter::new(Box::new(uploader));
+        let upload_every_n = upload_cadence(
+            config.checkpoint_interval_ms,
+            config.checkpoint_s3_upload_interval_ms,
+        );
+        let mut trackers: Vec<TrackedTopic> = vec![
+            (
+                config.cohort_stream_events_topic.clone(),
+                events_tracker_for_checkpoint,
+            ),
+            (
+                config.person_merge_events_topic.clone(),
+                merge_tracker_for_checkpoint,
+            ),
+            (
+                config.cohort_merge_state_transfer_topic.clone(),
+                transfer_tracker_for_checkpoint,
+            ),
+        ];
+        if config.cohort_cascade_enabled {
+            trackers.push((
+                config.cohort_cascade_events_topic.clone(),
+                cascade_tracker_for_checkpoint,
+            ));
+        }
+        tokio::spawn(run_sweep_loop(
+            CheckpointSweeper::new(
+                store_for_checkpoint,
+                dispatcher.clone(),
+                trackers,
+                exporter,
+                config.durability_config(),
+                PathBuf::from(&config.checkpoint_local_dir),
+                upload_every_n,
+            ),
+            config.checkpoint_interval(),
+            CHECKPOINT_LOOP_NAME,
+            consumer_handle.shutdown_token(),
+        ));
+    }
+
     let merge_follower = FollowerConsumer::<MergeRoute>::new(
         merges_follower_consumer,
         config.person_merge_events_topic.clone(),
@@ -391,6 +478,9 @@ async fn async_main(config: Config) -> Result<()> {
         config.offset_commit_interval(),
         events_partitions,
         consumer_command_rx,
+        // Events-topic seek positions for the restore-and-seek step; `None` on the no-seek paths
+        // (reopen-live / cold-start).
+        restore.manifest,
     );
     tokio::spawn(events_consumer.process());
 
@@ -439,6 +529,55 @@ fn fetch_partition_count<C: ConsumerContext>(
         "topic {topic} has no partitions in broker metadata"
     );
     Ok(count)
+}
+
+/// Seed a follower consumer group's committed offsets from the restore manifest, so its subsequent
+/// `incremental_assign` at [`Offset::Stored`](rdkafka::Offset::Stored) resolves to the restored
+/// position rather than the broker's last commit.
+///
+/// A strict no-op when the manifest has no entry for `topic` or that entry is empty. Commits one
+/// `Offset::Offset(next)` per present partition; a commit error is logged and skipped, never fatal, so
+/// it cannot delay or break the existing follower assignment. The manifest stores `committed_offset`
+/// (next-offset-to-consume), exactly what a Kafka committed offset means, so committing it verbatim is
+/// the correct resume point.
+fn commit_follower_offsets_from_manifest(
+    consumer: &StreamConsumer,
+    topic: &str,
+    manifest: &OffsetManifest,
+) {
+    let Some(tpl) = manifest_commit_tpl(topic, manifest) else {
+        return;
+    };
+    match consumer.commit(&tpl, CommitMode::Sync) {
+        Ok(()) => info!(
+            topic,
+            partitions = tpl.count(),
+            "seeded follower group offsets from restore manifest",
+        ),
+        Err(err) => {
+            warn!(topic, error = %err, "failed to seed follower offsets from manifest; falling back to broker-stored offsets")
+        }
+    }
+}
+
+/// The pure core of [`commit_follower_offsets_from_manifest`]: the `TopicPartitionList` to commit for
+/// `topic`, or `None` when there is nothing to commit (the topic is absent from the manifest, its
+/// inner map is empty, or no partition produced a valid entry). Pure so the no-op-on-empty-manifest
+/// behavior is unit-testable without a broker. Each present partition is committed at
+/// `Offset::Offset(next_offset)`, the next-to-consume value a Kafka committed offset denotes, so
+/// `Offset::Stored` later resolves to it exactly.
+fn manifest_commit_tpl(topic: &str, manifest: &OffsetManifest) -> Option<TopicPartitionList> {
+    let partitions = manifest.topics.get(topic)?;
+    if partitions.is_empty() {
+        return None;
+    }
+    let mut tpl = TopicPartitionList::new();
+    for (&partition, &next_offset) in partitions {
+        if let Err(err) = tpl.add_partition_offset(topic, partition, Offset::Offset(next_offset)) {
+            warn!(topic, partition, next_offset, error = %err, "skipping follower partition in manifest commit");
+        }
+    }
+    (tpl.count() > 0).then_some(tpl)
 }
 
 /// Spawn a follower's consume loop after the first successful filter-catalog load.
@@ -518,4 +657,63 @@ fn init_tracing() {
     };
 
     tracing_subscriber::registry().with(log_layer).init();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeMap;
+
+    use cohort_stream_processor::store::durability::MANIFEST_VERSION;
+
+    fn manifest_with(topics: BTreeMap<String, BTreeMap<i32, i64>>) -> OffsetManifest {
+        OffsetManifest {
+            version: MANIFEST_VERSION,
+            captured_at: chrono::Utc::now(),
+            topics,
+        }
+    }
+
+    #[test]
+    fn manifest_commit_tpl_is_none_for_an_absent_topic() {
+        let manifest = manifest_with(BTreeMap::new());
+        assert!(manifest_commit_tpl("person_merge_events", &manifest).is_none());
+    }
+
+    #[test]
+    fn manifest_commit_tpl_is_none_for_an_empty_topic_entry() {
+        let mut topics = BTreeMap::new();
+        topics.insert("person_merge_events".to_string(), BTreeMap::new());
+        let manifest = manifest_with(topics);
+        assert!(
+            manifest_commit_tpl("person_merge_events", &manifest).is_none(),
+            "an empty follower topic entry must produce no commit (inert in Slice 2)",
+        );
+    }
+
+    #[test]
+    fn manifest_commit_tpl_commits_present_follower_offsets() {
+        let mut topics = BTreeMap::new();
+        topics.insert(
+            "person_merge_events".to_string(),
+            BTreeMap::from([(0, 7), (4, 19)]),
+        );
+        let manifest = manifest_with(topics);
+
+        let tpl = manifest_commit_tpl("person_merge_events", &manifest)
+            .expect("present follower offsets produce a commit list");
+        assert_eq!(tpl.count(), 2);
+        assert_eq!(
+            tpl.find_partition("person_merge_events", 0)
+                .unwrap()
+                .offset(),
+            Offset::Offset(7),
+        );
+        assert_eq!(
+            tpl.find_partition("person_merge_events", 4)
+                .unwrap()
+                .offset(),
+            Offset::Offset(19),
+        );
+    }
 }

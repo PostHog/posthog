@@ -2146,6 +2146,7 @@ dependencies = [
  "lifecycle",
  "metrics",
  "metrics-exporter-prometheus",
+ "object_store",
  "petgraph 0.8.3",
  "rand 0.8.5",
  "rdkafka",

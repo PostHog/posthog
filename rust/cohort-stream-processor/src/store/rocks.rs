@@ -1,6 +1,6 @@
 //! RocksDB wrapper: multi-CF atomic `WriteBatch`, async WAL.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -18,8 +18,8 @@ use super::keys::{
 };
 use super::secondary_index::{decode_person_index, IndexOp};
 use crate::observability::metrics::{
-    STORE_ERRORS_TOTAL, STORE_WRITE_BATCH_TOTAL, STORE_WRITE_DURATION_SECONDS,
-    WAL_FSYNC_DURATION_SECONDS, WAL_FSYNC_ERRORS_TOTAL,
+    CHECKPOINT_DURATION_SECONDS, STORE_ERRORS_TOTAL, STORE_WRITE_BATCH_TOTAL,
+    STORE_WRITE_DURATION_SECONDS, WAL_FSYNC_DURATION_SECONDS, WAL_FSYNC_ERRORS_TOTAL,
 };
 use crate::stage1::key::{LeafStateKey, Stage1Key};
 
@@ -32,6 +32,7 @@ const OP_DELETE_PARTITION: &str = "delete_partition";
 const OP_FLUSH: &str = "flush";
 const OP_FLUSH_WAL: &str = "flush_wal";
 const OP_SCAN: &str = "scan";
+const OP_CHECKPOINT: &str = "checkpoint";
 
 const DEFAULT_BLOCK_CACHE_BYTES: usize = 128 * 1024 * 1024;
 const DEFAULT_WRITE_BUFFER_BYTES: usize = 64 * 1024 * 1024;
@@ -377,6 +378,23 @@ impl CohortStore {
             counter!(WAL_FSYNC_ERRORS_TOTAL).increment(1);
             StoreError::Backend {
                 op: OP_FLUSH_WAL,
+                source,
+            }
+        })
+    }
+
+    /// Take a frozen, point-in-time RocksDB checkpoint of the whole DB into `path`. RocksDB
+    /// hard-links the immutable SSTs into `path`, so `path` must be on the **same filesystem** as
+    /// the store path and **must not be a child** of it (RocksDB refuses a nested checkpoint path).
+    pub fn create_checkpoint(&self, path: &Path) -> Result<(), StoreError> {
+        let started = Instant::now();
+        let result = rocksdb::checkpoint::Checkpoint::new(&self.db)
+            .and_then(|cp| cp.create_checkpoint(path));
+        histogram!(CHECKPOINT_DURATION_SECONDS).record(started.elapsed().as_secs_f64());
+        result.map_err(|source| {
+            counter!(STORE_ERRORS_TOTAL, "op" => OP_CHECKPOINT).increment(1);
+            StoreError::Backend {
+                op: OP_CHECKPOINT,
                 source,
             }
         })
@@ -822,6 +840,37 @@ mod tests {
         assert_eq!(
             reopened.get_stage1(&key).unwrap().as_deref(),
             Some(b"durable".as_slice()),
+        );
+    }
+
+    #[test]
+    fn create_checkpoint_produces_an_openable_db_with_the_same_state() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("db");
+        // The checkpoint must be a sibling of the store path, never a child (RocksDB hard-links SSTs).
+        let checkpoint = dir.path().join("checkpoint");
+        let key = stage1_key();
+
+        let store = CohortStore::open(&StoreConfig {
+            path,
+            ..StoreConfig::default()
+        })
+        .unwrap();
+        store
+            .write_batch(|b| b.put_stage1(&key, b"snapshot"))
+            .unwrap();
+        store.create_checkpoint(&checkpoint).unwrap();
+
+        // Open the checkpoint directory as a fresh, independent DB: the snapshotted key is present.
+        let restored = CohortStore::open(&StoreConfig {
+            path: checkpoint,
+            wipe_on_start: false,
+            ..StoreConfig::default()
+        })
+        .unwrap();
+        assert_eq!(
+            restored.get_stage1(&key).unwrap().as_deref(),
+            Some(b"snapshot".as_slice()),
         );
     }
 

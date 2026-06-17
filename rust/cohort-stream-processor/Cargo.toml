@@ -37,6 +37,8 @@ hogvm = { path = "../common/hogvm" }
 lifecycle = { path = "../common/lifecycle" }
 metrics = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
+# Streaming `BufWriter` and prefix-list (`list_with_delimiter`) S3 for multi-MB checkpoint files.
+object_store = { version = "0.13.0", features = ["aws"] }
 # Tarjan SCC (`tarjan_scc`) for the per-team cohort-reference cycle defense at filter freeze
 # (`filters::cohort_graph`). Pinned to the same 0.8 line as `rust/feature-flags/Cargo.toml` so the
 # workspace resolves a single copy.

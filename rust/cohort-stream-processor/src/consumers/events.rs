@@ -24,6 +24,7 @@ use tracing::{debug, info, warn};
 
 use crate::consumers::merges::{ConsumedCascade, ConsumedMerge, ConsumedTransfer};
 use crate::filters::manager::CatalogHandle;
+use crate::merge::transfer::PendingTransfer;
 use crate::observability::metrics::{
     CASCADE_HELD_OFFSET_GAUGE, COHORT_STREAM_CASCADES_SKIPPED_NOT_OWNED,
     COHORT_STREAM_CONSUME_BATCH_SIZE, COHORT_STREAM_DESERIALIZE_ERRORS,
@@ -33,20 +34,30 @@ use crate::observability::metrics::{
     COHORT_STREAM_OFFSET_COMMIT_ERRORS, COHORT_STREAM_ROUTE_ERRORS,
     COHORT_STREAM_TRANSFERS_SKIPPED_NOT_OWNED, COHORT_STREAM_WORKERS_SPAWNED,
     DURABLE_RESTORE_PARTITIONS_KEPT_TOTAL, DURABLE_RESTORE_PARTITIONS_WIPED_STALE_TOTAL,
-    MERGE_HELD_OFFSET_GAUGE, MERGE_PENDING_TRANSFERS_GAUGE, PARTITIONS_ASSIGNED_TOTAL,
-    PARTITIONS_REVOKED_TOTAL, PARTITION_STATE_DELETED_TOTAL, REBALANCE_CLEANUP_SKIPPED_TOTAL,
-    REVOKE_DRAIN_DURATION_SECONDS,
+    DURABLE_RESTORE_PENDING_TRANSFERS_RECOVERED_PARTITIONS_TOTAL, MERGE_HELD_OFFSET_GAUGE,
+    MERGE_PENDING_TRANSFERS_GAUGE, PARTITIONS_ASSIGNED_TOTAL, PARTITIONS_REVOKED_TOTAL,
+    PARTITION_STATE_DELETED_TOTAL, REBALANCE_CLEANUP_SKIPPED_TOTAL, REVOKE_DRAIN_DURATION_SECONDS,
 };
 use crate::partitions::offset_tracker::OffsetTracker;
 use crate::partitions::rebalance::{CohortConsumerContext, ConsumerCommandReceiver};
 use crate::partitions::router::PartitionRouter;
 use crate::partitions::shuffle_message::ShuffleMessage;
 use crate::producer::MembershipSink;
+use crate::store::durability::OffsetManifest;
 use crate::store::CohortStore;
 use crate::workers::{MergeWorkerDeps, Stage1Worker};
 
 /// Back-off after a Kafka transport error so a fast-failing `recv()` can't spin a consume loop.
 pub(crate) const RECV_ERROR_BACKOFF: Duration = Duration::from_millis(500);
+
+/// Timeout for the one-shot restore seek of the events topic. A local fetch-position reposition, so a
+/// few seconds is ample; a timeout is a seek failure and retries (never resumes from the broker offset).
+const RESTORE_SEEK_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Per-partition scan cap for the eager boot redrive. The outbox only ever holds transfers stranded by
+/// inline-retry exhaustion (rare), so a large bound drains it in one pass while capping memory against a
+/// pathological backlog; any remainder beyond the cap is recovered by the periodic redrive.
+const EAGER_BOOT_REDRIVE_SCAN_LIMIT: usize = 100_000;
 
 /// One re-keyed event as published to `cohort_stream_events`. Field names mirror the shuffler
 /// envelope exactly.
@@ -557,6 +568,108 @@ impl EventDispatcher {
         self.reclaim_unassigned_partitions_on_boot(assignment, partition_count);
     }
 
+    /// Re-produce every staged `cf_pending_transfers` entry for the owned partitions at boot,
+    /// worker-free. An idle partition never spawns a worker, so the periodic redrive (which routes
+    /// through the worker) never fires for it and the stranded transfer would sit in the outbox
+    /// forever; this scans the outbox directly and re-produces it.
+    ///
+    /// Produce + clear only — no `mark_processed`: the merge offset was committed-past in the prior
+    /// tenure, and a fresh tenure starts at `dispatched_offset == 0`, so marking would clamp to 0 and
+    /// trip a spurious `CappedAheadOfDispatch`. A produce failure leaves the entry for the periodic
+    /// redrive; best-effort throughout (a scan or clear-after-ack error is logged and the boot
+    /// continues).
+    ///
+    /// Must run after the boot staleness reconcile (unowned slices already wiped); iterating
+    /// `assignment` then guarantees it only touches owned partitions.
+    pub async fn eager_redrive_pending_transfers_on_boot(&self, assignment: &HashSet<i32>) {
+        for &partition in assignment {
+            let Some(store_partition) = partition_to_store_id(partition) else {
+                warn!(
+                    partition,
+                    "eager boot redrive: partition out of u16 range; skipping"
+                );
+                continue;
+            };
+            let entries = match self
+                .store
+                .scan_pending_transfers(store_partition, EAGER_BOOT_REDRIVE_SCAN_LIMIT)
+            {
+                Ok(entries) => entries,
+                Err(error) => {
+                    warn!(
+                        partition,
+                        error = %error,
+                        "eager boot redrive: pending-transfer scan failed; the periodic redrive retries it",
+                    );
+                    continue;
+                }
+            };
+            if entries.is_empty() {
+                continue;
+            }
+            let scanned = entries.len();
+
+            let mut recovered = 0usize;
+            for (key, bytes) in entries {
+                let pending = match PendingTransfer::decode(&bytes) {
+                    Ok(pending) => pending,
+                    Err(error) => {
+                        warn!(
+                            partition,
+                            team_id = key.team_id,
+                            old_person = %key.old_person,
+                            error = %error,
+                            "eager boot redrive: undecodable pending transfer; leaving it in place",
+                        );
+                        continue;
+                    }
+                };
+                let team_id = pending.transfer.team_id;
+                let old_person = pending.transfer.old_person_uuid;
+                // Produce + clear only; no `mark_processed` (would clamp to dispatched_offset==0).
+                let acks = self
+                    .merge
+                    .transfer_sink
+                    .produce(vec![pending.transfer])
+                    .await;
+                if !acks.iter().all(Result::is_ok) {
+                    warn!(
+                        partition,
+                        team_id,
+                        old_person = %old_person,
+                        "eager boot redrive: transfer produce failed; leaving the entry for the periodic redrive",
+                    );
+                    continue;
+                }
+                if let Err(error) = self.store.clear_pending_transfer(&key) {
+                    warn!(
+                        partition,
+                        team_id,
+                        old_person = %old_person,
+                        error = %error,
+                        "eager boot redrive: outbox clear failed after an acked produce; the periodic redrive re-produces it idempotently",
+                    );
+                }
+                recovered += 1;
+            }
+
+            if scanned == EAGER_BOOT_REDRIVE_SCAN_LIMIT {
+                warn!(
+                    partition,
+                    scanned,
+                    "eager boot redrive: hit the per-partition scan cap; the periodic redrive recovers the remainder",
+                );
+            }
+            if recovered > 0 {
+                counter!(DURABLE_RESTORE_PENDING_TRANSFERS_RECOVERED_PARTITIONS_TOTAL).increment(1);
+                info!(
+                    partition,
+                    recovered, "eager boot redrive: re-produced stranded pending transfers",
+                );
+            }
+        }
+    }
+
     fn tracker(&self) -> &OffsetTracker {
         self.tracker.as_ref()
     }
@@ -629,6 +742,10 @@ pub struct CohortStreamEventsConsumer {
     events_partitions: usize,
     #[allow(dead_code)]
     consumer_command_rx: ConsumerCommandReceiver,
+    /// Offset manifest from a disaster restore (PVC/S3). `Some` only on the disaster paths. When set,
+    /// the consume loop runs a one-shot [`run_restore_seek`](Self::run_restore_seek) of the events
+    /// topic to the manifest positions once the boot assignment settles, then leaves it.
+    restore_manifest: Option<OffsetManifest>,
 }
 
 impl CohortStreamEventsConsumer {
@@ -643,6 +760,7 @@ impl CohortStreamEventsConsumer {
         offset_commit_interval: Duration,
         events_partitions: usize,
         consumer_command_rx: ConsumerCommandReceiver,
+        restore_manifest: Option<OffsetManifest>,
     ) -> Self {
         Self {
             consumer,
@@ -654,6 +772,7 @@ impl CohortStreamEventsConsumer {
             offset_commit_interval,
             events_partitions,
             consumer_command_rx,
+            restore_manifest,
         }
     }
 
@@ -666,6 +785,11 @@ impl CohortStreamEventsConsumer {
         let mut commit_deadline = tokio::time::Instant::now() + self.offset_commit_interval;
         // One-shot boot staleness sweep; pre-marked done when the gate is off so that path is unchanged.
         let mut boot_sweep_done = !self.dispatcher.durable_restore_enabled();
+        // One-shot eager pending-transfer redrive; pre-marked done when the gate is off so that path
+        // never runs. Fires after the staleness sweep settles, so it only touches owned partitions.
+        let mut eager_redrive_done = !self.dispatcher.durable_restore_enabled();
+        // One-shot restore seek; pre-marked done when there is no manifest, so the default path never seeks.
+        let mut restore_seek_done = self.restore_manifest.is_none();
         let mut prev_assignment: Option<HashSet<i32>> = None;
 
         loop {
@@ -679,6 +803,27 @@ impl CohortStreamEventsConsumer {
                     // Sweep before dispatching, so the reclaim never races a worker spawn.
                     if !boot_sweep_done {
                         boot_sweep_done = self.run_boot_staleness_sweep(&mut prev_assignment);
+                    }
+                    // Once the boot assignment has settled, re-produce stranded transfers for the owned
+                    // partitions. Skip dispatching this in-hand batch (the next poll re-fetches) so the
+                    // boot recovery completes before any fold work.
+                    if !eager_redrive_done && boot_sweep_done {
+                        let owned: HashSet<i32> =
+                            self.dispatcher.owned_partitions().into_iter().collect();
+                        self.dispatcher
+                            .eager_redrive_pending_transfers_on_boot(&owned)
+                            .await;
+                        eager_redrive_done = true;
+                        continue;
+                    }
+                    // Once the boot assignment has settled, seek the owned events partitions to their
+                    // committed manifest positions. Skip dispatching this in-hand pre-seek batch (the
+                    // next poll fetches from the seek point) so no ahead-of-seek event is folded first.
+                    if !restore_seek_done && boot_sweep_done {
+                        // Fail-stop: mark done only once the seek fully succeeds; on failure retry on the
+                        // next poll without dispatching, never folding from the broker offset.
+                        restore_seek_done = self.run_restore_seek();
+                        continue;
                     }
                     self.handle_outcome(outcome).await;
                     let now = tokio::time::Instant::now();
@@ -719,6 +864,69 @@ impl CohortStreamEventsConsumer {
         }
         self.dispatcher
             .reconcile_boot_assignment(&assignment, self.events_partitions);
+        true
+    }
+
+    /// Seek the owned events partitions to the manifest's committed offsets. A no-op unless
+    /// [`restore_manifest`](Self::restore_manifest) is `Some`. The committed offset is the next
+    /// position to consume, so seeking `Offset::Offset(N)` reproduces the resume position exactly with
+    /// no off-by-one.
+    ///
+    /// Fail-stop: returns `true` only once every targeted partition is sought (or there was nothing to
+    /// seek); returns `false` on any failure so the caller retries without dispatching. On failure it
+    /// does *not* resume from the broker-stored offset — that sits ahead of the restored checkpoint
+    /// state, so dispatching from there would silently skip events. A persistent failure stalls and
+    /// surfaces as `cohort_stream_events` lag: a visible stall, never silent loss. `seek_partitions`
+    /// reports per-partition failures inside the returned list, so both the top-level `Err` and each
+    /// element's `error` are checked.
+    fn run_restore_seek(&self) -> bool {
+        let Some(manifest) = self.restore_manifest.as_ref() else {
+            return true;
+        };
+        let owned = self.dispatcher.owned_partitions();
+        let Some((tpl, sought)) = restore_seek_tpl(&self.topic, &owned, manifest) else {
+            info!(
+                topic = %self.topic,
+                "restore seek: manifest carried no committed offset for any owned events partition; nothing to seek",
+            );
+            return true;
+        };
+
+        let result = match self.consumer.seek_partitions(tpl, RESTORE_SEEK_TIMEOUT) {
+            Ok(result) => result,
+            Err(err) => {
+                warn!(
+                    topic = %self.topic,
+                    offsets = ?sought,
+                    error = %err,
+                    "restore seek failed; holding off dispatch and retrying (no progress until it succeeds)",
+                );
+                return false;
+            }
+        };
+
+        let failed: Vec<i32> = result
+            .elements_for_topic(&self.topic)
+            .iter()
+            .filter(|elem| elem.error().is_err())
+            .map(|elem| elem.partition())
+            .collect();
+        if !failed.is_empty() {
+            warn!(
+                topic = %self.topic,
+                failed_partitions = ?failed,
+                offsets = ?sought,
+                "restore seek failed for some partitions; holding off dispatch and retrying (no progress until it succeeds)",
+            );
+            return false;
+        }
+
+        info!(
+            topic = %self.topic,
+            partitions = sought.len(),
+            offsets = ?sought,
+            "restore seek: sought owned events partitions to their committed manifest offsets",
+        );
         true
     }
 
@@ -817,6 +1025,30 @@ struct ConsumeOutcome {
     deserialize_errors: u64,
     empty_payloads: u64,
     transport_error: bool,
+}
+
+/// Build the events-topic seek list for a disaster restore: each owned partition that carries a
+/// committed offset in `manifest`, at `Offset::Offset(next_offset)` (the next-to-consume convention).
+/// Returns the TPL plus the `(partition, offset)` pairs for logging, or `None` when no owned partition
+/// has a manifest offset.
+fn restore_seek_tpl(
+    topic: &str,
+    owned: &[i32],
+    manifest: &OffsetManifest,
+) -> Option<(TopicPartitionList, Vec<(i32, i64)>)> {
+    let mut tpl = TopicPartitionList::new();
+    let mut sought: Vec<(i32, i64)> = Vec::new();
+    for &partition in owned {
+        let Some(next_offset) = manifest.offset_for(topic, partition) else {
+            continue;
+        };
+        if let Err(err) = tpl.add_partition_offset(topic, partition, Offset::Offset(next_offset)) {
+            warn!(topic, partition, next_offset, error = %err, "skipping partition in restore seek list");
+            continue;
+        }
+        sought.push((partition, next_offset));
+    }
+    (tpl.count() > 0).then_some((tpl, sought))
 }
 
 /// Turn a `partition -> next-offset` snapshot into a `TopicPartitionList` for Kafka commit.
@@ -1044,6 +1276,61 @@ mod tests {
     fn build_commit_tpl_for_no_offsets_is_empty() {
         let tpl = build_commit_tpl("cohort_stream_events", &HashMap::new());
         assert_eq!(tpl.count(), 0);
+    }
+
+    /// Build an `OffsetManifest` for the given committed offsets via the real `capture` path, so the
+    /// test exercises the production committed-offset convention.
+    fn manifest_for(topic: &str, committed: &[(i32, i64)]) -> OffsetManifest {
+        let tracker = OffsetTracker::new();
+        let owned: Vec<i32> = committed.iter().map(|(p, _)| *p).collect();
+        for &(partition, next) in committed {
+            tracker.mark_dispatched(partition, next);
+            let _ = tracker.mark_processed(partition, next);
+            tracker.mark_committed(partition, next);
+        }
+        OffsetManifest::capture(&owned, &[(topic, &tracker)])
+    }
+
+    #[test]
+    fn restore_seek_tpl_targets_owned_partitions_with_a_manifest_offset() {
+        let manifest = manifest_for("cohort_stream_events", &[(0, 100), (3, 250)]);
+        let (tpl, sought) = restore_seek_tpl("cohort_stream_events", &[0, 3, 7], &manifest)
+            .expect("a non-empty seek");
+        assert_eq!(tpl.count(), 2);
+        assert_eq!(
+            tpl.find_partition("cohort_stream_events", 0)
+                .unwrap()
+                .offset(),
+            Offset::Offset(100),
+        );
+        assert_eq!(
+            tpl.find_partition("cohort_stream_events", 3)
+                .unwrap()
+                .offset(),
+            Offset::Offset(250),
+        );
+        assert!(tpl.find_partition("cohort_stream_events", 7).is_none());
+        let mut sought_sorted = sought;
+        sought_sorted.sort_unstable();
+        assert_eq!(sought_sorted, vec![(0, 100), (3, 250)]);
+    }
+
+    #[test]
+    fn restore_seek_tpl_is_none_for_an_empty_manifest_topic() {
+        let empty = manifest_for("cohort_stream_events", &[]);
+        assert!(restore_seek_tpl("cohort_stream_events", &[0, 1, 2], &empty).is_none());
+    }
+
+    #[test]
+    fn restore_seek_tpl_is_none_when_no_owned_partition_matches() {
+        let manifest = manifest_for("cohort_stream_events", &[(0, 100), (3, 250)]);
+        assert!(restore_seek_tpl("cohort_stream_events", &[5, 9], &manifest).is_none());
+    }
+
+    #[test]
+    fn restore_seek_tpl_is_none_for_a_missing_topic() {
+        let manifest = manifest_for("cohort_stream_events", &[(0, 100)]);
+        assert!(restore_seek_tpl("person_merge_events", &[0], &manifest).is_none());
     }
 
     fn temp_store() -> (TempDir, CohortStore) {
@@ -2855,6 +3142,139 @@ mod tests {
         assert_eq!(
             merge.transfer_tracker.committable_offsets().get(&0),
             Some(&7),
+        );
+    }
+
+    /// Stage one `cf_pending_transfers` outbox entry for `partition` directly in the store, returning
+    /// its key and the transfer it carries.
+    fn stage_pending(
+        store: &CohortStore,
+        partition: i32,
+        p_old: Uuid,
+        p_new: Uuid,
+        merge_offset: i64,
+    ) -> (PendingTransferKey, MergeStateTransfer) {
+        let transfer = transfer_with(p_old, p_new, (partition, merge_offset), vec![]);
+        let key = pending_key_of(partition, p_old);
+        let pending = PendingTransfer {
+            transfer: transfer.clone(),
+            merge_msg_partition: partition,
+            merge_msg_offset: merge_offset,
+        };
+        store
+            .write_batch(|b| b.put_pending_transfer(&key, &pending.encode()))
+            .unwrap();
+        (key, transfer)
+    }
+
+    #[tokio::test]
+    async fn eager_boot_redrive_re_produces_a_restored_pending_transfer_without_a_worker() {
+        let (_dir, store) = temp_store();
+        let (dispatcher, _sink, transfer_sink, merge) = dispatcher_full(
+            &store,
+            behavioral_catalog(),
+            CaptureSink::new(),
+            CaptureTransferSink::new(),
+        );
+
+        let partition = 3;
+        let (key, transfer) = stage_pending(&store, partition, person(1), person(2), 41);
+        dispatcher.assign_partition(partition);
+
+        // No dispatch yet, so the merge tracker is at `dispatched_offset == 0` — exactly the state
+        // where `mark_processed` would clamp and trip CappedAheadOfDispatch, which the redrive avoids.
+        let owned: HashSet<i32> = [partition].into_iter().collect();
+        dispatcher
+            .eager_redrive_pending_transfers_on_boot(&owned)
+            .await;
+
+        assert_eq!(
+            transfer_sink.transfers(),
+            vec![transfer],
+            "the stranded transfer was re-produced with no worker spawned",
+        );
+        assert!(
+            store.get_pending_transfer(&key).unwrap().is_none(),
+            "the outbox entry was cleared after the ack",
+        );
+        assert!(
+            merge.merge_tracker.committable_offsets().is_empty(),
+            "the eager redrive marks no offset (would clamp to dispatched_offset==0 and trip F1)",
+        );
+        assert_eq!(
+            merge.merge_tracker.partition_count(),
+            0,
+            "no tracker entry was created — the merge offset was already committed-past",
+        );
+        assert!(
+            !dispatcher.workers.contains_key(&partition),
+            "the eager redrive does not spawn a worker",
+        );
+    }
+
+    #[tokio::test]
+    async fn eager_boot_redrive_is_a_noop_for_an_empty_outbox() {
+        let (_dir, store) = temp_store();
+        let (dispatcher, _sink, transfer_sink, merge) = dispatcher_full(
+            &store,
+            behavioral_catalog(),
+            CaptureSink::new(),
+            CaptureTransferSink::new(),
+        );
+
+        dispatcher.assign_partition(0);
+        dispatcher.assign_partition(1);
+        let owned: HashSet<i32> = [0, 1].into_iter().collect();
+        dispatcher
+            .eager_redrive_pending_transfers_on_boot(&owned)
+            .await;
+
+        assert!(
+            transfer_sink.transfers().is_empty(),
+            "an empty outbox produces nothing",
+        );
+        assert_eq!(
+            merge.merge_tracker.partition_count(),
+            0,
+            "an empty outbox marks no offset",
+        );
+    }
+
+    #[tokio::test]
+    async fn eager_boot_redrive_only_touches_owned_partitions() {
+        let (_dir, store) = temp_store();
+        let (dispatcher, _sink, transfer_sink, _merge) = dispatcher_full(
+            &store,
+            behavioral_catalog(),
+            CaptureSink::new(),
+            CaptureTransferSink::new(),
+        );
+
+        let owned_partition = 3;
+        let unowned_partition = 7;
+        let (owned_key, owned_transfer) =
+            stage_pending(&store, owned_partition, person(1), person(2), 41);
+        let (unowned_key, _unowned_transfer) =
+            stage_pending(&store, unowned_partition, person(3), person(4), 51);
+
+        dispatcher.assign_partition(owned_partition);
+        let owned: HashSet<i32> = [owned_partition].into_iter().collect();
+        dispatcher
+            .eager_redrive_pending_transfers_on_boot(&owned)
+            .await;
+
+        assert_eq!(
+            transfer_sink.transfers(),
+            vec![owned_transfer],
+            "only the owned partition's transfer was re-produced",
+        );
+        assert!(
+            store.get_pending_transfer(&owned_key).unwrap().is_none(),
+            "the owned partition's outbox entry was cleared",
+        );
+        assert!(
+            store.get_pending_transfer(&unowned_key).unwrap().is_some(),
+            "the unowned partition's outbox entry was left untouched",
         );
     }
 }
