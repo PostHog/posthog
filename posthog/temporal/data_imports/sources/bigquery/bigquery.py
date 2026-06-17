@@ -22,7 +22,7 @@ from typing import Any
 
 import pyarrow as pa
 import structlog
-from google.api_core.exceptions import BadRequest, Forbidden, NotFound
+from google.api_core.exceptions import BadRequest, Forbidden, InvalidArgument, NotFound
 from google.auth.transport.requests import AuthorizedSession
 from google.cloud import bigquery, bigquery_storage
 from google.cloud.bigquery.job import QueryJobConfig
@@ -412,6 +412,27 @@ def _is_bigquery_resource_exceeded(error: BadRequest) -> bool:
     """
     reasons = {err.get("reason") for err in (getattr(error, "errors", None) or [])}
     return "resourcesExceeded" in reasons or "Resources exceeded during query execution" in str(error)
+
+
+# Stable, volatile-data-free substring of the BigQuery Storage Read API's
+# `InvalidArgument` when a change-data-capture (CDC) table has pending upserts
+# staler than its `max_staleness`. The full message is "request failed: The table
+# has un-applied upsert data that is not fresh enough to meet table's max_staleness."
+_UNAPPLIED_UPSERT_STALENESS_MARKER = "un-applied upsert data that is not fresh enough to meet table's max_staleness"
+
+
+def _is_unapplied_upsert_staleness_error(error: InvalidArgument) -> bool:
+    """True for the Storage Read API's refusal to directly read a CDC table.
+
+    BigQuery streams UPSERT/DELETE modifications into a table's write buffer and
+    only merges them into the base table within the `max_staleness` interval. The
+    Storage Read API reads a base-table snapshot and won't apply those pending
+    modifications, so when un-applied data is staler than `max_staleness` it fails
+    `create_read_session` outright instead of returning stale rows. Running a query
+    job over the table (our temp-table copy path) forces the merge, so this is
+    recoverable rather than a config error.
+    """
+    return _UNAPPLIED_UPSERT_STALENESS_MARKER in str(error)
 
 
 def _has_duplicate_primary_keys(table: bigquery.Table, client: bigquery.Client, primary_keys: list[str] | None) -> bool:
@@ -871,21 +892,18 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
                 # Query path projects into the temp table; direct-storage path projects via
                 # `selected_fields` on the read session.
                 projected_columns = compute_projected_columns(enabled_columns, primary_keys, incremental_field)
-                storage_selected_fields: list[str] | None = None
 
-                if should_use_incremental_field:
-                    # This is only done because incremental syncs require progress tracking.
-                    # This requirement means we need to enforce an order, as otherwise
-                    # progress could move ahead of the current stream. Thus, we need to run
-                    # a query job that moves all the data in `incremental_field` order to a
-                    # temporary table given by `bq_destination_table_id`.
-                    # TODO: Think about whether this is at all necessary. We (and our users)
-                    # are paying a (potentially high) cost to run this query job and store
-                    # this data, when we could instead give up tracking and read it.
+                def copy_to_temp_table(source_table: bigquery.Table) -> bigquery.Table:
+                    """Materialize `source_table` into the temp destination table via a query job.
+
+                    The query job produces a single consistent snapshot (and, for change-data-capture
+                    tables, forces BigQuery to apply any pending upserts), which the Storage Read API
+                    can then stream — unlike the source table itself in some cases.
+                    """
                     query = _get_query(
                         should_use_incremental_field,
                         db_incremental_field_last_value,
-                        bq_table,
+                        source_table,
                         incremental_field,
                         incremental_field_type,
                         enabled_columns=enabled_columns,
@@ -894,88 +912,99 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
 
                     destination_table = bigquery.Table(bq_destination_table_id)
                     job_config = QueryJobConfig(destination=destination_table)
-                    job = bq_client.query(query, job_config=job_config, project=bq_table.project)
+                    job = bq_client.query(query, job_config=job_config, project=source_table.project)
                     _ = job.result()
 
-                    bq_table = bq_client.get_table(destination_table)
+                    return bq_client.get_table(destination_table)
 
-                elif bq_table.table_type in ("VIEW", "MATERIALIZED_VIEW", "EXTERNAL"):
-                    # BigQuery storage API does not support reading directly from views or
-                    # materialized views. So, similarly to incremental runs, we must copy the
-                    # results to a temporary table first. In the case of an incremental sync,
-                    # we already do this for all tables and views, so here we just handle the
-                    # views or materialized views that are not incremental.
-                    query = _get_query(
-                        should_use_incremental_field,
-                        db_incremental_field_last_value,
-                        bq_table,
-                        incremental_field,
-                        incremental_field_type,
-                        enabled_columns=enabled_columns,
-                        primary_keys=primary_keys,
-                    )
-
-                    destination_table = bigquery.Table(bq_destination_table_id)
-                    job_config = QueryJobConfig(destination=destination_table)
-                    job = bq_client.query(query, job_config=job_config, project=bq_table.project)
-                    _ = job.result()
-
-                    bq_table = bq_client.get_table(destination_table)
-
-                else:
-                    if projected_columns is not None:
-                        storage_selected_fields = projected_columns
-
-                requested_session = bigquery_storage.ReadSession(
-                    table=bq_table.to_bqstorage(),
-                    data_format=bigquery_storage.DataFormat.ARROW,
-                    read_options=bigquery_storage.ReadSession.TableReadOptions(
-                        selected_fields=storage_selected_fields or [],
-                        arrow_serialization_options=bigquery_storage.ArrowSerializationOptions(
-                            # LZ4 offers a good trade-off of low resource usage for compression, so
-                            # as an initial value without further testing it should do fine. That being said,
-                            # TODO: Evaluate if ZSTD is a better alternative for our use case.
-                            buffer_compression=bigquery_storage.ArrowSerializationOptions.CompressionCodec.LZ4_FRAME
+                def stream_via_storage_api(
+                    table_to_read: bigquery.Table, selected_fields: list[str] | None
+                ) -> collections.abc.Iterator[pa.Table]:
+                    requested_session = bigquery_storage.ReadSession(
+                        table=table_to_read.to_bqstorage(),
+                        data_format=bigquery_storage.DataFormat.ARROW,
+                        read_options=bigquery_storage.ReadSession.TableReadOptions(
+                            selected_fields=selected_fields or [],
+                            arrow_serialization_options=bigquery_storage.ArrowSerializationOptions(
+                                # LZ4 offers a good trade-off of low resource usage for compression, so
+                                # as an initial value without further testing it should do fine. That being said,
+                                # TODO: Evaluate if ZSTD is a better alternative for our use case.
+                                buffer_compression=bigquery_storage.ArrowSerializationOptions.CompressionCodec.LZ4_FRAME
+                            ),
                         ),
-                    ),
-                )
-                with bigquery_storage_read_client(
-                    project_id=project_id,
-                    private_key=private_key,
-                    private_key_id=private_key_id,
-                    client_email=client_email,
-                    token_uri=token_uri,
-                ) as bq_storage:
-                    read_session = bq_storage.create_read_session(
-                        parent="projects/{}".format(bq_table.project),
-                        read_session=requested_session,
-                        # TODO: Currently, single stream. Could multi-thread here for performance.
-                        max_stream_count=1,
                     )
+                    with bigquery_storage_read_client(
+                        project_id=project_id,
+                        private_key=private_key,
+                        private_key_id=private_key_id,
+                        client_email=client_email,
+                        token_uri=token_uri,
+                    ) as bq_storage:
+                        read_session = bq_storage.create_read_session(
+                            parent="projects/{}".format(table_to_read.project),
+                            read_session=requested_session,
+                            # TODO: Currently, single stream. Could multi-thread here for performance.
+                            max_stream_count=1,
+                        )
 
-                    if not read_session.streams:
-                        # Empty table, nothing to read
-                        return
+                        if not read_session.streams:
+                            # Empty table, nothing to read
+                            return
 
-                    stream_name = read_session.streams[0].name
-                    read_rows_stream = bq_storage.read_rows(stream_name)
-                    rows_iterator = read_rows_stream.rows()
+                        stream_name = read_session.streams[0].name
+                        read_rows_stream = bq_storage.read_rows(stream_name)
+                        rows_iterator = read_rows_stream.rows()
 
-                    record_batches = []
-                    table_size_bytes = 0
-                    for page in rows_iterator.pages:
-                        record_batch = page.to_arrow()
-                        # TODO: Perhaps we should support slicing record batches like we do in batch exports.
-                        table_size_bytes += record_batch.get_total_buffer_size()
-                        record_batches.append(record_batch)
+                        record_batches = []
+                        table_size_bytes = 0
+                        for page in rows_iterator.pages:
+                            record_batch = page.to_arrow()
+                            # TODO: Perhaps we should support slicing record batches like we do in batch exports.
+                            table_size_bytes += record_batch.get_total_buffer_size()
+                            record_batches.append(record_batch)
 
-                        if table_size_bytes > max_table_size:
+                            if table_size_bytes > max_table_size:
+                                yield pa.Table.from_batches(record_batches)
+                                record_batches = []
+                                table_size_bytes = 0
+
+                        if record_batches:
                             yield pa.Table.from_batches(record_batches)
-                            record_batches = []
-                            table_size_bytes = 0
 
-                    if record_batches:
-                        yield pa.Table.from_batches(record_batches)
+                # Incremental syncs require progress tracking, which means enforcing an order
+                # (otherwise progress could move ahead of the current stream), so we run a query
+                # job that moves all the data in `incremental_field` order to a temporary table.
+                # TODO: Think about whether this is at all necessary. We (and our users) are
+                # paying a (potentially high) cost to run this query job and store this data,
+                # when we could instead give up tracking and read it.
+                #
+                # The Storage Read API also can't read views / materialized views / external
+                # tables directly, so those take the same copy-to-temp-table path.
+                if should_use_incremental_field or bq_table.table_type in ("VIEW", "MATERIALIZED_VIEW", "EXTERNAL"):
+                    bq_table = copy_to_temp_table(bq_table)
+                    yield from stream_via_storage_api(bq_table, None)
+                    return
+
+                # Direct read of the base table. A table with change data capture (CDC) upserts
+                # can carry pending row modifications staler than its `max_staleness`; the Storage
+                # Read API refuses to read those directly (it serves a base-table snapshot and
+                # won't apply pending upserts). Fall back to the same query-job copy we use for
+                # views — it forces BigQuery to apply the pending upserts into a fresh temp table
+                # we can then stream. We only retry before any rows have been yielded, and only
+                # for that specific error, so we never mask real failures or emit duplicate data.
+                streamed_any = False
+                try:
+                    for record in stream_via_storage_api(bq_table, projected_columns):
+                        streamed_any = True
+                        yield record
+                except InvalidArgument as e:
+                    if streamed_any or not _is_unapplied_upsert_staleness_error(e):
+                        raise
+                    logger.info(
+                        "BigQuery refused a direct Storage Read of a table with un-applied CDC upserts; "
+                        "falling back to a query-job copy into a temp table"
+                    )
+                    yield from stream_via_storage_api(copy_to_temp_table(bq_table), None)
 
         return SourceResponse(
             name=name,

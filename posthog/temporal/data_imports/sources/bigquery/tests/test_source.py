@@ -2,8 +2,9 @@ import pytest
 from freezegun import freeze_time
 from unittest import mock
 
+import pyarrow as pa
 from dateutil import parser
-from google.api_core.exceptions import BadRequest, Forbidden, NotFound, PermissionDenied
+from google.api_core.exceptions import BadRequest, Forbidden, InvalidArgument, NotFound, PermissionDenied
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from posthog.temporal.data_imports.sources.bigquery import bigquery as bq_module
@@ -14,6 +15,7 @@ from posthog.temporal.data_imports.sources.bigquery.bigquery import (
     _bq_select_clause,
     _get_query,
     _has_duplicate_primary_keys,
+    _is_unapplied_upsert_staleness_error,
     _resolve_dataset_id,
     _resolve_dataset_project_id,
     _resolve_project_id,
@@ -667,3 +669,101 @@ def test_bigquery_storage_read_client_disables_grpc_message_size_limit():
     options = dict(mock_transport_cls.create_channel.call_args.kwargs["options"])
     assert options["grpc.max_receive_message_length"] == -1
     assert options["grpc.max_send_message_length"] == -1
+
+
+@pytest.mark.parametrize(
+    "message,expected",
+    [
+        (
+            "request failed: The table has un-applied upsert data that is not fresh enough to "
+            "meet table's max_staleness.",
+            True,
+        ),
+        # Other InvalidArgument failures from the Storage Read API must not match.
+        ("request failed: Invalid ReadSession: missing table", False),
+        ("400 The project p is invalid", False),
+    ],
+)
+def test_is_unapplied_upsert_staleness_error(message, expected):
+    assert _is_unapplied_upsert_staleness_error(InvalidArgument(message)) is expected
+
+
+def _fake_storage_client_yielding_one_table():
+    """A fake BigQuery Storage Read client that streams a single Arrow table."""
+    storage = mock.MagicMock()
+    read_session = mock.MagicMock()
+    read_session.streams = [mock.MagicMock()]
+    storage.create_read_session.return_value = read_session
+
+    page = mock.MagicMock()
+    page.to_arrow.return_value = pa.table({"id": [1, 2, 3]}).to_batches()[0]
+    storage.read_rows.return_value.rows.return_value.pages = [page]
+    return storage
+
+
+def _materialize_get_rows(storage, bq_client, *, table_type="TABLE", inputs=None):
+    """Run `_build_source_response` and materialize `get_rows`, with the BigQuery
+    client/storage layers mocked so we exercise the real streaming + fallback logic."""
+    bq_table = mock.MagicMock(table_type=table_type, project="project-id")
+    bq_table.to_bqstorage.return_value = "projects/project-id/datasets/dataset-id/tables/schema"
+    bq_client.get_table.return_value = bq_table
+
+    base = "posthog.temporal.data_imports.sources.bigquery.bigquery"
+    with (
+        mock.patch(f"{base}.bigquery_client") as mock_client,
+        mock.patch(f"{base}.bigquery_storage_read_client") as mock_storage,
+        mock.patch(f"{base}._get_primary_keys_for_table", return_value=["id"]),
+        mock.patch(f"{base}._get_partition_settings", return_value=None),
+        mock.patch(f"{base}._has_duplicate_primary_keys", return_value=False),
+        mock.patch(f"{base}._get_rows_to_sync", return_value=0),
+    ):
+        mock_client.return_value.__enter__.return_value = bq_client
+        mock_storage.return_value.__enter__.return_value = storage
+
+        response = BigQueryImplementation()._build_source_response(
+            config=_make_config(),
+            inputs=inputs or _make_inputs(),
+            region=None,
+            dataset_project_id=None,
+            bq_destination_table_id="project-id.dataset-id.__posthog_import_temp",
+        )
+        return list(response.items())
+
+
+def test_get_rows_falls_back_to_temp_table_on_unapplied_upsert_staleness():
+    """A direct Storage Read of a CDC table whose pending upserts exceed `max_staleness`
+    fails `create_read_session`; we must recover by copying through a query job into a temp
+    table (which forces the upserts to apply) and streaming that, not crash the sync."""
+    storage = _fake_storage_client_yielding_one_table()
+    # First (direct) read raises the staleness error; the temp-table read then succeeds.
+    storage.create_read_session.side_effect = [
+        InvalidArgument(
+            "request failed: The table has un-applied upsert data that is not fresh enough to "
+            "meet table's max_staleness."
+        ),
+        storage.create_read_session.return_value,
+    ]
+    bq_client = mock.MagicMock()
+
+    tables = _materialize_get_rows(storage, bq_client)
+
+    assert [t.num_rows for t in tables] == [3]
+    # Two attempts: the failed direct read and the successful temp-table read.
+    assert storage.create_read_session.call_count == 2
+    # The fallback ran a query job to copy the table into the temp destination.
+    assert bq_client.query.call_count == 1
+
+
+def test_get_rows_does_not_fall_back_on_other_invalid_argument():
+    """A non-staleness InvalidArgument must propagate — we must not mask real failures
+    or pointlessly run an extra query job."""
+    storage = _fake_storage_client_yielding_one_table()
+    storage.create_read_session.side_effect = InvalidArgument("request failed: Invalid ReadSession")
+    bq_client = mock.MagicMock()
+
+    with pytest.raises(InvalidArgument):
+        _materialize_get_rows(storage, bq_client)
+
+    assert storage.create_read_session.call_count == 1
+    # No fallback copy job should have run.
+    assert bq_client.query.call_count == 0
