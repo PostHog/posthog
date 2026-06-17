@@ -2,82 +2,104 @@
 
 Per-PR PostHog preview environments, the layer-agnostic way.
 
-Spins PostHog up inside a disposable box and serves it at a clean public URL.
-Today the box is a [hogland](https://github.com/PostHog/hogland) hogbox
-(Firecracker microVM, reachable at `https://<box>.boxes.hogland.<env>.posthog.dev/`
-over the tailnet). It used to be a DigitalOcean droplet (`bin/hobby-ci.py`), and
-it may be something else next.
+Spins PostHog up inside a disposable box and serves it at a **stable URL** that
+survives the box being recreated. Today the box is a
+[hogland](https://github.com/PostHog/hogland) hogbox (Firecracker microVM,
+reachable over the tailnet). It used to be a DigitalOcean droplet
+(`bin/hobby-ci.py`), and it may be something else next.
 
 ## The one idea: layer vs stack
 
 The thing that changes when we swap providers is small and isolated:
 
 - **Layer** (`backend.py`, `*_backend.py`) — _which box_: how to provision it,
-  how to ssh in / which SDK to call, what its public URL is, how to destroy it.
+  how to run commands / write files in it, what its URL is, how to destroy it.
   Swapping providers = one new `PreviewBackend`.
 - **Stack** (`stack.py`) — _what runs in the box_: the PostHog docker-compose
-  recipe (image, override, migrate, seed, health). It talks to the box only
-  through the backend interface and **never changes when the layer changes**.
+  recipe (image, override, frontend, migrate, seed, health). It talks to the box
+  only through the backend interface and **never changes when the layer changes**.
 
 ```python
 from hogbox_preview import HoglandBackend, PostHogPreviewStack
 
-backend = HoglandBackend(host="https://hogland.hedgehog-kitefin.ts.net")
-url = PostHogPreviewStack(backend, branch="my-pr").bring_up()
-print(url)  # https://box-….boxes.hogland.prod-us.posthog.dev/
+backend = HoglandBackend(host="https://hogland.hedgehog-kitefin.ts.net", name="preview-pr-123")
+url = PostHogPreviewStack(backend, branch="pull/123/head").bring_up()
+print(url)  # https://pen-….boxes.hogland.prod-us.posthog.dev/  (stable across rebuilds)
 ```
+
+## How it actually works
+
+1. **Restore a warm golden** (`alias:posthog-preview-golden`) — a Firecracker
+   snapshot of PostHog already running on the `ghcr.io/posthog/posthog:master`
+   image, pg + ClickHouse migrated, demo-data seeded. A warm restore resumes a
+   live, serving PostHog in ~30s (no cold boot, no rebuild). Sizing must match
+   the golden (8 vCPU / 16 GiB / 100 GiB).
+2. **Mount the PR's backend** (`posthog`, `ee`, `products`) over the image's
+   `/code` — so the backend runs the PR code with **no per-PR image build**.
+3. **Frontend** (only when the PR touches `frontend/**`): CI builds the PR's
+   `frontend/dist`, ships it into the box, and `swap_frontend` re-runs
+   `collectstatic` before the web recreate. Non-FE PRs keep the golden's
+   `:master` SPA and stay ~1 min.
+4. **Delta-migrate** — only the PR's *unapplied* migrations on top of the seeded
+   DB (`--reset-db` if the PR's migrations are incompatible with the baseline).
+5. **Serve + report** — the box is HTTP-exposed; the URL is posted to the PR.
+
+Driven entirely by the **`posthog-hogland` Python SDK** over hogplane's HTTP API
+— **keyless** (GitHub OIDC → hogplane token over the tailnet), no `hogland` CLI
+binary and no box SSH key.
+
+## Pens: the stable URL
+
+The box behind a preview rotates (a fresh restore per push), so the tool keys a
+**pen** (hogland's stable identity, `docs/PENS.md` there) on the deterministic
+name `preview-pr-<n>`: get-or-create the pen, restore a fresh box, PATCH
+`current_box_id`. The posted URL is `https://<pen-id>.<edge>/`, which hogland's
+box-http edge resolves to whatever box currently backs the pen — so **a
+reviewer's link survives every re-push** (the box swaps underneath). Requires
+hogland's pen-id edge routing (shipped in hogland #319).
+
+## Reporting & lifecycle
+
+- **PR comment** — a sticky comment (`<!-- hogbox-preview-comment -->`) staged
+  building → ready → failed, with the URL, login, and what's running.
+- **GitHub Deployment** — a `preview-pr-<n>` environment (in_progress → success
+  /failure + URL), so the preview shows in the PR's Deployments UI.
+- **Teardown** — on PR close + on `hogbox-preview` label removal (box + pen
+  destroyed); a daily stale-sweep (`cleanup-stale`) reaps previews whose PR is
+  closed. See `.github/workflows/hogbox-preview-env.yml`, `pr-closed.yml`,
+  `pr-cleanup.yml`.
+
+Access is **tailnet-only** (PostHog VPN) — internal reviewers, no public URL.
 
 ## CLI
 
-Pure stdlib; run with `uv run` or plain `python`. Subcommands mirror
+Pure stdlib + the SDK; run with `uv run` or plain `python`. Subcommands mirror
 `bin/hobby-ci.py` so it drops into the same CI shape.
 
 ```bash
 cd tools/hogbox-preview
 
-# one-shot: provision + bring PostHog up, print the URL
-python -m hogbox_preview up --branch "$BRANCH" --host "$HOG_HOST"
+# one-shot: provision (pen + box) + bring PostHog up, print the URL
+python -m hogbox_preview --host "$HOG_HOST" --name "preview-pr-$PR" up \
+  --branch "pull/$PR/head" [--frontend-dist /path/to/frontend-dist.tgz] [--no-seed]
 
 # granular / staged (reuse a box):
-python -m hogbox_preview create  --host "$HOG_HOST"
-python -m hogbox_preview seed     --box-id box-xxxx
-python -m hogbox_preview health   --box-id box-xxxx
-python -m hogbox_preview destroy  --box-id box-xxxx
+python -m hogbox_preview --host "$HOG_HOST" --name "preview-pr-$PR" create
+python -m hogbox_preview --host "$HOG_HOST" --name "preview-pr-$PR" health
+python -m hogbox_preview --host "$HOG_HOST" --name "preview-pr-$PR" destroy   # box + pen
+
+# cron backstop: reap previews whose PR is closed (needs GITHUB_REPOSITORY + GH_TOKEN)
+python -m hogbox_preview --host "$HOG_HOST" cleanup-stale
 ```
 
-The hogland layer shells out to the `hogland` CLI for provisioning (it knows
-`--web-port` → the box edge; the generated Python SDK doesn't surface that field
-yet) and uses ssh for everything inside the box.
+## The golden (and why it's fast)
 
-## The stack recipe (and why)
-
-Proven end-to-end 2026-06-10. See `../../bin/hogbox-preview-NOTES.md` for the
-full debugging history.
-
-- **Run the published image as-is.** Two reasons we don't `build: .`: master's
-  Dockerfile build is broken today (stale apt pin), _and_ the prod image runs
-  its own baked code from `/code` — the dev-full `.:/app/posthog` mount is
-  ignored (workdir is `/code`). So this is "run the image", like hobby. To
-  preview a **specific PR**, pull that PR's image
-  (`ghcr.io/posthog/posthog:pr-<n>` — what hobby-ci does), don't mount a branch.
-- **Prod image → prod settings (`DEBUG=0`).** `DEBUG=1` pulls dev-only
-  `INSTALLED_APPS` (e.g. `django_linear_migrations`) the prod image doesn't ship.
-- **DB coherent with the image.** Migrate **both** Postgres and ClickHouse with
-  the image's own migrations on a **fresh** DB. A golden's pre-migrated DB
-  drifts from a different image version (we hit `column last_seen_at does not
-exist`). So the DB is not reusable across image versions.
-- **Single clean origin.** Serve on the box's one exposed port at its own URL so
-  the SPA's absolute `/static` + `/api` paths resolve at the root.
-- **Demo data via `manage.py generate_demo_data`** (the step hobby-ci uses) so
-  the preview opens populated with a `test@posthog.com` / `12345678` login.
-  Best-effort + needs a coherent image: bleeding `:master` can have a model
-  ahead of its migrations and fail the seed (preview still serves, just empty).
-  Toggle with `--no-seed`; pin a good image with `--image`.
-
-### Fast restores (the right golden)
-
-The image pull + migrate is a one-time cost. Bake a golden that pins **one
-image** with its Postgres **and** ClickHouse already migrated by it (optionally
-demo-data seeded) — then previews restore in seconds with no pull/migrate, and
-the DB is coherent by construction. The DB must travel with the image it was
-migrated by; don't reuse a stale golden DB against a newer image.
+The image-pull + full migrate is a one-time cost baked into the golden, not paid
+per-PR. The golden is built on the **hogland** side by `scripts/posthog-preview-setup.sh`
+via `snapshot-build` (a cold-boot seed — **never** `box snapshot` of a restored
+box, which bakes the source TAP name and won't re-restore) and is left **warm**
+(stack running) so restores resume a serving PostHog. It bakes `JS_URL=""` +
+wildcard CSRF so any box's edge URL serves without a per-box rewrite. The DB
+travels with the image it was migrated by — don't reuse a stale golden DB against
+a newer image; re-bake instead. Timing details + the warm-vs-cold analysis live
+in `STARTUP.md` and hogland's `docs/CHUNKFS_RESTORE_PERFORMANCE.md`.

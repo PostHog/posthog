@@ -107,6 +107,21 @@ the PR touches migrations) runs warm (~20s). So a real preview lands ~60–90s, 
 32s — the 32s is the golden's own resume. A follow-on win is making `SITE_URL`
 per-box without a web recreate, which would bring real previews toward ~32s too.
 
+## Wake-on-request (future): warm restore of a hibernated preview
+
+The same warm-restore physics enable the end goal: hibernate an idle preview
+(snapshot the *ready* box — stack up, PR code current — then destroy it, zero
+node cost) and **wake it on the first HTTP request**. Because the snapshot is the
+fully-brought-up preview, waking is a warm restore, not a rebuild: **~30–40s to
+serving even on a cold node** (UFFD restores the page cache; the serving working
+set faults in lazily — see hogland `docs/CHUNKFS_RESTORE_PERFORMANCE.md`), vs the
+~250s to rebuild from the golden. The edge hook already exists — hogland #319's
+pen resolver returns 503 when a pen has no live box; wake-on-request slots in at
+that seam (serve a polling interstitial + kick the restore). **Blocker:**
+hibernate is a `box snapshot` of a *restored* box, which bakes the source TAP
+name and won't re-restore (C7 in the chunkfs doc / DESIGN_CONSTRAINTS) — so it
+needs hogland's TAP-remap fix plus the pen lifecycle verbs (rung 2) first.
+
 ## Gotchas — baking & restoring the golden
 
 Hard-won in PR #308 (the golden bake) + the warm-golden work. The bake script

@@ -8,6 +8,13 @@ droplets.
 > The inline `bin/hogbox-preview.py` + `bin/hogbox-preview-scratch/` here are the
 > exploration that proved the recipe; the class-based, layer-agnostic version
 > (swap hogland ↔ DigitalOcean without touching the stack) lives in `tools/`.
+>
+> **Current (2026-06-17):** the tool is pen-backed (a stable `<pen-id>` URL that
+> survives box churn), builds the PR's frontend (path-filtered), posts a GitHub
+> Deployment + a staged sticky comment, and tears down on close / label-removal /
+> a daily stale-sweep. hogland #319 (pen-id edge routing) is live on prod-us. The
+> notes below are the original exploration; see `tools/hogbox-preview/README.md`
+> for the current design.
 > The **edge/serving blocker is solved** — `box-front` shipped to hogland main, so
 > a box created with `--web-port` is reachable at its own
 > `https://<box>.boxes.hogland.<env>.posthog.dev/` (no SSH forward). Full SPA
