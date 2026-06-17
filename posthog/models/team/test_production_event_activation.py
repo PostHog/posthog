@@ -304,7 +304,16 @@ class TestTeamsMeetingCriterion(ClickhouseTestMixin, BaseTest):
         _seed_event(self.team.id, properties={"$host": PRODUCTION_HOST})
         self._assert_web_qualifiers(_teams_meeting_criterion([self.team.id]), {self.team.id: PRODUCTION_HOST})
 
-    def test_only_listed_teams_are_evaluated(self) -> None:
+    def test_mobile_takes_precedence_over_server(self) -> None:
+        # Both legs cross their thresholds with no web host; mobile must win, per
+        # the documented web > mobile > server precedence.
+        _seed_mobile_events(self.team.id, user_count=MOBILE_LIB_USERS_THRESHOLD)
+        _seed_server_events(self.team.id, user_count=SERVER_LIB_USERS_THRESHOLD)
+        self.assertEqual(
+            _teams_meeting_criterion([self.team.id]),
+            {self.team.id: ProductionTrafficSignal(kind="mobile_lib_users", distinct_count=MOBILE_LIB_USERS_THRESHOLD)},
+        )
+
         other_team = Team.objects.create(organization=self.organization, name="other")
         _seed_event(self.team.id, properties={"$host": PRODUCTION_HOST})
         _seed_event(other_team.id, properties={"$host": PRODUCTION_HOST})
