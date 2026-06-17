@@ -92,9 +92,9 @@ def _synthesize(inputs: SynthesizeActionInputs) -> SynthesizeActionResult:
     slack_text = _markdown_to_slack(markdown)
 
     run.synthesized_markdown = markdown
-    run.slack_text = slack_text
+    run.output = {"slack": slack_text}
     run.observation_count = len(lines)
-    run.save(update_fields=["synthesized_markdown", "slack_text", "observation_count", "updated_at"])
+    run.save(update_fields=["synthesized_markdown", "output", "observation_count", "updated_at"])
 
     return SynthesizeActionResult(status=SynthesisStatus.SYNTHESIZED, observation_count=len(lines))
 

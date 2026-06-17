@@ -85,9 +85,9 @@ class TestVisionActionSynthesis(BaseTest):
         run.refresh_from_db()
         self.assertIn("Two", run.synthesized_markdown)
         self.assertEqual(run.observation_count, 2)
-        # Slack conversion: heading + bold → *...*
-        self.assertIn("*Summary*", run.slack_text)
-        self.assertIn("*Two*", run.slack_text)
+        # Slack conversion: heading + bold → *...* — stored under output["slack"]
+        self.assertIn("*Summary*", run.output["slack"])
+        self.assertIn("*Two*", run.output["slack"])
 
     def test_idempotent_when_already_synthesized(self) -> None:
         self._observation("something")
