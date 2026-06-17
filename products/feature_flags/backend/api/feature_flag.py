@@ -720,6 +720,10 @@ class FeatureFlagCreateRequestSchemaSerializer(serializers.Serializer):
     )
     filters = FeatureFlagFiltersSchemaSerializer(required=False, help_text="Feature flag targeting configuration.")
     active = serializers.BooleanField(required=False, help_text="Whether the feature flag is active.")
+    archived = serializers.BooleanField(
+        required=False,
+        help_text="Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`).",
+    )
     tags = serializers.ListField(
         child=serializers.CharField(),
         required=False,
@@ -766,6 +770,10 @@ class FeatureFlagPartialUpdateRequestSchemaSerializer(serializers.Serializer):
     )
     filters = FeatureFlagFiltersSchemaSerializer(required=False, help_text="Feature flag targeting configuration.")
     active = serializers.BooleanField(required=False, help_text="Whether the feature flag is active.")
+    archived = serializers.BooleanField(
+        required=False,
+        help_text="Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`).",
+    )
     tags = serializers.ListField(
         child=serializers.CharField(),
         required=False,

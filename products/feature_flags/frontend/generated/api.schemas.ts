@@ -694,6 +694,8 @@ export interface FeatureFlagCreateRequestSchemaApi {
     filters?: FeatureFlagFiltersSchemaApi
     /** Whether the feature flag is active. */
     active?: boolean
+    /** Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`). */
+    archived?: boolean
     /** Organizational tags for this feature flag. */
     tags?: string[]
     /** Evaluation contexts that control where this flag evaluates at runtime. */
@@ -730,6 +732,8 @@ export interface PatchedFeatureFlagPartialUpdateRequestSchemaApi {
     filters?: FeatureFlagFiltersSchemaApi
     /** Whether the feature flag is active. */
     active?: boolean
+    /** Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`). */
+    archived?: boolean
     /** Organizational tags for this feature flag. */
     tags?: string[]
     /** Evaluation contexts that control where this flag evaluates at runtime. */
