@@ -32,6 +32,7 @@ import type { alertFormLogicType } from './alertFormLogicType'
 import { getAlertFormValidationErrors } from './alertFormSchema'
 import { alertLogic } from './alertLogic'
 import { alertNotificationLogic } from './alertNotificationLogic'
+import { deriveFunnelAlertPreview, FunnelAlertPreview } from './funnelAlertPreview'
 import { columnIsNumeric, deriveHogQLAlertPreview, HogQLAlertPreview } from './hogqlAlertPreview'
 import { insightAlertsLogic } from './insightAlertsLogic'
 import {
@@ -411,6 +412,15 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 bounds: InsightsThresholdBounds | null | undefined
             ): HogQLAlertPreview | null =>
                 props.insightAlertKind === 'hogql' ? deriveHogQLAlertPreview(insightData, config, bounds) : null,
+        ],
+        /** The conversion rate(s) a funnel alert would evaluate right now; null until the result loads. */
+        funnelAlertPreview: [
+            (s) => [s.insightData, (state, logicProps) => s.alertForm(state, logicProps)?.config],
+            (
+                insightData: Record<string, any> | null,
+                config: AlertConfig | null | undefined
+            ): FunnelAlertPreview | null =>
+                props.insightAlertKind === 'funnels' ? deriveFunnelAlertPreview(insightData, config) : null,
         ],
         /** Result column names of the SQL insight, for the column pickers. */
         hogqlResultColumns: [

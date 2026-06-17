@@ -1,9 +1,10 @@
 import { Group } from 'kea-forms'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonSelect, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 
 import { AlertFormType } from 'lib/components/Alerts/alertFormLogic'
+import { FunnelAlertPreview } from 'lib/components/Alerts/funnelAlertPreview'
 import { HogQLAlertPreview } from 'lib/components/Alerts/hogqlAlertPreview'
 import { isAnyRowHogQLConfig } from 'lib/components/Alerts/types'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -59,8 +60,49 @@ export function TrendsDefinitionFields({
     )
 }
 
+/** A read-out of the conversion rate the funnel alert would evaluate right now, so the threshold
+ * can be set against a real value before the first check. */
+function FunnelAlertPreviewBanner({ preview }: { preview: FunnelAlertPreview | null }): JSX.Element | null {
+    if (preview === null) {
+        return null
+    }
+    if (preview.status === 'no-data') {
+        return (
+            <LemonBanner type="info" className="w-full">
+                This funnel has no data for the selected steps yet — the alert evaluates 0% until it does.
+            </LemonBanner>
+        )
+    }
+    const format = (rate: number): string => `${rate.toFixed(1)}%`
+    if (preview.isBreakdown) {
+        const min = Math.min(...preview.rates)
+        const max = Math.max(...preview.rates)
+        return (
+            <LemonBanner type="info" className="w-full">
+                Across {preview.rates.length} breakdown values, conversion is currently{' '}
+                <strong>
+                    {format(min)}–{format(max)}
+                </strong>{' '}
+                — the alert fires if any value breaches the threshold.
+            </LemonBanner>
+        )
+    }
+    return (
+        <LemonBanner type="info" className="w-full">
+            This funnel currently converts at <strong>{format(preview.rates[0])}</strong> — the alert checks this
+            against your threshold.
+        </LemonBanner>
+    )
+}
+
 /** Funnels: pick the conversion metric and step. */
-export function FunnelsDefinitionFields({ funnelStepCount }: { funnelStepCount: number }): JSX.Element {
+export function FunnelsDefinitionFields({
+    funnelStepCount,
+    funnelPreview,
+}: {
+    funnelStepCount: number
+    funnelPreview: FunnelAlertPreview | null
+}): JSX.Element {
     return (
         <div className="flex flex-wrap gap-3 items-center">
             <div>Alert on</div>
@@ -89,6 +131,7 @@ export function FunnelsDefinitionFields({ funnelStepCount }: { funnelStepCount: 
                     />
                 </LemonField>
             </Group>
+            <FunnelAlertPreviewBanner preview={funnelPreview} />
         </div>
     )
 }

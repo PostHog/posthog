@@ -12,6 +12,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { AlertFormType } from 'lib/components/Alerts/alertFormLogic'
+import { FunnelAlertPreview } from 'lib/components/Alerts/funnelAlertPreview'
 import { HogQLAlertPreview } from 'lib/components/Alerts/hogqlAlertPreview'
 import {
     AlertSimulationResult,
@@ -40,6 +41,8 @@ export interface AlertDefinitionSectionProps {
     formulaNodes: Array<{ formula: string; custom_name?: string | null }> | undefined
     /** Number of steps in the funnel, used to populate the step picker for funnel alerts. */
     funnelStepCount: number
+    /** The conversion rate(s) a funnel alert would evaluate right now; null until the result loads. */
+    funnelPreview: FunnelAlertPreview | null
     /** What a SQL alert would evaluate right now; null until the insight result loads. */
     hogqlPreview: HogQLAlertPreview | null
     /** Result column names of the SQL insight, for the column pickers. */
@@ -74,6 +77,7 @@ export function AlertDefinitionSection({
     alertSeries,
     formulaNodes,
     funnelStepCount,
+    funnelPreview,
     hogqlPreview,
     hogqlColumns,
     hogqlValueColumnOptions,
@@ -113,7 +117,7 @@ export function AlertDefinitionSection({
                     alertMode={alertMode}
                 />
             ) : isFunnelsAlertConfig(alertForm.config) ? (
-                <FunnelsDefinitionFields funnelStepCount={funnelStepCount} />
+                <FunnelsDefinitionFields funnelStepCount={funnelStepCount} funnelPreview={funnelPreview} />
             ) : (
                 <HogQLDefinitionFields
                     alertForm={alertForm}

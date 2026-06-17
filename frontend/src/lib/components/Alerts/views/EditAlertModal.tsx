@@ -106,6 +106,7 @@ export function EditAlertModal({
         simulationDateFrom,
         thresholdBoundsFormError,
         hogqlAlertPreview,
+        funnelAlertPreview,
         hogqlResultColumns,
         hogqlValueColumnOptions,
         hogqlLabelColumnOptions,
@@ -270,6 +271,7 @@ export function EditAlertModal({
                                         alertSeries={alertSeries}
                                         formulaNodes={formulaNodes}
                                         funnelStepCount={funnelSource?.series?.length ?? 0}
+                                        funnelPreview={funnelAlertPreview}
                                         hogqlPreview={hogqlAlertPreview}
                                         hogqlColumns={hogqlResultColumns}
                                         hogqlValueColumnOptions={hogqlValueColumnOptions}

@@ -23,6 +23,7 @@ import { InsightLogicProps, InsightShortId } from '~/types'
 
 import { alertFormLogic, thresholdAlertHasBounds, type AlertFormType } from './alertFormLogic'
 import { alertNotificationLogic } from './alertNotificationLogic'
+import { deriveFunnelAlertPreview } from './funnelAlertPreview'
 import { deriveHogQLAlertPreview, HOGQL_ANY_ROW_MAX_ROWS, HOGQL_LAST_ROW_MAX_ROWS } from './hogqlAlertPreview'
 import { insightAlertsLogic } from './insightAlertsLogic'
 import type { AlertType } from './types'
@@ -654,6 +655,56 @@ describe('alertFormLogic', () => {
                 null
             )
             expect(preview?.status).toBe('ok')
+        })
+    })
+
+    describe('deriveFunnelAlertPreview', () => {
+        const FROM_START = { type: 'FunnelsAlertConfig', metric: 'conversion_from_start', funnel_step: null } as const
+        const steps = (...counts: number[]): Record<string, any>[] =>
+            counts.map((count, order) => ({ order, count, breakdown_value: null }))
+
+        it.each([
+            ['not a funnel config', { result: steps(100, 40) }, { type: 'HogQLAlertConfig' }, null],
+            ['no result loaded', null, FROM_START, null],
+            ['empty result', { result: [] }, FROM_START, null],
+            ['breakdown with an empty step list', { result: [[]] }, FROM_START, { status: 'no-data' }],
+            [
+                'from_start at the last step',
+                { result: steps(100, 40) },
+                FROM_START,
+                { status: 'ok', rates: [40], isBreakdown: false },
+            ],
+            [
+                'from_previous divides by the prior step',
+                { result: steps(100, 50, 10) },
+                { type: 'FunnelsAlertConfig', metric: 'conversion_from_previous', funnel_step: 2 },
+                { status: 'ok', rates: [20], isBreakdown: false },
+            ],
+            [
+                'zero base evaluates to 0%',
+                { result: steps(0, 5) },
+                FROM_START,
+                { status: 'ok', rates: [0], isBreakdown: false },
+            ],
+            [
+                'breakdown computes a rate per value',
+                {
+                    result: [
+                        [
+                            { order: 0, count: 100, breakdown_value: 'US' },
+                            { order: 1, count: 40, breakdown_value: 'US' },
+                        ],
+                        [
+                            { order: 0, count: 80, breakdown_value: 'DE' },
+                            { order: 1, count: 20, breakdown_value: 'DE' },
+                        ],
+                    ],
+                },
+                FROM_START,
+                { status: 'ok', rates: [40, 25], isBreakdown: true },
+            ],
+        ])('%s', (_name, insightData, config, expected) => {
+            expect(deriveFunnelAlertPreview(insightData as Record<string, any> | null, config as any)).toEqual(expected)
         })
     })
 })
