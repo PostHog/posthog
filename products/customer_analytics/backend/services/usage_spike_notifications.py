@@ -65,7 +65,8 @@ def notify_managers_of_usage_spike(
 
         title = f"Usage spike: {account.name}"[:TITLE_MAX_LENGTH]
         body = _build_body(spikes, detected_at)[:BODY_MAX_LENGTH]
-        source_url = _build_source_url(account)
+        # Project-relative; the notifications side panel adds the project prefix on navigation.
+        source_url = build_account_deeplink(account_id=str(account.id), tab="usage")
 
         for user_id in manager_user_ids:
             _notify_manager(
@@ -79,13 +80,6 @@ def notify_managers_of_usage_spike(
     except Exception as e:
         capture_exception(e)
         logger.exception("usage_spike.dispatch_failed", spike_id=spike_id)
-
-
-def _build_source_url(account: Account) -> str:
-    # Project-relative on purpose: the notifications side panel adds the project prefix on navigation
-    # (same-project push or the cross-project urls.project(...) wrapper), so a `/project/<id>` prefix
-    # here would double up.
-    return build_account_deeplink(account_id=str(account.id), tab="usage")
 
 
 def _find_account(

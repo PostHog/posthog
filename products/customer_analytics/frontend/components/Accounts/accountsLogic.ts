@@ -3,6 +3,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { isUUIDLike } from 'lib/utils/guards'
 import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -41,9 +42,6 @@ export const SEARCH_DEBOUNCE_MS = 300
 // be in the DOM yet — poll briefly for it before scrolling.
 const SCROLL_TO_ACCOUNT_POLL_MS = 100
 const SCROLL_TO_ACCOUNT_MAX_ATTEMPTS = 40
-
-// Guards the `:accountId` path param before it's interpolated into the HogQL id filter.
-const ACCOUNT_ID_PATH_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 interface SortLikeValues {
     sortOrder: AccountSortOrder
@@ -591,7 +589,8 @@ export const accountsLogic = kea<accountsLogicType>([
         // Path route `/accounts/:accountId/:tab`: filter the list to one account and open the tab.
         // Neither setter is wired into actionToUrl, so the URL stays on the path (no navigate-away).
         const openAccountByPath = (accountId: string, rawTab?: string): void => {
-            if (!ACCOUNT_ID_PATH_RE.test(accountId)) {
+            // Guard the path param before it's interpolated into the HogQL id filter.
+            if (!isUUIDLike(accountId)) {
                 return
             }
             const tab =
