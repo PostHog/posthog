@@ -21249,6 +21249,7 @@
                 "YahooFinance",
                 "Clarifai",
                 "Adapty",
+                "Braintrust",
                 "Custom"
             ],
             "type": "string"
