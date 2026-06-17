@@ -3,7 +3,10 @@ from typing import cast
 from posthog.hogql import ast
 
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
-from posthog.hogql_queries.insights.utils.aggregations import FirstTimeForUserEventsQueryAlternator
+from posthog.hogql_queries.insights.utils.aggregations import (
+    FirstTimeForUserDataWarehouseConfig,
+    FirstTimeForUserEventsQueryAlternator,
+)
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 
@@ -11,16 +14,19 @@ class FirstTimeForUserAggregationQuery:
     _context: FunnelQueryContext
     _filters: ast.Expr | None
     _event_or_action_filter: ast.Expr | None
+    _dwh_config: FirstTimeForUserDataWarehouseConfig | None
 
     def __init__(
         self,
         context: FunnelQueryContext,
         filters: ast.Expr | None = None,
         event_or_action_filter: ast.Expr | None = None,
+        dwh_config: FirstTimeForUserDataWarehouseConfig | None = None,
     ):
         self._context = context
         self._filters = filters
         self._event_or_action_filter = event_or_action_filter
+        self._dwh_config = dwh_config
 
     def to_query(self) -> ast.SelectQuery:
         query = ast.SelectQuery(
@@ -38,14 +44,16 @@ class FirstTimeForUserAggregationQuery:
             self._filters,
             self._event_or_action_filter,
             self._ratio_expr(),
+            dwh_config=self._dwh_config,
         )
         builder.append_select(self._select_expr(), aggregate=True)
         return cast(ast.SelectQuery, builder.build())
 
     def _select_expr(self):
+        expr = self._dwh_config.id_select_expr if self._dwh_config is not None else ast.Field(chain=["uuid"])
         return ast.Alias(
             alias="uuid",
-            expr=ast.Field(chain=["uuid"]),
+            expr=expr,
         )
 
     def _date_range(self) -> QueryDateRange:
@@ -58,17 +66,22 @@ class FirstTimeForUserAggregationQuery:
         )
         return date_range
 
+    def _timestamp_expr(self) -> ast.Expr:
+        if self._dwh_config is not None:
+            return self._dwh_config.timestamp_expr
+        return ast.Field(chain=["timestamp"])
+
     def _date_to_expr(self) -> ast.Expr:
         return ast.CompareOperation(
             op=ast.CompareOperationOp.LtEq,
-            left=ast.Field(chain=["timestamp"]),
+            left=self._timestamp_expr(),
             right=ast.Constant(value=self._date_range().date_to()),
         )
 
     def _date_from_expr(self) -> ast.Expr:
         return ast.CompareOperation(
             op=ast.CompareOperationOp.GtEq,
-            left=ast.Field(chain=["timestamp"]),
+            left=self._timestamp_expr(),
             right=ast.Constant(value=self._date_range().date_from()),
         )
 

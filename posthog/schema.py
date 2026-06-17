@@ -258,6 +258,7 @@ from posthog.schema_enums import (
     SurveyTabPosition as SurveyTabPosition,
     SurveyType as SurveyType,
     SurveyWidgetType as SurveyWidgetType,
+    SymbolStatsGranularity as SymbolStatsGranularity,
     Tag as Tag,
     TaskExecutionStatus as TaskExecutionStatus,
     TaxonomicFilterGroupType as TaxonomicFilterGroupType,
@@ -6737,6 +6738,18 @@ class SourceFieldInputConfig(BaseModel):
     type: SourceFieldInputConfigType
 
 
+class SourceSymbol(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    endLine: conint(ge=1) = Field(..., description="Last line of the symbol's range, inclusive (1-based).")
+    name: str | None = Field(
+        default=None,
+        description=("Opaque identifier (e.g. the function name) echoed back on the matching result row."),
+    )
+    startLine: conint(ge=1) = Field(..., description="First line of the symbol's range, inclusive (1-based).")
+
+
 class SpanPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6944,6 +6957,90 @@ class SurveyQuestionSchema(BaseModel):
     shuffleOptions: bool | None = None
     type: SurveyQuestionType
     upperBoundLabel: str | None = None
+
+
+class SymbolStatsPeriod(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    busy_count: int = Field(
+        ...,
+        description=("Spans in the period carrying an active/busy time attribute. 0 means busy_* are not meaningful."),
+    )
+    count: int = Field(..., description="Number of spans attributed to this symbol in the period.")
+    error_count: int = Field(..., description="Spans whose OTel status is Error (`status_code = 2`).")
+    p50_busy_nano: float = Field(
+        ...,
+        description=("Median active (busy) time, in nanoseconds. Excludes time awaiting children."),
+    )
+    p50_duration_nano: float = Field(..., description="Median wall-clock span duration, in nanoseconds.")
+    p95_busy_nano: float = Field(..., description="95th-percentile active (busy) time, in nanoseconds.")
+    p95_duration_nano: float = Field(..., description="95th-percentile wall-clock span duration, in nanoseconds.")
+    p99_busy_nano: float = Field(..., description="99th-percentile active (busy) time, in nanoseconds.")
+    p99_duration_nano: float = Field(..., description="99th-percentile wall-clock span duration, in nanoseconds.")
+    sum_duration_nano: float = Field(
+        ...,
+        description=("Total wall-clock span duration in the period, in nanoseconds (additive across spans)."),
+    )
+
+
+class SymbolStatsRow(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    busy_count: int = Field(
+        ...,
+        description=("Spans in this symbol carrying an active/busy time attribute. 0 means busy_* are not meaningful."),
+    )
+    count: int = Field(..., description="Number of spans attributed to this bucket.")
+    count_pct_change: float | None = Field(
+        ...,
+        description=(
+            "Percentage change in count vs the previous period (180 = +180%). Null when"
+            " there is no baseline (previous count 0); use `previous.count`, not a null"
+            " here, to detect a brand-new symbol."
+        ),
+    )
+    end_line: int | None = Field(
+        default=None,
+        description="`endLine` of the matched symbol's range. Symbol mode only.",
+    )
+    error_count: int = Field(..., description="Spans whose OTel status is Error (`status_code = 2`).")
+    line: int = Field(
+        ...,
+        description=(
+            "The bucket's anchor line: the source line in line mode, or the symbol's `startLine` in symbol mode."
+        ),
+    )
+    name: str | None = Field(
+        default=None,
+        description="Echoed `name` from the requested symbol. Symbol mode only.",
+    )
+    p50_busy_nano: float = Field(
+        ...,
+        description=("Median active (busy) time, in nanoseconds. Excludes time awaiting children."),
+    )
+    p50_duration_nano: float = Field(..., description="Median wall-clock span duration, in nanoseconds.")
+    p95_busy_nano: float = Field(..., description="95th-percentile active (busy) time, in nanoseconds.")
+    p95_duration_nano: float = Field(..., description="95th-percentile wall-clock span duration, in nanoseconds.")
+    p95_duration_pct_change: float | None = Field(
+        ...,
+        description=(
+            "Percentage change in p95 duration vs the previous period (180 = +180%)."
+            " Null when the previous p95 is 0 (no comparable baseline), which can"
+            ' happen even when previous.count > 0 — do not read null as "new".'
+        ),
+    )
+    p99_busy_nano: float = Field(..., description="99th-percentile active (busy) time, in nanoseconds.")
+    p99_duration_nano: float = Field(..., description="99th-percentile wall-clock span duration, in nanoseconds.")
+    previous: SymbolStatsPeriod = Field(
+        ...,
+        description=("The same metrics over the immediately-preceding equal-length period."),
+    )
+    sum_duration_nano: float = Field(
+        ...,
+        description=("Total wall-clock span duration in this symbol, in nanoseconds (additive across spans)."),
+    )
 
 
 class TableSettings(BaseModel):
@@ -7255,6 +7352,51 @@ class TraceSpansQueryResponse(BaseModel):
         default=None, description="The date range used for the query"
     )
     results: Any
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    warnings: list[DataWarehouseSyncWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose latest"
+            " sync failed, is paused, hit a billing limit, or is otherwise stale."
+            " Results may not reflect current source data. Accumulated across every"
+            " HogQL execution that contributes to this response — so insights backed by"
+            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
+            " HogQL queries."
+        ),
+    )
+
+
+class TraceSpansSymbolStatsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    granularity: SymbolStatsGranularity = Field(
+        ...,
+        description=("Which bucketing was applied: `line` when no symbols were supplied, `symbol` otherwise."),
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[SymbolStatsRow] = Field(..., description="One row per bucket, ordered by line ascending.")
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -11696,6 +11838,62 @@ class CachedTraceSpansQueryResponse(BaseModel):
         default=None, description="The date range used for the query"
     )
     results: Any
+    timezone: str
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    warnings: list[DataWarehouseSyncWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose latest"
+            " sync failed, is paused, hit a billing limit, or is otherwise stale."
+            " Results may not reflect current source data. Accumulated across every"
+            " HogQL execution that contributes to this response — so insights backed by"
+            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
+            " HogQL queries."
+        ),
+    )
+
+
+class CachedTraceSpansSymbolStatsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: AwareDatetime | None = None
+    calculation_trigger: str | None = Field(
+        default=None,
+        description=("What triggered the calculation of the query, leave empty if user/immediate"),
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    granularity: SymbolStatsGranularity = Field(
+        ...,
+        description=("Which bucketing was applied: `line` when no symbols were supplied, `symbol` otherwise."),
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: AwareDatetime
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    next_allowed_client_refresh: AwareDatetime
+    query_metadata: dict[str, Any] | None = None
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[SymbolStatsRow] = Field(..., description="One row per bucket, ordered by line ascending.")
     timezone: str
     timings: list[QueryTiming] | None = Field(
         default=None,
@@ -20109,6 +20307,37 @@ class TraceQuery(BaseModel):
     response: TraceQueryResponse | None = None
     tags: QueryLogTags | None = None
     traceId: str
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class TraceSpansSymbolStatsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: DateRange
+    filePath: str = Field(
+        ...,
+        description=(
+            "Repo-relative path of the source file to aggregate (e.g."
+            " `src/flags/flag_matching.rs`). Matched as a path suffix against the"
+            " recorded `code.file.path` / `code.filepath`, so a recorded path carrying"
+            " an extra crate/workspace prefix still matches."
+        ),
+    )
+    kind: Literal["TraceSpansSymbolStatsQuery"] = "TraceSpansSymbolStatsQuery"
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    response: TraceSpansSymbolStatsQueryResponse | None = None
+    symbols: list[SourceSymbol] | None = Field(
+        default=None,
+        description=(
+            "Optional symbol (function) ranges to aggregate spans into. When supplied,"
+            " each span is attributed to the smallest range that encloses its recorded"
+            " line (one row per symbol). When omitted (or an empty list), spans are"
+            " aggregated per source line (one row per instrumented line) — pass a"
+            " single whole-file range for a file-level total."
+        ),
+    )
+    tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 

@@ -67,9 +67,25 @@ __all__ = [
 # cert paths are intentionally pointed at non-existent files so psycopg
 # uses the system default verification without picking up an unintended
 # client cert.
+#
+# TCP keepalives bound a *post-connect* socket stall. `connect_timeout` only
+# covers establishing the connection — once connected, a query blocks in
+# psycopg's `wait_c` for as long as the socket stays open with no response.
+# If the Redshift peer goes away mid-query (cluster pause/resize, network
+# drop), that wait would otherwise hang until the Temporal activity hits its
+# `start_to_close_timeout` and cancels the worker thread, surfacing a
+# misleading `CancelledError` and burning the whole activity budget. With
+# keepalives a dead peer is detected in ~30-60s and raised as a fast,
+# retryable `OperationalError` instead. These only fire when the peer stops
+# responding, so they never interrupt a healthy long-running streaming sync.
 _REDSHIFT_CONNECT_OPTS: dict[str, Any] = {
     "sslmode": "require",
     "connect_timeout": 15,
+    "keepalives": 1,
+    "keepalives_idle": 30,
+    "keepalives_interval": 10,
+    "keepalives_count": 3,
+    "tcp_user_timeout": 60000,  # 60s: force-close if sent data stays unacked
     "sslrootcert": "/tmp/no.txt",
     "sslcert": "/tmp/no.txt",
     "sslkey": "/tmp/no.txt",
