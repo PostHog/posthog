@@ -36,14 +36,14 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
-from posthog.temporal.ai.posthog_code_slack_interactivity import (
-    PostHogCodeSlackInteractivityInputs,
-    PostHogCodeSlackTerminateTaskWorkflow,
-)
 from posthog.temporal.ai.slack_app import (
     PostHogCodeSlackMentionCommandWorkflowInputs,
     PostHogCodeSlackMentionWorkflowInputs,
     derive_mention_workflow_id,
+)
+from posthog.temporal.ai.slack_app.posthog_code_slack_interactivity import (
+    PostHogCodeSlackInteractivityInputs,
+    PostHogCodeSlackTerminateTaskWorkflow,
 )
 from posthog.temporal.ai.slack_app.posthog_code_slack_mention import PostHogCodeSlackMentionWorkflow
 from posthog.temporal.ai.slack_app.posthog_code_slack_mention_command import PostHogCodeSlackMentionCommandWorkflow
@@ -211,7 +211,7 @@ def post_quota_exhausted_denial(
     (which is the only side allowed to import ``ee.billing``).
     """
     logger.info(
-        "posthog_code_slack_blocked_by_quota",
+        "slack_app_slack_blocked_by_quota",
         context=context,
         team_id=integration.team_id,
         channel=channel,
@@ -960,7 +960,7 @@ def _replace_repo_picker_message_with_selection(
         )
     except Exception:
         logger.warning(
-            "posthog_code_repo_submit_picker_update_failed",
+            "slack_app_repo_submit_picker_update_failed",
             integration_id=integration_id,
             channel=channel,
             message_ts=message_ts,
@@ -994,7 +994,7 @@ def _replace_repo_picker_message_with_no_repo(
         )
     except Exception:
         logger.warning(
-            "posthog_code_repo_none_picker_update_failed",
+            "slack_app_repo_none_picker_update_failed",
             integration_id=integration_id,
             channel=channel,
             message_ts=message_ts,
@@ -1036,7 +1036,7 @@ def _resolve_pending_repo_picker_from_followup(event: dict[str, Any], integratio
     try:
         all_repos = _get_full_repo_names(integration, user_id=mentioning_user_id)
     except Exception:
-        logger.exception("posthog_code_pending_picker_repo_fetch_failed", integration_id=integration.id)
+        logger.exception("slack_app_pending_picker_repo_fetch_failed", integration_id=integration.id)
         return False
 
     selected_repo = _extract_explicit_repo(event.get("text", ""), all_repos)
@@ -1049,7 +1049,7 @@ def _resolve_pending_repo_picker_from_followup(event: dict[str, Any], integratio
         asyncio.run(handle.signal(PostHogCodeSlackMentionWorkflow.repo_selected, selected_repo))
     except Exception as e:
         logger.warning(
-            "posthog_code_pending_picker_signal_failed",
+            "slack_app_pending_picker_signal_failed",
             workflow_id=workflow_id,
             integration_id=integration.id,
             channel=channel,
@@ -1082,7 +1082,7 @@ def _resolve_pending_repo_picker_from_followup(event: dict[str, Any], integratio
         )
 
     logger.info(
-        "posthog_code_pending_picker_resolved_from_followup",
+        "slack_app_pending_picker_resolved_from_followup",
         workflow_id=workflow_id,
         integration_id=integration.id,
         channel=channel,
@@ -1285,7 +1285,7 @@ def _resolve_untagged_followup_mapping(
         return None
     if not _untagged_thread_followups_enabled(mapping.integration, slack_team_id):
         logger.info(
-            "posthog_code_thread_message_feature_flag_off",
+            "slack_app_thread_message_feature_flag_off",
             slack_team_id=slack_team_id,
             channel=channel,
             thread_ts=thread_ts,
@@ -1312,7 +1312,7 @@ def _untagged_thread_followups_enabled(integration: Integration, slack_team_id: 
         return bool(enabled)
     except Exception:
         logger.exception(
-            "posthog_code_thread_message_feature_flag_check_failed",
+            "slack_app_thread_message_feature_flag_check_failed",
             slack_team_id=slack_team_id,
             integration_id=integration.id,
         )
@@ -1335,7 +1335,7 @@ def _notify_missing_slack_scopes(
     integration = slack.integration
 
     logger.warning(
-        "posthog_code_slack_missing_scopes",
+        "slack_app_slack_missing_scopes",
         integration_id=integration.id,
         team_id=integration.team_id,
         missing=sorted(missing),
@@ -1371,7 +1371,7 @@ def get_slack_email_for_user(probe_integration: Integration, slack_user_id: str)
         return slack_email or None
     except Exception:
         logger.warning(
-            "posthog_code_resolve_user_email_failed",
+            "slack_app_resolve_user_email_failed",
             integration_id=probe_integration.id,
             slack_user_id=slack_user_id,
             exc_info=True,
@@ -1414,7 +1414,7 @@ def resolve_posthog_user_from_event(
         # retries 5xx and would replay the event. The caller gets ``None`` and
         # treats it the same as "no membership found".
         logger.warning(
-            "posthog_code_resolve_user_membership_failed",
+            "slack_app_resolve_user_membership_failed",
             integration_id=probe_integration.id,
             slack_user_id=slack_user_id,
             exc_info=True,
@@ -1757,7 +1757,7 @@ def route_posthog_code_event_to_relevant_region(
     can_defer_to_other_region = _cross_region_routing_enabled() and not _is_us_host(incoming_host) and not proxied
 
     logger.info(
-        "posthog_code_route_enter",
+        "slack_app_route_enter",
         incoming_host=incoming_host,
         is_us=_is_us_host(incoming_host),
         proxied=proxied,
@@ -1793,7 +1793,7 @@ def route_posthog_code_event_to_relevant_region(
             ignore_reason = _app_mention_ignore_reason(event)
             if ignore_reason:
                 logger.info(
-                    "posthog_code_event_app_mention_ignored",
+                    "slack_app_event_app_mention_ignored",
                     reason=ignore_reason,
                     slack_team_id=slack_team_id,
                     channel=event.get("channel"),
@@ -1804,7 +1804,7 @@ def route_posthog_code_event_to_relevant_region(
             ignore_reason = _thread_message_ignore_reason(event)
             if ignore_reason:
                 logger.info(
-                    "posthog_code_thread_message_ignored",
+                    "slack_app_thread_message_ignored",
                     reason=ignore_reason,
                     slack_team_id=slack_team_id,
                     channel=event.get("channel"),
@@ -1872,7 +1872,7 @@ def route_posthog_code_event_to_relevant_region(
         if resolution.user is None:
             if untagged_followup_mapping is not None:
                 logger.info(
-                    "posthog_code_thread_message_unknown_user",
+                    "slack_app_thread_message_unknown_user",
                     slack_team_id=slack_team_id,
                     channel=channel_str,
                     thread_ts=thread_ts_str,
@@ -1919,7 +1919,7 @@ def route_posthog_code_event_to_relevant_region(
         if untagged_followup_mapping is not None:
             if untagged_followup_mapping.integration_id not in {c.id for c in candidates}:
                 logger.info(
-                    "posthog_code_thread_message_user_no_access_to_mapping_team",
+                    "slack_app_thread_message_user_no_access_to_mapping_team",
                     slack_team_id=slack_team_id,
                     channel=channel_str,
                     thread_ts=thread_ts_str,
@@ -1937,7 +1937,7 @@ def route_posthog_code_event_to_relevant_region(
         if missing:
             if untagged_followup_mapping is not None:
                 logger.info(
-                    "posthog_code_thread_message_missing_scopes",
+                    "slack_app_thread_message_missing_scopes",
                     slack_team_id=slack_team_id,
                     integration_id=mention_target.id,
                 )
@@ -1949,7 +1949,7 @@ def route_posthog_code_event_to_relevant_region(
         if channel_id and is_ext_shared_channel and not _channel_is_approved(mention_target.integration_id, channel_id):
             if untagged_followup_mapping is not None:
                 logger.info(
-                    "posthog_code_thread_message_channel_unapproved",
+                    "slack_app_thread_message_channel_unapproved",
                     slack_team_id=slack_team_id,
                     channel=channel_id,
                 )
@@ -2007,7 +2007,7 @@ def _us_should_handle_instead(slack_team_id: str, kinds: list[str], can_defer: b
     claimed = does_other_region_claim_workspace(slack_team_id=slack_team_id, kinds=kinds, incoming_host=incoming_host)
     decision = True if claimed is None else claimed
     logger.info(
-        "posthog_code_route_us_probe_result",
+        "slack_app_route_us_probe_result",
         slack_team_id=slack_team_id,
         claimed=claimed,
         decision=decision,
@@ -2026,7 +2026,7 @@ def _route_to_other_region_or_drop(
     """
     if proxied or not _cross_region_routing_enabled():
         logger.warning(
-            "posthog_code_no_integration_found",
+            "slack_app_no_integration_found",
             slack_team_id=slack_team_id,
             incoming_host=request.get_host(),
         )
@@ -2097,7 +2097,7 @@ def _count_session_thread_messages(integration: Integration, channel: str | None
         return len(response.get("messages", []))
     except Exception:
         logger.warning(
-            "posthog_code_mention_count_failed",
+            "slack_app_mention_count_failed",
             integration_id=integration.id,
             channel=channel,
             thread_ts=thread_ts,
@@ -2439,7 +2439,7 @@ def _report_slack_mention_received(
         )
     except Exception:
         logger.warning(
-            "posthog_code_mention_analytics_failed",
+            "slack_app_mention_analytics_failed",
             slack_team_id=slack_team_id,
             integration_id=integration.id,
             exc_info=True,
@@ -2537,12 +2537,12 @@ def posthog_code_event_handler(request: HttpRequest) -> HttpResponse:
         slack_config = SlackIntegration.slack_config()
         validate_slack_request(request, slack_config["SLACK_APP_SIGNING_SECRET"])
     except SlackIntegrationError as e:
-        logger.warning("posthog_code_event_invalid_request", error=str(e))
+        logger.warning("slack_app_event_invalid_request", error=str(e))
         return HttpResponse("Invalid request", status=403)
 
     retry_num = request.headers.get("X-Slack-Retry-Num")
     if retry_num:
-        logger.info("posthog_code_event_retry", retry_num=retry_num)
+        logger.info("slack_app_event_retry", retry_num=retry_num)
         return HttpResponse(status=200)
 
     try:
@@ -2574,7 +2574,7 @@ def posthog_code_event_handler(request: HttpRequest) -> HttpResponse:
                 is_ext_shared_channel=is_ext_shared,
             )
             logger.info(
-                "posthog_code_event_dispatch_result",
+                "slack_app_event_dispatch_result",
                 result=result,
                 slack_team_id=slack_team_id,
                 event_id=event_id,
@@ -2675,10 +2675,10 @@ def _handle_repo_picker_options(payload: dict) -> JsonResponse:
     context_token = _extract_context_token(payload)
     slack_team_id = payload.get("team", {}).get("id")
     if not slack_team_id:
-        logger.info("posthog_code_repo_picker_options_missing_slack_team")
+        logger.info("slack_app_repo_picker_options_missing_slack_team")
         return JsonResponse({"options": []})
     if not context_token:
-        logger.info("posthog_code_repo_picker_options_missing_token")
+        logger.info("slack_app_repo_picker_options_missing_token")
         return JsonResponse({"options": []})
 
     ctx = _decode_picker_context(context_token)
@@ -2692,21 +2692,21 @@ def _handle_repo_picker_options(payload: dict) -> JsonResponse:
             if fallback_integration:
                 hinted_integration_id = fallback_integration.id
                 logger.info(
-                    "posthog_code_repo_picker_options_fallback_team",
+                    "slack_app_repo_picker_options_fallback_team",
                     context_token=context_token,
                     team_id=team_id,
                     integration_id=hinted_integration_id,
                 )
 
     if not ctx and not hinted_integration_id:
-        logger.info("posthog_code_repo_picker_options_no_context", context_token=context_token)
+        logger.info("slack_app_repo_picker_options_no_context", context_token=context_token)
         return JsonResponse({"options": []})
 
     requesting_user = payload.get("user", {}).get("id", "")
     expected_user = ctx["mentioning_slack_user_id"] if ctx else hinted_user_id
     if expected_user and requesting_user != expected_user:
         logger.info(
-            "posthog_code_repo_picker_options_user_mismatch",
+            "slack_app_repo_picker_options_user_mismatch",
             context_token=context_token,
             requesting_user=requesting_user,
             expected_user=expected_user,
@@ -2714,7 +2714,7 @@ def _handle_repo_picker_options(payload: dict) -> JsonResponse:
         return JsonResponse({"options": []})
 
     if not expected_user:
-        logger.info("posthog_code_repo_picker_options_missing_expected_user", context_token=context_token)
+        logger.info("slack_app_repo_picker_options_missing_expected_user", context_token=context_token)
 
     try:
         integration_id: int | None = ctx["integration_id"] if ctx else hinted_integration_id
@@ -2725,14 +2725,14 @@ def _handle_repo_picker_options(payload: dict) -> JsonResponse:
             id=integration_id, kind=SLACK_INTEGRATION_KIND, integration_id=slack_team_id
         )
     except Integration.DoesNotExist:
-        logger.info("posthog_code_repo_picker_options_no_integration", context_token=context_token)
+        logger.info("slack_app_repo_picker_options_no_integration", context_token=context_token)
         return JsonResponse({"options": []})
 
     mentioning_user_id = ctx.get("mentioning_user_id") if ctx else None
     if not isinstance(mentioning_user_id, int):
         # Without a known PostHog user we can't scope the options to a personal install;
         # return empty rather than falling back to the team install — the user can re-mention.
-        logger.info("posthog_code_repo_picker_options_missing_user_id", context_token=context_token)
+        logger.info("slack_app_repo_picker_options_missing_user_id", context_token=context_token)
         return JsonResponse({"options": []})
 
     try:
@@ -2743,7 +2743,7 @@ def _handle_repo_picker_options(payload: dict) -> JsonResponse:
 
     if not all_repos:
         logger.info(
-            "posthog_code_repo_picker_options_no_repos", context_token=context_token, integration_id=integration.id
+            "slack_app_repo_picker_options_no_repos", context_token=context_token, integration_id=integration.id
         )
         return JsonResponse({"options": []})
 
@@ -2777,7 +2777,7 @@ def _handle_repo_picker_submit(payload: dict) -> HttpResponse:
 
         if not slack_team_id or not integration_id or not channel or not thread_ts:
             logger.warning(
-                "posthog_code_repo_submit_expired_feedback_missing_context",
+                "slack_app_repo_submit_expired_feedback_missing_context",
                 slack_team_id=slack_team_id,
                 integration_id=integration_id,
                 channel=channel,
@@ -2817,7 +2817,7 @@ def _handle_repo_picker_submit(payload: dict) -> HttpResponse:
             )
         except Exception:
             logger.warning(
-                "posthog_code_repo_submit_expired_feedback_failed",
+                "slack_app_repo_submit_expired_feedback_failed",
                 integration_id=integration_id,
                 channel=channel,
                 thread_ts=thread_ts,
@@ -2827,7 +2827,7 @@ def _handle_repo_picker_submit(payload: dict) -> HttpResponse:
         return HttpResponse(status=200)
 
     if not workflow_id:
-        logger.info("posthog_code_repo_submit_missing_workflow_id")
+        logger.info("slack_app_repo_submit_missing_workflow_id")
         post_selection_expired()
         return HttpResponse(status=200)
 
@@ -2845,7 +2845,7 @@ def _handle_repo_picker_submit(payload: dict) -> HttpResponse:
         _replace_repo_picker_with_selection(payload, context, selected_repo)
         return HttpResponse(status=200)
     except Exception as e:
-        logger.warning("posthog_code_repo_submit_signal_failed", workflow_id=workflow_id, error=str(e))
+        logger.warning("slack_app_repo_submit_signal_failed", workflow_id=workflow_id, error=str(e))
         post_selection_expired()
         return HttpResponse(status=200)
 
@@ -2858,7 +2858,7 @@ def _replace_repo_picker_with_selection(payload: dict, context: dict | None, sel
 
     if not integration_id or not slack_team_id or not channel or not message_ts:
         logger.info(
-            "posthog_code_repo_submit_missing_picker_update_context",
+            "slack_app_repo_submit_missing_picker_update_context",
             integration_id=integration_id,
             slack_team_id=slack_team_id,
             channel=channel,
@@ -2886,7 +2886,7 @@ def _handle_no_repo_needed_submit(payload: dict) -> HttpResponse:
         workflow_id = payload.get("message", {}).get("metadata", {}).get("event_payload", {}).get("workflow_id")
 
     if not workflow_id or not context:
-        logger.info("posthog_code_repo_none_missing_workflow_id")
+        logger.info("slack_app_repo_none_missing_workflow_id")
         return HttpResponse(status=200)
 
     try:
@@ -2911,7 +2911,7 @@ def _handle_no_repo_needed_submit(payload: dict) -> HttpResponse:
             )
         return HttpResponse(status=200)
     except Exception as e:
-        logger.warning("posthog_code_repo_none_signal_failed", workflow_id=workflow_id, error=str(e))
+        logger.warning("slack_app_repo_none_signal_failed", workflow_id=workflow_id, error=str(e))
         return HttpResponse(status=200)
 
 
@@ -3242,7 +3242,7 @@ def _handle_terminate_task_submit(payload: dict) -> HttpResponse:
             )
         )
     except Exception as e:
-        logger.warning("posthog_code_terminate_submit_start_failed", workflow_id=workflow_id, error=str(e))
+        logger.warning("slack_app_terminate_submit_start_failed", workflow_id=workflow_id, error=str(e))
     return HttpResponse(status=200)
 
 
@@ -3255,7 +3255,7 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
         slack_config = SlackIntegration.slack_config()
         validate_slack_request(request, slack_config["SLACK_APP_SIGNING_SECRET"])
     except SlackIntegrationError as e:
-        logger.warning("posthog_code_interactivity_invalid_request", error=str(e))
+        logger.warning("slack_app_interactivity_invalid_request", error=str(e))
         return HttpResponse("Invalid request", status=403)
 
     try:
@@ -3266,7 +3266,7 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
     payload_type = payload.get("type")
     context_token = _extract_context_token(payload)
     logger.info(
-        "posthog_code_interactivity_received",
+        "slack_app_interactivity_received",
         payload_type=payload_type,
         context_token=context_token,
         host=request.get_host(),
@@ -3314,7 +3314,7 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
     proxied = _was_proxied(request)
     incoming_host = request.get_host()
     logger.info(
-        "posthog_code_interactivity_resolution",
+        "slack_app_interactivity_resolution",
         context_token_present=bool(context_token),
         has_context=bool(context),
         hinted_integration_id=hinted_integration_id,
@@ -3336,7 +3336,7 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
         upstream = _proxy_event_to_region(request, target)
         if upstream is not None:
             logger.info(
-                "posthog_code_interactivity_route",
+                "slack_app_interactivity_route",
                 outcome="proxied",
                 from_host=incoming_host,
                 to_domain=target,
@@ -3349,7 +3349,7 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
             )
         # Proxy failed — return safe defaults
         logger.warning(
-            "posthog_code_interactivity_route",
+            "slack_app_interactivity_route",
             outcome="proxy_failed",
             from_host=incoming_host,
             to_domain=target,
@@ -3361,7 +3361,7 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
 
     if not local:
         logger.warning(
-            "posthog_code_interactivity_route",
+            "slack_app_interactivity_route",
             outcome="dropped",
             from_host=incoming_host,
             payload_type=payload_type,
@@ -3372,7 +3372,7 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
         return HttpResponse(status=200)
 
     logger.info(
-        "posthog_code_interactivity_route",
+        "slack_app_interactivity_route",
         outcome="handled",
         from_host=incoming_host,
         payload_type=payload_type,
