@@ -80,6 +80,27 @@ describe('FunnelLineChart', () => {
             expect(tooltip.row('Bramble')).toContain('30%')
         })
 
+        it('orders breakdown rows by descending conversion value', async () => {
+            renderInsight({
+                query: buildFunnelsQuery({
+                    breakdownFilter: { breakdown: 'browser', breakdown_type: 'event' },
+                }),
+                featureFlags: HOG_CHARTS_FUNNEL_FLAG,
+            })
+
+            const tooltip = await chart.hoverTooltip(2)
+
+            // The query returns Safari, Chrome, Firefox, but at index 2 the conversion values are
+            // Firefox=60%, Safari=40%, Chrome=20%. Rows must be re-ordered by descending value.
+            const rows = tooltip.rows()
+            expect(rows[0]).toContain('Firefox')
+            expect(rows[1]).toContain('Safari')
+            expect(rows[2]).toContain('Chrome')
+            expect(tooltip.row('Firefox')).toContain('60%')
+            expect(tooltip.row('Safari')).toContain('40%')
+            expect(tooltip.row('Chrome')).toContain('20%')
+        })
+
         it('shows a distinct conversion value for each breakdown × compare series', async () => {
             renderInsight({
                 query: buildFunnelsQuery({
