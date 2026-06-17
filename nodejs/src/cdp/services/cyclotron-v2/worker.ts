@@ -3,6 +3,7 @@ import { Pool } from 'pg'
 import { v7 as uuidv7 } from 'uuid'
 
 import { logger } from '../../../utils/logger'
+import { assignEmailDequeueSeq } from './manager'
 import {
     CyclotronV2DequeuedJob,
     CyclotronV2RescheduleOptions,
@@ -298,6 +299,21 @@ export class CyclotronV2Worker {
                 if (options?.queueName !== undefined) {
                     params.push(options.queueName)
                     setClauses.push(`queue_name = $${params.length}`)
+                }
+
+                // Cross-queue routing into the email queue: assign a fresh
+                // dequeue_seq so the row participates in fair ordering. Without
+                // this, hogflow → email re-routing (via job.reschedule({
+                // queueName: 'email' })) lands the row with NULL dequeue_seq,
+                // which `NULLS FIRST` drains ahead of every fair-ordered row —
+                // defeating the per-team interleave for the most common email
+                // path. Skipped when the row was already on the email queue,
+                // so existing fair-ordered rows keep their place after retry/
+                // reschedule without bumping the counter.
+                if (options?.queueName === 'email' && row.queue_name !== 'email') {
+                    const dequeueSeq = await assignEmailDequeueSeq(pool, row.team_id)
+                    params.push(dequeueSeq)
+                    setClauses.push(`dequeue_seq = $${params.length}`)
                 }
 
                 await pool.query(

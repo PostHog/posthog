@@ -17,7 +17,32 @@ import { CyclotronV2JobInit, CyclotronV2JobInitSchema, CyclotronV2ManagerConfig 
  *
  * Only used for queue_name='email'. Other queues leave dequeue_seq NULL.
  */
-const EMAIL_DEQUEUE_BLOCK_SIZE = BigInt(16_777_216)
+export const EMAIL_DEQUEUE_BLOCK_SIZE = BigInt(16_777_216)
+
+/**
+ * Atomically bump the per-team email counter and return the formatted
+ * `dequeue_seq` string for one new email job. Exported because the worker's
+ * `reschedule()` path also needs to assign `dequeue_seq` when a hog/hogflow
+ * job is re-routed into the email queue — without this, those rows land with
+ * `NULL dequeue_seq` and bypass the per-team interleave (`NULLS FIRST` would
+ * drain them ahead of any fair-ordered rows).
+ *
+ * For bulk inserts of multiple email jobs at once, `bulkCreateJobs` uses its
+ * own batched UPSERT for efficiency rather than calling this in a loop.
+ */
+export async function assignEmailDequeueSeq(pool: Pool, teamId: number): Promise<string> {
+    const result = await pool.query<{ counter: string }>(
+        `INSERT INTO cyclotron_email_team_seq (team_id, counter)
+         VALUES ($1, 1)
+         ON CONFLICT (team_id) DO UPDATE
+            SET counter = cyclotron_email_team_seq.counter + 1
+         RETURNING counter`,
+        [teamId]
+    )
+    const counter = BigInt(result.rows[0].counter)
+    // pg accepts BIGINT as string to avoid JS number precision loss
+    return (counter * EMAIL_DEQUEUE_BLOCK_SIZE + BigInt(teamId)).toString()
+}
 
 // Counts Postgres write failures from createJob / bulkCreateJobs *after* input
 // validation has passed. Zod parse errors and the overwrite-conflict logical

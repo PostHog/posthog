@@ -1111,6 +1111,50 @@ describe('Cyclotron V2', () => {
                 expect(jobs[0].id).toBe(legacyId)
                 expect(newerId).toBeDefined() // (silences unused-var warning)
             })
+
+            it('assigns dequeue_seq when a hog job is rescheduled into the email queue', async () => {
+                // Hogflow → email re-routing is the most common path into the
+                // email queue in production: a workflow step calls
+                // `job.reschedule({ queueName: 'email' })`. Without dequeue_seq
+                // assignment on that path, the row lands with NULL and the
+                // NULLS FIRST sort would drain it ahead of fair-ordered rows
+                // — bypassing the per-team interleave entirely.
+                const teamId = 42
+                const hogJobId = await manager.createJob({ teamId, queueName: 'hog' })
+
+                // Dequeue the hog job (mimics what the hog worker does), then
+                // reschedule it into the email queue (mimics the hog → email
+                // routing in hog-executor.service.ts).
+                const hogWorker = createWorker('hog')
+                const [hogJob] = await dequeueOneBatch(hogWorker)
+                expect(hogJob.id).toBe(hogJobId)
+                await hogJob.reschedule({ queueName: EMAIL_QUEUE })
+
+                // The row should now have a dequeue_seq matching the formula
+                // and the per-team counter should have been bumped to 1.
+                expect(await readDequeueSeq(hogJobId)).toBe(BigInt(16_777_216) + BigInt(teamId))
+                expect(await readTeamCounter(teamId)).toBe(1n)
+            })
+
+            it('does not bump dequeue_seq when an email job is rescheduled within the email queue', async () => {
+                // Retry / failure recovery path: an email job that's already
+                // on the email queue gets rescheduled back to 'available' with
+                // queueName='email' should *keep* its existing dequeue_seq so
+                // it doesn't lose its place in the round-robin. Bumping the
+                // counter on every retry would silently demote retried jobs.
+                const teamId = 99
+                const [id] = await manager.bulkCreateJobs([{ teamId, queueName: EMAIL_QUEUE }])
+                const seqBefore = await readDequeueSeq(id)
+                expect(seqBefore).not.toBeNull()
+
+                const worker = createFairWorker({ batchMaxSize: 1 })
+                const [job] = await dequeueOneBatch(worker)
+                await job.reschedule({ queueName: EMAIL_QUEUE })
+
+                expect(await readDequeueSeq(id)).toBe(seqBefore)
+                // Counter stays at 1 — no new claim happened.
+                expect(await readTeamCounter(teamId)).toBe(1n)
+            })
         })
     })
 
