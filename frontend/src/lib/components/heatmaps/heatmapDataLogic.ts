@@ -21,7 +21,7 @@ import {
 } from 'lib/components/IframedToolbarBrowser/utils'
 import { LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { dateFilterToText } from 'lib/utils'
+import { dateFilterToText } from 'lib/utils/dateFilters'
 import { getAppContext } from 'lib/utils/getAppContext'
 
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'

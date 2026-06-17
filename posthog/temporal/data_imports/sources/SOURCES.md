@@ -229,6 +229,7 @@ doesn't conflict with concurrent PRs.
 
 - active_campaign
 - acuity_scheduling
+- adapty
 - adjust
 - adobe_analytics
 - adobe_commerce
@@ -272,6 +273,7 @@ doesn't conflict with concurrent PRs.
 - bluetally
 - boldsign
 - box
+- braintrust
 - branch
 - breezometer
 - breezy_hr
@@ -622,6 +624,8 @@ doesn't conflict with concurrent PRs.
 - stigg
 - stockdata
 - strava
+- streamelements
+- streamlabs
 - surveymonkey
 - surveysparrow
 - survicate

@@ -80,6 +80,35 @@ describe('FunnelLineChart', () => {
             expect(tooltip.row('Bramble')).toContain('30%')
         })
 
+        describe('orders breakdown rows by descending conversion value', () => {
+            // Captured once from a single render; the assertions only read these strings, so the
+            // per-test cleanup() between it.each cases doesn't matter.
+            let orderedRows: { label: string; value: string | undefined }[]
+
+            beforeAll(async () => {
+                renderInsight({
+                    query: buildFunnelsQuery({
+                        breakdownFilter: { breakdown: 'browser', breakdown_type: 'event' },
+                    }),
+                    featureFlags: HOG_CHARTS_FUNNEL_FLAG,
+                })
+
+                const tooltip = await chart.hoverTooltip(2)
+                orderedRows = tooltip.rows().map((label) => ({ label, value: tooltip.row(label) }))
+            })
+
+            // The query returns Safari, Chrome, Firefox, but at index 2 the conversion values are
+            // Firefox=60%, Safari=40%, Chrome=20%, so rows must be re-ordered by descending value.
+            it.each([
+                { position: 0, browser: 'Firefox', pct: '60%' },
+                { position: 1, browser: 'Safari', pct: '40%' },
+                { position: 2, browser: 'Chrome', pct: '20%' },
+            ])('row $position is $browser ($pct)', ({ position, browser, pct }) => {
+                expect(orderedRows[position].label).toContain(browser)
+                expect(orderedRows[position].value).toContain(pct)
+            })
+        })
+
         it('shows a distinct conversion value for each breakdown × compare series', async () => {
             renderInsight({
                 query: buildFunnelsQuery({

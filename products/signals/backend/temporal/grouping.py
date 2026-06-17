@@ -813,6 +813,27 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 team_id=input.team_id,
                 signal_id=input.signal_id,
             )
+            # Track signals deduped into a dismissed (deleted) reports
+            try:
+                posthoganalytics.capture(
+                    event="signal_matched_deleted_report",
+                    distinct_id=str(team.uuid),
+                    properties={
+                        "source_product": input.source_product,
+                        "source_type": input.source_type,
+                        "source_id": input.source_id,
+                        "report_id": report_id,
+                    },
+                    groups=groups(team.organization, team),
+                )
+            except Exception as e:
+                posthoganalytics.capture_exception(e)
+                logger.exception(
+                    "Failed to capture signal_matched_deleted_report event",
+                    report_id=report_id,
+                    team_id=input.team_id,
+                    source_id=input.source_id,
+                )
         else:
             try:
                 posthoganalytics.capture(

@@ -1,13 +1,16 @@
 import uuid
 
 import pytest
+from unittest.mock import patch
 
 import temporalio.worker
 from temporalio import activity
 from temporalio.client import WorkflowFailureError
-from temporalio.testing import WorkflowEnvironment
+from temporalio.exceptions import ApplicationError
+from temporalio.testing import ActivityEnvironment, WorkflowEnvironment
 from temporalio.worker import Worker
 
+from posthog.temporal.delete_teams.activities import delete_team_records_activity
 from posthog.temporal.delete_teams.types import (
     DeleteOrganizationWorkflowInputs,
     DeleteProjectDataWorkflowInputs,
@@ -209,3 +212,35 @@ async def test_transient_error_is_retried():
     await _run_core_with(activities)  # completes despite the first failure
 
     assert len(attempts) == 2  # retried once, then succeeded
+
+
+async def test_recursion_error_fails_fast_without_retry():
+    # A RecursionError is deterministic (e.g. json.loads can't decode a deeply-nested JSON column
+    # on a cascaded row), so the retry policy must not loop on it.
+    attempts: list[str] = []
+
+    async def raises_recursion(inputs: TeamDataActivityInputs) -> None:
+        attempts.append("attempt")
+        raise ApplicationError("recursion limit exceeded", type="RecursionError")
+
+    activities = _core_activities_with("delete_team_records_activity", raises_recursion)
+    with pytest.raises(WorkflowFailureError):
+        await _run_core_with(activities)
+
+    assert len(attempts) == 1
+
+
+async def test_delete_team_records_activity_converts_recursion_error():
+    # The real activity turns a RecursionError from the cascade into a small, non-retryable
+    # ApplicationError so it surfaces instead of looping and overflowing Temporal's failure-size limit.
+    def raise_recursion(team_ids: list[int]) -> None:
+        raise RecursionError("maximum recursion depth exceeded")
+
+    with patch("posthog.models.team.util.delete_team_records", raise_recursion):
+        with pytest.raises(ApplicationError) as exc_info:
+            await ActivityEnvironment().run(
+                delete_team_records_activity, TeamDataActivityInputs(team_ids=[1], user_id=7)
+            )
+
+    assert exc_info.value.type == "RecursionError"
+    assert exc_info.value.non_retryable

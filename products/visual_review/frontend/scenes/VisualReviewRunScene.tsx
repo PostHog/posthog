@@ -258,21 +258,23 @@ export function VisualReviewRunScene(): JSX.Element {
     const hiddenQuarantinedCount = navSnapshots.length - visibleNavSnapshots.length
     const showQuarantinedToggle = quarantinedNavCount > 0 && (hiddenQuarantinedCount > 0 || showQuarantinedThumbnails)
 
+    // Navigate over what's actually visible — when quarantined items are hidden, next/previous
+    // must skip them rather than selecting a hidden quarantined snapshot.
     const currentIndex = selectedSnapshot
-        ? navSnapshots.findIndex((s: SnapshotApi) => s.id === selectedSnapshot.id)
+        ? visibleNavSnapshots.findIndex((s: SnapshotApi) => s.id === selectedSnapshot.id)
         : -1
     const hasPrevious = currentIndex > 0
-    const hasNext = currentIndex >= 0 && currentIndex < navSnapshots.length - 1
+    const hasNext = currentIndex >= 0 && currentIndex < visibleNavSnapshots.length - 1
 
     const goToPrevious = (): void => {
         if (hasPrevious) {
-            setSelectedSnapshotId(navSnapshots[currentIndex - 1].id)
+            setSelectedSnapshotId(visibleNavSnapshots[currentIndex - 1].id)
         }
     }
 
     const goToNext = (): void => {
         if (hasNext) {
-            setSelectedSnapshotId(navSnapshots[currentIndex + 1].id)
+            setSelectedSnapshotId(visibleNavSnapshots[currentIndex + 1].id)
         }
     }
 
@@ -281,7 +283,7 @@ export function VisualReviewRunScene(): JSX.Element {
             p: { action: goToPrevious, disabled: !hasPrevious },
             n: { action: goToNext, disabled: !hasNext },
         },
-        [currentIndex, navSnapshots.length]
+        [currentIndex, visibleNavSnapshots.length]
     )
 
     // Show skeleton only on initial load — once `run` is populated, keep showing it
@@ -542,7 +544,7 @@ export function VisualReviewRunScene(): JSX.Element {
                                     onClick={toggleQuarantinedThumbnails}
                                 />
                             )}
-                            {navSnapshots.length > 1 && (
+                            {visibleNavSnapshots.length > 1 && (
                                 <div className="flex items-center gap-2">
                                     <LemonButton
                                         size="xsmall"
@@ -556,7 +558,7 @@ export function VisualReviewRunScene(): JSX.Element {
                                     </LemonButton>
                                     {currentIndex >= 0 && (
                                         <span className="text-xs text-muted">
-                                            {currentIndex + 1} of {navSnapshots.length}
+                                            {currentIndex + 1} of {visibleNavSnapshots.length}
                                         </span>
                                     )}
                                     <LemonButton

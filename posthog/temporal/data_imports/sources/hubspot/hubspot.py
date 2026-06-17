@@ -21,6 +21,7 @@ from datetime import UTC, datetime
 from typing import Any, Optional
 
 import requests
+from requests.exceptions import JSONDecodeError as RequestsJSONDecodeError
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
@@ -328,7 +329,13 @@ def get_rows(
             logger.error(f"Hubspot API error: status={response.status_code}, body={response.text}, url={page_url}")
             response.raise_for_status()
 
-        return response.json()
+        # Parse inside the retry so a truncated/partial body (JSONDecodeError, e.g. an
+        # "Unterminated string" mid-stream) is reissued like a 429/5xx instead of bubbling
+        # up uncaught and failing the whole import.
+        try:
+            return response.json()
+        except RequestsJSONDecodeError as e:
+            raise HubspotRetryableError(f"Hubspot API malformed JSON response (retryable): url={page_url}") from e
 
     while True:
         data = fetch_page(url)
@@ -422,7 +429,13 @@ def _batch_read_associations(
             )
             response.raise_for_status()
 
-        return response.json()
+        # See fetch_page: a truncated/partial body is transient, so retry rather than crash.
+        try:
+            return response.json()
+        except RequestsJSONDecodeError as e:
+            raise HubspotRetryableError(
+                f"Hubspot v4 associations malformed JSON response (retryable): url={url}"
+            ) from e
 
     for start in range(0, len(ids), ASSOCIATIONS_BATCH_SIZE):
         chunk = ids[start : start + ASSOCIATIONS_BATCH_SIZE]
@@ -564,7 +577,11 @@ def get_rows_via_search(
             logger.error(f"Hubspot search error: status={response.status_code}, body={response.text}, url={search_url}")
             response.raise_for_status()
 
-        return response.json()
+        # See fetch_page: a truncated/partial body is transient, so retry rather than crash.
+        try:
+            return response.json()
+        except RequestsJSONDecodeError as e:
+            raise HubspotRetryableError(f"Hubspot search malformed JSON response (retryable): url={search_url}") from e
 
     def save_progress() -> None:
         resumable_source_manager.save_state(

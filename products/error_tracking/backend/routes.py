@@ -1,6 +1,6 @@
 from posthog.api.routing import RouterRegistry
 
-from products.error_tracking.backend.api import (
+from products.error_tracking.backend.presentation.views import (
     ErrorTrackingAssignmentRuleViewSet,
     ErrorTrackingExternalReferenceViewSet,
     ErrorTrackingFingerprintViewSet,
