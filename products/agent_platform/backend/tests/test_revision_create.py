@@ -16,7 +16,7 @@ from rest_framework import status
 
 from ..models import AgentApplication
 
-_SPEC = {"model": "anthropic/claude-haiku-4-5", "auth": {"modes": [{"type": "public"}]}}
+_SPEC = {"model": "anthropic/claude-haiku-4-5"}
 
 
 class TestRevisionCreateBundleUri(APIBaseTest):
