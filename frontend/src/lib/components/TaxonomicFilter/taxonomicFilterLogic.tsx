@@ -2001,27 +2001,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 const totalLength = searchQuery.length
                 const inputMode: 'pasted' | 'mixed' | 'typed' =
                     pastedChars >= totalLength && pastedChars > 0 ? 'pasted' : pastedChars > 0 ? 'mixed' : 'typed'
-
-                // End-to-end latency of the active tab's server search for this query.
-                // The remote fetch is debounced like this listener, so wait for THIS
-                // query's page to land before reading its duration — otherwise we'd
-                // record the previous search's time and systematically miss the slow
-                // searches we most want to see. breakpoint() cancels the wait if the
-                // user types again (we never stamp an abandoned search); the bound
-                // stops an errored load spinning forever.
-                let timeToSeeDataMs: number | undefined
-                const activeType = activeTaxonomicGroup?.type
-                const remoteBacked = !!(activeTaxonomicGroup?.endpoint || activeTaxonomicGroup?.scopedEndpoint)
-                const subLogic = activeType ? values.infiniteListLogics[activeType] : undefined
-                if (remoteBacked && subLogic?.isMounted()) {
-                    for (let i = 0; i < 200 && subLogic.values.remoteItems?.searchQuery !== searchQuery; i++) {
-                        await breakpoint(150)
-                    }
-                    if (subLogic.values.remoteItems?.searchQuery === searchQuery) {
-                        timeToSeeDataMs = subLogic.values.remoteItems.loadDurationMs
-                    }
-                }
-
                 posthog.capture('taxonomic_filter_search_query', {
                     surface: legacyTaxonomicSurface(
                         values.featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]
@@ -2031,7 +2010,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     inputMode,
                     pastedFraction: totalLength > 0 ? Math.min(1, pastedChars / totalLength) : 0,
                     excludeStale: !values.includeStaleEvents,
-                    time_to_see_data_ms: timeToSeeDataMs,
                 })
             }
         },
@@ -2045,6 +2023,28 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         },
 
         infiniteListResultsReceived: async ({ groupType, results }, breakpoint) => {
+            // Search-latency telemetry: one event per settled remote search on the
+            // active tab. `loadDurationMs` is set only for the offset-0 page (see
+            // infiniteListLogic), so pagination and local-only groups don't fire,
+            // and the value is the real fetch wall-clock — this runs when the
+            // results actually land, so there's no debounce race to wait out.
+            if (
+                groupType === values.activeTab &&
+                values.searchQuery &&
+                typeof results?.loadDurationMs === 'number' &&
+                results.searchQuery === values.searchQuery
+            ) {
+                posthog.capture('taxonomic filter search latency', {
+                    surface: legacyTaxonomicSurface(
+                        values.featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]
+                    ),
+                    groupType,
+                    searchQuery: values.searchQuery,
+                    time_to_see_data_ms: results.loadDurationMs,
+                    resultCount: results.count,
+                })
+            }
+
             if (groupType && !values.metaGroupTypes.has(groupType)) {
                 const subLogic = values.infiniteListLogics[groupType]
                 if (subLogic?.isMounted()) {

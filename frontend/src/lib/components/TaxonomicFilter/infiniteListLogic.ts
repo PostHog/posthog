@@ -335,7 +335,9 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                         ),
                         searchQuery,
                         queryChanged,
-                        loadDurationMs: Math.floor(performance.now() - start),
+                        // Only the initial page times the search; "load more" (offset > 0)
+                        // would otherwise overwrite it with pagination latency.
+                        loadDurationMs: offset === 0 ? Math.floor(performance.now() - start) : undefined,
                         count:
                             response.count ||
                             (Array.isArray(response) ? response.length : 0) ||
