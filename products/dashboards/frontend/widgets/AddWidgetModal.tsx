@@ -149,8 +149,8 @@ export function AddWidgetModal({ isOpen, onClose, loading, onAdd }: AddWidgetMod
                                 {groupIndex > 0 ? <LemonDivider className="col-span-full my-0" /> : null}
                                 <div
                                     className={clsx(
-                                        'col-span-full flex flex-wrap items-center gap-x-3 gap-y-1',
-                                        showProductIntro && 'rounded bg-accent-highlight-secondary px-3 py-2'
+                                        'col-span-full flex flex-wrap items-center gap-x-3 gap-y-1 rounded px-3 py-2',
+                                        showProductIntro ? 'bg-accent-highlight-secondary' : 'bg-surface-secondary'
                                     )}
                                 >
                                     <h5 className="m-0 flex shrink-0 items-center gap-1.5">
