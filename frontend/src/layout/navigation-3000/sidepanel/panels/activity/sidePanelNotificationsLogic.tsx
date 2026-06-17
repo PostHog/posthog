@@ -11,7 +11,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { featureFlagLogic, getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
 import { liveEventsHostOrigin } from 'lib/utils/apiHost'
 import { retryWithBackoff } from 'lib/utils/async'
 import { toParams } from 'lib/utils/url'
@@ -683,9 +683,7 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                 try {
                     let importantChangesHumanized = humanize(importantChanges?.results || [], describerFor, true)
 
-                    const flagPayload = posthog.getFeatureFlagResult('changelog-notification', {
-                        send_event: false,
-                    })?.payload
+                    const flagPayload = getFeatureFlagPayload('changelog-notification')
                     const changelogNotifications = flagPayload
                         ? (flagPayload as JsonRecord[]).map(
                               (notification) =>
