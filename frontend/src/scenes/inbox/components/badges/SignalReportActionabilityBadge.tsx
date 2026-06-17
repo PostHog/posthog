@@ -1,6 +1,7 @@
 import { LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
 
 import { SignalReportActionability } from '../../types'
+import { JudgmentWhyLabel } from './JudgmentWhyLabel'
 
 const ACTIONABILITY_STYLE: Record<SignalReportActionability, { type: LemonTagType; label: string; tooltip: string }> = {
     immediately_actionable: {
@@ -25,8 +26,11 @@ const ACTIONABILITY_STYLE: Record<SignalReportActionability, { type: LemonTagTyp
 
 export function SignalReportActionabilityBadge({
     actionability,
+    explanation,
 }: {
     actionability: SignalReportActionability | null | undefined
+    /** When set, a hoverable "Why?" label is shown next to the tag with this report's rationale. */
+    explanation?: string | null
 }): JSX.Element | null {
     if (actionability == null) {
         return null
@@ -37,11 +41,21 @@ export function SignalReportActionabilityBadge({
         return null
     }
 
-    return (
+    const tag = (
         <Tooltip title={style.tooltip}>
             <LemonTag size="small" type={style.type} className="cursor-help select-none">
                 {style.label}
             </LemonTag>
         </Tooltip>
+    )
+
+    if (!explanation?.trim()) {
+        return tag
+    }
+    return (
+        <span className="inline-flex items-center gap-1">
+            {tag}
+            <JudgmentWhyLabel explanation={explanation} />
+        </span>
     )
 }

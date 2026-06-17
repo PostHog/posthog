@@ -40,6 +40,10 @@ export interface SignalReport {
     priority?: SignalReportPriority | null
     /** Actionability choice from the actionability judgment artefact. */
     actionability?: SignalReportActionability | null
+    /** Short rationale for the assigned priority, from the priority judgment artefact. */
+    priority_explanation?: string | null
+    /** Short rationale for the actionability assessment, from the actionability judgment artefact. */
+    actionability_explanation?: string | null
     /** Whether the issue appears already fixed, from the actionability judgment artefact. */
     already_addressed?: boolean | null
     /** Distinct source products contributing signals to this report. */

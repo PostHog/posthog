@@ -1,4 +1,7 @@
+import { Tooltip } from '@posthog/lemon-ui'
+
 import { SignalReportPriority } from '../../types'
+import { JudgmentWhyLabel } from './JudgmentWhyLabel'
 
 /**
  * Per-priority color, mirroring `PRIORITY_TAG_TYPE`'s LemonTag semantics but as raw CSS vars
@@ -19,17 +22,30 @@ const PRIORITY_COLOR: Record<SignalReportPriority, string> = {
  */
 export function SignalReportPriorityBadge({
     priority,
+    explanation,
+    explanationDisplay = 'why-label',
 }: {
     priority: SignalReportPriority | null | undefined
+    /** When set, this report's priority rationale is surfaced via `explanationDisplay`. */
+    explanation?: string | null
+    /**
+     * How to surface `explanation`: a "Why?" label beside the chip (default), or a tooltip on the
+     * chip itself for compact contexts like list cards, where an affix would change the chip's width.
+     */
+    explanationDisplay?: 'why-label' | 'tooltip'
 }): JSX.Element | null {
     if (priority == null) {
         return null
     }
 
     const color = PRIORITY_COLOR[priority]
-    return (
+    const hasExplanation = !!explanation?.trim()
+    const asTooltip = hasExplanation && explanationDisplay === 'tooltip'
+    const chip = (
         <span
-            className="inline-flex size-6 items-center justify-center rounded-sm border text-[10px] font-semibold tabular-nums select-none"
+            className={`inline-flex size-6 items-center justify-center rounded-sm border text-[10px] font-semibold tabular-nums select-none${
+                asTooltip ? ' cursor-help' : ''
+            }`}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 color,
@@ -38,6 +54,19 @@ export function SignalReportPriorityBadge({
             }}
         >
             {priority}
+        </span>
+    )
+
+    if (!hasExplanation) {
+        return chip
+    }
+    if (explanationDisplay === 'tooltip') {
+        return <Tooltip title={explanation}>{chip}</Tooltip>
+    }
+    return (
+        <span className="inline-flex items-center gap-1">
+            {chip}
+            <JudgmentWhyLabel explanation={explanation} />
         </span>
     )
 }

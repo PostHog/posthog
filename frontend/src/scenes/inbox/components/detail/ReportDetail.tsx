@@ -38,10 +38,13 @@ import { SuggestedReviewersSection } from './SuggestedReviewersSection'
 export function ReportDetailBadges({ report }: { report: SignalReport }): JSX.Element {
     return (
         <>
-            <SignalReportPriorityBadge priority={report.priority} />
+            <SignalReportPriorityBadge priority={report.priority} explanation={report.priority_explanation} />
             {/* "Ready" is the default terminal state; once actionability is known, surface that instead. */}
             {(report.status !== 'ready' || !report.actionability) && <SignalReportStatusBadge status={report.status} />}
-            <SignalReportActionabilityBadge actionability={report.actionability} />
+            <SignalReportActionabilityBadge
+                actionability={report.actionability}
+                explanation={report.actionability_explanation}
+            />
             {report.is_suggested_reviewer && <ForYouBadge />}
         </>
     )
@@ -90,7 +93,10 @@ function ReportDetailMeta({ report, evidenceCount }: { report: SignalReport; evi
     return (
         <div className="flex items-center gap-x-2 gap-y-1.5 flex-wrap text-xs text-tertiary leading-none select-none">
             {showStatus && <SignalReportStatusBadge status={report.status} />}
-            <SignalReportActionabilityBadge actionability={report.actionability} />
+            <SignalReportActionabilityBadge
+                actionability={report.actionability}
+                explanation={report.actionability_explanation}
+            />
             {report.is_suggested_reviewer && <ForYouBadge />}
             <span className="flex items-center gap-2 flex-wrap min-w-0">
                 {stats.map((node, i) => (
@@ -241,7 +247,10 @@ export function InboxDetailFrame({
                     <div className="flex items-start gap-3 min-w-0 flex-1">
                         {report.priority && (
                             <div className="shrink-0 mt-0.5">
-                                <SignalReportPriorityBadge priority={report.priority} />
+                                <SignalReportPriorityBadge
+                                    priority={report.priority}
+                                    explanation={report.priority_explanation}
+                                />
                             </div>
                         )}
                         <div className="flex flex-col gap-2 min-w-0">

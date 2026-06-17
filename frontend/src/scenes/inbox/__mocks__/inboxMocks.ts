@@ -47,6 +47,10 @@ export const reportTabReports: SignalReport[] = [
         status: SignalReportStatus.READY,
         priority: 'P1',
         actionability: 'immediately_actionable',
+        priority_explanation:
+            'Affects 47 users on a core onboarding path, with a clean low-risk fix — high impact relative to effort.',
+        actionability_explanation:
+            'The 500 traces to an unchecked recipient email in the invite serializer; guarding it is a self-contained change.',
         total_weight: 3.4,
         signal_count: 12,
         relevant_user_count: 47,
@@ -60,6 +64,10 @@ export const reportTabReports: SignalReport[] = [
         status: SignalReportStatus.READY,
         priority: 'P0',
         actionability: 'immediately_actionable',
+        priority_explanation:
+            'Directly blocks revenue: 118 users hit checkout timeouts during paid upgrades, concentrated in peak traffic.',
+        actionability_explanation:
+            'The timeout is in payment-session creation; adding a retry and raising the client timeout is a bounded code change.',
         total_weight: 5.8,
         signal_count: 31,
         relevant_user_count: 118,
@@ -72,6 +80,10 @@ export const reportTabReports: SignalReport[] = [
         status: SignalReportStatus.READY,
         priority: 'P2',
         actionability: 'requires_human_input',
+        priority_explanation:
+            'Moderate reach (23 users) and degrades a sharing flow, but there is a manual download workaround.',
+        actionability_explanation:
+            'Renderer failures point to several possible causes (file size, fonts, worker limits); needs a product call on which to fix first.',
         total_weight: 2.1,
         signal_count: 8,
         relevant_user_count: 23,

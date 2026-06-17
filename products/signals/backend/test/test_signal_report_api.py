@@ -107,9 +107,10 @@ class TestSignalReportListAPI(APIBaseTest):
         report: SignalReport,
         *,
         priority: str | None,
+        explanation: str = "x",
         created_at=None,
     ) -> SignalReportArtefact:
-        payload = {"explanation": "x"}
+        payload = {"explanation": explanation}
         if priority is not None:
             payload["priority"] = priority
         art = SignalReportArtefact(
@@ -126,8 +127,10 @@ class TestSignalReportListAPI(APIBaseTest):
             art.save()
         return art
 
-    def _actionability_artefact(self, report: SignalReport, *, actionability: str) -> SignalReportArtefact:
-        payload = {"explanation": "x", "actionability": actionability, "already_addressed": False}
+    def _actionability_artefact(
+        self, report: SignalReport, *, actionability: str, explanation: str = "x"
+    ) -> SignalReportArtefact:
+        payload = {"explanation": explanation, "actionability": actionability, "already_addressed": False}
         art = SignalReportArtefact(
             team=self.team,
             report=report,
@@ -206,6 +209,30 @@ class TestSignalReportListAPI(APIBaseTest):
         response = self.client.get(url)
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["priority"] == "P0"
+
+    # --- judgment explanations ---
+
+    def test_list_includes_priority_and_actionability_explanations(self):
+        report = self._create_report()
+        self._priority_artefact(report, priority="P1", explanation="High user impact, low-risk fix.")
+        self._actionability_artefact(
+            report, actionability="immediately_actionable", explanation="Self-contained serializer guard."
+        )
+
+        response = self.client.get(self._list_url())
+        assert response.status_code == status.HTTP_200_OK
+        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
+        assert row["priority_explanation"] == "High user impact, low-risk fix."
+        assert row["actionability_explanation"] == "Self-contained serializer guard."
+
+    def test_explanations_null_without_judgment_artefacts(self):
+        report = self._create_report()
+
+        response = self.client.get(self._list_url())
+        assert response.status_code == status.HTTP_200_OK
+        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
+        assert row["priority_explanation"] is None
+        assert row["actionability_explanation"] is None
 
     # --- priority filter ---
 

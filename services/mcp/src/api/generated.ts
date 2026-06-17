@@ -30071,6 +30071,16 @@ export namespace Schemas {
          */
       readonly actionability: string | null;
       /**
+         * Short rationale for the assigned priority, from the latest priority judgment artefact (when present).
+         * @nullable
+         */
+      readonly priority_explanation: string | null;
+      /**
+         * Short rationale for the actionability assessment, from the latest actionability judgment artefact (when present).
+         * @nullable
+         */
+      readonly actionability_explanation: string | null;
+      /**
          * Whether the issue appears already fixed, from the actionability judgment artefact.
          * @nullable
          */
