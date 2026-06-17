@@ -1358,6 +1358,61 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
             else:
                 self.fail(msg="Invalid breakdown value")
 
+    def test_funnel_trends_breakdown_ordered_by_value_descending(self):
+        # "Mozilla" has more entrants than "Chrome" but sorts alphabetically later.
+        # Results must be ordered by descending entrant count, not by breakdown value.
+        journeys_for(
+            {
+                "user_one": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 1), "properties": {"$browser": "Mozilla"}},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 1), "properties": {"$browser": "Mozilla"}},
+                    {"event": "step three", "timestamp": datetime(2021, 5, 1), "properties": {"$browser": "Mozilla"}},
+                ],
+                "user_two": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 1), "properties": {"$browser": "Mozilla"}},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 1), "properties": {"$browser": "Mozilla"}},
+                    {"event": "step three", "timestamp": datetime(2021, 5, 1), "properties": {"$browser": "Mozilla"}},
+                ],
+                "user_three": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 1), "properties": {"$browser": "Mozilla"}},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 1), "properties": {"$browser": "Mozilla"}},
+                    {"event": "step three", "timestamp": datetime(2021, 5, 1), "properties": {"$browser": "Mozilla"}},
+                ],
+                "user_four": [
+                    {"event": "step one", "timestamp": datetime(2021, 5, 1), "properties": {"$browser": "Chrome"}},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 1), "properties": {"$browser": "Chrome"}},
+                    {"event": "step three", "timestamp": datetime(2021, 5, 1), "properties": {"$browser": "Chrome"}},
+                ],
+            },
+            self.team,
+        )
+
+        query = FunnelsQuery(
+            dateRange=DateRange(
+                date_from="2021-05-01 00:00:00",
+                date_to="2021-05-13 23:59:59",
+            ),
+            interval="day",
+            series=[
+                EventsNode(event="step one"),
+                EventsNode(event="step two"),
+                EventsNode(event="step three"),
+            ],
+            breakdownFilter=BreakdownFilter(
+                breakdown="$browser",
+                breakdown_type="event",
+            ),
+            funnelsFilter=FunnelsFilter(
+                funnelVizType="trends",
+                funnelWindowInterval=7,
+                funnelWindowIntervalUnit="day",
+            ),
+        )
+
+        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+        self.assertEqual([res["breakdown_value"] for res in results], [["Mozilla"], ["Chrome"]])
+
     def test_funnel_step_breakdown_empty(self):
         attribution_types = [
             "all_events",

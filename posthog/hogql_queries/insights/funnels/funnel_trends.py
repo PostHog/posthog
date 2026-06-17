@@ -414,10 +414,11 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
         breakdown = self.context.breakdown
 
         if breakdown:
+            # The query orders breakdown groups by descending value and keeps each group's
+            # rows contiguous, so group without re-sorting to preserve that ordering.
             grouper = lambda row: row["breakdown_value"]
-            sorted_data = sorted(summary, key=grouper)
             final_res = []
-            for key, value in groupby(sorted_data, grouper):
+            for key, value in groupby(summary, grouper):
                 breakdown_res = self._format_single_summary(list(value))
                 final_res.append({**breakdown_res, "breakdown_value": key})
             return final_res
