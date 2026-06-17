@@ -320,3 +320,79 @@ class TestGetPersonIdRangesPageActivity:
         ops = {e.op for e in node.where.exprs if isinstance(e, ast.CompareOperation)}
         assert ast.CompareOperationOp.Gt in ops
         assert ast.CompareOperationOp.Eq in ops
+
+
+class TestPageActivityRowConsumption:
+    """Stream real rows through get_person_id_ranges_page_activity.
+
+    The AST tests above stream zero rows, so the row-consumption code — which reads ``row["person_id"]``
+    and batches IDs into ranges — was never exercised. These feed real rows through it.
+    """
+
+    @pytest.mark.asyncio
+    async def test_rows_batched_into_ranges(self):
+        rows = [{"person_id": f"p{i}"} for i in range(1, 5)]
+        mock_client = Mock()
+        mock_client.stream_query_as_jsonl = lambda *a, **kw: aiter(rows)
+        module = "posthog.temporal.messaging.backfill_precalculated_person_properties_coordinator_workflow"
+        with (
+            patch(f"{module}.compile_hogql_for_streaming", side_effect=lambda node, *, team_id: ("SELECT 1", {})),
+            patch(f"{module}.get_client", return_value=_AsyncClientContextManager(mock_client)),
+            patch("temporalio.activity.heartbeat"),
+        ):
+            result = await get_person_id_ranges_page_activity(
+                PersonIdRangesPageInputs(team_id=1, batch_size=2, page_size=10, after_person_id=None)
+            )
+        assert result.ranges == [("p1", "p2"), ("p3", "p4")]
+        assert result.cursor is None  # 4 rows < limit (20), no more data
+
+    @pytest.mark.asyncio
+    async def test_has_more_data_sets_cursor(self):
+        # batch_size=2, page_size=1 -> limit=2; a 3rd (limit+1) row signals more data and sets the cursor.
+        rows = [{"person_id": f"p{i}"} for i in range(1, 4)]
+        mock_client = Mock()
+        mock_client.stream_query_as_jsonl = lambda *a, **kw: aiter(rows)
+        module = "posthog.temporal.messaging.backfill_precalculated_person_properties_coordinator_workflow"
+        with (
+            patch(f"{module}.compile_hogql_for_streaming", side_effect=lambda node, *, team_id: ("SELECT 1", {})),
+            patch(f"{module}.get_client", return_value=_AsyncClientContextManager(mock_client)),
+            patch("temporalio.activity.heartbeat"),
+        ):
+            result = await get_person_id_ranges_page_activity(
+                PersonIdRangesPageInputs(team_id=1, batch_size=2, page_size=1, after_person_id=None)
+            )
+        assert result.ranges == [("p1", "p2")]
+        assert result.cursor == "p2"  # last processed ID, used as the next page's after_person_id
+
+
+class TestDrainCompleted:
+    """The coordinator surfaces child failures via _drain_completed -> ApplicationError.
+
+    The workflow test patches asyncio.wait to (set(), set()), so the failure-counting branch was never
+    hit. This exercises _drain_completed directly with a failing handle.
+    """
+
+    @pytest.mark.asyncio
+    async def test_counts_completed_and_failed_and_removes_handles(self):
+        class _Handle:
+            def __init__(self, fail: bool) -> None:
+                self._fail = fail
+
+            def __await__(self):
+                async def _coro():
+                    if self._fail:
+                        raise RuntimeError("child boom")
+                    return None
+
+                return _coro().__await__()
+
+        ok = _Handle(fail=False)
+        bad = _Handle(fail=True)
+        handles = [ok, bad]
+
+        workflow = BackfillPrecalculatedPersonPropertiesCoordinatorWorkflow()
+        completed, failed = await workflow._drain_completed({ok, bad}, handles, Mock())
+
+        assert completed == 1
+        assert failed == 1
+        assert handles == []  # both drained handles removed from the in-flight list

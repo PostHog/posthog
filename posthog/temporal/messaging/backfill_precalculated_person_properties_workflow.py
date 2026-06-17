@@ -498,6 +498,10 @@ async def backfill_precalculated_person_properties_activity(
 
             logger.info(f"Optimized query: fetching {len(person_properties)} specific properties via HogQL")
         else:
+            # The ``"properties"`` key here is also the format discriminator for the row consumer
+            # below: when it is present the query emits a full ``properties`` column, so the consumer
+            # takes the fallback path (`"properties" in row`) instead of reconstructing the dict from
+            # per-property ``prop_N`` columns. Keep this alias name in sync with that check.
             select_fields["properties"] = ["properties"]
             if person_properties and len(person_properties) > MAX_OPTIMIZED_PROPERTIES:
                 logger.warning(

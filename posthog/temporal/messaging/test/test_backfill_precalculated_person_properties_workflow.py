@@ -73,6 +73,16 @@ class _AsyncClientContextManager:
         return None
 
 
+def aiter(iterable):
+    """Wrap a sync iterable as an async iterator for mocking ``stream_query_as_jsonl``."""
+
+    async def _aiter():
+        for item in iterable:
+            yield item
+
+    return _aiter()
+
+
 class TestFlushKafkaBatchAsync:
     """Tests for the flush_kafka_batch_async helper function."""
 
@@ -438,6 +448,111 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
         assert len(properties_aliases) == 1
         assert any(chain[-1:] == ["properties"] for chain in _collect_field_chains(properties_aliases[0]))
         assert all(percent_property not in chain for chain in _collect_field_chains(node))
+
+
+class TestActivityRowConsumption:
+    """End-to-end row streaming through the child activity.
+
+    The other activity tests stream zero rows (``compile`` is patched and the client yields nothing),
+    so the row-consumption code — which now reads ``row["id"]`` and reconstructs properties from
+    ``prop_N`` columns — was never exercised. These feed real rows through it.
+    """
+
+    def _module(self, name: str) -> str:
+        return f"posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.{name}"
+
+    async def _run_with_rows(self, person_properties, rows):
+        """Run the activity over ``rows``; return (result, captured_query_node, produced_messages, eval_globals)."""
+        filters = [
+            PersonPropertyFilter(
+                condition_hash="cond1",
+                bytecode=["_H", 1, Operation.TRUE],
+                cohort_ids=[10],
+                property_key=person_properties[0] if person_properties else None,
+            )
+        ]
+
+        captured: dict[str, object] = {}
+
+        async def compile_stub(node, *, team_id):
+            captured["node"] = node
+            return "SELECT 1", {}
+
+        eval_globals: list[dict] = []
+
+        def eval_stub(combined_bytecode, flts, hog_globals, person_id, detailed_logging=False):
+            eval_globals.append(hog_globals)
+            return {"cond1": True}
+
+        produced: list[dict] = []
+        producer = Mock()
+        producer.produce = lambda **kwargs: produced.append(kwargs["data"]) or Mock()
+
+        mock_client = Mock()
+        mock_client.stream_query_as_jsonl = lambda *a, **kw: aiter(rows)
+
+        inputs = BackfillPrecalculatedPersonPropertiesInputs(
+            team_id=1,
+            filter_storage_key="storage_key",
+            cohort_ids=[10],
+            batch_size=10,
+            start_person_id="00000000-0000-0000-0000-000000000000",
+            end_person_id="ffffffff-ffff-ffff-ffff-ffffffffffff",
+        )
+
+        with (
+            patch(
+                self._module("get_filters_and_properties"),
+                return_value=(filters, list(person_properties), combine_filter_bytecodes(filters)),
+            ),
+            patch(self._module("compile_hogql_for_streaming"), side_effect=compile_stub),
+            patch(self._module("get_client"), return_value=_AsyncClientContextManager(mock_client)),
+            patch(self._module("evaluate_combined_filters_with_fallback_sync"), side_effect=eval_stub),
+            patch(self._module("get_producer"), return_value=producer),
+            patch(self._module("Heartbeater"), _NoopHeartbeater),
+            patch(self._module("get_person_properties_backfill_success_metric"), return_value=Mock()),
+        ):
+            result = await backfill_precalculated_person_properties_activity(inputs)
+
+        return result, captured.get("node"), produced, eval_globals
+
+    @pytest.mark.asyncio
+    async def test_optimized_rows_reconstruct_properties_and_produce(self):
+        # Optimized format: per-property prop_N columns, no "properties" key, person UUID under "id".
+        pid = "11111111-1111-1111-1111-111111111111"
+        rows = [{"id": pid, "prop_0": "a@b.com"}]
+
+        result, node, produced, eval_globals = await self._run_with_rows(["email"], rows)
+
+        # row["id"] is consumed and reconstruction maps prop_0 -> email.
+        assert result.persons_processed == 1
+        assert result.last_person_id == pid
+        assert eval_globals[0] == {"person": {"properties": {"email": "a@b.com"}}}
+        assert len(produced) == 1
+        assert produced[0]["person_id"] == pid
+        assert produced[0]["condition"] == "cond1"
+
+        # Locks the flat single-pass query shape the child optimization depends on: WHERE filters the
+        # raw_persons scan before the GROUP BY, with no id-IN-subquery indirection.
+        assert isinstance(node, ast.SelectQuery)
+        assert node.where is not None
+        assert node.group_by is not None
+        assert isinstance(node.select_from, ast.JoinExpr)
+        assert isinstance(node.select_from.table, ast.Field)
+        assert node.select_from.table.chain == ["raw_persons"]
+
+    @pytest.mark.asyncio
+    async def test_fallback_rows_use_full_properties_json(self):
+        # Fallback format: a "properties" JSON column is present, so the consumer parses it directly.
+        pid = "22222222-2222-2222-2222-222222222222"
+        rows = [{"id": pid, "properties": '{"email": "c@d.com"}'}]
+
+        result, _node, produced, eval_globals = await self._run_with_rows([], rows)
+
+        assert result.persons_processed == 1
+        assert result.last_person_id == pid
+        assert eval_globals[0] == {"person": {"properties": {"email": "c@d.com"}}}
+        assert len(produced) == 1
 
 
 class TestCombineFilterBytecodes:
