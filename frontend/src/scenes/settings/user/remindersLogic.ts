@@ -4,7 +4,9 @@ import { loaders } from 'kea-loaders'
 
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { timeZoneLabel } from 'lib/utils/timezones'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import {
     remindersCreate,
@@ -55,7 +57,7 @@ function scheduleTypeForReminder(reminder: ReminderApi): ReminderScheduleType {
 export const remindersLogic = kea<remindersLogicType>([
     path(['scenes', 'settings', 'user', 'remindersLogic']),
     connect(() => ({
-        values: [organizationLogic, ['currentOrganization']],
+        values: [organizationLogic, ['currentOrganization'], preflightLogic, ['preflight']],
     })),
     actions({
         setEditingReminderId: (id: string | null) => ({ id }),
@@ -163,6 +165,21 @@ export const remindersLogic = kea<remindersLogicType>([
             (s) => [s.editingReminderId, s.editingReminder],
             (editingReminderId, editingReminder): boolean =>
                 editingReminderId === NEW || editingReminder?.status === 'active',
+        ],
+        projectOptions: [
+            (s) => [s.currentOrganization],
+            (currentOrganization): { value: number | null; label: string }[] => [
+                { value: null, label: 'Organization-wide (no project)' },
+                ...(currentOrganization?.teams ?? []).map((team) => ({ value: team.id, label: team.name })),
+            ],
+        ],
+        timezoneOptions: [
+            (s) => [s.preflight],
+            (preflight): { key: string; label: string }[] =>
+                Object.entries(preflight?.available_timezones ?? {}).map(([tz, offset]) => ({
+                    key: tz,
+                    label: timeZoneLabel(tz, offset),
+                })),
         ],
     }),
     listeners(({ actions, values }) => ({

@@ -13,9 +13,6 @@ import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
-import { timeZoneLabel } from 'lib/utils/timezones'
-import { organizationLogic } from 'scenes/organizationLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { ReminderApi, ReminderStatusEnumApi } from 'products/reminders/frontend/generated/api.schemas'
 
@@ -45,22 +42,18 @@ function scheduleSummary(reminder: ReminderApi): string {
 }
 
 function ReminderModal(): JSX.Element {
-    const { editingReminderId, reminderForm, isReminderFormSubmitting, isScheduleEditable } = useValues(remindersLogic)
+    const {
+        editingReminderId,
+        reminderForm,
+        isReminderFormSubmitting,
+        isScheduleEditable,
+        projectOptions,
+        timezoneOptions,
+    } = useValues(remindersLogic)
     const { setEditingReminderId, submitReminderForm } = useActions(remindersLogic)
-    const { currentOrganization } = useValues(organizationLogic)
-    const { preflight } = useValues(preflightLogic)
 
     const isOpen = editingReminderId !== null
     const isCreating = editingReminderId === 'new'
-
-    const projectOptions = [
-        { value: null, label: 'Organization-wide (no project)' },
-        ...(currentOrganization?.teams ?? []).map((team) => ({ value: team.id, label: team.name })),
-    ]
-    const timezoneOptions = Object.entries(preflight?.available_timezones ?? {}).map(([tz, offset]) => ({
-        key: tz,
-        label: timeZoneLabel(tz, offset),
-    }))
 
     return (
         <LemonModal
