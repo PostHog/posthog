@@ -31,6 +31,10 @@ class SourceSchema:
     # (e.g. Stripe `Discount`). The UI should hide non-webhook sync methods for these.
     webhook_only: bool = False
     supports_cdc: bool = False
+    # xmin replication is Postgres-only, so only the Postgres source sets this — every other
+    # source leaves it False. True for Postgres heap tables / materialized views (PG13+);
+    # excludes plain views, foreign tables, and partitioned parents.
+    supports_xmin: bool = False
     columns: list[tuple[str, str, bool]] = field(default_factory=list)
     foreign_keys: list[tuple[str, str, str]] = field(default_factory=list)
     description: str | None = None

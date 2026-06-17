@@ -36,6 +36,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         APPEND = "append", "append"
         WEBHOOK = "webhook", "webhook"
         CDC = "cdc", "cdc"
+        XMIN = "xmin", "xmin"
 
     class SyncFrequency(models.TextChoices):
         DAILY = "day", "Daily"
@@ -59,7 +60,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     status = models.CharField(max_length=400, null=True, blank=True)
     last_synced_at = models.DateTimeField(null=True, blank=True)
     sync_type = models.CharField(max_length=128, choices=SyncType, null=True, blank=True)
-    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str], "chunk_size_override": int | None, "primary_key_columns": list[str] | None }
+    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str], "chunk_size_override": int | None, "primary_key_columns": list[str] | None, "xmin_last_value": int, "xmin_ceiling": int, "xmin_num_wraparound": int }
     sync_type_config = models.JSONField(
         default=dict,
         blank=True,
@@ -110,6 +111,34 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     @property
     def is_cdc(self):
         return self.sync_type == self.SyncType.CDC
+
+    @property
+    def is_xmin(self):
+        return self.sync_type == self.SyncType.XMIN
+
+    @property
+    def xmin_last_value(self) -> int | None:
+        """Lower bound (inclusive) for the next xmin sync — the bare 32-bit xid of the
+        previous run's snapshot ceiling. ``None`` means the table has never synced, so the
+        read path seeds a full initial snapshot."""
+        if self.sync_type_config:
+            return self.sync_type_config.get("xmin_last_value", None)
+        return None
+
+    @property
+    def xmin_ceiling(self) -> int | None:
+        """The full 64-bit ``xid8`` (epoch + xid) of the last run's ceiling — durable and
+        wraparound-safe, used to compute the wraparound delta between runs."""
+        if self.sync_type_config:
+            return self.sync_type_config.get("xmin_ceiling", None)
+        return None
+
+    @property
+    def xmin_num_wraparound(self) -> int | None:
+        """The transaction-id epoch (high 32 bits of ``xmin_ceiling``) at the last run."""
+        if self.sync_type_config:
+            return self.sync_type_config.get("xmin_num_wraparound", None)
+        return None
 
     @property
     def cdc_mode(self) -> Literal["snapshot", "streaming"] | None:
@@ -288,6 +317,9 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         self.sync_type_config.pop("partitioning_keys", None)
         self.sync_type_config.pop("partition_mode", None)
         self.sync_type_config.pop("backfilled_partition_format", None)
+        self.sync_type_config.pop("xmin_last_value", None)
+        self.sync_type_config.pop("xmin_ceiling", None)
+        self.sync_type_config.pop("xmin_num_wraparound", None)
         # We don't reset partition_format
         # We don't reset chunk_size_override
 
@@ -340,6 +372,21 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
             self.sync_type_config["incremental_field_earliest_value"] = last_value_json
         else:
             raise ValueError(f"Unsupported type for update_incremental_field_value: {type}")
+
+        if save:
+            self.save()
+
+    def update_xmin_state(self, ceiling_xid: int, ceiling_xid8: int, num_wraparound: int, save: bool = True) -> None:
+        """Persist this run's snapshot ceiling as the cursor for the next xmin run.
+
+        Called once at job completion (after data is durably written), never per-batch —
+        the ceiling is captured before streaming and only becomes the new lower bound once
+        the run's rows are safely persisted, so a mid-run crash re-reads the window rather
+        than skipping it.
+        """
+        self.sync_type_config["xmin_last_value"] = ceiling_xid
+        self.sync_type_config["xmin_ceiling"] = ceiling_xid8
+        self.sync_type_config["xmin_num_wraparound"] = num_wraparound
 
         if save:
             self.save()

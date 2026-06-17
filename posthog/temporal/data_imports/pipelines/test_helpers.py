@@ -4,7 +4,11 @@ from unittest.mock import patch
 
 import structlog
 
-from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_operator, sync_revenue_analytics_views
+from posthog.temporal.data_imports.pipelines.helpers import (
+    incremental_type_to_initial_value,
+    incremental_type_to_operator,
+    sync_revenue_analytics_views,
+)
 from posthog.temporal.data_imports.sources.stripe.constants import CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME
 
 from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
@@ -23,9 +27,11 @@ PATH = "products.data_modeling.backend.models.datawarehouse_saved_query"
 @pytest.mark.parametrize(
     "field_type,expected",
     [
-        # Date is the only inclusive case — day-granularity cursors otherwise lose any
-        # rows landed on the boundary day after the cursor is saved.
+        # Date and XID are the inclusive cases — Date because day-granularity cursors
+        # otherwise lose rows landed on the boundary day, XID because the xmin lower bound
+        # (the previous run's ceiling) is inclusive.
         (IncrementalFieldType.Date, ">="),
+        (IncrementalFieldType.XID, ">="),
         (IncrementalFieldType.DateTime, ">"),
         (IncrementalFieldType.Timestamp, ">"),
         (IncrementalFieldType.Integer, ">"),
@@ -35,6 +41,19 @@ PATH = "products.data_modeling.backend.models.datawarehouse_saved_query"
 )
 def test_incremental_type_to_operator(field_type: IncrementalFieldType, expected: str) -> None:
     assert incremental_type_to_operator(field_type) == expected
+
+
+@pytest.mark.parametrize(
+    "field_type,expected",
+    [
+        (IncrementalFieldType.XID, 0),
+        (IncrementalFieldType.Integer, 0),
+        (IncrementalFieldType.Numeric, 0),
+        (IncrementalFieldType.ObjectID, "000000000000000000000000"),
+    ],
+)
+def test_incremental_type_to_initial_value(field_type: IncrementalFieldType, expected: object) -> None:
+    assert incremental_type_to_initial_value(field_type) == expected
 
 
 class TestSyncRevenueAnalyticsViews(BaseTest):

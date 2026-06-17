@@ -33,7 +33,11 @@ def aupdate_job_count(job_id: str, team_id: int, count: int):
 
 
 def incremental_type_to_initial_value(field_type: IncrementalFieldType) -> int | datetime | date | str:
-    if field_type == IncrementalFieldType.Integer or field_type == IncrementalFieldType.Numeric:
+    if (
+        field_type == IncrementalFieldType.Integer
+        or field_type == IncrementalFieldType.Numeric
+        or field_type == IncrementalFieldType.XID
+    ):
         return 0
     if field_type == IncrementalFieldType.DateTime or field_type == IncrementalFieldType.Timestamp:
         return initial_datetime
@@ -51,7 +55,9 @@ def incremental_type_to_operator(field_type: IncrementalFieldType) -> str:
     # everything equal to that day. `>=` re-fetches the boundary day so primary-key dedup
     # (or append acceptance) can close the gap. Every other field type carries enough
     # resolution that `>` is safe and avoids re-shipping the boundary row on every sync.
-    if field_type == IncrementalFieldType.Date:
+    # xmin uses an inclusive lower bound (the previous run's snapshot ceiling) AND an
+    # exclusive upper bound (this run's ceiling), so its lower comparison is `>=`.
+    if field_type == IncrementalFieldType.Date or field_type == IncrementalFieldType.XID:
         return ">="
     return ">"
 
