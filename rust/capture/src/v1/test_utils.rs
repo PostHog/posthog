@@ -390,10 +390,7 @@ pub fn assert_round_trip(
 ) -> (common_types::CapturedEvent, common_types::RawEvent) {
     use crate::v1::sinks::event::Event as SinkEvent;
 
-    let mut buf = String::new();
-    wrapped
-        .serialize_into(ctx, &mut buf)
-        .expect("serialize_into failed");
+    let buf = wrapped.serialize(ctx).expect("serialize failed");
     let captured: common_types::CapturedEvent =
         serde_json::from_str(&buf).expect("v1 output must deserialize as CapturedEvent");
     let data: common_types::RawEvent =

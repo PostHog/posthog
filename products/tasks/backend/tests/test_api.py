@@ -3113,11 +3113,16 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "github_credential_source": "caller_token",
                 "pr_authorship_mode": "user",
                 "sandbox_id": "sb-real",
+                "sandbox_cpu_cores": 2,
+                "sandbox_memory_gb": 8,
+                "sandbox_ttl_seconds": 1800,
+                "inactivity_timeout_seconds": 600,
             },
         )
 
-        # A caller cannot escalate to the creator's integration, flip authorship, or repoint the
-        # credential-propagation target at a sandbox they control. Non-protected keys still merge.
+        # A caller cannot escalate to the creator's integration, flip authorship, repoint the
+        # credential-propagation target at a sandbox they control, or inflate the run's compute /
+        # lifetime to provision an oversized, long-lived sandbox. Non-protected keys still merge.
         response = self.client.patch(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
             {
@@ -3125,6 +3130,10 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "github_credential_source": "server_integration",
                     "pr_authorship_mode": "bot",
                     "sandbox_id": "sb-attacker",
+                    "sandbox_cpu_cores": 128,
+                    "sandbox_memory_gb": 512,
+                    "sandbox_ttl_seconds": 86400,
+                    "inactivity_timeout_seconds": 86400,
                     "scratch": "ok",
                 }
             },
@@ -3135,6 +3144,10 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["github_credential_source"] == "caller_token"
         assert run.state["pr_authorship_mode"] == "user"
         assert run.state["sandbox_id"] == "sb-real"
+        assert run.state["sandbox_cpu_cores"] == 2
+        assert run.state["sandbox_memory_gb"] == 8
+        assert run.state["sandbox_ttl_seconds"] == 1800
+        assert run.state["inactivity_timeout_seconds"] == 600
         assert run.state["scratch"] == "ok"  # non-protected keys still merge
 
         # Nor can a caller remove a protected key to force a fallback or unguarded path.

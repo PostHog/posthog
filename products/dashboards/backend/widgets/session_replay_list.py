@@ -17,6 +17,7 @@ from products.dashboards.backend.constants import MAX_WIDGET_RESULT_LIMIT
 from products.dashboards.backend.widget_specs.configs import SESSION_REPLAY_LIST_WIDGET_TYPE
 from products.dashboards.backend.widget_specs.registry import validate_widget_config
 from products.dashboards.backend.widgets.config import resolve_filter_test_accounts
+from products.dashboards.backend.widgets.list_widget import ListWidgetPage, run_list_widget
 from products.dashboards.backend.widgets.widget_filters import build_event_property_filters_from_widget_filters
 
 logger = logging.getLogger(__name__)
@@ -95,22 +96,6 @@ def _run_recordings_query(team: Team, query: RecordingsQuery, user: User | None)
         )
 
 
-def _count_matching_session_recordings(
-    team: Team,
-    query: RecordingsQuery,
-    user: User | None,
-    *,
-    cap: int = MAX_WIDGET_RESULT_LIMIT,
-) -> tuple[int, bool]:
-    # Reuse the already-built query (a saved-filter playlist is only fetched/converted once) and
-    # only raise the limit to the count cap.
-    count_query = query.model_copy(update={"limit": cap})
-    data = _run_recordings_query(team, count_query, user)
-    raw_results_value = data.get("results")
-    raw_results = raw_results_value if isinstance(raw_results_value, list) else []
-    return len(raw_results), bool(data.get("has_next"))
-
-
 def run_session_replay_list_widget(
     team: Team,
     config: dict[str, Any],
@@ -119,34 +104,23 @@ def run_session_replay_list_widget(
     include_total_count: bool = True,
 ) -> dict[str, Any]:
     typed_config = validate_widget_config(SESSION_REPLAY_LIST_WIDGET_TYPE, config)
-    limit = typed_config["limit"]
+    # Build once so a saved-filter playlist is fetched/converted only a single time; both the
+    # visible page and the count page reuse it via model_copy with just the page limit.
     query = _build_recordings_query(team, typed_config)
-    data = _run_recordings_query(team, query, user)
-    raw_results_value = data.get("results")
-    raw_results = raw_results_value if isinstance(raw_results_value, list) else []
-    results = raw_results[:limit]
-    has_more = bool(data.get("has_next"))
-    shown = len(results)
 
-    payload: dict[str, Any] = {
-        "results": results,
-        "hasMore": has_more,
-        "limit": limit,
-        "offset": 0,
-    }
+    def fetch_page(page_limit: int) -> ListWidgetPage:
+        page_query = query.model_copy(update={"limit": page_limit, "offset": 0})
+        data = _run_recordings_query(team, page_query, user)
+        raw_results = data.get("results")
+        return ListWidgetPage(
+            results=raw_results if isinstance(raw_results, list) else [],
+            has_more=bool(data.get("has_next")),
+        )
 
-    if has_more:
-        if include_total_count:
-            try:
-                total_count, total_count_capped = _count_matching_session_recordings(team, query, user)
-                payload["totalCount"] = total_count
-                payload["totalCountCapped"] = total_count_capped
-            except Exception:
-                logger.exception("session_replay_widget_total_count_failed")
-                payload["totalCount"] = shown
-                payload["totalCountCapped"] = True
-    else:
-        payload["totalCount"] = shown
-        payload["totalCountCapped"] = False
-
-    return payload
+    return run_list_widget(
+        limit=typed_config["limit"],
+        count_cap=MAX_WIDGET_RESULT_LIMIT,
+        include_total_count=include_total_count,
+        fetch_page=fetch_page,
+        log_key="session_replay_widget_total_count_failed",
+    )

@@ -4,9 +4,15 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from products.dashboards.backend.constants import DEFAULT_WIDGET_LIST_LIMIT
-from products.dashboards.backend.widget_specs.common import WidgetLimit, WidgetListConfigBase, WidgetOrderDirection
+from products.dashboards.backend.constants import ACTIVITY_EVENTS_DEFAULT_LIMIT, DEFAULT_WIDGET_LIST_LIMIT
+from products.dashboards.backend.widget_specs.common import (
+    ActivityWidgetLimit,
+    WidgetLimit,
+    WidgetListConfigBase,
+    WidgetOrderDirection,
+)
 
+ACTIVITY_EVENTS_LIST_WIDGET_TYPE = "activity_events_list"
 ERROR_TRACKING_LIST_WIDGET_TYPE = "error_tracking_list"
 SESSION_REPLAY_LIST_WIDGET_TYPE = "session_replay_list"
 
@@ -56,3 +62,9 @@ class SessionReplayListWidgetConfig(WidgetListConfigBase):
         if not isinstance(value, str):
             raise ValueError("savedFilterId must be a string.")
         return value
+
+
+class ActivityEventsListWidgetConfig(WidgetListConfigBase):
+    limit: ActivityWidgetLimit = Field(
+        default=ACTIVITY_EVENTS_DEFAULT_LIMIT, description="Maximum number of events to return."
+    )

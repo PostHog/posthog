@@ -2,8 +2,8 @@ import { actions, connect, kea, key, listeners, path, props, reducers } from 'ke
 import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
-import { objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { objectsEqual } from 'lib/utils/objects'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { isSharedView } from '~/exporter/exporterViewLogic'

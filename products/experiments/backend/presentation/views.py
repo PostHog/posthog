@@ -187,8 +187,11 @@ def _slugify_feature_flag_key(name: str, *, team_id: int) -> str:
             OpenApiParameter(
                 name="created_by_id",
                 location=OpenApiParameter.QUERY,
-                type=int,
-                description="Filter to experiments created by the given user ID.",
+                type=str,
+                description=(
+                    "Filter to experiments created by the given user(s). Accepts a single user ID, "
+                    "or a JSON-encoded / comma-separated list of user IDs to match any of them."
+                ),
                 required=False,
             ),
             OpenApiParameter(
