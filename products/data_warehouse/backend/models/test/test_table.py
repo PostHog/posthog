@@ -526,6 +526,50 @@ class TestTable(BaseTest):
         assert list(definition.fields.keys()) == ["id", "timestamp-dash"]
         assert definition.structure == "`id` String, `timestamp-dash` DateTime64(3, 'UTC')"
 
+    @parameterized.expand(
+        [
+            ("parquet", DataWarehouseTable.TableFormat.Parquet),
+            ("delta", DataWarehouseTable.TableFormat.Delta),
+            ("delta_s3_wrapper", DataWarehouseTable.TableFormat.DeltaS3Wrapper),
+        ]
+    )
+    def test_hogql_definition_disables_prewhere_for_parquet_backed_formats(self, _name: str, table_format: str):
+        credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="bla",
+            url_pattern="https://databeach-hackathon.s3.amazonaws.com/tim_test/test_events6.pqt",
+            format=table_format,
+            team=self.team,
+            columns={"id": {"clickhouse": "String", "hogql": "StringDatabaseField"}},
+            credential=credential,
+        )
+
+        definition = table.hogql_definition()
+        assert isinstance(definition, HogQLDataWarehouseTable)
+        assert definition.top_level_settings is not None
+        assert definition.top_level_settings.optimize_move_to_prewhere == 0
+
+    @parameterized.expand(
+        [
+            ("csv", DataWarehouseTable.TableFormat.CSV),
+            ("csv_with_names", DataWarehouseTable.TableFormat.CSVWithNames),
+            ("json", DataWarehouseTable.TableFormat.JSON),
+        ]
+    )
+    def test_hogql_definition_keeps_prewhere_for_non_parquet_formats(self, _name: str, table_format: str):
+        credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="bla",
+            url_pattern="https://databeach-hackathon.s3.amazonaws.com/tim_test/test_events6.pqt",
+            format=table_format,
+            team=self.team,
+            columns={"id": {"clickhouse": "String", "hogql": "StringDatabaseField"}},
+            credential=credential,
+        )
+
+        settings = table.hogql_definition().top_level_settings
+        assert settings is None or settings.optimize_move_to_prewhere is None
+
     def test_complex_type_with_array_nested_datetime_fields(self):
         credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)
         table = DataWarehouseTable.objects.create(

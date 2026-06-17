@@ -44,6 +44,20 @@ class TestWebAnalyticsExternalSummaryQueryRunner(APIBaseTest):
         assert mock_chdb.query.call_count == 2
 
     @patch("products.web_analytics.backend.hogql_queries.external.summary_query_runner.chdb")
+    def test_s3_queries_disable_prewhere(self, mock_chdb):
+        self.team.organization.is_platform = True
+        self.team.organization.save()
+
+        mock_chdb.query.side_effect = ["100,50,200\n", "25,50\n"]
+
+        runner = WebAnalyticsExternalSummaryQueryRunner(query=self.query, team=self.team)
+        runner.calculate()
+
+        assert mock_chdb.query.call_count == 2
+        for call in mock_chdb.query.call_args_list:
+            assert "optimize_move_to_prewhere = 0" in call.args[0]
+
+    @patch("products.web_analytics.backend.hogql_queries.external.summary_query_runner.chdb")
     def test_calculate_platform_access_required(self, mock_chdb):
         self.team.organization.is_platform = False
         self.team.organization.save()
