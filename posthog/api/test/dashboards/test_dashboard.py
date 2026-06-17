@@ -1492,7 +1492,9 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         [
             ("same_team_only_team", "self", "team", status.HTTP_201_CREATED),
             ("global", "none", "global", status.HTTP_201_CREATED),
+            ("same_org_organization", "sibling", "organization", status.HTTP_201_CREATED),
             ("other_team_only_team", "other", "team", status.HTTP_400_BAD_REQUEST),
+            ("other_org_organization", "other", "organization", status.HTTP_400_BAD_REQUEST),
         ]
     )
     def test_use_template_respects_team_scoping(self, _name: str, owner: str, scope: str, expected_status: int) -> None:
@@ -1500,6 +1502,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         if owner == "self":
             template_team: Team | None = self.team
+        elif owner == "sibling":
+            template_team = Team.objects.create(organization=self.organization, name="sibling team")
         elif owner == "other":
             other_org = Organization.objects.create(name="other org")
             template_team = Team.objects.create(organization=other_org, name="other team")

@@ -31,8 +31,10 @@ export const DashboardTemplatesCreateBody = /* @__PURE__ */ zod.object({
     scope: zod
         .union([
             zod
-                .enum(['team', 'global', 'feature_flag'])
-                .describe('\* `team` - Only team\n\* `global` - Global\n\* `feature_flag` - Feature Flag'),
+                .enum(['team', 'organization', 'global', 'feature_flag'])
+                .describe(
+                    '\* `team` - Only team\n\* `organization` - Organization\n\* `global` - Global\n\* `feature_flag` - Feature Flag'
+                ),
             zod.enum(['']),
             zod.null(),
         ])
@@ -65,8 +67,10 @@ export const DashboardTemplatesUpdateBody = /* @__PURE__ */ zod.object({
     scope: zod
         .union([
             zod
-                .enum(['team', 'global', 'feature_flag'])
-                .describe('\* `team` - Only team\n\* `global` - Global\n\* `feature_flag` - Feature Flag'),
+                .enum(['team', 'organization', 'global', 'feature_flag'])
+                .describe(
+                    '\* `team` - Only team\n\* `organization` - Organization\n\* `global` - Global\n\* `feature_flag` - Feature Flag'
+                ),
             zod.enum(['']),
             zod.null(),
         ])
@@ -99,8 +103,10 @@ export const DashboardTemplatesPartialUpdateBody = /* @__PURE__ */ zod.object({
     scope: zod
         .union([
             zod
-                .enum(['team', 'global', 'feature_flag'])
-                .describe('\* `team` - Only team\n\* `global` - Global\n\* `feature_flag` - Feature Flag'),
+                .enum(['team', 'organization', 'global', 'feature_flag'])
+                .describe(
+                    '\* `team` - Only team\n\* `organization` - Organization\n\* `global` - Global\n\* `feature_flag` - Feature Flag'
+                ),
             zod.enum(['']),
             zod.null(),
         ])

@@ -2,8 +2,8 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useMemo } from 'react'
 
-import { IconBuilding, IconChevronDown, IconGlobe, IconThumbsUpFilled } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonInput, LemonMenu, LemonTag } from '@posthog/lemon-ui'
+import { IconBuilding, IconChevronDown, IconGlobe, IconPeople, IconThumbsUpFilled } from '@posthog/icons'
+import { LemonButton, LemonDialog, LemonDivider, LemonInput, LemonMenu, LemonTag } from '@posthog/lemon-ui'
 
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -137,6 +137,50 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
         )
     }
 
+    /** Promote a team template to organization-wide, or demote it back. Warns before promoting when the template
+     * embeds project-specific references (actions, cohorts, warehouse tables) that may not resolve in other projects. */
+    const promoteOrDemoteOrganizationScope = (record: DashboardTemplateType): void => {
+        const { id, scope } = record
+        if (id === undefined) {
+            console.error('Dashboard template id not defined')
+            return
+        }
+        if (scope === 'organization') {
+            updateDashboardTemplate({ id, dashboardTemplateUpdates: { scope: 'team' } })
+            return
+        }
+        const refs = record.non_portable_references
+        const warnings: string[] = []
+        if (refs) {
+            if (refs.actions > 0) {
+                warnings.push(`${refs.actions} action${refs.actions === 1 ? '' : 's'}`)
+            }
+            if (refs.cohorts > 0) {
+                warnings.push(`${refs.cohorts} cohort${refs.cohorts === 1 ? '' : 's'}`)
+            }
+            if (refs.warehouse_tables.length > 0) {
+                warnings.push(
+                    `${refs.warehouse_tables.length === 1 ? 'data warehouse table' : 'data warehouse tables'} ${refs.warehouse_tables.join(', ')}`
+                )
+            }
+        }
+        if (warnings.length === 0) {
+            updateDashboardTemplate({ id, dashboardTemplateUpdates: { scope: 'organization' } })
+            return
+        }
+        LemonDialog.open({
+            title: 'Share this template with your whole organization?',
+            description: `This template references items specific to this project (${warnings.join(
+                ', '
+            )}). Insights using them may show errors in other projects — events and properties work everywhere.`,
+            primaryButton: {
+                children: 'Share with organization',
+                onClick: () => updateDashboardTemplate({ id, dashboardTemplateUpdates: { scope: 'organization' } }),
+            },
+            secondaryButton: { children: 'Cancel' },
+        })
+    }
+
     const columns: LemonTableColumns<DashboardTemplateType> = [
         {
             key: 'featured',
@@ -210,7 +254,8 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
         {
             title: 'Type',
             dataIndex: 'team_id',
-            render: (_, { scope }) => (scope === 'global' ? 'Official' : 'Team'),
+            render: (_, { scope }) =>
+                scope === 'global' ? 'Official' : scope === 'organization' ? 'Organization' : 'Team',
         },
         {
             title: 'Created by',
@@ -322,7 +367,7 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
                     )
                 }
 
-                if (canCustomerManageTeamTemplates && scope === 'team') {
+                if (canCustomerManageTeamTemplates && (scope === 'team' || scope === 'organization')) {
                     return (
                         <More
                             overlay={
@@ -339,10 +384,21 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
                                     >
                                         Edit
                                     </LemonButton>
-                                    {copyTemplateToProjectMenuSection(
-                                        id,
-                                        'dashboard-template-copy-to-project-customer'
-                                    )}
+                                    <LemonButton
+                                        onClick={() => promoteOrDemoteOrganizationScope(record)}
+                                        fullWidth
+                                        data-attr="dashboard-template-toggle-organization-visibility"
+                                    >
+                                        {scope === 'organization'
+                                            ? 'Make visible to this team only'
+                                            : 'Make visible to whole organization'}
+                                    </LemonButton>
+                                    {scope === 'team'
+                                        ? copyTemplateToProjectMenuSection(
+                                              id,
+                                              'dashboard-template-copy-to-project-customer'
+                                          )
+                                        : null}
                                     <LemonDivider />
                                     <LemonButton
                                         onClick={() => {
@@ -407,6 +463,20 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
                             data-attr="dashboard-templates-filter-team"
                         >
                             Team
+                        </LemonButton>
+                        <LemonButton
+                            active={templatesTabVisibility === 'organization'}
+                            type="secondary"
+                            size="small"
+                            icon={<IconPeople />}
+                            onClick={() =>
+                                setTemplatesTabVisibility(
+                                    templatesTabVisibility === 'organization' ? 'all' : 'organization'
+                                )
+                            }
+                            data-attr="dashboard-templates-filter-organization"
+                        >
+                            Organization
                         </LemonButton>
                     </div>
                 </div>

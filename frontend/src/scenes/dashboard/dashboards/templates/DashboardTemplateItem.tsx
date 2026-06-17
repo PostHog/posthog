@@ -4,6 +4,7 @@ import { useId } from 'react'
 import { IconBuilding, IconHeartFilled } from '@posthog/icons'
 
 import { FallbackCoverImage } from 'lib/components/FallbackCoverImage/FallbackCoverImage'
+import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { DashboardTemplateType } from '~/types'
@@ -26,7 +27,7 @@ const featuredImageColumnClass =
 export type TemplateItemSize = 'default' | 'large'
 
 export interface DashboardTemplateItemProps {
-    template: Pick<DashboardTemplateType, 'template_name' | 'dashboard_description' | 'image_url' | 'tags'>
+    template: Pick<DashboardTemplateType, 'template_name' | 'dashboard_description' | 'image_url' | 'tags' | 'scope'>
     onClick: () => void
     index: number
     'data-attr': string
@@ -52,18 +53,23 @@ function TemplateItemTitleDescription({
     wrapClassName,
     titleClassName,
     descriptionClassName,
+    badge,
 }: {
     titleId: string
     template: Pick<DashboardTemplateType, 'template_name' | 'dashboard_description'>
     wrapClassName: string
     titleClassName: string
     descriptionClassName: string
+    badge?: JSX.Element
 }): JSX.Element {
     return (
         <div className={wrapClassName}>
-            <h5 id={titleId} className={titleClassName}>
-                {template?.template_name}
-            </h5>
+            <div className="flex items-center gap-2 min-w-0">
+                <h5 id={titleId} className={titleClassName}>
+                    {template?.template_name}
+                </h5>
+                {badge}
+            </div>
             <p className={descriptionClassName}>{template?.dashboard_description ?? ' '}</p>
         </div>
     )
@@ -100,6 +106,15 @@ export function TemplateItem({
         </Tooltip>
     ) : null
 
+    const organizationBadge =
+        template.scope === 'organization' ? (
+            <Tooltip title="Shared with everyone in your organization">
+                <LemonTag type="muted" size="small" className="shrink-0">
+                    Organization
+                </LemonTag>
+            </Tooltip>
+        ) : undefined
+
     if (!showCover) {
         return (
             <button
@@ -114,6 +129,7 @@ export function TemplateItem({
                 <TemplateItemTitleDescription
                     titleId={titleId}
                     template={template}
+                    badge={organizationBadge}
                     wrapClassName={clsx('min-w-0 flex-1 flex flex-col', isLarge ? 'gap-1' : 'gap-0.5')}
                     titleClassName={clsx('min-w-0 font-semibold leading-snug', isLarge ? 'text-base' : 'text-sm')}
                     descriptionClassName={clsx(

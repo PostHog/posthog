@@ -64,6 +64,7 @@ export interface UserBasicApi {
 
 /**
  * * `team` - Only team
+ * * `organization` - Organization
  * * `global` - Global
  * * `feature_flag` - Feature Flag
  */
@@ -72,9 +73,19 @@ export type DashboardTemplateScopeEnumApi =
 
 export const DashboardTemplateScopeEnumApi = {
     Team: 'team',
+    Organization: 'organization',
     Global: 'global',
     FeatureFlag: 'feature_flag',
 } as const
+
+export interface NonPortableReferencesApi {
+    /** Count of distinct action references in the template's tiles that are specific to the source project. */
+    actions: number
+    /** Count of distinct cohort references in the template's tiles that are specific to the source project. */
+    cohorts: number
+    /** Names of data warehouse tables referenced by the template's tiles that are specific to the source project. */
+    warehouse_tables: string[]
+}
 
 export interface DashboardTemplateApi {
     readonly id: string
@@ -116,6 +127,8 @@ export interface DashboardTemplateApi {
     availability_contexts?: string[] | null
     /** Manually curated; used to highlight templates in the UI. */
     is_featured?: boolean
+    /** Read-only. Project-specific references (actions, cohorts, data warehouse tables) embedded in this template's tiles that may not resolve when it is used in another project. Events and properties are matched by name and are portable, so they are not reported here. */
+    readonly non_portable_references: NonPortableReferencesApi
 }
 
 export interface PaginatedDashboardTemplateListApi {
@@ -167,6 +180,8 @@ export interface PatchedDashboardTemplateApi {
     availability_contexts?: string[] | null
     /** Manually curated; used to highlight templates in the UI. */
     is_featured?: boolean
+    /** Read-only. Project-specific references (actions, cohorts, data warehouse tables) embedded in this template's tiles that may not resolve when it is used in another project. Events and properties are matched by name and are portable, so they are not reported here. */
+    readonly non_portable_references?: NonPortableReferencesApi
 }
 
 export interface CopyDashboardTemplateApi {
@@ -8139,7 +8154,7 @@ export type DashboardTemplatesListParams = {
      */
     ordering?: string
     /**
-     * Optional. `global`: official templates only. `team`: this project's saved templates only (`scope=team` rows for the current project). `feature_flag`: feature-flag dashboard templates only. Omit for both official and this project's templates (default dashboard template picker behavior).
+     * Optional. `global`: official templates only. `team`: this project's saved templates only (`scope=team` rows for the current project). `organization`: templates shared across all projects in this organization. `feature_flag`: feature-flag dashboard templates only. Omit for official, organization, and this project's templates (default dashboard template picker behavior).
      */
     scope?: DashboardTemplatesListScope
 }
@@ -8149,6 +8164,7 @@ export type DashboardTemplatesListScope = (typeof DashboardTemplatesListScope)[k
 export const DashboardTemplatesListScope = {
     FeatureFlag: 'feature_flag',
     Global: 'global',
+    Organization: 'organization',
     Team: 'team',
 } as const
 
