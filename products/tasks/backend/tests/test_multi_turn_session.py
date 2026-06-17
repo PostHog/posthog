@@ -1295,3 +1295,18 @@ class TestCreateTaskAndTriggerForwardsContext:
         kwargs = mock_create.call_args.kwargs
         assert kwargs["sandbox_environment_id"] == expected_env
         assert kwargs["posthog_mcp_scopes"] == expected_scopes
+
+    @pytest.mark.asyncio
+    async def test_forwards_ai_stage(self):
+        team, user = await sync_to_async(self._setup_team_and_user)()
+        context = CustomPromptSandboxContext(team_id=team.id, user_id=user.id, repository="posthog/posthog")
+
+        mock_task = MagicMock()
+        mock_task.latest_run = MagicMock()
+        with patch(
+            "products.tasks.backend.services.custom_prompt_internals.Task.create_and_run",
+            return_value=mock_task,
+        ) as mock_create:
+            await create_task_and_trigger("prompt", context, ai_stage="research")
+
+        assert mock_create.call_args.kwargs["ai_stage"] == "research"
