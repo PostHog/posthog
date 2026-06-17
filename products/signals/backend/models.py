@@ -440,8 +440,8 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # no sampling. Floor of 10 keeps one scout from monopolising the worker pool; default
     # 180 = every 3 hours. Ceiling 43200 = 30 days. `PositiveIntegerField` (int4) not
     # `PositiveSmallIntegerField` (smallint, max 32767) so the documented 30-day ceiling fits.
-    # Default chosen for run economics: at the observed fleet emit rate (~3.5% of runs surface
-    # a finding) hourly mostly pays to confirm "nothing new"; 3h cuts per-scout spend ~3x with
+    # Default chosen for run economics: most runs close out without a finding, so hourly mostly
+    # pays to re-confirm "nothing new"; a 3h cadence cuts per-scout spend materially with
     # negligible detection latency for non-spike findings. Tune per scout via the config API.
     run_interval_minutes = models.PositiveIntegerField(
         default=180,
