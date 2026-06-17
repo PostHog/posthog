@@ -1773,6 +1773,7 @@ class ExternalDataSourceType(StrEnum):
     STREAM_ELEMENTS = "StreamElements"
     STREAMLABS = "Streamlabs"
     DATORAMA = "Datorama"
+    AHREFS = "Ahrefs"
     CUSTOM = "Custom"
 
 
