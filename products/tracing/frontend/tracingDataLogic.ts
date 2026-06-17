@@ -350,6 +350,11 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                         filterGroup: values.filters.filterGroup as PropertyGroupFilter,
                         offset: values.traceSpansNextOffset,
                     })
+                    // Bail if a new trace was opened mid-fetch — appending this stale page to the new
+                    // trace's spans would corrupt the waterfall.
+                    if (values.traceLoadContext?.traceId !== traceId) {
+                        return values.traceSpans
+                    }
                     actions.setTracePagination(!!response.hasMore, response.nextOffset ?? null)
                     return [...values.traceSpans, ...(response.results as Span[])]
                 },
