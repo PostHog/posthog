@@ -652,6 +652,13 @@ class SignalReportViewSet(
                 ).order_by("-created_at"),
                 to_attr="prefetched_actionability_artefacts",
             ),
+            Prefetch(
+                "artefacts",
+                queryset=SignalReportArtefact.objects.filter(type=SignalReportArtefact.ArtefactType.DISMISSAL).order_by(
+                    "-created_at"
+                ),
+                to_attr="prefetched_dismissal_artefacts",
+            ),
         )
 
     def _annotate_is_suggested_reviewer(self, queryset):

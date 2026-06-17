@@ -804,6 +804,69 @@ class TestSignalReportListAPI(APIBaseTest):
         row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
         assert row["actionability"] is None
 
+    # --- dismissal reason ---
+
+    def _dismissal_artefact(
+        self,
+        report: SignalReport,
+        *,
+        reason: str | None,
+        note: str = "",
+        created_at=None,
+    ) -> SignalReportArtefact:
+        payload: dict = {"note": note, "user_id": None, "user_uuid": None}
+        if reason is not None:
+            payload["reason"] = reason
+        art = SignalReportArtefact(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.DISMISSAL,
+            content=json.dumps(payload),
+        )
+        art.save()
+        if created_at is not None:
+            SignalReportArtefact.objects.filter(pk=art.pk).update(created_at=created_at)
+            art.refresh_from_db()
+        return art
+
+    def test_list_includes_dismissal_reason_and_note(self):
+        report = self._create_report(status=SignalReport.Status.SUPPRESSED)
+        self._dismissal_artefact(report, reason="wontfix_intentional", note="by design")
+
+        response = self.client.get(self._list_url(status="suppressed"))
+        assert response.status_code == status.HTTP_200_OK
+        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
+        assert row["dismissal_reason"] == "wontfix_intentional"
+        assert row["dismissal_note"] == "by design"
+
+    def test_list_dismissal_reason_null_without_artefact(self):
+        report = self._create_report(status=SignalReport.Status.SUPPRESSED)
+
+        response = self.client.get(self._list_url(status="suppressed"))
+        assert response.status_code == status.HTTP_200_OK
+        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
+        assert row["dismissal_reason"] is None
+        assert row["dismissal_note"] is None
+
+    def test_list_uses_latest_dismissal_artefact_by_created_at(self):
+        report = self._create_report(status=SignalReport.Status.SUPPRESSED)
+        self._dismissal_artefact(report, reason="report_unclear", created_at=timezone.now() - timedelta(days=1))
+        self._dismissal_artefact(report, reason="analysis_wrong")
+
+        response = self.client.get(self._list_url(status="suppressed"))
+        assert response.status_code == status.HTTP_200_OK
+        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
+        assert row["dismissal_reason"] == "analysis_wrong"
+
+    def test_list_passes_through_unknown_dismissal_reason_code(self):
+        report = self._create_report(status=SignalReport.Status.SUPPRESSED)
+        self._dismissal_artefact(report, reason="some_brand_new_code")
+
+        response = self.client.get(self._list_url(status="suppressed"))
+        assert response.status_code == status.HTTP_200_OK
+        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
+        assert row["dismissal_reason"] == "some_brand_new_code"
+
 
 class TestSignalReportSuppressionAPI(APIBaseTest):
     def _state_url(self, report_id: str) -> str:
