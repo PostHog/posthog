@@ -97,6 +97,8 @@ export const ReportCardStates: Story = {
 }
 
 export const Skeleton: Story = {
+    // Skeletons render permanently, so the VR runner must not wait for loaders to disappear.
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
     render: () => (
         <Stack>
             {/* Dashed report/not-actionable card skeletons, then solid PR card skeletons – matching the live tabs. */}
