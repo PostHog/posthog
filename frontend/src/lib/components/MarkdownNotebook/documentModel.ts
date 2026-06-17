@@ -1,5 +1,5 @@
 import { RestoreInlineSelectionRequest, RestoreSelectionRequest } from './editorTypes'
-import { removeInlineRefMark } from './inlineContent'
+import { removeInlineRefMark, splitInlineNodesAt } from './inlineContent'
 import {
     COMMENT_COMPONENT_TAG,
     DIVIDER_COMPONENT_TAG,
@@ -303,11 +303,16 @@ export function normalizeNotebookTitlePasteBodyNode(node: NotebookBlockNode): No
     }
 }
 
-export function getListShortcut(text: string): { ordered: boolean; start?: number } | null {
+export function getListShortcut(text: string): { ordered: boolean; start?: number; checked?: boolean } | null {
     const normalizedText = text.replace(/\u00a0/g, ' ')
     const orderedMatch = normalizedText.match(/^(\d+)[.)]\s*$/)
     if (orderedMatch) {
         return { ordered: true, start: Number(orderedMatch[1]) }
+    }
+
+    const taskMatch = normalizedText.match(/^(?:[-*+•] )?\[( ?|x|X)\]\s+$/)
+    if (taskMatch) {
+        return { ordered: false, checked: taskMatch[1].toLowerCase() === 'x' }
     }
 
     if (/^[-*+•]\s+$/.test(normalizedText)) {
@@ -315,6 +320,28 @@ export function getListShortcut(text: string): { ordered: boolean; start?: numbe
     }
 
     return null
+}
+
+/**
+ * Detects a GFM task marker (`[ ] `, `[] `, `[x] `) typed at the start of a bullet list item,
+ * returning the item content with the marker stripped so the item can become a task.
+ */
+export function getTaskItemShortcut(
+    children: NotebookInlineNode[]
+): { checked: boolean; children: NotebookInlineNode[]; markerLength: number } | null {
+    const taskMatch = getInlineText(children)
+        .replace(/\u00a0/g, ' ')
+        .match(/^\[( ?|x|X)\] /)
+    if (!taskMatch) {
+        return null
+    }
+
+    const [, strippedChildren] = splitInlineNodesAt(children, taskMatch[0].length)
+    return {
+        checked: taskMatch[1].toLowerCase() === 'x',
+        children: strippedChildren,
+        markerLength: taskMatch[0].length,
+    }
 }
 
 export type TextBlockShortcutReplacement = {
@@ -407,6 +434,7 @@ export function getTextBlockShortcutReplacement(
                             depth: 0,
                             ordered: listShortcut.ordered,
                             start: listShortcut.start,
+                            checked: listShortcut.checked,
                         },
                     ],
                 },

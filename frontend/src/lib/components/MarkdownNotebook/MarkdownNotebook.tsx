@@ -50,6 +50,7 @@ import {
     getNotebookStringProp,
     getPromptSource,
     getSlashCommandQuery,
+    getTaskItemShortcut,
     getTextBlockShortcutReplacement,
     hasNotebookContent,
     getDiscussionCommentRefId,
@@ -279,6 +280,10 @@ type NotebookHistoryState = {
 /** Consecutive single-block edits within this window fold into one undo step. */
 const UNDO_TYPING_GROUP_MS = 1000
 
+/** How many recent local serializations to remember for save-echo detection. Must comfortably
+ * cover the keystrokes that can land between a save being sent and its response echoing back. */
+const MAX_TRACKED_LOCAL_SNAPSHOTS = 100
+
 function createDefaultAIChatId(): string {
     if (typeof window !== 'undefined' && window.crypto?.randomUUID) {
         return window.crypto.randomUUID()
@@ -417,6 +422,10 @@ export function MarkdownNotebook({
     const notebookClipboardMarkdownRef = useRef<string | null>(null)
     const historyRef = useRef<NotebookHistoryState>({ undo: [], redo: [] })
     const lastSerializedValueRef = useRef(value)
+    // Recent local serializations, oldest first. A remote update matching one of these is the
+    // echo of our own save — already contained in the local state, so merging it back in would
+    // duplicate the overlapping insertions.
+    const localSnapshotsRef = useRef<string[]>([value])
     // The three-way merge base: the last server state local edits were derived from.
     const lastBaseValueRef = useRef(remoteValue ?? value)
     const lastRemoteValueRef = useRef(remoteValue)
@@ -735,6 +744,7 @@ export function MarkdownNotebook({
         // The base is intentionally left untouched: an external `value` change is a local-side
         // update (artifact apply, restore), so the last synced server state remains the merge base.
         lastSerializedValueRef.current = value
+        trackLocalSnapshot(value)
         // oxlint-disable-next-line exhaustive-deps
     }, [value])
 
@@ -848,6 +858,17 @@ export function MarkdownNotebook({
         [captureHistorySelection]
     )
 
+    const trackLocalSnapshot = useCallback((serialized: string): void => {
+        const snapshots = localSnapshotsRef.current
+        if (snapshots[snapshots.length - 1] === serialized) {
+            return
+        }
+        snapshots.push(serialized)
+        if (snapshots.length > MAX_TRACKED_LOCAL_SNAPSHOTS) {
+            snapshots.splice(0, snapshots.length - MAX_TRACKED_LOCAL_SNAPSHOTS)
+        }
+    }, [])
+
     const commitDocument = useCallback(
         (nextDocument: NotebookDocument, options: CommitDocumentOptions = {}): void => {
             const editableDocument = ensureEditableNotebookDocument(nextDocument)
@@ -866,21 +887,30 @@ export function MarkdownNotebook({
             })
             documentRef.current = editableDocument
             lastSerializedValueRef.current = serialized
+            trackLocalSnapshot(serialized)
             setDebugMarkdown(serialized)
             setDocument(editableDocument)
             onChange?.(serialized)
         },
-        [onChange, pushHistoryEntry, mapRemoteCaretAnchors, logDebugEntry]
+        [onChange, pushHistoryEntry, mapRemoteCaretAnchors, logDebugEntry, trackLocalSnapshot]
     )
 
     const applyRemoteValue = useCallback(
         (nextRemoteValue: string): void => {
-            if (nextRemoteValue === lastSerializedValueRef.current) {
-                // The remote state caught up with local edits (autosave echo): fully synced,
-                // nothing changes locally — undo history must survive autosaves.
-                logDebugEntry('remote-echo', {})
+            const snapshotIndex =
+                nextRemoteValue === lastSerializedValueRef.current
+                    ? localSnapshotsRef.current.length - 1
+                    : localSnapshotsRef.current.indexOf(nextRemoteValue)
+            if (snapshotIndex !== -1) {
+                // The remote state matches a recent local serialization: it's the echo of our own
+                // save, so everything in it is already contained in the local state. Merging it
+                // would re-apply insertions the local text has since built on, duplicating them —
+                // only the merge base advances. Undo history must survive autosaves too.
+                logDebugEntry('remote-echo', { behind: nextRemoteValue !== lastSerializedValueRef.current })
                 lastRemoteValueRef.current = nextRemoteValue
                 lastBaseValueRef.current = nextRemoteValue
+                // Older snapshots can't echo after a newer one: saves are acknowledged in order.
+                localSnapshotsRef.current.splice(0, snapshotIndex)
                 return
             }
 
@@ -1424,6 +1454,8 @@ export function MarkdownNotebook({
             children: after,
             depth: item.depth,
             ordered: item.ordered ?? node.ordered,
+            // A new item split off a task starts as an unchecked task
+            checked: item.checked !== undefined ? false : undefined,
         }
         const nextItems = [...node.items]
         nextItems[targetItemIndex] = { ...item, children: before }
@@ -2891,6 +2923,7 @@ export function MarkdownNotebook({
 
         documentRef.current = reconciledDocument
         lastSerializedValueRef.current = serialized
+        trackLocalSnapshot(serialized)
         lastBaseValueRef.current = serialized
         setDebugMarkdown(nextMarkdown)
         setDocument(reconciledDocument)
@@ -3260,6 +3293,21 @@ export function MarkdownNotebook({
         window.setTimeout(() => element.classList.remove('MarkdownNotebook__component-shell--comment-flash'), 1600)
     }
 
+    const focusDiscussionCommentComposer = (nodeId: string): void => {
+        window.setTimeout(() => {
+            const element = blockRefs.current[nodeId]
+            const textarea = element?.querySelector(
+                '[data-attr="notebook-discussion-comment-input"] textarea, textarea[data-attr="notebook-discussion-comment-input"]'
+            )
+            if (textarea instanceof HTMLTextAreaElement) {
+                textarea.focus()
+                textarea.setSelectionRange(textarea.value.length, textarea.value.length)
+                return
+            }
+            element?.focus()
+        }, 0)
+    }
+
     const handleCanvasClick = (event: ReactMouseEvent<HTMLDivElement>): void => {
         const refElement = event.target instanceof Element ? event.target.closest('[data-notebook-ref]') : null
         const refId = refElement?.getAttribute('data-notebook-ref')
@@ -3278,13 +3326,23 @@ export function MarkdownNotebook({
             return
         }
 
+        const insertIndex = Math.max(targetIndex, 1)
+        const existingCommentNode = nodes[insertIndex - 1]
+        if (
+            existingCommentNode &&
+            isDiscussionCommentNode(existingCommentNode) &&
+            !getDiscussionCommentRefId(existingCommentNode)
+        ) {
+            focusDiscussionCommentComposer(existingCommentNode.id)
+            return
+        }
+
         const commentNode: NotebookComponentBlockNode = {
             id: makeEmptyParagraph(`comment-${nodeId}`).id,
             type: 'component',
             tagName: 'Comment',
             props: { replies: [] },
         }
-        const insertIndex = Math.max(targetIndex, 1)
         markNotebookNodeFreshlyInserted(commentNode.id)
         commitDocument({
             ...currentDocument,
@@ -4351,6 +4409,29 @@ export function MarkdownNotebook({
                 return
             }
 
+            const listNode = nodes.find((node) => node.id === nodeId)
+            let taskShortcut: ReturnType<typeof getTaskItemShortcut> = null
+            if (listNode?.type === 'list') {
+                const item = listNode.items[getListItemIndex(listNode.items, itemIndex, itemId)]
+                if (item && item.checked === undefined && !(item.ordered ?? listNode.ordered)) {
+                    taskShortcut = getTaskItemShortcut(nextChildren)
+                }
+            }
+            if (taskShortcut) {
+                const caretOffset = Math.max(
+                    0,
+                    (getCollapsedSelectionRange(inlineEditableElement, nodeId)?.start ?? taskShortcut.markerLength) -
+                        taskShortcut.markerLength
+                )
+                restoreSelectionRef.current = {
+                    nodeId,
+                    listItemIndex: itemIndex,
+                    listItemId: itemId,
+                    start: caretOffset,
+                    end: caretOffset,
+                }
+            }
+
             updateNode(nodeId, (currentNode) => {
                 if (currentNode.type !== 'list') {
                     return currentNode
@@ -4362,7 +4443,11 @@ export function MarkdownNotebook({
                 return {
                     ...currentNode,
                     items: currentNode.items.map((item, index) =>
-                        index === targetItemIndex ? { ...item, children: nextChildren } : item
+                        index === targetItemIndex
+                            ? taskShortcut
+                                ? { ...item, checked: taskShortcut.checked, children: taskShortcut.children }
+                                : { ...item, children: nextChildren }
+                            : item
                     ),
                 }
             })
@@ -4758,6 +4843,27 @@ export function MarkdownNotebook({
         )
     }
 
+    const renderDebugToolbar = (): JSX.Element | null => {
+        if (!showDebug) {
+            return null
+        }
+
+        return (
+            <div className="MarkdownNotebook__debug-toolbar" contentEditable={false}>
+                <LemonButton
+                    size="small"
+                    icon={<IconCode />}
+                    active={isDebugOpen}
+                    tooltip="Edit markdown source"
+                    aria-label="Edit markdown source"
+                    aria-controls={debugDrawerId}
+                    aria-expanded={isDebugOpen}
+                    onClick={() => setIsDebugOpen((isOpen) => !isOpen)}
+                />
+            </div>
+        )
+    }
+
     const renderNotebookRow = (node: NotebookBlockNode, index: number): JSX.Element => {
         const isTitleRow = index === 0
         const isInsertMenuOpen = insertMenu?.nodeId === node.id
@@ -4965,11 +5071,14 @@ export function MarkdownNotebook({
         )
     }
 
+    const firstTextGroupKey = renderedNodeGroups.find((group) => group.type === 'text')?.key
+
     return (
         <div
             className={clsx(
                 'MarkdownNotebook',
                 isDebugOpen && 'MarkdownNotebook--debug-open',
+                mode === 'edit' && 'MarkdownNotebook--edit',
                 hasDiscussionComments &&
                     (fitsCommentGutter ? 'MarkdownNotebook--comments-margin' : 'MarkdownNotebook--comments-inline'),
                 className
@@ -4983,20 +5092,6 @@ export function MarkdownNotebook({
         >
             <div className="MarkdownNotebook__debug-layout">
                 <div className="MarkdownNotebook__main" ref={mainRef} onMouseDown={handleMainMouseDown}>
-                    {showDebug ? (
-                        <div className="MarkdownNotebook__debug-toolbar">
-                            <LemonButton
-                                size="small"
-                                icon={<IconCode />}
-                                active={isDebugOpen}
-                                tooltip="Edit markdown source"
-                                aria-label="Edit markdown source"
-                                aria-controls={debugDrawerId}
-                                aria-expanded={isDebugOpen}
-                                onClick={() => setIsDebugOpen((isOpen) => !isOpen)}
-                            />
-                        </div>
-                    ) : null}
                     {document.errors.length ? (
                         <div className="MarkdownNotebook__parse-errors">
                             {document.errors.map((error) => (
@@ -5036,7 +5131,15 @@ export function MarkdownNotebook({
 
                                 return (
                                     <Fragment key={group.key}>
-                                        <div className="MarkdownNotebook__text-group">
+                                        <div
+                                            className={clsx(
+                                                'MarkdownNotebook__text-group',
+                                                group.key === firstTextGroupKey &&
+                                                    showDebug &&
+                                                    'MarkdownNotebook__text-group--with-debug-toolbar'
+                                            )}
+                                        >
+                                            {group.key === firstTextGroupKey ? renderDebugToolbar() : null}
                                             {chunks.map((chunk) => {
                                                 const chunkLastIndex = chunk.items[chunk.items.length - 1].index
                                                 const rows = chunk.items.map(({ node, index }) => (

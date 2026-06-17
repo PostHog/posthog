@@ -11,10 +11,12 @@ import { DashboardWidgetItem } from '@posthog/products-dashboards/frontend/compo
 import { getDashboardWidgetFetchDisplayError } from '@posthog/products-dashboards/frontend/widgets/constants'
 
 import { InsightCard } from 'lib/components/Cards/InsightCard'
+import { EditModeEdge } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { BREAKPOINTS, BREAKPOINT_COLUMN_COUNTS, isWidgetTileVisibleOnPlacement } from 'scenes/dashboard/dashboardUtils'
+import { continueDragGestureInEditMode, continueResizeGestureInEditMode } from 'scenes/dashboard/editLayoutGesture'
 import { useSurveyLinkedInsights } from 'scenes/surveys/hooks/useSurveyLinkedInsights'
 import { getBestSurveyOpportunityFunnel } from 'scenes/surveys/utils/opportunityDetection'
 import { urls } from 'scenes/urls'
@@ -55,6 +57,7 @@ export function DashboardItems(): JSX.Element {
         dashboardWidgetsEnabled,
         widgetResultsByTileId,
         widgetRefreshStatus,
+        scrollToBottomSignal,
     } = useValues(dashboardLogic)
     const { layoutZoom = 1 } = useValues(dashboardLogic)
     const {
@@ -92,6 +95,7 @@ export function DashboardItems(): JSX.Element {
     const scrollAnimationRef = useRef<number | null>(null)
     const scrollContainerRef = useRef<HTMLElement | null>(null)
     const scrollContainerRectRef = useRef<DOMRect | null>(null)
+    const lastScrollSignalRef = useRef(scrollToBottomSignal)
 
     useEffect(() => {
         return () => {
@@ -105,6 +109,27 @@ export function DashboardItems(): JSX.Element {
             scrollContainerRectRef.current = null
         }
     }, [])
+
+    // Scroll the dashboard to the bottom when the logic requests it (e.g. after adding tiles).
+    // Two animation frames let React commit and react-grid-layout grow the container before we measure.
+    useEffect(() => {
+        if (scrollToBottomSignal === lastScrollSignalRef.current) {
+            return
+        }
+        lastScrollSignalRef.current = scrollToBottomSignal
+
+        let secondFrame = 0
+        const firstFrame = requestAnimationFrame(() => {
+            secondFrame = requestAnimationFrame(() => {
+                const scrollContainer = document.getElementById('main-content')
+                scrollContainer?.scrollTo({ top: scrollContainer.scrollHeight, behavior: 'smooth' })
+            })
+        })
+        return () => {
+            cancelAnimationFrame(firstFrame)
+            cancelAnimationFrame(secondFrame)
+        }
+    }, [scrollToBottomSignal])
     const className = clsx({
         'dashboard-view-mode': !layoutEditMode,
         'dashboard-edit-mode': layoutEditMode,
@@ -187,7 +212,11 @@ export function DashboardItems(): JSX.Element {
     const onEnterEditModeFromEdge = useMemo(
         () =>
             canEnterEditModeFromEdge
-                ? () => setDashboardMode(DashboardMode.Edit, DashboardEventSource.CardEdgeHover)
+                ? (e: React.MouseEvent<HTMLDivElement>, edge: EditModeEdge) => {
+                      setDashboardMode(DashboardMode.Edit, DashboardEventSource.CardEdgeHover)
+                      // continue the press into a live resize so the user doesn't have to release and grab again
+                      continueResizeGestureInEditMode(e, edge)
+                  }
                 : undefined,
         [canEnterEditModeFromEdge, setDashboardMode]
     )
@@ -217,6 +246,8 @@ export function DashboardItems(): JSX.Element {
                       e.preventDefault()
                       e.stopPropagation()
                       setDashboardMode(DashboardMode.Edit, DashboardEventSource.CardDragHandle)
+                      // continue the press into a live drag so the user doesn't have to release and grab again
+                      continueDragGestureInEditMode(e)
                   }
                 : undefined,
         [canEnterEditModeFromEdge, setDashboardMode]

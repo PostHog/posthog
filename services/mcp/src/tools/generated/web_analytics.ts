@@ -64,6 +64,8 @@ const heatmapsList = (): ToolBase<typeof HeatmapsListSchema, WithPostHogUrl<Sche
                 date_to: params.date_to,
                 filter_test_accounts: params.filter_test_accounts,
                 hide_zero_coordinates: params.hide_zero_coordinates,
+                limit: params.limit,
+                offset: params.offset,
                 type: params.type,
                 url_exact: params.url_exact,
                 url_pattern: params.url_pattern,
