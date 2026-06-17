@@ -34,10 +34,12 @@ export type ExperimentResultsWidgetResult = {
         feature_flag_key: string
     } | null
     metrics: ExperimentResultsWidgetMetricEntry[]
+    secondaryMetrics?: ExperimentResultsWidgetMetricEntry[]
     needsConfiguration?: boolean
     experimentNotFound?: boolean
     hasExperiments?: boolean
     totalMetricsCount?: number
+    totalSecondaryMetricsCount?: number
 }
 
 function ExperimentResultsWidgetMessage({
@@ -166,6 +168,7 @@ export function ExperimentResultsWidget({
     }
 
     const { experiment, metrics } = payload
+    const secondaryMetrics = payload.secondaryMetrics ?? []
     const isDraft = experiment.status === 'draft'
 
     return (
@@ -200,6 +203,21 @@ export function ExperimentResultsWidget({
                         Showing the first {metrics.length} of {payload.totalMetricsCount} primary metrics. Open the
                         experiment to see all of them.
                     </span>
+                ) : null}
+                {!isDraft && secondaryMetrics.length > 0 ? (
+                    <>
+                        <h6 className="m-0 text-xs font-semibold text-muted">Secondary metrics</h6>
+                        {secondaryMetrics.map((entry, index) => (
+                            <ExperimentResultsWidgetMetric key={entry.uuid ?? index} entry={entry} />
+                        ))}
+                        {payload.totalSecondaryMetricsCount &&
+                        payload.totalSecondaryMetricsCount > secondaryMetrics.length ? (
+                            <span className="text-xs text-muted">
+                                Showing the first {secondaryMetrics.length} of {payload.totalSecondaryMetricsCount}{' '}
+                                secondary metrics. Open the experiment to see all of them.
+                            </span>
+                        ) : null}
+                    </>
                 ) : null}
             </div>
         </WidgetCardContent>

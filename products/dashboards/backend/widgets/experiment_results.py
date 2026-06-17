@@ -48,20 +48,24 @@ def _serialize_experiment_summary(experiment: Experiment) -> dict[str, Any]:
     }
 
 
-def _collect_primary_metric_dicts(experiment: Experiment) -> list[dict[str, Any]]:
-    """Inline primary metrics plus saved metrics linked as primary, in display order when known."""
-    metric_dicts: list[dict[str, Any]] = [dict(metric) for metric in (experiment.metrics or [])]
+def _collect_metric_dicts(experiment: Experiment, *, secondary: bool) -> list[dict[str, Any]]:
+    """Inline metrics plus saved metrics linked to this section, in display order when known."""
+    section = "secondary" if secondary else "primary"
+    inline_metrics = experiment.metrics_secondary if secondary else experiment.metrics
+    metric_dicts: list[dict[str, Any]] = [dict(metric) for metric in (inline_metrics or [])]
 
     for link in experiment.experimenttosavedmetric_set.select_related("saved_metric").all():
         metadata = link.metadata or {}
-        if metadata.get("type", "primary") != "primary":
+        if metadata.get("type", "primary") != section:
             continue
         saved_query = link.saved_metric.query
         if not saved_query:
             continue
         metric_dicts.append({**saved_query, "name": saved_query.get("name") or link.saved_metric.name})
 
-    ordered_uuids = experiment.primary_metrics_ordered_uuids
+    ordered_uuids = (
+        experiment.secondary_metrics_ordered_uuids if secondary else experiment.primary_metrics_ordered_uuids
+    )
     if ordered_uuids:
         order = {uuid: index for index, uuid in enumerate(ordered_uuids)}
         metric_dicts.sort(key=lambda metric: order.get(metric.get("uuid"), len(order)))
@@ -140,18 +144,23 @@ def run_experiment_results_widget(
     payload: dict[str, Any] = {
         "experiment": _serialize_experiment_summary(experiment),
         "metrics": [],
+        "secondaryMetrics": [],
     }
 
     if experiment.start_date is None:
         # Draft experiments have no exposure data yet — nothing to compute.
         return payload
 
-    metric_dicts = _collect_primary_metric_dicts(experiment)
+    primary_metric_dicts = _collect_metric_dicts(experiment, secondary=False)
+    secondary_metric_dicts = _collect_metric_dicts(experiment, secondary=True)
     if include_total_count:
-        payload["totalMetricsCount"] = len(metric_dicts)
+        payload["totalMetricsCount"] = len(primary_metric_dicts)
+        payload["totalSecondaryMetricsCount"] = len(secondary_metric_dicts)
 
     with tags_context(product=Product.EXPERIMENTS, feature=Feature.QUERY, team_id=team.pk):
-        for index, metric_dict in enumerate(metric_dicts[:MAX_EXPERIMENT_RESULTS_WIDGET_METRICS]):
+        for index, metric_dict in enumerate(primary_metric_dicts[:MAX_EXPERIMENT_RESULTS_WIDGET_METRICS]):
             payload["metrics"].append(_compute_metric_entry(team, experiment, metric_dict, index))
+        for index, metric_dict in enumerate(secondary_metric_dicts[:MAX_EXPERIMENT_RESULTS_WIDGET_METRICS]):
+            payload["secondaryMetrics"].append(_compute_metric_entry(team, experiment, metric_dict, index))
 
     return payload

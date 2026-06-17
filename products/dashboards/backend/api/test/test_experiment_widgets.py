@@ -190,6 +190,7 @@ class TestExperimentResultsWidget(APIBaseTest):
         *,
         start_date: Any = None,
         metrics: list[dict[str, Any]] | None = None,
+        metrics_secondary: list[dict[str, Any]] | None = None,
     ) -> Experiment:
         feature_flag = FeatureFlag.objects.create(team=self.team, key=f"flag-{name}", created_by=self.user)
         return Experiment.objects.create(
@@ -199,6 +200,7 @@ class TestExperimentResultsWidget(APIBaseTest):
             created_by=self.user,
             start_date=start_date,
             metrics=metrics or [],
+            metrics_secondary=metrics_secondary or [],
         )
 
     def test_returns_needs_configuration_when_no_experiment_selected(self) -> None:
@@ -251,7 +253,9 @@ class TestExperimentResultsWidget(APIBaseTest):
         assert result["experiment"]["id"] == experiment.id
         assert result["experiment"]["status"] == "draft"
         assert result["metrics"] == []
+        assert result["secondaryMetrics"] == []
         assert "totalMetricsCount" not in result
+        assert "totalSecondaryMetricsCount" not in result
 
     @patch("products.dashboards.backend.widgets.experiment_results.ExperimentQueryRunner")
     def test_computes_results_for_primary_metrics(self, mock_runner_cls: MagicMock) -> None:
@@ -280,6 +284,60 @@ class TestExperimentResultsWidget(APIBaseTest):
         assert "clickhouse_sql" not in entry["result"]
         query = mock_runner_cls.call_args.kwargs["query"]
         assert query.experiment_id == experiment.id
+
+    @patch("products.dashboards.backend.widgets.experiment_results.ExperimentQueryRunner")
+    def test_computes_results_for_secondary_metrics(self, mock_runner_cls: MagicMock) -> None:
+        mock_runner_cls.return_value.run.return_value = MagicMock(
+            model_dump=lambda mode="json": {
+                "kind": "NewExperimentQueryResponse",
+                "baseline": {"key": "control", "number_of_samples": 100, "sum": 40, "sum_squares": 30},
+                "variant_results": [{"key": "test", "number_of_samples": 100, "sum": 55, "sum_squares": 40}],
+            }
+        )
+        experiment = self._create_experiment(
+            start_date=timezone.now(),
+            metrics_secondary=[_experiment_metric("secondary-1", "Revenue per user")],
+        )
+
+        result = run_experiment_results_widget(self.team, {"experimentId": experiment.id}, user=self.user)
+
+        assert result["metrics"] == []
+        assert result["totalMetricsCount"] == 0
+        assert result["totalSecondaryMetricsCount"] == 1
+        entry = result["secondaryMetrics"][0]
+        assert entry["name"] == "Revenue per user"
+        assert entry["error"] is None
+        assert entry["result"]["baseline"]["key"] == "control"
+
+    @patch("products.dashboards.backend.widgets.experiment_results.ExperimentQueryRunner")
+    def test_computes_both_primary_and_secondary_metrics(self, mock_runner_cls: MagicMock) -> None:
+        mock_runner_cls.return_value.run.return_value = MagicMock(model_dump=lambda mode="json": {})
+        experiment = self._create_experiment(
+            start_date=timezone.now(),
+            metrics=[_experiment_metric("uuid-1", "Primary metric")],
+            metrics_secondary=[_experiment_metric("secondary-1", "Secondary metric")],
+        )
+
+        result = run_experiment_results_widget(self.team, {"experimentId": experiment.id}, user=self.user)
+
+        assert [entry["name"] for entry in result["metrics"]] == ["Primary metric"]
+        assert [entry["name"] for entry in result["secondaryMetrics"]] == ["Secondary metric"]
+        assert mock_runner_cls.return_value.run.call_count == 2
+
+    @patch("products.dashboards.backend.widgets.experiment_results.ExperimentQueryRunner")
+    def test_caps_computed_secondary_metrics_and_reports_total(self, mock_runner_cls: MagicMock) -> None:
+        mock_runner_cls.return_value.run.return_value = MagicMock(model_dump=lambda mode="json": {})
+        metrics_secondary = [
+            _experiment_metric(f"secondary-{index}", f"Secondary {index}")
+            for index in range(MAX_EXPERIMENT_RESULTS_WIDGET_METRICS + 2)
+        ]
+        experiment = self._create_experiment(start_date=timezone.now(), metrics_secondary=metrics_secondary)
+
+        result = run_experiment_results_widget(self.team, {"experimentId": experiment.id}, user=self.user)
+
+        assert result["totalSecondaryMetricsCount"] == MAX_EXPERIMENT_RESULTS_WIDGET_METRICS + 2
+        assert len(result["secondaryMetrics"]) == MAX_EXPERIMENT_RESULTS_WIDGET_METRICS
+        assert mock_runner_cls.return_value.run.call_count == MAX_EXPERIMENT_RESULTS_WIDGET_METRICS
 
     @patch("products.dashboards.backend.widgets.experiment_results.ExperimentQueryRunner")
     def test_caps_computed_metrics_and_reports_total(self, mock_runner_cls: MagicMock) -> None:
