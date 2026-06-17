@@ -9,7 +9,7 @@ from rest_framework.response import Response
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
-from products.error_tracking.backend.facade import types as contracts
+from products.error_tracking.backend.facade import contracts
 from products.error_tracking.backend.facade.api import (
     ExternalReferenceValidationError,
     create_external_reference,

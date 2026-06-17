@@ -12,6 +12,10 @@ from rest_framework import status
 from posthog.models.utils import uuid7
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.error_tracking.backend.logic.recommendations.alerts import AlertsRecommendation
+from products.error_tracking.backend.logic.recommendations.long_running_issues import LongRunningIssuesRecommendation
+from products.error_tracking.backend.logic.recommendations.rate_limits import RateLimitsRecommendation
+from products.error_tracking.backend.logic.recommendations.source_maps import SourceMapsRecommendation
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueFingerprintV2,
@@ -20,10 +24,6 @@ from products.error_tracking.backend.models import (
     ErrorTrackingStackFrame,
     sync_issues_to_clickhouse,
 )
-from products.error_tracking.backend.recommendations.alerts import AlertsRecommendation
-from products.error_tracking.backend.recommendations.long_running_issues import LongRunningIssuesRecommendation
-from products.error_tracking.backend.recommendations.rate_limits import RateLimitsRecommendation
-from products.error_tracking.backend.recommendations.source_maps import SourceMapsRecommendation
 
 from ee.clickhouse.materialized_columns.columns import materialize
 
@@ -66,11 +66,11 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
         return self.client.post(f"/api/environments/{self.team.id}/error_tracking/recommendations/{rec_id}/refresh/")
 
     @patch(
-        "products.error_tracking.backend.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
+        "products.error_tracking.backend.logic.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
         return_value={"issues": []},
     )
     @patch(
-        "products.error_tracking.backend.recommendations.alerts.AlertsRecommendation.compute",
+        "products.error_tracking.backend.logic.recommendations.alerts.AlertsRecommendation.compute",
         return_value=MOCK_ALERTS_META,
     )
     def test_first_list_creates_all_recommendations(self, mock_alerts, mock_long_running):
@@ -84,11 +84,11 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(types, {"alerts", "long_running_issues", "rate_limits", "source_maps"})
 
     @patch(
-        "products.error_tracking.backend.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
+        "products.error_tracking.backend.logic.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
         return_value={"issues": []},
     )
     @patch(
-        "products.error_tracking.backend.recommendations.alerts.AlertsRecommendation.compute",
+        "products.error_tracking.backend.logic.recommendations.alerts.AlertsRecommendation.compute",
     )
     def test_alerts_recomputes_on_every_list(self, mock_alerts, mock_long_running):
         mock_alerts.return_value = MOCK_ALERTS_META
@@ -103,10 +103,10 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2026-01-01T00:00:00Z", as_kwarg="frozen_time")
     @patch(
-        "products.error_tracking.backend.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
+        "products.error_tracking.backend.logic.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
     )
     @patch(
-        "products.error_tracking.backend.recommendations.alerts.AlertsRecommendation.compute",
+        "products.error_tracking.backend.logic.recommendations.alerts.AlertsRecommendation.compute",
         return_value=MOCK_ALERTS_META,
     )
     def test_long_running_is_cached_until_interval_elapses(self, mock_alerts, mock_long_running, frozen_time):
@@ -124,11 +124,11 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(mock_long_running.call_count, 2)
 
     @patch(
-        "products.error_tracking.backend.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
+        "products.error_tracking.backend.logic.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
         return_value={"issues": []},
     )
     @patch(
-        "products.error_tracking.backend.recommendations.alerts.AlertsRecommendation.compute",
+        "products.error_tracking.backend.logic.recommendations.alerts.AlertsRecommendation.compute",
         return_value=MOCK_ALERTS_META,
     )
     def test_dismiss_persists_across_requests(self, mock_alerts, mock_long_running):
@@ -339,11 +339,11 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertFalse(RateLimitsRecommendation().is_completed({"rate_limits": []}))
 
     @patch(
-        "products.error_tracking.backend.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
+        "products.error_tracking.backend.logic.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
         return_value={"issues": []},
     )
     @patch(
-        "products.error_tracking.backend.recommendations.alerts.AlertsRecommendation.compute",
+        "products.error_tracking.backend.logic.recommendations.alerts.AlertsRecommendation.compute",
         return_value=MOCK_ALERTS_META,
     )
     def test_refresh_with_force_false_does_not_recompute(self, mock_alerts, mock_long_running):
@@ -359,11 +359,11 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
         mock_long_running.assert_not_called()
 
     @patch(
-        "products.error_tracking.backend.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
+        "products.error_tracking.backend.logic.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
         return_value={"issues": []},
     )
     @patch(
-        "products.error_tracking.backend.recommendations.alerts.AlertsRecommendation.compute",
+        "products.error_tracking.backend.logic.recommendations.alerts.AlertsRecommendation.compute",
         return_value=MOCK_ALERTS_META,
     )
     def test_refresh_with_force_true_recomputes(self, mock_alerts, mock_long_running):
@@ -377,11 +377,11 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
         mock_long_running.assert_called_once()
 
     @patch(
-        "products.error_tracking.backend.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
+        "products.error_tracking.backend.logic.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
         return_value={"issues": []},
     )
     @patch(
-        "products.error_tracking.backend.recommendations.alerts.AlertsRecommendation.compute",
+        "products.error_tracking.backend.logic.recommendations.alerts.AlertsRecommendation.compute",
         return_value=MOCK_ALERTS_META,
     )
     def test_list_marks_recommendations_ready_after_compute(self, mock_alerts, mock_long_running):
@@ -398,11 +398,11 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(mock_long_running.call_count, 1)
 
     @patch(
-        "products.error_tracking.backend.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
+        "products.error_tracking.backend.logic.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
         return_value={"issues": []},
     )
     @patch(
-        "products.error_tracking.backend.recommendations.alerts.AlertsRecommendation.compute",
+        "products.error_tracking.backend.logic.recommendations.alerts.AlertsRecommendation.compute",
         return_value=MOCK_ALERTS_META,
     )
     def test_poll_does_not_kick_off_new_computations(self, mock_alerts, mock_long_running):
@@ -512,11 +512,11 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertTrue(SourceMapsRecommendation().is_completed(meta))
 
     @patch(
-        "products.error_tracking.backend.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
+        "products.error_tracking.backend.logic.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
         return_value={"issues": []},
     )
     @patch(
-        "products.error_tracking.backend.recommendations.alerts.AlertsRecommendation.compute",
+        "products.error_tracking.backend.logic.recommendations.alerts.AlertsRecommendation.compute",
         return_value=MOCK_ALERTS_META,
     )
     def test_stuck_computing_rows_are_re_kicked(self, mock_alerts, mock_long_running):

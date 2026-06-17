@@ -11,9 +11,9 @@ from posthoganalytics import capture_exception
 
 from posthog.models import Team
 
+from products.error_tracking.backend.logic.recommendations import RECOMMENDATIONS
+from products.error_tracking.backend.logic.recommendations.base import Recommendation
 from products.error_tracking.backend.models import ErrorTrackingRecommendation
-from products.error_tracking.backend.recommendations import RECOMMENDATIONS
-from products.error_tracking.backend.recommendations.base import Recommendation
 from products.error_tracking.backend.tasks import compute_error_tracking_recommendation
 
 logger = structlog.get_logger(__name__)

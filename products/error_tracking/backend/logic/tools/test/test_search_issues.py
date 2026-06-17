@@ -22,12 +22,12 @@ from posthog.schema import (
     MaxErrorTrackingSearchResponse,
 )
 
+from products.error_tracking.backend.logic.tools.search_issues import SearchErrorTrackingIssuesTool
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueFingerprintV2,
     sync_issues_to_clickhouse,
 )
-from products.error_tracking.backend.tools.search_issues import SearchErrorTrackingIssuesTool
 
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.utils.types import AssistantState

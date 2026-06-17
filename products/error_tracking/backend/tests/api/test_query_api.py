@@ -12,7 +12,7 @@ from dateutil.relativedelta import relativedelta
 
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags
 
-from products.error_tracking.backend.api.query_utils import (
+from products.error_tracking.backend.facade.query_utils import (
     build_fingerprint_event_where,
     build_issue_filters,
     build_search_query,
@@ -230,7 +230,9 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
             observed_tags.append((tags.product, tags.feature))
             return FakeQueryResponse({"results": [], "hasMore": False, "limit": 25, "offset": 0})
 
-        with patch("products.error_tracking.backend.api.query.ErrorTrackingQueryRunner.calculate", calculate):
+        with patch(
+            "products.error_tracking.backend.presentation.views.query.ErrorTrackingQueryRunner.calculate", calculate
+        ):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/error_tracking/query/issues",
                 data={"limit": 1},
@@ -247,7 +249,9 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
             observed_volume_resolutions.append(runner.query.volumeResolution)
             return FakeQueryResponse({"results": [], "hasMore": False, "limit": 25, "offset": 0})
 
-        with patch("products.error_tracking.backend.api.query.ErrorTrackingQueryRunner.calculate", calculate):
+        with patch(
+            "products.error_tracking.backend.presentation.views.query.ErrorTrackingQueryRunner.calculate", calculate
+        ):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/error_tracking/query/issues",
                 data={"volumeResolution": 0},
@@ -278,8 +282,13 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
             return FakeQueryResponse({"columns": [], "results": []})
 
         with (
-            patch("products.error_tracking.backend.api.query.ErrorTrackingQueryRunner.calculate", calculate_issue),
-            patch("products.error_tracking.backend.api.query.EventsQueryRunner.calculate", calculate_event),
+            patch(
+                "products.error_tracking.backend.presentation.views.query.ErrorTrackingQueryRunner.calculate",
+                calculate_issue,
+            ),
+            patch(
+                "products.error_tracking.backend.presentation.views.query.EventsQueryRunner.calculate", calculate_event
+            ),
         ):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/error_tracking/query/issue",
@@ -312,8 +321,13 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
             return FakeQueryResponse({"columns": [], "results": []})
 
         with (
-            patch("products.error_tracking.backend.api.query.ErrorTrackingQueryRunner.calculate", calculate_issue),
-            patch("products.error_tracking.backend.api.query.EventsQueryRunner.calculate", calculate_event),
+            patch(
+                "products.error_tracking.backend.presentation.views.query.ErrorTrackingQueryRunner.calculate",
+                calculate_issue,
+            ),
+            patch(
+                "products.error_tracking.backend.presentation.views.query.EventsQueryRunner.calculate", calculate_event
+            ),
         ):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/error_tracking/query/issue",
@@ -347,8 +361,13 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
             return FakeQueryResponse({"columns": [], "results": []})
 
         with (
-            patch("products.error_tracking.backend.api.query.ErrorTrackingQueryRunner.calculate", calculate_issue),
-            patch("products.error_tracking.backend.api.query.EventsQueryRunner.calculate", calculate_event),
+            patch(
+                "products.error_tracking.backend.presentation.views.query.ErrorTrackingQueryRunner.calculate",
+                calculate_issue,
+            ),
+            patch(
+                "products.error_tracking.backend.presentation.views.query.EventsQueryRunner.calculate", calculate_event
+            ),
         ):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/error_tracking/query/issue",
@@ -426,7 +445,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         self.create_exception_event()
         flush_persons_and_events()
 
-        with patch("products.error_tracking.backend.api.query.EventsQueryRunner") as events_query_runner:
+        with patch("products.error_tracking.backend.presentation.views.query.EventsQueryRunner") as events_query_runner:
             events_query_runner.side_effect = RuntimeError("boom")
             response = self.client.post(
                 f"/api/environments/{self.team.id}/error_tracking/query/issue",
@@ -483,7 +502,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
             observed_tags.append((tags.product, tags.feature))
             return FakeQueryResponse({"columns": [], "results": [], "hasMore": False, "limit": 1, "offset": 0})
 
-        with patch("products.error_tracking.backend.api.query.EventsQueryRunner.calculate", calculate):
+        with patch("products.error_tracking.backend.presentation.views.query.EventsQueryRunner.calculate", calculate):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/error_tracking/query/issue_events",
                 data={"issueId": self.issue_id},

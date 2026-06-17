@@ -32,8 +32,9 @@ from products.error_tracking.backend.models import (
     sync_issues_to_clickhouse,
 )
 from products.error_tracking.backend.notifications import dispatch_issue_assigned_realtime
-
-from .external_references import ErrorTrackingExternalReferenceSerializer
+from products.error_tracking.backend.presentation.views.external_references import (
+    ErrorTrackingExternalReferenceSerializer,
+)
 
 IssueNotFoundError = facade_api.IssueNotFoundError
 

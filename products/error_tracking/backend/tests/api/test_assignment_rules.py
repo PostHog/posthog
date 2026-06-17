@@ -6,8 +6,8 @@ from posthog.test.base import APIBaseTest
 from parameterized import parameterized
 from rest_framework import status
 
-from products.error_tracking.backend.api.utils import generate_match_all_bytecode
 from products.error_tracking.backend.models import ErrorTrackingAssignmentRule
+from products.error_tracking.backend.presentation.views.utils import generate_match_all_bytecode
 
 VALID_FILTERS = {
     "type": "AND",
