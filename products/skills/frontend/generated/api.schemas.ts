@@ -103,7 +103,7 @@ export interface LLMSkillListApi {
      * @maxLength 500
      */
     compatibility?: string
-    /** List of pre-approved tools the skill may use. */
+    /** List of pre-approved tools the skill may use. Tool names cannot contain whitespace. */
     allowed_tools?: string[]
     /** Arbitrary key-value metadata. */
     metadata?: LLMSkillListApiMetadata
@@ -176,7 +176,7 @@ export interface LLMSkillCreateApi {
      * @maxLength 500
      */
     compatibility?: string
-    /** List of pre-approved tools the skill may use. */
+    /** List of pre-approved tools the skill may use. Tool names cannot contain whitespace. */
     allowed_tools?: string[]
     /** Arbitrary key-value metadata. */
     metadata?: LLMSkillCreateApiMetadata
@@ -193,6 +193,11 @@ export interface LLMSkillCreateApi {
     readonly latest_version: number
     readonly version_count: number
     readonly first_version_created_at: string
+}
+
+export interface LLMSkillImportApi {
+    /** A spec-compliant skill .zip (a SKILL.md plus optional bundled files under scripts/, references/, assets/). */
+    file: string
 }
 
 /**
@@ -231,7 +236,7 @@ export interface LLMSkillApi {
      * @maxLength 500
      */
     compatibility?: string
-    /** List of pre-approved tools the skill may use. */
+    /** List of pre-approved tools the skill may use. Tool names cannot contain whitespace. */
     allowed_tools?: string[]
     /** Arbitrary key-value metadata. */
     metadata?: LLMSkillApiMetadata
@@ -248,6 +253,81 @@ export interface LLMSkillApi {
     readonly latest_version: number
     readonly version_count: number
     readonly first_version_created_at: string
+}
+
+/**
+ * * `absent` - absent
+ * * `exists` - exists
+ * * `created` - created
+ * * `rotated` - rotated
+ */
+export type LLMSkillMarketplaceCommandStatusEnumApi =
+    (typeof LLMSkillMarketplaceCommandStatusEnumApi)[keyof typeof LLMSkillMarketplaceCommandStatusEnumApi]
+
+export const LLMSkillMarketplaceCommandStatusEnumApi = {
+    Absent: 'absent',
+    Exists: 'exists',
+    Created: 'created',
+    Rotated: 'rotated',
+} as const
+
+export interface LLMSkillMarketplaceCommandApi {
+    /** absent: no credential yet. exists: one already exists (no token returned). created: a new credential was just minted. rotated: the existing credential was rolled.
+     *
+     * * `absent` - absent
+     * * `exists` - exists
+     * * `created` - created
+     * * `rotated` - rotated */
+    status: LLMSkillMarketplaceCommandStatusEnumApi
+    /** Whether this user already has a marketplace credential for the team's skill store. */
+    connected: boolean
+    /** The plugin name the command installs (Claude Code and Codex). */
+    plugin_name: string
+    /** The marketplace name, used by the Codex install command. */
+    marketplace_name: string
+    /** Label of this user's marketplace credential (a scoped Personal API Key). */
+    label: string
+    /** The marketplace git repository URL, with no credential embedded. */
+    repo_url: string
+    /**
+     * Claude Code: ready-to-paste `/plugin marketplace add` command with the live token embedded. Returned only when a token was just issued (status created/rotated); null otherwise.
+     * @nullable
+     */
+    command: string | null
+    /** Claude Code install command with a YOUR_PHS_TOKEN placeholder instead of a live token; always present. */
+    command_template: string
+    /**
+     * OpenAI Codex: two-line `codex plugin marketplace add` + `codex plugin add` command with the live token embedded. Returned only when a token was just issued (status created/rotated); null otherwise.
+     * @nullable
+     */
+    codex_command: string | null
+    /** Codex install command with a YOUR_PHS_TOKEN placeholder instead of a live token; always present. */
+    codex_command_template: string
+    /**
+     * The raw read-only `phx_` credential. Returned once, only when minted or rotated; it cannot be retrieved again afterwards.
+     * @nullable
+     */
+    token: string | null
+    /**
+     * Masked preview of the existing credential (e.g. phx_...abcd).
+     * @nullable
+     */
+    mask_value: string | null
+    /**
+     * When the credential was created.
+     * @nullable
+     */
+    created_at: string | null
+    /**
+     * When the credential was last rotated.
+     * @nullable
+     */
+    last_rolled_at: string | null
+}
+
+export interface LLMSkillMarketplaceIssueApi {
+    /** Roll the existing marketplace credential to issue a fresh token, replacing the old one (this invalidates any setup using the previous token). Ignored when no credential exists yet — the first call always mints one. Only affects this user's own credential. */
+    rotate?: boolean
 }
 
 /**
@@ -292,7 +372,7 @@ export interface PatchedLLMSkillPublishApi {
      * @maxLength 500
      */
     compatibility?: string
-    /** List of pre-approved tools the skill may use. */
+    /** List of pre-approved tools the skill may use. Tool names cannot contain whitespace. */
     allowed_tools?: string[]
     /** Arbitrary key-value metadata. */
     metadata?: PatchedLLMSkillPublishApiMetadata
@@ -395,6 +475,14 @@ export type LlmSkillsListParams = {
 }
 
 export type LlmSkillsNameRetrieveParams = {
+    /**
+     * Specific skill version to fetch. If omitted, the latest version is returned.
+     * @minimum 1
+     */
+    version?: number
+}
+
+export type LlmSkillsNameExportRetrieveParams = {
     /**
      * Specific skill version to fetch. If omitted, the latest version is returned.
      * @minimum 1

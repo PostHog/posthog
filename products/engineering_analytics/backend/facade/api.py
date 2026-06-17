@@ -22,6 +22,7 @@ from posthog.models.team import Team
 from products.engineering_analytics.backend import logic
 from products.engineering_analytics.backend.facade.contracts import (
     CICardSummary,
+    GitHubSource,
     PRLifecycle,
     PullRequestList,
     WorkflowHealthItem,
@@ -86,3 +87,7 @@ def list_workflow_health(
     return logic.build_workflow_health(
         curated=_authorized_source(team, source_id, user_access_control), date_from=date_from, date_to=date_to
     )
+
+
+def list_github_sources(*, team: Team, user_access_control: "UserAccessControl | None" = None) -> list[GitHubSource]:
+    return logic.build_github_sources(team=team, user_access_control=user_access_control)
