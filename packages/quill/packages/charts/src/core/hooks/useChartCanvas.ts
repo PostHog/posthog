@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 
 import type { ChartDimensions, ChartMargins } from '../types'
+import { effectiveCanvasScale } from './canvasScale'
 import { useLatest } from './useLatest'
 
 interface UseChartCanvasOptions {
@@ -23,8 +24,12 @@ interface UseChartCanvasResult {
 }
 
 function sizeCanvas(canvas: HTMLCanvasElement, rect: DOMRect, dpr: number): void {
-    canvas.width = rect.width * dpr
-    canvas.height = rect.height * dpr
+    // Clamp the backing-store scale so an oversized wrapper or high devicePixelRatio can't push
+    // the bitmap past the browser's max canvas size — that allocation failure poisons the canvas
+    // and makes every later draw throw. The CSS box still fills `rect`; only resolution drops.
+    const scale = effectiveCanvasScale(rect.width, rect.height, dpr)
+    canvas.width = Math.round(rect.width * scale)
+    canvas.height = Math.round(rect.height * scale)
     canvas.style.width = `${rect.width}px`
     canvas.style.height = `${rect.height}px`
 }

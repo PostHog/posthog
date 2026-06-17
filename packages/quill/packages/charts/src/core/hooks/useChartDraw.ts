@@ -51,7 +51,9 @@ export function useChartDraw({
         }
         staticRafRef.current = requestAnimationFrame(() => {
             staticRafRef.current = null
-            clearAndPrepare(ctx, dimensions)
+            if (!clearAndPrepare(ctx, dimensions)) {
+                return
+            }
             drawStatic({
                 ctx,
                 dimensions,

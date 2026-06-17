@@ -79,7 +79,10 @@ export function useHoverAnimation({
             }
             const elapsed = performance.now() - hoverAnimRef.current.startTime
             const hoverProgress = hoverAnimationMs > 0 ? Math.min(1, elapsed / hoverAnimationMs) : 1
-            clearAndPrepare(overlayCtx, dimensions)
+            if (!clearAndPrepare(overlayCtx, dimensions)) {
+                hoverRafRef.current = null
+                return
+            }
             const drewVisible = drawHoverRef.current({
                 ctx: overlayCtx,
                 dimensions,

@@ -17,6 +17,13 @@ RawChart.register(ZoomPlugin)
 RawChart.register(BoxPlotController, BoxAndWiskers)
 RawChart.defaults.animation = false
 
+// Clamp the device-pixel ratio chart.js uses to back its canvas. Its `retinaScale` multiplies
+// cssWidth × cssHeight by this ratio, and on a large chart with a high devicePixelRatio (3+) the
+// product can exceed the browser's max canvas size — the allocation then throws
+// "Canvas exceeds max size". Capping at 2 keeps charts crisp on retina displays while bounding the
+// backing store; charts narrower than ~8000px CSS stay within the limit at any real viewport.
+RawChart.defaults.devicePixelRatio = Math.min(typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1, 2)
+
 // Create positioner to put tooltip at cursor position
 Tooltip.positioners.cursor = function (_, coordinates) {
     return coordinates
