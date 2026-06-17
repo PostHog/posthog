@@ -20296,6 +20296,14 @@ export namespace Schemas {
      */
     export type ExternalDataSchemaTable = { [key: string]: unknown } | null;
 
+    export type ExternalDataSchemaRowFiltersItem = {
+      column: string;
+      /** One of: > >= < <= = != IN "NOT IN". */
+      operator: string;
+      /** Comparison value; must match the column's type. For `IN` / `NOT IN`, a comma-separated list (e.g. `1, 2, 3` or `'a','b'`). */
+      value: unknown;
+    };
+
     export type ExternalDataSchemaAvailableColumnsItem = {
       name: string;
       data_type?: string;
@@ -20459,6 +20467,11 @@ export namespace Schemas {
          * @nullable
          */
       enabled_columns?: string[] | null;
+      /**
+         * Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`/empty (default) syncs all rows. The operator must be one of `> >= < <= = != IN "NOT IN"` and the value must match the column's type (for `IN`/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). Applied on the next sync — not retroactive to already-synced rows.
+         * @nullable
+         */
+      row_filters?: ExternalDataSchemaRowFiltersItem[] | null;
       /** Source-side column metadata (name, data type, nullable) discovered for this schema. Empty until the source has been refreshed via `refresh_schemas`. */
       readonly available_columns: readonly ExternalDataSchemaAvailableColumnsItem[];
       /**
@@ -20467,6 +20480,14 @@ export namespace Schemas {
          */
       readonly source: ExternalDataSchemaSource;
     }
+
+    export type ExternalDataSourceBulkUpdateSchemaRowFiltersItem = {
+      column: string;
+      /** One of: > >= < <= = != IN "NOT IN". */
+      operator: string;
+      /** Comparison value; must match the column's type. For `IN` / `NOT IN`, a comma-separated list (e.g. `1, 2, 3` or `'a','b'`). */
+      value: unknown;
+    };
 
     export interface ExternalDataSourceBulkUpdateSchema {
       /** Schema identifier to update. */
@@ -20512,6 +20533,11 @@ export namespace Schemas {
          * @nullable
          */
       enabled_columns?: string[] | null;
+      /**
+         * Row-filter predicates ANDed onto the source query. Null/empty means sync all rows.
+         * @nullable
+         */
+      row_filters?: ExternalDataSourceBulkUpdateSchemaRowFiltersItem[] | null;
     }
 
     export interface ExternalDataSourceConnectionOption {
@@ -27954,6 +27980,7 @@ export namespace Schemas {
      * * `session_summaries` - Session Summaries
      * * `signal_report` - Signal Report
      * * `signals_scout` - Signals Scout
+     * * `support_reply` - Support Reply
      */
     export type OriginProductEnum = typeof OriginProductEnum[keyof typeof OriginProductEnum];
 
@@ -27968,6 +27995,7 @@ export namespace Schemas {
       SessionSummaries: 'session_summaries',
       SignalReport: 'signal_report',
       SignalsScout: 'signals_scout',
+      SupportReply: 'support_reply',
     } as const;
 
     /**
@@ -31209,7 +31237,8 @@ export namespace Schemas {
        * * `support_queue` - Support Queue
        * * `session_summaries` - Session Summaries
        * * `signal_report` - Signal Report
-       * * `signals_scout` - Signals Scout */
+       * * `signals_scout` - Signals Scout
+       * * `support_reply` - Support Reply */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -34196,6 +34225,14 @@ export namespace Schemas {
      */
     export type PatchedExternalDataSchemaTable = { [key: string]: unknown } | null;
 
+    export type PatchedExternalDataSchemaRowFiltersItem = {
+      column: string;
+      /** One of: > >= < <= = != IN "NOT IN". */
+      operator: string;
+      /** Comparison value; must match the column's type. For `IN` / `NOT IN`, a comma-separated list (e.g. `1, 2, 3` or `'a','b'`). */
+      value: unknown;
+    };
+
     export type PatchedExternalDataSchemaAvailableColumnsItem = {
       name: string;
       data_type?: string;
@@ -34291,6 +34328,11 @@ export namespace Schemas {
          * @nullable
          */
       enabled_columns?: string[] | null;
+      /**
+         * Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`/empty (default) syncs all rows. The operator must be one of `> >= < <= = != IN "NOT IN"` and the value must match the column's type (for `IN`/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). Applied on the next sync — not retroactive to already-synced rows.
+         * @nullable
+         */
+      row_filters?: PatchedExternalDataSchemaRowFiltersItem[] | null;
       /** Source-side column metadata (name, data type, nullable) discovered for this schema. Empty until the source has been refreshed via `refresh_schemas`. */
       readonly available_columns?: readonly PatchedExternalDataSchemaAvailableColumnsItem[];
       /**
@@ -38085,7 +38127,8 @@ export namespace Schemas {
        * * `support_queue` - Support Queue
        * * `session_summaries` - Session Summaries
        * * `signal_report` - Signal Report
-       * * `signals_scout` - Signals Scout */
+       * * `signals_scout` - Signals Scout
+       * * `support_reply` - Support Reply */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -55667,6 +55710,13 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type EngineeringAnalyticsCiCardsParams = {
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    };
+
     export type EngineeringAnalyticsPrLifecycleParams = {
     /**
      * Pull request number to inspect.
@@ -55676,6 +55726,10 @@ export namespace Schemas {
      * Optional 'owner/name' repository to disambiguate when the PR number exists in more than one connected repo.
      */
     repo?: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
     };
 
     export type EngineeringAnalyticsPullRequestsParams = {
@@ -55683,6 +55737,10 @@ export namespace Schemas {
      * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
      */
     date_from?: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
     };
 
     export type EngineeringAnalyticsWorkflowHealthParams = {
@@ -55694,6 +55752,10 @@ export namespace Schemas {
      * Window end: relative or ISO8601. Defaults to now.
      */
     date_to?: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
     };
 
     export type EnvironmentsListParams = {
@@ -59692,6 +59754,10 @@ export namespace Schemas {
 
     export type SurveysListParams = {
     archived?: boolean;
+    /**
+     * Multiple values may be separated by commas.
+     */
+    ids?: string[];
     /**
      * Number of results to return per page.
      */

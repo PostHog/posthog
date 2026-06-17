@@ -1,5 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { combineUrl, router } from 'kea-router'
+import { HttpResponse } from 'msw'
 
 import { App } from 'scenes/App'
 import { recordingMetaJson } from 'scenes/session-recordings/__mocks__/recording_meta'
@@ -42,9 +43,9 @@ export const EventExplorerWithModal: Story = {
                     200,
                     { ...recordingMetaJson, id: 'modal-recording-001' },
                 ],
-                '/api/environments/:team_id/session_recordings/:id/snapshots': (req, res, ctx) => {
-                    if (req.url.searchParams.get('source') === 'blob_v2') {
-                        return res(ctx.text(snapshotsAsJSONLines()))
+                '/api/environments/:team_id/session_recordings/:id/snapshots': ({ request }) => {
+                    if (new URL(request.url).searchParams.get('source') === 'blob_v2') {
+                        return new HttpResponse(snapshotsAsJSONLines())
                     }
                     return [
                         200,

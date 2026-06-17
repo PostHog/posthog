@@ -925,13 +925,19 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
 
     describe('wait_until_time_window: window in the future', () => {
         beforeEach(async () => {
+            // A fixed daily window is "open" during its own minutes every day, so any
+            // run landing inside it (e.g. CI at 09:5x UTC for a 23:5x UTC+14 window)
+            // executes immediately instead of rescheduling. Derive the window a few
+            // minutes ahead of now so it is always strictly in the future.
+            const now = DateTime.utc()
+            const windowStart = now.plus({ minutes: 10 }).toFormat('HH:mm')
+            const windowEnd = now.plus({ minutes: 20 }).toFormat('HH:mm')
             await createWorkflow({
                 actions: {
                     trigger: trigger(),
                     wait_window: {
                         type: 'wait_until_time_window',
-                        // UTC+14 with late-night window ensures it's always in the future
-                        config: { timezone: 'Pacific/Kiritimati', day: 'any', time: ['23:50', '23:59'] },
+                        config: { timezone: 'UTC', day: 'any', time: [windowStart, windowEnd] },
                     },
                     function_1: fetchAction('https://example.com/after-time-window'),
                     exit: exitAction(),
@@ -2006,5 +2012,98 @@ describe('Workflows E2E (email queue)', () => {
 
         const after = await readAllResults()
         expect(after - before).toBe(0)
+    })
+
+    it('claims only the visible row count (sparse traffic does not drain the bucket)', async () => {
+        // Regression guard for the pre-size fix. Without it, a single ready
+        // email would claim the bucket's full capacity — draining ~capacity-1
+        // tokens of SES budget per actual send — even though the worker can
+        // only dequeue one row. Pre-sizing asks the limiter for exactly the
+        // number of rows the worker is about to dequeue.
+        //
+        // refillPerSecond=0 freezes the bucket between the claim and our
+        // assertion, so the post-claim pool is a deterministic measure of
+        // what was deducted (capacity minus tokens granted on the one claim).
+        await emailWorker.stop()
+
+        const limiterValkey = createRedisV2PoolFromConfig({
+            connection: hub.CDP_REDIS_HOST
+                ? {
+                      url: hub.CDP_REDIS_HOST,
+                      options: { port: hub.CDP_REDIS_PORT, password: hub.CDP_REDIS_PASSWORD },
+                  }
+                : { url: hub.REDIS_URL },
+            poolMinSize: hub.REDIS_POOL_MIN_SIZE,
+            poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
+        })
+        const bucketKey = '@posthog-test/ses-e2e-presize/bucket'
+        await deleteKeysWithPrefix(limiterValkey, '@posthog-test/ses-e2e-presize/')
+
+        const capacity = 10
+        const rateLimitedQueue = new CyclotronJobQueueRateLimitedPostgresV2(hub.CONSUMER_BATCH_SIZE, hub, {
+            limiter: new RateLimiterService(limiterValkey, { name: 'ses-e2e-presize' }),
+            key: bucketKey,
+            capacity,
+            refillPerSecond: 0,
+            throttledPollDelayMs: 50,
+        })
+        emailWorker = new CdpCyclotronWorkerEmail(hub, deps, rateLimitedQueue)
+        await emailWorker.start()
+
+        const hogFlow = new FixtureHogFlowBuilder()
+            .withTeamId(team.id)
+            .withStatus('active')
+            .withExitCondition('exit_only_at_end')
+            .withWorkflow({
+                actions: {
+                    trigger: {
+                        type: 'trigger',
+                        config: { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
+                    },
+                    email_1: {
+                        type: 'function_email',
+                        config: {
+                            template_id: 'template-workflows-e2e-email',
+                            inputs: {
+                                email: {
+                                    value: {
+                                        to: { email: 'recipient@example.com', name: 'Recipient' },
+                                        from: { integrationId: 1, email: 'sender@posthog.com' },
+                                        subject: 'Sparse-traffic email',
+                                        text: 'Test text',
+                                        html: '<p>Test html</p>',
+                                    },
+                                },
+                            },
+                        },
+                    },
+                    exit: { type: 'exit', config: {} },
+                },
+                edges: [
+                    { from: 'trigger', to: 'email_1', type: 'continue' },
+                    { from: 'email_1', to: 'exit', type: 'continue' },
+                ],
+            })
+            .build()
+        await insertHogFlow(hub.postgres, hogFlow)
+
+        // Exactly ONE event → one email job — the sparse-traffic scenario.
+        const { backgroundTask } = await eventsConsumer.processBatch([createGlobals({ uuid: new UUIDT().toString() })])
+        await backgroundTask
+
+        await waitForExpect(() => {
+            const emailSentCount = mockProducerObserver
+                .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                .filter((m: any) => m.value.metric_name === 'email_sent')
+                .reduce((sum: number, m: any) => sum + m.value.count, 0)
+            expect(emailSentCount).toBe(1)
+        }, 15000)
+
+        // Bucket should retain ~capacity-1 tokens — we claimed 1, not capacity.
+        // Without the pre-size fix `pool` would be 0 here (the whole bucket
+        // drained on the one claim).
+        const bucket = await limiterValkey.useClient({ name: 'read-bucket' }, (client) => client.hgetall(bucketKey))
+        const pool = parseFloat(bucket?.pool ?? '0')
+        expect(pool).toBeGreaterThanOrEqual(capacity - 1)
     })
 })

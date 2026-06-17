@@ -217,7 +217,9 @@ class HogFlowActionSerializer(serializers.Serializer):
     def _reject_behavioral_cohorts_in_audience(self, properties) -> None:
         # Batch/schedule audiences resolve offline by precalculated membership and can't evaluate event
         # behavior the way it's intended; the UI hides behavioral cohorts from the audience picker. Mirror
-        # that for API/MCP callers. Mirrors the feature-flag guard in posthog/api/cohort.py.
+        # that for API/MCP callers. Static cohorts are exempt regardless of how they were built — their
+        # membership is frozen and precalculated — matching the audience-picker exemption in
+        # _build_cohort_dependency_graph in posthog/api/cohort.py.
         if not isinstance(properties, list):
             return
         cohort_ids = [
@@ -233,7 +235,11 @@ class HogFlowActionSerializer(serializers.Serializer):
                 cohort = Cohort.objects.get(pk=cohort_id, team__project_id=project_id, deleted=False)
             except (Cohort.DoesNotExist, ValueError, TypeError):
                 continue  # missing/invalid cohort surfaces during audience resolution, not here
+            if cohort.is_static:
+                continue
             for dep in [cohort, *get_all_cohort_dependencies(cohort)]:
+                if dep.is_static:
+                    continue
                 if any(p.type == "behavioral" for p in dep.properties.flat):
                     raise serializers.ValidationError(
                         {

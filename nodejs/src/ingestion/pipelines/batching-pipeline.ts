@@ -1,3 +1,5 @@
+import pLimit from 'p-limit'
+
 import { BatchPipeline, BatchPipelineResultWithContext, OkResultWithContext } from './batch-pipeline.interface'
 import { createOkContext } from './helpers'
 import { Pipeline, PipelineResultWithContext } from './pipeline.interface'
@@ -106,9 +108,25 @@ export class BatchingPipeline<
 > {
     private nextBatchId = 0
     private nextMessageId = 0
+    // Incremented in the same synchronous block that registers a batch and
+    // pushes its elements into the sub-pipeline; lets the pump tell a feed that
+    // raced its pull apart from genuinely vanished messages.
+    private feedEpoch = 0
     private batches = new Map<number, TrackedBatch<TOutput, CBatchOutput, COutput, R>>()
     private messageIdToBatchId = new Map<number, number>()
     private completedResults: BatchResult<BatchPipelineResultWithContext<TOutput, COutput, R>>[] = []
+
+    // With concurrentBatches > 1, callers (e.g. HTTP request handlers in the
+    // ingestion API server) invoke feed()/next() concurrently, but the
+    // sub-pipeline stages are not safe for concurrent callers: a caller can
+    // pull elements upstream and, while awaiting a processing step, leave the
+    // pipeline looking "empty" to a concurrent caller — which then observes a
+    // spurious null (treated as a fatal drain inconsistency) or routes a later
+    // batch's elements ahead of an earlier one (per-key ordering violation).
+    // These FIFO mutexes serialize the cheap pull/route/bookkeeping sections;
+    // event processing inside the sub-pipeline stays fully concurrent.
+    private feedLimit = pLimit(1)
+    private pumpLimit = pLimit(1)
 
     private options: BatchingPipelineOptions
 
@@ -135,7 +153,16 @@ export class BatchingPipeline<
         this.options = { ...BATCHING_PIPELINE_DEFAULTS, ...options }
     }
 
-    async feed(elements: OkResultWithContext<TInput, CInput>[]): Promise<FeedResult> {
+    feed(elements: OkResultWithContext<TInput, CInput>[]): Promise<FeedResult> {
+        // Serialize so buffer order always matches batchId order: without this,
+        // the await on beforePipeline between batchId assignment and
+        // subPipeline.feed() lets two concurrent feeds enter the buffer inverted.
+        // With one concurrent batch the caller is already sequential, so the
+        // mutex is uncontended.
+        return this.feedLimit(() => this.feedSerialized(elements))
+    }
+
+    private async feedSerialized(elements: OkResultWithContext<TInput, CInput>[]): Promise<FeedResult> {
         if (this.batches.size >= this.options.concurrentBatches) {
             return {
                 ok: false,
@@ -184,6 +211,9 @@ export class BatchingPipeline<
             }
         })
 
+        // Registration and the buffer push happen in one synchronous block, and
+        // feedEpoch records that it happened — the pump uses it to distinguish
+        // "a feed landed during my pull" from genuinely lost messages.
         this.batches.set(batchId, {
             batchContext,
             messageIds,
@@ -191,20 +221,44 @@ export class BatchingPipeline<
             results: new Map(),
             beforeSideEffects,
         })
+        this.feedEpoch++
 
         this.subPipeline.feed(taggedElements)
         return { ok: true }
     }
 
-    async next(): Promise<BatchResult<BatchPipelineResultWithContext<TOutput, COutput, R>> | null> {
+    next(): Promise<BatchResult<BatchPipelineResultWithContext<TOutput, COutput, R>> | null> {
+        // Serialize so exactly one caller pumps the sub-pipeline at a time,
+        // restoring the single-caller assumption the stages were written under.
+        // With one concurrent batch the caller is already sequential, so the
+        // mutex is uncontended. Group processing started by the pump runs
+        // concurrently in the background regardless of who holds the pump.
+        return this.pumpLimit(() => this.pump())
+    }
+
+    private async pump(): Promise<BatchResult<BatchPipelineResultWithContext<TOutput, COutput, R>> | null> {
+        // Re-check after acquiring the pump: a previous pump iteration may have
+        // completed additional batches while this caller was waiting.
         if (this.completedResults.length > 0) {
             return this.completedResults.shift()!
         }
 
         while (true) {
+            const feedEpochAtPullStart = this.feedEpoch
             const result = await this.subPipeline.next()
             if (result === null) {
                 if (this.batches.size > 0) {
+                    // A feed can land while this pull is resolving null from an
+                    // empty pipeline: the new batch gets registered and its
+                    // elements buffered, but the pull already made its
+                    // emptiness decision. A changed feedEpoch proves that's
+                    // what happened — retry the pull, which now picks up the
+                    // buffered elements. An unchanged feedEpoch means in-flight
+                    // messages genuinely vanished, which is the corruption this
+                    // guard exists for.
+                    if (this.feedEpoch !== feedEpochAtPullStart) {
+                        continue
+                    }
                     throw new Error(
                         `batching_pipeline sub-pipeline returned null with ${this.batches.size} in-flight batches and ${this.messageIdToBatchId.size} in-flight messages`
                     )
