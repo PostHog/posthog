@@ -1,5 +1,5 @@
 {
-    "_note": "Ratchet-on-new baseline for the network-egress gate (see README.md + AUDIT.md). Entries are host globs (fnmatch); a missing 'nodeid' means any test may reach that host. These are KNOWN third-party egress in the default suite as of the assessment (PR #64270) — tolerated so CI fails only on a NEW external dependency, not the existing backlog. The backlog is being routed to owning teams and burned down; remove a host here once its tests are mocked or moved to a tagged external suite. Ephemeral per-run hostnames (Modal sandboxes, S3 test buckets) can only be matched by suffix glob.",
+    "_note": "Ratchet-on-new baseline for the network-egress gate (see README.md). Entries are host globs (fnmatch); a missing 'nodeid' means any test may reach that host. These are KNOWN third-party egress in the default suite as of the assessment (PR #64270) — tolerated so CI fails only on a NEW external dependency, not the existing backlog. The backlog is being routed to owning teams and burned down; remove a host here once its tests are mocked or moved to a tagged external suite. Ephemeral per-run hostnames (Modal sandboxes, S3 test buckets) can only be matched by suffix glob.",
     "allow": [
         { "host": "billing.posthog.com" },
         { "host": "us.i.posthog.com" },

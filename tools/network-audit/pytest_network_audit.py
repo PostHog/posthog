@@ -23,6 +23,7 @@ import os
 import json
 import socket
 import fnmatch
+import functools
 import ipaddress
 import traceback
 from pathlib import Path
@@ -33,10 +34,15 @@ import pytest
 # Repo root = three levels up from this file (tools/network-audit/<file>).
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
-# Allow loopback / private / link-local / CGNAT / unspecified explicitly. Everything that
-# is `is_global` is treated as third-party egress. ip_address().is_global already excludes
-# all of these, but we keep the intent documented and skip the work for the common case.
-_DEST_PORT_DNS = {53}
+
+@functools.lru_cache(maxsize=4096)
+def _is_global_ip(ip_str: str) -> bool:
+    # Runs on every connect (loopback included), so cache the parse — destinations repeat
+    # heavily within a session. is_global is false for loopback/private/link-local/CGNAT.
+    try:
+        return ipaddress.ip_address(ip_str).is_global
+    except ValueError:
+        return False
 
 
 class _Recorder:
@@ -80,11 +86,7 @@ class _Recorder:
             self.host_by_ip[ip] = host
 
     def is_third_party(self, ip_str: str) -> bool:
-        try:
-            ip = ipaddress.ip_address(ip_str)
-        except ValueError:
-            return False
-        return ip.is_global
+        return _is_global_ip(ip_str)
 
     def app_frames(self) -> list[str]:
         # NETWORK_AUDIT_FULLSTACK keeps every frame (incl. site-packages) — needed to

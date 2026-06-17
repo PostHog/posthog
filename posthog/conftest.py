@@ -9,7 +9,10 @@ from urllib.parse import quote_plus
 import pytest
 from posthog.test.base import PostHogTestCase, run_clickhouse_statement_in_parallel
 
-from posthoganalytics.client import Client, normalize_flags_response
+try:
+    from posthoganalytics.client import Client, normalize_flags_response
+except (ImportError, AttributeError):  # fail-open: internal SDK symbols moved — skip the seal, don't break collection
+    Client = normalize_flags_response = None  # type: ignore[assignment, misc]  # ty: ignore[invalid-assignment]
 
 try:
     from hogli_commands.quarantine.pytest_support import apply_quarantine_markers
@@ -530,10 +533,10 @@ class _JUnitTimingsPlugin:
             xml.add_global_property(self._PROPERTY_COLLECTION, f"{self._collection_finish - self._session_start:.6f}")
 
 
-_orig_get_flags_decision = Client.get_flags_decision
+_orig_get_flags_decision = Client.get_flags_decision if Client is not None else None
 
 
-def _seal_disabled_flag_fetch(self: Client, *args: Any, **kwargs: Any) -> Any:
+def _seal_disabled_flag_fetch(self: Any, *args: Any, **kwargs: Any) -> Any:
     """`apps.py` sets `posthoganalytics.disabled = True` under TEST, but the SDK's
     `Client.get_flags_decision` — unlike every sibling flag method — has no `disabled`
     guard, so the `send_feature_flags=True` / `feature_enabled` remote-eval path fires a
@@ -560,7 +563,8 @@ def pytest_configure(config):
     TestCase.databases = {"default", "persons_db_writer", "persons_db_reader"}
     TransactionTestCase.databases = {"default", "persons_db_writer", "persons_db_reader"}
 
-    Client.get_flags_decision = _seal_disabled_flag_fetch  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+    if Client is not None:
+        Client.get_flags_decision = _seal_disabled_flag_fetch  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
 
     if not config.pluginmanager.hasplugin("posthog-junit-timings"):
         config.pluginmanager.register(_JUnitTimingsPlugin(), "posthog-junit-timings")

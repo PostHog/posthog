@@ -26,7 +26,7 @@ You can also point pytest at it explicitly without the env (`-p pytest_network_a
 ### Modes / options (env var or `--flag`)
 
 - **record** (default) — flag and report, never fail. Use to build/refresh the baseline.
-- `--network-audit-block` / `NETWORK_AUDIT=1` only — raise on each _new_ (non-baselined) connect, mid-test. Precise line, but can't catch background-thread egress.
+- `--network-audit-block` — raise on each _new_ (non-baselined) connect, mid-test. Precise line, but can't catch background-thread egress. (`NETWORK_AUDIT=1` alone only loads the plugin in record mode; block must be requested explicitly.)
 - `--network-audit-enforce` / `NETWORK_AUDIT_ENFORCE=1` — at session end, fail the run (exit 1) if any non-baselined violation was recorded. Catches background threads too. This is the CI gate.
 - `--network-audit-baseline PATH` / `NETWORK_AUDIT_BASELINE` — allowlist of known offenders to tolerate. JSON: `{"allow": [{"host": "*.w.modal.host", "nodeid": "..."}]}`. `host` and `nodeid` are `fnmatch` globs — host globs are required for ephemeral per-run hostnames (Modal sandboxes, S3 test buckets). Omit `nodeid` (or use `"*"`) to allow any test to reach that host. The committed `baseline.json` is the live ratchet baseline; CI runs with `--network-audit-enforce` so a connection to any host _not_ in it fails the run.
 - `--network-audit-out PATH` / `NETWORK_AUDIT_OUT` — JSON report path (default `.network-audit.json`).
