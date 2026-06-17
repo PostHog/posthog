@@ -24,6 +24,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.schema import HogQLQueryModifiers, InCohortVia, RetentionQuery
 
+from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.query import execute_hogql_query
 
@@ -35,8 +36,10 @@ from posthog.constants import (
     TREND_FILTER_TYPE_EVENTS,
 )
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
+from posthog.hogql_queries.insights.retention.retention_base_query_fixed import RetentionFixedIntervalBaseQueryBuilder
 from posthog.hogql_queries.insights.retention.retention_query_runner import RetentionQueryRunner
 from posthog.hogql_queries.insights.retention.test.retention_base_query_variant import (
+    RETENTION_BASE_QUERY_VARIANT_PATCH_PATH,
     RetentionBaseQueryVariantComparisonMixin,
 )
 from posthog.hogql_queries.insights.retention.test.utils import pad, pluck
@@ -3661,6 +3664,84 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
                 ]
             ),
         )
+
+    def test_dwh_variant_pushes_sampling_into_event_subqueries(self):
+        # The variant wraps a UNION ALL in a JoinExpr; SAMPLE on that wrapper never reaches the inner
+        # events scans, so it must be pushed into each FROM events arm where ClickHouse can apply it.
+        query = RetentionQuery(
+            dateRange={"date_to": _date(10, hour=6)},
+            samplingFactor=0.5,
+            retentionFilter={"totalIntervals": 11},
+        )
+        runner = RetentionQueryRunner(team=self.team, query=query)
+
+        with patch(RETENTION_BASE_QUERY_VARIANT_PATCH_PATH, return_value=True):
+            base_query = RetentionFixedIntervalBaseQueryBuilder(runner).build()
+
+        assert base_query.select_from is not None
+        union = base_query.select_from.table
+        assert isinstance(union, ast.SelectSetQuery)
+        self.assertIsNone(base_query.select_from.sample)
+
+        event_arms = [
+            arm
+            for arm in union.select_queries()
+            if isinstance(arm, ast.SelectQuery)
+            and arm.select_from is not None
+            and isinstance(arm.select_from.table, ast.Field)
+            and arm.select_from.table.chain == ["events"]
+        ]
+        self.assertEqual(len(event_arms), 2)
+        for arm in event_arms:
+            assert arm.select_from is not None
+            sample = arm.select_from.sample
+            assert isinstance(sample, ast.SampleExpr)
+            self.assertEqual(sample.sample_value.left.value, 0.5)
+
+    @parameterized.expand([("factor_0_1", 0.1), ("factor_0_5", 0.5), ("factor_1_0", 1.0)])
+    def test_sampling_parity_recurring(self, _name: str, sampling_factor: float):
+        # run_query asserts the legacy and DWH-variant paths return identical results. Deterministic
+        # SAMPLE BY cityHash64(distinct_id) makes the single-scan legacy query and the two-arm variant
+        # union sample the same rows, so parity must hold at every factor.
+        for i in range(20):
+            _create_person(team_id=self.team.pk, distinct_ids=[f"person{i}"])
+        _create_events(
+            self.team,
+            [(f"person{i}", _date(day)) for i in range(20) for day in range(7)],
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(10, hour=6)},
+                "samplingFactor": sampling_factor,
+                "retentionFilter": {"totalIntervals": 11},
+            }
+        )
+        self.assertEqual(len(result), 11)
+
+    @parameterized.expand([("factor_0_1", 0.1), ("factor_0_5", 0.5), ("factor_1_0", 1.0)])
+    def test_sampling_parity_first_time(self, _name: str, sampling_factor: float):
+        # First-time retention anchors on minIf over the sampled stream; the variant computes it in a
+        # separate union arm from the legacy single scan, so this exercises a different aggregation than
+        # the recurring case. run_query asserts the two paths stay identical under sampling.
+        for i in range(20):
+            _create_person(team_id=self.team.pk, distinct_ids=[f"person{i}"])
+        _create_events(
+            self.team,
+            [(f"person{i}", _date(day)) for i in range(20) for day in range(7)],
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(10, hour=6)},
+                "samplingFactor": sampling_factor,
+                "retentionFilter": {
+                    "totalIntervals": 11,
+                    "retentionType": RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS,
+                },
+            }
+        )
+        self.assertEqual(len(result), 11)
 
     def test_retention_with_breakdown_with_person_properties(self):
         _create_person(team_id=self.team.pk, distinct_ids=["person1"], properties={"country": "US"})

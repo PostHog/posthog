@@ -62,6 +62,28 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             selected_breakdown_value=selected_breakdown_value,
         )
 
+    def apply_sampling(self, base_query: ast.SelectQuery) -> None:
+        select_from = base_query.select_from
+        if select_from is not None and isinstance(select_from.table, ast.SelectSetQuery):
+            # Variant path: select_from wraps a UNION ALL. SAMPLE on that wrapper does not reach the
+            # inner events scans, so push it into each events-side arm's FROM events. DWH-side arms are
+            # left untouched — sampling with a DWH series is rejected by DisallowUnsupportedDataWarehouseSettings.
+            if self.query.samplingFactor is None or not isinstance(self.query.samplingFactor, float):
+                return
+            for arm in select_from.table.select_queries():
+                arm_from = arm.select_from if isinstance(arm, ast.SelectQuery) else None
+                if (
+                    arm_from is not None
+                    and isinstance(arm_from.table, ast.Field)
+                    and arm_from.table.chain == ["events"]
+                ):
+                    arm_from.sample = ast.SampleExpr(
+                        sample_value=ast.RatioExpr(left=ast.Constant(value=self.query.samplingFactor))
+                    )
+            return
+
+        super().apply_sampling(base_query)
+
     # Nested fixed-interval query with data warehouse support.
     # Intended as a drop-in replacement for the legacy query while we verify
     # parity in production.
