@@ -518,6 +518,10 @@ build:
         bin_script: build-mcp-oauth-scopes.py
         description: Generate OAUTH_SCOPES_SUPPORTED for the MCP protected-resource
             metadata from posthog/scopes.py
+    build:openapi-cli-agent-scopes:
+        cmd: pnpm --filter=@posthog/mcp run generate-cli-agent-scopes
+        description: Generate the CLI `agent` login use-case scope list from the MCP
+            tool definitions (must run after build:openapi-mcp-tools)
     build:openapi:
         steps:
             - build:openapi-schema
@@ -527,6 +531,7 @@ build:
             - build:openapi-mcp
             - build:openapi-mcp-tools
             - build:openapi-mcp-scopes
+            - build:openapi-cli-agent-scopes
         description: Generate OpenAPI schema and TypeScript types from the backend
     build:grammar:
         cmd: pnpm grammar:build

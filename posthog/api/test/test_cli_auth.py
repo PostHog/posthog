@@ -117,6 +117,22 @@ class TestCLIAuthAuthorizeEndpoint(APIBaseTest):
         self.assertEqual(api_key.scopes, CLI_SCOPES)
         self.assertIn("CLI -", api_key.label)
 
+    def test_authorization_honors_submitted_scopes(self):
+        # The browser consent screen derives scopes from the requested use cases
+        # (e.g. the `agent` use case grants the MCP scope set) and submits them.
+        # The endpoint must mint a key with exactly those scopes, not CLI_SCOPES.
+        submitted_scopes = ["user:read", "project:read", "query:read", "insight:write"]
+
+        response = self.client.post(
+            "/api/cli-auth/authorize/",
+            {"user_code": self.user_code, "project_id": self.team.id, "scopes": submitted_scopes},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        api_key = PersonalAPIKey.objects.filter(user=self.user).order_by("-created_at").first()
+        assert api_key is not None
+        self.assertEqual(api_key.scopes, submitted_scopes)
+
     def test_authorization_requires_authentication(self):
         """Test that authorization endpoint requires user to be logged in"""
         self.client.logout()

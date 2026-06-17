@@ -116,6 +116,7 @@ export function CLIAuthorize(): JSX.Element {
         missingSchemaScopes,
         missingErrorTrackingScopes,
         missingEndpointsScopes,
+        missingAgentScopes,
     } = useValues(cliAuthorizeLogic)
     const { setAuthorizeValue, setScopeRadioValue, updateDisplayedScopeSnapshot } = useActions(cliAuthorizeLogic)
     const [isScopesModalOpen, setIsScopesModalOpen] = useState(false)
@@ -271,7 +272,10 @@ export function CLIAuthorize(): JSX.Element {
                             </div>
                         </LemonModal>
 
-                        {(missingSchemaScopes || missingErrorTrackingScopes || missingEndpointsScopes) && (
+                        {(missingSchemaScopes ||
+                            missingErrorTrackingScopes ||
+                            missingEndpointsScopes ||
+                            missingAgentScopes) && (
                             <div className="space-y-2 mt-2">
                                 {missingSchemaScopes && (
                                     <LemonBanner type="warning">
@@ -290,6 +294,13 @@ export function CLIAuthorize(): JSX.Element {
                                     <LemonBanner type="warning">
                                         <b>Endpoints unavailable:</b> The CLI needs <code>endpoint</code> permissions
                                         (read or write) to execute endpoints.
+                                    </LemonBanner>
+                                )}
+                                {missingAgentScopes && (
+                                    <LemonBanner type="warning">
+                                        <b>Agent commands limited:</b> The CLI's <code>api</code> commands need{' '}
+                                        <code>user</code>, <code>project</code>, and <code>query</code> permissions
+                                        (read or write) to discover data and run queries.
                                     </LemonBanner>
                                 )}
                             </div>

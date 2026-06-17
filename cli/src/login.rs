@@ -35,11 +35,16 @@ struct PollResponse {
     project_id: Option<String>,
 }
 
+// The `agent` use case grants the full MCP / `posthog-cli api` scope set
+// (a superset of schema + error_tracking + endpoints), so a freshly logged-in
+// CLI can run the agent interface without re-authorizing.
+const DEFAULT_LOGIN_USE_CASES: &[&str] = &["agent"];
+
 pub fn login(host_override: Option<String>) -> Result<()> {
     if !io::stdout().is_terminal() {
         bail!("Failed to login. If you are running on a CI, skip this step and use POSTHOG_CLI_HOST, POSTHOG_CLI_PROJECT_ID, POSTHOG_CLI_API_KEY env variables when running commands")
     }
-    login_with_use_cases(host_override, vec!["schema", "error_tracking", "endpoints"])
+    login_with_use_cases(host_override, DEFAULT_LOGIN_USE_CASES.to_vec())
 }
 
 pub fn login_with_use_cases(host_override: Option<String>, use_cases: Vec<&str>) -> Result<()> {
@@ -293,4 +298,16 @@ fn manual_login() -> Result<(), Error> {
     info!("Token saved to: {}", provider.report_location());
 
     complete_login(&provider, "manual_login")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_login_requests_the_agent_use_case() {
+        // The agent use case is what grants the CLI the full `posthog-cli api`
+        // scope set; narrowing it here would silently break agent commands.
+        assert_eq!(DEFAULT_LOGIN_USE_CASES, &["agent"]);
+    }
 }
