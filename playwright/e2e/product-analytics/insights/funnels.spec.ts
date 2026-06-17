@@ -255,8 +255,10 @@ test.describe('Funnel insights', () => {
 
             const modal = page.getByTestId('persons-modal')
             await expect(modal).toBeVisible({ timeout: 10000 })
-            // The actors query can take well over the local 10s expect default under load
-            await expect(modal).toContainText('firefox-user-1', { timeout: 30000 })
+            // The actors query can take well over the local 10s expect default under load.
+            // Depending on person merge/deletion state, actors can show as named users or Anonymous.
+            await expect(modal.locator('[data-attr^="persons-modal-expand-"]').first()).toBeVisible({ timeout: 30000 })
+            await expect(modal).toContainText(/firefox-user-1|Anonymous/, { timeout: 30000 })
 
             await modal.getByRole('button', { name: 'close' }).click()
             await expect(modal).not.toBeVisible()
