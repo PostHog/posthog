@@ -988,6 +988,17 @@ describe('hasLegacyMetrics', () => {
 
         expect(isLegacyExperiment(experiment)).toBe(false)
     })
+
+    it('does not crash when metric fields are null or undefined', () => {
+        const experiment = {
+            ...experimentJson,
+            metrics: null,
+            metrics_secondary: undefined,
+            saved_metrics: null,
+        } as unknown as Experiment
+
+        expect(isLegacyExperiment(experiment)).toBe(false)
+    })
 })
 
 describe('getOrderedMetricsWithResults', () => {
