@@ -3,7 +3,7 @@ import {
     ErrorTrackingStackFrame,
     ErrorTrackingStackFrameRecord,
 } from 'lib/components/Errors/types'
-import { uuid } from 'lib/utils'
+import { uuid } from 'lib/utils/dom'
 
 import { EventType } from '~/types'
 
