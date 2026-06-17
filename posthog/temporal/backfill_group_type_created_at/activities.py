@@ -180,9 +180,16 @@ async def apply_group_type_created_at_backfill(input: ApplyBackfillInput) -> dic
         updated = 0
         for update in input.updates:
             new_created_at = datetime.fromisoformat(update["new_created_at"])
+            # created_at__gt enforces the "only lower" invariant at the DB level, so a
+            # re-run — or the ingestion fix landing between plan and apply — can never
+            # raise created_at back up.
             updated += (
                 GroupTypeMapping.objects.using(PERSONS_DB_FOR_WRITE)  # nosemgrep: no-direct-persons-db-orm
-                .filter(project_id=input.project_id, group_type_index=update["group_type_index"])
+                .filter(
+                    project_id=input.project_id,
+                    group_type_index=update["group_type_index"],
+                    created_at__gt=new_created_at,
+                )
                 .update(created_at=new_created_at)
             )
         invalidate_group_types_cache(input.project_id)
