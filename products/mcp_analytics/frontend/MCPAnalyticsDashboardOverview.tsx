@@ -54,7 +54,11 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                     onChange={(dateFrom, dateTo) => setDateFilter(dateFrom, dateTo)}
                     dataAttr="mcp-dashboard-date-filter"
                 />
-                <TestAccountFilterSwitch checked={filterTestAccounts} onChange={setFilterTestAccounts} />
+                <TestAccountFilterSwitch
+                    checked={filterTestAccounts}
+                    onChange={setFilterTestAccounts}
+                    data-attr="mcp-dashboard-test-account-filter"
+                />
             </div>
             <section>
                 <h2 className="mb-4 text-xl font-semibold text-primary">Key metrics</h2>
