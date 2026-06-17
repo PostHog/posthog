@@ -9,6 +9,8 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.helpers.trigram_search import MAX_SEARCH_LENGTH
+
 from products.visual_review.backend import logic
 from products.visual_review.backend.facade import api
 from products.visual_review.backend.facade.contracts import CreateRunInput, SnapshotManifestItem
@@ -611,6 +613,14 @@ class TestRepoRunsSearch(VisualReviewTeamScopedTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(self._branches(response.json()), {"feature/login"})
+
+    @parameterized.expand([("repo_scoped", "_runs_url"), ("team_wide", "_team_runs_url")])
+    def test_overlong_search_is_rejected(self, _name: str, url_method: str):
+        # Cap the term before it reaches the trigram comparison (pathological CPU cost).
+        url = getattr(self, url_method)(search="x" * (MAX_SEARCH_LENGTH + 1))
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
 
 class TestRunFinalizePersonalAPIKeyScopes(VisualReviewTeamScopedTestMixin, APIBaseTest):

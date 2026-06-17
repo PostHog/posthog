@@ -26,6 +26,7 @@ from rest_framework.response import Response
 
 from posthog.api.mixins import TypedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.helpers.trigram_search import MAX_SEARCH_LENGTH
 
 from ..facade import api, contracts
 from ..facade.contracts import (
@@ -359,6 +360,11 @@ class RepoRunsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         """List runs in this repo, optionally filtered by review state and free-text search."""
         review_state = request.query_params.get("review_state")
         search = request.query_params.get("search")
+        if search and len(search) > MAX_SEARCH_LENGTH:
+            return Response(
+                {"detail": f"search must be at most {MAX_SEARCH_LENGTH} characters"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         repo_id = UUID(self.parents_query_dict["repo_id"])
         runs = api.list_runs(self.team_id, review_state=review_state, repo_id=repo_id, search=search)
         page = self.paginate_queryset(runs)
@@ -418,13 +424,19 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             pr_number = int(pr_number_raw) if pr_number_raw is not None else None
         except ValueError:
             return Response({"detail": "pr_number must be an integer"}, status=status.HTTP_400_BAD_REQUEST)
+        search = request.query_params.get("search")
+        if search and len(search) > MAX_SEARCH_LENGTH:
+            return Response(
+                {"detail": f"search must be at most {MAX_SEARCH_LENGTH} characters"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         runs = api.list_runs(
             self.team_id,
             review_state=request.query_params.get("review_state"),
             pr_number=pr_number,
             commit_sha=request.query_params.get("commit_sha"),
             branch=request.query_params.get("branch"),
-            search=request.query_params.get("search"),
+            search=search,
         )
         page = self.paginate_queryset(runs)
         if page is not None:
