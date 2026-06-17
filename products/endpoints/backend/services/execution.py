@@ -280,7 +280,7 @@ class EndpointExecutionService(PydanticModelMixin):
         if is_materialized and not strategy.materialized_filters_override_satisfies_required(data):
             required_vars = strategy.required_materialized_variables()
             if required_vars:
-                provided = set(data.variables.keys()) if data.variables else set()
+                provided = {key for key, value in (data.variables or {}).items() if value is not None}
                 missing = sorted(required_vars - provided)
                 if missing:
                     ENDPOINT_VALIDATION_ERROR_TOTAL.labels(reason="missing_required_variable").inc()
