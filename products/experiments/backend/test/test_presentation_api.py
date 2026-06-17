@@ -6,6 +6,8 @@ from posthog.test.base import ClickhouseTestMixin, FuzzyInt, _create_event, _cre
 from unittest.mock import ANY, MagicMock, patch
 
 from django.core.cache import cache
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 
 from dateutil import parser
 from parameterized import parameterized
@@ -28,6 +30,7 @@ from products.experiments.backend.models.experiment import (
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.models.web_experiment import WebExperiment
+from products.feature_flags.backend.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, get_feature_flags_for_team_in_cache
 
 from ee.api.test.base import APILicensedTest
@@ -282,7 +285,7 @@ class TestExperimentCRUD(APILicensedTest):
             format="json",
         ).json()
 
-        with self.assertNumQueries(FuzzyInt(18, 22)):
+        with self.assertNumQueries(FuzzyInt(13, 17)):
             response = self.client.get(f"/api/projects/{self.team.id}/experiments")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -299,9 +302,70 @@ class TestExperimentCRUD(APILicensedTest):
                 format="json",
             ).json()
 
-        with self.assertNumQueries(FuzzyInt(18, 22)):
+        with self.assertNumQueries(FuzzyInt(13, 17)):
             response = self.client.get(f"/api/projects/{self.team.id}/experiments")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def _create_fully_populated_experiment(self, index: int) -> Experiment:
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key=f"populated-flag-{index}",
+            created_by=self.user,
+        )
+        context = EvaluationContext.objects.create(team=self.team, name=f"context-{index}")
+        FeatureFlagEvaluationContext.objects.create(feature_flag=flag, evaluation_context=context)
+
+        holdout = ExperimentHoldout.objects.create(
+            team=self.team,
+            name=f"Holdout {index}",
+            created_by=self.user,
+            filters=[{"properties": [], "rollout_percentage": 10, "variant": f"holdout-{index}"}],
+        )
+        cohort = Cohort.objects.create(team=self.team, name=f"Cohort {index}")
+
+        experiment = Experiment.objects.create(
+            team=self.team,
+            name=f"Populated experiment {index}",
+            feature_flag=flag,
+            holdout=holdout,
+            exposure_cohort=cohort,
+            created_by=self.user,
+            start_date=datetime(2021, 12, 1, 10, 23, tzinfo=UTC),
+        )
+
+        saved_metric = ExperimentSavedMetric.objects.create(
+            team=self.team,
+            name=f"Saved metric {index}",
+            created_by=self.user,
+            query={
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "source": {"kind": "EventsNode", "event": "$pageview"},
+            },
+        )
+        ExperimentToSavedMetric.objects.create(experiment=experiment, saved_metric=saved_metric)
+        return experiment
+
+    def test_listing_experiments_with_related_objects_is_not_nplus1(self) -> None:
+        # Each experiment carries a feature flag (+ evaluation context), a holdout (+ created_by),
+        # an exposure cohort, and a saved metric — the relations that previously triggered N+1 queries.
+        self._create_fully_populated_experiment(0)
+
+        with CaptureQueriesContext(connection) as single_row:
+            response = self.client.get(f"/api/projects/{self.team.id}/experiments")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.json()["count"], 1)
+
+        for i in range(1, 5):
+            self._create_fully_populated_experiment(i)
+
+        with CaptureQueriesContext(connection) as five_rows:
+            response = self.client.get(f"/api/projects/{self.team.id}/experiments")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.json()["count"], 5)
+
+        # Query count must stay flat as rows grow — five experiments must not cost more than one.
+        self.assertLessEqual(len(five_rows.captured_queries), len(single_row.captured_queries))
 
     def test_creating_updating_basic_experiment(self):
         ff_key = "a-b-tests"
