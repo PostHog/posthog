@@ -744,8 +744,15 @@ def _backfill_thread_replies(
     ticket: Ticket,
     channel: str,
     thread_ts: str,
+    after_ts: str | None = None,
 ) -> None:
-    """Fetch existing thread replies and add them as comments on the ticket."""
+    """Fetch existing thread replies and add them as comments on the ticket.
+
+    When ``after_ts`` is given, only replies strictly newer than it are backfilled — used
+    when a ticket is seeded from a mid-thread message (emoji reaction) so earlier history
+    isn't pulled in. Slack ts values are lexicographically ordered, so string comparison is
+    safe.
+    """
     try:
         result = client.conversations_replies(channel=channel, ts=thread_ts, limit=200)
         replies: list[dict] = result.get("messages", [])
@@ -753,7 +760,9 @@ def _backfill_thread_replies(
         logger.warning("slack_support_reaction_backfill_failed", channel=channel, thread_ts=thread_ts)
         return
 
-    thread_replies = [r for r in replies if r.get("ts") != thread_ts]
+    thread_replies = [
+        r for r in replies if r.get("ts") != thread_ts and (after_ts is None or (r.get("ts") or "") > after_ts)
+    ]
     if not thread_replies:
         return
 
@@ -871,8 +880,10 @@ def handle_support_reaction(event: dict, team: Team, slack_team_id: str) -> None
     """
     Handle a Slack 'reaction_added' event to create a ticket from a reacted message.
 
-    Fetches the reacted-to message and creates a ticket from it.
-    Subsequent thread replies become ticket messages.
+    Unlike a bot mention (which seeds the ticket from the thread root), an emoji reaction
+    seeds the ticket from the *reacted* message — "create the ticket from here". If that
+    message lives inside a thread, the ticket is still keyed on the thread root so later
+    replies route to it, and only replies posted after the reacted message are backfilled.
     """
     reaction = event.get("reaction", "")
     item = event.get("item", {})
@@ -892,58 +903,80 @@ def handle_support_reaction(event: dict, team: Team, slack_team_id: str) -> None
     if not settings_dict.get("slack_enabled"):
         return
 
-    # Check if a ticket already exists for this message thread
-    existing = Ticket.objects.filter(
-        team=team,
-        slack_channel_id=channel,
-        slack_thread_ts=message_ts,
-    ).first()
-
-    if existing:
-        logger.debug("slack_support_reaction_ticket_exists", ticket_id=str(existing.id))
+    # Fast path: a ticket may already be anchored on the reacted message ts itself.
+    if Ticket.objects.filter(team=team, slack_channel_id=channel, slack_thread_ts=message_ts).exists():
+        logger.debug("slack_support_reaction_ticket_exists", channel=channel, thread_ts=message_ts)
         return
 
-    # Fetch the reacted-to message to get its content and author
     client = get_slack_client(team)
-    try:
-        result = client.conversations_history(
-            channel=channel,
-            latest=message_ts,
-            inclusive=True,
-            limit=1,
-        )
-        messages: list[dict] = result.get("messages", [])
-        if not messages:
-            return
 
-        original_msg = messages[0]
-        original_user = original_msg.get("user", "")
-        original_text = original_msg.get("text", "")
-        original_blocks = original_msg.get("blocks")
-        original_files = original_msg.get("files")
+    # Fetch the reacted message together with its thread. conversations.replies returns the
+    # whole thread (root first) whether the reaction landed on the root or on a reply.
+    # conversations.history only sees top-level channel messages, so reacting on a reply
+    # would silently fetch the wrong neighbouring message instead.
+    try:
+        result = client.conversations_replies(channel=channel, ts=message_ts, limit=200)
+        thread_messages: list[dict] = result.get("messages", [])
     except Exception:
         logger.warning("slack_support_reaction_fetch_failed", channel=channel, message_ts=message_ts)
         return
 
+    # A standalone message with no thread can come back empty from conversations.replies —
+    # fetch just that message, bounded to its exact ts so we never grab a neighbour.
+    if not thread_messages:
+        try:
+            history = client.conversations_history(
+                channel=channel,
+                latest=message_ts,
+                oldest=message_ts,
+                inclusive=True,
+                limit=1,
+            )
+            thread_messages = history.get("messages", [])
+        except Exception:
+            logger.warning("slack_support_reaction_fetch_failed", channel=channel, message_ts=message_ts)
+            return
+
+    if not thread_messages:
+        return
+
+    root_ts = thread_messages[0].get("ts") or message_ts
+    # The reacted message itself seeds the ticket ("create from here").
+    reacted_msg = next((m for m in thread_messages if m.get("ts") == message_ts), thread_messages[0])
+
+    # When the reaction lands on a reply, the ticket key (the root) differs from message_ts —
+    # re-check so we don't create a duplicate for an already-tracked thread.
+    if (
+        root_ts != message_ts
+        and Ticket.objects.filter(team=team, slack_channel_id=channel, slack_thread_ts=root_ts).exists()
+    ):
+        logger.debug("slack_support_reaction_ticket_exists", channel=channel, thread_ts=root_ts)
+        return
+
+    reacted_text = reacted_msg.get("text", "")
+    reacted_files = reacted_msg.get("files")
+
     # Require either text or files
-    if not original_text.strip() and not original_files:
+    if not reacted_text.strip() and not reacted_files:
         return
 
     ticket = create_or_update_slack_ticket(
         team=team,
         slack_channel_id=channel,
-        thread_ts=message_ts,
-        slack_user_id=original_user,
-        text=original_text,
-        blocks=original_blocks,
-        files=original_files,
+        thread_ts=root_ts,
+        slack_user_id=reacted_msg.get("user", ""),
+        text=reacted_text,
+        blocks=reacted_msg.get("blocks"),
+        files=reacted_files,
         is_thread_reply=False,
         slack_team_id=slack_team_id,
         channel_detail=ChannelDetail.SLACK_EMOJI_REACTION,
     )
 
     if ticket:
-        _backfill_thread_replies(client, team, ticket, channel, message_ts)
+        # Only backfill replies posted after the reacted message; earlier thread history is
+        # intentionally excluded since the ticket starts from the reacted message.
+        _backfill_thread_replies(client, team, ticket, channel, root_ts, after_ts=message_ts)
 
 
 def _handle_member_event(event: dict, team: Team, *, joined: bool) -> None:
