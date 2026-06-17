@@ -437,7 +437,10 @@ class TestPKCEPartnerExistingUserConsent(ProvisioningTestBase):
         assert kwargs["is_organization_first_user"] is True
         assert kwargs["social_provider"] == self.pkce_partner.name
 
-    def test_pkce_partner_with_skip_consent_existing_user_gets_direct_code(self):
+    def test_pkce_partner_with_skip_consent_existing_user_requires_consent(self):
+        # A public PKCE caller is identified only by a client_id anyone can send, so even with
+        # skip_existing_user_consent it must not silently mint for an existing account — it has
+        # no proof it controls the partner or the account (VERIA-327).
         self.pkce_partner.provisioning_skip_existing_user_consent = True
         self.pkce_partner.save()
         User.objects.create_and_join(
@@ -447,10 +450,8 @@ class TestPKCEPartnerExistingUserConsent(ProvisioningTestBase):
         res = self._post_as_pkce_partner(payload)
         assert res.status_code == 200
         data = res.json()
-        assert data["type"] == "oauth"
-        assert "code" in data["oauth"]
-        # Consent path would return a requires_auth payload with redirect URL; absence proves consent was skipped.
-        assert "requires_auth" not in data
+        assert data["type"] == "requires_auth"
+        assert "oauth" not in data
 
     def test_pkce_partner_missing_code_challenge_returns_400(self):
         User.objects.create_and_join(
@@ -479,11 +480,13 @@ class TestPKCEPartnerExistingUserConsent(ProvisioningTestBase):
 
 
 @override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
-class TestSilentRemintBlockedAfterReview(ProvisioningTestBase):
-    """Once a user has reviewed their credentials, a partner with
-    skip_existing_user_consent=True can only re-mint silently when it already
-    holds live OAuth credentials on that user — otherwise the consent screen
-    is required. Closes the server-side half of the pre-hijacking defense."""
+class TestSilentRemintRequiresTrustProof(ProvisioningTestBase):
+    """A partner with skip_existing_user_consent=True can only mint silently for an
+    existing user when the caller proved a prior trust relationship with that user
+    (live partner credential for HMAC, the user's own token for bearer). Otherwise
+    the consent screen is required. This holds whether or not the user has reviewed
+    their credentials: an unreviewed account is still a pre-existing account that a
+    caller must not be able to silently link (VERIA-327)."""
 
     def setUp(self):
         super().setUp()
@@ -635,13 +638,16 @@ class TestSilentRemintBlockedAfterReview(ProvisioningTestBase):
             revoked=timezone.now(),
         )
 
-    def test_unreviewed_user_silent_path_still_works(self):
+    def test_unreviewed_existing_user_pkce_requires_consent(self):
+        # A public PKCE caller never proves control of the partner, so it must not mint
+        # silently for an existing account — even an unreviewed one, whose email may belong
+        # to a direct signup the caller has no relationship with.
         self._make_user(credentials_reviewed=False)
         res = self._post_as_partner(self._account_request_payload())
         assert res.status_code == 200
         data = res.json()
-        assert data["type"] == "oauth"
-        assert "code" in data["oauth"]
+        assert data["type"] == "requires_auth"
+        assert "oauth" not in data
 
     @parameterized.expand(
         [
@@ -672,16 +678,17 @@ class TestSilentRemintBlockedAfterReview(ProvisioningTestBase):
         assert data["type"] == "requires_auth"
         assert "oauth" not in data
 
-    def test_pkce_caller_with_live_credential_unreviewed_silent_still_works(self):
-        # The public-client lockout only applies after review; the legitimate
-        # Connect re-link flow on an unreviewed user must stay silent.
+    def test_pkce_caller_with_live_credential_unreviewed_requires_consent(self):
+        # A live credential on the claimed client_id is not proof the public caller controls
+        # the partner, so it cannot unlock the silent path for an existing user — the
+        # unreviewed state does not relax this.
         user = self._make_user(credentials_reviewed=False)
         self._make_live_access_token(user, self.partner)
         res = self._post_as_partner(self._account_request_payload())
         assert res.status_code == 200
         data = res.json()
-        assert data["type"] == "oauth"
-        assert "code" in data["oauth"]
+        assert data["type"] == "requires_auth"
+        assert "oauth" not in data
 
     @parameterized.expand(
         [
@@ -748,6 +755,61 @@ class TestSilentRemintBlockedAfterReview(ProvisioningTestBase):
         self._mint_bearer_token(user, self.bearer_partner, "owner_bearer_token")
 
         res = self._post_as_bearer_partner(self._account_request_payload(), token="owner_bearer_token")
+        assert res.status_code == 200
+        data = res.json()
+        assert data["type"] == "oauth"
+        assert "code" in data["oauth"]
+
+    def test_bearer_caller_cannot_remint_for_other_user_unreviewed(self):
+        # VERIA-327: an attacker holding their own bearer token must not silently mint a code
+        # for a victim's pre-existing account just because the victim has never reviewed
+        # credentials. The unreviewed state is not a license to link a stranger's account.
+        self._make_user(credentials_reviewed=False)
+
+        attacker = User.objects.create_and_join(
+            organization=self.organization,
+            email="attacker@example.com",
+            password="testpass",
+            first_name="Attacker",
+        )
+        self._mint_bearer_token(attacker, self.bearer_partner, "attacker_bearer_token")
+
+        res = self._post_as_bearer_partner(self._account_request_payload(), token="attacker_bearer_token")
+        assert res.status_code == 200
+        data = res.json()
+        assert data["type"] == "requires_auth"
+        assert "oauth" not in data
+
+    def test_bearer_caller_can_remint_for_own_user_unreviewed(self):
+        # The owner re-linking their own unreviewed account is genuine proof, so it stays silent.
+        user = self._make_user(credentials_reviewed=False)
+        self._mint_bearer_token(user, self.bearer_partner, "owner_bearer_token")
+
+        res = self._post_as_bearer_partner(self._account_request_payload(), token="owner_bearer_token")
+        assert res.status_code == 200
+        data = res.json()
+        assert data["type"] == "oauth"
+        assert "code" in data["oauth"]
+
+    @parameterized.expand([("reviewed", True), ("unreviewed", False)])
+    def test_hmac_first_link_existing_user_requires_consent(self, _name, reviewed):
+        # HMAC proof is "the partner already holds a live credential for this user". On a first
+        # link there is none, so even a trusted HMAC partner must get consent before linking a
+        # pre-existing account, regardless of review state.
+        self._make_user(credentials_reviewed=reviewed)
+        res = self._post_as_hmac_partner(self._account_request_payload())
+        assert res.status_code == 200
+        data = res.json()
+        assert data["type"] == "requires_auth"
+        assert "oauth" not in data
+
+    @parameterized.expand([("reviewed", True), ("unreviewed", False)])
+    def test_hmac_relink_existing_user_with_live_credential_silent(self, _name, reviewed):
+        # Genuine HMAC re-link: the partner holds a live credential for the user, so it may
+        # mint silently whether or not the user has reviewed credentials.
+        user = self._make_user(credentials_reviewed=reviewed)
+        self._make_live_access_token(user, self.hmac_partner)
+        res = self._post_as_hmac_partner(self._account_request_payload())
         assert res.status_code == 200
         data = res.json()
         assert data["type"] == "oauth"
