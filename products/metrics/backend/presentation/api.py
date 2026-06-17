@@ -22,7 +22,12 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.event_usage import report_user_action
 
-from products.metrics.backend.facade.api import list_metric_names, run_metric_query, team_has_metrics
+from products.metrics.backend.facade.api import (
+    characterize_metric_anomaly,
+    list_metric_names,
+    run_metric_query,
+    team_has_metrics,
+)
 from products.metrics.backend.facade.contracts import MetricFilter, MetricGroupBy, MetricQueryClause, MetricQueryRequest
 from products.metrics.backend.facade.enums import AttributeScope, FilterOp, MetricAggregation
 
@@ -224,6 +229,99 @@ class _MetricQueryResponseSerializer(serializers.Serializer):
     )
 
 
+class _MetricAnomalyBodySerializer(serializers.Serializer):
+    metricName = serializers.CharField(
+        max_length=255,
+        help_text="Exact metric name to characterize (e.g. 'metrics_rate_limiter_message_lag_seconds').",
+    )
+    anomalyFrom = serializers.DateTimeField(
+        help_text="Start of the suspicious window (inclusive). ISO 8601 — e.g. when the alert fired or the graph started looking wrong.",
+    )
+    anomalyTo = serializers.DateTimeField(
+        required=False,
+        help_text="End of the suspicious window (exclusive). Defaults to now.",
+    )
+    baselineFrom = serializers.DateTimeField(
+        required=False,
+        help_text="Start of the healthy comparison window. Defaults to one anomaly-window-length before baselineTo.",
+    )
+    baselineTo = serializers.DateTimeField(
+        required=False,
+        help_text="End of the healthy comparison window. Defaults to anomalyFrom. Must not extend past anomalyFrom.",
+    )
+    aggregation = serializers.ChoiceField(
+        choices=["sum", "avg", "count", "p95", "rate", "increase", "histogram_quantile"],
+        required=False,
+        allow_null=True,
+        help_text="Aggregation to characterize. Omit to auto-pick from the metric's OTel type (counter -> rate, gauge -> avg, histogram -> histogram_quantile 0.95).",
+    )
+    quantile = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        min_value=0.0,
+        max_value=1.0,
+        help_text="Quantile for histogram_quantile. Defaults to 0.95.",
+    )
+    filters = _MetricFilterSerializer(
+        many=True,
+        required=False,
+        default=list,
+        help_text="Label predicates narrowing which series are characterized.",
+    )
+    candidateKeys = serializers.ListField(
+        child=serializers.CharField(max_length=255),
+        required=False,
+        help_text="Label keys to drill into when finding which label values moved. Omit to auto-discover the most common keys on this metric (plus service_name). Max 4 are used.",
+    )
+
+
+class _MetricAnomalyRequestSerializer(serializers.Serializer):
+    query = _MetricAnomalyBodySerializer(help_text="The anomaly characterization to run.")
+
+
+class _MetricAnomalyDimensionSerializer(serializers.Serializer):
+    key = serializers.CharField(help_text="Label key that was drilled into.")
+    # the name shadows rest_framework Field.label as far as mypy can tell;
+    # DRF itself handles declared fields named `label` fine
+    label = serializers.CharField(help_text="Label value this row describes.")  # type: ignore[assignment]
+    baseline_value = serializers.FloatField(help_text="Mean value over the baseline window for this label value.")
+    anomaly_value = serializers.FloatField(help_text="Mean value over the anomaly window for this label value.")
+    change_ratio = serializers.FloatField(
+        help_text="anomaly_value / baseline_value. A zero baseline yields the anomaly value itself (new traffic)."
+    )
+
+
+class _MetricAnomalyReportSerializer(serializers.Serializer):
+    metric_name = serializers.CharField(help_text="Metric that was characterized.")
+    aggregation = serializers.CharField(help_text="Aggregation used (auto-picked when not specified).")
+    interval = serializers.CharField(help_text="Bucket size of the analysis grid.")
+    baseline_from = serializers.CharField(help_text="Baseline window start, ISO 8601.")
+    baseline_to = serializers.CharField(help_text="Baseline window end, ISO 8601.")
+    anomaly_from = serializers.CharField(help_text="Anomaly window start, ISO 8601.")
+    anomaly_to = serializers.CharField(help_text="Anomaly window end, ISO 8601.")
+    baseline_mean = serializers.FloatField(help_text="Mean over the baseline window.")
+    baseline_stddev = serializers.FloatField(help_text="Population stddev over the baseline window.")
+    anomaly_mean = serializers.FloatField(help_text="Mean over the anomaly window.")
+    anomaly_peak = serializers.FloatField(help_text="Maximum bucket value in the anomaly window.")
+    change_ratio = serializers.FloatField(
+        help_text="anomaly_mean / baseline_mean. A zero baseline yields anomaly_mean itself."
+    )
+    direction = serializers.ChoiceField(
+        choices=["up", "down", "flat"], help_text="Which way the metric moved versus the baseline."
+    )
+    onset_time = serializers.CharField(
+        allow_null=True,
+        help_text="First bucket clearly outside the baseline range (3 stddevs or 50% relative change), or null if no clear onset.",
+    )
+    top_movers = _MetricAnomalyDimensionSerializer(
+        many=True,
+        help_text="Label values whose behavior changed the most between windows, largest change first. Empty when nothing moved or the metric has no labels.",
+    )
+    series = _MetricSeriesSerializer(
+        help_text="The metric across baseline + anomaly windows on one grid, for plotting or further inspection."
+    )
+
+
 class _MetricNameSerializer(serializers.Serializer):
     name = serializers.CharField(help_text="Metric name as it appears in the team's data.")
     metric_type = serializers.CharField(
@@ -333,3 +431,48 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         )
 
         return Response({"results": [asdict(s) for s in series]}, status=status.HTTP_200_OK)
+
+    @extend_schema(request=_MetricAnomalyRequestSerializer, responses={200: _MetricAnomalyReportSerializer})
+    @action(detail=False, methods=["POST"], required_scopes=["metrics:read"])
+    def characterize(self, request: Request, *args, **kwargs) -> Response:
+        """Characterize a metric anomaly: compare an anomaly window against a
+        baseline, find the onset, and rank which label values moved."""
+        tag_queries(product=Product.METRICS, feature=Feature.QUERY)
+
+        body = _MetricAnomalyRequestSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        query_data = body.validated_data["query"]
+
+        filters = tuple(
+            MetricFilter(key=f["key"], op=FilterOp(f["op"]), value=f["value"], scope=AttributeScope(f["scope"]))
+            for f in query_data.get("filters") or []
+        )
+        try:
+            report = characterize_metric_anomaly(
+                team=self.team,
+                metric_name=query_data["metricName"],
+                anomaly_from=query_data["anomalyFrom"],
+                anomaly_to=query_data.get("anomalyTo") or timezone.now(),
+                baseline_from=query_data.get("baselineFrom"),
+                baseline_to=query_data.get("baselineTo"),
+                aggregation=query_data.get("aggregation"),
+                quantile=query_data.get("quantile"),
+                filters=filters,
+                candidate_keys=tuple(query_data["candidateKeys"]) if query_data.get("candidateKeys") else None,
+            )
+        except ValueError as exc:
+            raise ParseError(str(exc))
+
+        report_user_action(
+            request.user,
+            "metrics anomaly characterized",
+            {
+                "aggregation": report.aggregation,
+                "direction": report.direction,
+                "mover_count": len(report.top_movers),
+            },
+            team=self.team,
+            request=request,
+        )
+
+        return Response(asdict(report), status=status.HTTP_200_OK)

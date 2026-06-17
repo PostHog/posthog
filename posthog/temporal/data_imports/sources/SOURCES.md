@@ -229,6 +229,7 @@ doesn't conflict with concurrent PRs.
 
 - active_campaign
 - acuity_scheduling
+- adapty
 - adjust
 - adobe_analytics
 - adobe_commerce

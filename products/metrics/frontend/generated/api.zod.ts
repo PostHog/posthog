@@ -9,6 +9,108 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Characterize a metric anomaly: compare an anomaly window against a
+ * baseline, find the onset, and rank which label values moved.
+ */
+export const metricsCharacterizeCreateBodyQueryOneMetricNameMax = 255
+
+export const metricsCharacterizeCreateBodyQueryOneQuantileMin = 0
+export const metricsCharacterizeCreateBodyQueryOneQuantileMax = 1
+
+export const metricsCharacterizeCreateBodyQueryOneFiltersItemKeyMax = 255
+
+export const metricsCharacterizeCreateBodyQueryOneFiltersItemOpDefault = `eq`
+export const metricsCharacterizeCreateBodyQueryOneFiltersItemScopeDefault = `auto`
+export const metricsCharacterizeCreateBodyQueryOneCandidateKeysItemMax = 255
+
+export const MetricsCharacterizeCreateBody = /* @__PURE__ */ zod.object({
+    query: zod
+        .object({
+            metricName: zod
+                .string()
+                .max(metricsCharacterizeCreateBodyQueryOneMetricNameMax)
+                .describe("Exact metric name to characterize (e.g. 'metrics_rate_limiter_message_lag_seconds')."),
+            anomalyFrom: zod.iso
+                .datetime({ offset: true })
+                .describe(
+                    'Start of the suspicious window (inclusive). ISO 8601 — e.g. when the alert fired or the graph started looking wrong.'
+                ),
+            anomalyTo: zod.iso
+                .datetime({ offset: true })
+                .optional()
+                .describe('End of the suspicious window (exclusive). Defaults to now.'),
+            baselineFrom: zod.iso
+                .datetime({ offset: true })
+                .optional()
+                .describe(
+                    'Start of the healthy comparison window. Defaults to one anomaly-window-length before baselineTo.'
+                ),
+            baselineTo: zod.iso
+                .datetime({ offset: true })
+                .optional()
+                .describe(
+                    'End of the healthy comparison window. Defaults to anomalyFrom. Must not extend past anomalyFrom.'
+                ),
+            aggregation: zod
+                .union([
+                    zod
+                        .enum(['sum', 'avg', 'count', 'p95', 'rate', 'increase', 'histogram_quantile'])
+                        .describe(
+                            '\* `sum` - sum\n\* `avg` - avg\n\* `count` - count\n\* `p95` - p95\n\* `rate` - rate\n\* `increase` - increase\n\* `histogram_quantile` - histogram_quantile'
+                        ),
+                    zod.null(),
+                ])
+                .optional()
+                .describe(
+                    "Aggregation to characterize. Omit to auto-pick from the metric's OTel type (counter -> rate, gauge -> avg, histogram -> histogram_quantile 0.95).\n\n\* `sum` - sum\n\* `avg` - avg\n\* `count` - count\n\* `p95` - p95\n\* `rate` - rate\n\* `increase` - increase\n\* `histogram_quantile` - histogram_quantile"
+                ),
+            quantile: zod
+                .number()
+                .min(metricsCharacterizeCreateBodyQueryOneQuantileMin)
+                .max(metricsCharacterizeCreateBodyQueryOneQuantileMax)
+                .nullish()
+                .describe('Quantile for histogram_quantile. Defaults to 0.95.'),
+            filters: zod
+                .array(
+                    zod.object({
+                        key: zod
+                            .string()
+                            .max(metricsCharacterizeCreateBodyQueryOneFiltersItemKeyMax)
+                            .describe(
+                                "Attribute name to filter on, without any type-tag suffix (e.g. 'k8s.pod.name', 'env')."
+                            ),
+                        op: zod
+                            .enum(['eq', 'neq', 'regex', 'not_regex'])
+                            .describe('\* `eq` - eq\n\* `neq` - neq\n\* `regex` - regex\n\* `not_regex` - not_regex')
+                            .default(metricsCharacterizeCreateBodyQueryOneFiltersItemOpDefault)
+                            .describe(
+                                "Comparison operator. 'regex'\/'not_regex' use RE2 syntax. Negative operators also match rows that lack the key entirely, mirroring Prometheus negative matchers.\n\n\* `eq` - eq\n\* `neq` - neq\n\* `regex` - regex\n\* `not_regex` - not_regex"
+                            ),
+                        value: zod
+                            .string()
+                            .describe('Value to compare against. For regex operators this is the pattern.'),
+                        scope: zod
+                            .enum(['resource', 'attribute', 'auto'])
+                            .describe('\* `resource` - resource\n\* `attribute` - attribute\n\* `auto` - auto')
+                            .default(metricsCharacterizeCreateBodyQueryOneFiltersItemScopeDefault)
+                            .describe(
+                                "Where the attribute lives: 'resource' = per-target resource attributes (k8s.pod.name, service.version), 'attribute' = per-datapoint attributes (http.method, path), 'auto' = resource first with per-datapoint fallback. Use 'auto' unless you know the exact scope.\n\n\* `resource` - resource\n\* `attribute` - attribute\n\* `auto` - auto"
+                            ),
+                    })
+                )
+                .optional()
+                .describe('Label predicates narrowing which series are characterized.'),
+            candidateKeys: zod
+                .array(zod.string().max(metricsCharacterizeCreateBodyQueryOneCandidateKeysItemMax))
+                .optional()
+                .describe(
+                    'Label keys to drill into when finding which label values moved. Omit to auto-discover the most common keys on this metric (plus service_name). Max 4 are used.'
+                ),
+        })
+        .describe('The anomaly characterization to run.'),
+})
+
 export const metricsQueryCreateBodyQueryOneMetricNameMax = 255
 
 export const metricsQueryCreateBodyQueryOneAggregationDefault = `sum`

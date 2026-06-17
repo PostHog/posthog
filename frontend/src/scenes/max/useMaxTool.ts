@@ -38,6 +38,7 @@ export function useMaxTool({
     contextDescription,
     introOverride,
     callback,
+    clientExecution,
     suggestions,
     active = true,
     initialMaxPrompt,
@@ -63,6 +64,7 @@ export function useMaxTool({
                 introOverride,
                 suggestions,
                 callback,
+                clientExecution,
             })
             return (): void => deregisterTool(identifier)
         }
@@ -75,6 +77,7 @@ export function useMaxTool({
         introOverride,
         suggestions,
         callback,
+        clientExecution,
         registerTool,
         deregisterTool,
     ])
