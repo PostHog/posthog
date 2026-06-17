@@ -1,5 +1,11 @@
 # posthog-cli
 
+## 0.7.25 — 2026-06-17
+
+### Patch changes
+
+- [36812957e0](https://github.com/PostHog/posthog/commit/36812957e0b6548a5586d9341f3bcf7450ad0839) Show default values in upload help — Thanks @marandaneto!
+
 ## 0.7.24 — 2026-06-16
 
 ### Patch changes

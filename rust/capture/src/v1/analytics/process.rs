@@ -1,15 +1,17 @@
 use std::collections::{HashMap, HashSet};
+use std::time::Instant;
 
 use chrono::{DateTime, Utc};
+use metrics::histogram;
 use uuid::Uuid;
 
 use super::constants::{
     CAPTURE_V1_DISTINCT_ID_MAX_SIZE, CAPTURE_V1_EVENTS_DROPPED,
     CAPTURE_V1_EVENTS_REROUTED_HISTORICAL, CAPTURE_V1_EVENTS_RESTRICTED,
     CAPTURE_V1_EVENT_ADJUSTMENTS_APPLIED, CAPTURE_V1_MAX_EVENT_NAME_LENGTH,
-    CAPTURE_V1_OVERFLOW_ROUTED, CAPTURE_V1_PARSED_EVENTS, CAPTURE_V1_RATE_LIMITER,
-    DETAIL_EVENT_RESTRICTION_DROP, DETAIL_PERSON_PROCESSING_DISABLED, FUTURE_EVENT_HOURS_CUTOFF_MS,
-    ILLEGAL_DISTINCT_IDS,
+    CAPTURE_V1_OVERFLOW_ROUTED, CAPTURE_V1_PARSED_EVENTS, CAPTURE_V1_PROCESSING_DURATION_SECONDS,
+    CAPTURE_V1_RATE_LIMITER, DETAIL_EVENT_RESTRICTION_DROP, DETAIL_PERSON_PROCESSING_DISABLED,
+    FUTURE_EVENT_HOURS_CUTOFF_MS, ILLEGAL_DISTINCT_IDS,
 };
 use super::response::BatchResponse;
 use super::types::{Batch, Event, EventResult, WrappedEvent};
@@ -47,6 +49,7 @@ pub async fn process_batch(
     context: &mut Context,
     batch: Batch,
 ) -> Result<BatchResponse, Error> {
+    let processing_start = Instant::now();
     crate::ctx_log!(Level::INFO, context, "process_batch called");
 
     validate_batch(&batch)?;
@@ -87,6 +90,12 @@ pub async fn process_batch(
     if let Some(ref limiter) = state.global_rate_limiter_token_distinctid {
         apply_token_distinct_id_limits(limiter, context, &mut events).await;
     }
+
+    histogram!(
+        CAPTURE_V1_PROCESSING_DURATION_SECONDS,
+        "path" => context.path,
+    )
+    .record(processing_start.elapsed().as_secs_f64());
 
     // Publish to v1 sink, merge results, build response
     let sink_router = state
@@ -358,8 +367,6 @@ fn apply_historical_rerouting(
 }
 
 fn apply_overflow_stamping(limiter: &OverflowLimiter, ctx: &Context, events: &mut [WrappedEvent]) {
-    let mut buf = String::with_capacity(128);
-
     for event in events.iter_mut() {
         if event.destination != Destination::AnalyticsMain {
             continue;
@@ -368,10 +375,9 @@ fn apply_overflow_stamping(limiter: &OverflowLimiter, ctx: &Context, events: &mu
             continue;
         }
 
-        buf.clear();
-        event.partition_key(ctx, &mut buf);
+        let key = event.partition_key(ctx);
 
-        match limiter.is_limited(&buf) {
+        match limiter.is_limited(&key) {
             OverflowLimiterResult::ForceLimited => {
                 event.destination = Destination::Overflow;
                 // Disables person processing AND nulls partition key at sink.

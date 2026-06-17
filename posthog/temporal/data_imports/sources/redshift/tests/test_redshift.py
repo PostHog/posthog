@@ -499,7 +499,21 @@ class TestHasDuplicatePrimaryKeys:
 
     def test_returns_false_on_exception(self, impl, cursor, logger):
         cursor.execute.side_effect = RuntimeError("boom")
-        assert impl.has_duplicate_primary_keys(cursor, "public", "t", ["id"], logger) is False
+        with patch("posthog.temporal.data_imports.sources.redshift.redshift.capture_exception") as mock_capture:
+            assert impl.has_duplicate_primary_keys(cursor, "public", "t", ["id"], logger) is False
+        mock_capture.assert_called_once()
+
+    def test_system_requested_abort_is_not_reported(self, impl, cursor, logger):
+        # Redshift WLM/QMR aborts (code 1020, "system requested abort") surface as `InternalError_`
+        # and are expected, non-actionable noise — skip gracefully without reporting to error tracking.
+        abort_message = (
+            "abort query\nDETAIL:  \n  error:  abort query\n  code:      1020\n"
+            "  context:   system requested abort\n  location:  queryabort.hpp:103\n"
+        )
+        cursor.execute.side_effect = psycopg.errors.InternalError(abort_message)
+        with patch("posthog.temporal.data_imports.sources.redshift.redshift.capture_exception") as mock_capture:
+            assert impl.has_duplicate_primary_keys(cursor, "public", "t", ["id"], logger) is False
+        mock_capture.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -941,3 +955,37 @@ class TestBuildPipeline:
 
         # Migrated row keeps its original subdir rather than moving to `analytics_users`.
         assert response.name == "users"
+
+
+# ---------------------------------------------------------------------------
+# Connection lifecycle
+# ---------------------------------------------------------------------------
+
+
+class TestConnect:
+    def test_connect_forwards_tcp_keepalive_opts(self, mocker):
+        # Regression: a discovery query (`get_columns`) hung in psycopg's `wait_c` on a dead
+        # connection until the Temporal activity's `start_to_close_timeout` cancelled the worker
+        # thread, surfacing a misleading `CancelledError`. `connect_timeout` only bounds
+        # establishing the connection, so the connection must enable TCP keepalives to detect a
+        # dead peer mid-query and fail fast with a retryable error instead.
+        mocker.patch(
+            "posthog.temporal.data_imports.sources.redshift.redshift.open_ssh_tunnel",
+        ).return_value.__enter__.return_value = ("localhost", 5439)
+        mock_conn = MagicMock()
+        mock_conn.__enter__.return_value = mock_conn
+        mock_connect = mocker.patch(
+            "posthog.temporal.data_imports.sources.redshift.redshift.psycopg.connect",
+            return_value=mock_conn,
+        )
+
+        impl = RedshiftImplementation()
+        with impl.connect(_make_config()):
+            pass
+
+        kwargs = mock_connect.call_args.kwargs
+        assert kwargs["keepalives"] == 1
+        assert kwargs["keepalives_idle"] == 30
+        assert kwargs["keepalives_interval"] == 10
+        assert kwargs["keepalives_count"] == 3
+        assert kwargs["tcp_user_timeout"] == 60000

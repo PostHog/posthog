@@ -7,8 +7,7 @@ import { LemonSelectOptions } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { uuid } from 'lib/utils'
-import { parseExceptionEvent } from 'lib/utils/exceptionUtils'
+import { uuid } from 'lib/utils/dom'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -27,6 +26,7 @@ import {
     UserType,
 } from '~/types'
 
+import { parseExceptionEvent } from './exceptionUtils'
 import type { supportLogicType } from './supportLogicType'
 import { openSupportModal } from './SupportModal'
 
@@ -399,6 +399,16 @@ export const SUPPORT_TICKET_TEMPLATES = {
         "Please explain as fully as possible what you're aiming to do, and what you'd like help with.\n\nIf your question involves an existing insight or dashboard, please include a link to it.",
 }
 
+const SUPPORT_TICKET_CUSTOM_FIELD_IDENTIFIERS = {
+    severity: 22084126888475,
+    distinct_id: 22129191462555,
+    target_area: 27242745654043,
+    organization_id: 27031528411291,
+    support_type: 26073267652251,
+    account_owner: 37742340880411,
+    exception_event: 39967113285659,
+} as const
+
 export function getURLPathToTargetArea(pathname: string): SupportTicketTargetArea | null {
     const pathParts = pathname.split('/')
 
@@ -666,23 +676,23 @@ export const supportLogic = kea<supportLogicType>([
                     tags: [planLevelTag, accountOwnerTag, ...(tags || [])],
                     custom_fields: [
                         {
-                            id: 22084126888475,
+                            id: SUPPORT_TICKET_CUSTOM_FIELD_IDENTIFIERS.severity,
                             value: severity_level,
                         },
                         {
-                            id: 22129191462555,
+                            id: SUPPORT_TICKET_CUSTOM_FIELD_IDENTIFIERS.distinct_id,
                             value: posthog.get_distinct_id(),
                         },
                         {
-                            id: 27242745654043,
+                            id: SUPPORT_TICKET_CUSTOM_FIELD_IDENTIFIERS.target_area,
                             value: target_area ?? '',
                         },
                         {
-                            id: 27031528411291,
+                            id: SUPPORT_TICKET_CUSTOM_FIELD_IDENTIFIERS.organization_id,
                             value: userLogic?.values?.user?.organization?.id ?? '',
                         },
                         {
-                            id: 26073267652251,
+                            id: SUPPORT_TICKET_CUSTOM_FIELD_IDENTIFIERS.support_type,
                             value: values.hasAvailableFeature(AvailableFeature.PRIORITY_SUPPORT)
                                 ? 'priority_support'
                                 : values.hasAvailableFeature(AvailableFeature.EMAIL_SUPPORT)
@@ -690,11 +700,11 @@ export const supportLogic = kea<supportLogicType>([
                                   : 'free_support',
                         },
                         {
-                            id: 37742340880411,
+                            id: SUPPORT_TICKET_CUSTOM_FIELD_IDENTIFIERS.account_owner,
                             value: accountOwner?.name || 'unassigned',
                         },
                         {
-                            id: 39967113285659,
+                            id: SUPPORT_TICKET_CUSTOM_FIELD_IDENTIFIERS.exception_event,
                             value: exception_event ? parseExceptionEvent(exception_event) : '',
                         },
                     ],

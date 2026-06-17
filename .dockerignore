@@ -62,8 +62,6 @@
 !share/GeoLite2-City.mmdb
 !staticfiles
 !tailwind.config.js
-!test-runner-jest-environment.js
-!test-runner-jest.config.js
 !tools/hogli
 !tools/openapi-codegen
 !tsconfig.json

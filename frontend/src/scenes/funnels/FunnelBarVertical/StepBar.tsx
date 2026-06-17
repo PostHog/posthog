@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
-import { percentage } from 'lib/utils'
+import { percentage } from 'lib/utils/numbers'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { FunnelStepWithConversionMetrics } from '~/types'

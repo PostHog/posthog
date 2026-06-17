@@ -685,6 +685,23 @@ class TestSnowflakeSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            "is not allowed to access Snowflake",
+            # The real shape from production: codes, IP/token, host, and help URL all vary,
+            # but the network-policy substring is stable.
+            "250001 (08001): None: Failed to connect to DB: ihoilnv-wd33458.snowflakecomputing.com:443. "
+            "Incoming request with IP/Token 44.208.188.173 is not allowed to access Snowflake. "
+            "Contact your account administrator. For more information about this error, go to "
+            "https://community.snowflake.com/s/ip-xxxxxxxxxxxx-is-not-allowed-to-access.",
+        ],
+    )
+    def test_network_policy_block_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Network-policy block should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             "250003 (08001): Failed to connect to DB: acme-xy123.snowflakecomputing.com:443. Connection timed out",
             "Operation timed out while waiting for the warehouse to resume",
         ],
