@@ -213,6 +213,9 @@ const BarContents = ({
             <div className="flex items-center gap-0.5 pl-1.5 shrink-0">
                 {reload}
                 <DateRangeFilter size="small" type="tertiary" />
+            </div>
+            <Separator />
+            <div className="flex-1 min-w-0 flex items-center flex-wrap gap-1 px-1">
                 <TaxonomicFilterMenu
                     placeholder={
                         showSearch ? `Search ${searchSubject}, or filter by property...` : 'Filter by property...'
@@ -246,9 +249,6 @@ const BarContents = ({
                         />
                     )}
                 />
-            </div>
-            <Separator />
-            <div className="flex-1 min-w-0 flex items-center flex-wrap gap-1 px-1">
                 <FilterOperatorToggle />
                 {showIssueControls && <IssueFilterChips />}
                 <InternalUsersChip />
