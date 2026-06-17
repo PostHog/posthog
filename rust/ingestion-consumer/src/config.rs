@@ -3,6 +3,7 @@ use rdkafka::ClientConfig;
 use tracing::info;
 
 use crate::kafka_config::ConsumerConfigBuilder;
+use crate::routing::RoutingStrategy;
 
 /// Configuration for the ingestion consumer.
 ///
@@ -138,6 +139,12 @@ pub struct Config {
     /// Shared secret for authenticating with Node.js workers (X-Internal-Api-Secret header)
     #[envconfig(default = "")]
     pub internal_api_secret: String,
+
+    /// How unpinned routing keys are assigned to workers: `binpack` (default,
+    /// least-loaded — accurate for the co-located sidecar) or `p2c`
+    /// (power-of-two-choices — herd-resistant for a shared worker pool).
+    #[envconfig(from = "INGESTION_ROUTING_STRATEGY", default = "binpack")]
+    pub routing_strategy: RoutingStrategy,
 
     // ---- Worker health / registry ----
     /// How often to probe each worker's /_ready endpoint (milliseconds).

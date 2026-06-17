@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex};
 
 use metrics::{counter, gauge, histogram};
 
+use crate::routing::{Router, RoutingStrategy};
 use crate::types::SerializedKafkaMessage;
 use crate::worker_registry::{WorkerRegistry, WorkerState};
 
@@ -51,15 +52,9 @@ impl PinTable {
         before - self.pins.len()
     }
 
-    /// Pick the healthy/degraded worker carrying the fewest outstanding
-    /// messages — existing in-flight load plus what has been provisionally
-    /// assigned earlier in this round. Returns None when no healthy workers
-    /// exist.
-    fn least_loaded_healthy(
-        &self,
-        registry: &WorkerRegistry,
-        provisional: &[usize],
-    ) -> Option<usize> {
+    /// Candidate worker indices for routing: those currently healthy or
+    /// degraded (dead/unhealthy workers are excluded). Returned in index order.
+    fn healthy_workers(&self, registry: &WorkerRegistry) -> Vec<usize> {
         (0..self.in_flight_messages.len())
             .filter(|&idx| {
                 matches!(
@@ -67,7 +62,7 @@ impl PinTable {
                     WorkerState::Healthy | WorkerState::Degraded
                 )
             })
-            .min_by_key(|&idx| self.in_flight_messages[idx] + provisional[idx])
+            .collect()
     }
 }
 
@@ -152,8 +147,8 @@ impl WorkerAssignments {
 /// Routes batches to Node.js workers with sticky per-distinct_id assignment.
 ///
 /// **Assignment** (`assign`): groups messages by `token:distinct_id`, honors
-/// existing pins for live workers, bin-packs new keys onto the least-loaded
-/// healthy worker, and returns one `SubBatch` per worker.
+/// existing pins for live workers, routes new keys onto a healthy worker via the
+/// configured [`RoutingStrategy`], and returns one `SubBatch` per worker.
 ///
 /// **Stickiness**: a routing key stays on the same worker across batches
 /// (ref-counted pin). Pins are dropped when a worker is declared dead or
@@ -165,14 +160,39 @@ impl WorkerAssignments {
 pub struct Dispatcher {
     pin_table: Mutex<PinTable>,
     registry: Arc<WorkerRegistry>,
+    /// Worker selector for unpinned keys. Behind its own mutex because P2C
+    /// selection mutates the RNG.
+    router: Mutex<Router>,
 }
 
 impl Dispatcher {
+    /// Construct a dispatcher with the default routing strategy.
     pub fn new(registry: Arc<WorkerRegistry>) -> Self {
+        Self::with_strategy(registry, RoutingStrategy::default())
+    }
+
+    /// Construct a dispatcher with an explicit routing strategy.
+    pub fn with_strategy(registry: Arc<WorkerRegistry>, strategy: RoutingStrategy) -> Self {
         let worker_count = registry.worker_count();
         Self {
             pin_table: Mutex::new(PinTable::new(worker_count)),
             registry,
+            router: Mutex::new(Router::new(strategy)),
+        }
+    }
+
+    /// Test-only constructor with a seeded RNG so P2C selection is deterministic.
+    #[cfg(test)]
+    fn with_strategy_seeded(
+        registry: Arc<WorkerRegistry>,
+        strategy: RoutingStrategy,
+        seed: u64,
+    ) -> Self {
+        let worker_count = registry.worker_count();
+        Self {
+            pin_table: Mutex::new(PinTable::new(worker_count)),
+            registry,
+            router: Mutex::new(Router::with_seed(strategy, seed)),
         }
     }
 
@@ -182,8 +202,8 @@ impl Dispatcher {
     /// 1. Drop pins for workers that are now dead.
     /// 2. Group messages by routing key.
     /// 3. Honor existing pins for live workers; collect unassigned groups.
-    /// 4. Largest-first bin-pack unassigned groups onto healthy/degraded
-    ///    workers by current outstanding message load.
+    /// 4. Route unassigned groups onto healthy/degraded workers via the
+    ///    configured strategy (bin-packing or P2C).
     /// 5. Add routed messages to in-flight load and bump pin ref-counts.
     /// 6. Return one `SubBatch` per worker.
     ///
@@ -232,14 +252,22 @@ impl Dispatcher {
             }
         }
 
-        // Largest-first bin-pack: assign the biggest key-groups first so
-        // heavy hitters drive the load distribution.
-        unpinned_groups.sort_unstable_by(|a, b| b.messages.len().cmp(&a.messages.len()));
+        // Route the unpinned groups via the configured strategy. Bin-packing
+        // wants the biggest groups placed first so heavy hitters drive the load
+        // distribution; P2C is per-group and order-independent.
+        let healthy = table.healthy_workers(&self.registry);
+        let mut router = self.router.lock().unwrap();
+
+        if router.prefers_largest_first() {
+            unpinned_groups.sort_unstable_by(|a, b| b.messages.len().cmp(&a.messages.len()));
+        }
 
         for group in unpinned_groups {
-            let Some(worker_idx) =
-                table.least_loaded_healthy(&self.registry, assignments.provisional_messages())
-            else {
+            let Some(worker_idx) = router.select(
+                &healthy,
+                &table.in_flight_messages,
+                assignments.provisional_messages(),
+            ) else {
                 // All workers unhealthy — this key cannot be assigned.
                 counter!("ingestion_consumer_dispatcher_unroutable_messages_total")
                     .increment(group.messages.len() as u64);
@@ -256,6 +284,7 @@ impl Dispatcher {
 
             assignments.add_group(worker_idx, group);
         }
+        drop(router);
 
         // Add each worker's message volume to its outstanding load.
         for (worker_idx, message_count) in assignments.routed_counts() {
@@ -765,6 +794,81 @@ mod tests {
 
         // Both workers are Unhealthy (not yet dead, but Unhealthy).
         // Dispatcher should not route to Unhealthy workers.
+        let b = dispatcher.assign(make_msgs(&[("t", "user-1")]));
+        assert!(b.is_empty());
+    }
+
+    // ---- P2C routing strategy ----
+
+    fn p2c_dispatcher(n: usize, seed: u64) -> Dispatcher {
+        Dispatcher::with_strategy_seeded(healthy_registry(n), RoutingStrategy::P2c, seed)
+    }
+
+    #[test]
+    fn test_p2c_single_worker_all_messages_go_there() {
+        let dispatcher = p2c_dispatcher(1, 1);
+
+        let sub_batches = dispatcher.assign(make_msgs(&[("t", "a"), ("t", "b"), ("t", "c")]));
+
+        assert_eq!(sub_batches.len(), 1);
+        assert_eq!(sub_batches[0].worker_idx, 0);
+        assert_eq!(sub_batches[0].messages.len(), 3);
+    }
+
+    #[test]
+    fn test_p2c_pin_is_sticky_across_batches() {
+        let dispatcher = p2c_dispatcher(3, 7);
+
+        // First batch pins "t:user-1"; do NOT resolve so the pin stays alive.
+        let b1 = dispatcher.assign(make_msgs(&[("t", "user-1")]));
+        let pinned_worker = b1[0].worker_idx;
+
+        // Second batch with the same key must hit the same worker, bypassing P2C.
+        let b2 = dispatcher.assign(make_msgs(&[("t", "user-1")]));
+        assert_eq!(b2.len(), 1);
+        assert_eq!(b2[0].worker_idx, pinned_worker);
+    }
+
+    #[test]
+    fn test_p2c_spreads_fresh_keys_across_two_workers() {
+        // With two workers, P2C samples both and the provisional bump after the
+        // first key steers the second to the other worker — one message each.
+        let dispatcher = p2c_dispatcher(2, 3);
+
+        let sub_batches = dispatcher.assign(make_msgs(&[("t", "user-1"), ("t", "user-2")]));
+
+        assert_eq!(sub_batches.len(), 2, "both workers must carry a message");
+        let total: usize = sub_batches.iter().map(|b| b.messages.len()).sum();
+        assert_eq!(total, 2);
+    }
+
+    #[test]
+    fn test_p2c_prefers_least_loaded_of_two_workers() {
+        // With two workers P2C always compares both, so a pre-loaded worker 0
+        // sends the fresh key to worker 1.
+        let dispatcher = p2c_dispatcher(2, 9);
+        {
+            let mut table = dispatcher.pin_table.lock().unwrap();
+            table.in_flight_messages[0] = 5;
+        }
+
+        let b = dispatcher.assign(make_msgs(&[("t", "fresh")]));
+        assert_eq!(b.len(), 1);
+        assert_eq!(b[0].worker_idx, 1);
+    }
+
+    #[tokio::test]
+    async fn test_p2c_all_workers_dead_returns_empty() {
+        let registry = healthy_registry(2);
+        let dispatcher =
+            Dispatcher::with_strategy_seeded(Arc::clone(&registry), RoutingStrategy::P2c, 1);
+
+        for idx in 0..2 {
+            for _ in 0..5 {
+                registry.record_outcome(idx, true);
+            }
+        }
+
         let b = dispatcher.assign(make_msgs(&[("t", "user-1")]));
         assert!(b.is_empty());
     }

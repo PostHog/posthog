@@ -145,7 +145,10 @@ async fn async_main(config: Config) -> Result<()> {
     let probe_token = CancellationToken::new();
     Arc::clone(&registry).start_probing(probe_token.clone());
 
-    let dispatcher = Arc::new(Dispatcher::new(Arc::clone(&registry)));
+    let dispatcher = Arc::new(Dispatcher::with_strategy(
+        Arc::clone(&registry),
+        config.routing_strategy,
+    ));
 
     let api_secret = if config.internal_api_secret.is_empty() {
         None
