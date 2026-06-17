@@ -621,10 +621,13 @@ jobs:
         runs-on: depot-ubuntu-latest
         timeout-minutes: 40
         name: Product tests (${{ matrix.group }})
-        # Record-only network egress audit (see tools/network-audit). No-op on branches
-        # that haven't rebased past the conftest enabler, so it can't break unrebased PRs.
+        # Network egress gate (see tools/network-audit). Ratchet-on-new: fails the run only on a
+        # connection to a host NOT in baseline.json. No-op on branches that haven't rebased past the
+        # conftest enabler, so it can't break unrebased PRs.
         env:
             NETWORK_AUDIT: '1'
+            NETWORK_AUDIT_ENFORCE: '1'
+            NETWORK_AUDIT_BASELINE: ${{ github.workspace }}/tools/network-audit/baseline.json
             NETWORK_AUDIT_OUT_DIR: /tmp/network-audit
         strategy:
             fail-fast: false
@@ -2037,10 +2040,13 @@ jobs:
         # Runner type is performance-critical — consult #team-devex before changing
         runs-on: depot-ubuntu-latest
 
-        # Record-only network egress audit (see tools/network-audit). No-op on branches
-        # that haven't rebased past the conftest enabler, so it can't break unrebased PRs.
+        # Network egress gate (see tools/network-audit). Ratchet-on-new: fails the run only on a
+        # connection to a host NOT in baseline.json. No-op on branches that haven't rebased past the
+        # conftest enabler, so it can't break unrebased PRs.
         env:
             NETWORK_AUDIT: '1'
+            NETWORK_AUDIT_ENFORCE: '1'
+            NETWORK_AUDIT_BASELINE: ${{ github.workspace }}/tools/network-audit/baseline.json
             NETWORK_AUDIT_OUT_DIR: /tmp/network-audit
 
         strategy:

@@ -22,6 +22,7 @@ Enable with: ``pytest -p network_audit ...`` (the dir is on pythonpath via pytes
 import os
 import json
 import socket
+import fnmatch
 import ipaddress
 import traceback
 from pathlib import Path
@@ -55,11 +56,14 @@ class _Recorder:
         return ev["host"] or ev["ip"]
 
     def is_baselined(self, nodeid: str, host: str) -> bool:
+        # host/nodeid are glob patterns (fnmatch). Host globs are what make the baseline
+        # workable: live integration tests spin up sandboxes on ephemeral hostnames
+        # (task-<random>.w.modal.host, test-file-downloads-<random>.s3.amazonaws.com) that
+        # are never the same twice, so they can only be allowed by suffix — e.g. *.w.modal.host.
         for entry in self.baseline:
-            if entry.get("host") != host:
+            if not fnmatch.fnmatch(host, entry.get("host", "*")):
                 continue
-            allowed_node = entry.get("nodeid", "*")
-            if allowed_node in ("*", nodeid):
+            if fnmatch.fnmatch(nodeid, entry.get("nodeid", "*")):
                 return True
         return False
 

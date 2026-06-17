@@ -135,6 +135,7 @@ See [.agents/security.md](.agents/security.md) for SQL, HogQL, and semgrep secur
 - Python: do not create empty `__init__.py` files
 - jest tests: when writing jest tests, prefer a single top-level describe block in a file
 - Tests: prefer parameterized tests (use the `parameterized` library in Python) — if you're writing multiple assertions for variations of the same logic, it should be parameterized
+- Tests: no live outbound calls to third-party services in the default suite — mock the SDK's own transport (not just `requests`), or move a genuine integration test to a tagged external suite. CI enforces this via the `tools/network-audit` socket gate (`baseline.json` ratchets on new hosts)
 - Reduce nesting: Use early returns, guard clauses, and helper methods to avoid deeply nested code
 - Markdown: prefer semantic line breaks; no hard wrapping
 - Use American English spelling
