@@ -303,8 +303,8 @@ function MarketplaceCredentialSection(): JSX.Element {
                         </>
                     ) : null}
                     {marketplaceState?.created_at ? <> from {dayjs(marketplaceState.created_at).fromNow()}</> : null}.
-                    Existing setups keep working — the token can't be shown again. Setting up a new machine? Issue a
-                    fresh command below; it replaces your old token but doesn't touch anyone else's.
+                    Existing setups keep working — the token can't be shown again. Setting up a new machine? Generate an
+                    install command below.
                 </LemonBanner>
             ) : (
                 <p className="m-0 text-sm text-secondary">
@@ -326,7 +326,7 @@ function MarketplaceCredentialSection(): JSX.Element {
                             data-attr="generate-marketplace-credential-button"
                         >
                             {alreadyConnected
-                                ? 'Issue a fresh command (replaces your old token)'
+                                ? 'Generate an install command (replaces your old token)'
                                 : 'Generate read-only credential & command'}
                         </LemonButton>
                     </AccessControlAction>
@@ -365,7 +365,7 @@ function ConnectToClaudeCodeModal(): JSX.Element {
             isOpen={connectModalOpen}
             onClose={() => setConnectModalOpen(false)}
             title="Connect a coding agent"
-            description="Install your team's skills into Claude Code or Codex as a plugin marketplace — or let any MCP-connected agent load them directly."
+            description="Install your team's skills into Claude Code or Codex with automatic updates – or let any MCP-connected agent load them directly."
             width={640}
         >
             <div className="flex flex-col gap-4">
@@ -432,7 +432,7 @@ export function LLMSkillsScene(): JSX.Element {
             <ConnectToClaudeCodeModal />
             <SceneTitleSection
                 name="Skills"
-                description="Manage versioned agent skills that any MCP-connected agent can discover and use."
+                description="Manage versioned agent skills that any agent can discover and use."
                 resourceType={{ type: 'llm_analytics' }}
                 actions={
                     <>
