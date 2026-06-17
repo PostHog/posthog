@@ -64,6 +64,9 @@ export function Component({ data }: ComponentProps): ReactElement {
             case 'trends':
                 return (
                     <TrendsVisualizer
+                        // Re-seed chart type/config from scratch when a new query arrives — the host
+                        // updates `data` in place (ontoolresult) rather than remounting the app.
+                        key={JSON.stringify(payload.query)}
                         query={payload.query as TrendsQuery}
                         results={payload.results as TrendsResult}
                         title={getTitle()}

@@ -28,6 +28,7 @@ import {
     chartConfigFromTrendsFilter,
     defaultChartType,
     isBarFamily,
+    resolveChartView,
     supportsPercentStack,
 } from './chartSettingsConfig'
 import type { TrendsResultItem, TrendsVisualizerProps } from './types'
@@ -128,11 +129,8 @@ export function TrendsVisualizer({ query, results, title }: TrendsVisualizerProp
         days: item.days,
         incompleteEnd: !!item.incomplete_end,
     }))
-    // A slope needs a start and an end, so only offer it when there are at least two time points.
-    const slopeAvailable = labels.length >= 2
+    const { slopeAvailable, effectiveType } = resolveChartView(chartType, labels.length)
     const chartTypeOptions = slopeAvailable ? [...CHART_TYPE_OPTIONS, SLOPE_TYPE_OPTION] : CHART_TYPE_OPTIONS
-    // Results can shrink below two points after slope was selected; fall back rather than render blank.
-    const effectiveType = chartType === 'slope' && !slopeAvailable ? 'line' : chartType
 
     // Area auto-stacks but derived overlays draw at raw per-series values, so they visually
     // disconnect from the stacked totals. Mirror the web's pattern: disable those toggles in
@@ -213,7 +211,7 @@ export function TrendsVisualizer({ query, results, title }: TrendsVisualizerProp
                     {/* Slope bypasses the chart-config pipeline entirely — none of these options apply. */}
                     {effectiveType !== 'slope' && (
                         <ChartSettings
-                            chartMode={isBarFamily(effectiveType) ? 'bar' : 'line'}
+                            family={isBarFamily(effectiveType) ? 'bar' : 'line'}
                             config={chartConfig}
                             onChange={setChartConfig}
                             derivedSeriesDisabled={derivedSeriesDisabled}

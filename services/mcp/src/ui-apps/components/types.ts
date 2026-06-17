@@ -1,3 +1,5 @@
+import type { YAxisFormat } from '@posthog/quill-charts'
+
 import type { AnalyticsMetadata } from '../types'
 
 // Base payload that all tool results share
@@ -38,14 +40,7 @@ export interface TrendsFilter {
     showConfidenceIntervals?: boolean
     confidenceLevel?: number
     showPercentStackView?: boolean
-    aggregationAxisFormat?:
-        | 'numeric'
-        | 'short'
-        | 'percentage'
-        | 'percentage_scaled'
-        | 'duration'
-        | 'duration_ms'
-        | 'currency'
+    aggregationAxisFormat?: YAxisFormat
     aggregationAxisPrefix?: string
     aggregationAxisPostfix?: string
     decimalPlaces?: number

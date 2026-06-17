@@ -5,6 +5,7 @@ import {
     DEFAULT_CHART_CONFIG,
     defaultChartType,
     isBarFamily,
+    resolveChartView,
     supportsPercentStack,
 } from '../../src/ui-apps/components/chartSettingsConfig'
 import type { ChartDisplayType, TrendsFilter } from '../../src/ui-apps/components/types'
@@ -19,8 +20,6 @@ describe('trends chart settings', () => {
             const trendsFilter: TrendsFilter = {
                 showValuesOnSeries: true,
                 showTrendLines: true,
-                showMovingAverage: true,
-                movingAverageIntervals: 14,
                 showConfidenceIntervals: true,
                 confidenceLevel: 90,
                 showPercentStackView: true,
@@ -29,18 +28,11 @@ describe('trends chart settings', () => {
             expect(chartConfigFromTrendsFilter(trendsFilter)).toEqual({
                 showValueLabels: true,
                 showTrendLine: true,
-                showMovingAverage: true,
-                movingAverageIntervals: 14,
                 showConfidenceIntervals: true,
                 confidenceLevel: 90,
                 percentStack: true,
                 yUnit: 'duration',
             })
-        })
-
-        it.each([[undefined], [0]])('falls back to a 7-interval moving average window for %s', (intervals) => {
-            const config = chartConfigFromTrendsFilter({ movingAverageIntervals: intervals })
-            expect(config.movingAverageIntervals).toBe(7)
         })
 
         it('ignores unrelated trendsFilter fields', () => {
@@ -75,6 +67,30 @@ describe('trends chart settings', () => {
         ] as const)('%s: isBarFamily=%s, supportsPercentStack=%s', (chartType, barFamily, percentStack) => {
             expect(isBarFamily(chartType)).toBe(barFamily)
             expect(supportsPercentStack(chartType)).toBe(percentStack)
+        })
+    })
+
+    describe('resolveChartView', () => {
+        it.each([
+            [0, false],
+            [1, false],
+            [2, true],
+            [7, true],
+        ] as const)('slope is available with %i labels: %s', (labelCount, slopeAvailable) => {
+            expect(resolveChartView('line', labelCount).slopeAvailable).toBe(slopeAvailable)
+        })
+
+        it('falls slope back to line when there are fewer than two points', () => {
+            expect(resolveChartView('slope', 1).effectiveType).toBe('line')
+            expect(resolveChartView('slope', 0).effectiveType).toBe('line')
+        })
+
+        it('keeps slope when there are at least two points', () => {
+            expect(resolveChartView('slope', 2).effectiveType).toBe('slope')
+        })
+
+        it.each(['line', 'area', 'bar', 'stacked-bar'] as const)('passes %s through unchanged', (chartType) => {
+            expect(resolveChartView(chartType, 7).effectiveType).toBe(chartType)
         })
     })
 })

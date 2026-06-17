@@ -1,17 +1,16 @@
+import type { YAxisFormat } from '@posthog/quill-charts'
+
 import type { ChartDisplayType, TrendsFilter } from './types'
 
 export type ChartType = 'line' | 'area' | 'bar' | 'stacked-bar' | 'slope'
 
-// Mirrors quill-charts `YAxisFormat` structurally — declared as literals so this module stays
-// runtime-import-free and unit-testable in the node vitest project.
-export type YUnit = 'numeric' | 'short' | 'percentage' | 'percentage_scaled' | 'duration' | 'duration_ms' | 'currency'
+// The canonical y-unit union lives in quill-charts; reuse it so the two never drift. `import type`
+// is erased at build time, so this stays runtime-free and unit-testable in the node vitest project.
+export type YUnit = YAxisFormat
 
 export interface ChartConfig {
     showValueLabels: boolean
     showTrendLine: boolean
-    showMovingAverage: boolean
-    /** Seeded from the query only — not exposed in the options dialog. */
-    movingAverageIntervals: number
     showConfidenceIntervals: boolean
     /** Seeded from the query only — not exposed in the options dialog. */
     confidenceLevel: number
@@ -22,8 +21,6 @@ export interface ChartConfig {
 export const DEFAULT_CHART_CONFIG: ChartConfig = {
     showValueLabels: false,
     showTrendLine: false,
-    showMovingAverage: false,
-    movingAverageIntervals: 7,
     showConfidenceIntervals: false,
     confidenceLevel: 95,
     percentStack: false,
@@ -45,9 +42,6 @@ export function chartConfigFromTrendsFilter(trendsFilter: TrendsFilter | undefin
     return {
         showValueLabels: trendsFilter?.showValuesOnSeries ?? DEFAULT_CHART_CONFIG.showValueLabels,
         showTrendLine: trendsFilter?.showTrendLines ?? DEFAULT_CHART_CONFIG.showTrendLine,
-        showMovingAverage: trendsFilter?.showMovingAverage ?? DEFAULT_CHART_CONFIG.showMovingAverage,
-        // `||` (not `??`): a 0 window would make buildDerivedConfigs emit no-op averages.
-        movingAverageIntervals: trendsFilter?.movingAverageIntervals || DEFAULT_CHART_CONFIG.movingAverageIntervals,
         showConfidenceIntervals: trendsFilter?.showConfidenceIntervals ?? DEFAULT_CHART_CONFIG.showConfidenceIntervals,
         confidenceLevel: trendsFilter?.confidenceLevel ?? DEFAULT_CHART_CONFIG.confidenceLevel,
         percentStack: trendsFilter?.showPercentStackView ?? DEFAULT_CHART_CONFIG.percentStack,
@@ -80,4 +74,18 @@ export function isBarFamily(chartType: ChartType): boolean {
 /** Web parity: percent stack is only meaningful for stacked renderings (area auto-stacks, stacked bars). */
 export function supportsPercentStack(chartType: ChartType): boolean {
     return chartType === 'area' || chartType === 'stacked-bar'
+}
+
+export interface ResolvedChartView {
+    /** Whether the slope option should be offered — it needs at least two time points. */
+    slopeAvailable: boolean
+    /** Chart type to actually render; slope falls back to line when fewer than two points remain. */
+    effectiveType: ChartType
+}
+
+// Slope needs a start and an end, so it's only available with >= 2 time points; a chart that drops
+// below two points after slope was picked falls back to line rather than rendering blank.
+export function resolveChartView(chartType: ChartType, labelCount: number): ResolvedChartView {
+    const slopeAvailable = labelCount >= 2
+    return { slopeAvailable, effectiveType: chartType === 'slope' && !slopeAvailable ? 'line' : chartType }
 }

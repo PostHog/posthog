@@ -9,7 +9,7 @@ import { type ChartConfig, Y_UNIT_OPTIONS, type YUnit } from './chartSettingsCon
 // context. The click-away listener binds to the iframe's own document, so it stays self-contained.
 
 interface ChartSettingsProps {
-    chartMode: 'line' | 'bar'
+    family: 'line' | 'bar'
     config: ChartConfig
     onChange: (config: ChartConfig) => void
     /** When true, derived-series toggles (trend line / moving average / CI) are disabled —
@@ -22,7 +22,7 @@ interface ChartSettingsProps {
 }
 
 export function ChartSettings({
-    chartMode,
+    family,
     config,
     onChange,
     derivedSeriesDisabled = false,
@@ -70,7 +70,7 @@ export function ChartSettings({
                             checked={config.showValueLabels}
                             onChange={(v) => update('showValueLabels', v)}
                         />
-                        {chartMode === 'line' && (
+                        {family === 'line' && (
                             <>
                                 <Toggle
                                     label="Trend line"
@@ -94,6 +94,7 @@ export function ChartSettings({
                         />
                         <div className="mt-1">
                             <div className="mb-1 text-muted-foreground">Y-axis unit</div>
+                            {/* eslint-disable-next-line react/forbid-elements */}
                             <select
                                 value={config.yUnit}
                                 onChange={(e) => update('yUnit', e.target.value as YUnit)}
