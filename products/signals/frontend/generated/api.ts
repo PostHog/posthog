@@ -22,10 +22,12 @@ import type {
     PauseUntilRequestApi,
     ProjectProfileApi,
     RememberRequestApi,
+    ScoutEmissionReportLinkApi,
     ScratchpadEntryApi,
     SignalReportApi,
     SignalReportStateRequestApi,
     SignalScoutConfigApi,
+    SignalScoutConfigCreateApi,
     SignalScoutEmissionApi,
     SignalScoutRunDetailApi,
     SignalScoutRunSummaryApi,
@@ -61,7 +63,7 @@ export const getSignalsProcessingListUrl = (projectId: string, params?: SignalsP
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -128,7 +130,7 @@ export const getSignalsReportsListUrl = (projectId: string, params?: SignalsRepo
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -171,20 +173,20 @@ export const getSignalsReportsStateCreateUrl = (projectId: string, id: string) =
 
 /**
  * Transition a report to a new state. The model validates allowed transitions.
-
-The request body is validated by SignalReportStateRequestSerializer — only the
-fields it declares (state, dismissal_reason, dismissal_note, snooze_for) are read,
-and only snooze_for is ever forwarded to transition_to. Any other key is ignored,
-so internal transition_to kwargs (reset_weight, error, ...) can't be injected.
-
-Body: {
-    "state": "suppressed" | "potential",
-    # Optional dismissal feedback (honored when state == "suppressed" or "potential"):
-    "dismissal_reason": "<any string code, owned by the caller>",
-    "dismissal_note": "free-form text",
-    # Optional, only honored for state == "potential":
-    "snooze_for": <number of additional signals before re-promotion>,
-}
+ *
+ * The request body is validated by SignalReportStateRequestSerializer — only the
+ * fields it declares (state, dismissal_reason, dismissal_note, snooze_for) are read,
+ * and only snooze_for is ever forwarded to transition_to. Any other key is ignored,
+ * so internal transition_to kwargs (reset_weight, error, ...) can't be injected.
+ *
+ * Body: {
+ *     "state": "suppressed" | "potential",
+ *     # Optional dismissal feedback (honored when state == "suppressed" or "potential"):
+ *     "dismissal_reason": "<any string code, owned by the caller>",
+ *     "dismissal_note": "free-form text",
+ *     # Optional, only honored for state == "potential":
+ *     "snooze_for": <number of additional signals before re-promotion>,
+ * }
  */
 export const signalsReportsStateCreate = async (
     projectId: string,
@@ -205,7 +207,7 @@ export const getSignalsScoutConfigListUrl = (projectId: string) => {
 }
 
 /**
- * List the per-(team, skill) scout configs for this project — schedule (`run_interval_minutes`), `enabled`, and `emit` posture per scout.
+ * List the per-(team, skill) scout configs for this project — schedule (`run_interval_minutes`), `enabled`, and `emit` posture per scout. A freshly authored scout skill appears here once its config is registered, either explicitly via create or by the coordinator's next tick.
  * @summary List scout configs
  */
 export const signalsScoutConfigList = async (
@@ -215,6 +217,27 @@ export const signalsScoutConfigList = async (
     return apiMutator<SignalScoutConfigApi[]>(getSignalsScoutConfigListUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getSignalsScoutConfigCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/scout/configs/`
+}
+
+/**
+ * Register the config for a `signals-scout-*` skill immediately, without waiting for the coordinator to auto-register it — optionally setting `run_interval_minutes`, `enabled`, and `emit` in the same call. The skill must already exist on this project. Upsert: if a config already exists for the skill, the provided fields are applied to it.
+ * @summary Create a scout config
+ */
+export const signalsScoutConfigCreate = async (
+    projectId: string,
+    signalScoutConfigCreateApi: SignalScoutConfigCreateApi,
+    options?: RequestInit
+): Promise<SignalScoutConfigApi> => {
+    return apiMutator<SignalScoutConfigApi>(getSignalsScoutConfigCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalScoutConfigCreateApi),
     })
 }
 
@@ -248,7 +271,7 @@ export const getSignalsScoutProjectProfileGetUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -279,7 +302,7 @@ export const getSignalsScoutRunsListUrl = (projectId: string, params?: SignalsSc
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -291,7 +314,7 @@ export const getSignalsScoutRunsListUrl = (projectId: string, params?: SignalsSc
 }
 
 /**
- * Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless scout to dedupe against work other runs already covered. ILIKE matches on `summary`. `date_from` / `date_to` are a half-open window on `created_at` (`>= date_from`, `< date_to`); pass `date_to` on subsequent calls to walk past the 100-row cap. Pass `emitted=true` to see only runs that surfaced at least one finding. Results capped at 100.
+ * Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless scout to dedupe against work other runs already covered. ILIKE matches on `summary`. `date_from` / `date_to` are a half-open window on `created_at` (`>= date_from`, `< date_to`); pass `date_to` on subsequent calls to walk past the 100-row cap. Pass `emitted=true` to see only runs that surfaced at least one finding. Pass `skill_name` (optionally with `skill_version`) to scope to a single scout. Results capped at 100.
  * @summary Search recent agent runs
  */
 export const signalsScoutRunsList = async (
@@ -305,8 +328,8 @@ export const signalsScoutRunsList = async (
     })
 }
 
-export const getSignalsScoutRunsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/signals/scout/runs/${id}/`
+export const getSignalsScoutRunsRetrieveUrl = (projectId: string, runId: string) => {
+    return `/api/projects/${projectId}/signals/scout/runs/${runId}/`
 }
 
 /**
@@ -315,17 +338,17 @@ export const getSignalsScoutRunsRetrieveUrl = (projectId: string, id: string) =>
  */
 export const signalsScoutRunsRetrieve = async (
     projectId: string,
-    id: string,
+    runId: string,
     options?: RequestInit
 ): Promise<SignalScoutRunDetailApi> => {
-    return apiMutator<SignalScoutRunDetailApi>(getSignalsScoutRunsRetrieveUrl(projectId, id), {
+    return apiMutator<SignalScoutRunDetailApi>(getSignalsScoutRunsRetrieveUrl(projectId, runId), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getSignalsScoutRunsEmissionsUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/signals/scout/runs/${id}/emissions/`
+export const getSignalsScoutRunsEmissionsUrl = (projectId: string, runId: string) => {
+    return `/api/projects/${projectId}/signals/scout/runs/${runId}/emissions/`
 }
 
 /**
@@ -334,17 +357,36 @@ export const getSignalsScoutRunsEmissionsUrl = (projectId: string, id: string) =
  */
 export const signalsScoutRunsEmissions = async (
     projectId: string,
-    id: string,
+    runId: string,
     options?: RequestInit
 ): Promise<SignalScoutEmissionApi[]> => {
-    return apiMutator<SignalScoutEmissionApi[]>(getSignalsScoutRunsEmissionsUrl(projectId, id), {
+    return apiMutator<SignalScoutEmissionApi[]>(getSignalsScoutRunsEmissionsUrl(projectId, runId), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getSignalsScoutEmitSignalUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/signals/scout/runs/${id}/emit-signal/`
+export const getSignalsScoutRunsEmissionReportsUrl = (projectId: string, runId: string) => {
+    return `/api/projects/${projectId}/signals/scout/runs/${runId}/emissions/reports/`
+}
+
+/**
+ * Best-effort reverse of the report -> signals link. For each finding the run emitted, resolve the inbox `SignalReport` (if any) its underlying signal grouped into by walking the deterministic `source_id` back through the signal store. `report` is null when the finding hasn't grouped into a report yet, was de-duplicated away, or its signal was deleted. Lets the scout UI surface which inbox report a finding contributed to — the reverse of the report's evidence list. Strictly team-scoped — a run UUID belonging to another team returns 404.
+ * @summary List the inbox reports a run's findings linked to
+ */
+export const signalsScoutRunsEmissionReports = async (
+    projectId: string,
+    runId: string,
+    options?: RequestInit
+): Promise<ScoutEmissionReportLinkApi[]> => {
+    return apiMutator<ScoutEmissionReportLinkApi[]>(getSignalsScoutRunsEmissionReportsUrl(projectId, runId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsScoutEmitSignalUrl = (projectId: string, runId: string) => {
+    return `/api/projects/${projectId}/signals/scout/runs/${runId}/emit-signal/`
 }
 
 /**
@@ -353,11 +395,11 @@ export const getSignalsScoutEmitSignalUrl = (projectId: string, id: string) => {
  */
 export const signalsScoutEmitSignal = async (
     projectId: string,
-    id: string,
+    runId: string,
     emitFindingRequestApi: EmitFindingRequestApi,
     options?: RequestInit
 ): Promise<EmitFindingResponseApi> => {
-    return apiMutator<EmitFindingResponseApi>(getSignalsScoutEmitSignalUrl(projectId, id), {
+    return apiMutator<EmitFindingResponseApi>(getSignalsScoutEmitSignalUrl(projectId, runId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -370,7 +412,7 @@ export const getSignalsScoutScratchpadSearchUrl = (projectId: string, params?: S
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -382,7 +424,7 @@ export const getSignalsScoutScratchpadSearchUrl = (projectId: string, params?: S
 }
 
 /**
- * Return `SignalScratchpad` entries for this project. ILIKE matches on `content` and `key`.
+ * Return `SignalScratchpad` entries for this project. ILIKE matches on `content` and `key`. Pass `keys_only=true` to scan keys without pulling entry bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan from returning every entry's full prose.
  * @summary Search the scout scratchpad
  */
 export const signalsScoutScratchpadSearch = async (
@@ -443,7 +485,7 @@ export const getSignalsSourceConfigsListUrl = (projectId: string, params?: Signa
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -554,10 +596,10 @@ export const getUsersSignalAutonomyRetrieveUrl = (userId: string) => {
 
 /**
  * Per-user signal autonomy config (singleton keyed by user).
-
-GET    /api/users/<id>/signal_autonomy/ → current config (or 404)
-POST   /api/users/<id>/signal_autonomy/ → create or update
-DELETE /api/users/<id>/signal_autonomy/ → remove (opt out)
+ *
+ * GET    /api/users/<id>/signal_autonomy/ → current config (or 404)
+ * POST   /api/users/<id>/signal_autonomy/ → create or update
+ * DELETE /api/users/<id>/signal_autonomy/ → remove (opt out)
  */
 export const usersSignalAutonomyRetrieve = async (
     userId: string,
@@ -575,10 +617,10 @@ export const getUsersSignalAutonomyCreateUrl = (userId: string) => {
 
 /**
  * Per-user signal autonomy config (singleton keyed by user).
-
-GET    /api/users/<id>/signal_autonomy/ → current config (or 404)
-POST   /api/users/<id>/signal_autonomy/ → create or update
-DELETE /api/users/<id>/signal_autonomy/ → remove (opt out)
+ *
+ * GET    /api/users/<id>/signal_autonomy/ → current config (or 404)
+ * POST   /api/users/<id>/signal_autonomy/ → create or update
+ * DELETE /api/users/<id>/signal_autonomy/ → remove (opt out)
  */
 export const usersSignalAutonomyCreate = async (
     userId: string,
@@ -599,10 +641,10 @@ export const getUsersSignalAutonomyDestroyUrl = (userId: string) => {
 
 /**
  * Per-user signal autonomy config (singleton keyed by user).
-
-GET    /api/users/<id>/signal_autonomy/ → current config (or 404)
-POST   /api/users/<id>/signal_autonomy/ → create or update
-DELETE /api/users/<id>/signal_autonomy/ → remove (opt out)
+ *
+ * GET    /api/users/<id>/signal_autonomy/ → current config (or 404)
+ * POST   /api/users/<id>/signal_autonomy/ → create or update
+ * DELETE /api/users/<id>/signal_autonomy/ → remove (opt out)
  */
 export const usersSignalAutonomyDestroy = async (userId: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getUsersSignalAutonomyDestroyUrl(userId), {

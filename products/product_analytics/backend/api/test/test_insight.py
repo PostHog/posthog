@@ -240,6 +240,8 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "$session_id": "my-session-id",
                     "source": "web",
                     "was_impersonated": False,
+                    "access_method": None,
+                    "user_agent": None,
                     "mcp_user_agent": None,
                     "mcp_client_name": None,
                     "mcp_client_version": None,
@@ -286,6 +288,8 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "$session_id": "my-session-id",
                     "source": "web",
                     "was_impersonated": False,
+                    "access_method": None,
+                    "user_agent": None,
                     "mcp_user_agent": None,
                     "mcp_client_name": None,
                     "mcp_client_version": None,
@@ -519,6 +523,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 execution_mode=ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE,
                 team=self.team,
                 user=mock.ANY,
+                user_access_control=mock.ANY,
                 filters_override={},
                 variables_override={},
                 tile_filters_override={},
@@ -538,6 +543,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
                 team=self.team,
                 user=mock.ANY,
+                user_access_control=mock.ANY,
                 filters_override={},
                 variables_override={},
                 tile_filters_override={},
@@ -973,7 +979,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # adding more insights doesn't change the query count
         self.assertEqual(
-            [13, 13, 13, 13, 13],
+            [12, 12, 12, 12, 12],
             query_counts,
             f"received query counts\n\n{query_counts}",
         )
@@ -1491,6 +1497,55 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             team=ANY,
             request=ANY,
         )
+
+    @patch("products.product_analytics.backend.api.insight.report_user_action")
+    def test_non_web_retrieve_fires_insight_read_event(self, mock_report_user_action: mock.Mock) -> None:
+        insight_id, insight_json = self.dashboard_api.create_insight(
+            {"query": DataVisualizationNode(source=HogQLQuery(query="select 1")).model_dump()}
+        )
+        mock_report_user_action.reset_mock()
+
+        self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}", HTTP_X_POSTHOG_CLIENT="mcp")
+
+        mock_report_user_action.assert_any_call(
+            self.user,
+            "insight read",
+            {
+                "insight_id": insight_json["short_id"],
+                "query_kind": "DataVisualizationNode",
+                "query_source_kind": "HogQLQuery",
+            },
+            team=ANY,
+            request=ANY,
+        )
+
+    @patch("products.product_analytics.backend.api.insight.report_user_action")
+    def test_removing_insight_from_dashboard_fires_tile_removed_event(self, mock_report_user_action: mock.Mock) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "test"})
+        insight_id, _ = self.dashboard_api.create_insight(
+            {"filters": {"insight": "STICKINESS"}, "dashboards": [dashboard_id]}
+        )
+        mock_report_user_action.reset_mock()
+
+        self.dashboard_api.update_insight(insight_id, {"dashboards": []})
+
+        mock_report_user_action.assert_any_call(
+            self.user,
+            "dashboard tile removed",
+            {"tile_type": "insight", "insight_type": "stickiness", "dashboard_id": dashboard_id},
+            team=ANY,
+            request=ANY,
+        )
+
+    @patch("products.product_analytics.backend.api.insight.report_user_action")
+    def test_web_retrieve_does_not_fire_insight_read_event(self, mock_report_user_action: mock.Mock) -> None:
+        insight_id, _ = self.dashboard_api.create_insight({})
+        mock_report_user_action.reset_mock()
+
+        self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}")
+
+        read_calls = [c for c in mock_report_user_action.call_args_list if c.args[1:2] == ("insight read",)]
+        self.assertEqual(read_calls, [])
 
     def test_can_update_insight_dashboards_without_deleting_tiles(self) -> None:
         dashboard_one_id, _ = self.dashboard_api.create_dashboard({})

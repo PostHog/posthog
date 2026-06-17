@@ -45,8 +45,9 @@ from products.posthog_ai.backend.models.assistant import Conversation
 from ee.hogai.core.ai_event_truncation import ai_event_truncator
 from ee.hogai.core.base import BaseAssistantGraph
 from ee.hogai.core.stream_processor import AssistantStreamProcessorProtocol
-from ee.hogai.tool import ApprovalRequest
+from ee.hogai.tool import ApprovalRequest, ClientToolCallRequest
 from ee.hogai.utils.exceptions import (
+    AGENT_RUN_UNHANDLED_ERROR_COUNTER,
     HTTPX_TRANSPORT_EXCEPTIONS,
     LLM_API_EXCEPTIONS,
     LLM_CLIENT_ERROR_COUNTER,
@@ -254,7 +255,7 @@ class BaseAgentRunner(ABC):
         stream_subgraphs: bool = True,
         stream_first_message: bool = True,
         stream_only_assistant_messages: bool = False,
-    ) -> AsyncGenerator[AssistantOutput, None]:
+    ) -> AsyncGenerator[AssistantOutput]:
         state = await self._init_or_update_state()
         config = self._get_config()
 
@@ -417,6 +418,7 @@ class BaseAgentRunner(ABC):
                     await self._graph.aupdate_state(config, self._partial_state_type.get_reset_state())
 
                 if not isinstance(e, GenerationCanceled):
+                    AGENT_RUN_UNHANDLED_ERROR_COUNTER.labels(error_type=type(e).__name__).inc()
                     logger.exception("Error in assistant stream", error=e)
                     self._capture_exception(e)
 
@@ -463,6 +465,10 @@ class BaseAgentRunner(ABC):
                         elif isinstance(interrupt.value, MultiQuestionForm):
                             # No need to yield a message here - the form will be displayed to the user through the tool call args
                             # and the answers comes through the tool call result ui_payload
+                            should_not_update_state = True
+                        elif isinstance(interrupt.value, ClientToolCallRequest):
+                            # Nothing to stream (the tool call args are already in the thread); skipping
+                            # the state update lets an abandoned round trip start fresh, like approvals
                             should_not_update_state = True
                         elif isinstance(interrupt.value, ApprovalRequest):
                             # Check if this is an ApprovalRequest from interrupt() in a tool
@@ -598,6 +604,8 @@ class BaseAgentRunner(ABC):
 
         if isinstance(update, ConversationTitleAction):
             self._conversation.title = update.title
+            if update.topic is not None:
+                self._conversation.topic = update.topic
             self._pending_conversation_update = True
             return None
 

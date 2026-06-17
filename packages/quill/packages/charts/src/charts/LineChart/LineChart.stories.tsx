@@ -267,6 +267,36 @@ export const CombinedOverlays: Story = {
     },
 }
 
+/** Confidence band whose lower bound dips below zero — the y-axis must widen to
+ *  include it rather than clipping at the data minimum. Visual guard for the
+ *  band-aware domain (lowerData folded into the value range). */
+export const ConfidenceBandBelowZero: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        const color = theme.colors[0]
+        const data = [6, 4, 8, 5, 9, 4, 7]
+        // Hand-built wide band so the lower edge crosses zero on several points.
+        const lower = [1, -2, 3, -1, 4, -3, 2]
+        const upper = [11, 10, 13, 11, 14, 11, 12]
+        const series: Series[] = [
+            { key: 'visits', label: 'Visits', color, data, points: { radius: 3 } },
+            {
+                key: 'visits__ci',
+                label: 'Visits (CI)',
+                color,
+                data: upper,
+                fill: { opacity: 0.2, lowerData: lower },
+                visibility: { tooltip: false, valueLabel: false },
+            },
+        ]
+        return (
+            <Stage width={560} height={320}>
+                <LineChart series={series} labels={DAYS} config={BASIC} theme={theme} />
+            </Stage>
+        )
+    },
+}
+
 /** Single series spanning a few orders of magnitude — locks in log-axis tick generation. */
 export const LogScale: Story = {
     render: () => {
@@ -298,6 +328,40 @@ export const DualYAxis: Story = {
                 color: '',
                 data: [0.022, 0.028, 0.025, 0.034, 0.031, 0.038, 0.036],
                 yAxisId: 'y1',
+            },
+        ]
+        return (
+            <Stage>
+                <LineChart series={series} labels={DAYS} config={BASIC} theme={theme} />
+            </Stage>
+        )
+    },
+}
+
+export const TripleYAxis: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        const series: Series[] = [
+            {
+                key: 'sessions',
+                label: 'Sessions',
+                color: '',
+                data: [70, 78, 72, 88, 75, 90, 80],
+                yAxisId: DEFAULT_Y_AXIS_ID,
+            },
+            {
+                key: 'pageviews',
+                label: 'Pageviews',
+                color: '',
+                data: [140, 168, 150, 184, 160, 178, 170],
+                yAxisId: 'y1',
+            },
+            {
+                key: 'events',
+                label: 'Events',
+                color: '',
+                data: [3500, 4200, 3600, 4500, 3800, 4100, 4000],
+                yAxisId: 'y2',
             },
         ]
         return (

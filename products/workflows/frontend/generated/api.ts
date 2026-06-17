@@ -31,6 +31,7 @@ import type {
     PaginatedHogFlowMinimalListApi,
     PaginatedHogFlowTemplateListApi,
     PatchedHogFlowApi,
+    PatchedHogFlowGraphUpdateApi,
     PatchedHogFlowScheduleApi,
     PatchedHogFlowTemplateApi,
     WorkflowStatsRowApi,
@@ -59,7 +60,7 @@ export const getInternalHogFlowsProcessDueSchedulesCreateUrl = () => {
 
 /**
  * Internal endpoint called by the scheduler service to process due schedules.
-Handles both executing due schedules and initializing next_run_at for new ones.
+ * Handles both executing due schedules and initializing next_run_at for new ones.
  */
 export const internalHogFlowsProcessDueSchedulesCreate = async (options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getInternalHogFlowsProcessDueSchedulesCreateUrl(), {
@@ -73,7 +74,7 @@ export const getHogFlowTemplatesListUrl = (projectId: string, params?: HogFlowTe
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -121,7 +122,7 @@ export const getHogFlowTemplatesRetrieveUrl = (projectId: string, id: string) =>
 
 /**
  * Check file-based global templates first, then DB team templates.
-The queryset excludes all global templates from DB, so this only returns team templates from DB.
+ * The queryset excludes all global templates from DB, so this only returns team templates from DB.
  */
 export const hogFlowTemplatesRetrieve = async (
     projectId: string,
@@ -190,7 +191,7 @@ export const getHogFlowTemplatesLogsRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -218,7 +219,7 @@ export const getHogFlowsListUrl = (projectId: string, params?: HogFlowsListParam
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -348,6 +349,24 @@ export const hogFlowsBatchJobsCreate = async (
     })
 }
 
+export const getHogFlowsGraphPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/graph/`
+}
+
+export const hogFlowsGraphPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedHogFlowGraphUpdateApi?: PatchedHogFlowGraphUpdateApi,
+    options?: RequestInit
+): Promise<HogFlowApi> => {
+    return apiMutator<HogFlowApi>(getHogFlowsGraphPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedHogFlowGraphUpdateApi),
+    })
+}
+
 export const getHogFlowsInvocationResultsRetrieveUrl = (
     projectId: string,
     id: string,
@@ -357,7 +376,7 @@ export const getHogFlowsInvocationResultsRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -406,7 +425,7 @@ export const getHogFlowsInvocationsCreateUrl = (projectId: string, id: string) =
 export const hogFlowsInvocationsCreate = async (
     projectId: string,
     id: string,
-    hogFlowInvocationApi?: HogFlowInvocationApi,
+    hogFlowInvocationApi?: NonReadonly<HogFlowInvocationApi>,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getHogFlowsInvocationsCreateUrl(projectId, id), {
@@ -422,7 +441,7 @@ export const getHogFlowsLogsRetrieveUrl = (projectId: string, id: string, params
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -454,7 +473,7 @@ export const getHogFlowsMetricsRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -486,7 +505,7 @@ export const getHogFlowsMetricsTotalsRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -602,7 +621,7 @@ export const getHogFlowsMetricsGlobalRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -647,7 +666,7 @@ export const getInternalHogFlowsUserBlastRadiusCreateUrl = (teamId: string) => {
 
 /**
  * Internal endpoint for Node.js services to query user blast radius.
-Requires Bearer token authentication via INTERNAL_API_SECRET.
+ * Requires Bearer token authentication via INTERNAL_API_SECRET.
  */
 export const internalHogFlowsUserBlastRadiusCreate = async (teamId: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getInternalHogFlowsUserBlastRadiusCreateUrl(teamId), {
@@ -662,7 +681,7 @@ export const getInternalHogFlowsUserBlastRadiusPersonsCreateUrl = (teamId: strin
 
 /**
  * Internal endpoint for Node.js services to query user blast radius persons with pagination.
-Requires Bearer token authentication via INTERNAL_API_SECRET.
+ * Requires Bearer token authentication via INTERNAL_API_SECRET.
  */
 export const internalHogFlowsUserBlastRadiusPersonsCreate = async (
     teamId: string,

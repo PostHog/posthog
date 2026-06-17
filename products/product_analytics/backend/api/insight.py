@@ -5,23 +5,8 @@ from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from typing import Any, Union, cast
 
-from django.contrib.postgres.search import TrigramSimilarity, TrigramWordSimilarity
 from django.db import transaction
-from django.db.models import (
-    Case,
-    Count,
-    Exists,
-    F,
-    IntegerField,
-    Max,
-    OuterRef,
-    Prefetch,
-    QuerySet,
-    Subquery,
-    Value,
-    When,
-)
-from django.db.models.functions import Coalesce
+from django.db.models import Count, Exists, F, Max, OuterRef, Prefetch, QuerySet, Subquery
 from django.db.models.query_utils import Q
 from django.http import HttpResponse
 from django.utils.text import slugify
@@ -66,7 +51,7 @@ from posthog.api.query_coalescer import QueryCoalescingMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.services.query import process_query_dict, process_query_model
-from posthog.api.shared import UserBasicSerializer
+from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action, format_paginated_url
 from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
@@ -76,15 +61,15 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import AccessMethod, tags_context
 from posthog.constants import INSIGHT
 from posthog.errors import ExposedCHQueryError
-from posthog.event_usage import get_request_analytics_properties, report_user_action
+from posthog.event_usage import EventSource, get_event_source, get_request_analytics_properties, report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.multi_property_breakdown import protect_old_clients_from_multi_property_default
 from posthog.helpers.trigram_search import (
-    DESCRIPTION_SCORE_WEIGHT,
+    DESCRIPTION_FIELD,
     MAX_SEARCH_LENGTH,
-    MIN_DESCRIPTION_TRIGRAM_SIMILARITY,
-    MIN_NAME_TRIGRAM_SIMILARITY,
-    normalize_search_term,
+    NAME_FIELD,
+    TrigramSearchField,
+    apply_trigram_search,
 )
 from posthog.hogql_queries.apply_dashboard_filters import (
     WRAPPER_NODE_KINDS,
@@ -164,13 +149,11 @@ EXPORT_QUERY_CACHE_MISS = Counter(
 
 
 def _get_insight_type(insight: Insight) -> str:
-    """Return a normalized lowercase insight type string for analytics."""
+    """Return a normalized lowercase insight type string for analytics (used by the dashboard tile event)."""
     if insight.query:
-        # New query-based insight — source kind looks like "TrendsQuery", "FunnelsQuery", etc.
         source = insight.query.get("source", insight.query)
-        kind = source.get("kind", "")
+        kind = source.get("kind", "") if isinstance(source, dict) else ""
         return kind.replace("Query", "").lower() if kind else "json"
-    # Legacy filter-based insight
     return str(insight.filters.get("insight", "TRENDS")).lower()
 
 
@@ -210,7 +193,11 @@ def log_and_report_insight_activity(
             report_user_action(
                 user,
                 f"insight {activity}",
-                {"insight_id": insight_short_id},
+                {
+                    "insight_id": insight_short_id,
+                    **insight.get_analytics_query_kinds(),
+                    **insight.get_analytics_query_metadata(),
+                },
                 team=team,
                 organization=organization,
                 request=request,
@@ -328,6 +315,7 @@ class DashboardTileBasicSerializer(serializers.ModelSerializer):
 
 @extend_schema_serializer(exclude_fields=["filters", "saved"])
 class InsightBasicSerializer(
+    SearchMatchTypeSerializerMixin,
     TaggedItemSerializerMixin,
     UserPermissionsSerializerMixin,
     serializers.ModelSerializer,
@@ -341,14 +329,6 @@ class InsightBasicSerializer(
     dashboards = serializers.SerializerMethodField(read_only=True)
     created_by = UserBasicSerializer(read_only=True)
     last_viewed_at = serializers.SerializerMethodField(read_only=True)
-    search_match_type = serializers.SerializerMethodField(
-        read_only=True,
-        help_text=(
-            "How this row matched the `search` term: `exact` (the term is a case-insensitive substring of the "
-            "name, derived_name, description, or a tag name) or `similar` (a fuzzy trigram match only). Results are "
-            "ordered exact-first. Null when the list is not filtered by `search`."
-        ),
-    )
 
     class Meta:
         model = Insight
@@ -389,13 +369,6 @@ class InsightBasicSerializer(
         """Get the last viewed timestamp for this insight by any user in the team."""
         return getattr(instance, "last_viewed_at", None)
 
-    @extend_schema_field(serializers.ChoiceField(choices=["exact", "similar"], allow_null=True))
-    def get_search_match_type(self, instance: Insight) -> str | None:
-        is_exact = getattr(instance, "_is_exact", None)
-        if is_exact is None:
-            return None
-        return "exact" if is_exact else "similar"
-
     def to_representation(self, instance):
         representation = super().to_representation(instance)
 
@@ -410,11 +383,6 @@ class InsightBasicSerializer(
 
         # upgrade the query to the latest version
         representation["query"] = upgrade(representation["query"])
-
-        # search_match_type is a per-row search annotation — only surface it on search results, not on
-        # every serialized insight (unfiltered lists, dashboard-embedded tiles, retrieve, etc.)
-        if getattr(instance, "_is_exact", None) is None:
-            representation.pop("search_match_type", None)
 
         return representation
 
@@ -644,6 +612,27 @@ class InsightSerializer(InsightBasicSerializer):
         created_by = validated_data.pop("created_by", request.user)
         dashboards = validated_data.pop("dashboards", None)
 
+        # Validate dashboard access before creating anything: create() runs in autocommit,
+        # so raising mid-way would otherwise leave an orphaned insight (and emit user actions
+        # for tiles that never persist on multi-dashboard requests).
+        target_dashboards: list[Dashboard] = []
+        if dashboards is not None:
+            # Per-dashboard limit (analytics.max_insights_per_dashboard) is enforced
+            # in validate(); see InsightSerializer.validate above.
+            # nosemgrep: idor-lookup-without-team
+            target_dashboards = list(Dashboard.objects.filter(id__in=[d.id for d in dashboards]))
+            for dashboard in target_dashboards:
+                # Mirror the update path: adding a tile is an edit of the dashboard, so a
+                # restricted dashboard the user can't edit must not be writable on create either.
+                if (
+                    self.user_permissions.dashboard(dashboard).effective_privilege_level
+                    != Dashboard.PrivilegeLevel.CAN_EDIT
+                ):
+                    raise PermissionDenied(f"You don't have permission to add insights to dashboard: {dashboard.id}")
+
+                if dashboard.team_id != team_id:
+                    raise serializers.ValidationError("Dashboard not found")
+
         insight = Insight.objects.create(
             team_id=team_id,
             created_by=created_by,
@@ -653,28 +642,21 @@ class InsightSerializer(InsightBasicSerializer):
 
         InsightViewed.objects.create(team_id=team_id, user=request.user, insight=insight, last_viewed_at=now())
 
-        if dashboards is not None:
-            # Per-dashboard limit (analytics.max_insights_per_dashboard) is enforced
-            # in validate(); see InsightSerializer.validate above.
-            # nosemgrep: idor-lookup-without-team
-            for dashboard in Dashboard.objects.filter(id__in=[d.id for d in dashboards]).all():
-                if dashboard.team != insight.team:
-                    raise serializers.ValidationError("Dashboard not found")
-
-                DashboardTile.objects.create(
-                    insight=insight, dashboard=dashboard, team_id=dashboard.team_id, last_refresh=now()
-                )
-                report_user_action(
-                    self.context["request"].user,
-                    "dashboard tile added",
-                    {
-                        "tile_type": "insight",
-                        "insight_type": _get_insight_type(insight),
-                        "dashboard_id": dashboard.id,
-                    },
-                    team=insight.team,
-                    request=self.context["request"],
-                )
+        for dashboard in target_dashboards:
+            DashboardTile.objects.create(
+                insight=insight, dashboard=dashboard, team_id=dashboard.team_id, last_refresh=now()
+            )
+            report_user_action(
+                self.context["request"].user,
+                "dashboard tile added",
+                {
+                    "tile_type": "insight",
+                    "insight_type": _get_insight_type(insight),
+                    "dashboard_id": dashboard.id,
+                },
+                team=insight.team,
+                request=self.context["request"],
+            )
 
         # Manual tag creation since this create method doesn't call super()
         self._attempt_set_tags(tags, insight)
@@ -857,7 +839,23 @@ class InsightSerializer(InsightBasicSerializer):
                         f"You don't have permission to remove insights from dashboard: {dashboard.id}"
                     )
 
+            # Capture the still-active tiles before soft-deleting so we report one
+            # "dashboard tile removed" per tile that is actually removed.
+            tiles_to_remove = list(DashboardTile.objects.filter(dashboard_id__in=ids_to_remove, insight=instance))
             DashboardTile.objects.filter(dashboard_id__in=ids_to_remove, insight=instance).update(deleted=True)
+
+            for tile in tiles_to_remove:
+                report_user_action(
+                    self.context["request"].user,
+                    "dashboard tile removed",
+                    {
+                        "tile_type": "insight",
+                        "insight_type": _get_insight_type(instance),
+                        "dashboard_id": tile.dashboard_id,
+                    },
+                    team=instance.team,
+                    request=self.context["request"],
+                )
 
         self.context["after_dashboard_changes"] = [describe_change(d) for d in dashboards if not d.deleted]
 
@@ -1099,13 +1097,19 @@ class InsightSerializer(InsightBasicSerializer):
                 # Shared rendering bypasses the FE scene-tag flow, so set product/feature
                 # tags here. No-op overwrite for authenticated paths (same values).
                 shared_tags = {"access_method": AccessMethod.SHARING_TOKEN} if is_shared else {}
+                request_user = None if self.context["request"].user.is_anonymous else self.context["request"].user
+                # Reuse the request's single UserAccessControl across all of a dashboard's insight
+                # runners, so the cache fingerprint resolves access once per request, not per tile.
+                view = self.context.get("view")
+                request_user_access_control = getattr(view, "user_access_control", None) if request_user else None
                 with tags_context(product=ProductKey.PRODUCT_ANALYTICS, feature=Feature.INSIGHT, **shared_tags):
                     return calculate_for_query_based_insight(
                         insight,
                         team=self.context["get_team"](),
                         dashboard=dashboard,
                         execution_mode=execution_mode,
-                        user=None if self.context["request"].user.is_anonymous else self.context["request"].user,
+                        user=request_user,
+                        user_access_control=request_user_access_control,
                         filters_override=filters_override,
                         variables_override=variables_override,
                         tile_filters_override=tile_filters_override,
@@ -1643,47 +1647,15 @@ class InsightViewSet(
         return Response({"count": len(data), "next": None, "previous": None, "results": data})
 
     @staticmethod
-    def _annotate_search_scores(queryset: QuerySet, search: str) -> QuerySet:
-        zero = Value(0.0)
-        return queryset.annotate(
-            _name_word=Coalesce(TrigramWordSimilarity(search, "name"), zero),
-            _name_full=Coalesce(TrigramSimilarity("name", search), zero),
-            _derived_name_word=Coalesce(TrigramWordSimilarity(search, "derived_name"), zero),
-            _description_word=Coalesce(TrigramWordSimilarity(search, "description"), zero),
-        ).annotate(
-            _search_score=F("_name_word")
-            + F("_name_full")
-            + F("_derived_name_word")
-            + F("_description_word") * DESCRIPTION_SCORE_WEIGHT
-        )
-
     @tracer.start_as_current_span("InsightViewSet._apply_search")
-    def _apply_search(self, queryset: QuerySet, search: str) -> QuerySet:
-        search = normalize_search_term(search)
-        span = trace.get_current_span()
-        span.set_attribute("insight.search.length", len(search))
-        if not search:
-            return queryset
-
-        scored = self._annotate_search_scores(queryset, search)
-        matching_tag_ids = queryset.filter(tagged_items__tag__name__icontains=search).values("id")
-        exact_q = (
-            Q(name__icontains=search)
-            | Q(derived_name__icontains=search)
-            | Q(description__icontains=search)
-            | Q(id__in=matching_tag_ids)
-        )
-        similar_q = (
-            Q(_name_word__gt=MIN_NAME_TRIGRAM_SIMILARITY)
-            | Q(_derived_name_word__gt=MIN_NAME_TRIGRAM_SIMILARITY)
-            | Q(_description_word__gt=MIN_DESCRIPTION_TRIGRAM_SIMILARITY)
-        )
-
-        return (
-            scored.annotate(_is_exact=Case(When(exact_q, then=Value(1)), default=Value(0), output_field=IntegerField()))
-            .filter(exact_q | similar_q)
-            .order_by("-_is_exact", "-_search_score", "name")
-            .distinct()
+    def _apply_search(queryset: QuerySet, search: str) -> QuerySet:
+        return apply_trigram_search(
+            queryset,
+            search,
+            span_prefix="insight.search",
+            fields=(NAME_FIELD, TrigramSearchField("derived_name"), DESCRIPTION_FIELD),
+            include_tag_search=True,
+            tiebreakers=("name",),
         )
 
     def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
@@ -1883,6 +1855,19 @@ When set, the specified dashboard's filters and date range override will be appl
             serialized_data["layouts"] = layouts
 
         response = Response(serialized_data)
+
+        # Track non-web reads (API/MCP/wizard/…) as a distinct event so programmatic
+        # reads are measurable without inflating the web-only `insight viewed` metric.
+        if get_event_source(request) != EventSource.WEB:
+            report_user_action(
+                request.user,
+                "insight read",
+                # Sibling `insight created/updated/deleted` events store the short_id under `insight_id`;
+                # match that (plus query/source kind) so reads correlate with the rest of the lifecycle.
+                {"insight_id": instance.short_id, **instance.get_analytics_query_kinds()},
+                team=self.team,
+                request=request,
+            )
 
         return response
 

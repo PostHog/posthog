@@ -185,7 +185,7 @@ class AnthropicAdapter:
         api_key: str | None,
         analytics: AnalyticsContext,
         _base_url: str | None = None,
-    ) -> Generator[StreamChunk, None, None]:
+    ) -> Generator[StreamChunk]:
         """Streaming completion."""
         effective_api_key = api_key or self._get_default_api_key()
         model_id = request.model

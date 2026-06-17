@@ -27,6 +27,14 @@ export interface LemonMarkdownProps {
     lowKeyHeadings?: boolean
     /** Whether to disable the docs sidebar panel behavior and always open links in a new tab */
     disableDocsRedirect?: boolean
+    /**
+     * Whether to treat images as untrusted. Use for content we don't control (e.g. LLM/agent or
+     * externally-sourced output), where auto-loading an image would fire a request to an arbitrary
+     * URL — leaking the viewer's IP, acting as a tracking pixel, or probing internal addresses.
+     * When set, only images served from PostHog (same-origin or a `posthog.com` host) render inline
+     * as <img>; every other image is rendered as a plain click-to-open link instead.
+     */
+    disableImages?: boolean
     className?: string
     wrapCode?: boolean
     /** Whether to generate id attributes on heading elements for anchor linking. */
@@ -51,6 +59,27 @@ export function slugifyHeading(text: string): string {
         .replace(/^-|-$/g, '')
 }
 
+/**
+ * Whether an image source is trusted enough to render inline within untrusted content.
+ * Trusted = served from PostHog itself: same-origin (incl. relative URLs) or any `posthog.com` host.
+ * Anything else (including `data:`/`blob:` URIs) is untrusted and should be rendered as a link.
+ */
+export function isTrustedImageSrc(src: string | undefined): boolean {
+    if (!src) {
+        return false
+    }
+    let url: URL
+    try {
+        url = new URL(src, window.location.origin)
+    } catch {
+        return false
+    }
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+        return false
+    }
+    return url.hostname === window.location.hostname || /(^|\.)posthog\.com$/i.test(url.hostname)
+}
+
 export function extractTextFromChildren(children: React.ReactNode): string {
     if (typeof children === 'string') {
         return children
@@ -71,6 +100,7 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
     children,
     lowKeyHeadings = false,
     disableDocsRedirect = false,
+    disableImages = false,
     wrapCode = false,
     generateHeadingIds = false,
     renderMermaid,
@@ -114,6 +144,18 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
                 }
                 return <span className={className} {...props} />
             },
+            ...(disableImages
+                ? {
+                      img: ({ src, alt }: any): JSX.Element =>
+                          isTrustedImageSrc(src) ? (
+                              <img src={src} alt={alt} loading="lazy" />
+                          ) : (
+                              <Link to={src} target="_blank" targetBlankIcon disableDocsPanel>
+                                  {alt || src}
+                              </Link>
+                          ),
+                  }
+                : {}),
             li: ({ children, node }: any): JSX.Element => {
                 const isTaskItem = node?.properties?.className?.includes('task-list-item')
                 if (isTaskItem) {
@@ -157,7 +199,7 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
                     )
                   : {}),
         }),
-        [disableDocsRedirect, lowKeyHeadings, wrapCode, generateHeadingIds, renderMermaid]
+        [disableDocsRedirect, disableImages, lowKeyHeadings, wrapCode, generateHeadingIds, renderMermaid]
     )
 
     return (
@@ -173,6 +215,7 @@ function LemonMarkdownComponent({
     children,
     lowKeyHeadings = false,
     disableDocsRedirect = false,
+    disableImages = false,
     wrapCode = false,
     generateHeadingIds = false,
     renderMermaid,
@@ -183,6 +226,7 @@ function LemonMarkdownComponent({
             <LemonMarkdownRenderer
                 lowKeyHeadings={lowKeyHeadings}
                 disableDocsRedirect={disableDocsRedirect}
+                disableImages={disableImages}
                 wrapCode={wrapCode}
                 generateHeadingIds={generateHeadingIds}
                 renderMermaid={renderMermaid}

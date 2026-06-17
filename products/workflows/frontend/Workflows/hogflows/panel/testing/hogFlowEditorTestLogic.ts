@@ -8,10 +8,10 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
-import { uuid } from 'lib/utils'
+import { uuid } from 'lib/utils/dom'
+import { performWideEventsQueryInTwoPhases } from 'scenes/hog-functions/sampleEventsQuery'
 
 import { groupsModel } from '~/models/groupsModel'
-import { performQuery } from '~/queries/query'
 import { EventsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { escapePropertyAsHogQLIdentifier, hogql } from '~/queries/utils'
 import {
@@ -328,7 +328,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                             },
                         }
 
-                        const response = await performQuery(query)
+                        const response = await performWideEventsQueryInTwoPhases(query)
 
                         if (!response?.results?.[0]) {
                             // No matching events found
@@ -417,7 +417,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                             },
                         }
 
-                        const response = await performQuery(query)
+                        const response = await performWideEventsQueryInTwoPhases(query)
 
                         if (!response?.results?.[0]) {
                             // No matching events found, use standard example event

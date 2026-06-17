@@ -67,6 +67,18 @@ def increment_credential_refresh(kind: str, outcome: str) -> None:
         pass
 
 
+def increment_sandbox_created(runtime: str) -> None:
+    """Record a sandbox creation, labeled by runtime ("vm" or "gvisor")."""
+    try:
+        meter = _metric_meter({"runtime": runtime})
+        meter.create_counter(
+            "tasks_process_sandbox_created",
+            "Sandboxes created for process-task runs by runtime",
+        ).add(1)
+    except Exception:
+        pass
+
+
 class StepTimer:
     def __init__(self, step: str, used_snapshot: bool | None = None) -> None:
         self.step = step

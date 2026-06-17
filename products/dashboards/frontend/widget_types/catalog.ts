@@ -1,11 +1,23 @@
 import { urls } from 'scenes/urls'
 
 import { QuickFilterContext } from '~/queries/schema/schema-general'
+import { ActivityTab } from '~/types'
 
+import {
+    activityEventsWidgetConfigSchema,
+    errorTrackingWidgetConfigSchema,
+    experimentResultsWidgetConfigSchema,
+    experimentsWidgetConfigSchema,
+    sessionReplayWidgetConfigSchema,
+} from '../generated/widget-configs.zod'
 import type { DashboardWidgetProductAccess } from '../types'
+import { ActivityEventsWidgetPreview } from '../widgets/previews/ActivityEventsWidgetPreview'
 import { ErrorTrackingWidgetPreview } from '../widgets/previews/ErrorTrackingWidgetPreview'
+import {
+    ExperimentResultsWidgetPreview,
+    ExperimentsListWidgetPreview,
+} from '../widgets/previews/ExperimentsWidgetPreviews'
 import { SessionReplayWidgetPreview } from '../widgets/previews/SessionReplayWidgetPreview'
-import { errorTrackingWidgetConfigSchema, sessionReplayWidgetConfigSchema } from './configSchemas'
 import type { WidgetAvailabilityConfig } from './widgetAvailability'
 
 export const DASHBOARD_WIDGET_HEADER_LAYOUTS = ['simple', 'dashboard_tile'] as const
@@ -59,8 +71,10 @@ export type DashboardWidgetTileFiltersCatalogConfig = {
 
 /** Product area labels keyed by catalog `groupId`. New groups: add here. */
 export const DASHBOARD_WIDGET_GROUP_LABELS = {
+    activity: 'Activity',
     error_tracking: 'Error tracking',
     session_replay: 'Session replay',
+    experiments: 'Experiments',
 } as const satisfies Record<string, string>
 
 export function getDashboardWidgetGroupLabel(groupId: string): string {
@@ -114,6 +128,13 @@ export const DASHBOARD_WIDGET_CATALOG = {
             quickFilterContext: QuickFilterContext.ErrorTrackingIssueFilters,
             allowedPropertyNames: ERROR_TRACKING_LIST_TILE_FILTER_PROPERTIES,
         },
+        availability: {
+            requirement: 'exception_autocapture',
+            unavailableTitle: "You haven't captured any exceptions",
+            unavailableReason: 'Enable exception autocapture to get started.',
+            setupActionLabel: 'Enable exception autocapture',
+            docsHref: 'https://posthog.com/docs/error-tracking',
+        },
     },
     session_replay_list: {
         groupId: 'session_replay',
@@ -143,14 +164,63 @@ export const DASHBOARD_WIDGET_CATALOG = {
             allowedPropertyNames: SESSION_REPLAY_LIST_TILE_FILTER_PROPERTIES,
         },
     },
+    experiments_list: {
+        groupId: 'experiments',
+        label: 'Experiments list',
+        description: 'List of experiments filtered by status and creator.',
+        headerTitle: 'Experiments',
+        // Filtered by status/creator, not a date range — don't show a (defaulted) date in the header.
+        headerMeta: { showDateRange: false },
+        defaultConfig: experimentsWidgetConfigSchema.parse({}),
+        defaultLayout: { w: 6, h: 5, minW: 3, minH: 3 },
+        productAccess: 'experiment',
+        titleHref: urls.experiments(),
+        sharedPlaceholder: {
+            title: 'Experiments',
+            message: 'Log in to PostHog to see experiments from this dashboard.',
+        },
+    },
+    experiment_results: {
+        groupId: 'experiments',
+        label: 'Experiment results',
+        description: 'Current results for the primary metrics of a selected experiment.',
+        headerTitle: 'Experiment results',
+        // Shows a selected experiment's current results — there's no date range to surface.
+        headerMeta: { showDateRange: false },
+        defaultConfig: experimentResultsWidgetConfigSchema.parse({}),
+        defaultLayout: { w: 6, h: 5, minW: 3, minH: 3 },
+        productAccess: 'experiment',
+        sharedPlaceholder: {
+            title: 'Experiment results',
+            message: 'Log in to PostHog to see experiment results from this dashboard.',
+        },
+    },
+    activity_events_list: {
+        groupId: 'activity',
+        label: 'Recent events',
+        description: 'Latest events captured in this project, as on Activity > Explore.',
+        headerTitle: 'Recent events',
+        defaultConfig: activityEventsWidgetConfigSchema.parse({
+            dateRange: { date_from: '-24h' },
+        }),
+        defaultLayout: { w: 6, h: 5, minW: 3, minH: 3 },
+        titleHref: urls.activity(ActivityTab.ExploreEvents),
+        sharedPlaceholder: {
+            title: 'Recent events',
+            message: 'Log in to PostHog to explore the latest events from this dashboard.',
+        },
+    },
 } as const satisfies Record<string, DashboardWidgetCatalogEntry>
 
 export type DashboardWidgetCatalogKey = keyof typeof DASHBOARD_WIDGET_CATALOG
 
 /** New widget types: add preview components here. See products/dashboards/CONTRIBUTING.md. */
 export const DASHBOARD_WIDGET_PREVIEWS: Record<DashboardWidgetCatalogKey, () => JSX.Element> = {
+    activity_events_list: ActivityEventsWidgetPreview,
     error_tracking_list: ErrorTrackingWidgetPreview,
     session_replay_list: SessionReplayWidgetPreview,
+    experiments_list: ExperimentsListWidgetPreview,
+    experiment_results: ExperimentResultsWidgetPreview,
 }
 
 export type ResolvedDashboardWidgetCatalogEntry = DashboardWidgetCatalogEntry & {
@@ -212,7 +282,6 @@ export type DashboardWidgetCatalogGroup = {
 
 function getDashboardWidgetCatalogGroups(): DashboardWidgetCatalogGroup[] {
     const groupsById = new Map<string, DashboardWidgetCatalogGroup>()
-    const groupOrder: string[] = []
 
     for (const [widgetType, entry] of Object.entries(DASHBOARD_WIDGET_CATALOG)) {
         let group = groupsById.get(entry.groupId)
@@ -224,13 +293,12 @@ function getDashboardWidgetCatalogGroups(): DashboardWidgetCatalogGroup[] {
                 widgets: [],
             }
             groupsById.set(entry.groupId, group)
-            groupOrder.push(entry.groupId)
         }
 
         group.widgets.push({ widgetType: widgetType as DashboardWidgetCatalogKey, entry })
     }
 
-    return groupOrder.map((groupId) => groupsById.get(groupId)!)
+    return [...groupsById.values()].sort((a, b) => a.groupLabel.localeCompare(b.groupLabel))
 }
 
 export const DASHBOARD_WIDGET_CATALOG_GROUPS = getDashboardWidgetCatalogGroups()

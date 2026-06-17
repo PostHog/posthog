@@ -20,7 +20,17 @@ const SUMMARIZER_LENGTH_OPTIONS: { value: SummarizerScannerConfig['length']; lab
 ]
 
 /** Prompt field with a Max entry point that drafts the prompt and fills it back into the form. */
-function ScannerPromptField({ scannerId, placeholder }: { scannerId: string; placeholder: string }): JSX.Element {
+function ScannerPromptField({
+    scannerId,
+    placeholder,
+    label = 'Prompt',
+    caption,
+}: {
+    scannerId: string
+    placeholder: string
+    label?: string
+    caption?: string
+}): JSX.Element {
     const logic = replayScannerLogic({ id: scannerId })
     const { scanner } = useValues(logic)
     const { setScannerValue } = useActions(logic)
@@ -51,7 +61,7 @@ function ScannerPromptField({ scannerId, placeholder }: { scannerId: string; pla
     return (
         <div className="space-y-2">
             <div className="flex items-center justify-between gap-2">
-                <label className="text-sm font-medium">Prompt</label>
+                <label className="text-sm font-medium">{label}</label>
                 {openMax && (
                     <LemonButton
                         size="xsmall"
@@ -67,6 +77,7 @@ function ScannerPromptField({ scannerId, placeholder }: { scannerId: string; pla
             <LemonField name="scanner_config.prompt">
                 <LemonTextArea placeholder={placeholder} minRows={6} />
             </LemonField>
+            {caption && <div className="text-xs text-muted">{caption}</div>}
         </div>
     )
 }
@@ -83,7 +94,9 @@ export function ScannerTypeConfigEditor({ scannerId }: { scannerId: string }): J
             <div className="space-y-4">
                 <ScannerPromptField
                     scannerId={scannerId}
-                    placeholder="Summarize what the user did, focusing on their goal and any obstacles they hit."
+                    label="Additional context"
+                    caption="The core summarizer prompt is built in. Use this field to add product context or steer summaries — for example, what the ideal user flow looks like."
+                    placeholder="e.g. This is a B2B analytics tool. Users usually come to build a dashboard — call out where they get stuck in that flow."
                 />
                 <LemonField name="scanner_config.length" label="Summary length">
                     <LemonSegmentedButton options={SUMMARIZER_LENGTH_OPTIONS} />

@@ -6,7 +6,7 @@ import {
     parsedSelectorToSelectorString,
     preselect,
 } from 'lib/components/HTMLElementsDisplay/preselectWithCSS'
-import { objectsEqual } from 'lib/utils'
+import { objectsEqual } from 'lib/utils/objects'
 
 import { ElementType } from '~/types'
 

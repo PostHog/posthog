@@ -198,6 +198,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
                 limit_context = None
 
             with tracer.start_as_current_span("posthog.query.process_query_model") as process_span:
+                process_span.set_attribute("team_id", self.team.pk)
                 process_span.set_attribute("query.kind", getattr(query, "kind", "Other"))
                 process_span.set_attribute(
                     "query.is_query_service", get_query_tag_value("access_method") == "personal_api_key"

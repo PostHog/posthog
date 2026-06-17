@@ -227,7 +227,7 @@ async def minio_client():
 
 async def _generate_record_batches_from_internal_stage(
     batch_export_id: str, data_interval_start: dt.datetime, data_interval_end: dt.datetime, stage_folder: str
-) -> AsyncGenerator[pa.RecordBatch, None]:
+) -> AsyncGenerator[pa.RecordBatch]:
     """Generate record batches from the internal stage."""
     queue = RecordBatchQueue()
     producer = Producer()
@@ -637,6 +637,21 @@ async def test_compute_num_partitions_db_error_falls_back_to_static_default():
             batch_export_id=str(uuid.uuid4()), data_interval_start=_INTERVAL_START, data_interval_end=_INTERVAL_END
         )
     assert result == 10
+
+
+async def test_compute_num_partitions_disabled_uses_static_default():
+    with (
+        override_settings(
+            BATCH_EXPORT_DYNAMIC_PARTITIONING_ENABLED=False,
+            BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS=10,
+        ),
+        patch(_FETCHER_PATH, new=AsyncMock(return_value=5_000_000)) as mock_fetch,
+    ):
+        result = await compute_num_partitions(
+            batch_export_id=str(uuid.uuid4()), data_interval_start=_INTERVAL_START, data_interval_end=_INTERVAL_END
+        )
+    assert result == 10
+    mock_fetch.assert_not_called()
 
 
 async def test_compute_num_partitions_without_interval_start_falls_back_to_static_default():

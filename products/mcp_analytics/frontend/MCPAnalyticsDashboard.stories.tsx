@@ -47,6 +47,83 @@ const HARNESS_RESULTS = [
     ['visual studio code', 540, 12, 120],
 ]
 
+const SESSION_LIST = {
+    results: [
+        {
+            session_id: '0193f2a1-aaaa-bbbb-cccc-000000000001',
+            tool_calls: 42,
+            session_start: '2026-06-07T10:00:00Z',
+            session_end: '2026-06-07T10:10:10Z',
+            distinct_id_count: 1,
+            tools_used: ['execute-sql', 'read-data-schema'],
+            mcp_client_name: 'claude-code/1.2.0',
+            distinct_id: 'user-1-distinct-id',
+            person_email: 'annika@example.com',
+            person_name: 'Annika Hansen',
+            intent: 'Investigate slow dashboard queries and create a tuned insight.',
+        },
+        {
+            session_id: '0193f2a1-aaaa-bbbb-cccc-000000000002',
+            tool_calls: 6,
+            session_start: '2026-06-07T09:30:00Z',
+            session_end: '2026-06-07T09:31:35Z',
+            distinct_id_count: 1,
+            tools_used: ['query-trends'],
+            mcp_client_name: 'cursor-vscode/0.42',
+            distinct_id: 'user-2-distinct-id',
+            person_email: '',
+            person_name: '',
+            intent: '',
+        },
+        {
+            session_id: '0193f2a1-aaaa-bbbb-cccc-000000000003',
+            tool_calls: 31,
+            session_start: '2026-06-07T08:15:00Z',
+            session_end: '2026-06-07T08:19:00Z',
+            distinct_id_count: 1,
+            tools_used: ['exec', 'insight-create'],
+            mcp_client_name: 'codex-cli',
+            distinct_id: 'user-3-distinct-id',
+            person_email: 'sven@example.com',
+            person_name: '',
+            intent: '',
+        },
+    ],
+    has_next: true,
+}
+
+const TOOL_CALL_LIST = {
+    results: [
+        {
+            event_id: 'evt-1',
+            timestamp: '2026-06-07T10:00:05Z',
+            tool_name: 'read-data-schema',
+            intent: 'Look up the events schema before writing SQL.',
+            is_error: false,
+            error_message: '',
+            duration_ms: 420,
+        },
+        {
+            event_id: 'evt-2',
+            timestamp: '2026-06-07T10:01:10Z',
+            tool_name: 'execute-sql',
+            intent: 'Run the slow dashboard query with EXPLAIN.',
+            is_error: false,
+            error_message: '',
+            duration_ms: 8125,
+        },
+        {
+            event_id: 'evt-3',
+            timestamp: '2026-06-07T10:04:42Z',
+            tool_name: 'execute-sql',
+            intent: 'Retry the tuned query.',
+            is_error: true,
+            error_message: 'Estimated query execution time is too long (max_execution_time=600)',
+            duration_ms: 610000,
+        },
+    ],
+}
+
 const CLUSTER_SNAPSHOT = {
     status: 'ready',
     error_message: '',
@@ -72,24 +149,26 @@ const meta: Meta = {
         mswDecorator({
             get: {
                 '/api/environments/:team_id/mcp_analytics/intent_clusters/': CLUSTER_SNAPSHOT,
+                '/api/environments/:team_id/mcp_analytics/sessions/': SESSION_LIST,
+                '/api/environments/:team_id/mcp_analytics/sessions/:session_id/tool_calls/': TOOL_CALL_LIST,
             },
             post: {
-                '/api/environments/:team_id/query/:kind': (req, res, ctx) => {
-                    const body = req.body as Record<string, any>
+                '/api/environments/:team_id/query/:kind': async ({ request }) => {
+                    const body = (await request.json()) as Record<string, any>
                     const query: string = body?.query?.query ?? ''
                     if (query.includes('$mcp_client_name')) {
-                        return res(ctx.json({ results: HARNESS_RESULTS }))
+                        return [200, { results: HARNESS_RESULTS }]
                     }
                     if (query.includes('AS session_id')) {
-                        return res(ctx.json({ results: SESSION_RESULTS }))
+                        return [200, { results: SESSION_RESULTS }]
                     }
                     if (query.includes('p95_duration_ms')) {
-                        return res(ctx.json({ results: TOOL_RESULTS }))
+                        return [200, { results: TOOL_RESULTS }]
                     }
                     if (query.includes('AS bucket')) {
-                        return res(ctx.json({ results: KPI_RESULTS }))
+                        return [200, { results: KPI_RESULTS }]
                     }
-                    return res(ctx.json({ results: [] }))
+                    return [200, { results: [] }]
                 },
             },
         }),
@@ -107,3 +186,9 @@ export default meta
 type Story = StoryObj<{}>
 
 export const Dashboard: Story = {}
+
+export const Sessions: Story = {
+    parameters: {
+        pageUrl: urls.mcpAnalyticsSessions(),
+    },
+}

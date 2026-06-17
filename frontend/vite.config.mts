@@ -59,7 +59,6 @@ export default defineConfig(({ mode }) => {
                 models: resolve(__dirname, 'src/models'),
                 mocks: resolve(__dirname, 'src/mocks'),
                 exporter: resolve(__dirname, 'src/exporter'),
-                stories: resolve(__dirname, 'src/stories'),
                 types: resolve(__dirname, 'src/types.ts'),
                 // @posthog/lemon-ui aliases
                 '@posthog/lemon-ui': resolve(__dirname, '@posthog/lemon-ui/src/index'),
@@ -105,6 +104,10 @@ export default defineConfig(({ mode }) => {
         },
         server: {
             port: 8234,
+            // The rest of the stack hardcodes 8234, so falling back to another port serves a
+            // broken app (the browser keeps talking to whatever squats 8234). Fail loudly instead;
+            // bin/start-frontend reclaims the port from stale processes before launching.
+            strictPort: true,
             host: process.argv.includes('--host') ? '0.0.0.0' : 'localhost',
             allowedHosts: process.env.VITE_ALLOWED_HOSTS?.split(',')
                 .map((s) => s.trim())

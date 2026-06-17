@@ -3,26 +3,32 @@ import { cva } from 'cva'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
-import { lazy, Suspense, useRef } from 'react'
+import { lazy, Suspense, useEffect, useRef } from 'react'
 
-import { IconApps, IconChat, IconChevronRight, IconSearch } from '@posthog/icons'
+import { IconApps, IconChat, IconChevronRight } from '@posthog/icons'
 
 import { NewAccountMenu } from 'lib/components/Account/NewAccountMenu'
-import { RenderKeybind } from 'lib/components/AppShortcuts/AppShortcutMenu'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
 import { commandLogic } from 'lib/components/Command/commandLogic'
 import { Resizer } from 'lib/components/Resizer/Resizer'
+import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Collapsible } from 'lib/ui/Collapsible/Collapsible'
 import { Label } from 'lib/ui/Label/Label'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { cn } from 'lib/utils/css-classes'
-import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
-import { NavExperimentTab, PanelLayoutNavIdentifier, panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
+import {
+    NavExperimentTab,
+    PANEL_NAVBAR_COLLAPSE_THRESHOLD,
+    PANEL_NAVBAR_DEFAULT_WIDTH,
+    PanelLayoutNavIdentifier,
+    panelLayoutLogic,
+} from '~/layout/panel-layout/panelLayoutLogic'
 
+import { NavSearchButton } from '../../../lib/components/NavSearchButton/NavSearchButton'
 import { navigation3000Logic } from '../../navigation-3000/navigationLogic'
 import { NavBarFooter } from '../NavBarFooter'
 import { PanelLayoutPanels } from './PanelLayoutPanels'
@@ -99,12 +105,33 @@ export function Nav(): JSX.Element {
         setActivePanelIdentifier,
         showLayoutPanel,
         clearActivePanelIdentifier,
+        setNavbarWidth,
     } = useActions(panelLayoutLogic)
     const { isLayoutPanelVisible, isLayoutNavCollapsed, navExperimentActiveTab, activePanelIdentifier } =
         useValues(panelLayoutLogic)
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
-    const { firstTabIsActive } = useValues(sceneLogic)
     const { toggleCommand } = useActions(commandLogic)
+
+    const resizerLogicProps: ResizerLogicProps = {
+        logicKey: 'panel-layout-navbar',
+        placement: 'right',
+        containerRef,
+        persistent: true,
+        closeThreshold: PANEL_NAVBAR_COLLAPSE_THRESHOLD,
+        onToggleClosed: (shouldBeClosed) => toggleLayoutNavCollapsed(shouldBeClosed),
+        onDoubleClick: () => toggleLayoutNavCollapsed(),
+    }
+    const { desiredSize } = useValues(resizerLogic(resizerLogicProps))
+
+    // Grow to any width upward; never render narrower than the collapse snap so the live drag
+    // stays in sync with where onToggleClosed flips to collapsed mode.
+    const openWidth = Math.max(Math.round(desiredSize ?? PANEL_NAVBAR_DEFAULT_WIDTH), PANEL_NAVBAR_COLLAPSE_THRESHOLD)
+
+    useEffect(() => {
+        if (!isLayoutNavCollapsed && !isMobileLayout) {
+            setNavbarWidth(openWidth)
+        }
+    }, [openWidth, isLayoutNavCollapsed, isMobileLayout, setNavbarWidth])
 
     useAppShortcut({
         name: 'ToggleLeftNav',
@@ -149,22 +176,7 @@ export function Nav(): JSX.Element {
                     >
                         <NewAccountMenu isLayoutNavCollapsed={isLayoutNavCollapsed} />
 
-                        <ButtonPrimitive
-                            iconOnly
-                            data-attr="nav-search"
-                            tooltip={
-                                <>
-                                    <span>Search</span> <RenderKeybind keybind={[keyBinds.search]} />
-                                </>
-                            }
-                            tooltipPlacement={isLayoutNavCollapsed ? 'right' : undefined}
-                            onClick={() => {
-                                posthog.capture('nav search clicked')
-                                toggleCommand()
-                            }}
-                        >
-                            <IconSearch className="size-4 text-secondary" />
-                        </ButtonPrimitive>
+                        <NavSearchButton isLayoutNavCollapsed={isLayoutNavCollapsed} toggleCommand={toggleCommand} />
 
                         {isLayoutNavCollapsed && (
                             <ButtonPrimitive
@@ -296,15 +308,9 @@ export function Nav(): JSX.Element {
                 </Tabs.Root>
                 {!isMobileLayout && (
                     <Resizer
-                        logicKey="panel-layout-navbar"
-                        placement="right"
-                        containerRef={containerRef}
-                        closeThreshold={100}
-                        onToggleClosed={(shouldBeClosed) => toggleLayoutNavCollapsed(shouldBeClosed)}
-                        onDoubleClick={() => toggleLayoutNavCollapsed()}
+                        {...resizerLogicProps}
                         data-attr="tree-navbar-resizer"
-                        className={cn('top-[calc(var(--scene-layout-header-height)+7px)] right-[-1px] bottom-4 z-2', {
-                            'top-[var(--scene-layout-header-height)]': firstTabIsActive,
+                        className={cn('top-3 -right-px bottom-4 z-2', {
                             'top-0': isLayoutPanelVisible,
                         })}
                         offset={0}

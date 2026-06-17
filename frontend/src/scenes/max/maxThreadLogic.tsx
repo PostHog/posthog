@@ -24,7 +24,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { uuid } from 'lib/utils'
+import { uuid } from 'lib/utils/dom'
 import { maxContextLogic } from 'scenes/max/maxContextLogic'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { NotebookTarget } from 'scenes/notebooks/types'
@@ -68,15 +68,16 @@ import { LogEntry, parseLogEvent } from 'products/tasks/frontend/lib/parse-logs'
 
 import { handsFreeLogic } from './handsFreeLogic'
 import { summariseAssistantThread } from './handsFreeUtils'
-import { MODE_DEFINITIONS, ToolRegistration } from './max-constants'
+import { EnhancedToolCall, MODE_DEFINITIONS, TOOL_DEFINITIONS, ToolRegistration } from './max-constants'
 import { MaxBillingContext, MaxBillingContextSubscriptionLevel, maxBillingContextLogic } from './maxBillingContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { SIDE_PANEL_PANEL_ID, maxLogic } from './maxLogic'
 import type { maxThreadLogicType } from './maxThreadLogicType'
 import { MaxUIContext } from './maxTypes'
 import { MAX_SLASH_COMMANDS, SlashCommand } from './slash-commands'
-import { EnhancedToolCall, getToolCallDescriptionAndWidget } from './Thread'
+import { getToolCallDescriptionAndWidgetDef } from './toolCallDisplay'
 import {
+    findPendingClientToolCall,
     getAgentModeForScene,
     isAssistantMessage,
     isAssistantToolCallMessage,
@@ -88,6 +89,12 @@ import { getRandomThinkingMessage } from './utils/thinkingMessages'
 
 /** Key for persisting pending AI prompts across page reloads (e.g., OAuth redirects) */
 export const PENDING_AI_PROMPT_KEY = 'posthog_ai_pending_prompt'
+
+// On a dashboard, the first message can fire before the dashboard has loaded, when
+// dashboardLogic.maxContext still returns []. askMax waits (bounded) for the load so the
+// dashboard context is included. Bounded so a stuck/failed load never blocks sending.
+export const MAX_DASHBOARD_CONTEXT_WAIT_MS = 8000
+const DASHBOARD_CONTEXT_POLL_INTERVAL_MS = 100
 
 export type MessageStatus = 'loading' | 'completed' | 'error'
 
@@ -105,6 +112,7 @@ export interface MaxThreadLogicProps {
     panelId?: string // identifies the MaxLogic instance backing this panel (scene tab id or side panel)
     conversationId: string
     conversation?: ConversationDetail | null
+    skipInitialLoad?: boolean
 }
 
 export const maxThreadLogic = kea<maxThreadLogicType>([
@@ -258,6 +266,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             formAnswers,
         }),
         continueAfterFormDismissal: true,
+        continueWithClientToolResult: (result: Record<string, unknown>, toolCallId: string) => ({ result, toolCallId }),
+        executePendingClientToolCall: true,
         continueAfterApproval: (proposalId: string) => ({ proposalId }),
         continueAfterRejection: (proposalId: string, feedback?: string) => ({
             proposalId,
@@ -417,7 +427,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     const newMap = new Map(value)
                     let newValue: string
                     if (isSubagentUpdateEvent(update)) {
-                        const [description, _] = getToolCallDescriptionAndWidget(
+                        const [description, _] = getToolCallDescriptionAndWidgetDef(
                             update.content as unknown as EnhancedToolCall,
                             toolMap
                         )
@@ -996,10 +1006,46 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 actions.clearQueuedMessages()
             }
         },
-        askMax: async ({ prompt, addToThread = true, uiContext }) => {
+        askMax: async ({ prompt, addToThread = true, uiContext }, breakpoint) => {
             // Only process if this thread is the currently active one
             if (values.conversationId !== values.activeThreadKey) {
                 return
+            }
+            // Wait for the open dashboard to finish loading before collecting context (see the
+            // constants above for why). The scene is re-read every tick, so the gate releases the
+            // moment the dashboard's metadata lands — and immediately if the user navigates away
+            // mid-wait (no longer on a dashboard, or onto a different one that's already loaded).
+            const isDashboardSceneLoading = (): boolean => {
+                if (sceneLogic.values.activeSceneId !== Scene.Dashboard) {
+                    return false
+                }
+                const activeSceneLogic = sceneLogic.values.activeSceneLogic
+                if (!activeSceneLogic || !('maxContext' in activeSceneLogic.selectors)) {
+                    return false
+                }
+                return !(activeSceneLogic.values as { dashboard?: unknown }).dashboard
+            }
+            // Measure real elapsed time, not tick count: breakpoint() only guarantees a *minimum*
+            // delay, so a busy event loop would make a tick counter under-report the wait — letting
+            // it run past the cap and skewing the telemetry below. performance.now() is monotonic.
+            const dashboardWaitStart = performance.now()
+            while (
+                isDashboardSceneLoading() &&
+                performance.now() - dashboardWaitStart < MAX_DASHBOARD_CONTEXT_WAIT_MS
+            ) {
+                await breakpoint(DASHBOARD_CONTEXT_POLL_INTERVAL_MS)
+            }
+            if (isDashboardSceneLoading()) {
+                // We hit the wait cap while the dashboard was still loading, so the message ships
+                // without dashboard context (the original "Max can't see this dashboard" symptom).
+                // Capture it so we can tell whether the cap is ever the binding constraint in prod.
+                const activeLoadedScene = sceneLogic.values.activeLoadedScene
+                const sceneProps = activeLoadedScene?.paramsToProps?.(activeLoadedScene?.sceneParams) || {}
+                posthog.capture('max dashboard context wait timed out', {
+                    waited_ms: Math.round(performance.now() - dashboardWaitStart),
+                    dashboard_id: (sceneProps as { id?: number | string }).id,
+                    conversation_id: values.conversation?.id || values.conversationId,
+                })
             }
             const contextualTools = Object.fromEntries(values.tools.map((tool) => [tool.identifier, tool.context]))
             // Always send voice_mode as an explicit boolean when handsFreeLogic is mounted,
@@ -1173,6 +1219,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         },
 
         completeThreadGeneration: () => {
+            actions.executePendingClientToolCall()
+
             const handsFree = handsFreeLogic.findMounted({ panelId: props.panelId })
             if (handsFree?.values.isActive) {
                 handsFree.actions.speakAssistantResponse(summariseAssistantThread(values.threadRaw))
@@ -1223,7 +1271,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             // payload is an object with doNotUpdateCurrentThread for loadConversationHistory,
             // but it's a string (conversationId) for loadConversation
             const doNotUpdate = typeof payload === 'object' && payload?.doNotUpdateCurrentThread
-            if (doNotUpdate || values.autoRun || values.streamingActive) {
+            if (props.skipInitialLoad || doNotUpdate || values.autoRun || values.streamingActive) {
                 return
             }
             // Don't auto-reconnect if there's a pending form
@@ -1313,6 +1361,73 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     content: null,
                     conversation: values.conversationId,
                     resume_payload: { action: 'dismiss_form' },
+                },
+                0,
+                false // Don't add to thread - no human message to show
+            )
+        },
+        executePendingClientToolCall: async () => {
+            // Guard on streamingActive, not threadLoading: conversationLoading is still true here
+            // because completeThreadGeneration resets the status after dispatching this action
+            if (values.conversationId !== values.activeThreadKey || values.streamingActive) {
+                return
+            }
+            // Include statically-marked tools so a deregistered handler refuses instead of stranding the call
+            const clientToolNames = new Set([
+                ...Object.values(values.toolMap)
+                    .filter((tool) => tool.clientExecution)
+                    .map((tool) => tool.identifier as string),
+                ...Object.entries(TOOL_DEFINITIONS)
+                    .filter(([, definition]) => definition.clientExecuted)
+                    .map(([name]) => name),
+            ])
+            const pending = findPendingClientToolCall(values.threadRaw, clientToolNames)
+            if (!pending) {
+                return
+            }
+            // One attempt per call: a failing resume turn re-fires completeThreadGeneration with
+            // the same dangling call, which would re-run the handler's side effects unboundedly
+            cache.resumedClientToolCallIds ??= new Set<string>()
+            if (cache.resumedClientToolCallIds.has(pending.toolCallId)) {
+                return
+            }
+            cache.resumedClientToolCallIds.add(pending.toolCallId)
+            const handler = values.toolMap[pending.toolName]?.clientExecution
+            let result: Record<string, unknown>
+            if (!handler) {
+                result = {
+                    client_execution_error:
+                        'The PostHog view that executes this tool client-side is no longer open, so the call could not be completed.',
+                }
+            } else {
+                try {
+                    result = (await handler(pending.args)) ?? {}
+                } catch (error) {
+                    result = { client_execution_error: String(error) }
+                }
+            }
+            // A user message during the handler abandons the interrupt server-side — drop the
+            // resume unless the same call is still dangling
+            const stillPending = findPendingClientToolCall(values.threadRaw, clientToolNames)
+            if (
+                values.conversationId !== values.activeThreadKey ||
+                values.streamingActive ||
+                stillPending?.toolCallId !== pending.toolCallId
+            ) {
+                return
+            }
+            actions.continueWithClientToolResult(result, pending.toolCallId)
+        },
+        continueWithClientToolResult: ({ result, toolCallId }) => {
+            actions.streamConversation(
+                {
+                    agent_mode: values.isSandboxMode ? null : values.agentMode,
+                    is_sandbox: values.isSandboxMode || undefined,
+                    content: null,
+                    conversation: values.conversationId,
+                    // Refresh tool context so the resumed generation sees state the handler just changed
+                    contextual_tools: Object.fromEntries(values.tools.map((tool) => [tool.identifier, tool.context])),
+                    resume_payload: { action: 'client_tool_result', tool_call_id: toolCallId, result },
                 },
                 0,
                 false // Don't add to thread - no human message to show
@@ -1808,6 +1923,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         if (values.autoRun && values.question) {
             actions.askMax(values.question)
             actions.setAutoRun(false)
+            return
+        }
+
+        if (props.skipInitialLoad) {
             return
         }
 

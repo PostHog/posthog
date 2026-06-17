@@ -1,19 +1,17 @@
 import json
 import base64
 import hashlib
+from typing import cast
 from urllib.parse import urlencode
 
 import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from django.conf import settings
 from django.core.cache import cache as real_cache
-from django.test import override_settings
+from django.test import SimpleTestCase
 
 import requests
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
 from parameterized import parameterized
 from rest_framework.test import APIClient
 
@@ -21,8 +19,10 @@ from posthog.api.oauth.cimd import (
     CIMD_PROVISIONING_ACCOUNT_REQUESTS_DEFAULT_RATE_LIMIT,
     CIMD_PROVISIONING_ACCOUNT_REQUESTS_VERIFIED_RATE_LIMIT,
     CIMDFetchError,
+    CIMDMetadataDocument,
     CIMDValidationError,
     _fetch_lock_key,
+    _resolve_scopes,
     fetch_and_upsert_cimd_application,
     fetch_cimd_metadata,
     get_application_by_client_id,
@@ -34,17 +34,6 @@ from posthog.api.oauth.cimd import (
 )
 from posthog.models.oauth import OAuthApplication, create_cimd_verification_token
 from posthog.scopes import OAUTH_HIDDEN_SCOPES, PRIVILEGED_SCOPES
-
-
-def generate_rsa_key() -> str:
-    private_key = rsa.generate_private_key(public_exponent=65537, key_size=4096)
-    pem = private_key.private_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PrivateFormat.TraditionalOpenSSL,
-        encryption_algorithm=serialization.NoEncryption(),
-    )
-    return pem.decode("utf-8")
-
 
 VALID_CIMD_URL = "https://app.example.com/.well-known/oauth-client-metadata.json"
 
@@ -248,12 +237,6 @@ class TestFetchCimdMetadata(APIBaseTest):
 
 
 @patch("posthog.api.oauth.cimd.is_url_allowed", return_value=(True, None))
-@override_settings(
-    OAUTH2_PROVIDER={
-        **settings.OAUTH2_PROVIDER,
-        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-    }
-)
 class TestFetchAndUpsertCimdApplication(APIBaseTest):
     """Tests for fetch_and_upsert_cimd_application — the core fetch+create/update function."""
 
@@ -329,12 +312,6 @@ class TestFetchAndUpsertCimdApplication(APIBaseTest):
 
 
 @patch("posthog.api.oauth.cimd.is_url_allowed", return_value=(True, None))
-@override_settings(
-    OAUTH2_PROVIDER={
-        **settings.OAUTH2_PROVIDER,
-        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-    }
-)
 class TestGetOrCreateCimdApplication(APIBaseTest):
     """Tests for get_or_create_cimd_application — the orchestration layer."""
 
@@ -397,12 +374,6 @@ class TestGetOrCreateCimdApplication(APIBaseTest):
         self.assertEqual(app.name, "Original Name")
 
 
-@override_settings(
-    OAUTH2_PROVIDER={
-        **settings.OAUTH2_PROVIDER,
-        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-    }
-)
 class TestGetApplicationByClientId(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -444,12 +415,6 @@ class TestGetApplicationByClientId(APIBaseTest):
 
 
 @patch("posthog.api.oauth.cimd.is_url_allowed", return_value=(True, None))
-@override_settings(
-    OAUTH2_PROVIDER={
-        **settings.OAUTH2_PROVIDER,
-        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-    }
-)
 class TestGetOrCreateCimdProvisioningApplication(APIBaseTest):
     @patch("posthog.api.oauth.cimd.requests.get")
     def test_creates_new_app_with_provisioning_defaults(self, mock_get, _url_mock):
@@ -554,12 +519,6 @@ class TestGetOrCreateCimdProvisioningApplication(APIBaseTest):
 
 
 @patch("posthog.api.oauth.cimd.is_url_allowed", return_value=(True, None))
-@override_settings(
-    OAUTH2_PROVIDER={
-        **settings.OAUTH2_PROVIDER,
-        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-    }
-)
 class TestCIMDVerificationToken(APIBaseTest):
     @patch("posthog.api.oauth.cimd.requests.get")
     def test_valid_verification_token_links_app_to_organization(self, mock_get, _url_mock):
@@ -749,12 +708,6 @@ class TestCIMDVerificationToken(APIBaseTest):
         self.assertEqual(refreshed.provisioning_rate_limit_account_requests_source, "admin")
 
 
-@override_settings(
-    OAUTH2_PROVIDER={
-        **settings.OAUTH2_PROVIDER,
-        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-    }
-)
 class TestAuthorizationServerMetadata(APIBaseTest):
     def test_advertises_cimd_support(self):
         client = APIClient()
@@ -764,12 +717,6 @@ class TestAuthorizationServerMetadata(APIBaseTest):
         self.assertTrue(data.get("client_id_metadata_document_supported"))
 
 
-@override_settings(
-    OAUTH2_PROVIDER={
-        **settings.OAUTH2_PROVIDER,
-        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-    }
-)
 @patch("posthog.api.oauth.cimd.is_url_allowed", return_value=(True, None))
 class TestCIMDAuthorizeIntegration(APIBaseTest):
     """Integration tests for the CIMD flow through /oauth/authorize/."""
@@ -875,12 +822,6 @@ class TestCIMDAuthorizeIntegration(APIBaseTest):
 
 
 @patch("posthog.api.oauth.cimd.is_url_allowed", return_value=(True, None))
-@override_settings(
-    OAUTH2_PROVIDER={
-        **settings.OAUTH2_PROVIDER,
-        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-    }
-)
 class TestCIMDComPostHogNamespace(APIBaseTest):
     """Tests for the com.posthog namespace: scopes and nested verification_token."""
 
@@ -1056,3 +997,56 @@ class TestCIMDComPostHogNamespace(APIBaseTest):
 
         assert app is not None
         self.assertEqual(app.scopes, [])
+
+    # A present, non-empty com.posthog.scopes that strips to nothing is rejected, not
+    # stored as [] (which would widen the app to the broad UNPRIVILEGED default via the
+    # empty-ceiling fallback). Mirrors DCR's all-stripped rejection; no app is created.
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_all_non_grantable_scopes_on_creation_rejected(self, mock_get, _url_mock):
+        only_non_grantable = [*sorted(PRIVILEGED_SCOPES), "not_a_real_scope:write"]
+        mock_get.return_value = _mock_response(_make_metadata(com_posthog={"scopes": only_non_grantable}), headers={})
+
+        with self.assertRaises(CIMDValidationError):
+            fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+
+        self.assertFalse(OAuthApplication.objects.filter(cimd_metadata_url=VALID_CIMD_URL).exists())
+
+    # On refresh, a doc whose scopes all strip out is rejected and the existing ceiling is
+    # left untouched (fail-closed) rather than widened to the default.
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_all_non_grantable_scopes_on_refresh_leaves_existing_untouched(self, mock_get, _url_mock):
+        mock_get.return_value = _mock_response(_make_metadata(com_posthog={"scopes": ["insight:read"]}), headers={})
+        created = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+        assert created is not None
+
+        real_cache.delete(_fetch_lock_key(VALID_CIMD_URL))
+        only_non_grantable = [*sorted(PRIVILEGED_SCOPES), "not_a_real_scope:write"]
+        mock_get.return_value = _mock_response(_make_metadata(com_posthog={"scopes": only_non_grantable}), headers={})
+
+        with self.assertRaises(CIMDValidationError):
+            fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+
+        created.refresh_from_db()
+        self.assertEqual(created.scopes, ["insight:read"])
+
+
+class TestResolveScopes(SimpleTestCase):
+    """`_resolve_scopes` parsing in isolation — no DB, so it runs without local services."""
+
+    def test_absent_or_malformed_field_returns_none(self) -> None:
+        self.assertIsNone(_resolve_scopes({}))
+        self.assertIsNone(_resolve_scopes({"com.posthog": {}}))
+        # Malformed partner JSON: a non-list scopes value hits the runtime guard and returns None.
+        self.assertIsNone(_resolve_scopes(cast(CIMDMetadataDocument, {"com.posthog": {"scopes": "not-a-list"}})))
+
+    def test_explicit_empty_list_is_use_default(self) -> None:
+        # Distinct from all-stripped: an explicitly empty array is the legitimate "use default" signal.
+        self.assertEqual(_resolve_scopes({"com.posthog": {"scopes": []}}), [])
+
+    def test_partial_strip_keeps_grantable(self) -> None:
+        resolved = _resolve_scopes({"com.posthog": {"scopes": ["insight:read", "llm_gateway:read"]}})
+        self.assertEqual(resolved, ["insight:read"])
+
+    def test_all_non_grantable_raises(self) -> None:
+        with self.assertRaises(CIMDValidationError):
+            _resolve_scopes({"com.posthog": {"scopes": ["llm_gateway:read", "not_a_real_scope:write"]}})

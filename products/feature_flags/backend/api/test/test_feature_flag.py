@@ -19,12 +19,15 @@ from django.core.cache import cache
 from django.test import override_settings
 from django.utils.timezone import now
 
+import requests
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 from rest_framework import status
 from rest_framework.relations import ManyRelatedField
 
 from posthog import redis
-from posthog.api.cohort import get_cohort_actors_for_feature_flag
+from posthog.api.cohort import BATCH_FLAG_EVALUATION_PAGE_ATTEMPTS, get_cohort_actors_for_feature_flag
+from posthog.api.services.flags_service import FlagVersionConflictError
 from posthog.constants import AvailableFeature
 from posthog.models import GroupTypeMapping, TaggedItem, User
 from posthog.models.group.group import Group
@@ -37,17 +40,18 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
+from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
 from products.cohorts.backend.models.cohort import Cohort, CohortType
+from products.cohorts.backend.models.util import CohortErrorCode, get_friendly_error_message
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.models.experiment import Experiment
-from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
+from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer, parse_created_by_ids
 from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE, get_decrypted_flag_payload
 from products.feature_flags.backend.flag_status import FeatureFlagStatus
 from products.feature_flags.backend.models.feature_flag import (
     FeatureFlag,
     FeatureFlagDashboards,
-    FeatureFlagHashKeyOverride,
     get_feature_flags_for_team_in_cache,
 )
 from products.product_analytics.backend.models.insight import Insight
@@ -1096,6 +1100,54 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertIn("remote configuration", response.json()["detail"])
 
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
+    def test_update_flag_to_remote_config_persists(self, mock_report_user_action):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "key": "toggle-to-remote-config",
+                "name": "Toggle To Remote Config",
+                "filters": {"groups": [{"rollout_percentage": 100}]},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        flag_id = response.json()["id"]
+        self.assertFalse(response.json()["is_remote_configuration"])
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag_id}/",
+            {"is_remote_configuration": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.json()["is_remote_configuration"])
+        self.assertTrue(FeatureFlag.objects.get(id=flag_id).is_remote_configuration)
+
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
+    def test_update_remote_config_flag_to_non_remote_without_encryption_succeeds(self, mock_report_user_action):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "key": "rc-unencrypted",
+                "name": "RC Unencrypted",
+                "is_remote_configuration": True,
+                "filters": {"groups": [{"rollout_percentage": 100}], "payloads": {"true": '"data"'}},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        flag_id = response.json()["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag_id}/",
+            {"is_remote_configuration": False},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(response.json()["is_remote_configuration"])
+        self.assertFalse(FeatureFlag.objects.get(id=flag_id).is_remote_configuration)
+
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_create_feature_flag_with_analytics_dashboards(self, mock_report_user_action):
         dashboard = Dashboard.objects.create(team=self.team, name="private dashboard", created_by=self.user)
         response = self.client.post(
@@ -2007,12 +2059,17 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         self.client.logout()
 
+        client = redis.get_client()
+        client.delete(f"posthog:remote_config_requests:{self.team.pk}")
+
         response = self.client.get(
             f"/api/projects/{self.team.id}/feature_flags/my-remote-config-flag/remote_config",
             headers={"authorization": f"Bearer {personal_api_key}"},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), '{"test": true}')
+        # Personal-key requests are the app's preview feature, not SDK usage, so they aren't counted.
+        self.assertEqual(client.hgetall(f"posthog:remote_config_requests:{self.team.pk}"), {})
 
     def test_remote_config_with_project_secret_api_key(self):
         self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
@@ -2039,6 +2096,89 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), '{"test": true}')
+
+    @parameterized.expand([("plaintext_payloads", False), ("encrypted_payloads", True)])
+    def test_remote_config_increments_remote_config_bucket_by_one_per_request(
+        self, _name: str, has_encrypted_payloads: bool
+    ):
+        self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="my-remote-config-flag",
+            name="Remote Config Flag",
+            active=True,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "payloads": {"true": '{"test": true}'},
+            },
+            is_remote_configuration=True,
+            has_encrypted_payloads=has_encrypted_payloads,
+        )
+        self.client.logout()
+
+        client = redis.get_client()
+        client.delete(f"posthog:remote_config_requests:{self.team.pk}")
+        client.delete(f"posthog:decide_requests:{self.team.pk}")
+
+        with freeze_time("2022-05-07 12:23:07"):
+            for _ in range(3):
+                response = self.client.get(
+                    f"/api/projects/{self.team.id}/feature_flags/my-remote-config-flag/remote_config",
+                    headers={"authorization": f"Bearer {self.team.secret_api_token}"},
+                )
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Remote config usage is telemetry-only: it accumulates in its own bucket and must
+        # never reach the decide bucket that billing consumes.
+        buckets = client.hgetall(f"posthog:remote_config_requests:{self.team.pk}")
+        self.assertEqual(sum(int(count) for count in buckets.values()), 3)
+        self.assertEqual(client.hgetall(f"posthog:decide_requests:{self.team.pk}"), {})
+
+    def test_remote_config_does_not_count_when_flag_is_not_remote_config(self):
+        self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="not-a-remote-config-flag",
+            name="Regular Flag",
+            active=True,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+            is_remote_configuration=False,
+        )
+        self.client.logout()
+
+        client = redis.get_client()
+        client.delete(f"posthog:remote_config_requests:{self.team.pk}")
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/not-a-remote-config-flag/remote_config",
+            headers={"authorization": f"Bearer {self.team.secret_api_token}"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(client.hgetall(f"posthog:remote_config_requests:{self.team.pk}"), {})
+
+    def test_remote_config_does_not_count_session_authenticated_requests(self):
+        # Only team-secret-token fetches are counted. A session-authenticated GET must not increment
+        # usage, otherwise a logged-in member could be driven to the URL cross-site to inflate the
+        # team's usage telemetry.
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="my-remote-config-flag",
+            name="Remote Config Flag",
+            active=True,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "payloads": {"true": '{"test": true}'},
+            },
+            is_remote_configuration=True,
+        )
+
+        client = redis.get_client()
+        client.delete(f"posthog:remote_config_requests:{self.team.pk}")
+
+        # self.client is still logged in as self.user (session auth), no secret key supplied.
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/my-remote-config-flag/remote_config")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(client.hgetall(f"posthog:remote_config_requests:{self.team.pk}"), {})
 
     def test_remote_config_with_secret_api_key_prevents_cross_team_access(self):
         # Create two teams with different secret keys
@@ -2221,6 +2361,39 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # Verify the stored ciphertext actually round-trips back to the plaintext.
         decrypted = get_decrypted_flag_payload(stored, should_decrypt=True)
         self.assertEqual(decrypted, plaintext)
+
+    @parameterized.expand(
+        [
+            ("number", 42),
+            ("boolean", True),
+            ("null", None),
+            ("array", [1, 2, 3]),
+            ("object", {"key": "value"}),
+        ]
+    )
+    def test_update_encrypted_flag_encrypts_non_string_payload(self, _name, raw_value):
+        # A non-str JSON payload is normalized to a JSON string before encryption,
+        # so it encrypts cleanly instead of raising on `.encode()`.
+        flag = self._create_encrypted_flag()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            {
+                "has_encrypted_payloads": True,
+                "filters": {
+                    "groups": [{"properties": [], "rollout_percentage": 100}],
+                    "payloads": {"true": raw_value},
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        flag.refresh_from_db()
+        stored = flag.filters["payloads"]["true"]
+        self.assertNotEqual(stored, json.dumps(raw_value))
+        decrypted = get_decrypted_flag_payload(stored, should_decrypt=True)
+        self.assertEqual(json.loads(decrypted), raw_value)
 
     def test_update_encrypted_flag_downgrade_clears_payload(self):
         flag = self._create_encrypted_flag()
@@ -3466,15 +3639,43 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             team=self.team, key="56397-delete-flag", deleted=True
         ).exists()
 
-    def test_soft_delete_flag_blocked_with_active_experiment(self):
+    def test_soft_delete_flag_blocked_with_running_experiment(self):
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="flag2")
-        exp = Experiment.objects.create(team=self.team, created_by=self.user, feature_flag=flag)
+        exp = Experiment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            feature_flag=flag,
+            start_date=now(),
+        )
         response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"deleted": True})
         assert response.status_code == 400
         assert (
             response.json()["detail"]
-            == f"Cannot delete a feature flag that is linked to active experiment(s) with ID(s): {exp.id}. Please delete the experiment(s) before deleting the flag."
+            == f"Cannot delete a feature flag that is linked to running experiment(s) with ID(s): {exp.id}. Please stop the experiment(s) before deleting the flag."
         )
+
+    @parameterized.expand(
+        [
+            ("draft", None, None),
+            ("stopped", now(), now()),
+        ]
+    )
+    def test_soft_delete_flag_allowed_with_non_running_experiment(self, _name, start_date, end_date):
+        # Draft and stopped experiments may keep the flag so their history is preserved;
+        # deletion is allowed and the original key is freed up via the tombstone suffix.
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key=f"{_name}-exp-flag")
+        Experiment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            feature_flag=flag,
+            start_date=start_date,
+            end_date=end_date,
+        )
+        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"deleted": True})
+        assert response.status_code == 200, response.content
+        flag.refresh_from_db()
+        assert flag.deleted is True
+        assert flag.key == f"{_name}-exp-flag:deleted:{flag.id}"
 
     def test_soft_delete_flag_blocked_when_used_in_replay_settings(self):
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-flag")
@@ -4554,22 +4755,44 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertIsInstance(stored_payload, str)
         self.assertEqual(json.loads(stored_payload), {"key": "value"})
 
-        # Other valid JSON types (number, boolean, null, array) should be accepted
-        number_payload = self._create_flag_with_properties(
-            "number-payload-flag",
+    @parameterized.expand(
+        [
+            ("number", 42),
+            ("boolean", True),
+            ("null", None),
+            ("array", [1, 2, 3]),
+        ]
+    )
+    def test_non_string_payloads_are_normalized_to_json_strings(self, name, raw_value):
+        # Other valid JSON types (number, boolean, null, array) are accepted and
+        # normalized to JSON strings, matching how object payloads are stored.
+        response = self._create_flag_with_properties(
+            f"{name}-payload-flag",
             [{"key": "key", "value": "value", "type": "person"}],
-            payloads={"true": 42},
+            payloads={"true": raw_value},
             expected_status=status.HTTP_201_CREATED,
         )
-        self.assertEqual(number_payload.status_code, status.HTTP_201_CREATED)
+        stored = response.json()["filters"]["payloads"]["true"]
+        self.assertIsInstance(stored, str)
+        self.assertEqual(json.loads(stored), raw_value)
 
-        boolean_payload = self._create_flag_with_properties(
-            "boolean-payload-flag",
+    @parameterized.expand(
+        [
+            ("empty", ""),
+            ("whitespace", "   "),
+        ]
+    )
+    def test_blank_string_payloads_are_rejected(self, name, blank_value):
+        # An empty or whitespace-only string isn't valid JSON (the common "user cleared
+        # the field" case), so it's rejected rather than coerced.
+        response = self._create_flag_with_properties(
+            f"{name}-payload-flag",
             [{"key": "key", "value": "value", "type": "person"}],
-            payloads={"true": True},
-            expected_status=status.HTTP_201_CREATED,
+            payloads={"true": blank_value},
+            expected_status=status.HTTP_400_BAD_REQUEST,
         )
-        self.assertEqual(boolean_payload.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["detail"], "Payload value is not valid JSON")
 
     def test_creating_feature_flag_with_behavioral_cohort(self):
         cohort_valid_for_ff = Cohort.objects.create(
@@ -4877,26 +5100,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             },
         )
 
-    @parameterized.expand(
-        [
-            (
-                "flag_enabled",
-                True,
-                status.HTTP_201_CREATED,
-            ),
-            (
-                "flag_disabled",
-                False,
-                status.HTTP_400_BAD_REQUEST,
-            ),
-        ]
-    )
-    @patch("products.feature_flags.backend.api.feature_flag.posthoganalytics.feature_enabled")
-    def test_mixed_aggregation_types_across_condition_sets(
-        self, _name, mixed_targeting_enabled, expected_status, mock_feature_enabled
-    ):
-        mock_feature_enabled.return_value = mixed_targeting_enabled
-
+    def test_mixed_aggregation_types_across_condition_sets(self):
         GroupTypeMapping.objects.create(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
@@ -4923,22 +5127,16 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, expected_status)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-        if expected_status == status.HTTP_201_CREATED:
-            # Flag-level aggregation is None when condition sets have mixed aggregation types
-            self.assertIsNone(response.json()["filters"]["aggregation_group_type_index"])
-            # Each condition set retains its own aggregation type
-            groups = response.json()["filters"]["groups"]
-            self.assertIsNone(groups[0]["aggregation_group_type_index"])
-            self.assertEqual(groups[1]["aggregation_group_type_index"], 0)
-        else:
-            self.assertIn("Mixed aggregation types", response.json()["detail"])
+        # Flag-level aggregation is None when condition sets have mixed aggregation types
+        self.assertIsNone(response.json()["filters"]["aggregation_group_type_index"])
+        # Each condition set retains its own aggregation type
+        groups = response.json()["filters"]["groups"]
+        self.assertIsNone(groups[0]["aggregation_group_type_index"])
+        self.assertEqual(groups[1]["aggregation_group_type_index"], 0)
 
-    @patch("products.feature_flags.backend.api.feature_flag.posthoganalytics.feature_enabled")
-    def test_mixed_aggregation_round_trip(self, mock_feature_enabled):
-        mock_feature_enabled.return_value = True
-
+    def test_mixed_aggregation_round_trip(self):
         GroupTypeMapping.objects.create(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
@@ -4966,18 +5164,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertIsNone(filters["groups"][0]["aggregation_group_type_index"])
         self.assertEqual(filters["groups"][1]["aggregation_group_type_index"], 0)
 
-    @parameterized.expand(
-        [
-            ("flag_enabled", True, status.HTTP_201_CREATED),
-            ("flag_disabled", False, status.HTTP_400_BAD_REQUEST),
-        ]
-    )
-    @patch("products.feature_flags.backend.api.feature_flag.posthoganalytics.feature_enabled")
-    def test_mixed_aggregation_with_properties(
-        self, _name, mixed_targeting_enabled, expected_status, mock_feature_enabled
-    ):
-        mock_feature_enabled.return_value = mixed_targeting_enabled
-
+    def test_mixed_aggregation_with_properties(self):
         GroupTypeMapping.objects.create(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
@@ -5014,30 +5201,18 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, expected_status)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-        if expected_status == status.HTTP_201_CREATED:
-            groups = response.json()["filters"]["groups"]
-            self.assertIsNone(groups[0]["aggregation_group_type_index"])
-            self.assertEqual(groups[1]["aggregation_group_type_index"], 0)
-        else:
-            self.assertIn("Mixed aggregation types", response.json()["detail"])
+        groups = response.json()["filters"]["groups"]
+        self.assertIsNone(groups[0]["aggregation_group_type_index"])
+        self.assertEqual(groups[1]["aggregation_group_type_index"], 0)
 
-    @parameterized.expand(
-        [
-            ("flag_enabled", True, status.HTTP_200_OK),
-            ("flag_disabled", False, status.HTTP_400_BAD_REQUEST),
-        ]
-    )
-    @patch("products.feature_flags.backend.api.feature_flag.posthoganalytics.feature_enabled")
-    def test_patch_uniform_flag_to_mixed(self, _name, mixed_targeting_enabled, expected_status, mock_feature_enabled):
-        mock_feature_enabled.return_value = mixed_targeting_enabled
-
+    def test_patch_uniform_flag_to_mixed(self):
         GroupTypeMapping.objects.create(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
 
-        # Create a uniform person-aggregated flag (no feature flag check needed for uniform)
+        # Create a uniform person-aggregated flag
         flag = FeatureFlag.objects.create(
             team=self.team,
             key="uniform-to-mixed",
@@ -5062,7 +5237,14 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, expected_status)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Flag-level aggregation collapses to None once condition sets are mixed
+        filters = response.json()["filters"]
+        self.assertIsNone(filters["aggregation_group_type_index"])
+        # Each condition set retains its own aggregation type
+        self.assertIsNone(filters["groups"][0]["aggregation_group_type_index"])
+        self.assertEqual(filters["groups"][1]["aggregation_group_type_index"], 0)
 
     def test_per_condition_aggregation_normalization(self):
         """Test that flag-level aggregation is distributed to condition sets without one"""
@@ -5468,6 +5650,44 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         response = filtered_flags_list.json()
         assert len(response["results"]) == 1
         assert response["results"][0]["key"] == "green_button"
+
+    @parameterized.expand(
+        [
+            # (name, format_filter, expected_keys)
+            ("json_list", lambda ids: json.dumps([ids[0], ids[1]]), {"red_button", "blue_button"}),
+            ("comma_separated", lambda ids: f"{ids[0]},{ids[2]}", {"red_button", "orange_button"}),
+            ("single_id", lambda ids: str(ids[1]), {"blue_button"}),
+            ("no_match", lambda ids: json.dumps([ids[3]]), set()),
+        ]
+    )
+    def test_get_flags_with_multiple_created_by_id_filter(self, _name, format_filter, expected_keys):
+        another_user = User.objects.create(email="foo@bar.com")
+        third_user = User.objects.create(email="baz@bar.com")
+        unrelated_user = User.objects.create(email="nobody@bar.com")
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
+        FeatureFlag.objects.create(team=self.team, created_by=another_user, key="blue_button")
+        FeatureFlag.objects.create(team=self.team, created_by=third_user, key="orange_button")
+
+        ids = [self.user.id, another_user.id, third_user.id, unrelated_user.id]
+        response = self.client.get(f"/api/projects/@current/feature_flags?created_by_id={format_filter(ids)}")
+        assert {flag["key"] for flag in response.json()["results"]} == expected_keys
+
+    @parameterized.expand(
+        [
+            ("none", None, []),
+            ("bool_true", True, []),
+            ("int", 42, [42]),
+            ("single_str", "42", [42]),
+            ("empty_str", "", []),
+            ("comma_separated", "1,2", [1, 2]),
+            ("comma_with_invalid", "1,abc,3", [1, 3]),
+            ("json_list", "[1, 2]", [1, 2]),
+            ("non_numeric", "abc", []),
+            ("malformed_json", "[5", []),
+        ]
+    )
+    def test_parse_created_by_ids(self, _name, value, expected):
+        assert parse_created_by_ids(value) == expected
 
     def test_get_flags_with_type_filters(self):
         feature_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
@@ -6071,8 +6291,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         FeatureFlag.objects.create(
             team=self.team,
             created_by=self.user,
-            key="both_flag",
-            evaluation_runtime="both",
+            key="all_flag",
+            evaluation_runtime="all",
         )
 
         # Test filtering by server environment
@@ -6087,11 +6307,11 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert len(response["results"]) == 1
         assert response["results"][0]["key"] == "client_flag"
 
-        # Test filtering by both environment
-        filtered_flags_list = self.client.get(f"/api/projects/@current/feature_flags?evaluation_runtime=both")
+        # Test filtering by all environment
+        filtered_flags_list = self.client.get(f"/api/projects/@current/feature_flags?evaluation_runtime=all")
         response = filtered_flags_list.json()
         assert len(response["results"]) == 1
-        assert response["results"][0]["key"] == "both_flag"
+        assert response["results"][0]["key"] == "all_flag"
 
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     def test_flag_is_cached_on_create_and_update(self, mock_on_commit):
@@ -6219,7 +6439,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     @freeze_time("2021-01-01")
     @snapshot_clickhouse_queries
-    def test_creating_static_cohort(self):
+    @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
+    def test_creating_static_cohort(self, mock_batch_evaluate):
         flag = FeatureFlag.objects.create(
             team=self.team,
             filters={
@@ -6231,7 +6452,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             created_by=self.user,
         )
 
-        _create_person(
+        person1 = _create_person(
             team=self.team,
             distinct_ids=[f"person1"],
             properties={"key": "value"},
@@ -6247,6 +6468,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             properties={"key2": "value3"},
         )
         flush_persons_and_events()
+
+        mock_batch_evaluate.return_value = {
+            "matched_person_uuids": [str(person1.uuid)],
+            "next_cursor": None,
+            "errors_count": 0,
+        }
 
         with (
             snapshot_postgres_queries_context(self),
@@ -6484,6 +6711,32 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         response = self.client.get(f"/api/projects/@current/feature_flags/{feature_flag.id}")
         assert response.status_code == 200
         assert response.json()["experiment_set"] == []
+
+    def test_feature_flag_experiment_set_metadata_includes_running_status(self):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="metadata-flag",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        running = Experiment.objects.create(
+            team=self.team, created_by=self.user, name="Running", feature_flag=flag, start_date=now()
+        )
+        stopped = Experiment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Stopped",
+            feature_flag=flag,
+            start_date=now() - timedelta(days=1),
+            end_date=now(),
+        )
+        draft = Experiment.objects.create(team=self.team, created_by=self.user, name="Draft", feature_flag=flag)
+
+        response = self.client.get(f"/api/projects/@current/feature_flags/{flag.id}")
+        assert response.status_code == 200
+        # Only a running experiment is flagged as such; the frontend uses this to gate flag deletion
+        running_by_id = {exp["id"]: exp["is_running"] for exp in response.json()["experiment_set_metadata"]}
+        assert running_by_id == {running.id: True, stopped.id: False, draft.id: False}
 
     def test_bulk_keys_valid_ids(self):
         """Test that valid IDs return correct key mapping"""
@@ -7353,514 +7606,442 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
 
 class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
-    def test_creating_static_cohort_with_deleted_flag(self):
-        FeatureFlag.objects.create(
-            team=self.team,
-            filters={
+    """
+    Orchestration tests for get_cohort_actors_for_feature_flag with the Rust batch
+    evaluation HTTP client mocked. Evaluation correctness lives in the Rust service's
+    own test suite (rust/feature-flags/tests/test_batch_flag_evaluation.rs).
+    """
+
+    def _create_flag(self, key: str = "some-feature", **kwargs) -> FeatureFlag:
+        defaults: dict = {
+            "team": self.team,
+            "filters": {
                 "groups": [{"properties": [{"key": "key", "value": "value", "type": "person"}]}],
                 "multivariate": None,
             },
-            name="some feature",
-            key="some-feature",
-            created_by=self.user,
-            deleted=True,
-        )
+            "name": "some feature",
+            "key": key,
+            "created_by": self.user,
+        }
+        defaults.update(kwargs)
+        return FeatureFlag.objects.create(**defaults)
 
-        _create_person(
-            team=self.team,
-            distinct_ids=[f"person1"],
-            properties={"key": "value"},
-        )
-        flush_persons_and_events()
+    def _create_static_cohort(self) -> Cohort:
+        return Cohort.objects.create(team=self.team, is_static=True, name="some cohort")
 
-        cohort = Cohort.objects.create(
-            team=self.team,
-            is_static=True,
-            name="some cohort",
-        )
+    @staticmethod
+    def _page(uuids: list[str], next_cursor: int | None = None, errors_count: int = 0) -> dict:
+        return {"matched_person_uuids": uuids, "next_cursor": next_cursor, "errors_count": errors_count}
 
-        with self.assertNumQueries(2):
-            get_cohort_actors_for_feature_flag(cohort.pk, "some-feature", self.team.pk)
+    @staticmethod
+    def _metric(name: str, **labels: str) -> float:
+        # Metrics are process-global, so tests assert deltas against a before-value.
+        return REGISTRY.get_sample_value(name, labels or None) or 0.0
 
+    @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
+    def test_deleted_flag_returns_empty_without_calling_service(self, mock_batch_evaluate):
+        self._create_flag(deleted=True)
+        cohort = self._create_static_cohort()
+
+        get_cohort_actors_for_feature_flag(cohort.pk, "some-feature", self.team.pk)
+
+        mock_batch_evaluate.assert_not_called()
         cohort.refresh_from_db()
-        self.assertEqual(cohort.name, "some cohort")
         # don't even try inserting anything, because invalid flag, so None instead of 0
         self.assertEqual(cohort.count, None)
 
-        response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
-        self.assertEqual(len(response.json()["results"]), 0, response)
+    @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
+    def test_inactive_flag_returns_empty_without_calling_service(self, mock_batch_evaluate):
+        self._create_flag(active=False)
+        cohort = self._create_static_cohort()
 
-    def test_creating_static_cohort_with_inactive_flag(self):
-        FeatureFlag.objects.create(
-            team=self.team,
-            filters={
-                "groups": [{"properties": [{"key": "key", "value": "value", "type": "person"}]}],
-                "multivariate": None,
-            },
-            name="some feature",
-            key="some-feature2",
-            created_by=self.user,
-            active=False,
-        )
+        get_cohort_actors_for_feature_flag(cohort.pk, "some-feature", self.team.pk)
 
-        _create_person(
-            team=self.team,
-            distinct_ids=[f"person1"],
-            properties={"key": "value"},
-        )
-        flush_persons_and_events()
-
-        cohort = Cohort.objects.create(
-            team=self.team,
-            is_static=True,
-            name="some cohort",
-        )
-
-        with self.assertNumQueries(2):
-            get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk)
-
+        mock_batch_evaluate.assert_not_called()
         cohort.refresh_from_db()
-        self.assertEqual(cohort.name, "some cohort")
-        # don't even try inserting anything, because invalid flag, so None instead of 0
         self.assertEqual(cohort.count, None)
 
-        response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
-        self.assertEqual(len(response.json()["results"]), 0, response)
-
-    @freeze_time("2021-01-01")
-    def test_creating_static_cohort_with_group_flag(self):
-        FeatureFlag.objects.create(
-            team=self.team,
+    @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
+    def test_group_flag_returns_empty_without_calling_service(self, mock_batch_evaluate):
+        self._create_flag(
             filters={
-                "groups": [
-                    {
-                        "properties": [
-                            {
-                                "key": "key",
-                                "value": "value",
-                                "type": "group",
-                                "group_type_index": 1,
-                            }
-                        ]
-                    }
-                ],
+                "groups": [{"properties": [{"key": "key", "value": "value", "type": "group", "group_type_index": 1}]}],
                 "multivariate": None,
                 "aggregation_group_type_index": 1,
-            },
-            name="some feature",
-            key="some-feature3",
-            created_by=self.user,
+            }
         )
+        cohort = self._create_static_cohort()
 
-        _create_person(
-            team=self.team,
-            distinct_ids=[f"person1"],
-            properties={"key": "value"},
-        )
-        flush_persons_and_events()
+        get_cohort_actors_for_feature_flag(cohort.pk, "some-feature", self.team.pk)
 
-        cohort = Cohort.objects.create(
-            team=self.team,
-            is_static=True,
-            name="some cohort",
-        )
-
-        with self.assertNumQueries(2):
-            get_cohort_actors_for_feature_flag(cohort.pk, "some-feature3", self.team.pk)
-
+        mock_batch_evaluate.assert_not_called()
         cohort.refresh_from_db()
-        self.assertEqual(cohort.name, "some cohort")
-        # don't even try inserting anything, because invalid flag, so None instead of 0
         self.assertEqual(cohort.count, None)
 
-        response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
-        self.assertEqual(len(response.json()["results"]), 0, response)
+    @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
+    def test_non_existing_flag_returns_empty_without_calling_service(self, mock_batch_evaluate):
+        cohort = self._create_static_cohort()
 
-    def test_creating_static_cohort_with_no_person_distinct_ids(self):
-        FeatureFlag.objects.create(
-            team=self.team,
-            filters={
-                "groups": [{"properties": [], "rollout_percentage": 100}],
-                "multivariate": None,
-            },
-            name="some feature",
-            key="some-feature2",
-            created_by=self.user,
-        )
+        get_cohort_actors_for_feature_flag(cohort.pk, "does-not-exist", self.team.pk)
 
-        Person.objects.create(team=self.team)
-
-        cohort = Cohort.objects.create(
-            team=self.team,
-            is_static=True,
-            name="some cohort",
-        )
-
-        with self.assertNumQueries(6):
-            get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk)
-
+        mock_batch_evaluate.assert_not_called()
         cohort.refresh_from_db()
-        self.assertEqual(cohort.name, "some cohort")
-        # don't even try inserting anything, because invalid flag, so None instead of 0
         self.assertEqual(cohort.count, None)
 
-        response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
-        self.assertEqual(len(response.json()["results"]), 0, response)
-
-    def test_creating_static_cohort_with_non_existing_flag(self):
-        cohort = Cohort.objects.create(
-            team=self.team,
-            is_static=True,
-            name="some cohort",
-        )
-
-        with self.assertNumQueries(2):
-            get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk)
-
-        cohort.refresh_from_db()
-        self.assertEqual(cohort.name, "some cohort")
-        # don't even try inserting anything, because invalid flag, so None instead of 0
-        self.assertEqual(cohort.count, None)
-
-        response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
-        self.assertEqual(len(response.json()["results"]), 0, response)
-
-    @patch("products.feature_flags.backend.tasks.update_team_flags_cache")
-    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
-    def test_creating_static_cohort_with_experience_continuity_flag(self, mock_on_commit, mock_update_cache):
-        FeatureFlag.objects.create(
-            team=self.team,
-            filters={
-                "groups": [
-                    {
-                        "properties": [{"key": "key", "value": "value", "type": "person"}],
-                        "rollout_percentage": 50,
+    @parameterized.expand(
+        [
+            ("inactive_flag", {"active": False}),
+            (
+                "group_aggregated_flag",
+                {
+                    "filters": {
+                        "groups": [
+                            {"properties": [{"key": "key", "value": "value", "type": "group", "group_type_index": 1}]}
+                        ],
+                        "multivariate": None,
+                        "aggregation_group_type_index": 1,
                     }
-                ],
-                "multivariate": None,
-            },
-            name="some feature",
-            key="some-feature2",
-            created_by=self.user,
-            ensure_experience_continuity=True,
-        )
+                },
+            ),
+            ("missing_flag", None),
+        ]
+    )
+    @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
+    def test_guard_paths_clear_is_calculating(self, _name, flag_kwargs, mock_batch_evaluate):
+        # The enqueue site sets is_calculating=True before dispatching, so every guard
+        # exit must clear it rather than leave the cohort stuck. Each branch has its own
+        # _safe_save_cohort_state call: the missing-flag exit (except FeatureFlag.DoesNotExist)
+        # is separate from the combined inactive / group-aggregated branch.
+        if flag_kwargs is not None:
+            self._create_flag(**flag_kwargs)
+        cohort = self._create_static_cohort()
+        cohort.is_calculating = True
+        cohort.save(update_fields=["is_calculating"])
 
-        p1 = _create_person(
-            team=self.team,
-            distinct_ids=[f"person1"],
-            properties={"key": "value"},
-            immediate=True,
-        )
-        _create_person(
-            team=self.team,
-            distinct_ids=[f"person2"],
-            properties={"key": "value"},
-        )
-        _create_person(
-            team=self.team,
-            distinct_ids=[f"person3"],
-            properties={"key": "value"},
-        )
+        get_cohort_actors_for_feature_flag(cohort.pk, "some-feature", self.team.pk)
+
+        mock_batch_evaluate.assert_not_called()
+        cohort.refresh_from_db()
+        self.assertFalse(cohort.is_calculating)
+
+    @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
+    def test_matched_persons_are_added_to_cohort(self, mock_batch_evaluate):
+        self._create_flag()
+        p1 = _create_person(team=self.team, distinct_ids=["person1"], properties={"key": "value"}, immediate=True)
+        p2 = _create_person(team=self.team, distinct_ids=["person2"], properties={"key": "value"}, immediate=True)
+        _create_person(team=self.team, distinct_ids=["person3"], properties={}, immediate=True)
         flush_persons_and_events()
+        cohort = self._create_static_cohort()
 
-        FeatureFlagHashKeyOverride.objects.create(
-            feature_flag_key="some-feature2",
-            person=p1,
-            team=self.team,
-            hash_key="123",
+        mock_batch_evaluate.return_value = self._page([str(p1.uuid), str(p2.uuid)])
+
+        completed_before = self._metric("cohort_flag_generation_completed_total", outcome="success")
+        duration_count_before = self._metric("cohort_flag_generation_duration_seconds_count", outcome="success")
+
+        get_cohort_actors_for_feature_flag(cohort.pk, "some-feature", self.team.pk)
+
+        self.assertEqual(
+            self._metric("cohort_flag_generation_completed_total", outcome="success"), completed_before + 1
         )
-
-        cohort = Cohort.objects.create(
-            team=self.team,
-            is_static=True,
-            name="some cohort",
+        self.assertEqual(
+            self._metric("cohort_flag_generation_duration_seconds_count", outcome="success"),
+            duration_count_before + 1,
         )
+        mock_batch_evaluate.assert_called_once_with(
+            team_id=self.team.pk,
+            project_id=self.team.project_id,
+            flag_key="some-feature",
+            expected_version=1,
+            cursor=0,
+            limit=1_000,
+        )
+        cohort.refresh_from_db()
+        self.assertEqual(cohort.count, 2)
+        self.assertFalse(cohort.is_calculating)
+        self.assertEqual(cohort.errors_calculating, 0)
 
-        # TODO: Ensure server-side cursors are disabled, since in production we use this with pgbouncer
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(18):
-            get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk)
+        response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
+        self.assertEqual(len(response.json()["results"]), 2, response)
+
+    @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
+    def test_flag_matching_nobody_finalizes_empty_cohort(self, mock_batch_evaluate):
+        self._create_flag()
+        cohort = self._create_static_cohort()
+
+        # The final flush is unconditional precisely so a zero-match run still recomputes
+        # count to 0 and clears is_calculating, instead of leaving the cohort stuck.
+        mock_batch_evaluate.return_value = self._page([])
+
+        get_cohort_actors_for_feature_flag(cohort.pk, "some-feature", self.team.pk)
+
+        mock_batch_evaluate.assert_called_once()
+        cohort.refresh_from_db()
+        self.assertEqual(cohort.count, 0)
+        self.assertFalse(cohort.is_calculating)
+        self.assertEqual(cohort.errors_calculating, 0)
+
+    @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
+    def test_cursor_loop_advances_and_terminates(self, mock_batch_evaluate):
+        self._create_flag()
+        persons = [
+            _create_person(team=self.team, distinct_ids=[f"person{i}"], properties={"key": "value"}, immediate=True)
+            for i in range(3)
+        ]
+        flush_persons_and_events()
+        cohort = self._create_static_cohort()
+
+        mock_batch_evaluate.side_effect = [
+            self._page([str(persons[0].uuid)], next_cursor=100),
+            self._page([str(persons[1].uuid)], next_cursor=200),
+            self._page([str(persons[2].uuid)], next_cursor=None),
+        ]
+
+        get_cohort_actors_for_feature_flag(cohort.pk, "some-feature", self.team.pk, batchsize=2)
+
+        self.assertEqual(mock_batch_evaluate.call_count, 3)
+        cursors = [call.kwargs["cursor"] for call in mock_batch_evaluate.call_args_list]
+        self.assertEqual(cursors, [0, 100, 200])
+        limits = {call.kwargs["limit"] for call in mock_batch_evaluate.call_args_list}
+        self.assertEqual(limits, {2})
 
         cohort.refresh_from_db()
-        self.assertEqual(cohort.name, "some cohort")
+        self.assertEqual(cohort.count, 3)
+
+    @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
+    def test_non_advancing_cursor_fails_instead_of_looping(self, mock_batch_evaluate):
+        self._create_flag()
+        cohort = self._create_static_cohort()
+
+        mock_batch_evaluate.return_value = self._page([], next_cursor=0)
+
+        with self.assertRaises(RuntimeError):
+            get_cohort_actors_for_feature_flag(cohort.pk, "some-feature", self.team.pk)
+
+        self.assertEqual(mock_batch_evaluate.call_count, 1)
+
+        cohort.refresh_from_db()
+        self.assertFalse(cohort.is_calculating)
+        self.assertEqual(cohort.errors_calculating, 1)
+        history = CohortCalculationHistory.objects.get(cohort=cohort)
+        self.assertEqual(history.error_code, CohortErrorCode.UNKNOWN)
+        self.assertEqual(history.error, get_friendly_error_message(CohortErrorCode.UNKNOWN))
+
+    @patch("posthog.api.cohort.time.sleep")
+    @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
+    def test_transient_errors_retry_then_succeed(self, mock_batch_evaluate, mock_sleep):
+        self._create_flag()
+        person = _create_person(team=self.team, distinct_ids=["person1"], properties={"key": "value"}, immediate=True)
+        flush_persons_and_events()
+        cohort = self._create_static_cohort()
+
+        mock_batch_evaluate.side_effect = [
+            requests.ConnectionError("connection refused"),
+            self._page([str(person.uuid)]),
+        ]
+
+        retries_before = self._metric("cohort_flag_generation_page_retries_total")
+
+        get_cohort_actors_for_feature_flag(cohort.pk, "some-feature", self.team.pk)
+
+        self.assertEqual(mock_batch_evaluate.call_count, 2)
+        self.assertEqual(self._metric("cohort_flag_generation_page_retries_total"), retries_before + 1)
+        cohort.refresh_from_db()
+        self.assertEqual(cohort.count, 1)
+        self.assertEqual(cohort.errors_calculating, 0)
+
+    @patch("posthog.api.cohort.time.sleep")
+    @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
+    def test_persistent_errors_exhaust_retries_and_propagate(self, mock_batch_evaluate, mock_sleep):
+        self._create_flag()
+        cohort = self._create_static_cohort()
+
+        mock_batch_evaluate.side_effect = requests.ConnectionError("connection refused")
+
+        completed_before = self._metric("cohort_flag_generation_completed_total", outcome="unknown")
+
+        with self.assertRaises(requests.ConnectionError):
+            get_cohort_actors_for_feature_flag(cohort.pk, "some-feature", self.team.pk)
+
+        self.assertEqual(mock_batch_evaluate.call_count, BATCH_FLAG_EVALUATION_PAGE_ATTEMPTS)
+        self.assertEqual(
+            self._metric("cohort_flag_generation_completed_total", outcome="unknown"), completed_before + 1
+        )
+
+        cohort.refresh_from_db()
+        self.assertFalse(cohort.is_calculating)
+        self.assertEqual(cohort.errors_calculating, 1)
+        history = CohortCalculationHistory.objects.get(cohort=cohort)
+        self.assertEqual(history.error_code, CohortErrorCode.UNKNOWN)
+        # The user-visible error is the friendly message, never the raw exception
+        # (which can contain internal service URLs).
+        self.assertEqual(history.error, get_friendly_error_message(CohortErrorCode.UNKNOWN))
+        assert history.error is not None
+        self.assertNotIn("connection refused", history.error)
+
+    @patch("posthog.api.cohort.time.sleep")
+    @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
+    def test_version_conflict_is_not_retried_and_surfaces_user_facing_error(self, mock_batch_evaluate, mock_sleep):
+        self._create_flag()
+        cohort = self._create_static_cohort()
+
+        mock_batch_evaluate.side_effect = FlagVersionConflictError("flag changed during cohort generation")
+
+        with self.assertRaises(FlagVersionConflictError):
+            get_cohort_actors_for_feature_flag(cohort.pk, "some-feature", self.team.pk)
+
+        # Permanent error: no retries
+        self.assertEqual(mock_batch_evaluate.call_count, 1)
+        mock_sleep.assert_not_called()
+
+        cohort.refresh_from_db()
+        self.assertFalse(cohort.is_calculating)
+        self.assertEqual(cohort.errors_calculating, 1)
+        history = CohortCalculationHistory.objects.get(cohort=cohort)
+        self.assertEqual(history.error_code, CohortErrorCode.FLAG_CHANGED)
+        self.assertEqual(
+            get_friendly_error_message(history.error_code),
+            "The feature flag changed while this cohort was being calculated. Please run the calculation again.",
+        )
+
+    @patch("posthog.api.cohort.time.sleep")
+    @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
+    def test_client_errors_are_not_retried(self, mock_batch_evaluate, mock_sleep):
+        self._create_flag()
+        cohort = self._create_static_cohort()
+
+        response = requests.Response()
+        response.status_code = 400
+        mock_batch_evaluate.side_effect = requests.HTTPError(response=response)
+
+        with self.assertRaises(requests.HTTPError):
+            get_cohort_actors_for_feature_flag(cohort.pk, "some-feature", self.team.pk)
+
+        self.assertEqual(mock_batch_evaluate.call_count, 1)
+        mock_sleep.assert_not_called()
+
+    @patch("posthog.api.cohort.time.sleep")
+    @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
+    def test_server_errors_are_retried(self, mock_batch_evaluate, mock_sleep):
+        self._create_flag()
+        cohort = self._create_static_cohort()
+
+        # A request timeout or overload surfaces as a 5xx HTTPError from raise_for_status,
+        # which must fall through the 4xx permanent band and retry, unlike the 400 above.
+        response = requests.Response()
+        response.status_code = 503
+        mock_batch_evaluate.side_effect = requests.HTTPError(response=response)
+
+        with self.assertRaises(requests.HTTPError):
+            get_cohort_actors_for_feature_flag(cohort.pk, "some-feature", self.team.pk)
+
+        self.assertEqual(mock_batch_evaluate.call_count, BATCH_FLAG_EVALUATION_PAGE_ATTEMPTS)
+
+        cohort.refresh_from_db()
+        self.assertFalse(cohort.is_calculating)
+        self.assertEqual(cohort.errors_calculating, 1)
+        history = CohortCalculationHistory.objects.get(cohort=cohort)
+        self.assertEqual(history.error_code, CohortErrorCode.UNKNOWN)
+
+    @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
+    def test_rerun_after_failure_is_idempotent(self, mock_batch_evaluate):
+        # Re-running after a failure (e.g. the user triggers cohort generation again)
+        # re-inserts the same UUIDs; inserts dedupe on (cohort_id, person_id) so the
+        # count must not grow.
+        self._create_flag()
+        person = _create_person(team=self.team, distinct_ids=["person1"], properties={"key": "value"}, immediate=True)
+        flush_persons_and_events()
+        cohort = self._create_static_cohort()
+
+        mock_batch_evaluate.return_value = self._page([str(person.uuid)])
+
+        get_cohort_actors_for_feature_flag(cohort.pk, "some-feature", self.team.pk)
+        get_cohort_actors_for_feature_flag(cohort.pk, "some-feature", self.team.pk)
+
+        cohort.refresh_from_db()
         self.assertEqual(cohort.count, 1)
 
         response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
         self.assertEqual(len(response.json()["results"]), 1, response)
 
-    @patch("products.feature_flags.backend.tasks.update_team_flags_cache")
-    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
-    def test_creating_static_cohort_iterator(self, mock_on_commit, mock_update_cache):
-        FeatureFlag.objects.create(
-            team=self.team,
-            filters={
-                "groups": [
-                    {
-                        "properties": [{"key": "key", "value": "value", "type": "person"}],
-                        "rollout_percentage": 100,
-                    }
-                ],
-                "multivariate": None,
-            },
-            name="some feature",
-            key="some-feature2",
-            created_by=self.user,
-        )
-
-        _create_person(
-            team=self.team,
-            distinct_ids=[f"person1"],
-            properties={"key": "value"},
-        )
-        _create_person(
-            team=self.team,
-            distinct_ids=[f"person2"],
-            properties={"key": "value"},
-        )
-        _create_person(
-            team=self.team,
-            distinct_ids=[f"person3"],
-            properties={"key": "value"},
-        )
-        _create_person(
-            team=self.team,
-            distinct_ids=[f"person4"],
-            properties={"key": "valuu3"},
-        )
+    @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
+    def test_per_person_eval_errors_do_not_fail_the_run(self, mock_batch_evaluate):
+        self._create_flag()
+        person = _create_person(team=self.team, distinct_ids=["person1"], properties={"key": "value"}, immediate=True)
         flush_persons_and_events()
+        cohort = self._create_static_cohort()
 
-        cohort = Cohort.objects.create(
-            team=self.team,
-            is_static=True,
-            name="some cohort",
-        )
+        mock_batch_evaluate.return_value = self._page([str(person.uuid)], errors_count=5)
 
-        # Extra queries because each batch adds its own queries
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(25):
-            get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk, batchsize=2)
+        get_cohort_actors_for_feature_flag(cohort.pk, "some-feature", self.team.pk)
 
         cohort.refresh_from_db()
-        self.assertEqual(cohort.name, "some cohort")
-        self.assertEqual(cohort.count, 3)
-
-        response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
-        self.assertEqual(len(response.json()["results"]), 3, response)
-
-        # if the batch is big enough, it's fewer queries
-        with self.assertNumQueries(FuzzyInt(14, 17)):
-            get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk, batchsize=10)
-
-        cohort.refresh_from_db()
-        self.assertEqual(cohort.name, "some cohort")
-        self.assertEqual(cohort.count, 3)
-
-        response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
-        self.assertEqual(len(response.json()["results"]), 3, response)
-
-    @patch("products.feature_flags.backend.tasks.update_team_flags_cache")
-    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
-    def test_creating_static_cohort_with_default_person_properties_adjustment(self, mock_on_commit, mock_update_cache):
-        FeatureFlag.objects.create(
-            team=self.team,
-            filters={
-                "groups": [
-                    {
-                        "properties": [
-                            {
-                                "key": "key",
-                                "value": "value",
-                                "type": "person",
-                                "operator": "icontains",
-                            }
-                        ],
-                        "rollout_percentage": 100,
-                    }
-                ],
-                "multivariate": None,
-            },
-            name="some feature",
-            key="some-feature2",
-            created_by=self.user,
-            ensure_experience_continuity=False,
-        )
-        FeatureFlag.objects.create(
-            team=self.team,
-            filters={
-                "groups": [
-                    {
-                        "properties": [
-                            {
-                                "key": "key",
-                                "value": "value",
-                                "type": "person",
-                                "operator": "is_set",
-                            }
-                        ],
-                        "rollout_percentage": 100,
-                    }
-                ],
-                "multivariate": None,
-            },
-            name="some feature",
-            key="some-feature-new",
-            created_by=self.user,
-            ensure_experience_continuity=False,
-        )
-
-        _create_person(team=self.team, distinct_ids=[f"person1"], properties={"key": "value"})
-        _create_person(
-            team=self.team,
-            distinct_ids=[f"person2"],
-            properties={"key": "vaalue"},
-        )
-        _create_person(
-            team=self.team,
-            distinct_ids=[f"person3"],
-            properties={"key22": "value"},
-        )
-        flush_persons_and_events()
-
-        cohort = Cohort.objects.create(
-            team=self.team,
-            is_static=True,
-            name="some cohort",
-        )
-
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(15):
-            # no queries to evaluate flags, because all evaluated using override properties
-            get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk)
-
-        cohort.refresh_from_db()
-        self.assertEqual(cohort.name, "some cohort")
         self.assertEqual(cohort.count, 1)
+        self.assertEqual(cohort.errors_calculating, 0)
 
-        response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
-        self.assertEqual(len(response.json()["results"]), 1, response)
-
-        cohort2 = Cohort.objects.create(
-            team=self.team,
-            is_static=True,
-            name="some cohort2",
-        )
-
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(FuzzyInt(14, 17)):
-            # person3 doesn't match filter conditions so is pre-filtered out
-            get_cohort_actors_for_feature_flag(cohort2.pk, "some-feature-new", self.team.pk)
-
-        cohort2.refresh_from_db()
-        self.assertEqual(cohort2.name, "some cohort2")
-        self.assertEqual(cohort2.count, 2)
-
-    @patch("products.feature_flags.backend.tasks.update_team_flags_cache")
-    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
-    def test_creating_static_cohort_with_cohort_flag_adds_cohort_props_as_default_too(
-        self, mock_on_commit, mock_update_cache
-    ):
-        cohort_nested = Cohort.objects.create(
-            team=self.team,
-            filters={
-                "properties": {
-                    "type": "OR",
-                    "values": [
-                        {
-                            "type": "OR",
-                            "values": [
-                                {
-                                    "key": "does-not-exist",
-                                    "value": "none",
-                                    "type": "person",
-                                },
-                            ],
-                        }
-                    ],
-                }
-            },
-        )
-        cohort_static = Cohort.objects.create(
-            team=self.team,
-            is_static=True,
-        )
-        cohort_existing = Cohort.objects.create(
-            team=self.team,
-            filters={
-                "properties": {
-                    "type": "OR",
-                    "values": [
-                        {
-                            "type": "OR",
-                            "values": [
-                                {"key": "group", "value": "none", "type": "person"},
-                                {"key": "group2", "value": [1, 2, 3], "type": "person"},
-                                {
-                                    "key": "id",
-                                    "value": cohort_static.pk,
-                                    "type": "cohort",
-                                },
-                                {
-                                    "key": "id",
-                                    "value": cohort_nested.pk,
-                                    "type": "cohort",
-                                },
-                            ],
-                        }
-                    ],
-                }
-            },
-            name="cohort1",
-        )
-        FeatureFlag.objects.create(
-            team=self.team,
-            filters={
-                "groups": [
-                    {
-                        "properties": [{"key": "id", "value": cohort_existing.pk, "type": "cohort"}],
-                        "rollout_percentage": 100,
-                    },
-                    {
-                        "properties": [{"key": "key", "value": "value", "type": "person"}],
-                        "rollout_percentage": 100,
-                    },
-                ],
-                "multivariate": None,
-            },
-            name="some feature",
-            key="some-feature-new",
-            created_by=self.user,
-            ensure_experience_continuity=False,
-        )
-
-        _create_person(team=self.team, distinct_ids=[f"person1"], properties={"key": "value"})
-        _create_person(
-            team=self.team,
-            distinct_ids=[f"person2"],
-            properties={"group": "none"},
-        )
-        _create_person(
-            team=self.team,
-            distinct_ids=[f"person3"],
-            properties={"key22": "value", "group2": 2},
-        )
-        _create_person(
-            team=self.team,
-            distinct_ids=[f"person4"],
-            properties={},
-        )
+    @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
+    def test_insert_batching_flushes_mid_run(self, mock_batch_evaluate):
+        # With batchsize=2 and 2 matches on the first of two pages, the buffer flushes
+        # mid-run and the final flush still completes the cohort.
+        self._create_flag()
+        persons = [
+            _create_person(team=self.team, distinct_ids=[f"person{i}"], properties={"key": "value"}, immediate=True)
+            for i in range(3)
+        ]
         flush_persons_and_events()
+        cohort = self._create_static_cohort()
 
-        cohort_static.insert_users_by_list([f"person4"])
+        mock_batch_evaluate.side_effect = [
+            self._page([str(persons[0].uuid), str(persons[1].uuid)], next_cursor=50),
+            self._page([str(persons[2].uuid)], next_cursor=None),
+        ]
 
-        cohort = Cohort.objects.create(
-            team=self.team,
-            is_static=True,
-            name="some cohort",
-        )
+        with patch.object(
+            Cohort, "insert_users_list_by_uuid", autospec=True, side_effect=Cohort.insert_users_list_by_uuid
+        ) as mock_insert:
+            get_cohort_actors_for_feature_flag(cohort.pk, "some-feature", self.team.pk, batchsize=2)
 
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(32):
-            # forced to evaluate flags by going to db, because cohorts need db query to evaluate
-            get_cohort_actors_for_feature_flag(cohort.pk, "some-feature-new", self.team.pk)
+        # One mid-run flush (buffer hit batchsize) + the final flush
+        self.assertEqual(mock_insert.call_count, 2)
+        cohort.refresh_from_db()
+        self.assertEqual(cohort.count, 3)
+
+    @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
+    def test_insert_failure_is_recorded_as_failure_not_success(self, mock_batch_evaluate):
+        # A DB/ClickHouse failure while inserting matched persons must surface as a failed
+        # generation (the insert runs with raise_on_error=True), not be swallowed and
+        # counted as success. DEBUG is forced off so the production swallow path is what
+        # would run without raise_on_error.
+        self._create_flag()
+        person = _create_person(team=self.team, distinct_ids=["person1"], properties={"key": "value"}, immediate=True)
+        flush_persons_and_events()
+        cohort = self._create_static_cohort()
+
+        mock_batch_evaluate.return_value = self._page([str(person.uuid)])
+
+        success_before = self._metric("cohort_flag_generation_completed_total", outcome="success")
+        unknown_before = self._metric("cohort_flag_generation_completed_total", outcome="unknown")
+
+        with (
+            self.settings(DEBUG=False),
+            patch("posthog.personhog_client.gate.use_personhog", return_value=False),
+            patch(
+                "products.cohorts.backend.models.util.insert_static_cohort",
+                side_effect=Exception("clickhouse insert failed"),
+            ),
+            self.assertRaises(Exception),
+        ):
+            get_cohort_actors_for_feature_flag(cohort.pk, "some-feature", self.team.pk)
+
+        # Recorded as a failure, never as success.
+        self.assertEqual(self._metric("cohort_flag_generation_completed_total", outcome="success"), success_before)
+        self.assertEqual(self._metric("cohort_flag_generation_completed_total", outcome="unknown"), unknown_before + 1)
 
         cohort.refresh_from_db()
-        self.assertEqual(cohort.name, "some cohort")
-        self.assertEqual(cohort.count, 4)
+        self.assertFalse(cohort.is_calculating)
+        # A single error save (the orchestrator's), not double-counted by the insert helper.
+        self.assertEqual(cohort.errors_calculating, 1)
+        history = CohortCalculationHistory.objects.get(cohort=cohort)
+        self.assertEqual(history.error_code, CohortErrorCode.UNKNOWN)
 
 
 class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
@@ -10518,6 +10699,59 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
             FeatureFlagStatus.ACTIVE,
         )
 
+    # (name, filters, expected_rollout) — exercises the rollout summary end-to-end through the serializer.
+    @parameterized.expand(
+        [
+            (
+                "full_rollout",
+                {"groups": [{"rollout_percentage": 100, "properties": []}]},
+                {
+                    "effectively_full_rollout": True,
+                    "has_targeting_conditions": False,
+                    "max_rollout_percentage": 100,
+                    "is_multivariate": False,
+                },
+            ),
+            (
+                "targeted",
+                {"groups": [{"rollout_percentage": 50, "properties": [{"key": "email", "value": "x"}]}]},
+                {
+                    "effectively_full_rollout": False,
+                    "has_targeting_conditions": True,
+                    "max_rollout_percentage": 50,
+                    "is_multivariate": False,
+                },
+            ),
+            # Multivariate flag guards the is_multivariate field through the serializer path.
+            (
+                "multivariate",
+                {
+                    "multivariate": {"variants": [{"key": "control", "rollout_percentage": 100}]},
+                    "groups": [{"rollout_percentage": 100, "properties": []}],
+                },
+                {
+                    "effectively_full_rollout": True,
+                    "has_targeting_conditions": False,
+                    "max_rollout_percentage": 100,
+                    "is_multivariate": True,
+                },
+            ),
+        ]
+    )
+    def test_flag_status_includes_rollout_summary(self, name, filters, expected_rollout):
+        """The status response exposes a rollout summary so callers can determine full rollout / GA."""
+        flag = FeatureFlag.objects.create(
+            name=f"{name} flag",
+            key=f"{name}-flag",
+            team=self.team,
+            active=True,
+            filters=filters,
+            last_called_at=datetime.now(UTC),
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/status")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["rollout"], expected_rollout)
+
     def test_get_flags_with_stale_filter_usage_and_config_based(self):
         """Test filtering by STALE status with both usage and config-based detection"""
         FeatureFlag.objects.all().delete()
@@ -10845,8 +11079,8 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
         assert len(data["deleted"]) == 150
         assert len(data["errors"]) == 0
 
-    def test_bulk_delete_validates_experiments(self):
-        """Test that flags linked to active experiments are rejected."""
+    def test_bulk_delete_validates_running_experiments(self):
+        """Test that flags linked to running experiments are rejected."""
         flag = FeatureFlag.objects.create(
             team=self.team,
             created_by=self.user,
@@ -10858,6 +11092,7 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
             name="Test Experiment",
             feature_flag=flag,
             created_by=self.user,
+            start_date=now(),
         )
 
         response = self.client.post(
@@ -10874,6 +11109,38 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
         # Verify flag is NOT deleted
         flag.refresh_from_db()
         assert flag.deleted is False
+
+    def test_bulk_delete_allows_flag_linked_to_stopped_experiment(self):
+        """Flags linked to stopped/draft experiments can be deleted while preserving experiment history."""
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="stopped_experiment_flag",
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+        Experiment.objects.create(
+            team=self.team,
+            name="Stopped Experiment",
+            feature_flag=flag,
+            created_by=self.user,
+            start_date=now(),
+            end_date=now(),
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
+            {"ids": [flag.id]},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["deleted"]) == 1
+        assert len(data["errors"]) == 0
+
+        flag.refresh_from_db()
+        assert flag.deleted is True
+        # Key is freed up for reuse
+        assert flag.key == f"stopped_experiment_flag:deleted:{flag.id}"
 
     def test_bulk_delete_requires_filters_or_ids(self):
         """Test validation error when neither filters nor ids provided."""
@@ -11019,6 +11286,16 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
                 },
             },
         )
+        # Empty-variants block routes through the boolean branch: a 100% group is fully rolled out.
+        empty_variants = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="empty_variants",
+            filters={
+                "groups": [{"rollout_percentage": 100, "properties": []}],
+                "multivariate": {"variants": []},
+            },
+        )
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
@@ -11028,13 +11305,14 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
                     zero_rollout.id,
                     partial.id,
                     multivariate.id,
+                    empty_variants.id,
                 ]
             },
         )
 
         assert response.status_code == 200
         data = response.json()
-        assert len(data["deleted"]) == 4
+        assert len(data["deleted"]) == 5
 
         by_key = {d["key"]: d for d in data["deleted"]}
 
@@ -11049,6 +11327,9 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
 
         assert by_key["multivariate_full"]["rollout_state"] == "fully_rolled_out"
         assert by_key["multivariate_full"]["active_variant"] == "winner"
+
+        assert by_key["empty_variants"]["rollout_state"] == "fully_rolled_out"
+        assert by_key["empty_variants"]["active_variant"] is None
 
     def test_bulk_delete_with_dependent_flags(self):
         """Test that flags with dependents cannot be deleted."""

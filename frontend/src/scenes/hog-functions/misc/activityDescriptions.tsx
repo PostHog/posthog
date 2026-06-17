@@ -1,6 +1,5 @@
-import { DiffEditor } from '@monaco-editor/react'
+import { Suspense, lazy } from 'react'
 
-import 'lib/monaco/monacoEnvironment'
 import {
     ActivityLogItem,
     HumanizedChange,
@@ -9,53 +8,34 @@ import {
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { Link } from 'lib/lemon-ui/Link'
-import { initHogLanguage } from 'lib/monaco/languages/hog'
-import { isObject } from 'lib/utils'
+import { Spinner } from 'lib/lemon-ui/Spinner'
+import { isObject } from 'lib/utils/guards'
 import { urls } from 'scenes/urls'
 
 import { HogFunctionTypeType } from '~/types'
 
 import { humanizeHogFunctionType } from '../hog-function-utils'
+import type { DiffProps } from './Diff'
 
 const nameOrLinkToHogFunction = (id?: string | null, name?: string | null): string | JSX.Element => {
     const displayName = name?.trim() ? name : 'Untitled hog function'
     return id ? <Link to={urls.hogFunction(id)}>{displayName}</Link> : displayName
 }
 
-export interface DiffProps {
-    before: string
-    after: string
-    language?: string
-}
+const LazyDiff = lazy(() => import('./Diff').then((m) => ({ default: m.Diff })))
 
-export function Diff({ before, after, language }: DiffProps): JSX.Element {
+/** Lazy so the activity describer registry (imported app-wide) doesn't pull monaco into its chunk. */
+export function Diff(props: DiffProps): JSX.Element {
     return (
-        <DiffEditor
-            height="300px"
-            original={before}
-            modified={after}
-            language={language ?? 'json'}
-            onMount={(_, monaco) => {
-                if (language === 'hog') {
-                    initHogLanguage(monaco)
-                }
-            }}
-            options={{
-                lineNumbers: 'off',
-                minimap: { enabled: false },
-                folding: false,
-                wordWrap: 'on',
-                renderLineHighlight: 'none',
-                scrollbar: { vertical: 'auto', horizontal: 'hidden' },
-                overviewRulerBorder: false,
-                hideCursorInOverviewRuler: true,
-                overviewRulerLanes: 0,
-                tabFocusMode: true,
-                enableSplitViewResizing: false,
-                renderSideBySide: false,
-                readOnly: true,
-            }}
-        />
+        <Suspense
+            fallback={
+                <div className="min-h-[300px]">
+                    <Spinner />
+                </div>
+            }
+        >
+            <LazyDiff {...props} />
+        </Suspense>
     )
 }
 

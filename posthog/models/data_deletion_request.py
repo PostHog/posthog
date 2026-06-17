@@ -42,9 +42,14 @@ def compile_hogql_predicate(obj) -> tuple[str, dict]:
 
     # Imported lazily: HogQL pulls in the full schema graph, which we don't want
     # to load for every model import (admin registration, migrations, etc.).
+    from posthog.schema import PersonsOnEventsMode
+
     from posthog.hogql.context import HogQLContext
     from posthog.hogql.hogql import translate_hogql
+    from posthog.hogql.modifiers import create_default_modifiers_for_team
     from posthog.hogql.parser import parse_expr
+
+    from posthog.models.team import Team
 
     try:
         parse_expr(predicate)
@@ -61,7 +66,32 @@ def compile_hogql_predicate(obj) -> tuple[str, dict]:
     # ``within_non_hogql_query=True`` instructs the printer to emit unqualified column
     # references for the outer expression so the fragment splices into both the
     # Distributed ``events`` SELECT and the ``sharded_events`` DELETE mutation.
-    context = HogQLContext(team_id=obj.team_id, within_non_hogql_query=True, enable_select_queries=True)
+    #
+    # Resolve the team's modifiers (``propertyGroupsMode`` et al.) so the predicate compiles
+    # like a regular HogQL query. Without them the property-group optimizer is off, and a typed
+    # property comparison such as ``person.properties.isEnterprise = 'yes'`` falls back to a
+    # coerced JSONExtract that casts the value to Bool — turning the stored string into NULL so
+    # the predicate silently matches nothing. With them it becomes the index-eligible
+    # ``person_properties_map_custom['isEnterprise'] = 'yes'`` map read.
+    #
+    # Force on-events person resolution regardless of the team's general query default: the
+    # fragment is spliced bare into the ``events`` SELECT and the ``sharded_events`` DELETE, so
+    # ``person.properties`` must read the on-events ``person_properties`` column — a joined
+    # persons table (the ``..._joined`` / ``disabled`` modes) would reference an alias that does
+    # not exist in either splice site.
+    try:
+        team = Team.objects.get(id=obj.team_id)
+    except Team.DoesNotExist as exc:
+        raise ValidationError({"hogql_predicate": "team no longer exists; cannot validate the predicate."}) from exc
+    modifiers = create_default_modifiers_for_team(team)
+    modifiers.personsOnEventsMode = PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
+    context = HogQLContext(
+        team_id=obj.team_id,
+        team=team,
+        modifiers=modifiers,
+        within_non_hogql_query=True,
+        enable_select_queries=True,
+    )
     try:
         sql = translate_hogql(predicate, context, dialect="clickhouse")
     except Exception as exc:
@@ -398,17 +428,24 @@ class VerifyOutcome:
     promoted: bool
 
 
-def verify_queued_request(request: "DataDeletionRequest") -> VerifyOutcome:
-    """Verify a QUEUED event-removal request and promote it to COMPLETED when its events are gone.
+# Statuses from which verification may promote an event-removal request to COMPLETED. QUEUED is the
+# normal deferred path; FAILED is included so the ClickHouse Team can confirm a request whose job
+# errored after the events were actually deleted (e.g. a failure in the finalize step) without
+# re-running the whole deletion.
+VERIFIABLE_STATUSES = (RequestStatus.QUEUED, RequestStatus.FAILED)
 
-    Counts events still matching the request in ClickHouse. When zero remain and the request is
-    still QUEUED, atomically promotes QUEUED → COMPLETED via a status-guarded update. Idempotent;
-    safe to call from both the Dagster sweep job and the Django admin button.
+
+def verify_queued_request(request: "DataDeletionRequest") -> VerifyOutcome:
+    """Verify an event-removal request and promote it to COMPLETED when its events are gone.
+
+    Counts events still matching the request in ClickHouse. When zero remain and the request is in a
+    verifiable status (QUEUED or FAILED), atomically promotes it to COMPLETED via a status-guarded
+    update. Idempotent; safe to call from both the Dagster sweep job and the Django admin button.
     """
     remaining = count_remaining_matching_events(request)
-    if remaining > 0 or request.status != RequestStatus.QUEUED:
+    if remaining > 0 or request.status not in VERIFIABLE_STATUSES:
         return VerifyOutcome(remaining=remaining, promoted=False)
-    promoted = DataDeletionRequest.objects.filter(pk=request.pk, status=RequestStatus.QUEUED).update(
+    promoted = DataDeletionRequest.objects.filter(pk=request.pk, status__in=VERIFIABLE_STATUSES).update(
         status=RequestStatus.COMPLETED, updated_at=timezone.now()
     )
     return VerifyOutcome(remaining=remaining, promoted=bool(promoted))

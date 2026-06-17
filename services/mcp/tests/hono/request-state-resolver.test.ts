@@ -7,6 +7,7 @@ const { mockSessionStore, mockTokenStore } = vi.hoisted(() => ({
 
 vi.mock('@/lib/posthog/flags', () => ({
     evaluateFeatureFlags: vi.fn(async () => ({})),
+    resolveFeatureFlagOverrides: vi.fn(() => ({})),
 }))
 
 vi.mock('@/hono/request-context', () => {
@@ -39,7 +40,7 @@ vi.mock('@/hono/request-context', () => {
     })
 
     return {
-        RequestContext: vi.fn().mockImplementation((_redis, _env, props: { mcpSessionId?: string } = {}) => {
+        RequestContext: vi.fn().mockImplementation(function (_redis, _env, props: { mcpSessionId?: string } = {}) {
             const sessionCache = makeCache(mockSessionStore)
             return {
                 tokenCache: makeCache(mockTokenStore),
@@ -66,6 +67,7 @@ vi.mock('@/hono/request-context', () => {
 
 import type { RedisLike } from '@/hono/cache/RedisCache'
 import { RequestStateResolver } from '@/hono/request-state-resolver'
+import { evaluateFeatureFlags, resolveFeatureFlagOverrides } from '@/lib/posthog/flags'
 import type { RequestProperties } from '@/lib/request-properties'
 import type { Env } from '@/tools/types'
 
@@ -221,6 +223,63 @@ describe('RequestStateResolver MCP client contexts', () => {
         expect(result.requestContext.mcpVendorClient).toBe('ClaudeCode')
         expect(result.sessionContext?.mcpVendorClient).toBe('ClaudeCode')
         expect(mockSessionStore.get('mcpVendorClient')).toBe('ClaudeCode')
+    })
+
+    it('puts Claude web/desktop in single-exec when the render-ui flag is on', async () => {
+        vi.mocked(evaluateFeatureFlags).mockResolvedValueOnce({ 'mcp-render-ui': true })
+        const props = makeProps({ mcpClientName: 'Claude Desktop', mcpVendorClient: 'ClaudeAI' })
+        const result = await makeResolver().resolve(props)
+
+        expect(result.renderUiEnabled).toBe(true)
+        expect(result.useSingleExec).toBe(true)
+        expect(props.mode).toBe('cli')
+    })
+
+    it('keeps Claude web/desktop in tools mode when the render-ui flag is off', async () => {
+        // A `ClaudeAI` vendor header is unconditionally single-exec, so the render-ui
+        // gate only observably matters on the User-Agent-only path, where the client
+        // isn't otherwise a CLI-mode client.
+        const props = makeProps({ mcpClientName: 'Claude Desktop', clientUserAgent: 'Claude-User' })
+        const result = await makeResolver().resolve(props)
+
+        expect(result.renderUiEnabled).toBe(false)
+        expect(result.useSingleExec).toBe(false)
+        expect(props.mode).toBe('tools')
+    })
+
+    it('does not enable render-ui for Claude Code even when the flag is on', async () => {
+        // Claude Code pools the same `mcp-render-ui` flag value as Claude web/desktop, but
+        // it isn't an MCP Apps host — it can't mount the iframe. It must stay in single-exec
+        // (it's a CLI client) while `renderUiEnabled` resolves to false, so the tool-executor
+        // never advertises or accepts `render-ui` for it.
+        vi.mocked(evaluateFeatureFlags).mockResolvedValueOnce({ 'mcp-render-ui': true })
+        const props = makeProps({ mcpClientName: 'Anthropic/ClaudeAI', mcpVendorClient: 'ClaudeCode' })
+        const result = await makeResolver().resolve(props)
+
+        expect(result.renderUiEnabled).toBe(false)
+        expect(result.useSingleExec).toBe(true)
+        expect(result.toolFeatureFlags?.['mcp-render-ui']).toBe(true)
+    })
+
+    it('detects Claude web/desktop via the Claude-User user agent', async () => {
+        vi.mocked(evaluateFeatureFlags).mockResolvedValueOnce({ 'mcp-render-ui': true })
+        const props = makeProps({ mcpClientName: 'Claude Desktop', clientUserAgent: 'Claude-User' })
+        const result = await makeResolver().resolve(props)
+
+        expect(result.useSingleExec).toBe(true)
+        expect(props.mode).toBe('cli')
+    })
+
+    it('honors a dev/test flag override even when evaluation returns nothing', async () => {
+        // Evaluation stays empty (analytics client disabled, as in local dev/evals);
+        // the override seam is what flips the flag on.
+        vi.mocked(resolveFeatureFlagOverrides).mockReturnValueOnce({ 'mcp-render-ui': true })
+        const props = makeProps({ mcpClientName: 'Claude Desktop', mcpVendorClient: 'ClaudeAI' })
+        const result = await makeResolver().resolve(props)
+
+        expect(result.renderUiEnabled).toBe(true)
+        expect(result.useSingleExec).toBe(true)
+        expect(result.toolFeatureFlags?.['mcp-render-ui']).toBe(true)
     })
 
     it('captures consumer from a later request when initialize omitted the header', async () => {

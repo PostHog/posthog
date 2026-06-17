@@ -5,7 +5,7 @@ import { IconGear } from '@posthog/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
-import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
@@ -57,7 +57,7 @@ export function NavLink({
                 to={to}
                 data-attr={dataAttr}
                 onClick={onClick}
-                tooltip={isCollapsed ? label : undefined}
+                tooltip={label}
                 tooltipPlacement="right"
             >
                 <span
@@ -71,7 +71,7 @@ export function NavLink({
                 {!isCollapsed && (
                     <span
                         className={cn(
-                            'flex-1 text-left text-secondary group-hover:text-primary',
+                            'flex-1 truncate text-left text-secondary group-hover:text-primary',
                             isActive && 'text-primary'
                         )}
                     >

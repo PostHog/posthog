@@ -131,7 +131,7 @@ def _get_cache_metrics(registry: Optional[CollectorRegistry] = None) -> CacheMet
 
 
 @contextmanager
-def get_cache_metrics_context(registry_name: str) -> Generator[CacheMetrics, None, None]:
+def get_cache_metrics_context(registry_name: str) -> Generator[CacheMetrics]:
     """Context manager that yields the appropriate cache metrics based on execution context."""
     if _is_short_lived_context():
         with pushed_metrics_registry(registry_name) as registry:

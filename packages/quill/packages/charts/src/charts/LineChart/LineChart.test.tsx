@@ -1,6 +1,6 @@
 import type { ChartTheme, Series } from '../../core/types'
 import { ReferenceLine } from '../../overlays/ReferenceLine'
-import { renderHogChart } from '../../testing'
+import { dimensions as testDimensions, rawDrag, renderHogChart } from '../../testing'
 import { LineChart } from './LineChart'
 
 const THEME: ChartTheme = {
@@ -182,6 +182,20 @@ describe('LineChart', () => {
             expect(chart.yRightTicks().length).toBeGreaterThan(0)
         })
 
+        it('stacks a third axis on the left for a 3-axis chart (alternating sides)', () => {
+            const series: Series[] = [
+                { key: 'a', label: 'A', data: [10, 20, 30] },
+                { key: 'b', label: 'B', data: [100, 200, 300], yAxisId: 'y1' },
+                { key: 'c', label: 'C', data: [3000, 4000, 5000], yAxisId: 'y2' },
+            ]
+            const { chart } = renderHogChart(<LineChart series={series} labels={LABELS} theme={THEME} />)
+            expect(chart.hasRightAxis).toBe(true)
+            const leftValues = chart.yTicks().map((t) => parseFloat(t.replace(/[^0-9.]/g, '')))
+            // 30 is the default axis max, 5000 the third axis max — both gutters stack on the left.
+            expect(leftValues).toContain(30)
+            expect(leftValues).toContain(5000)
+        })
+
         it('renders without crashing in yScaleType log with positive data', () => {
             const series: Series[] = [{ key: 'a', label: 'A', data: [1, 10, 100] }]
             const { chart } = renderHogChart(
@@ -251,6 +265,184 @@ describe('LineChart', () => {
             const tooltip = await chart.waitForTooltip()
             expect(tooltip.element.textContent).toContain('A')
             expect(tooltip.element.textContent).not.toContain('B')
+        })
+    })
+
+    describe('drag-to-zoom', () => {
+        const LONG_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
+        const LONG_SERIES: Series[] = [{ key: 'a', label: 'A', data: [10, 20, 30, 40, 50] }]
+
+        it('fires onDateRangeZoom with the start and end labels of the dragged range', () => {
+            const onDateRangeZoom = jest.fn()
+            const { chart } = renderHogChart(
+                <LineChart series={LONG_SERIES} labels={LONG_LABELS} theme={THEME} onDateRangeZoom={onDateRangeZoom} />
+            )
+            chart.dragSelection(1, 3)
+            expect(onDateRangeZoom).toHaveBeenCalledTimes(1)
+            expect(onDateRangeZoom).toHaveBeenCalledWith({
+                startLabel: 'Tue',
+                endLabel: 'Thu',
+                startIndex: 1,
+                endIndex: 3,
+            })
+        })
+
+        it('normalizes a right-to-left drag', () => {
+            const onDateRangeZoom = jest.fn()
+            const { chart } = renderHogChart(
+                <LineChart series={LONG_SERIES} labels={LONG_LABELS} theme={THEME} onDateRangeZoom={onDateRangeZoom} />
+            )
+            chart.dragSelection(3, 1)
+            expect(onDateRangeZoom).toHaveBeenCalledWith({
+                startLabel: 'Tue',
+                endLabel: 'Thu',
+                startIndex: 1,
+                endIndex: 3,
+            })
+        })
+
+        it('does not fire onPointClick when a drag completes', () => {
+            const onDateRangeZoom = jest.fn()
+            const onPointClick = jest.fn()
+            const { chart } = renderHogChart(
+                <LineChart
+                    series={LONG_SERIES}
+                    labels={LONG_LABELS}
+                    theme={THEME}
+                    onDateRangeZoom={onDateRangeZoom}
+                    onPointClick={onPointClick}
+                />
+            )
+            chart.dragSelection(1, 3)
+            expect(onDateRangeZoom).toHaveBeenCalled()
+            expect(onPointClick).not.toHaveBeenCalled()
+        })
+
+        it('still fires onPointClick on a plain click when onDateRangeZoom is set', async () => {
+            const onDateRangeZoom = jest.fn()
+            const onPointClick = jest.fn()
+            const { chart } = renderHogChart(
+                <LineChart
+                    series={LONG_SERIES}
+                    labels={LONG_LABELS}
+                    theme={THEME}
+                    onDateRangeZoom={onDateRangeZoom}
+                    onPointClick={onPointClick}
+                />
+            )
+            await chart.clickAtIndex(2)
+            expect(onDateRangeZoom).not.toHaveBeenCalled()
+            expect(onPointClick).toHaveBeenCalledWith(expect.objectContaining({ dataIndex: 2, label: 'Wed' }))
+        })
+
+        it('switches the wrapper cursor to crosshair when onDateRangeZoom is provided', () => {
+            const { chart } = renderHogChart(
+                <LineChart series={LONG_SERIES} labels={LONG_LABELS} theme={THEME} onDateRangeZoom={jest.fn()} />
+            )
+            expect(chart.element.classList).toContain('cursor-crosshair')
+        })
+
+        it('a drag that releases outside the wrapper does not swallow the next unrelated click', async () => {
+            const onDateRangeZoom = jest.fn()
+            const onPointClick = jest.fn()
+            const { chart } = renderHogChart(
+                <LineChart
+                    series={LONG_SERIES}
+                    labels={LONG_LABELS}
+                    theme={THEME}
+                    onDateRangeZoom={onDateRangeZoom}
+                    onPointClick={onPointClick}
+                />
+            )
+
+            const y = testDimensions.plotTop + testDimensions.plotHeight / 2
+            rawDrag(chart.element, {
+                from: { x: testDimensions.plotLeft + 10, y },
+                to: { x: testDimensions.plotLeft + 200, y },
+                release: { x: 9999, y: 9999 },
+            })
+            expect(onDateRangeZoom).toHaveBeenCalledTimes(1)
+
+            await new Promise<void>((resolve) => setTimeout(resolve, 0))
+
+            await chart.clickAtIndex(2)
+            expect(onPointClick).toHaveBeenCalledTimes(1)
+        })
+
+        it('click-without-drag still dismisses a pinned tooltip when onDateRangeZoom is set', async () => {
+            const onDateRangeZoom = jest.fn()
+            const onPointClick = jest.fn()
+            const { chart } = renderHogChart(
+                <LineChart
+                    series={[
+                        { key: 'a', label: 'A', data: [10, 20, 30, 40, 50] },
+                        { key: 'b', label: 'B', data: [5, 15, 25, 35, 45] },
+                    ]}
+                    labels={LONG_LABELS}
+                    theme={THEME}
+                    config={{ tooltip: { pinnable: true } }}
+                    onDateRangeZoom={onDateRangeZoom}
+                    onPointClick={onPointClick}
+                />
+            )
+            await chart.clickAtIndex(2)
+            const pinned = await chart.waitForTooltip()
+            expect(pinned.isPinned).toBe(true)
+
+            await chart.clickAtIndex(2)
+            expect(onDateRangeZoom).not.toHaveBeenCalled()
+            expect(onPointClick).not.toHaveBeenCalled()
+        })
+
+        it('treats a sub-threshold mousedown+move as a click, not a drag', async () => {
+            const onDateRangeZoom = jest.fn()
+            const onPointClick = jest.fn()
+            const { chart } = renderHogChart(
+                <LineChart
+                    series={LONG_SERIES}
+                    labels={LONG_LABELS}
+                    theme={THEME}
+                    onDateRangeZoom={onDateRangeZoom}
+                    onPointClick={onPointClick}
+                />
+            )
+            const y = testDimensions.plotTop + testDimensions.plotHeight / 2
+            // Move only 2px — below DRAG_THRESHOLD_PX, so the gesture must stay a click.
+            rawDrag(chart.element, {
+                from: { x: testDimensions.plotLeft + 100, y },
+                to: { x: testDimensions.plotLeft + 102, y },
+            })
+            expect(onDateRangeZoom).not.toHaveBeenCalled()
+
+            await chart.clickAtIndex(2)
+            expect(onPointClick).toHaveBeenCalledWith(expect.objectContaining({ dataIndex: 2, label: 'Wed' }))
+        })
+
+        it('ignores a non-primary-button drag', () => {
+            const onDateRangeZoom = jest.fn()
+            const { chart } = renderHogChart(
+                <LineChart series={LONG_SERIES} labels={LONG_LABELS} theme={THEME} onDateRangeZoom={onDateRangeZoom} />
+            )
+            const y = testDimensions.plotTop + testDimensions.plotHeight / 2
+            rawDrag(chart.element, {
+                from: { x: testDimensions.plotLeft + 50, y },
+                to: { x: testDimensions.plotLeft + 300, y },
+                button: 2,
+            })
+            expect(onDateRangeZoom).not.toHaveBeenCalled()
+        })
+
+        it('does not start a drag from outside the plot area', () => {
+            const onDateRangeZoom = jest.fn()
+            const { chart } = renderHogChart(
+                <LineChart series={LONG_SERIES} labels={LONG_LABELS} theme={THEME} onDateRangeZoom={onDateRangeZoom} />
+            )
+            const yAbovePlot = testDimensions.plotTop - 5
+            rawDrag(chart.element, {
+                from: { x: testDimensions.plotLeft + 50, y: yAbovePlot },
+                to: { x: testDimensions.plotLeft + 300, y: yAbovePlot },
+            })
+            expect(onDateRangeZoom).not.toHaveBeenCalled()
         })
     })
 

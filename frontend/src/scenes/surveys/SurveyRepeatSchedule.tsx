@@ -7,7 +7,7 @@ import { LemonBanner, LemonInput, LemonSnack, Link } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
-import { pluralize } from 'lib/utils'
+import { pluralize } from 'lib/utils/strings'
 import { LinkToSurveyFormSection } from 'scenes/surveys/components/LinkToSurveyFormSection'
 import { SURVEY_FORM_INPUT_IDS } from 'scenes/surveys/constants'
 

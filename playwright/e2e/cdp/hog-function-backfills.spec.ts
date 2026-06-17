@@ -1,7 +1,7 @@
 import { Page } from '@playwright/test'
 
 import { mockFeatureFlags } from '../../utils/mockApi'
-import { expect, test } from '../../utils/playwright-test-base'
+import { PlaywrightWorkspaceSetupResult, expect, test } from '../../utils/workspace-test-base'
 import { createMockBatchExport, setupBatchExportRoutes } from '../batch-exports/batch-export-helpers'
 
 const MOCK_HOG_FUNCTION_ID = 'hog-func-001'
@@ -109,6 +109,16 @@ async function setupHogFunctionBackfillRoutes(page: Page, options: { runs?: obje
 }
 
 test.describe('Hog function backfills tab', () => {
+    let workspace: PlaywrightWorkspaceSetupResult | null = null
+
+    test.beforeAll(async ({ playwrightSetup }) => {
+        workspace = await playwrightSetup.createWorkspace({ skip_onboarding: true, no_demo_data: true })
+    })
+
+    test.beforeEach(async ({ page, playwrightSetup }) => {
+        await playwrightSetup.login(page, workspace!)
+    })
+
     test('Renders backfills table when navigating to backfills tab on a hog function destination', async ({ page }) => {
         await setupHogFunctionBackfillRoutes(page)
 
