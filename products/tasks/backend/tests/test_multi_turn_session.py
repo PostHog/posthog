@@ -1576,7 +1576,16 @@ class TestMultiTurnSessionStartFallback:
         session = self._fake_session()
         prose = "No anomalies this run. Scanned 12 commits, remembered the scan marker."
 
-        with patch.object(MultiTurnSession, "start_raw", new=AsyncMock(return_value=(session, prose))):
+        # The end-turn (and the one corrective re-prompt) didn't parse — drive that directly so the
+        # test isolates start()'s salvage branch from the correction internals (covered elsewhere).
+        with (
+            patch.object(MultiTurnSession, "start_raw", new=AsyncMock(return_value=(session, prose))),
+            patch.object(
+                MultiTurnSession,
+                "_parse_with_correction",
+                new=AsyncMock(side_effect=AgentOutputNotJSONError(label="initial turn", text=prose)),
+            ),
+        ):
             returned_session, parsed = await MultiTurnSession.start(
                 prompt="x",
                 context=MagicMock(),
@@ -1593,7 +1602,14 @@ class TestMultiTurnSessionStartFallback:
     async def test_fails_and_ends_run_without_fallback(self):
         session = self._fake_session()
 
-        with patch.object(MultiTurnSession, "start_raw", new=AsyncMock(return_value=(session, "prose only"))):
+        with (
+            patch.object(MultiTurnSession, "start_raw", new=AsyncMock(return_value=(session, "prose only"))),
+            patch.object(
+                MultiTurnSession,
+                "_parse_with_correction",
+                new=AsyncMock(side_effect=AgentOutputNotJSONError(label="initial turn", text="prose only")),
+            ),
+        ):
             with pytest.raises(ValueError):
                 await MultiTurnSession.start(prompt="x", context=MagicMock(), model=_Resp)
 
@@ -1625,7 +1641,14 @@ class TestMultiTurnSessionStartFallback:
         def boom(_text: str) -> _Resp:
             raise ValueError("stricter model rejects raw text too")
 
-        with patch.object(MultiTurnSession, "start_raw", new=AsyncMock(return_value=(session, "prose only"))):
+        with (
+            patch.object(MultiTurnSession, "start_raw", new=AsyncMock(return_value=(session, "prose only"))),
+            patch.object(
+                MultiTurnSession,
+                "_parse_with_correction",
+                new=AsyncMock(side_effect=AgentOutputNotJSONError(label="initial turn", text="prose only")),
+            ),
+        ):
             with pytest.raises(ValueError):
                 await MultiTurnSession.start(prompt="x", context=MagicMock(), model=_Resp, fallback_from_text=boom)
 
