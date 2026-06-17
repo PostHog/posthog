@@ -153,8 +153,11 @@ class TestDeleteGroupTypeMappingsForTeams(SimpleTestCase):
 
 class TestDeleteHashKeyOverridesForTeams(SimpleTestCase):
     @patch(_CLIENT_PATCH)
-    def test_deletes_via_personhog_in_one_call(self, mock_get_client):
+    def test_deletes_via_personhog(self, mock_get_client):
         mock_client = MagicMock()
+        resp = MagicMock()
+        resp.deleted_count = 0
+        mock_client.delete_hash_key_overrides_by_teams.return_value = resp
         mock_get_client.return_value = mock_client
 
         _delete_hash_key_overrides_for_teams([1, 2, 3])
@@ -162,6 +165,23 @@ class TestDeleteHashKeyOverridesForTeams(SimpleTestCase):
         assert mock_client.delete_hash_key_overrides_by_teams.call_count == 1
         req = mock_client.delete_hash_key_overrides_by_teams.call_args[0][0]
         assert list(req.team_ids) == [1, 2, 3]
+        assert req.batch_size == 10000
+
+    @patch(_CLIENT_PATCH)
+    def test_loops_until_zero_deleted(self, mock_get_client):
+        mock_client = MagicMock()
+        resp1 = MagicMock()
+        resp1.deleted_count = 10000
+        resp2 = MagicMock()
+        resp2.deleted_count = 3
+        resp3 = MagicMock()
+        resp3.deleted_count = 0
+        mock_client.delete_hash_key_overrides_by_teams.side_effect = [resp1, resp2, resp3]
+        mock_get_client.return_value = mock_client
+
+        _delete_hash_key_overrides_for_teams([42])
+
+        assert mock_client.delete_hash_key_overrides_by_teams.call_count == 3
 
     @patch("posthog.models.team.util._raw_delete_batch")
     @patch(_CLIENT_PATCH)

@@ -86,7 +86,12 @@ def _delete_hash_key_overrides_for_teams(team_ids: list[int]) -> None:
     if client is not None:
         try:
             with personhog_caller_tag("team-delete/hash-key-overrides"):
-                client.delete_hash_key_overrides_by_teams(DeleteHashKeyOverridesByTeamsRequest(team_ids=team_ids))
+                while True:
+                    resp = client.delete_hash_key_overrides_by_teams(
+                        DeleteHashKeyOverridesByTeamsRequest(team_ids=team_ids, batch_size=10000)
+                    )
+                    if resp.deleted_count == 0:
+                        break
             PERSONHOG_ROUTING_TOTAL.labels(
                 operation="delete_hash_key_overrides_for_teams", source="personhog", client_name=get_client_name()
             ).inc()
