@@ -61,6 +61,17 @@ const esmModules = [
     'longest-streak',
     'markdown-table',
     '@mathjax/src',
+    // MSW v2 and its dependencies ship ESM that resolves under the forced `default` export condition
+    'msw',
+    '@mswjs/.*',
+    '@bundled-es-modules/.*',
+    '@open-draft/.*',
+    'rettime',
+    'strict-event-emitter',
+    'headers-polyfill',
+    'outvariant',
+    'until-async',
+    'is-node-process',
     // yaml's browser entry (used under the jsdom env) is ESM and re-exports its CJS dist
     'yaml/browser',
 ]
@@ -114,6 +125,14 @@ const config: Config = {
 
     // Make calling deprecated APIs throw helpful error messages
     // errorOnDeprecated: false,
+
+    // Faking queueMicrotask starves the web-streams pump that MSW v2 response bodies ride on:
+    // each pump microtask lands in the fake queue and respawns the next one, so any
+    // advanceTimersByTimeAsync allocates unboundedly until the worker OOMs. Keep microtasks real.
+    // Merged into per-test `jest.useFakeTimers({...})` configs unless they pass their own doNotFake.
+    fakeTimers: {
+        doNotFake: ['queueMicrotask'],
+    },
 
     // Force coverage collection from ignored files using an array of glob patterns
     // forceCoverageMatch: [],
@@ -207,8 +226,9 @@ const config: Config = {
     // Reset the module registry before running each individual test
     // resetModules: false,
 
-    // A path to a custom resolver
-    // resolver: undefined,
+    // A path to a custom resolver — strips the `browser` export condition for the MSW ecosystem
+    // (whose Node subpaths are null under `browser`) without affecting any other package's resolution.
+    resolver: '<rootDir>/jest.resolver.js',
 
     // Automatically restore mock state between every test
     // restoreMocks: false,
@@ -223,7 +243,7 @@ const config: Config = {
     // runner: "jest-runner",
 
     // The paths to modules that run some code to configure or set up the testing environment before each test
-    setupFiles: ['<rootDir>/jest.setup.ts', 'fake-indexeddb/auto'],
+    setupFiles: ['<rootDir>/jest.polyfills.js', '<rootDir>/jest.setup.ts', 'fake-indexeddb/auto'],
 
     // A list of paths to modules that run some code to configure or set up the testing framework before each test
     setupFilesAfterEnv: ['<rootDir>/jest.setupAfterEnv.ts', '<rootDir>/src/mocks/jest.ts'],
@@ -250,7 +270,12 @@ const config: Config = {
     // ],
 
     // An array of regexp pattern strings that are matched against all test paths, matched tests are skipped
-    testPathIgnorePatterns: ['/node_modules/', '/services/mcp/', '/products/[^/]+/frontend/e2e/', '/products/visual_review/cli/'],
+    testPathIgnorePatterns: [
+        '/node_modules/',
+        '/services/mcp/',
+        '/products/[^/]+/frontend/e2e/',
+        '/products/visual_review/cli/',
+    ],
 
     // The regexp pattern or array of patterns that Jest uses to detect test files
     // testRegex: [],
@@ -269,7 +294,8 @@ const config: Config = {
 
     // A map from regular expressions to paths to transformers
     transform: {
-        '\\.[jt]sx?$': '@sucrase/jest-plugin',
+        // Include .mjs/.cjs so ESM dependencies allowed through transformIgnorePatterns (e.g. MSW's) are transpiled.
+        '\\.[cm]?[jt]sx?$': '@sucrase/jest-plugin',
         '\\.yaml$': '<rootDir>/src/test/yamlRawTransformer.js',
     },
 
