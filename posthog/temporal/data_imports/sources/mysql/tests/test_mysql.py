@@ -922,27 +922,39 @@ class TestMySQLSourceValidateCredentials:
         return source
 
     @pytest.mark.parametrize(
-        "raised",
+        "raised,expected_error",
         [
             # The exact error that fired this triage: an unreachable host surfaces as a
             # pymysql OperationalError(2003) wrapping an OSError — already non-retryable.
-            pymysql.err.OperationalError(
-                2003, "Can't connect to MySQL server on 'db.example.com' ([Errno 101] Network is unreachable)"
+            # A connection failure keeps the generic "check connection details" message.
+            (
+                pymysql.err.OperationalError(
+                    2003, "Can't connect to MySQL server on 'db.example.com' ([Errno 101] Network is unreachable)"
+                ),
+                "Could not connect to MySQL. Please check all connection details are valid.",
             ),
-            pymysql.err.OperationalError(
-                2003, "Can't connect to MySQL server on 'db.example.com' ([Errno 111] Connection refused)"
+            (
+                pymysql.err.OperationalError(
+                    2003, "Can't connect to MySQL server on 'db.example.com' ([Errno 111] Connection refused)"
+                ),
+                "Could not connect to MySQL. Please check all connection details are valid.",
             ),
-            pymysql.err.OperationalError(1045, "Access denied for user 'u'@'1.2.3.4' (using password: YES)"),
+            # An auth failure (error 1045) must name the credentials, not the generic message
+            # that sends the user to inspect the host/port instead. Mirrors Postgres.
+            (
+                pymysql.err.OperationalError(1045, "Access denied for user 'u'@'1.2.3.4' (using password: YES)"),
+                "Invalid user or password",
+            ),
         ],
     )
-    def test_known_connection_errors_are_not_captured(self, source, mocker, raised):
+    def test_known_connection_errors_are_not_captured(self, source, mocker, raised, expected_error):
         capture = mocker.patch("posthog.temporal.data_imports.sources.mysql.source.capture_exception")
         mocker.patch.object(source, "get_schemas", side_effect=raised)
 
         valid, error = source.validate_credentials(_make_config(), team_id=1)
 
         assert valid is False
-        assert error is not None
+        assert error == expected_error
         capture.assert_not_called()
 
     def test_unexpected_errors_are_still_captured(self, source, mocker):
@@ -954,18 +966,3 @@ class TestMySQLSourceValidateCredentials:
         assert valid is False
         assert error is not None
         capture.assert_called_once()
-
-    def test_access_denied_surfaces_invalid_user_or_password(self, source, mocker):
-        # An auth failure (error 1045) must say so, not the generic "check connection details"
-        # message that sends the user to inspect the host/port instead. Mirrors Postgres.
-        mocker.patch("posthog.temporal.data_imports.sources.mysql.source.capture_exception")
-        mocker.patch.object(
-            source,
-            "get_schemas",
-            side_effect=pymysql.err.OperationalError(1045, "Access denied for user 'u'@'1.2.3.4' (using password: YES)"),
-        )
-
-        valid, error = source.validate_credentials(_make_config(), team_id=1)
-
-        assert valid is False
-        assert error == "Invalid user or password"
