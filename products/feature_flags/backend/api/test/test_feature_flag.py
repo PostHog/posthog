@@ -10699,6 +10699,47 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
             FeatureFlagStatus.ACTIVE,
         )
 
+    def test_flag_status_includes_rollout_summary(self):
+        """The status response exposes a rollout summary so callers can determine full rollout / GA."""
+        full_rollout_flag = FeatureFlag.objects.create(
+            name="Fully rolled out flag",
+            key="full-rollout-flag",
+            team=self.team,
+            active=True,
+            filters={"groups": [{"rollout_percentage": 100, "properties": []}]},
+            last_called_at=datetime.now(UTC),
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{full_rollout_flag.id}/status")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json()["rollout"],
+            {
+                "effectively_full_rollout": True,
+                "has_targeting_conditions": False,
+                "max_rollout_percentage": 100,
+                "is_multivariate": False,
+            },
+        )
+
+        targeted_flag = FeatureFlag.objects.create(
+            name="Targeted flag",
+            key="targeted-flag",
+            team=self.team,
+            active=True,
+            filters={"groups": [{"rollout_percentage": 50, "properties": [{"key": "email", "value": "x"}]}]},
+            last_called_at=datetime.now(UTC),
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{targeted_flag.id}/status")
+        self.assertEqual(
+            response.json()["rollout"],
+            {
+                "effectively_full_rollout": False,
+                "has_targeting_conditions": True,
+                "max_rollout_percentage": 50,
+                "is_multivariate": False,
+            },
+        )
+
     def test_get_flags_with_stale_filter_usage_and_config_based(self):
         """Test filtering by STALE status with both usage and config-based detection"""
         FeatureFlag.objects.all().delete()

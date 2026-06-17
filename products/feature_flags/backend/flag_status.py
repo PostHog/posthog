@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 
@@ -19,6 +20,18 @@ class FeatureFlagStatus(StrEnum):
     STALE = "stale"
     DELETED = "deleted"
     UNKNOWN = "unknown"
+
+
+@dataclass
+class FeatureFlagRolloutSummary:
+    # Whether the flag is effectively rolled out to everyone, independent of recent evaluation.
+    effectively_full_rollout: bool
+    # Whether any release condition has property filters (conditionally targeted vs. blanket rollout).
+    has_targeting_conditions: bool
+    # Highest rollout percentage across release conditions, or None when there are no conditions.
+    max_rollout_percentage: int | None
+    # Whether the flag serves multiple variants.
+    is_multivariate: bool
 
 
 def filter_flags_by_active_param(queryset: QuerySet, value: str | bool) -> QuerySet:
@@ -176,8 +189,37 @@ class FeatureFlagStatusChecker:
 
         return False, ""
 
+    def get_rollout_summary(self, flag: FeatureFlag) -> "FeatureFlagRolloutSummary":
+        """
+        Summarize the flag's rollout configuration so callers can determine rollout
+        completeness (e.g. "fully rolled out / GA") without re-parsing ``filters``.
+
+        This is independent of ``get_status``: ``status`` reflects recent evaluation
+        (was the flag called), while this reflects configuration. A flag can be
+        ``active`` while only partially rolled out, or fully rolled out but ``stale``.
+        """
+        filters = flag.filters or {}
+        groups = filters.get("groups") or []
+        multivariate = filters.get("multivariate") or None
+
+        has_targeting_conditions = any(len(group.get("properties") or []) > 0 for group in groups)
+
+        rollout_percentages = [
+            100 if group.get("rollout_percentage") is None else group.get("rollout_percentage") for group in groups
+        ]
+        max_rollout_percentage = max(rollout_percentages) if rollout_percentages else None
+
+        is_fully_rolled_out, _ = self.is_flag_fully_rolled_out(flag)
+
+        return FeatureFlagRolloutSummary(
+            effectively_full_rollout=is_fully_rolled_out,
+            has_targeting_conditions=has_targeting_conditions,
+            max_rollout_percentage=max_rollout_percentage,
+            is_multivariate=bool(multivariate and multivariate.get("variants")),
+        )
+
     def is_flag_fully_rolled_out(self, flag: FeatureFlag) -> tuple[bool, FeatureFlagStatusReason]:
-        multivariate = flag.filters.get("multivariate", None)
+        multivariate = (flag.filters or {}).get("multivariate", None)
         if multivariate:
             is_multivariate_flag_fully_rolled_out, fully_rolled_out_variant_name = (
                 self.is_multivariate_flag_fully_rolled_out(flag)
@@ -199,14 +241,14 @@ class FeatureFlagStatusChecker:
         some_release_condition_fully_rolled_out = False
         fully_rolled_out_release_condition_variant_override: str | None = None
 
-        multivariate = flag.filters.get("multivariate", None)
+        multivariate = (flag.filters or {}).get("multivariate", None)
         variants = multivariate.get("variants", [])
         for variant in variants:
             if variant.get("rollout_percentage") == 100:
                 fully_rolled_out_variant_key = variant.get("key")
                 break
 
-        for release_condition in flag.filters.get("groups", []):
+        for release_condition in (flag.filters or {}).get("groups", []):
             if self.is_group_fully_rolled_out(release_condition):
                 some_release_condition_fully_rolled_out = True
                 fully_rolled_out_release_condition_variant_override = (
