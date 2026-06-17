@@ -11,7 +11,7 @@ use crate::config::CaptureMode;
 use crate::v1::context::RequestContext;
 use crate::v1::sinks::event::Event;
 use crate::v1::sinks::sink::Sink;
-use crate::v1::sinks::types::{BatchSummary, Outcome, PreparedEvent};
+use crate::v1::sinks::types::{BatchSummary, Outcome};
 use crate::v1::sinks::{Config, Destination, SinkName};
 use crate::v1::test_utils::{self, WrappedEventMut};
 
@@ -116,24 +116,7 @@ impl Event for FakeEvent {
     }
 }
 
-/// Serialize publishable events into `PreparedEvent`s the way `serialize_batch`
-/// does, for driving the sink directly. The sink no longer serializes, so tests
-/// feed it already-prepared input; serialize-failure behavior is covered in the
-/// `v1::sinks::prepare` tests. Panics on serialize error (test payloads are
-/// always valid) and skips non-publishable events.
-fn prepared<E: Event>(events: &[&E], ctx: &RequestContext) -> Vec<PreparedEvent> {
-    events
-        .iter()
-        .filter(|e| e.should_publish())
-        .map(|e| PreparedEvent {
-            uuid: e.uuid(),
-            destination: e.destination().clone(),
-            payload: e.serialize(ctx).expect("test payload must serialize"),
-            headers: e.headers(ctx),
-            partition_key: e.partition_key(ctx),
-        })
-        .collect()
-}
+use crate::v1::test_utils::prepared;
 
 // ---------------------------------------------------------------------------
 // TestHarness
@@ -712,6 +695,43 @@ async fn health_refreshed_on_full_success() {
     assert!(
         h.handle.is_healthy(),
         "handle should stay healthy after successful batch"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Health: partial success (some send errors) -> heartbeat still fires
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn health_refreshed_on_partial_success() {
+    let h = TestHarness::builder()
+        .with_liveness(HEALTH_TEST_LIVENESS_DEADLINE, HEALTH_TEST_POLL_INTERVAL)
+        .produce_timeout(HEALTH_TEST_PRODUCE_TIMEOUT)
+        .send_error(|| ProduceError::Kafka {
+            code: RDKafkaErrorCode::QueueFull,
+        })
+        .send_error_count(1)
+        .build();
+    let e1 = FakeEvent::ok("evt-1");
+    let e2 = FakeEvent::ok("evt-2");
+    let e3 = FakeEvent::ok("evt-3");
+    let events = prepared(&[&e1, &e2, &e3], &h.ctx);
+
+    let results = h.sink.publish_batch(&h.ctx, &events).await;
+    let outcomes: Vec<Outcome> = results.iter().map(|r| r.outcome()).collect();
+    assert!(
+        outcomes.contains(&Outcome::RetriableError),
+        "at least one event should fail"
+    );
+    assert!(
+        outcomes.contains(&Outcome::Success),
+        "at least one event should succeed"
+    );
+
+    tokio::time::sleep(HEALTH_TEST_HEALTHY_SLEEP).await;
+    assert!(
+        h.handle.is_healthy(),
+        "handle should stay healthy when at least one event succeeds"
     );
 }
 

@@ -12,7 +12,25 @@ use crate::v1::analytics::context::Context as AnalyticsContext;
 use crate::v1::analytics::query::Query;
 use crate::v1::analytics::types::{Event, EventResult, Options, WrappedEvent};
 use crate::v1::context::RequestContext;
+use crate::v1::sinks::event::Event as SinkEvent;
+use crate::v1::sinks::types::PreparedEvent;
 use crate::v1::sinks::Destination;
+
+/// Serialize publishable events into `PreparedEvent`s for driving sinks in tests.
+/// Accepts `&[&dyn Event]` (integration) or `&[&ConcreteType]` (unit) via `?Sized`.
+pub fn prepared<E: SinkEvent + ?Sized>(events: &[&E], ctx: &RequestContext) -> Vec<PreparedEvent> {
+    events
+        .iter()
+        .filter(|e| e.should_publish())
+        .map(|e| PreparedEvent {
+            uuid: e.uuid(),
+            destination: e.destination().clone(),
+            payload: e.serialize(ctx).expect("test payload must serialize"),
+            headers: e.headers(ctx),
+            partition_key: e.partition_key(ctx),
+        })
+        .collect()
+}
 
 pub fn raw_obj(s: &str) -> Box<RawValue> {
     RawValue::from_string(s.to_owned()).unwrap()

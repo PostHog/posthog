@@ -24,25 +24,9 @@ use capture::v1::sinks::event::Event;
 use capture::v1::sinks::kafka::producer::KafkaProducer;
 use capture::v1::sinks::kafka::KafkaSink;
 use capture::v1::sinks::sink::Sink;
-use capture::v1::sinks::types::{Outcome, PreparedEvent};
+use capture::v1::sinks::types::Outcome;
 use capture::v1::sinks::{Config, SinkName};
-use capture::v1::test_utils::{self, WrappedEventMut};
-
-/// Serialize events into `PreparedEvent`s the way `serialize_batch` does, but
-/// borrowing so the original events stay available for post-publish assertions.
-fn prepared(events: &[&(dyn Event + Send + Sync)], ctx: &RequestContext) -> Vec<PreparedEvent> {
-    events
-        .iter()
-        .filter(|e| e.should_publish())
-        .map(|e| PreparedEvent {
-            uuid: e.uuid(),
-            destination: e.destination().clone(),
-            payload: e.serialize(ctx).expect("test payload must serialize"),
-            headers: e.headers(ctx),
-            partition_key: e.partition_key(ctx),
-        })
-        .collect()
-}
+use capture::v1::test_utils::{self, prepared, WrappedEventMut};
 
 fn v1_kafka_config(topic: &str) -> capture::v1::sinks::kafka::config::Config {
     let env: std::collections::HashMap<String, String> = [

@@ -123,28 +123,14 @@ mod tests {
     use crate::v1::sinks::kafka::mock::MockProducer;
     use crate::v1::sinks::kafka::sink::KafkaSink;
     use crate::v1::sinks::sink::Sink;
-    use crate::v1::sinks::types::{Outcome, PreparedEvent};
+    use crate::v1::sinks::types::Outcome;
     use crate::v1::sinks::{Config, Destination, SinkName};
 
     use super::*;
 
     // -- Test helpers --------------------------------------------------------
 
-    /// Serialize publishable FakeEvents into PreparedEvents for driving the
-    /// router (which now publishes already-serialized events).
-    fn prepared(events: &[&FakeEvent], ctx: &RequestContext) -> Vec<PreparedEvent> {
-        events
-            .iter()
-            .filter(|e| e.should_publish())
-            .map(|e| PreparedEvent {
-                uuid: e.uuid(),
-                destination: e.destination().clone(),
-                payload: e.serialize(ctx).unwrap(),
-                headers: e.headers(ctx),
-                partition_key: e.partition_key(ctx),
-            })
-            .collect()
-    }
+    use crate::v1::test_utils::prepared;
 
     struct FakeEvent {
         parsed_uuid: Uuid,
