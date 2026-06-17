@@ -392,6 +392,12 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Feature flag targeting configuration.'),
     active: zod.boolean().optional().describe('Whether the feature flag is active.'),
+    archived: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`).'
+        ),
     tags: zod.array(zod.string()).optional().describe('Organizational tags for this feature flag.'),
     evaluation_contexts: zod
         .array(zod.string())
@@ -748,6 +754,12 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Feature flag targeting configuration.'),
     active: zod.boolean().optional().describe('Whether the feature flag is active.'),
+    archived: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`).'
+        ),
     tags: zod.array(zod.string()).optional().describe('Organizational tags for this feature flag.'),
     evaluation_contexts: zod
         .array(zod.string())
