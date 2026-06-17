@@ -13,7 +13,7 @@ class SynthesisStatus(str, Enum):
 
 
 class SynthesizeActionInputs(BaseModel, frozen=True):
-    vision_action_id: UUID
+    # The run already references its action (run.vision_action), so run_id is sufficient.
     run_id: UUID
 
 

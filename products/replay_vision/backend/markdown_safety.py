@@ -13,7 +13,9 @@ from urllib.parse import urlparse
 from posthog.api.utils import hostname_in_allowed_url_list
 
 _ALLOWED_LINK_URLS = ["https://posthog.com", "https://*.posthog.com"]
-_MARKDOWN_LINK_RE = re.compile(r"\[([^\]]*)\]\(((?:[^()\s]+|\([^)]*\))+)(?:\s+\"[^\"]*\")?\)")
+# Title may be double-quoted, single-quoted, or parenthesized (all CommonMark forms) — match all
+# three so a crafted title doesn't leave the URL un-defanged.
+_MARKDOWN_LINK_RE = re.compile(r"\[([^\]]*)\]\(((?:[^()\s]+|\([^)]*\))+)(?:\s+(?:\"[^\"]*\"|'[^']*'|\([^)]*\)))?\)")
 _MARKDOWN_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\([^)]*\)")
 _AUTOLINK_RE = re.compile(r"<(https?://[^\s>]+)>", re.IGNORECASE)
 _BARE_URL_RE = re.compile(r"(?<!\]\()(?<![<`@])((?:https?://|www\.)[^\s<>)\]`]+)", re.IGNORECASE)

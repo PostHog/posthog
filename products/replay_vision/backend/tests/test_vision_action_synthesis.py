@@ -8,6 +8,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from products.replay_vision.backend.markdown_safety import strip_external_links_markdown
 from products.replay_vision.backend.models import ReplayObservation, ReplayScanner, VisionAction, VisionActionRun
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ObservationTrigger
 from products.replay_vision.backend.models.replay_scanner import ScannerModel, ScannerType
@@ -69,7 +70,7 @@ class TestVisionActionSynthesis(BaseTest):
             patch(f"{_SYNTH_PATH}.is_team_over_ai_credit_budget", return_value=False),
             patch(f"{_SYNTH_PATH}.MaxChatOpenAI", _mock_llm(llm_content)),
         ):
-            return _synthesize(SynthesizeActionInputs(vision_action_id=action.id, run_id=run.id))
+            return _synthesize(SynthesizeActionInputs(run_id=run.id))
 
     def test_happy_path_persists_markdown_and_slack(self) -> None:
         self._observation("Users churned at checkout", title="Checkout")
@@ -101,7 +102,7 @@ class TestVisionActionSynthesis(BaseTest):
             patch(f"{_SYNTH_PATH}.is_team_over_ai_credit_budget", return_value=False),
             patch(f"{_SYNTH_PATH}.MaxChatOpenAI", side_effect=AssertionError("LLM should not be called")),
         ):
-            result = _synthesize(SynthesizeActionInputs(vision_action_id=action.id, run_id=run.id))
+            result = _synthesize(SynthesizeActionInputs(run_id=run.id))
 
         self.assertEqual(result.status, SynthesisStatus.SYNTHESIZED)
         self.assertEqual(result.observation_count, 5)
@@ -134,7 +135,7 @@ class TestVisionActionSynthesis(BaseTest):
             patch(f"{_SYNTH_PATH}.is_team_over_ai_credit_budget", return_value=(gate == "over_budget")),
             patch(f"{_SYNTH_PATH}.MaxChatOpenAI", side_effect=AssertionError("LLM should not be called")),
         ):
-            result = _synthesize(SynthesizeActionInputs(vision_action_id=action.id, run_id=run.id))
+            result = _synthesize(SynthesizeActionInputs(run_id=run.id))
 
         self.assertEqual(result.status, expected)
         run.refresh_from_db()
@@ -142,12 +143,15 @@ class TestVisionActionSynthesis(BaseTest):
 
     def test_only_succeeded_observations_feed_synthesis(self) -> None:
         self._observation("good", session_id="ok")
+        # Give the pending observation a well-formed result, so the ONLY reason it's excluded is the
+        # status filter (not the model_output guard) — that's what conclusively proves the filter.
         ReplayObservation.objects.create(
             scanner=self.scanner,
             session_id="pending",
             scanner_snapshot=snapshot_for(self.scanner),
             triggered_by=ObservationTrigger.SCHEDULE,
             status=ObservationStatus.PENDING,
+            scanner_result={"model_output": {"summary": "pending but well-formed"}},
         )
         action = self._action()
         run = self._run_for(action)
@@ -197,20 +201,47 @@ class TestVisionActionSynthesis(BaseTest):
             patch(f"{_SYNTH_PATH}.is_team_over_ai_credit_budget", return_value=False),
             patch(f"{_SYNTH_PATH}.MaxChatOpenAI", _capturing_llm),
         ):
-            _synthesize(SynthesizeActionInputs(vision_action_id=action.id, run_id=run.id))
+            _synthesize(SynthesizeActionInputs(run_id=run.id))
 
         self.assertIn("focus on rage clicks", captured["human"])
 
 
 class TestMarkdownToSlack(BaseTest):
-    def test_headings_and_bold(self) -> None:
-        out = _markdown_to_slack("## Big\nsome **strong** text\n### Small")
-        self.assertIn("*Big*", out)
-        self.assertIn("*strong*", out)
-        self.assertIn("*Small*", out)
-        self.assertNotIn("##", out)
+    @parameterized.expand(
+        [
+            ("h2_heading", "## Big things", "*Big things*"),
+            ("h3_heading", "### Small things", "*Small things*"),
+            ("bold", "some **strong** text", "*strong*"),
+        ]
+    )
+    def test_markdown_converted_to_slack_mrkdwn(self, _label: str, markdown: str, expected: str) -> None:
+        out = _markdown_to_slack(markdown)
+        self.assertIn(expected, out)
+        self.assertNotIn("#", out)
+        self.assertNotIn("**", out)
 
     def test_truncates_long_text(self) -> None:
         out = _markdown_to_slack("x" * 50_000)
         self.assertLessEqual(len(out), 39_000)
         self.assertIn("truncated", out)
+
+
+class TestStripExternalLinks(BaseTest):
+    @parameterized.expand(
+        [
+            ("no_title", "[x](https://evil.example.com)"),
+            ("double_quote_title", '[x](https://evil.example.com "t")'),
+            ("single_quote_title", "[x](https://evil.example.com 't')"),
+            ("paren_title", "[x](https://evil.example.com (t))"),
+            ("bare_url", "visit https://evil.example.com now"),
+        ]
+    )
+    def test_non_posthog_urls_defanged(self, _label: str, markdown: str) -> None:
+        out = strip_external_links_markdown(markdown)
+        # The host must never survive as a live link — only inside an inert code span at most.
+        self.assertNotIn("](https://evil.example.com", out)
+        self.assertNotIn("(https://evil.example.com", out)
+
+    def test_posthog_links_preserved(self) -> None:
+        out = strip_external_links_markdown("[docs](https://posthog.com/docs)")
+        self.assertIn("https://posthog.com/docs", out)
