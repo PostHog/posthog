@@ -117,6 +117,11 @@ class SandboxConfig(BaseModel):
 
 WORKING_DIR = "/tmp/workspace"
 
+# Bounds on what a command cloud run may commit, so a runaway command can't make us
+# materialize an unbounded archive in the worker before GitHub would reject it.
+MAX_CHANGED_FILES = 5000
+MAX_CHANGE_ARCHIVE_BASE64_BYTES = 50 * 1024 * 1024  # ~37 MiB of actual content
+
 PUBLIC_SANDBOX_REPOS: frozenset[str] = frozenset({"posthog/hedgebox", "posthog/.github"})
 """Repos the sandbox is allowed to clone unauthenticated, even when the team has no GitHub integration"""
 # TODO: Remove `posthog/.github` when we switch repo discovery to repo-less agent (now it works as a lightweight dummy)
@@ -231,13 +236,15 @@ class SandboxBase(ABC):
         if not self.is_running():
             raise RuntimeError("Sandbox not in running state.")
 
-        org, repo = repository.lower().split("/")
+        org, repo = repository.lower().split("/", 1)
         repo_path = f"{WORKING_DIR}/repos/{org}/{repo}"
 
         status = self.execute(
             f"cd {shlex.quote(repo_path)} && git add -A && "
             f"git -c core.quotepath=false diff --cached --no-renames --name-status"
         )
+        if status.exit_code != 0:
+            raise RuntimeError(f"Failed to stage changes: {status.stderr[:500]}")
 
         added_paths: list[str] = []
         deletions: list[str] = []
@@ -247,14 +254,23 @@ class SandboxBase(ABC):
                 continue
             (deletions if code.startswith("D") else added_paths).append(path)
 
+        if len(added_paths) + len(deletions) > MAX_CHANGED_FILES:
+            raise RuntimeError(
+                f"Too many changed files to commit ({len(added_paths) + len(deletions)} > {MAX_CHANGED_FILES})"
+            )
+
         additions: list[tuple[str, str]] = []
         if added_paths:
             # One round-trip for all contents (vs. one per file): tar the changed paths and
             # base64 the archive. tar handles binary and odd filenames cleanly.
             quoted = " ".join(shlex.quote(path) for path in added_paths)
             archive = self.execute(f"cd {shlex.quote(repo_path)} && tar -cf - -- {quoted} | base64 -w0")
-            raw = base64.b64decode(archive.stdout.strip())
-            with tarfile.open(fileobj=io.BytesIO(raw), mode="r:") as tar:
+            if archive.exit_code != 0:
+                raise RuntimeError(f"Failed to read changed files: {archive.stderr[:500]}")
+            encoded = archive.stdout.strip()
+            if len(encoded) > MAX_CHANGE_ARCHIVE_BASE64_BYTES:
+                raise RuntimeError("Changed files exceed the size limit for a command cloud run commit")
+            with tarfile.open(fileobj=io.BytesIO(base64.b64decode(encoded)), mode="r:") as tar:
                 for path in added_paths:
                     extracted = tar.extractfile(tar.getmember(path))
                     contents = extracted.read() if extracted else b""
