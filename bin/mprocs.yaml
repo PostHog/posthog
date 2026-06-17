@@ -346,19 +346,6 @@ procs:
             AGENT_BUNDLE_S3_ACCESS_KEY_ID: 'object_storage_root_user'
             AGENT_BUNDLE_S3_SECRET_ACCESS_KEY: 'object_storage_root_password'
 
-    agent-console:
-        # Next.js standalone console at http://localhost:3040 — proxies the
-        # PostHog Django API on /api/projects/... for agent CRUD + memory.
-        # Optional: ask_skip lets the wizard skip it without prompting if
-        # you don't care about the console UI for this session.
-        shell: 'pnpm --filter @posthog/agent-console dev'
-        capability: agent_runtime
-        ready_pattern: 'Ready in'
-        ask_skip: true
-        groups:
-            layer: Application
-            tech: Frontend
-
     cymbal:
         shell: |-
             bin/wait-for-docker && \

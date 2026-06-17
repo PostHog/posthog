@@ -212,17 +212,6 @@
         },
         {
             "files": [
-                "products/agent_platform/packages/agent-chat/**/*.{ts,tsx}",
-                "products/agent_platform/services/agent-console/**/*.{ts,tsx}"
-            ],
-            "rules": {
-                "react/forbid-elements": "off",
-                "react/forbid-dom-props": "off",
-                "no-restricted-imports": "off"
-            }
-        },
-        {
-            "files": [
                 "products/agent_platform/services/agent-shared/**/*.test.{ts,tsx}",
                 "products/agent_platform/services/agent-ingress/**/*.test.{ts,tsx}",
                 "products/agent_platform/services/agent-runner/**/*.test.{ts,tsx}",

@@ -279,14 +279,13 @@ async function main(): Promise<void> {
         broker: new SecretBroker(),
         credentialBroker,
         approvals,
-        // Clickable deep link into the console approval inbox, surfaced to the
-        // model on a gated tool call (and whatever it posts to chat / Slack).
-        // Absolute when the console host is configured; relative otherwise —
-        // either way never the opaque `urn:` fallback.
-        buildApprovalUrl: (requestId) => {
-            const path = `/approvals?request=${requestId}`
-            return config.consoleBaseUrl ? `${config.consoleBaseUrl}${path}` : path
-        },
+        // Clickable deep link that opens the approval in PostHog Code (the agent
+        // console now lives in the desktop/web app). Surfaced to the model on a
+        // gated tool call and whatever it posts to chat / Slack. The approval
+        // request id alone resolves the approval in the fleet inbox, so the link
+        // needs nothing more. Handled by the `approval` deep-link key in
+        // PostHog Code (posthog-code://approval/<id>).
+        buildApprovalUrl: (requestId) => `${config.approvalLinkScheme}://approval/${requestId}`,
         bus,
         logs: logSink,
         resolveIntegrations,
