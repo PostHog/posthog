@@ -5319,17 +5319,17 @@ snapshots:
     scenes-app-insights-trendspie--trends-world-map-edit--light:
         hash: v1.k794b7964.cd2f689b29e28b06f897a4bca768113926233988efb3fb4e600291b8af8324c0.5_HLaGKeRiEv5DpRKhp_wZ8UDLEGlx6s4LNsZMnY34Y
     scenes-app-insights-trendsslopegraph--trends-slope-graph--dark:
-        hash: v1.k794b7964.90656a3ab0e0e884066438fe2010a954ca4f2324429a4fb223020be5d007bc8d.7NM5eEo9QQRZpP0UtTsJokSUnhjM-2iNUQ1aZxMtK3s
+        hash: v1.k794b7964.48989106b5363c0de2cba1dc49be30ca9d08906788482b96db2e779f148c079e.kEunmHq6Qkeq3fmklqMDIN8dtEHg6kCsjTAOnBiic5I
     scenes-app-insights-trendsslopegraph--trends-slope-graph--light:
-        hash: v1.k794b7964.5ca06a070c6d7243e27caa9237342d54e06caf8cdbd207058c92a879280c192a.6YEtfvAGfLl4rHMwTvGr7d9g5_1FBijsuOJ0uDsqFvo
+        hash: v1.k794b7964.8dd7e63cf599a016800a08cb7e85247f3b827697042dd344985e69229ae74c78.Frt6VOYHI-8e6yP855Vh_xSaUmteqyjFVo9UYU7wNQs
     scenes-app-insights-trendsslopegraph--trends-slope-graph-edit--dark:
         hash: v1.k794b7964.aa3925af9ff963c9a4ff078d763eefc4f431bfcb76743620d3aed87f5b34c6a2.pCD2J9ELy9nn_T3zZUkmdHqAhRQ2MwZR68H89gl5-1k
     scenes-app-insights-trendsslopegraph--trends-slope-graph-edit--light:
         hash: v1.k794b7964.f9f2e752c608d8934b6b7e4b67f350f27a36bb74f9fc40ecb5421b3bb7b1efe2.wnKSU54WQ7spstUfSvqqSE54kdOaY5dZ2-tAJgyCVqQ
     scenes-app-insights-trendsslopegraph--trends-slope-graph-incomplete-period--dark:
-        hash: v1.k794b7964.6f48e3b26fa1dbcf874be5762183c59636a377033cabe4576701713a19fdb59d.yZOisLKz7E1FMLYJPW3JbH95A6ROCnbK-fdqHGd53MA
+        hash: v1.k794b7964.0b0b0901ea567cda20eb8700107a3ebdfb06f928ee57b11c224678db35fb01b0.stir7AFfGaPYkrvLWRlNSVttOyjXhmFEAhPjeAcCo5w
     scenes-app-insights-trendsslopegraph--trends-slope-graph-incomplete-period--light:
-        hash: v1.k794b7964.9f0d760ee25679e5b817dc81b7df7ef326983eeef514c093d10cf8a08fc7679f.XmDKnPfkcpkFOYvnFDfh6gvJiKM0JL5HZS0Lj5SOkpI
+        hash: v1.k794b7964.ac434dcd23914321f47c0dc7331c158a5d291593a1ae4de63a4273c700a7f522.0nlQFAvZYxBhRNNF5XHBbXi12JxZ0S-v2A973K0aU_I
     scenes-app-insights-trendsslopegraph--trends-slope-graph-with-legend--dark:
         hash: v1.k794b7964.828419ff8c260e3794e58b96e316dce5eea4f7577c269e7f337ac22a94f66a35.SEgHO0d83_dMCXDlDXyvs6thyJKeOwg9RWrve5PtTNk
     scenes-app-insights-trendsslopegraph--trends-slope-graph-with-legend--light:
