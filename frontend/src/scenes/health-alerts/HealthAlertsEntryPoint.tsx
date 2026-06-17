@@ -118,7 +118,7 @@ function HealthAlertsEntryPointInner(): JSX.Element {
         <HogFunctionList
             forceFilterGroups={HOG_FUNCTION_FILTER_LIST}
             type="internal_destination"
-            returnTo={urls.healthAlerts(presetKinds)}
+            returnTo={urls.healthAlerts(selectedKinds)}
             onDeleteHogFunction={(hogFunction) => {
                 posthog.capture('health_alerts_deleted', { hog_function_id: hogFunction.id })
             }}
