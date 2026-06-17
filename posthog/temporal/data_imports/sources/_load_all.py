@@ -144,6 +144,7 @@ from .customerly.source import CustomerlySource
 from .databricks.source import DatabricksSource
 from .datadog.source import DatadogSource
 from .datascope.source import DatascopeSource
+from .datorama.source import DatoramaSource
 from .db2.source import Db2Source
 from .dbt.source import DbtSource
 from .deel.source import DeelSource
@@ -535,6 +536,7 @@ from .stigg.source import StiggSource
 from .stockdata.source import StockDataSource
 from .strava.source import StravaSource
 from .streamelements.source import StreamElementsSource
+from .streamlabs.source import StreamlabsSource
 from .stripe.source import StripeSource
 from .supabase.source import SupabaseSource
 from .surveymonkey.source import SurveyMonkeySource

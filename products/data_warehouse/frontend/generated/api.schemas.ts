@@ -1389,6 +1389,8 @@ export interface CredentialApi {
  * * `Adapty` - Adapty
  * * `Braintrust` - Braintrust
  * * `StreamElements` - StreamElements
+ * * `Streamlabs` - Streamlabs
+ * * `Datorama` - Datorama
  * * `Custom` - Custom
  */
 export type ExternalDataSourceTypeEnumApi =
@@ -2017,6 +2019,8 @@ export const ExternalDataSourceTypeEnumApi = {
     Adapty: 'Adapty',
     Braintrust: 'Braintrust',
     StreamElements: 'StreamElements',
+    Streamlabs: 'Streamlabs',
+    Datorama: 'Datorama',
     Custom: 'Custom',
 } as const
 
