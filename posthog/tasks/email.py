@@ -2019,21 +2019,13 @@ def send_integration_access_request(team_id: int, requesting_user_id: int, kind:
     campaign_key = f"integration_access_request_{team_id}_{kind}_{requesting_user_id}"
     subject = f"{requester_name} requested the {integration_name} integration on PostHog"
 
-    # Admins who actually have access to the affected project.
+    # Org admins/owners always have access to every project, so the org-level filter is the access check.
     memberships = (
-        OrganizationMembership.objects.select_related("user", "organization")
+        OrganizationMembership.objects.select_related("user")
         .filter(organization_id=team.organization_id, level__gte=OrganizationMembership.Level.ADMIN)
         .exclude(user_id=requesting_user_id)
     )
-    recipients = [
-        membership.user
-        for membership in memberships
-        if membership.user.email
-        and UserPermissions(membership.user)
-        .team(team)
-        .effective_membership_level_for_parent_membership(membership.organization, membership)
-        is not None
-    ]
+    recipients = [membership.user for membership in memberships if membership.user.email]
     if not recipients:
         return
 
