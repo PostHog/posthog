@@ -4457,9 +4457,9 @@ snapshots:
     scenes-app-batchexports--new-http-export--light:
         hash: v1.k794b7964.57a9e794717b31d1d38c525bb94ccb83146dec6e5132b687b4d37b187dcc5f50.pPRfr3IHa9In8YGfVfqcW6W8Ia2hVO2D8snx_2Qgo20
     scenes-app-batchexports--new-postgres-export--dark:
-        hash: v1.k794b7964.6edf090d1ebd7d5457b60cac591cd4e3479fe5b0f26111a90665cfab6da8b787.F24aRAs1TCIrtG-0J03xBp7L4BdEHAZqthDa3_qf_yU
+        hash: v1.k794b7964.8e1760701728ac462b0f6ceef80a1b9cdaf36a08bd482d460deaf3299c30a7ad.qDT0LSvX0DlJBr_JM7ma9ZMsYx8TVw0UY7urxDCGjbo
     scenes-app-batchexports--new-postgres-export--light:
-        hash: v1.k794b7964.26f2cc2387acf287d0b6765d06859a7f9f1b4d0a825a02fe2992629f4d07cc8b.xXylSXY9SPOV2JJHWB7AyyS1cfvqVaJBeQNTXq-6K2g
+        hash: v1.k794b7964.0304d23c0e2b65397b894a2264f4c62937d74792b70ae5f57e67bddc8b01ab66.Wi96xSFv5jA4ZSxgiW8_I_JoUAfaJUrQmets-lPY6lU
     scenes-app-batchexports--new-redshift-export--dark:
         hash: v1.k794b7964.769e74e5097c2e53ae958785fdb3e6833a683f700a589f03dd7635fb4b2e0787.o50DQ7asE_mTNQg0veJYD6akpaYCutsM_lZRQrKhU7o
     scenes-app-batchexports--new-redshift-export--light:
