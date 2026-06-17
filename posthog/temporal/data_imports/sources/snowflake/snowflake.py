@@ -29,8 +29,10 @@ from posthog.temporal.data_imports.pipelines.helpers import (
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.sql import (
     AnsiIdentifierQuoter,
+    ValidatedRowFilter,
     compute_projected_columns,
     format_projected_select_clause,
+    render_positional_conditions,
 )
 from posthog.temporal.data_imports.sources.common.sql.implementation import SourceMetadata, SQLSourceImplementation
 from posthog.temporal.data_imports.sources.common.sql.incremental import IncrementalFieldFilter
@@ -104,12 +106,22 @@ def _build_query(
     db_incremental_field_last_value: Optional[Any],
     enabled_columns: list[str] | None = None,
     primary_keys: list[str] | None = None,
+    row_filters: list[ValidatedRowFilter] | None = None,
 ) -> tuple[str, tuple[Any, ...]]:
     projected = compute_projected_columns(enabled_columns, primary_keys, incremental_field)
     select_clause = format_projected_select_clause(projected, _SNOWFLAKE_IDENTIFIER_QUOTER)
+    table_ref = f"{database}.{schema}.{table_name}"
+
+    # Positional param order: IDENTIFIER(%s), then any incremental value, then row-filter values.
+    filter_conditions, filter_values = render_positional_conditions(row_filters or [], _SNOWFLAKE_IDENTIFIER_QUOTER)
 
     if not should_use_incremental_field:
-        return f"SELECT {select_clause} FROM IDENTIFIER(%s)", (f"{database}.{schema}.{table_name}",)
+        if filter_conditions:
+            return (
+                f"SELECT {select_clause} FROM IDENTIFIER(%s) WHERE {' AND '.join(filter_conditions)}",
+                (table_ref, *filter_values),
+            )
+        return f"SELECT {select_clause} FROM IDENTIFIER(%s)", (table_ref,)
 
     if incremental_field is None or incremental_field_type is None:
         raise ValueError("incremental_field and incremental_field_type can't be None")
@@ -119,12 +131,10 @@ def _build_query(
 
     operator = incremental_type_to_operator(incremental_field_type)
     quoted_field = _SNOWFLAKE_IDENTIFIER_QUOTER.quote(incremental_field)
+    conditions = [f"{quoted_field} {operator} %s", *filter_conditions]
     return (
-        f"SELECT {select_clause} FROM IDENTIFIER(%s) WHERE {quoted_field} {operator} %s ORDER BY {quoted_field} ASC",
-        (
-            f"{database}.{schema}.{table_name}",
-            db_incremental_field_last_value,
-        ),
+        f"SELECT {select_clause} FROM IDENTIFIER(%s) WHERE {' AND '.join(conditions)} ORDER BY {quoted_field} ASC",
+        (table_ref, db_incremental_field_last_value, *filter_values),
     )
 
 
@@ -378,25 +388,24 @@ class SnowflakeImplementation(
         if not display_by_pair:
             return result
 
-        schemas = {schema for schema, _table in display_by_pair}
-        table_names = {table for _schema, table in display_by_pair}
+        # Match exact (schema, table) pairs — independent IN clauses over schemas and table
+        # names would cross-product and also fetch every same-named table in other schemas.
+        pairs = sorted(display_by_pair)
 
         try:
             with conn.cursor() as cursor:
                 if cursor is None:
                     raise Exception("Can't create cursor to Snowflake")
 
-                schema_placeholders = ",".join(["%s"] * len(schemas))
-                table_placeholders = ",".join(["%s"] * len(table_names))
+                pair_predicate = " OR ".join(["(TABLE_SCHEMA = %s AND TABLE_NAME = %s)"] * len(pairs))
                 cursor.execute(
                     f"""
                     SELECT TABLE_SCHEMA, TABLE_NAME, CLUSTERING_KEY
                     FROM INFORMATION_SCHEMA.TABLES
                     WHERE TABLE_CATALOG = %s
-                      AND TABLE_SCHEMA IN ({schema_placeholders})
-                      AND TABLE_NAME IN ({table_placeholders})
+                      AND ({pair_predicate})
                     """,
-                    (config.database, *schemas, *table_names),
+                    (config.database, *(value for pair in pairs for value in pair)),
                 )
 
                 for table_schema, table_name, clustering_key in cursor:
@@ -522,6 +531,7 @@ class SnowflakeImplementation(
         incremental_field_type = inputs.incremental_field_type
         db_incremental_field_last_value = inputs.db_incremental_field_last_value
         enabled_columns = inputs.enabled_columns
+        row_filters = inputs.row_filters
 
         with self.connect(config) as connection:
             with connection.cursor() as cursor:
@@ -538,6 +548,7 @@ class SnowflakeImplementation(
                     db_incremental_field_last_value,
                     enabled_columns=enabled_columns,
                     primary_keys=primary_keys,
+                    row_filters=row_filters,
                 )
                 rows_to_sync = self.get_rows_to_sync(cursor, inner_query, inner_query_params, logger)
 
@@ -556,6 +567,7 @@ class SnowflakeImplementation(
                         db_incremental_field_last_value,
                         enabled_columns=enabled_columns,
                         primary_keys=primary_keys,
+                        row_filters=row_filters,
                     )
                     logger.debug(f"Snowflake query: {query.format(params)}")
                     streaming_cursor.execute(query, params)

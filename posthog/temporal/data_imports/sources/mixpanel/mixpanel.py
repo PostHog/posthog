@@ -1,12 +1,13 @@
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
+from email.utils import parsedate_to_datetime
 from typing import Any, Optional
 
 import orjson
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 from urllib3.util.retry import Retry
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
@@ -29,9 +30,59 @@ REQUEST_TIMEOUT = 120
 # (and uneven) effective retry budget than the POST ones.
 NO_URLLIB_RETRY = Retry(total=0)
 
+# Upper bound on how long we'll honor a server-provided `Retry-After`. Mixpanel can hand
+# back a cool-down longer than our default backoff; we wait for it, but cap it so a large
+# (or hostile) value can't pin a worker thread for an unbounded stretch.
+MAX_RETRY_AFTER_SECONDS = 120
+
 
 class MixpanelRetryableError(Exception):
-    pass
+    def __init__(self, message: str, retry_after: Optional[float] = None) -> None:
+        super().__init__(message)
+        # Seconds the server asked us to wait before retrying (from the `Retry-After`
+        # header), or None when the response didn't provide one.
+        self.retry_after = retry_after
+
+
+def _parse_retry_after(value: Optional[str]) -> Optional[float]:
+    """Parse a `Retry-After` header into seconds-from-now.
+
+    The header is either delta-seconds (`"30"`) or an HTTP-date. Returns None for a
+    missing, malformed, or already-elapsed value so the caller falls back to its default
+    backoff."""
+    if value is None:
+        return None
+    value = value.strip()
+    if not value:
+        return None
+    try:
+        seconds = float(value)
+        return seconds if seconds >= 0 else None
+    except ValueError:
+        pass
+    try:
+        retry_dt = parsedate_to_datetime(value)
+    except (TypeError, ValueError):
+        return None
+    if retry_dt.tzinfo is None:
+        retry_dt = retry_dt.replace(tzinfo=UTC)
+    delta = (retry_dt - datetime.now(UTC)).total_seconds()
+    return delta if delta > 0 else None
+
+
+# Backoff used when the server gives us no `Retry-After` to honor.
+_EXPONENTIAL_JITTER = wait_exponential_jitter(initial=2, max=60)
+
+
+def _retry_wait(retry_state: RetryCallState) -> float:
+    """Prefer the server's `Retry-After` cool-down on a 429/5xx; otherwise back off
+    exponentially with jitter. Retrying before the server's stated window just earns
+    another 429 and wastes the (small) retry budget."""
+    outcome = retry_state.outcome
+    exc = outcome.exception() if outcome is not None else None
+    if isinstance(exc, MixpanelRetryableError) and exc.retry_after is not None:
+        return min(exc.retry_after, MAX_RETRY_AFTER_SECONDS)
+    return _EXPONENTIAL_JITTER(retry_state)
 
 
 @dataclasses.dataclass
@@ -137,7 +188,12 @@ def validate_credentials(
 def _check_response(response: requests.Response, url: str, logger: FilteringBoundLogger) -> requests.Response:
     """Classify a Mixpanel response: 429/5xx are retryable, other 4xx are terminal."""
     if response.status_code == 429 or response.status_code >= 500:
-        raise MixpanelRetryableError(f"Mixpanel API error (retryable): status={response.status_code}, url={url}")
+        headers = getattr(response, "headers", None) or {}
+        retry_after = _parse_retry_after(headers.get("Retry-After"))
+        raise MixpanelRetryableError(
+            f"Mixpanel API error (retryable): status={response.status_code}, url={url}",
+            retry_after=retry_after,
+        )
 
     if not response.ok:
         logger.error(f"Mixpanel API error: status={response.status_code}, body={response.text[:500]}, url={url}")
@@ -149,7 +205,7 @@ def _check_response(response: requests.Response, url: str, logger: FilteringBoun
 @retry(
     retry=retry_if_exception_type((MixpanelRetryableError, requests.ReadTimeout, requests.ConnectionError)),
     stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=2, max=60),
+    wait=_retry_wait,
     reraise=True,
 )
 def _request(

@@ -3,9 +3,13 @@ from datetime import date, datetime
 from typing import ClassVar, Literal, Optional, TypedDict, Union, cast
 
 import psycopg
+import pymysql
 import sqlparse
 from opentelemetry import trace
 from psycopg.types.datetime import DateLoader
+from pymysql.constants import FIELD_TYPE as MYSQL_FIELD_TYPE
+from sqlparse import tokens as sqlparse_tokens
+from sqlparse.sql import Statement
 
 from posthog.schema import (
     HogLanguage,
@@ -25,6 +29,7 @@ from posthog.hogql.constants import (
     get_default_limit_for_context,
 )
 from posthog.hogql.database.database import Database
+from posthog.hogql.database.direct_mysql_table import DirectMySQLTable
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.schema.duckdb_table_functions import (
     GenerateSeriesTable,
@@ -33,7 +38,9 @@ from posthog.hogql.database.schema.duckdb_table_functions import (
 )
 from posthog.hogql.database.schema.logs import HOGQL_MAX_BYTES_TO_READ_FOR_LOGS_USER_QUERIES
 from posthog.hogql.direct_connection import (
+    get_direct_connection_source,
     get_direct_connection_source_none_or_raise,
+    validate_direct_mysql_source_config,
     validate_direct_postgres_source_config,
 )
 from posthog.hogql.errors import ExposedHogQLError, QueryError, ResolutionError
@@ -60,11 +67,14 @@ from posthog.errors import ExposedCHQueryError
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.rbac.user_access_control import UserAccessControl
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 tracer = trace.get_tracer(__name__)
 DIRECT_POSTGRES_CONNECT_TIMEOUT_SECONDS = 15
 DIRECT_POSTGRES_DEFAULT_STATEMENT_TIMEOUT_SECONDS = 600
+DIRECT_MYSQL_DEFAULT_STATEMENT_TIMEOUT_SECONDS = 600
+RAW_MYSQL_READ_ONLY_ERROR = "Raw MySQL queries must be read-only SELECT statements."
 
 POSTGRES_OID_TO_CLICKHOUSE_TYPE: dict[int, str] = {
     16: "Bool",
@@ -105,6 +115,55 @@ POSTGRES_OID_TO_CLICKHOUSE_TYPE: dict[int, str] = {
 }
 
 
+MYSQL_FIELD_TYPE_TO_CLICKHOUSE_TYPE: dict[int, str] = {
+    MYSQL_FIELD_TYPE.TINY: "Int8",
+    MYSQL_FIELD_TYPE.SHORT: "Int16",
+    MYSQL_FIELD_TYPE.INT24: "Int32",
+    MYSQL_FIELD_TYPE.LONG: "Int32",
+    MYSQL_FIELD_TYPE.LONGLONG: "Int64",
+    MYSQL_FIELD_TYPE.YEAR: "Int32",
+    MYSQL_FIELD_TYPE.FLOAT: "Float32",
+    MYSQL_FIELD_TYPE.DOUBLE: "Float64",
+    MYSQL_FIELD_TYPE.DECIMAL: "Decimal",
+    MYSQL_FIELD_TYPE.NEWDECIMAL: "Decimal",
+    MYSQL_FIELD_TYPE.DATE: "Date",
+    MYSQL_FIELD_TYPE.NEWDATE: "Date",
+    MYSQL_FIELD_TYPE.DATETIME: "DateTime",
+    MYSQL_FIELD_TYPE.TIMESTAMP: "DateTime",
+    MYSQL_FIELD_TYPE.TIME: "String",
+    MYSQL_FIELD_TYPE.BIT: "String",
+    MYSQL_FIELD_TYPE.JSON: "String",
+    MYSQL_FIELD_TYPE.ENUM: "String",
+    MYSQL_FIELD_TYPE.SET: "String",
+    MYSQL_FIELD_TYPE.TINY_BLOB: "String",
+    MYSQL_FIELD_TYPE.MEDIUM_BLOB: "String",
+    MYSQL_FIELD_TYPE.LONG_BLOB: "String",
+    MYSQL_FIELD_TYPE.BLOB: "String",
+    MYSQL_FIELD_TYPE.VAR_STRING: "String",
+    MYSQL_FIELD_TYPE.VARCHAR: "String",
+    MYSQL_FIELD_TYPE.STRING: "String",
+    MYSQL_FIELD_TYPE.GEOMETRY: "String",
+}
+
+
+def mysql_field_type_to_clickhouse_type(type_code: int | None) -> str:
+    if type_code is None:
+        return "String"
+    return MYSQL_FIELD_TYPE_TO_CLICKHOUSE_TYPE.get(type_code, "String")
+
+
+def mysql_error_to_message(error: Exception) -> str:
+    if isinstance(error, pymysql.MySQLError):
+        args = error.args
+        if len(args) >= 2 and isinstance(args[1], str) and args[1].strip():
+            return args[1].strip().splitlines()[0]
+
+    message = str(error).strip()
+    if not message:
+        return "MySQL query failed."
+    return message.splitlines()[0]
+
+
 class PostgresConnectionKwargs(TypedDict, total=False):
     host: str
     port: int
@@ -142,17 +201,60 @@ def postgres_error_to_message(error: Exception) -> str:
     return message.splitlines()[0]
 
 
-def ensure_single_direct_postgres_statement(sql: str) -> str:
+def ensure_single_direct_statement(sql: str) -> str:
     """Reject multi-statement raw SQL.
 
     Raw queries run without bound parameters, so psycopg uses the simple query
     protocol, which runs every ``;``-separated statement in one round trip. A
     caller could commit out of the read-only transaction and ``BEGIN READ WRITE``
-    to perform writes; restricting to one statement keeps it read-only.
+    to perform writes; restricting to one statement keeps it read-only. The same
+    guard protects direct MySQL queries (PyMySQL additionally disables the
+    MULTI_STATEMENTS client flag by default).
     """
     statements = [statement for statement in sqlparse.split(sql) if statement.strip(" \t\r\n;")]
     if len(statements) > 1:
         raise ExposedHogQLError("Raw queries must contain a single statement.")
+    return sql
+
+
+def _is_executable_mysql_comment(value: str) -> bool:
+    normalized = value.lstrip().upper()
+    return normalized.startswith("/*!") or normalized.startswith("/*M!")
+
+
+def _raw_mysql_token_values(statement: Statement) -> list[str]:
+    token_values: list[str] = []
+    for token in statement.flatten():
+        if token.ttype in sqlparse_tokens.Comment:
+            if _is_executable_mysql_comment(token.value):
+                raise ExposedHogQLError(RAW_MYSQL_READ_ONLY_ERROR)
+            continue
+        if token.is_whitespace or token.ttype in sqlparse_tokens.Literal.String:
+            continue
+        value = token.value.strip().upper()
+        if value:
+            token_values.append(value)
+    return token_values
+
+
+def ensure_read_only_raw_mysql_statement(sql: str) -> str:
+    sql = ensure_single_direct_statement(sql)
+    statements = [statement for statement in sqlparse.parse(sql) if str(statement).strip(" \t\r\n;")]
+    if len(statements) != 1 or statements[0].get_type() != "SELECT":
+        raise ExposedHogQLError(RAW_MYSQL_READ_ONLY_ERROR)
+
+    token_values = _raw_mysql_token_values(statements[0])
+    for index, value in enumerate(token_values):
+        normalized_value = value.strip("`")
+        if value == "INTO":
+            raise ExposedHogQLError(RAW_MYSQL_READ_ONLY_ERROR)
+        if normalized_value == "LOAD_FILE" and index + 1 < len(token_values) and token_values[index + 1] == "(":
+            raise ExposedHogQLError(RAW_MYSQL_READ_ONLY_ERROR)
+        if value == "FOR" and index + 1 < len(token_values) and token_values[index + 1] in {"UPDATE", "SHARE"}:
+            raise ExposedHogQLError(RAW_MYSQL_READ_ONLY_ERROR)
+        if token_values[index : index + 4] == ["LOCK", "IN", "SHARE", "MODE"]:
+            raise ExposedHogQLError(RAW_MYSQL_READ_ONLY_ERROR)
+
     return sql
 
 
@@ -269,13 +371,15 @@ class HogQLQueryExecutor:
     clickhouse_prepared_ast: Optional[ast.AST] = None
     clickhouse_context: Optional[HogQLContext] = None
     clickhouse_sql: Optional[str] = None
-    direct_postgres_context: Optional[HogQLContext] = None
-    direct_postgres_sql: Optional[str] = None
-    direct_postgres_source_id: Optional[str] = None
-    direct_postgres_values: dict[str, object] | None = None
+    direct_context: Optional[HogQLContext] = None
+    direct_sql: Optional[str] = None
+    direct_source_id: Optional[str] = None
+    direct_values: dict[str, object] | None = None
+    direct_dialect: Optional[Literal["postgres", "mysql"]] = None
     connection_id: Optional[str] = None
     send_raw_query: bool = False
     user: Optional[User] = None
+    user_access_control: Optional[UserAccessControl] = None
 
     __uninitialized_context: ClassVar[HogQLContext] = HogQLContext()
 
@@ -283,12 +387,16 @@ class HogQLQueryExecutor:
     class _PreparedExecution:
         sql: str
         context: HogQLContext
-        engine: Literal["clickhouse", "direct_postgres"]
+        engine: Literal["clickhouse", "direct_postgres", "direct_mysql"]
 
     @tracer.start_as_current_span("HogQLQueryExecutor.__post_init__")
     def __post_init__(self):
         if self.context is self.__uninitialized_context:
-            self.context = HogQLContext(team_id=self.team.pk, user=self.user)
+            self.context = HogQLContext(
+                team_id=self.team.pk, user=self.user, user_access_control=self.user_access_control
+            )
+        elif self.context.user_access_control is None:
+            self.context.user_access_control = self.user_access_control
 
         self.query_modifiers = create_default_modifiers_for_team(self.team, self.modifiers)
         self.debug = self.modifiers is not None and self.modifiers.debug
@@ -341,6 +449,7 @@ class HogQLQueryExecutor:
                     self.context.database = Database.create_for(
                         team=self.team,
                         user=self.user,
+                        user_access_control=self.context.user_access_control,
                         modifiers=self.query_modifiers,
                         timings=self.timings,
                     )
@@ -391,15 +500,18 @@ class HogQLQueryExecutor:
         source = get_direct_connection_source_none_or_raise(
             self.team,
             self.connection_id,
+            user=self.user,
             error_factory=ExposedHogQLError,
         )
         self.connection_id = str(source.id) if source else None
+        self._direct_source = source
 
         database = self.context.database
         if database is None or self.connection_id is not None:
             database = Database.create_for(
                 team=self.team,
                 user=self.user,
+                user_access_control=self.context.user_access_control,
                 modifiers=self.query_modifiers,
                 timings=self.timings,
                 connection_id=self.connection_id,
@@ -460,7 +572,7 @@ class HogQLQueryExecutor:
                         )
                     )
 
-    def _effective_direct_postgres_settings(self) -> HogQLGlobalSettings:
+    def _effective_direct_settings(self) -> HogQLGlobalSettings:
         settings = get_default_hogql_global_settings(
             self.team.pk,
             self.settings,
@@ -478,7 +590,7 @@ class HogQLQueryExecutor:
 
         return settings
 
-    def _prepare_direct_postgres_query(self) -> _PreparedExecution | None:
+    def _prepare_direct_query(self) -> _PreparedExecution | None:
         try:
             query_type = self._get_select_query_type()
         except (QueryError, ResolutionError, AttributeError):
@@ -500,7 +612,7 @@ class HogQLQueryExecutor:
         direct_source_ids = {
             table_type.table.external_data_source_id
             for table_type in base_table_types
-            if isinstance(table_type.table, DirectPostgresTable)
+            if isinstance(table_type.table, (DirectPostgresTable, DirectMySQLTable))
         }
 
         direct_source_id: str | None = None
@@ -515,24 +627,28 @@ class HogQLQueryExecutor:
             direct_source_id = self.connection_id
 
         if len(direct_source_ids) > 1:
-            raise ExposedHogQLError("Direct Postgres queries can only reference a single source.")
+            raise ExposedHogQLError("Direct queries can only reference a single source.")
 
         has_non_direct_tables = any(
-            not isinstance(table_type.table, DirectPostgresTable) for table_type in base_table_types
+            not isinstance(table_type.table, (DirectPostgresTable, DirectMySQLTable)) for table_type in base_table_types
         )
         if has_non_direct_tables:
             if self.connection_id is None:
                 return None
-            raise ExposedHogQLError("Direct Postgres queries cannot be joined with PostHog or warehouse-synced tables.")
+            raise ExposedHogQLError("Direct queries cannot be joined with PostHog or warehouse-synced tables.")
 
         if self.connection_id is None:
-            raise ExposedHogQLError("Direct Postgres queries require selecting a connection.")
+            raise ExposedHogQLError("Direct queries require selecting a connection.")
 
         if direct_source_id is None:
             direct_source_id = next(iter(direct_source_ids))
 
         if self.connection_id != direct_source_id:
             raise ExposedHogQLError("The query references a different source than the selected connection.")
+
+        source = getattr(self, "_direct_source", None)
+        dialect: Literal["postgres", "mysql"] = "mysql" if source is not None and source.is_direct_mysql else "postgres"
+        engine: Literal["direct_postgres", "direct_mysql"] = "direct_mysql" if dialect == "mysql" else "direct_postgres"
 
         direct_context = dataclasses.replace(
             self.context,
@@ -548,23 +664,24 @@ class HogQLQueryExecutor:
         direct_prepared_ast = prepare_ast_for_printing(
             node=self.select_query,
             context=direct_context,
-            dialect="postgres",
+            dialect=dialect,
         )
 
-        self.direct_postgres_sql = print_prepared_ast(
+        self.direct_sql = print_prepared_ast(
             node=cast(ast.SelectQuery | ast.SelectSetQuery, direct_prepared_ast),
             context=direct_context,
-            dialect="postgres",
+            dialect=dialect,
             pretty=self.pretty if self.pretty is not None else True,
         )
-        self.direct_postgres_context = direct_context
-        self.direct_postgres_values = direct_context.values
-        self.direct_postgres_source_id = direct_source_id
+        self.direct_context = direct_context
+        self.direct_values = direct_context.values
+        self.direct_source_id = direct_source_id
+        self.direct_dialect = dialect
 
         return self._PreparedExecution(
-            sql=self.direct_postgres_sql,
+            sql=self.direct_sql,
             context=direct_context,
-            engine="direct_postgres",
+            engine=engine,
         )
 
     def _get_select_query_type(self) -> ast.SelectQueryType | ast.SelectSetQueryType | None:
@@ -582,22 +699,19 @@ class HogQLQueryExecutor:
 
     @tracer.start_as_current_span("HogQLQueryExecutor._execute_direct_postgres_query")
     def _execute_direct_postgres_query(self) -> None:
-        assert self.direct_postgres_sql is not None
-        assert self.direct_postgres_source_id is not None
+        assert self.direct_sql is not None
+        assert self.direct_source_id is not None
 
         from posthog.temporal.data_imports.sources.postgres.postgres import _get_sslmode, source_requires_ssl
 
-        from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-
-        try:
-            source = ExternalDataSource.objects.get(team=self.team, id=self.direct_postgres_source_id)
-        except ExternalDataSource.DoesNotExist as e:
-            raise ExposedHogQLError("Connection not found or has been deleted") from e
+        source = get_direct_connection_source(self.team, self.direct_source_id, user=self.user)
+        if source is None:
+            raise ExposedHogQLError("Connection not found or has been deleted")
 
         postgres_source, source_config = validate_direct_postgres_source_config(source, self.team)
         source_schema = source_config.schema
         require_ssl = source_requires_ssl(source, source_config)
-        settings = self._effective_direct_postgres_settings()
+        settings = self._effective_direct_settings()
         statement_timeout_ms = (
             max(settings.max_execution_time or DIRECT_POSTGRES_DEFAULT_STATEMENT_TIMEOUT_SECONDS, 1) * 1000
         )
@@ -605,7 +719,7 @@ class HogQLQueryExecutor:
         span = trace.get_current_span()
         span.set_attribute("team_id", self.team.pk)
         span.set_attribute("query_type", self.query_type)
-        span.set_attribute("source_id", self.direct_postgres_source_id)
+        span.set_attribute("source_id", self.direct_source_id)
 
         try:
             with self.timings.measure("postgres_execute"):
@@ -649,7 +763,7 @@ class HogQLQueryExecutor:
                             connection.execute(session_setup_sql)
                         connection.adapters.register_loader("date", LenientDirectPostgresDateLoader)
                         with connection.cursor() as cursor:
-                            cursor.execute(self.direct_postgres_sql, self.direct_postgres_values or None)
+                            cursor.execute(self.direct_sql, self.direct_values or None)
                             results = cursor.fetchall()
                             description = cursor.description or []
         except (psycopg.Error, ExposedHogQLError) as error:
@@ -668,6 +782,55 @@ class HogQLQueryExecutor:
         ]
         if not self.print_columns:
             self.print_columns = [column.name for column in description]
+
+    @tracer.start_as_current_span("HogQLQueryExecutor._execute_direct_mysql_query")
+    def _execute_direct_mysql_query(self) -> None:
+        assert self.direct_sql is not None
+        assert self.direct_source_id is not None
+
+        source = get_direct_connection_source(self.team, self.direct_source_id, user=self.user)
+        if source is None:
+            raise ExposedHogQLError("Connection not found or has been deleted")
+
+        mysql_implementation, source_config = validate_direct_mysql_source_config(source, self.team)
+        settings = self._effective_direct_settings()
+        statement_timeout_seconds = max(
+            settings.max_execution_time or DIRECT_MYSQL_DEFAULT_STATEMENT_TIMEOUT_SECONDS, 1
+        )
+
+        span = trace.get_current_span()
+        span.set_attribute("team_id", self.team.pk)
+        span.set_attribute("query_type", self.query_type)
+        span.set_attribute("source_id", self.direct_source_id)
+
+        try:
+            with self.timings.measure("mysql_execute"):
+                with mysql_implementation.connect(source_config, read_timeout=statement_timeout_seconds) as connection:
+                    with connection.cursor() as cursor:
+                        try:
+                            # MySQL 8 only and SELECT-only; MariaDB uses a different variable.
+                            # The read_timeout above is the backstop if this is unavailable.
+                            cursor.execute(f"SET SESSION MAX_EXECUTION_TIME = {statement_timeout_seconds * 1000}")
+                        except pymysql.MySQLError:
+                            pass
+                        cursor.execute("START TRANSACTION READ ONLY")
+                        cursor.execute(self.direct_sql, self.direct_values or None)
+                        results = cursor.fetchall()
+                        description = cursor.description or []
+        except (pymysql.MySQLError, ExposedHogQLError) as error:
+            span.set_attribute("error_type", error.__class__.__name__)
+            if self.debug:
+                self.results = []
+                self.error = mysql_error_to_message(error)
+                self.types = []
+                return
+            raise ExposedHogQLError(mysql_error_to_message(error)) from error
+
+        span.set_attribute("row_count", len(results))
+        self.results = list(results)
+        self.types = [(column[0], mysql_field_type_to_clickhouse_type(column[1])) for column in description]
+        if not self.print_columns:
+            self.print_columns = [column[0] for column in description]
 
     @tracer.start_as_current_span("HogQLQueryExecutor._generate_clickhouse_sql")
     def _generate_clickhouse_sql(self):
@@ -742,7 +905,7 @@ class HogQLQueryExecutor:
         with self.timings.measure("_generate_hogql"):
             self._generate_hogql()
 
-        direct_execution = self._prepare_direct_postgres_query()
+        direct_execution = self._prepare_direct_query()
         if direct_execution is not None:
             return direct_execution
 
@@ -757,21 +920,28 @@ class HogQLQueryExecutor:
             engine="clickhouse",
         )
 
-    def _execute_raw_direct_postgres_query(self) -> None:
+    def _execute_raw_direct_query(self) -> None:
         if not isinstance(self.query, str):
             raise ExposedHogQLError("Sending a raw query requires a raw query string.")
 
         source = get_direct_connection_source_none_or_raise(
             self.team,
             self.connection_id,
+            user=self.user,
             error_factory=ExposedHogQLError,
         )
         if source is None:
             raise ExposedHogQLError("Sending a raw query requires a valid connection.")
         self.connection_id = str(source.id)
-        self.direct_postgres_source_id = self.connection_id
-        self.direct_postgres_sql = ensure_single_direct_postgres_statement(str(self.query))
-        self._execute_direct_postgres_query()
+        self.direct_source_id = self.connection_id
+        if source.is_direct_mysql:
+            self.direct_dialect = "mysql"
+            self.direct_sql = ensure_read_only_raw_mysql_statement(str(self.query))
+            self._execute_direct_mysql_query()
+        else:
+            self.direct_dialect = "postgres"
+            self.direct_sql = ensure_single_direct_statement(str(self.query))
+            self._execute_direct_postgres_query()
 
     def _capture_send_raw_query_translation_error(self) -> None:
         """Try a post-success HogQL translation for raw queries.
@@ -890,15 +1060,18 @@ class HogQLQueryExecutor:
 
     @tracer.start_as_current_span("HogQLQueryExecutor.execute")
     def execute(self) -> HogQLQueryResponse:
+        trace.get_current_span().set_attribute("team_id", self.team.pk)
         try:
             if self.send_raw_query and self.connection_id is not None:
-                self._execute_raw_direct_postgres_query()
+                self._execute_raw_direct_query()
                 self._capture_send_raw_query_translation_error()
             else:
                 prepared_execution = self._prepare_execution()
 
                 if prepared_execution.engine == "direct_postgres":
                     self._execute_direct_postgres_query()
+                elif prepared_execution.engine == "direct_mysql":
+                    self._execute_direct_mysql_query()
                 elif self.clickhouse_sql is not None:
                     if self.clickhouse_sql == "":
                         self.results = []
@@ -919,7 +1092,7 @@ class HogQLQueryExecutor:
         return HogQLQueryResponse(
             query=self.query,
             hogql=self.hogql,
-            clickhouse=self.direct_postgres_sql or self.clickhouse_sql,
+            clickhouse=self.direct_sql or self.clickhouse_sql,
             error=self.error,
             timings=self.timings.to_list(),
             results=self.results,

@@ -18,7 +18,6 @@ import posthoganalytics
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags_context
 from posthog.cloud_utils import is_cloud
-from posthog.helpers.dashboard_templates import create_dashboard_from_template
 from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLISTS
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.utils import cached_property
@@ -39,8 +38,6 @@ from posthog.session_recordings.models.session_recording_playlist import Session
 from posthog.settings.utils import get_list
 
 from products.customer_analytics.backend.constants import DEFAULT_ACTIVITY_EVENT
-from products.dashboards.backend.models.dashboard import Dashboard
-from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 
 from ...hogql.modifiers import set_default_modifier_values
 from ...schema_enums import CurrencyCode, PersonsOnEventsMode
@@ -128,15 +125,12 @@ class TeamManager(models.Manager):
             team.extra_settings = {}
         team.extra_settings.setdefault("recorder_script", "posthog-recorder")
 
-        # Create default dashboards
-        default_app_template = DashboardTemplate.original_template()
-        dashboard = Dashboard.objects.db_manager(self.db).create(
-            name="My App Dashboard",
-            pinned=True,
-            team=team,
-            description=default_app_template.dashboard_description or "",
+        # Create default dashboards (A/B via starter-dashboard-v2; demo projects skip above)
+        from posthog.helpers.signup_dashboard_experiment import (  # noqa: PLC0415 — breaks team import cycle
+            create_signup_primary_dashboard,
         )
-        create_dashboard_from_template("DEFAULT_APP", dashboard)
+
+        dashboard = create_signup_primary_dashboard(team, using=self.db)
         team.primary_dashboard = dashboard
 
         # Create default session recording playlists
@@ -274,7 +268,17 @@ class Team(UUIDTClassicModel):
                 # be done without locking the table. By adding this constraint using Postgres's `NOT VALID` option
                 # (via Django `AddConstraintNotValid()`) and subsequent `VALIDATE CONSTRAINT`, we avoid locking.
                 condition=models.Q(project_id__isnull=False),
-            )
+            ),
+            models.CheckConstraint(
+                name="llm_gateway_overspend_allowance_usd_in_range",
+                # Mirrors OVERSPEND_ALLOWANCE_MIN/MAX_USD; null = unset stays valid. The Python
+                # write surfaces validate too, but update/bulk_update/shell/raw bypass them.
+                condition=models.Q(llm_gateway_overspend_allowance_usd__isnull=True)
+                | models.Q(
+                    llm_gateway_overspend_allowance_usd__gte=0,
+                    llm_gateway_overspend_allowance_usd__lte=10000,
+                ),
+            ),
         ]
 
     objects: TeamManager = TeamManager()
@@ -451,6 +455,10 @@ class Team(UUIDTClassicModel):
     # null revoked_at = not revoked. Set by internal tooling/admin only.
     llm_gateway_enabled_at = models.DateTimeField(null=True, blank=True)
     llm_gateway_revoked_at = models.DateTimeField(null=True, blank=True)
+    # Per-team USD floor the gateway lets a team dispatch past $0 down to. Projected into
+    # gateway_credential.json as the `overspend_allowance_usd` wire key. Null = use the
+    # gateway default; 0 = no allowance. Range [0, 10000] validated at the write surfaces.
+    llm_gateway_overspend_allowance_usd = models.DecimalField(max_digits=20, decimal_places=6, null=True, blank=True)
 
     # Heatmaps
     heatmaps_opt_in = field_access_control(models.BooleanField(null=True, blank=True), "project", "admin")

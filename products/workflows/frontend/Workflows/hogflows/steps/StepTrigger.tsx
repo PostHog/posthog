@@ -36,9 +36,9 @@ import { IconAdsClick } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { humanFriendlyNumber } from 'lib/utils'
 import { publicWebhooksHostOrigin } from 'lib/utils/apiHost'
 import { createFuse } from 'lib/utils/fuseSearch'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS } from 'scenes/feature-flags/cohortPickerProps'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter/TestAccountFilter'
 
@@ -594,7 +594,6 @@ function StepTriggerConfigurationBatch({
                     taxonomicGroupTypes={[
                         TaxonomicFilterGroupType.PersonProperties,
                         TaxonomicFilterGroupType.Cohorts,
-                        TaxonomicFilterGroupType.FeatureFlags,
                         TaxonomicFilterGroupType.Metadata,
                     ]}
                     taxonomicFilterOptionsFromProp={{

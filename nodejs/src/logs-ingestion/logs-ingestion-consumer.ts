@@ -1,7 +1,7 @@
 import { trace } from '@opentelemetry/api'
 import { Message } from 'node-rdkafka'
 import pLimit from 'p-limit'
-import { Counter } from 'prom-client'
+import { Counter, Histogram } from 'prom-client'
 
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { AppMetricsAggregator } from '~/common/services/app-metrics-aggregator'
@@ -99,7 +99,7 @@ export const logsBytesReceivedCounter = new Counter({
 
 export const logsBytesAllowedCounter = new Counter({
     name: 'logs_ingestion_bytes_allowed_total',
-    help: 'Total uncompressed bytes allowed through quota and rate limiting',
+    help: 'Total uncompressed bytes allowed through quota and rate limiting. Gross of the drop-rule billing credit: billed bytes_ingested = this − logs_ingestion_billing_bytes_credited_total.',
 })
 
 export const logsBytesAllowedRecordsCounter = new Counter({
@@ -126,7 +126,7 @@ export const logsRecordsReceivedCounter = new Counter({
 
 export const logsRecordsAllowedCounter = new Counter({
     name: 'logs_ingestion_records_allowed_total',
-    help: 'Total log records allowed through quota and rate limiting',
+    help: 'Total log records allowed through quota and rate limiting. Gross of the drop-rule billing credit: billed records_ingested = this − logs_ingestion_billing_records_credited_total.',
 })
 
 export const logsRecordsDroppedCounter = new Counter({
@@ -147,6 +147,60 @@ export const logsBytesDroppedByRuleCounter = new Counter({
     labelNames: ['team_id'],
 })
 
+// --- Billing impact of drop rules (Tier 1) ---
+export const logsBillingBytesCreditedCounter = new Counter({
+    name: 'logs_ingestion_billing_bytes_credited_total',
+    help: 'Uncompressed header bytes credited back to billing for rows removed by drop rules (pro-rated).',
+    labelNames: ['team_id'],
+})
+
+export const logsBillingRecordsCreditedCounter = new Counter({
+    name: 'logs_ingestion_billing_records_credited_total',
+    help: 'Records removed by drop rules and credited back to billing.',
+    labelNames: ['team_id'],
+})
+
+// --- Pro-rate accuracy-confidence signals (Tier 2). No team_id label — kept low-cardinality. ---
+export const logsBillingProrateDivergenceHistogram = new Histogram({
+    name: 'logs_ingestion_billing_prorate_divergence',
+    help: 'Per-message |content-weighted − record-weighted credit| / header. High = size-skewed batch = pro-rate less trustworthy.',
+    buckets: [0.001, 0.005, 0.01, 0.05, 0.1, 0.25, 0.5, 1],
+})
+
+export const logsDropBatchRowsHistogram = new Histogram({
+    name: 'logs_ingestion_drop_batch_rows',
+    help: 'Rows per batch for messages that had drop-rule drops; small batches carry larger pro-rate error.',
+    buckets: [1, 2, 5, 10, 50, 100, 500, 1000, 5000],
+})
+
+export const logsDropFractionHistogram = new Histogram({
+    name: 'logs_ingestion_drop_fraction',
+    help: 'Fraction of a message content dropped by drop rules; extreme fractions carry larger pro-rate error.',
+    buckets: [0.1, 0.25, 0.5, 0.75, 0.9, 0.99, 1],
+})
+
+/**
+ * Pro-rate a message's billable uncompressed bytes by the fraction of its content that drop
+ * rules removed. Billing is on the per-message header (whole-batch wire size), but drops are
+ * decided per row (content bytes), so we scale the header down by the dropped content fraction
+ * to bill only what survived.
+ *
+ * Weights are customer-content bytes per row (body + attributes + event_name) — NOT the per-row
+ * `bytes_uncompressed` field, whose near-constant denormalization overhead (duplicated resource
+ * attributes, server uuid) would skew the ratio toward record-count weighting. Content weights
+ * track "share of what the customer sent"; residual error vs true wire share (protobuf framing,
+ * per-batch resource blocks) is small and direction-neutral. The result is always ≤ the gross
+ * header (droppedFraction ≤ 1), so a message is never billed above today's gross. Returns 0 when
+ * we can't measure (no header or no content bytes), i.e. no credit rather than a wrong one.
+ */
+export function billingByteReductionForDrops(headerBytes: number, bytesDropped: number, bytesTotal: number): number {
+    if (headerBytes <= 0 || bytesDropped <= 0 || bytesTotal <= 0) {
+        return 0
+    }
+    const droppedFraction = Math.min(1, bytesDropped / bytesTotal)
+    return Math.round(headerBytes * droppedFraction)
+}
+
 export class LogsIngestionConsumer {
     protected name = 'LogsIngestionConsumer'
     // Billing identity for quota enforcement and usage metering; overridden by subclasses (e.g. traces).
@@ -159,6 +213,7 @@ export class LogsIngestionConsumer {
     private samplingService: LogsSamplingService
     private readonly samplingEnabledTeamsRaw: string
     private readonly samplingKillswitch: boolean
+    private readonly billingProrateEnabled: boolean
 
     protected groupId: string
     protected topic: string
@@ -201,6 +256,7 @@ export class LogsIngestionConsumer {
         this.samplingService = new LogsSamplingService(this.redis, mergedConfig.LOGS_LIMITER_TTL_SECONDS)
         this.samplingEnabledTeamsRaw = mergedConfig.LOGS_SAMPLING_ENABLED_TEAMS
         this.samplingKillswitch = mergedConfig.LOGS_SAMPLING_KILLSWITCH
+        this.billingProrateEnabled = mergedConfig.LOGS_BILLING_PRORATE_ENABLED
     }
 
     private isSamplingEvalEnabledForTeam(teamId: number): boolean {
@@ -236,6 +292,8 @@ export class LogsIngestionConsumer {
               recordsDropped: number
               recordsDroppedByRuleId: Map<string, number>
               bytesDroppedByRuleId: Map<string, number>
+              contentBytesDropped: number
+              contentBytesTotal: number
           }
         | {
               outcome: 'sampling_all_dropped'
@@ -243,6 +301,8 @@ export class LogsIngestionConsumer {
               recordsDropped: number
               recordsDroppedByRuleId: Map<string, number>
               bytesDroppedByRuleId: Map<string, number>
+              contentBytesDropped: number
+              contentBytesTotal: number
           }
     > {
         const samplingCache = this.deps.samplingRulesCache
@@ -285,6 +345,8 @@ export class LogsIngestionConsumer {
                     recordsDropped: sampled.recordsDropped,
                     recordsDroppedByRuleId: sampled.recordsDroppedByRuleId,
                     bytesDroppedByRuleId: sampled.bytesDroppedByRuleId,
+                    contentBytesDropped: sampled.contentBytesDropped,
+                    contentBytesTotal: sampled.contentBytesTotal,
                 }
             }
             return {
@@ -294,9 +356,12 @@ export class LogsIngestionConsumer {
                 recordsDropped: sampled.recordsDropped,
                 recordsDroppedByRuleId: sampled.recordsDroppedByRuleId,
                 bytesDroppedByRuleId: sampled.bytesDroppedByRuleId,
+                contentBytesDropped: sampled.contentBytesDropped,
+                contentBytesTotal: sampled.contentBytesTotal,
             }
         }
 
+        // Passthrough (sampling disabled / no rules): nothing dropped, so nothing to credit.
         const res = await processLogMessageBuffer(message.message.value!, logsSettings)
         return {
             outcome: 'produce',
@@ -305,6 +370,8 @@ export class LogsIngestionConsumer {
             recordsDropped: 0,
             recordsDroppedByRuleId: new Map(),
             bytesDroppedByRuleId: new Map(),
+            contentBytesDropped: 0,
+            contentBytesTotal: 0,
         }
     }
 
@@ -379,6 +446,7 @@ export class LogsIngestionConsumer {
         }
 
         logsBytesAllowedRecordsCounter.inc(totalBytesAllowedRecords)
+        // Gross, before the drop-rule billing credit applied in processAndProduceLogMessages (see counter help).
         logsBytesAllowedCounter.inc(totalBytesAllowed)
         logsRecordsAllowedCounter.inc(totalRecordsAllowed)
 
@@ -506,6 +574,72 @@ export class LogsIngestionConsumer {
                             },
                             async () => this.resolveLogMessageBufferWithOptionalSampling(message, logsSettings)
                         )
+
+                        let bytesUncompressedHeaderOverride: number | undefined
+                        let bytesCompressedHeaderOverride: number | undefined
+
+                        // Drop rules removed rows from this message — credit billing by the dropped
+                        // content fraction. `bytesReceived` stays gross (what was sent); `bytesAllowed`
+                        // (→ bytes_ingested) and `recordsAllowed` reflect only what survived the drops.
+                        if (resolved.recordsDropped > 0) {
+                            const header = message.bytesUncompressed
+                            const contentCredit = billingByteReductionForDrops(
+                                header,
+                                resolved.contentBytesDropped,
+                                resolved.contentBytesTotal
+                            )
+                            // Second estimator (record-weighted) for the accuracy-confidence signal:
+                            // when content- and record-weighted credits diverge, the batch is size-skewed
+                            // and the content-weighted pro-rate we bill on is less trustworthy.
+                            const recordCredit = billingByteReductionForDrops(
+                                header,
+                                resolved.recordsDropped,
+                                message.recordCount
+                            )
+
+                            const teamIdLabel = message.teamId.toString()
+                            if (contentCredit > 0) {
+                                logsBillingBytesCreditedCounter.inc({ team_id: teamIdLabel }, contentCredit)
+                            }
+                            logsBillingRecordsCreditedCounter.inc({ team_id: teamIdLabel }, resolved.recordsDropped)
+                            if (message.recordCount > 0) {
+                                logsDropBatchRowsHistogram.observe(message.recordCount)
+                            }
+                            if (resolved.contentBytesTotal > 0) {
+                                logsDropFractionHistogram.observe(
+                                    Math.min(1, resolved.contentBytesDropped / resolved.contentBytesTotal)
+                                )
+                            }
+                            if (header > 0) {
+                                logsBillingProrateDivergenceHistogram.observe(
+                                    Math.abs(contentCredit - recordCredit) / header
+                                )
+                            }
+
+                            // Shadow mode unless LOGS_BILLING_PRORATE_ENABLED: the credit above is
+                            // computed and counted (observability) but billed usage is untouched.
+                            if (this.billingProrateEnabled) {
+                                const billingRow = usageStats.get(message.teamId)
+                                if (billingRow) {
+                                    billingRow.bytesAllowed = Math.max(0, billingRow.bytesAllowed - contentCredit)
+                                    billingRow.recordsAllowed = Math.max(
+                                        0,
+                                        billingRow.recordsAllowed - resolved.recordsDropped
+                                    )
+                                }
+
+                                // Scale both size headers down by the same dropped content fraction so
+                                // downstream accounting sees only the surviving bytes.
+                                const compressedCredit = billingByteReductionForDrops(
+                                    message.bytesCompressed,
+                                    resolved.contentBytesDropped,
+                                    resolved.contentBytesTotal
+                                )
+                                bytesUncompressedHeaderOverride = Math.max(0, header - contentCredit)
+                                bytesCompressedHeaderOverride = Math.max(0, message.bytesCompressed - compressedCredit)
+                            }
+                        }
+
                         if (resolved.outcome === 'sampling_all_dropped') {
                             logMessageDroppedCounter.inc(
                                 { reason: 'sampling_all_dropped', team_id: message.teamId.toString() },
@@ -532,6 +666,12 @@ export class LogsIngestionConsumer {
                                     team_id: message.teamId.toString(),
                                     'json-parse': jsonParse.toString(),
                                     'retention-days': retentionDays.toString(),
+                                    ...(bytesUncompressedHeaderOverride !== undefined
+                                        ? { bytes_uncompressed: bytesUncompressedHeaderOverride.toString() }
+                                        : {}),
+                                    ...(bytesCompressedHeaderOverride !== undefined
+                                        ? { bytes_compressed: bytesCompressedHeaderOverride.toString() }
+                                        : {}),
                                 },
                             },
                         ])

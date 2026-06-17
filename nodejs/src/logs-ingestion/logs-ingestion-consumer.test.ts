@@ -23,6 +23,7 @@ import {
     type LogsIngestionConsumerDeps,
     logMessageDlqCounter,
     logMessageDroppedCounter,
+    logsBillingBytesCreditedCounter,
     logsBytesAllowedCounter,
     logsBytesDroppedCounter,
     logsBytesReceivedCounter,
@@ -110,6 +111,67 @@ const createKafkaMessage = async (logData: any, headers: Record<string, string> 
 
 const createKafkaMessages = async (logData: any[], headers: Record<string, string> = {}): Promise<Message[]> => {
     return Promise.all(logData.map((data) => createKafkaMessage(data, headers)))
+}
+
+// Single Kafka message carrying several log records, so a drop rule can remove some rows while
+// others survive (partial drop) — the path that re-encodes and re-forwards to the output topic.
+const createMultiRecordKafkaMessage = async (
+    logDataList: any[],
+    headers: Record<string, string> = {}
+): Promise<Message> => {
+    const avro = require('avsc')
+    const logRecordType = avro.Type.forSchema({
+        type: 'record',
+        name: 'LogRecord',
+        fields: [
+            { name: 'uuid', type: ['null', 'string'] },
+            { name: 'trace_id', type: ['null', 'bytes'] },
+            { name: 'span_id', type: ['null', 'bytes'] },
+            { name: 'trace_flags', type: ['null', 'int'] },
+            { name: 'timestamp', type: ['null', 'long'] },
+            { name: 'observed_timestamp', type: ['null', 'long'] },
+            { name: 'body', type: ['null', 'string'] },
+            { name: 'severity_text', type: ['null', 'string'] },
+            { name: 'severity_number', type: ['null', 'int'] },
+            { name: 'service_name', type: ['null', 'string'] },
+            { name: 'resource_attributes', type: ['null', { type: 'map', values: 'string' }] },
+            { name: 'instrumentation_scope', type: ['null', 'string'] },
+            { name: 'event_name', type: ['null', 'string'] },
+            { name: 'attributes', type: ['null', { type: 'map', values: 'string' }] },
+        ],
+    })
+
+    const records: LogRecord[] = logDataList.map((logData, i) => ({
+        uuid: `test-uuid-${offsetIncrementer}-${i}`,
+        trace_id: null,
+        span_id: null,
+        trace_flags: null,
+        timestamp: DateTime.now().toMillis() * 1000,
+        observed_timestamp: DateTime.now().toMillis() * 1000,
+        body: JSON.stringify(logData),
+        severity_text: logData.level || 'info',
+        severity_number: 9,
+        service_name: logData.service || 'test-service',
+        resource_attributes: null,
+        instrumentation_scope: null,
+        event_name: null,
+        attributes: null,
+    }))
+
+    const value = await encodeLogRecords(logRecordType, 'zstandard', records)
+
+    return {
+        key: null,
+        value,
+        size: value.length,
+        topic: 'test',
+        offset: offsetIncrementer++,
+        timestamp: DateTime.now().toMillis(),
+        partition: 1,
+        headers: Object.entries(headers).map(([key, value]) => ({
+            [key]: Buffer.from(value),
+        })),
+    }
 }
 
 describe('LogsIngestionConsumer', () => {
@@ -1573,9 +1635,11 @@ describe('LogsIngestionConsumer', () => {
         })
 
         describe('sampling usage to app_metrics2', () => {
+            let mockSamplingCache: Pick<SamplingRulesCache, 'getCompiledRuleSet'>
+
             beforeEach(async () => {
                 await consumer.stop()
-                const mockSamplingCache: Pick<SamplingRulesCache, 'getCompiledRuleSet'> = {
+                mockSamplingCache = {
                     getCompiledRuleSet: (teamId: number) =>
                         Promise.resolve(
                             teamId === team.id
@@ -1625,6 +1689,102 @@ describe('LogsIngestionConsumer', () => {
                 })
                 expect(byRule).toBeDefined()
                 expect(parseMetricValue(byRule!.value).count).toBe(1)
+            })
+
+            const sendDroppedAndKeptMessages = async () => {
+                // Two single-record messages: the info one is fully dropped by the rule
+                // (credit = its whole 400-byte header), the error one is kept (600 bytes).
+                const messages = [
+                    ...(await createKafkaMessages([createLogMessage({ level: 'info' })], {
+                        token: team.api_token,
+                        bytes_uncompressed: '400',
+                        record_count: '1',
+                    })),
+                    ...(await createKafkaMessages([createLogMessage({ level: 'error' })], {
+                        token: team.api_token,
+                        bytes_uncompressed: '600',
+                        record_count: '1',
+                    })),
+                ]
+                await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+            }
+
+            const teamBytesIngested = (): number | undefined => {
+                const m = getProducedKafkaMessages()
+                    .filter((m) => m.topic === KAFKA_APP_METRICS_2)
+                    .find((m) => {
+                        const value = parseMetricValue(m.value)
+                        return value.metric_name === 'bytes_ingested' && value.team_id === team.id
+                    })
+                return m ? parseMetricValue(m.value).count : undefined
+            }
+
+            it('shadow mode (default): computes the drop credit but bills the full gross bytes', async () => {
+                const creditSpy = jest.spyOn(logsBillingBytesCreditedCounter, 'inc')
+
+                await sendDroppedAndKeptMessages()
+
+                // The would-be credit is computed and observable...
+                expect(creditSpy).toHaveBeenCalledWith({ team_id: team.id.toString() }, 400)
+                // ...but billed usage is untouched: full gross of both messages.
+                expect(teamBytesIngested()).toBe(1000)
+            })
+
+            it('credits dropped rows off bytes_ingested when LOGS_BILLING_PRORATE_ENABLED', async () => {
+                await consumer.stop()
+                consumer = await createLogsIngestionConsumer(
+                    hub,
+                    { LOGS_BILLING_PRORATE_ENABLED: true },
+                    { samplingRulesCache: mockSamplingCache as SamplingRulesCache }
+                )
+                await deleteKeysWithPrefix(consumer['redis'], BASE_REDIS_KEY)
+
+                await sendDroppedAndKeptMessages()
+
+                // The fully-dropped message's 400-byte header is credited; only the kept one bills.
+                expect(teamBytesIngested()).toBe(600)
+            })
+
+            const outputHeaders = (): Record<string, string> | undefined =>
+                getProducedKafkaMessages().find((m) => m.topic === KAFKA_LOGS_CLICKHOUSE)?.headers as
+                    | Record<string, string>
+                    | undefined
+
+            // One message, two equal-content records: the info row is dropped, the error row survives.
+            // Shadow mode forwards the original gross headers; enabled mode scales both by the same
+            // dropped content fraction (~0.5), so the 500/1000 ratio is preserved.
+            it.each([
+                { label: 'shadow mode (default) forwards the original gross size headers', enabled: false },
+                { label: 'enabled mode pro-rates the forwarded size headers by the dropped fraction', enabled: true },
+            ])('$label', async ({ enabled }) => {
+                if (enabled) {
+                    await consumer.stop()
+                    consumer = await createLogsIngestionConsumer(
+                        hub,
+                        { LOGS_BILLING_PRORATE_ENABLED: true },
+                        { samplingRulesCache: mockSamplingCache as SamplingRulesCache }
+                    )
+                    await deleteKeysWithPrefix(consumer['redis'], BASE_REDIS_KEY)
+                }
+
+                const message = await createMultiRecordKafkaMessage(
+                    [createLogMessage({ level: 'info' }), createLogMessage({ level: 'error' })],
+                    { token: team.api_token, bytes_uncompressed: '1000', bytes_compressed: '500', record_count: '2' }
+                )
+                await waitForBackgroundTasks(consumer.processKafkaBatch([message]))
+
+                const uncompressed = parseInt(outputHeaders()!.bytes_uncompressed, 10)
+                const compressed = parseInt(outputHeaders()!.bytes_compressed, 10)
+                if (!enabled) {
+                    expect(uncompressed).toBe(1000)
+                    expect(compressed).toBe(500)
+                    return
+                }
+                expect(uncompressed).toBeGreaterThan(0)
+                expect(uncompressed).toBeLessThan(1000)
+                expect(compressed).toBeGreaterThan(0)
+                expect(compressed).toBeLessThan(500)
+                expect(compressed / uncompressed).toBeCloseTo(0.5, 5)
             })
         })
     })

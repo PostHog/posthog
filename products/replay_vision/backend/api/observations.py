@@ -334,9 +334,9 @@ class ReplayObservationFilter(django_filters.FilterSet):
             "(comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`."
         ),
     )
-    session_id = django_filters.CharFilter(
+    session_id = MultiChoiceFilter(
         field_name="session_id",
-        help_text="Filter to observations of a specific session recording.",
+        help_text="Filter to observations of one or more session recordings. Accepts a comma-separated list.",
     )
     order_by = _ObservationOrderByFilter(
         help_text=(

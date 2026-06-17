@@ -231,6 +231,8 @@ public:
 
     virtual std::any visitColumnExprPrecedence2(HogQLParser::ColumnExprPrecedence2Context *context) = 0;
 
+    virtual std::any visitColumnExprNullSafeEq(HogQLParser::ColumnExprNullSafeEqContext *context) = 0;
+
     virtual std::any visitColumnExprPrecedence3(HogQLParser::ColumnExprPrecedence3Context *context) = 0;
 
     virtual std::any visitColumnExprInterval(HogQLParser::ColumnExprIntervalContext *context) = 0;
