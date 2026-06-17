@@ -66,12 +66,15 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
             null as string | null,
             {
                 setSlackChannelValue: (_, { slackChannelValue }) => slackChannelValue,
+                // Reset the input when switching destination type so stale values don't carry over.
+                setSelectedType: () => null,
             },
         ],
         webhookUrl: [
             '' as string,
             {
                 setWebhookUrl: (_, { webhookUrl }) => webhookUrl,
+                setSelectedType: () => '',
             },
         ],
         selectedType: [

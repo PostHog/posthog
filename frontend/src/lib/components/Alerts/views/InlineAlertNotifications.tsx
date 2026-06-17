@@ -80,8 +80,6 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
         }
     }, [firstSlackIntegration?.id, loadAllSlackChannels, firstSlackIntegration])
 
-    // Build the pending notification for the selected destination, or null if its inputs aren't ready.
-    // One branch per destination — Slack needs a channel + integration, the rest just a webhook URL.
     const buildPendingNotification = (): PendingAlertNotification | null => {
         if (selectedType === ALERT_NOTIFICATION_TYPE_SLACK) {
             if (!slackChannelValue || !firstSlackIntegration) {

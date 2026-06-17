@@ -60,7 +60,6 @@ describe('alertNotificationLogic', () => {
         expect(payload.inputs?.webhookUrl).toEqual({ value: 'https://example.webhook.office.com/webhookb2/abc' })
         expect(payload.inputs?.text?.value).toContain('{event.properties.alert_name}')
 
-        // Pending list clears once creation succeeds
         await expectLogic(logic).toMatchValues({ pendingNotifications: [] })
     })
 })

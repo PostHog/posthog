@@ -112,5 +112,9 @@ function buildAlertDestination(
                     },
                 },
             }
+        default:
+            // Compile error if a PendingAlertNotification variant is added without a case above.
+            notification satisfies never
+            throw new Error('Unhandled alert notification type')
     }
 }
