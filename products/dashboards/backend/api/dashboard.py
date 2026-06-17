@@ -14,7 +14,19 @@ from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import URLValidator
 from django.db import IntegrityError, transaction
-from django.db.models import CharField, Count, DateTimeField, F, FilteredRelation, Prefetch, Q, QuerySet, Value
+from django.db.models import (
+    CharField,
+    Count,
+    DateTimeField,
+    F,
+    FilteredRelation,
+    OuterRef,
+    Prefetch,
+    Q,
+    QuerySet,
+    Subquery,
+    Value,
+)
 from django.db.models.functions import Cast
 from django.http import StreamingHttpResponse
 from django.shortcuts import get_object_or_404
@@ -25,7 +37,7 @@ import pydantic_core
 import posthoganalytics
 from asgiref.sync import sync_to_async
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
 from opentelemetry import trace
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.permissions import SAFE_METHODS, BasePermission
@@ -50,7 +62,8 @@ from posthog.exceptions_capture import capture_exception
 from posthog.helpers import create_dashboard_from_template
 from posthog.helpers.dashboard_templates import create_from_template, dashboard_template_from_creation_payload
 from posthog.helpers.trigram_search import DESCRIPTION_FIELD, MAX_SEARCH_LENGTH, NAME_FIELD, apply_trigram_search
-from posthog.models.file_system.file_system import create_or_update_file, delete_file
+from posthog.models.file_system.constants import DEFAULT_SURFACE, surface_q
+from posthog.models.file_system.file_system import FileSystem, create_or_update_file, delete_file, join_path, split_path
 from posthog.models.quick_filter import QuickFilter
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team import Team
@@ -825,6 +838,13 @@ class DashboardBasicSerializer(
     access_control_version = serializers.SerializerMethodField()
     is_shared = serializers.BooleanField(source="is_sharing_enabled", read_only=True, required=False)
     last_viewed_at = serializers.DateTimeField(read_only=True, required=False, allow_null=True)
+    folder = serializers.SerializerMethodField(
+        help_text=(
+            "Path of the project-tree folder this dashboard is filed under in the file system, "
+            "e.g. 'Unfiled/Dashboards'. An empty string means the project root; null means the "
+            "dashboard has no file system entry. The dashboard's own name is not part of the path."
+        ),
+    )
 
     class Meta:
         model = Dashboard
@@ -837,6 +857,7 @@ class DashboardBasicSerializer(
             "created_by",
             "last_accessed_at",
             "last_viewed_at",
+            "folder",
             "is_shared",
             "deleted",
             "creation_mode",
@@ -873,6 +894,15 @@ class DashboardBasicSerializer(
         if dashboard.restriction_level > Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT:
             return "v1"
         return "v2"
+
+    @extend_schema_field(OpenApiTypes.STR)
+    def get_folder(self, dashboard: Dashboard) -> str | None:
+        # `_folder_path` is annotated on the list queryset (DashboardsViewSet.dangerously_get_queryset).
+        # The file system path's last segment is the dashboard's own name; the folder is everything above it.
+        path = getattr(dashboard, "_folder_path", None)
+        if not path:
+            return None
+        return join_path(split_path(path)[:-1])
 
 
 class DashboardMetadataSerializer(DashboardBasicSerializer):
@@ -1994,6 +2024,24 @@ class DashboardsViewSet(
             ).annotate(last_viewed_at=F("recent_dashboard_views__viewed_at"))
         else:
             queryset = queryset.annotate(last_viewed_at=Value(None, output_field=DateTimeField()))
+
+        # Annotate the project-tree folder each dashboard is filed under, so the list page can show it
+        # without an extra round-trip. A single-valued correlated subquery against the file system —
+        # backed by the posthog_fs_team_s_typeref index on (team_id, surface, type, ref) — keeps this cheap
+        # and avoids the row multiplication a join could cause when shortcuts/multiple surfaces exist.
+        queryset = queryset.annotate(_ref_id=Cast(F("id"), output_field=CharField())).annotate(
+            _folder_path=Subquery(
+                FileSystem.objects.filter(
+                    surface_q(DEFAULT_SURFACE),
+                    team_id=OuterRef("team_id"),
+                    type="dashboard",
+                    ref=OuterRef("_ref_id"),
+                )
+                .exclude(shortcut=True)
+                .values("path")[:1],
+                output_field=CharField(),
+            )
+        )
 
         include_deleted = False
         if self.action in ("partial_update", "update") and hasattr(self, "request"):
