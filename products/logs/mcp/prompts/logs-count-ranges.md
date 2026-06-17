@@ -54,7 +54,7 @@ Same shape as `query-logs`. Applied **before** bucketing.
 }
 ```
 
-- `ranges` — buckets ordered by `date_from` ascending, emitted as UTC (`Z`-suffixed) ISO 8601. Pass a bucket's `date_from`/`date_to` straight back as the next call's `dateRange` (here or into `query-logs`/`logs-count`). **Empty buckets are omitted** — infer gaps by comparing each bucket's `date_to` to the next bucket's `date_from`.
+- `ranges` — buckets ordered by `date_from` ascending. **Empty buckets are omitted** — infer gaps by comparing each bucket's `date_to` to the next bucket's `date_from`.
 - `interval` — short-form duration of the chosen bucket width (`1s` / `5m` / `1h` / `1d`). Informational only — for follow-up queries, use the per-bucket `date_from`/`date_to`.
 
 # Examples
