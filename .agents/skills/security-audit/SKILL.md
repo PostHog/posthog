@@ -222,8 +222,6 @@ Once the report is delivered, ask the user whether they want the findings fixed.
 - Run any adjacent existing tests for the affected module to catch regressions.
 - Report back which findings were fixed, which tests pass, and anything that needs follow-up.
 
-**Route the fix privately.** A fix for a confirmed finding here _is_ a security fix — and so is the reproducer test, which spells out the exploit. Per [.agents/security.md → Routing security fixes](../../security.md#routing-security-fixes): open it against **`PostHog/posthog-private`** on a **`security/`** branch. **Never** open a PR, branch, or issue for it against public `PostHog/posthog`.
-
 Do not start fixing without explicit approval — the user may want to triage, file tickets, or fix in a separate branch (a private `security/*` branch).
 
 ## Output format
