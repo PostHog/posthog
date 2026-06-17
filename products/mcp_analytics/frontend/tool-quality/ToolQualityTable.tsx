@@ -24,7 +24,8 @@ import {
 import { TZLabel } from 'lib/components/TZLabel'
 import { LinkPrimitive } from 'lib/lemon-ui/Link/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { formatPercentage, pluralize } from 'lib/utils'
+import { formatPercentage } from 'lib/utils/numbers'
+import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { formatMs, formatNumber } from '../dashboard/formatters'

@@ -5,8 +5,9 @@ import api from 'lib/api'
 import { ChartDataset as ChartJsDataset } from 'lib/Chart'
 import { getSeriesColor } from 'lib/colors'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { hexToRGBA, pluralize } from 'lib/utils'
+import { hexToRGBA } from 'lib/utils/colors'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { pluralize } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {

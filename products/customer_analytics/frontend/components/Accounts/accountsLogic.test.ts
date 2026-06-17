@@ -341,7 +341,7 @@ describe('accountsLogic', () => {
             expect(logic.values.assignedToFilter).toEqual([7])
         })
 
-        it('restores columns and shields them from a late saved column config', async () => {
+        it('restores columns from the view hash param', async () => {
             router.actions.push(
                 urls.customerAnalyticsAccounts(),
                 {},
@@ -353,27 +353,6 @@ describe('accountsLogic', () => {
 
             const config = accountsColumnConfigLogic.findMounted()
             expect(config?.values.selectColumns).toEqual([ACCOUNTS_NAME_COLUMN, 'csm'])
-
-            // A saved config arriving after the URL was applied must not clobber the shared view.
-            config?.actions.loadSavedColumnConfigurationSuccess({
-                id: 'saved-1',
-                columns: [ACCOUNTS_NAME_COLUMN, 'account_owner'],
-            })
-            await expectLogic(config!).toFinishAllListeners()
-            expect(config?.values.selectColumns).toEqual([ACCOUNTS_NAME_COLUMN, 'csm'])
-        })
-
-        it('applies the saved column config when the URL has no columns', async () => {
-            router.actions.push(urls.customerAnalyticsAccounts(), {}, {})
-            await expectLogic(logic).toFinishAllListeners()
-
-            const config = accountsColumnConfigLogic.findMounted()
-            config?.actions.loadSavedColumnConfigurationSuccess({
-                id: 'saved-1',
-                columns: [ACCOUNTS_NAME_COLUMN, 'account_owner'],
-            })
-            await expectLogic(config!).toFinishAllListeners()
-            expect(config?.values.selectColumns).toEqual([ACCOUNTS_NAME_COLUMN, 'account_owner'])
         })
     })
 

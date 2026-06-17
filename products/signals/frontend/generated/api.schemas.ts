@@ -1280,6 +1280,10 @@ export type SignalsProcessingListParams = {
 
 export type SignalsReportsListParams = {
     /**
+     * Filter reports by whether a shipped implementation pull request exists. 'true' keeps only reports with a PR; 'false' keeps only those without. Pair with limit=1 to count PR reports cheaply.
+     */
+    has_implementation_pr?: boolean
+    /**
      * Number of results to return per page.
      */
     limit?: number

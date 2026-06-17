@@ -602,6 +602,76 @@ class TestSignalReportListAPI(APIBaseTest):
             str(report_with_pr.id): "https://github.com/org/repo/pull/42",
         }
 
+    # --- has_implementation_pr filter ---
+
+    @parameterized.expand(
+        [
+            ("true_keeps_pr_reports", "true", "with_pr"),
+            ("false_keeps_non_pr_reports", "false", "without_pr"),
+        ]
+    )
+    def test_filter_has_implementation_pr(self, _name, query_value, expected):
+        report_with_pr = self._create_report(title="Report with PR")
+        report_without_pr = self._create_report(title="Report without PR")
+        self._create_implementation_task_with_run(report_with_pr, pr_url="https://github.com/org/repo/pull/42")
+        expected_id = str(report_with_pr.id if expected == "with_pr" else report_without_pr.id)
+
+        response = self.client.get(self._list_url(has_implementation_pr=query_value))
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert {r["id"] for r in body["results"]} == {expected_id}
+        # `count` is the true total (matches what a limit=1 count query returns).
+        assert body["count"] == 1
+
+    def test_filter_has_implementation_pr_ignores_empty_pr_url(self):
+        report_empty_pr = self._create_report(title="Report with empty PR url")
+        self._create_implementation_task_with_run(report_empty_pr, pr_url="")
+
+        with_pr = self.client.get(self._list_url(has_implementation_pr="true"))
+        assert with_pr.json()["count"] == 0
+        without_pr = self.client.get(self._list_url(has_implementation_pr="false"))
+        assert str(report_empty_pr.id) in {r["id"] for r in without_pr.json()["results"]}
+
+    def test_filter_has_implementation_pr_absent_returns_all(self):
+        report_with_pr = self._create_report(title="Report with PR")
+        report_without_pr = self._create_report(title="Report without PR")
+        self._create_implementation_task_with_run(report_with_pr, pr_url="https://github.com/org/repo/pull/42")
+
+        response = self.client.get(self._list_url())
+        assert response.status_code == status.HTTP_200_OK
+        ids = {r["id"] for r in response.json()["results"]}
+        assert {str(report_with_pr.id), str(report_without_pr.id)} <= ids
+
+    def test_filter_has_implementation_pr_count_via_limit_one(self):
+        for i in range(3):
+            report = self._create_report(title=f"PR report {i}")
+            self._create_implementation_task_with_run(report, pr_url=f"https://github.com/org/repo/pull/{i}")
+        self._create_report(title="No PR report")
+
+        response = self.client.get(self._list_url(has_implementation_pr="true", limit=1))
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["count"] == 3
+        assert len(body["results"]) == 1
+
+    def test_filter_has_implementation_pr_empty_value_is_noop(self):
+        report_with_pr = self._create_report(title="Report with PR")
+        report_without_pr = self._create_report(title="Report without PR")
+        self._create_implementation_task_with_run(report_with_pr, pr_url="https://github.com/org/repo/pull/42")
+
+        response = self.client.get(self._list_url(has_implementation_pr=""))
+        assert response.status_code == status.HTTP_200_OK
+        ids = {r["id"] for r in response.json()["results"]}
+        assert {str(report_with_pr.id), str(report_without_pr.id)} <= ids
+
+    @parameterized.expand([("garbage", "maybe"), ("number", "2")])
+    def test_filter_has_implementation_pr_invalid_value_returns_400(self, _name, raw):
+        response = self.client.get(self._list_url(has_implementation_pr=raw))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        body = response.json()
+        assert body["attr"] == "has_implementation_pr"
+        assert body["code"] == "invalid_input"
+
     # --- source_products ---
 
     def test_source_products_defaults_to_empty_list(self):

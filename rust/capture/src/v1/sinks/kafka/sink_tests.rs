@@ -109,18 +109,13 @@ impl Event for FakeEvent {
         self.event_headers.clone()
     }
 
-    fn partition_key(&self, _ctx: &Context, buf: &mut String) {
-        if let Some(k) = &self.partition_key {
-            buf.push_str(k);
-        }
+    fn partition_key(&self, _ctx: &Context) -> String {
+        self.partition_key.clone().unwrap_or_default()
     }
 
-    fn serialize_into(&self, _ctx: &Context, buf: &mut String) -> anyhow::Result<()> {
+    fn serialize(&self, _ctx: &Context) -> anyhow::Result<String> {
         match &self.payload {
-            Ok(p) => {
-                buf.push_str(p);
-                Ok(())
-            }
+            Ok(p) => Ok(p.clone()),
             Err(e) => Err(anyhow::anyhow!(e.clone())),
         }
     }
@@ -152,8 +147,6 @@ impl TestHarness {
             ack_delay: None,
             not_ready: false,
             liveness: None,
-            enqueue_retry_max: None,
-            enqueue_poll_ms: None,
         }
     }
 }
@@ -166,8 +159,6 @@ struct HarnessBuilder {
     ack_delay: Option<Duration>,
     not_ready: bool,
     liveness: Option<(Duration, Duration)>,
-    enqueue_retry_max: Option<u32>,
-    enqueue_poll_ms: Option<u32>,
 }
 
 impl HarnessBuilder {
@@ -203,16 +194,6 @@ impl HarnessBuilder {
 
     fn with_liveness(mut self, deadline: Duration, poll_interval: Duration) -> Self {
         self.liveness = Some((deadline, poll_interval));
-        self
-    }
-
-    fn enqueue_retry_max(mut self, n: u32) -> Self {
-        self.enqueue_retry_max = Some(n);
-        self
-    }
-
-    fn enqueue_poll_ms(mut self, ms: u32) -> Self {
-        self.enqueue_poll_ms = Some(ms);
         self
     }
 
@@ -255,13 +236,7 @@ impl HarnessBuilder {
 
         let producer = Arc::new(mock);
 
-        let mut kafka_config = crate::v1::test_utils::test_kafka_config();
-        if let Some(n) = self.enqueue_retry_max {
-            kafka_config.enqueue_retry_max = n;
-        }
-        if let Some(ms) = self.enqueue_poll_ms {
-            kafka_config.enqueue_poll_ms = ms;
-        }
+        let kafka_config = crate::v1::test_utils::test_kafka_config();
 
         let config = Config {
             produce_timeout: self.produce_timeout,
@@ -374,16 +349,16 @@ async fn sink_unavailable() {
 }
 
 // ---------------------------------------------------------------------------
-// 5. Send-time retriable error (queue full)
+// 5. QueueFull is immediate retriable error (no app-level retry loop;
+//    backpressure handled by librdkafka queue + client retry).
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn send_error_retriable_queue_full() {
+async fn queue_full_is_immediate_retriable() {
     let h = TestHarness::builder()
         .send_error(|| ProduceError::Kafka {
             code: RDKafkaErrorCode::QueueFull,
         })
-        .enqueue_retry_max(0)
         .build();
     let event = FakeEvent::ok("evt-1");
     let events: Vec<&(dyn Event + Send + Sync)> = vec![&event];
@@ -392,81 +367,6 @@ async fn send_error_retriable_queue_full() {
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].key(), event.parsed_uuid);
-    assert_eq!(results[0].outcome(), Outcome::RetriableError);
-    assert_eq!(results[0].cause(), Some("queue_full"));
-    assert_eq!(h.producer.record_count(), 0);
-}
-
-// ---------------------------------------------------------------------------
-// 5b. QueueFull retry succeeds after drain
-// ---------------------------------------------------------------------------
-
-#[tokio::test]
-async fn queue_full_retry_succeeds_after_drain() {
-    let h = TestHarness::builder()
-        .send_error(|| ProduceError::Kafka {
-            code: RDKafkaErrorCode::QueueFull,
-        })
-        .send_error_count(2)
-        .enqueue_retry_max(3)
-        .enqueue_poll_ms(1)
-        .build();
-    let event = FakeEvent::ok("evt-1");
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&event];
-
-    let results = h.sink.publish_batch(&h.ctx, &events).await;
-
-    assert_eq!(results.len(), 1);
-    assert_eq!(results[0].key(), event.parsed_uuid);
-    assert_eq!(results[0].outcome(), Outcome::Success);
-    assert_eq!(h.producer.record_count(), 1);
-}
-
-// ---------------------------------------------------------------------------
-// 5c. QueueFull retry exhausted
-// ---------------------------------------------------------------------------
-
-#[tokio::test]
-async fn queue_full_retry_exhausted() {
-    let h = TestHarness::builder()
-        .send_error(|| ProduceError::Kafka {
-            code: RDKafkaErrorCode::QueueFull,
-        })
-        .enqueue_retry_max(2)
-        .enqueue_poll_ms(1)
-        .build();
-    let event = FakeEvent::ok("evt-1");
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&event];
-
-    let results = h.sink.publish_batch(&h.ctx, &events).await;
-
-    assert_eq!(results.len(), 1);
-    assert_eq!(results[0].key(), event.parsed_uuid);
-    assert_eq!(results[0].outcome(), Outcome::RetriableError);
-    assert_eq!(results[0].cause(), Some("queue_full"));
-    assert_eq!(h.producer.record_count(), 0);
-}
-
-// ---------------------------------------------------------------------------
-// 5d. QueueFull retry disabled (enqueue_retry_max = 0)
-// ---------------------------------------------------------------------------
-
-#[tokio::test]
-async fn queue_full_retry_zero_max_disables_retry() {
-    let h = TestHarness::builder()
-        .send_error(|| ProduceError::Kafka {
-            code: RDKafkaErrorCode::QueueFull,
-        })
-        .send_error_count(1)
-        .enqueue_retry_max(0)
-        .enqueue_poll_ms(1)
-        .build();
-    let event = FakeEvent::ok("evt-1");
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&event];
-
-    let results = h.sink.publish_batch(&h.ctx, &events).await;
-
-    assert_eq!(results.len(), 1);
     assert_eq!(results[0].outcome(), Outcome::RetriableError);
     assert_eq!(results[0].cause(), Some("queue_full"));
     assert_eq!(h.producer.record_count(), 0);
@@ -806,11 +706,9 @@ fn health_harness(mode: &FailureMode) -> TestHarness {
             b = b.ack_delay(Duration::from_secs(10));
         }
         FailureMode::SendError => {
-            b = b
-                .send_error(|| ProduceError::Kafka {
-                    code: RDKafkaErrorCode::QueueFull,
-                })
-                .enqueue_retry_max(0);
+            b = b.send_error(|| ProduceError::Kafka {
+                code: RDKafkaErrorCode::QueueFull,
+            });
         }
         FailureMode::AckError => {
             b = b.ack_error(|| ProduceError::DeliveryCancelled);
@@ -1093,7 +991,6 @@ async fn mixed_send_error_and_ack_error_in_batch() {
             code: RDKafkaErrorCode::QueueFull,
         })
         .send_error_count(1)
-        .enqueue_retry_max(0)
         .ack_error(|| ProduceError::DeliveryCancelled)
         .build();
     let e1 = FakeEvent::ok("evt-1");
@@ -1132,7 +1029,6 @@ async fn partial_timeout_with_send_error() {
             code: RDKafkaErrorCode::QueueFull,
         })
         .send_error_count(1)
-        .enqueue_retry_max(0)
         .ack_delay(Duration::from_secs(60))
         .produce_timeout(Duration::from_millis(50))
         .build();

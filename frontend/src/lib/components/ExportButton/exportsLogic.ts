@@ -7,7 +7,7 @@ import { TriggerExportProps, downloadBlob, downloadExportedAsset } from 'lib/com
 import { isLongRunningExportFormat } from 'lib/components/ExportButton/exportStatus'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { delay } from 'lib/utils'
+import { delay } from 'lib/utils/async'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import type { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { urls } from 'scenes/urls'
