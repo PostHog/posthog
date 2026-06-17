@@ -1,4 +1,4 @@
-import { humanFriendlyLargeNumber } from 'lib/utils'
+import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 
 import type {
     ActionsNode,

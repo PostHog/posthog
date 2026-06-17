@@ -1,7 +1,9 @@
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
+import psycopg
 from psycopg import sql
+from psycopg.pq import TransactionStatus
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from posthog.temporal.data_imports.pipelines.pipeline.utils import TemporaryFileSizeExceedsLimitException
@@ -11,6 +13,7 @@ from posthog.temporal.data_imports.sources.redshift.redshift import (
     RedshiftColumn,
     RedshiftImplementation,
     _build_query,
+    _explain_query,
     filter_redshift_incremental_fields,
 )
 from posthog.temporal.data_imports.sources.redshift.source import _REDSHIFT_IMPLEMENTATION, RedshiftSource
@@ -258,7 +261,95 @@ class TestFetchTableStats:
 
     def test_returns_none_on_exception(self, impl, cursor, logger):
         cursor.execute.side_effect = RuntimeError("boom")
-        assert impl.fetch_table_stats(cursor, "public", "t", logger) is None
+        with patch("posthog.temporal.data_imports.sources.redshift.redshift.capture_exception") as mock_capture:
+            assert impl.fetch_table_stats(cursor, "public", "t", logger) is None
+        mock_capture.assert_called_once()
+
+    def test_permission_denied_on_svv_table_info_is_not_reported(self, impl, cursor, logger):
+        # Some Redshift roles lack SELECT on `svv_table_info`. That's an expected customer
+        # permission-config issue — stats are optional, so skip gracefully without reporting the
+        # non-actionable error to error tracking (the source of the reported noise).
+        cursor.execute.side_effect = psycopg.errors.InsufficientPrivilege(
+            "permission denied for relation svv_table_info"
+        )
+        with patch("posthog.temporal.data_imports.sources.redshift.redshift.capture_exception") as mock_capture:
+            assert impl.fetch_table_stats(cursor, "public", "t", logger) is None
+        mock_capture.assert_not_called()
+
+    def test_failed_explain_does_not_poison_real_query(self, impl, logger):
+        # Reproduces the reported incident: EXPLAIN on `svv_table_info` fails (Redshift can't
+        # EXPLAIN leader-node-only system views), aborting the transaction. Without recovery the
+        # real stats query would then die with `InFailedSqlTransaction` and stats would be lost.
+        cursor = _fake_poisoning_cursor(real_query_result=(2, 100))
+
+        with patch("posthog.temporal.data_imports.sources.redshift.redshift.capture_exception") as mock_capture:
+            stats = impl.fetch_table_stats(cursor, "public", "t", logger)
+
+        assert stats == TableStats(table_size_bytes=2 * 1024 * 1024, row_count=100)
+        cursor.connection.rollback.assert_called_once()
+        mock_capture.assert_not_called()
+
+
+def _fake_poisoning_cursor(real_query_result):
+    """A cursor mock whose EXPLAIN fails and aborts the transaction, mirroring Redshift.
+
+    The real (non-EXPLAIN) query only succeeds once the aborted transaction has been rolled
+    back — exactly the behaviour `_explain_query` must restore.
+    """
+    cursor = MagicMock()
+    state = {"poisoned": False}
+
+    def execute(stmt, *args, **kwargs):
+        text = stmt.as_string() if hasattr(stmt, "as_string") else str(stmt)
+        if text.strip().upper().startswith("EXPLAIN"):
+            state["poisoned"] = True
+            cursor.connection.info.transaction_status = TransactionStatus.INERROR
+            raise psycopg.errors.UndefinedColumn('column "t" does not exist in t')
+        if state["poisoned"]:
+            raise psycopg.errors.InFailedSqlTransaction("current transaction is aborted")
+        return cursor
+
+    def rollback():
+        state["poisoned"] = False
+        cursor.connection.info.transaction_status = TransactionStatus.IDLE
+
+    cursor.execute.side_effect = execute
+    cursor.connection.rollback.side_effect = rollback
+    cursor.connection.info.transaction_status = TransactionStatus.IDLE
+    cursor.fetchone.return_value = real_query_result
+    return cursor
+
+
+class TestExplainQuery:
+    def test_swallows_explain_failure_without_reporting(self, logger):
+        # EXPLAIN failures are expected for system views and non-actionable, so they must not be
+        # reported to error tracking (this is the source of the reported noise).
+        cursor = MagicMock()
+        cursor.execute.side_effect = psycopg.errors.UndefinedColumn('column "t" does not exist in t')
+        cursor.connection.info.transaction_status = TransactionStatus.IDLE
+
+        with patch("posthog.temporal.data_imports.sources.redshift.redshift.capture_exception") as mock_capture:
+            _explain_query(cursor, sql.SQL("SELECT 1 FROM svv_table_info").format(), logger)
+
+        mock_capture.assert_not_called()
+
+    def test_rolls_back_aborted_transaction(self, logger):
+        cursor = MagicMock()
+        cursor.execute.side_effect = psycopg.errors.UndefinedColumn('column "t" does not exist in t')
+        cursor.connection.info.transaction_status = TransactionStatus.INERROR
+
+        _explain_query(cursor, sql.SQL("SELECT 1 FROM svv_table_info").format(), logger)
+
+        cursor.connection.rollback.assert_called_once()
+
+    def test_does_not_roll_back_when_transaction_healthy(self, logger):
+        cursor = MagicMock()
+        cursor.execute.side_effect = psycopg.errors.UndefinedColumn('column "t" does not exist in t')
+        cursor.connection.info.transaction_status = TransactionStatus.IDLE
+
+        _explain_query(cursor, sql.SQL("SELECT 1 FROM svv_table_info").format(), logger)
+
+        cursor.connection.rollback.assert_not_called()
 
 
 class TestFetchAverageRowSize:
@@ -282,6 +373,18 @@ class TestFetchAverageRowSize:
         cursor.execute.side_effect = [None, RuntimeError("boom")]
         assert impl.fetch_average_row_size(cursor, "public", "t", self._inner(), None, logger) is None
 
+    def test_does_not_report_whole_row_reference_failure(self, impl, cursor, logger):
+        # Redshift rejects the `pg_column_size(t)` whole-row reference with this exact error on every
+        # table. It's a best-effort probe that falls back to the default chunk size, so it must not be
+        # reported to error tracking (the source of the noise this fix addresses).
+        cursor.execute.side_effect = [None, psycopg.errors.UndefinedColumn('column "t" does not exist in t')]
+
+        with patch("posthog.temporal.data_imports.sources.redshift.redshift.capture_exception") as mock_capture:
+            result = impl.fetch_average_row_size(cursor, "public", "t", self._inner(), None, logger)
+
+        assert result is None
+        mock_capture.assert_not_called()
+
 
 class TestHasDuplicatePrimaryKeys:
     def test_returns_false_when_no_pks(self, impl, cursor, logger):
@@ -298,7 +401,21 @@ class TestHasDuplicatePrimaryKeys:
 
     def test_returns_false_on_exception(self, impl, cursor, logger):
         cursor.execute.side_effect = RuntimeError("boom")
-        assert impl.has_duplicate_primary_keys(cursor, "public", "t", ["id"], logger) is False
+        with patch("posthog.temporal.data_imports.sources.redshift.redshift.capture_exception") as mock_capture:
+            assert impl.has_duplicate_primary_keys(cursor, "public", "t", ["id"], logger) is False
+        mock_capture.assert_called_once()
+
+    def test_system_requested_abort_is_not_reported(self, impl, cursor, logger):
+        # Redshift WLM/QMR aborts (code 1020, "system requested abort") surface as `InternalError_`
+        # and are expected, non-actionable noise — skip gracefully without reporting to error tracking.
+        abort_message = (
+            "abort query\nDETAIL:  \n  error:  abort query\n  code:      1020\n"
+            "  context:   system requested abort\n  location:  queryabort.hpp:103\n"
+        )
+        cursor.execute.side_effect = psycopg.errors.InternalError(abort_message)
+        with patch("posthog.temporal.data_imports.sources.redshift.redshift.capture_exception") as mock_capture:
+            assert impl.has_duplicate_primary_keys(cursor, "public", "t", ["id"], logger) is False
+        mock_capture.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -616,20 +733,26 @@ def build_pipeline_mocks(mocker):
     # methods, so a single cursor mock can serve both connections —
     # only the streaming connection requires `conn.adapters` to be set.
     state = {"first_conn": True}
+    created_conns: list = []
 
     def connect_side_effect(*args, **kwargs):
         conn = MagicMock()
         conn.__enter__.return_value = conn
         conn.cursor.return_value = streaming_cursor
+        # psycopg requires autocommit be set before a transaction starts; default the mock to
+        # False so a test can assert build_pipeline flips it on the metadata connection.
+        conn.autocommit = False
         if not state["first_conn"]:
             conn.adapters = MagicMock()
         state["first_conn"] = False
+        created_conns.append(conn)
         return conn
 
     mock_connect = mocker.patch(
         "posthog.temporal.data_imports.sources.redshift.redshift.psycopg.connect",
         side_effect=connect_side_effect,
     )
+    mock_connect.created_conns = created_conns
     return mock_connect, streaming_cursor
 
 
@@ -642,6 +765,17 @@ class TestBuildPipeline:
         assert response.primary_keys == ["id"]
         # psycopg.connect was called at least once for the metadata pass
         assert mock_connect.called
+
+    def test_metadata_connection_uses_autocommit(self, build_pipeline_mocks):
+        # Regression: discovery probes share one connection. Without autocommit a single failing
+        # best-effort probe leaves the transaction aborted (INERROR) and every probe after it —
+        # `has_duplicate_primary_keys` was the reported one — raises `InFailedSqlTransaction`.
+        mock_connect, _ = build_pipeline_mocks
+        impl = RedshiftImplementation()
+        impl.build_pipeline(_make_config(), _make_inputs())
+
+        metadata_conn = mock_connect.created_conns[0]
+        assert metadata_conn.autocommit is True
 
     def test_streaming_drains_without_error(self, build_pipeline_mocks):
         _, streaming_cursor = build_pipeline_mocks
@@ -701,7 +835,7 @@ class TestBuildPipeline:
         assert get_meta.call_args.args[2] == "messages"
         assert response.name == "messages"
 
-    def test_dwh_storage_key_preserves_legacy_delta_path(self, build_pipeline_mocks, mocker):
+    def test_s3_folder_name_preserves_legacy_delta_path(self, build_pipeline_mocks, mocker):
         mocker.patch.object(
             RedshiftImplementation,
             "get_table_metadata",
@@ -716,10 +850,44 @@ class TestBuildPipeline:
         inputs = _make_inputs(
             schema_name="analytics.users",
             schema_metadata={"source_schema": "analytics", "source_table_name": "users"},
-            dwh_storage_key="users",
+            s3_folder_name="users",
         )
 
         response = impl.build_pipeline(_make_config(schema=""), inputs)
 
         # Migrated row keeps its original subdir rather than moving to `analytics_users`.
         assert response.name == "users"
+
+
+# ---------------------------------------------------------------------------
+# Connection lifecycle
+# ---------------------------------------------------------------------------
+
+
+class TestConnect:
+    def test_connect_forwards_tcp_keepalive_opts(self, mocker):
+        # Regression: a discovery query (`get_columns`) hung in psycopg's `wait_c` on a dead
+        # connection until the Temporal activity's `start_to_close_timeout` cancelled the worker
+        # thread, surfacing a misleading `CancelledError`. `connect_timeout` only bounds
+        # establishing the connection, so the connection must enable TCP keepalives to detect a
+        # dead peer mid-query and fail fast with a retryable error instead.
+        mocker.patch(
+            "posthog.temporal.data_imports.sources.redshift.redshift.open_ssh_tunnel",
+        ).return_value.__enter__.return_value = ("localhost", 5439)
+        mock_conn = MagicMock()
+        mock_conn.__enter__.return_value = mock_conn
+        mock_connect = mocker.patch(
+            "posthog.temporal.data_imports.sources.redshift.redshift.psycopg.connect",
+            return_value=mock_conn,
+        )
+
+        impl = RedshiftImplementation()
+        with impl.connect(_make_config()):
+            pass
+
+        kwargs = mock_connect.call_args.kwargs
+        assert kwargs["keepalives"] == 1
+        assert kwargs["keepalives_idle"] == 30
+        assert kwargs["keepalives_interval"] == 10
+        assert kwargs["keepalives_count"] == 3
+        assert kwargs["tcp_user_timeout"] == 60000

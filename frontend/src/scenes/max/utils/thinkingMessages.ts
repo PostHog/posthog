@@ -1,4 +1,4 @@
-import { inStorybookTestRunner } from 'lib/utils'
+import { inStorybookTestRunner } from 'lib/utils/dom'
 
 import { AssistantMessage } from '~/queries/schema/schema-assistant-messages'
 

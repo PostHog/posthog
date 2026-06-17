@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -49,6 +50,7 @@ class MatomoSource(ResumableSource[MatomoSourceConfig, MatomoResumeConfig], Vali
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.MATOMO,
+            category=DataWarehouseSourceCategory.ANALYTICS,
             label="Matomo",
             caption="""Connect your Matomo instance to pull your web analytics data into the PostHog Data warehouse.
 

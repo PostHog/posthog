@@ -567,9 +567,10 @@ export interface HogFlowBatchJobApi {
  * * `remove_edge` - remove_edge
  * * `replace_action_edges` - replace_action_edges
  */
-export type OpEnumApi = (typeof OpEnumApi)[keyof typeof OpEnumApi]
+export type HogFlowGraphOperationOpEnumApi =
+    (typeof HogFlowGraphOperationOpEnumApi)[keyof typeof HogFlowGraphOperationOpEnumApi]
 
-export const OpEnumApi = {
+export const HogFlowGraphOperationOpEnumApi = {
     UpdateAction: 'update_action',
     AddAction: 'add_action',
     RemoveAction: 'remove_action',
@@ -587,7 +588,7 @@ export interface HogFlowGraphOperationApi {
      * * `add_edge` - add_edge
      * * `remove_edge` - remove_edge
      * * `replace_action_edges` - replace_action_edges */
-    op: OpEnumApi
+    op: HogFlowGraphOperationOpEnumApi
     /** Action id. Required for update_action, remove_action, replace_action_edges. */
     id?: string
     /** update_action only. Partial action fields, deep-merged into the existing action; a null leaf deletes that key. e.g. {config: {inputs: {subject: {value: 'Hi'}}}} changes only that input. */

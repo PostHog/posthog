@@ -462,3 +462,79 @@ export const WorkflowGraphPatchSchema = z.object({
                 'nodes/edges by id so you never resend the whole graph. The full updated workflow is returned.'
         ),
 })
+
+// Surgical edits to an email template's Unlayer design — one discriminated op per change, addressed by
+// the stable block id. Mirrors DesignOperationSerializer; kept as a hand-authored discriminated union so
+// the LLM sees exactly which fields each op needs (the auto-generated PATCH schema flattens them all to
+// optional). `patch`/`content`/`row` are freeform Unlayer JSON.
+const EmailDesignFreeformObject = z.record(z.string(), z.unknown())
+
+const EmailDesignPatchOperationSchema = z.discriminatedUnion('op', [
+    z.object({
+        op: z.literal('update_content'),
+        id: z.string().describe('Id of the content block to update.'),
+        patch: EmailDesignFreeformObject.describe(
+            'Partial content-block fields, deep-merged into the existing block; a null leaf deletes that key. ' +
+                "e.g. {values: {text: '<p>Hi</p>'}} changes only the block's text."
+        ),
+    }),
+    z.object({
+        op: z.literal('update_column'),
+        id: z.string().describe('Id of the column to update.'),
+        patch: EmailDesignFreeformObject.describe('Partial column fields, deep-merged; a null leaf deletes that key.'),
+    }),
+    z.object({
+        op: z.literal('update_row'),
+        id: z.string().describe('Id of the row to update.'),
+        patch: EmailDesignFreeformObject.describe('Partial row fields, deep-merged; a null leaf deletes that key.'),
+    }),
+    z.object({
+        op: z.literal('update_body'),
+        patch: EmailDesignFreeformObject.describe(
+            "Partial body fields, deep-merged. e.g. {values: {backgroundColor: '#ffffff'}}."
+        ),
+    }),
+    z.object({
+        op: z.literal('add_content'),
+        column_id: z.string().describe('Id of the column to insert the block into.'),
+        content: EmailDesignFreeformObject.describe(
+            'A content block {type, values: {...}}; omit id and values._meta — they are assigned server-side. ' +
+                'type is one of text, heading, button, image, divider, html, etc.'
+        ),
+        index: z.number().int().optional().describe('0-based insert position; omit to append to the end.'),
+    }),
+    z.object({
+        op: z.literal('remove_content'),
+        id: z.string().describe('Id of the content block to remove.'),
+    }),
+    z.object({
+        op: z.literal('move_content'),
+        id: z.string().describe('Id of the content block to move.'),
+        column_id: z.string().describe('Id of the destination column.'),
+        index: z.number().int().optional().describe('0-based position in the destination column; omit to append.'),
+    }),
+    z.object({
+        op: z.literal('add_row'),
+        row: EmailDesignFreeformObject.describe(
+            'A full row {cells, columns: [{contents: [...], values}], values}; ids and Unlayer numbering are ' +
+                'assigned server-side for the row and everything nested in it.'
+        ),
+        index: z.number().int().optional().describe('0-based insert position; omit to append to the end.'),
+    }),
+    z.object({
+        op: z.literal('remove_row'),
+        id: z.string().describe('Id of the row to remove.'),
+    }),
+])
+
+export const EmailTemplateDesignPatchSchema = z.object({
+    id: z.string().describe('The email template id to edit.'),
+    operations: z
+        .array(EmailDesignPatchOperationSchema)
+        .min(1)
+        .describe(
+            "Ordered edits applied atomically to the template's Unlayer design: the stored design is read, the ops " +
+                'are applied in order, the result is validated and re-rendered to HTML, and saved only if valid — ' +
+                'otherwise the template is left unchanged. Reference blocks by id so you never resend the whole design.'
+        ),
+})
