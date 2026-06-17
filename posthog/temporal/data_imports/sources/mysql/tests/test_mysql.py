@@ -954,3 +954,18 @@ class TestMySQLSourceValidateCredentials:
         assert valid is False
         assert error is not None
         capture.assert_called_once()
+
+    def test_access_denied_surfaces_invalid_user_or_password(self, source, mocker):
+        # An auth failure (error 1045) must say so, not the generic "check connection details"
+        # message that sends the user to inspect the host/port instead. Mirrors Postgres.
+        mocker.patch("posthog.temporal.data_imports.sources.mysql.source.capture_exception")
+        mocker.patch.object(
+            source,
+            "get_schemas",
+            side_effect=pymysql.err.OperationalError(1045, "Access denied for user 'u'@'1.2.3.4' (using password: YES)"),
+        )
+
+        valid, error = source.validate_credentials(_make_config(), team_id=1)
+
+        assert valid is False
+        assert error == "Invalid user or password"
