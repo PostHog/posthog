@@ -6,6 +6,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
+from posthog.temporal.data_imports.sources.common.sql.predicates import ColumnTypeCategory, ValidatedRowFilter
 from posthog.temporal.data_imports.sources.generated_configs import SnowflakeSourceConfig
 from posthog.temporal.data_imports.sources.snowflake.snowflake import (
     SnowflakeImplementation,
@@ -163,6 +164,67 @@ class TestBuildQuery:
         # None last-value triggers fallback to incremental_type_to_initial_value
         _, params = _build_query("DB", "PUBLIC", "t", True, "created_at", IncrementalFieldType.DateTime, None)
         assert params[1] is not None
+
+
+class TestBuildQueryRowFilters:
+    def _filter(self, column, operator, value, category=ColumnTypeCategory.INTEGER):
+        return ValidatedRowFilter(column=column, operator=operator, value=value, category=category)
+
+    def test_full_refresh_appends_filters_after_table_ref(self):
+        sql, params = _build_query(
+            "DB", "PUBLIC", "t", False, None, None, None, row_filters=[self._filter("AGE", ">", 21)]
+        )
+        assert 'WHERE "AGE" > %s' in sql
+        # Positional order: IDENTIFIER table ref first, then the filter value.
+        assert params == ("DB.PUBLIC.t", 21)
+
+    def test_incremental_orders_table_then_incremental_then_filters(self):
+        sql, params = _build_query(
+            "DB",
+            "PUBLIC",
+            "t",
+            True,
+            "created_at",
+            IncrementalFieldType.DateTime,
+            "2025-01-01",
+            row_filters=[self._filter("AGE", ">", 21), self._filter("SCORE", "<=", 100)],
+        )
+        assert 'WHERE "created_at" > %s AND "AGE" > %s AND "SCORE" <= %s ORDER BY "created_at" ASC' in sql
+        # Critical: positional values must be (table_ref, incremental_value, *filter_values) in order.
+        assert params == ("DB.PUBLIC.t", "2025-01-01", 21, 100)
+
+    def test_value_never_interpolated(self):
+        sql, params = _build_query(
+            "DB",
+            "PUBLIC",
+            "t",
+            False,
+            None,
+            None,
+            None,
+            row_filters=[
+                ValidatedRowFilter(
+                    column="NAME", operator="=", value="x'; DROP TABLE y; --", category=ColumnTypeCategory.STRING
+                )
+            ],
+        )
+        assert "DROP TABLE" not in sql
+        assert params == ("DB.PUBLIC.t", "x'; DROP TABLE y; --")
+
+    def test_in_filter_positional_values_in_order(self):
+        sql, params = _build_query(
+            "DB",
+            "PUBLIC",
+            "t",
+            True,
+            "created_at",
+            IncrementalFieldType.DateTime,
+            "2025-01-01",
+            row_filters=[self._filter("AGE", "IN", [21, 30, 40])],
+        )
+        assert 'WHERE "created_at" > %s AND "AGE" IN (%s, %s, %s)' in sql
+        # table_ref, incremental_value, then each IN element in order.
+        assert params == ("DB.PUBLIC.t", "2025-01-01", 21, 30, 40)
 
 
 class TestBuildQueryEnabledColumns:

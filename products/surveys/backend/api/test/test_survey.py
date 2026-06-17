@@ -6821,6 +6821,26 @@ class TestSurveyListTypeFilter(APIBaseTest):
         self.assertEqual(len(data["results"]), 1)
         self.assertEqual(data["results"][0]["name"], "widget survey")
 
+    def test_filter_by_ids(self):
+        first = Survey.objects.create(team=self.team, name="first", type="popover", questions=[])
+        second = Survey.objects.create(team=self.team, name="second", type="popover", questions=[])
+        Survey.objects.create(team=self.team, name="third", type="popover", questions=[])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/?ids={first.id},{second.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual({s["name"] for s in data["results"]}, {"first", "second"})
+
+    def test_filter_by_ids_silently_omits_unknown_ids(self):
+        survey = Survey.objects.create(team=self.team, name="exists", type="popover", questions=[])
+        missing_id = uuid.uuid4()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/?ids={survey.id},{missing_id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(len(data["results"]), 1)
+        self.assertEqual(data["results"][0]["id"], str(survey.id))
+
 
 class TestSurveyStatsPerQuestion(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
