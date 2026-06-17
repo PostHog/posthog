@@ -104,3 +104,42 @@ class ErrorTrackingSpikeDetectionConfig:
     snooze_duration_minutes: int
     multiplier: int
     threshold: int
+
+
+@dataclass(frozen=True)
+class ErrorTrackingSpikeEventIssue:
+    id: UUID
+    name: str | None
+    description: str | None
+
+
+@dataclass(frozen=True)
+class ErrorTrackingSpikeEvent:
+    id: UUID
+    issue: ErrorTrackingSpikeEventIssue
+    detected_at: datetime
+    computed_baseline: float
+    current_bucket_value: int
+
+
+@dataclass(frozen=True)
+class ErrorTrackingRelease:
+    id: UUID
+    hash_id: str
+    team_id: int
+    created_at: datetime
+    metadata: dict | None
+    version: str
+    project: str
+
+
+@dataclass(frozen=True)
+class ErrorTrackingStackFrame:
+    id: UUID
+    raw_id: str
+    created_at: datetime
+    contents: dict
+    resolved: bool
+    context: dict | None
+    symbol_set_ref: str | None
+    release: ErrorTrackingRelease | None

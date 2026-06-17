@@ -3,6 +3,7 @@ from .api import (
     ExternalReferenceValidationError,
     IssueNotFoundError,
     auto_select_project_for_user,
+    batch_get_stack_frames,
     build_ingestion_failures_url,
     count_issues_created_since,
     create_external_reference,
@@ -21,6 +22,7 @@ from .api import (
     get_org_ids_with_exceptions,
     get_settings,
     get_spike_detection_config,
+    get_stack_frame,
     get_symbol_set_counts_by_team,
     get_top_issues_for_team,
     is_supported_external_issue_provider,
@@ -28,6 +30,8 @@ from .api import (
     list_external_references,
     list_fingerprints,
     list_issues,
+    list_spike_events,
+    list_stack_frames,
     update_settings,
 )
 
@@ -35,6 +39,9 @@ __all__ = [
     "ExternalReferenceValidationError",
     "IssueNotFoundError",
     "auto_select_project_for_user",
+    "batch_get_stack_frames",
+    "get_stack_frame",
+    "list_stack_frames",
     "build_ingestion_failures_url",
     "count_issues_created_since",
     "create_external_reference",
@@ -61,6 +68,7 @@ __all__ = [
     "list_external_references",
     "list_fingerprints",
     "list_issues",
+    "list_spike_events",
     "update_settings",
     "update_spike_detection_config",
 ]

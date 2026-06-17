@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from django.db.models import Count, QuerySet
+from django.db.models import Count, Q, QuerySet
 
 from posthog.models.integration import (
     GitHubIntegration,
@@ -19,7 +19,18 @@ from products.error_tracking.backend.models import (
     ErrorTrackingIssueFingerprintV2,
     ErrorTrackingSettings,
     ErrorTrackingSpikeDetectionConfig,
+    ErrorTrackingSpikeEvent,
+    ErrorTrackingStackFrame,
     ErrorTrackingSymbolSet,
+)
+
+SPIKE_EVENT_ORDER_FIELDS = (
+    "detected_at",
+    "-detected_at",
+    "computed_baseline",
+    "-computed_baseline",
+    "current_bucket_value",
+    "-current_bucket_value",
 )
 
 SETTINGS_FIELDS = (
@@ -261,3 +272,52 @@ def update_spike_detection_config(team_id: int, fields: dict[str, int]) -> Error
     if updates:
         config.save(update_fields=list(updates))
     return config
+
+
+def list_spike_events(
+    team_id: int,
+    issue_ids: list[str] | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    order_by: str | None = None,
+) -> QuerySet[ErrorTrackingSpikeEvent]:
+    qs = ErrorTrackingSpikeEvent.objects.filter(team_id=team_id).select_related("issue")
+    if issue_ids:
+        qs = qs.filter(issue_id__in=issue_ids)
+    if date_from:
+        qs = qs.filter(detected_at__gte=date_from)
+    if date_to:
+        qs = qs.filter(detected_at__lte=date_to)
+    if order_by in SPIKE_EVENT_ORDER_FIELDS:
+        return qs.order_by(order_by)
+    return qs.order_by("-detected_at")
+
+
+def split_stack_frame_raw_id(raw_id: str) -> tuple[str, int]:
+    parts = raw_id.split("/")
+    if len(parts) != 2:
+        return raw_id, 0
+    return parts[0], int(parts[1])
+
+
+def stack_frame_queryset(team_id: int) -> QuerySet[ErrorTrackingStackFrame]:
+    return ErrorTrackingStackFrame.objects.filter(team_id=team_id).select_related("symbol_set__release")
+
+
+def get_stack_frame(team_id: int, frame_id: str) -> ErrorTrackingStackFrame | None:
+    return stack_frame_queryset(team_id).filter(id=frame_id).first()
+
+
+def batch_get_stack_frames(
+    team_id: int, raw_ids: list[str] | None = None, symbol_set: str | None = None
+) -> QuerySet[ErrorTrackingStackFrame]:
+    qs = stack_frame_queryset(team_id)
+    if raw_ids:
+        id_query = Q()
+        for raw_id in raw_ids:
+            hash_id, part = split_stack_frame_raw_id(raw_id)
+            id_query |= Q(raw_id=hash_id, part=part)
+        qs = qs.filter(id_query)
+    if symbol_set:
+        qs = qs.filter(symbol_set=symbol_set)
+    return qs

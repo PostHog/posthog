@@ -151,6 +151,73 @@ def update_spike_detection_config(team_id: int, fields: dict[str, int]) -> contr
     return _to_spike_detection_config(logic.update_spike_detection_config(team_id=team_id, fields=fields))
 
 
+def _to_spike_event(event) -> contracts.ErrorTrackingSpikeEvent:
+    issue = event.issue
+    return contracts.ErrorTrackingSpikeEvent(
+        id=event.id,
+        issue=contracts.ErrorTrackingSpikeEventIssue(id=issue.id, name=issue.name, description=issue.description),
+        detected_at=event.detected_at,
+        computed_baseline=event.computed_baseline,
+        current_bucket_value=event.current_bucket_value,
+    )
+
+
+def list_spike_events(
+    *,
+    team_id: int,
+    issue_ids: list[str] | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    order_by: str | None = None,
+) -> list[contracts.ErrorTrackingSpikeEvent]:
+    events = logic.list_spike_events(
+        team_id=team_id, issue_ids=issue_ids, date_from=date_from, date_to=date_to, order_by=order_by
+    )
+    return [_to_spike_event(event) for event in events]
+
+
+def _to_release(release) -> contracts.ErrorTrackingRelease:
+    return contracts.ErrorTrackingRelease(
+        id=release.id,
+        hash_id=release.hash_id,
+        team_id=release.team_id,
+        created_at=release.created_at,
+        metadata=release.metadata,
+        version=release.version,
+        project=release.project,
+    )
+
+
+def _to_stack_frame(frame) -> contracts.ErrorTrackingStackFrame:
+    symbol_set = frame.symbol_set
+    release = symbol_set.release if symbol_set else None
+    return contracts.ErrorTrackingStackFrame(
+        id=frame.id,
+        raw_id=f"{frame.raw_id}/{frame.part}",
+        created_at=frame.created_at,
+        contents=frame.contents,
+        resolved=frame.resolved,
+        context=frame.context,
+        symbol_set_ref=symbol_set.ref if symbol_set else None,
+        release=_to_release(release) if release else None,
+    )
+
+
+def list_stack_frames(team_id: int) -> list[contracts.ErrorTrackingStackFrame]:
+    return [_to_stack_frame(frame) for frame in logic.stack_frame_queryset(team_id)]
+
+
+def get_stack_frame(team_id: int, frame_id: str) -> contracts.ErrorTrackingStackFrame | None:
+    frame = logic.get_stack_frame(team_id, frame_id)
+    return _to_stack_frame(frame) if frame is not None else None
+
+
+def batch_get_stack_frames(
+    team_id: int, raw_ids: list[str] | None = None, symbol_set: str | None = None
+) -> list[contracts.ErrorTrackingStackFrame]:
+    return [_to_stack_frame(frame) for frame in logic.batch_get_stack_frames(team_id, raw_ids, symbol_set)]
+
+
 def get_issue_id_for_fingerprint(team_id: int, fingerprint: str) -> UUID | None:
     return logic.get_issue_id_for_fingerprint(team_id=team_id, fingerprint=fingerprint)
 
