@@ -1,8 +1,8 @@
 import { IconCheck, IconWarning, IconX } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 
-import { humanFriendlyNumber } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import type { ThreadItem } from '../types/sandboxStreamTypes'
 
