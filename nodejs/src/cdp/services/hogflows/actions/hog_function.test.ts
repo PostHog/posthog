@@ -190,6 +190,59 @@ describe('HogFunctionHandler', () => {
         expect(invocationResult.logs[0].message).toContain('[Action:function] Function completed')
     })
 
+    it('should forward groups to the hog function invocation globals', async () => {
+        invocation.groups = {
+            organization: {
+                id: 'org_key',
+                type: 'organization',
+                index: 0,
+                url: '',
+                properties: { owner_name: 'Chris McNeill' },
+            },
+        }
+
+        const buildHogFunctionInvocationSpy = jest.spyOn(mockHogFlowFunctionsService, 'buildHogFunctionInvocation')
+
+        const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+            queue: 'hog',
+            queuePriority: 0,
+        })
+
+        await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
+
+        const passedGlobals = buildHogFunctionInvocationSpy.mock.calls[0][2]
+        expect(passedGlobals.groups).toEqual(invocation.groups)
+    })
+
+    it('should render a group property referenced in a function input template', async () => {
+        invocation.groups = {
+            organization: {
+                id: 'org_key',
+                type: 'organization',
+                index: 0,
+                url: '',
+                properties: { owner_name: 'Chris McNeill' },
+            },
+        }
+
+        // {groups.organization.properties.owner_name} compiled to hog bytecode
+        action.config.inputs.name = {
+            value: '{groups.organization.properties.owner_name}',
+            templating: 'hog',
+            bytecode: ['_H', 1, 32, 'owner_name', 32, 'properties', 32, 'organization', 32, 'groups', 1, 4],
+        }
+
+        const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+            queue: 'hog',
+            queuePriority: 0,
+        })
+
+        const handlerResult = await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
+
+        expect(handlerResult.error).toBeUndefined()
+        expect(mockFetch.mock.calls[0][1].body).toContain('"name":"Chris McNeill"')
+    })
+
     it('should throw an error if template is not found', async () => {
         const action = findActionByType(invocation.hogFlow, 'function')!
         action.config.template_id = 'template_123'
