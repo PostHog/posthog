@@ -1,6 +1,6 @@
 import posthog from 'posthog-js'
 
-import { LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonDivider, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { ExperimentsHog } from 'lib/components/hedgehogs'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -79,6 +79,40 @@ function ExperimentResultsWidgetMetric({ entry }: { entry: ExperimentResultsWidg
             ) : (
                 <NotebookCompactTable result={entry.result} metric={entry.metric} />
             )}
+        </div>
+    )
+}
+
+function ExperimentMetricsSection({
+    label,
+    metrics,
+    totalCount,
+    emptyMessage,
+}: {
+    label: string
+    metrics: ExperimentResultsWidgetMetricEntry[]
+    totalCount?: number
+    emptyMessage?: string
+}): JSX.Element {
+    return (
+        <div className="flex flex-col gap-2">
+            <div className="flex items-center gap-2">
+                <h5 className="m-0 shrink-0 text-xs font-semibold uppercase tracking-wide text-muted">{label}</h5>
+                <LemonDivider className="my-0 flex-1" />
+            </div>
+            {metrics.length === 0 ? (
+                <LemonBanner type="info" className="text-sm">
+                    {emptyMessage}
+                </LemonBanner>
+            ) : (
+                metrics.map((entry, index) => <ExperimentResultsWidgetMetric key={entry.uuid ?? index} entry={entry} />)
+            )}
+            {totalCount && totalCount > metrics.length ? (
+                <span className="text-xs text-muted">
+                    Showing the first {metrics.length} of {totalCount} {label.toLowerCase()}. Open the experiment to see
+                    all of them.
+                </span>
+            ) : null}
         </div>
     )
 }
@@ -189,36 +223,23 @@ export function ExperimentResultsWidget({
                     <LemonBanner type="info" className="text-sm">
                         This experiment has not launched yet. Results will appear once it is running.
                     </LemonBanner>
-                ) : metrics.length === 0 ? (
-                    <LemonBanner type="info" className="text-sm">
-                        This experiment has no primary metrics to show.
-                    </LemonBanner>
                 ) : (
-                    metrics.map((entry, index) => (
-                        <ExperimentResultsWidgetMetric key={entry.uuid ?? index} entry={entry} />
-                    ))
-                )}
-                {payload.totalMetricsCount && payload.totalMetricsCount > metrics.length ? (
-                    <span className="text-xs text-muted">
-                        Showing the first {metrics.length} of {payload.totalMetricsCount} primary metrics. Open the
-                        experiment to see all of them.
-                    </span>
-                ) : null}
-                {!isDraft && secondaryMetrics.length > 0 ? (
                     <>
-                        <h6 className="m-0 text-xs font-semibold text-muted">Secondary metrics</h6>
-                        {secondaryMetrics.map((entry, index) => (
-                            <ExperimentResultsWidgetMetric key={entry.uuid ?? index} entry={entry} />
-                        ))}
-                        {payload.totalSecondaryMetricsCount &&
-                        payload.totalSecondaryMetricsCount > secondaryMetrics.length ? (
-                            <span className="text-xs text-muted">
-                                Showing the first {secondaryMetrics.length} of {payload.totalSecondaryMetricsCount}{' '}
-                                secondary metrics. Open the experiment to see all of them.
-                            </span>
+                        <ExperimentMetricsSection
+                            label="Primary metrics"
+                            metrics={metrics}
+                            totalCount={payload.totalMetricsCount}
+                            emptyMessage="This experiment has no primary metrics to show."
+                        />
+                        {secondaryMetrics.length > 0 ? (
+                            <ExperimentMetricsSection
+                                label="Secondary metrics"
+                                metrics={secondaryMetrics}
+                                totalCount={payload.totalSecondaryMetricsCount}
+                            />
                         ) : null}
                     </>
-                ) : null}
+                )}
             </div>
         </WidgetCardContent>
     )
