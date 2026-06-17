@@ -4,7 +4,7 @@ description: >
   Gates whether a new test should exist and forces it to be efficient, protecting CI from low-value test bloat.
   Use before adding or substantially changing any pytest, Jest, or Playwright test — whenever an agent or engineer is about to write tests for a new feature, bugfix, or PR.
   Front-loads the value bar (every test must catch a realistic regression no existing test already catches; test behavior through the public interface, not implementation details; collapse near-duplicates into parameterized cases) and the efficiency bar (deterministic, isolated, fast; pick the cheapest test level; Django TestCase over TransactionTestCase; no sleeps, no real network).
-  Includes a "don't write it" decision tree. For fixing an existing flaky test use `/fixing-flaky-tests`; for authoring a non-flaky Playwright test use `/playwright-test`.
+  Includes a "don't write it" decision tree. For fixing an existing flaky test use `/fixing-flaky-tests`; after this gate says a Playwright test is warranted, use `/playwright-test` for mechanics.
 ---
 
 # Writing tests worth keeping
@@ -92,9 +92,10 @@ Escalating to the next rung is the last resort, not the default.
 - **`TestCase`, not `TransactionTestCase`, unless you truly need it.**
   `TransactionTestCase` flushes the DB between tests instead of rolling back a transaction — dramatically slower, and a common source of cross-test interference.
   It's a Postgres-isolation choice, orthogonal to which datastore you touch: a ClickHouse-backed test is still a plain `TestCase` (`ClickhouseTestMixin` sets ClickHouse up), so reaching ClickHouse is not a reason to switch.
-  The cases that genuinely need it:
+  Common cases that people reach for `TransactionTestCase` to solve usually have cheaper alternatives:
   - testing `transaction.on_commit` side effects → use `TestCase` + `self.captureOnCommitCallbacks(execute=True)`.
   - needing a connection visible across a real separate thread (`thread_sensitive`) → `async_to_sync(...)`, not `asyncio.run(...)`.
+    Use `TransactionTestCase` only when the regression genuinely requires committed transaction boundaries that `TestCase` hides.
 - **Parameterize** repeated assertions with the `parameterized` library — don't copy-paste test bodies.
 - **No doc comments** in Python tests (house rule).
 - Mock only **true boundaries** — network, external APIs, the clock, queues.
@@ -131,8 +132,7 @@ One line per group of tests is enough:
 
 If you can't write that line, you've found a test that shouldn't be in the PR.
 
-## When this skill does not apply
+## Related skills
 
-- **Fixing an existing flaky test** → use `/fixing-flaky-tests` (reproduce, root-cause, validate).
-- **Authoring a non-flaky Playwright test** → use `/playwright-test` for the mechanics.
-- This skill is about _whether and how cheaply_ to add a test; those are about a specific kind of test you've already decided to write or fix.
+- **Fixing an existing flaky test** → use `/fixing-flaky-tests` (reproduce, root-cause, validate). Use this skill too only if the fix adds or substantially changes coverage.
+- **Authoring a non-flaky Playwright test** → first use this skill to decide whether a browser test earns its cost; if it does, use `/playwright-test` for the mechanics.
