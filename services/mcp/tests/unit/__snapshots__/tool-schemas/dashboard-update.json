@@ -22,6 +22,37 @@
         "description": {
             "type": "string"
         },
+        "filters": {
+            "description": "Dashboard-level filters (date range and properties) applied across all tiles as the source of truth.",
+            "properties": {
+                "date_from": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Dashboard-level start of the date range, e.g. '-30d', '-7d', or an ISO date. Applies to all tiles."
+                },
+                "date_to": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Dashboard-level end of the date range, e.g. '-1d' or an ISO date. Null/omitted means up to now."
+                },
+                "properties": {
+                    "description": "Dashboard-level property filters applied to every tile (PostHog property filter group)."
+                }
+            },
+            "type": "object"
+        },
         "id": {
             "description": "A unique integer value identifying this dashboard.",
             "type": "number"
