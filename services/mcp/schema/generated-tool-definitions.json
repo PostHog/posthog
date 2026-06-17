@@ -1671,7 +1671,7 @@
         }
     },
     "dashboard-create": {
-        "description": "Create a new dashboard. Provide a name and optional description, tags, and pinned status. Can also create from a template or duplicate an existing dashboard. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight.",
+        "description": "Create a new dashboard. Provide a name and optional description, tags, and pinned status. Can also create from a template or duplicate an existing dashboard. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight. To add widget tiles after creation, see dashboard-widget-catalog-list for available widget types and dashboard-widgets-batch-add to add them.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Create dashboard",
@@ -1783,7 +1783,7 @@
         }
     },
     "dashboard-update": {
-        "description": "Update an existing dashboard by ID. Can update name, description, pinned status, tags, filters, and restriction level. To update widget tiles, pass `tiles` with each tile's `id` and nested `widget.id` plus fields to change (`config`, `name`, `description`) from dashboard-get — the same PATCH path the UI uses. There is no separate PATCH .../widgets/:tile_id/ endpoint. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight.",
+        "description": "Update an existing dashboard by ID. Can update name, description, pinned status, tags, filters, and restriction level. To update widget tiles, pass `tiles` with each tile's `id` and nested `widget.id` plus fields to change (`config`, `name`, `description`) from dashboard-get — the same PATCH path the UI uses. There is no separate PATCH .../widgets/:tile_id/ endpoint. To add new widget tiles to this dashboard, use dashboard-widgets-batch-add instead. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Update dashboard",
@@ -2267,6 +2267,20 @@
         "summary": "Preview endpoint materialization",
         "title": "Preview endpoint materialization",
         "required_scopes": ["endpoint:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "engineering-analytics-sources": {
+        "description": "The team's connected GitHub data warehouse sources, oldest first, each with its id, repo (owner/name), and table prefix. Call this first when a team may have more than one GitHub source, then pass a chosen id as source_id to the pull-requests, workflow-health, ci-cards, or pr-lifecycle tools to read that specific source. With a single source you can skip it — the other tools default to the oldest connected source.",
+        "category": "Engineering analytics",
+        "feature": "engineering_analytics",
+        "summary": "List connected GitHub sources",
+        "title": "List connected GitHub sources",
+        "required_scopes": ["engineering_analytics:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,

@@ -15175,6 +15175,7 @@ export namespace Schemas {
      * * `YahooFinance` - YahooFinance
      * * `Clarifai` - Clarifai
      * * `Adapty` - Adapty
+     * * `Braintrust` - Braintrust
      * * `Custom` - Custom
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
@@ -15801,6 +15802,7 @@ export namespace Schemas {
       YahooFinance: 'YahooFinance',
       Clarifai: 'Clarifai',
       Adapty: 'Adapty',
+      Braintrust: 'Braintrust',
       Custom: 'Custom',
     } as const;
 
@@ -16434,6 +16436,7 @@ export namespace Schemas {
        * * `YahooFinance` - YahooFinance
        * * `Clarifai` - Clarifai
        * * `Adapty` - Adapty
+       * * `Braintrust` - Braintrust
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
     }
@@ -21232,6 +21235,7 @@ export namespace Schemas {
        * * `YahooFinance` - YahooFinance
        * * `Clarifai` - Clarifai
        * * `Adapty` - Adapty
+       * * `Braintrust` - Braintrust
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
@@ -22270,6 +22274,11 @@ export namespace Schemas {
 
     export interface Run {
       approved_by?: UserBasicInfo | null;
+      /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of branch/run type, a commit SHA prefix, or an exact PR number) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`.
+       *
+       * * `exact` - exact
+       * * `similar` - similar */
+      readonly search_match_type: SearchMatchTypeEnum | null;
       id: string;
       repo_id: string;
       status: string;
@@ -22492,6 +22501,15 @@ export namespace Schemas {
       repositories: GitHubRepo[];
       /** Whether more repositories are available beyond this page. */
       has_more: boolean;
+    }
+
+    export interface GitHubSource {
+      /** Source id — pass as `source_id` to the other endpoints to read this source. */
+      id: string;
+      /** Connected repository as 'owner/name', or '' if unknown. */
+      repo: string;
+      /** User-chosen warehouse table-name prefix for this source, or '' when none. */
+      prefix: string;
     }
 
     export interface GitHubTeam {
@@ -30437,6 +30455,7 @@ export namespace Schemas {
      * * `signals_scout` - Signals scout
      * * `logs` - Logs
      * * `health_checks` - Health checks
+     * * `endpoints` - Endpoints
      */
     export type SourceProductEnum = typeof SourceProductEnum[keyof typeof SourceProductEnum];
 
@@ -30453,6 +30472,7 @@ export namespace Schemas {
       SignalsScout: 'signals_scout',
       Logs: 'logs',
       HealthChecks: 'health_checks',
+      Endpoints: 'endpoints',
     } as const;
 
     /**
@@ -30466,6 +30486,8 @@ export namespace Schemas {
      * * `cross_source_issue` - Cross source issue
      * * `alert_state_change` - Alert state change
      * * `health_issue` - Health issue
+     * * `endpoint_execution_failed` - Endpoint execution failed
+     * * `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded
      */
     export type SignalSourceConfigSourceTypeEnum = typeof SignalSourceConfigSourceTypeEnum[keyof typeof SignalSourceConfigSourceTypeEnum];
 
@@ -30481,6 +30503,8 @@ export namespace Schemas {
       CrossSourceIssue: 'cross_source_issue',
       AlertStateChange: 'alert_state_change',
       HealthIssue: 'health_issue',
+      EndpointExecutionFailed: 'endpoint_execution_failed',
+      EndpointBreakdownLimitExceeded: 'endpoint_breakdown_limit_exceeded',
     } as const;
 
     export interface SignalSourceConfig {
@@ -45447,6 +45471,7 @@ export namespace Schemas {
        * * `YahooFinance` - YahooFinance
        * * `Clarifai` - Clarifai
        * * `Adapty` - Adapty
+       * * `Braintrust` - Braintrust
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
@@ -46106,6 +46131,7 @@ export namespace Schemas {
        * * `YahooFinance` - YahooFinance
        * * `Clarifai` - Clarifai
        * * `Adapty` - Adapty
+       * * `Braintrust` - Braintrust
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
@@ -60798,6 +60824,10 @@ export namespace Schemas {
      * Filter by review state
      */
     review_state?: string;
+    /**
+     * Free-text search over branch, commit SHA, run type, and PR number
+     */
+    search?: string;
     };
 
     export type VisualReviewReposSnapshotsListParams = {
@@ -60836,6 +60866,10 @@ export namespace Schemas {
      * Filter by review state
      */
     review_state?: string;
+    /**
+     * Free-text search over branch, commit SHA, run type, and PR number
+     */
+    search?: string;
     };
 
     export type VisualReviewRunsSnapshotHistoryListParams = {
