@@ -1,5 +1,3 @@
-import 'chartjs-adapter-dayjs-3'
-
 import ChartDataLabels, { Context } from 'chartjs-plugin-datalabels'
 import { useActions, useValues } from 'kea'
 
@@ -15,7 +13,7 @@ import {
 } from 'lib/Chart'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { useChart } from 'lib/hooks/useChart'
-import { isString } from 'lib/utils'
+import { isString } from 'lib/utils/guards'
 import {
     formatAggregationAxisValue,
     formatAggregationAxisValueWithShareOfTotal,

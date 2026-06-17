@@ -1240,6 +1240,18 @@ class TestPrinter(BaseTest):
             "groupArraySampleIf(5, 123456)(events.event, isNotNull(events.event))",
         )
 
+    @parameterized.expand(
+        [
+            ("toBool", "toBool(uuid)", "accurateCastOrNull(events.uuid, %(hogql_val_0)s)"),
+            ("every", "every(uuid)", "accurateCastOrNull(min(events.uuid), 'Bool')"),
+        ]
+    )
+    def test_to_bool_is_null_safe(self, _name: str, expr: str, expected: str) -> None:
+        # Boolean casts must not hard-fail on non-boolean input (e.g. a UUID-shaped string).
+        # They route through accurateCastOrNull so unparseable values become NULL instead
+        # of raising "Cannot parse boolean value here" and failing the whole query.
+        self.assertEqual(self._expr(expr), expected)
+
     def test_expr_parse_errors(self):
         self._assert_expr_error("", "Empty query")
         self._assert_expr_error("avg(bla)", "Unable to resolve field: bla")
@@ -2509,18 +2521,21 @@ class TestPrinter(BaseTest):
         )
         assert generated_sql_statements1 == (
             f"SELECT "
-            "ifNull(equals(toBool(transform(toString(nullIf(nullIf(events.mat_is_boolean, ''), 'null')), %(hogql_val_0)s, %(hogql_val_1)s, NULL)), 1), 0), "
-            "ifNull(equals(toBool(transform(toString(nullIf(nullIf(events.mat_is_boolean, ''), 'null')), %(hogql_val_2)s, %(hogql_val_3)s, NULL)), 0), 0), "
-            "isNull(toBool(transform(toString(nullIf(nullIf(events.mat_is_boolean, ''), 'null')), %(hogql_val_4)s, %(hogql_val_5)s, NULL))) "
+            "ifNull(equals(accurateCastOrNull(transform(toString(nullIf(nullIf(events.mat_is_boolean, ''), 'null')), %(hogql_val_0)s, %(hogql_val_1)s, NULL), %(hogql_val_2)s), 1), 0), "
+            "ifNull(equals(accurateCastOrNull(transform(toString(nullIf(nullIf(events.mat_is_boolean, ''), 'null')), %(hogql_val_3)s, %(hogql_val_4)s, NULL), %(hogql_val_5)s), 0), 0), "
+            "isNull(accurateCastOrNull(transform(toString(nullIf(nullIf(events.mat_is_boolean, ''), 'null')), %(hogql_val_6)s, %(hogql_val_7)s, NULL), %(hogql_val_8)s)) "
             f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
         assert context.values == {
             "hogql_val_0": ["true", "false"],
             "hogql_val_1": [1, 0],
-            "hogql_val_2": ["true", "false"],
-            "hogql_val_3": [1, 0],
-            "hogql_val_4": ["true", "false"],
-            "hogql_val_5": [1, 0],
+            "hogql_val_2": "Bool",
+            "hogql_val_3": ["true", "false"],
+            "hogql_val_4": [1, 0],
+            "hogql_val_5": "Bool",
+            "hogql_val_6": ["true", "false"],
+            "hogql_val_7": [1, 0],
+            "hogql_val_8": "Bool",
         }
 
     @patch("posthog.hogql.transforms.clickhouse_property_resolution.get_materialized_column_for_property")
@@ -3171,7 +3186,7 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(
             (
-                f"SELECT if(equals(%(hogql_val_0)s, %(hogql_val_1)s), toDecimal64(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_1)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10))))) AS currency "
+                f"SELECT if(equals(%(hogql_val_0)s, %(hogql_val_1)s), toDecimal128(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)) = 0, toDecimal128(0, 10), multiplyDecimal(divideDecimal(toDecimal128(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)) = 0, toDecimal128(1, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_1)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10))))) AS currency "
                 "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
             ),
             printed,
@@ -3184,11 +3199,20 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(
             (
-                f"SELECT if(equals(%(hogql_val_0)s, %(hogql_val_1)s), toDecimal64(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_1)s, today(), toDecimal64(0, 10))))) AS currency "
+                f"SELECT if(equals(%(hogql_val_0)s, %(hogql_val_1)s), toDecimal128(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)) = 0, toDecimal128(0, 10), multiplyDecimal(divideDecimal(toDecimal128(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)) = 0, toDecimal128(1, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_1)s, today(), toDecimal64(0, 10))))) AS currency "
                 "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
             ),
             printed,
         )
+
+    def test_currency_conversion_uses_decimal128(self):
+        # Regression guard: a Decimal64 amount cast (scale 10) overflows above ~10^8 integer part (Code 407)
+        # when summing converted amounts. The amount must be cast to Decimal128 so the divide/multiply path
+        # is promoted. (The dictGetOrDefault defaults stay Decimal64 — they match the dict attribute type.)
+        # test_currency_conversion asserts the full SQL; this makes the amount-cast requirement explicit.
+        printed = self._print("select convertCurrency('USD', 'EUR', 100, toDate('2021-01-01')) as currency")
+        self.assertIn("toDecimal128(100, 10)", printed)
+        self.assertNotIn("toDecimal64(100", printed)
 
     def test_sortable_semver(self):
         # Also test different capitalizations

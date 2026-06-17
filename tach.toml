@@ -52,6 +52,8 @@ depends_on = [
     "products.posthog_ai",
     "products.product_analytics",
     "products.replay",
+    "products.replay_vision",
+    "products.skills",
     "products.revenue_analytics",
     "products.surveys",
     "products.tasks",
@@ -123,6 +125,13 @@ depends_on = [
     "products.experiments",
     "products.feature_flags",
     "products.product_analytics",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.agent_platform"
+depends_on = [
+    "posthog",
 ]
 layer = "modules"
 
@@ -508,7 +517,6 @@ depends_on = [
     "products.cohorts",
     "posthog",
     "products.actions",
-    "products.ai_observability",
     "products.alerts",
     "products.cdp",
     "products.dashboards",
@@ -518,10 +526,22 @@ depends_on = [
     "products.feature_flags",
     "products.notebooks",
     "products.product_analytics",
+    "products.skills",
     "products.surveys",
     "products.tasks",
     "products.warehouse_sources",
     "products.workflows", "products.business_knowledge",
+]
+layer = "modules"
+
+[[modules]]
+# Skills imports ai_observability's shared markdown_outline + API metrics helpers —
+# temporary coupling from the standalone-product extraction, slated for cleanup.
+path = "products.skills"
+depends_on = [
+    "ee",
+    "posthog",
+    "products.ai_observability",
 ]
 layer = "modules"
 
@@ -626,6 +646,7 @@ depends_on = [
     "posthog",
     "products.actions",
     "products.analytics_platform",
+    "products.notifications",
 ]
 layer = "modules"
 
@@ -650,7 +671,7 @@ expose = [
     "backend\\.routes.*",
 ]
 from = [
-    "products\\.(experiments|mcp_analytics|mcp_store|metrics|notifications|tracing|user_interviews|visual_review)",
+    "products\\.(error_tracking|experiments|mcp_analytics|mcp_store|metrics|notifications|tracing|user_interviews|visual_review)",
 ]
 
 # TODO: Experiments-specific temporary interface
@@ -665,17 +686,15 @@ from = [
     "products.experiments",
 ]
 
-# Temporal worker registration lives in posthog/management/commands/start_temporal_worker.py, which imports
-# ACTIVITIES and WORKFLOWS from each product's backend.temporal package, and schedule registration lives in
-# posthog/temporal/schedule.py, which imports each product's schedule-creation functions. Eight peer products
-# do the same thing, but experiments is the first isolated product to register a workflow, so the canonical
-# interface doesn't cover it yet. Narrowly expose just the registration symbols rather than widening every
-# isolated product's surface.
+# Experiments is the first isolated product to register a Temporal workflow, so the canonical interface
+# doesn't cover the registration surface yet. Narrowly expose the symbols core imports (worker registration,
+# schedule registration, and the worker interceptor) rather than widening every isolated product's surface.
 
 [[interfaces]]
 expose = [
     "backend\\.temporal\\.ACTIVITIES",
     "backend\\.temporal\\.WORKFLOWS",
+    "backend\\.temporal\\.recalculation_metrics.*",
     "backend\\.temporal\\.schedule\\.create_experiment_precompute_canary_schedule",
 ]
 from = [
@@ -721,6 +740,24 @@ expose = [
 ]
 from = [
     "products.mcp_store",
+]
+
+# error_tracking exposes its ClickHouse DDL (sql / embedding / indexed_embedding) to
+# core's ClickHouse schema + frozen migrations, and its models / remote_config to core
+# model-class consumers (product_intent, remote_config, team deletion) and test fixtures.
+# The frozen-migration coupling cannot be rerouted, so this block is permanent rather than
+# shrinking to zero — which is why backend:contract-check stays off for this product.
+
+[[interfaces]]
+expose = [
+    "backend\\.embedding.*",
+    "backend\\.indexed_embedding.*",
+    "backend\\.models.*",
+    "backend\\.remote_config.*",
+    "backend\\.sql.*",
+]
+from = [
+    "products.error_tracking",
 ]
 
 [[interfaces]]
@@ -785,7 +822,7 @@ from = [
 
 [[modules]]
 path = "products.business_knowledge"
-depends_on = ["posthog"]
+depends_on = ["posthog", "ee"]
 layer = "modules"
 
 [[interfaces]]
@@ -825,7 +862,7 @@ from = [
 
 [[modules]]
 path = "products.engineering_analytics"
-depends_on = ["posthog"]
+depends_on = ["posthog", "products.warehouse_sources"]
 layer = "modules"
 
 [[interfaces]]

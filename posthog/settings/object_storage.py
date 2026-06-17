@@ -46,3 +46,8 @@ VIDEO_SEGMENT_CLUSTERING_S3_BUCKET = os.getenv("VIDEO_SEGMENT_CLUSTERING_S3_BUCK
 # service consumes. Falls back to the general bucket if not set so dev /
 # self-hosted continue to work without extra configuration.
 BILLING_USAGE_REPORTS_S3_BUCKET = os.getenv("BILLING_USAGE_REPORTS_S3_BUCKET") or OBJECT_STORAGE_BUCKET
+
+# Agent platform bundle bucket — stores `ass deploy` bundles. Lifecycle should
+# expire non-`ready` bundles after a grace period (handled by infra). Falls
+# back to the general bucket in dev / self-hosted.
+AGENT_BUNDLES_S3_BUCKET = os.getenv("AGENT_BUNDLES_S3_BUCKET") or OBJECT_STORAGE_BUCKET

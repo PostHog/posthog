@@ -30,9 +30,9 @@ use personhog_proto::personhog::types::v1::{
     InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
     ListCohortMemberIdsResponse, ListGroupsRequest, ListGroupsResponse,
     PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse, PersonsResponse,
-    UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
-    UpdateGroupTypeMappingResponse, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
-    UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
+    SplitPersonRequest, SplitPersonResponse, UpdateGroupRequest, UpdateGroupResponse,
+    UpdateGroupTypeMappingRequest, UpdateGroupTypeMappingResponse, UpdatePersonPropertiesRequest,
+    UpdatePersonPropertiesResponse, UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
 use tonic::metadata::MetadataMap;
 use tonic::Status;
@@ -609,6 +609,18 @@ impl PersonHogRouter {
             delete_persons_batch_for_team,
             request
         )
+    }
+
+    /// Split distinct_ids off a person onto new persons.
+    ///
+    /// WARNING: Same routing caveat as delete_persons above — write operation on
+    /// person data routed through replica (primary pool) until leader supports
+    /// transactional writes.
+    pub async fn split_person(
+        &self,
+        request: SplitPersonRequest,
+    ) -> Result<SplitPersonResponse, Status> {
+        call_backend!(self, "SplitPerson", split_person, request)
     }
 
     // ============================================================

@@ -214,7 +214,13 @@ def to_config(
                 # be set
                 assert field_type_meta
 
-                if field_nested_key in d:
+                if field_nested_key in d and isinstance(d[field_nested_key], dict):
+                    # Only recurse into a nested config when the value is actually a
+                    # mapping. A scalar under this key (e.g. a select field submitted
+                    # flat as `auth_method: "oauth"` instead of nested) is not a nested
+                    # config — fall through to the flat-structure path below. This mirrors
+                    # the guard in `validate_config`; without it `validate_config` accepts
+                    # the payload while `to_config` raises an unhandled `TypeError`.
                     try:
                         value = to_config(config_type, d[field_nested_key], prefixes)
                     except TypeError:
@@ -575,11 +581,14 @@ def str_to_int(s: str | int) -> int:
         return int(s)
 
 
-def str_to_optional_int(s: str | int | None) -> int | None:
+def str_to_optional_int(s: str | int | float | None) -> int | None:
     """A converter to return a str to optional int."""
-    if isinstance(s, int):
-        return s
-    elif s is None or s.strip() == "":
+    if s is None:
+        return None
+    elif isinstance(s, int | float):
+        # Covers ints, bools, and floats (e.g. numeric JSON values from the frontend).
+        return int(s)
+    elif s.strip() == "":
         return None
     else:
         return int(s)

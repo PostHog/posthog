@@ -72,6 +72,7 @@ class TestPostHogCodeEventHandler(TestCase):
             ("app_mention_proxy_failed", "app_mention", "proxy_failed", 502, True),
             ("app_mention_no_integration", "app_mention", "no_integration", 202, True),
             ("member_joined_channel_routes", "member_joined_channel", "handled_locally", 202, True),
+            ("message_dm_routes", "message", "handled_locally", 202, True),
             ("non_handled_event_type_skips_routing", "reaction_added", "handled_locally", 202, False),
         ]
     )
@@ -104,7 +105,7 @@ class TestPostHogCodeEventHandler(TestCase):
 
 class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
     def setUp(self):
-        from products.slack_app.backend.api import POSTHOG_CODE_REQUIRED_SLACK_SCOPES
+        from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 
         cache.clear()
         self.factory = RequestFactory()
@@ -119,7 +120,7 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
             team=self.team,
             kind="slack",
             integration_id="T12345",
-            config={"scope": ",".join(sorted(POSTHOG_CODE_REQUIRED_SLACK_SCOPES))},
+            config={"scope": ",".join(sorted(REQUIRED_SLACK_SCOPES))},
             sensitive_config={"access_token": "xoxb-posthog-code-test"},
         )
         # Seed the Slack-user → email cache so routing can resolve U123 → self.user
@@ -486,7 +487,9 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
     def test_command_text_routes_to_command_workflow(self, mock_sync_connect, mock_asyncio_run):
         # Command text in a mention must dispatch the command workflow, never the agent
         # mention workflow — even when a single coding-agent integration exists.
-        from posthog.temporal.ai.posthog_code_slack_mention_command import PostHogCodeSlackMentionCommandWorkflow
+        from posthog.temporal.ai.slack_app.posthog_code_slack_mention_command import (
+            PostHogCodeSlackMentionCommandWorkflow,
+        )
 
         from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
 
@@ -545,7 +548,9 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         # the webhook hands it to the command workflow. The command workflow
         # itself drives the interactive repo picker (its own signal handlers and
         # wait_condition); the agent mention workflow is never involved.
-        from posthog.temporal.ai.posthog_code_slack_mention_command import PostHogCodeSlackMentionCommandWorkflow
+        from posthog.temporal.ai.slack_app.posthog_code_slack_mention_command import (
+            PostHogCodeSlackMentionCommandWorkflow,
+        )
 
         from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
 
@@ -913,7 +918,7 @@ class TestChannelApprovalGate(TestCase):
     def setUp(self):
         from django.utils import timezone
 
-        from products.slack_app.backend.api import POSTHOG_CODE_REQUIRED_SLACK_SCOPES
+        from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 
         cache.clear()
         self.factory = RequestFactory()
@@ -928,7 +933,7 @@ class TestChannelApprovalGate(TestCase):
             team=self.team,
             kind="slack",
             integration_id="T12345",
-            config={"scope": ",".join(sorted(POSTHOG_CODE_REQUIRED_SLACK_SCOPES))},
+            config={"scope": ",".join(sorted(REQUIRED_SLACK_SCOPES))},
             sensitive_config={"access_token": "xoxb-posthog-code-test"},
         )
         # Routing now resolves the Slack user to a PostHog user before any
@@ -1064,3 +1069,187 @@ class TestChannelApprovalGate(TestCase):
 
         mock_route.assert_called_once()
         assert mock_route.call_args.kwargs["is_ext_shared_channel"] is True
+
+
+class TestAssistantEvents(TestCase):
+    def setUp(self):
+        from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
+
+        cache.clear()
+        self.factory = RequestFactory()
+        self.organization = Organization.objects.create(name="Assistant Org")
+        self.team = Team.objects.create(organization=self.organization, name="Assistant Team")
+        self.user = User.objects.create(email="dev@example.com", distinct_id="assistant-user-1")
+        self.integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T12345",
+            config={"scope": ",".join(sorted(REQUIRED_SLACK_SCOPES))},
+            sensitive_config={"access_token": "xoxb-test"},
+        )
+
+    def _route(self, event: dict):
+        from products.slack_app.backend.api import route_posthog_code_event_to_relevant_region
+
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
+        with override_settings(DEBUG=False):
+            return route_posthog_code_event_to_relevant_region(request, event, "T12345")
+
+    def _patch_resolution(self, *, user, enabled=True):
+        from products.slack_app.backend.services.integration_resolver import (
+            ResolutionResult,
+            UserAndIntegrationsResolution,
+        )
+
+        load = patch(
+            "products.slack_app.backend.api.load_integrations",
+            return_value=ResolutionResult(
+                integration=self.integration, source="sole_candidate", candidates=[self.integration]
+            ),
+        )
+        resolution = (
+            UserAndIntegrationsResolution(
+                user=user, integration=self.integration, candidates=[self.integration], source="sole_candidate"
+            )
+            if user is not None
+            else UserAndIntegrationsResolution(failure_reason="user_not_found")
+        )
+        resolve = patch("products.slack_app.backend.api.resolve_user_for_workspace", return_value=resolution)
+        enabled_p = patch("products.slack_app.backend.api._assistant_enabled", return_value=enabled)
+        usp = patch("products.slack_app.backend.api._us_should_handle_instead", return_value=False)
+        slack = patch("products.slack_app.backend.api.SlackIntegration")
+        return load, resolve, enabled_p, usp, slack
+
+    def test_assistant_thread_started_sets_prompts_for_member(self):
+        load, resolve, enabled_p, usp, slack = self._patch_resolution(user=self.user)
+        with load, resolve, enabled_p, usp, slack as slack_cls:
+            slack_cls.return_value.missing_scopes.return_value = set()
+            self._route(
+                {
+                    "type": "assistant_thread_started",
+                    "assistant_thread": {"user_id": "U123", "channel_id": "D001", "thread_ts": "111.222"},
+                }
+            )
+            slack_cls.return_value.client.assistant_threads_setSuggestedPrompts.assert_called_once()
+
+    def test_assistant_thread_started_noop_for_non_member(self):
+        load, resolve, enabled_p, usp, slack = self._patch_resolution(user=None)
+        with load, resolve, enabled_p, usp, slack as slack_cls:
+            self._route(
+                {
+                    "type": "assistant_thread_started",
+                    "assistant_thread": {"user_id": "U123", "channel_id": "D001", "thread_ts": "111.222"},
+                }
+            )
+            slack_cls.return_value.client.assistant_threads_setSuggestedPrompts.assert_not_called()
+
+    def test_context_changed_caches_viewed_channel(self):
+        from products.slack_app.backend.api import _get_assistant_channel_context
+
+        load, resolve, enabled_p, usp, slack = self._patch_resolution(user=self.user)
+        with load, resolve, enabled_p, usp, slack:
+            self._route(
+                {
+                    "type": "assistant_thread_context_changed",
+                    "assistant_thread": {
+                        "user_id": "U123",
+                        "channel_id": "D001",
+                        "thread_ts": "111.222",
+                        "context": {"channel_id": "C999"},
+                    },
+                }
+            )
+        assert _get_assistant_channel_context(self.integration.id, "D001", "111.222") == "C999"
+
+    def test_dm_message_starts_agent(self):
+        load, resolve, enabled_p, usp, slack = self._patch_resolution(user=self.user)
+        start = patch("products.slack_app.backend.api._start_mention_workflow", return_value="handled_locally")
+        with load, resolve, enabled_p, usp, slack as slack_cls, start as mock_start:
+            slack_cls.return_value.missing_scopes.return_value = set()
+            self._route(
+                {
+                    "type": "message",
+                    "channel_type": "im",
+                    "channel": "D001",
+                    "user": "U123",
+                    "text": "fix the funnel bug",
+                    "ts": "111.222",
+                }
+            )
+            slack_cls.return_value.client.assistant_threads_setStatus.assert_called_once()
+            mock_start.assert_called_once()
+
+    def test_dm_message_ignores_bot_and_non_im(self):
+        start = patch("products.slack_app.backend.api._start_mention_workflow", return_value="handled_locally")
+        with start as mock_start:
+            self._route(
+                {"type": "message", "channel_type": "im", "bot_id": "B1", "channel": "D001", "text": "hi", "ts": "1"}
+            )
+            self._route(
+                {"type": "message", "channel_type": "channel", "channel": "C1", "user": "U1", "text": "hi", "ts": "1"}
+            )
+            mock_start.assert_not_called()
+
+    def test_dm_message_flag_off_is_dark(self):
+        # Kill-switch: flag off -> no user resolution, no agent start, and no reply at all.
+        load, resolve, enabled_p, usp, slack = self._patch_resolution(user=self.user, enabled=False)
+        start = patch("products.slack_app.backend.api._start_mention_workflow", return_value="handled_locally")
+        with load, resolve as mock_resolve, enabled_p, usp, slack as slack_cls, start as mock_start:
+            self._route(
+                {
+                    "type": "message",
+                    "channel_type": "im",
+                    "channel": "D001",
+                    "user": "U123",
+                    "text": "fix it",
+                    "ts": "1.2",
+                }
+            )
+            mock_resolve.assert_not_called()
+            mock_start.assert_not_called()
+            slack_cls.return_value.client.chat_postMessage.assert_not_called()
+
+
+class TestAssistantInstallWelcome(TestCase):
+    def setUp(self):
+        self.organization = Organization.objects.create(name="Install Org")
+        self.team = Team.objects.create(organization=self.organization, name="Install Team")
+        self.integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T_INSTALL",
+            config={"authed_user": {"id": "U_INSTALLER"}},
+            sensitive_config={"access_token": "xoxb-test"},
+        )
+
+    def _run(self, *, enabled: bool):
+        from products.slack_app.backend.api import _ASSISTANT_INSTALL_WELCOME, send_assistant_install_welcome
+
+        enabled_p = patch("products.slack_app.backend.api._assistant_enabled", return_value=enabled)
+        slack = patch("products.slack_app.backend.api.SlackIntegration")
+        with enabled_p, slack as slack_cls:
+            send_assistant_install_welcome(self.integration)
+        return slack_cls, _ASSISTANT_INSTALL_WELCOME
+
+    def test_dms_installer_when_enabled(self):
+        slack_cls, welcome = self._run(enabled=True)
+        slack_cls.return_value.client.chat_postMessage.assert_called_once_with(channel="U_INSTALLER", text=welcome)
+
+    def test_silent_when_flag_off(self):
+        slack_cls, _ = self._run(enabled=False)
+        slack_cls.return_value.client.chat_postMessage.assert_not_called()
+
+    def test_no_post_without_authed_user(self):
+        self.integration.config = {}
+        self.integration.save()
+        slack_cls, _ = self._run(enabled=True)
+        slack_cls.return_value.client.chat_postMessage.assert_not_called()
+
+    def test_slack_error_is_swallowed(self):
+        from products.slack_app.backend.api import send_assistant_install_welcome
+
+        enabled_p = patch("products.slack_app.backend.api._assistant_enabled", return_value=True)
+        slack = patch("products.slack_app.backend.api.SlackIntegration")
+        with enabled_p, slack as slack_cls:
+            slack_cls.return_value.client.chat_postMessage.side_effect = Exception("slack down")
+            send_assistant_install_welcome(self.integration)  # must not raise

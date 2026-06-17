@@ -13,6 +13,7 @@ import {
     SignalsScoutEmitSignalBody,
     SignalsScoutEmitSignalParams,
     SignalsScoutProjectProfileGetQueryParams,
+    SignalsScoutRunsEmissionReportsParams,
     SignalsScoutRunsEmissionsParams,
     SignalsScoutRunsListQueryParams,
     SignalsScoutRunsRetrieveParams,
@@ -44,6 +45,7 @@ const inboxReportsList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/`,
             query: {
+                has_implementation_pr: params.has_implementation_pr,
                 limit: params.limit,
                 offset: params.offset,
                 ordering: params.ordering,
@@ -65,6 +67,8 @@ const inboxReportsList = (): ToolBase<
                     'priority',
                     'actionability',
                     'already_addressed',
+                    'dismissal_reason',
+                    'dismissal_note',
                     'signal_count',
                     'total_weight',
                     'source_products',
@@ -431,6 +435,24 @@ const signalsScoutProjectProfileGet = (): ToolBase<
     },
 })
 
+const SignalsScoutRunsEmissionReportsSchema = SignalsScoutRunsEmissionReportsParams.omit({ project_id: true })
+
+const signalsScoutRunsEmissionReports = (): ToolBase<
+    typeof SignalsScoutRunsEmissionReportsSchema,
+    WithPostHogUrl<Schemas.ScoutEmissionReportLink[]>
+> => ({
+    name: 'signals-scout-runs-emission-reports',
+    schema: SignalsScoutRunsEmissionReportsSchema,
+    handler: async (context: Context, params: z.infer<typeof SignalsScoutRunsEmissionReportsSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ScoutEmissionReportLink[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/emissions/reports/`,
+        })
+        return await withPostHogUrl(context, result, '/inbox')
+    },
+})
+
 const SignalsScoutRunsEmissionsListSchema = SignalsScoutRunsEmissionsParams.omit({ project_id: true })
 
 const signalsScoutRunsEmissionsList = (): ToolBase<
@@ -581,6 +603,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'signals-scout-config-update': signalsScoutConfigUpdate,
     'signals-scout-emit-signal': signalsScoutEmitSignal,
     'signals-scout-project-profile-get': signalsScoutProjectProfileGet,
+    'signals-scout-runs-emission-reports': signalsScoutRunsEmissionReports,
     'signals-scout-runs-emissions-list': signalsScoutRunsEmissionsList,
     'signals-scout-runs-list': signalsScoutRunsList,
     'signals-scout-runs-retrieve': signalsScoutRunsRetrieve,

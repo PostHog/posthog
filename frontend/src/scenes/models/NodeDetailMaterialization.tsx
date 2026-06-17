@@ -4,7 +4,7 @@ import { LemonButton, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjsUtcToTimezone } from 'lib/dayjs'
-import { humanFriendlyDuration } from 'lib/utils'
+import { humanFriendlyDuration } from 'lib/utils/durations'
 import { LogsViewer } from 'scenes/hog-functions/logs/LogsViewer'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'

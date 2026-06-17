@@ -1983,10 +1983,10 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
         response = self.client.get(f"/api/environments/{self.team.id}/subscriptions/{self.subscription.id}/deliveries/")
         assert response.status_code == status.HTTP_200_OK
 
-    def test_deliveries_not_available_on_legacy_project_path(self):
+    def test_deliveries_available_on_project_path(self):
         self._create_delivery(idempotency_key="legacy-test")
         response = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{self.subscription.id}/deliveries/")
-        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert response.status_code == status.HTTP_200_OK
 
     def test_retrieve_delivery_not_found_when_row_belongs_to_different_subscription(self):
         other = Subscription.objects.create(

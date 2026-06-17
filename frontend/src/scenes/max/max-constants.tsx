@@ -18,10 +18,10 @@ import {
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconQuestionAnswer, IconRobot } from 'lib/lemon-ui/icons'
+import { isObject } from 'lib/utils/guards'
 import { Scene } from 'scenes/sceneTypes'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
-import { isObject } from '~/lib/utils'
 import {
     AgentMode,
     AssistantTool,
@@ -776,6 +776,18 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
                 return 'Drafted scanner prompt'
             }
             return 'Drafting scanner prompt...'
+        },
+    },
+    search_replay_vision_observations: {
+        name: 'Search observations',
+        description: "Search observations by the meaning of a Replay Vision scanner's model reasoning",
+        icon: iconForType('session_replay'),
+        modes: [AgentMode.SessionReplay],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Searched observations'
+            }
+            return 'Searching observations...'
         },
     },
     create_survey: {

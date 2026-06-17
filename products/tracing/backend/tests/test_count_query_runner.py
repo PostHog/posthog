@@ -105,8 +105,15 @@ class TestTraceSpansCount(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            # Seed: every span is status_code=0 (Unset), kind=2 (Server). A status_code/kind
-            # filter must RESTRICT the count, never silently match every row.
+            # Seed: 3 traces × (1 root + 2 children); every span is status_code=0 (Unset)
+            # and kind=2 (Server). A span-field filter must RESTRICT the count, never
+            # silently match every row — across the value forms agents actually send.
+            ("is_root_span_bool_true_matches_roots", "is_root_span", True, NUM_TRACES),
+            ("is_root_span_bool_false_matches_children", "is_root_span", False, NUM_TRACES * 2),
+            ("is_root_span_string_true_matches_roots", "is_root_span", "true", NUM_TRACES),
+            ("is_root_span_string_false_matches_children", "is_root_span", "false", NUM_TRACES * 2),
+            ("is_root_span_int_one_matches_roots", "is_root_span", 1, NUM_TRACES),
+            ("is_root_span_int_zero_matches_children", "is_root_span", 0, NUM_TRACES * 2),
             ("status_code_int_2_matches_no_errors", "status_code", 2, 0),
             ("status_code_str_2_matches_no_errors", "status_code", "2", 0),
             ("status_code_int_0_matches_all_unset", "status_code", 0, NUM_TRACES * 3),
@@ -114,7 +121,7 @@ class TestTraceSpansCount(ClickhouseTestMixin, APIBaseTest):
             ("kind_int_2_matches_all_servers", "kind", 2, NUM_TRACES * 3),
         ]
     )
-    def test_count_status_code_and_kind_filters_restrict(self, _name, key, value, expected_count):
+    def test_count_span_field_filters_restrict(self, _name, key, value, expected_count):
         body = {
             "query": {
                 "dateRange": {"date_from": DATE_FROM, "date_to": DATE_TO},

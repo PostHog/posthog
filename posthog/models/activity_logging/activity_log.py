@@ -69,6 +69,7 @@ ActivityScope = Literal[
     "Subscription",
     "PersonalAPIKey",
     "ProjectSecretAPIKey",
+    "OAuthApplication",
     "User",
     "Action",
     "AlertConfiguration",
@@ -431,6 +432,9 @@ field_exclusions: dict[AuditableScope, list[str]] = {
     ],
     "ProjectSecretAPIKey": [
         "secure_value",
+        # Gateway is team-scoped; resolving it for a diff would hit the fail-closed
+        # manager. Binding changes are audited by the gateway management API instead.
+        "gateway",
     ],
     "Person": [
         "distinct_ids",
@@ -644,6 +648,25 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "last_run_at",
         # Reverse relations auto-managed by FK creates, not user-initiated config changes.
         "runs",
+    ],
+    "OAuthApplication": [
+        # Secrets — never diff these, even masked.
+        "client_secret",
+        "hash_client_secret",
+        "provisioning_signing_secret",
+        # Reverse token relations can hold tens of thousands of rows; reading
+        # through them in `changes_between` would scan the token tables.
+        "oauthaccesstoken",
+        "oauthidtoken",
+        "oauthrefreshtoken",
+        "oauthgrant",
+        # Bookkeeping timestamps and FKs, not scope-ceiling intent.
+        "created",
+        "updated",
+        "cimd_metadata_last_fetched",
+        "dcr_client_id_issued_at",
+        "organization",
+        "user",
     ],
 }
 

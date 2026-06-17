@@ -10,7 +10,8 @@ import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanF
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { capitalizeFirstLetter, hexToRGBA, midEllipsis } from 'lib/utils'
+import { hexToRGBA } from 'lib/utils/colors'
+import { capitalizeFirstLetter, midEllipsis } from 'lib/utils/strings'
 import { formatEventName } from 'scenes/insights/utils'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 
