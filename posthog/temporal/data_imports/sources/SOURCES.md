@@ -624,6 +624,8 @@ doesn't conflict with concurrent PRs.
 - stigg
 - stockdata
 - strava
+- streamelements
+- streamlabs
 - surveymonkey
 - surveysparrow
 - survicate

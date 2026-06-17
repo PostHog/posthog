@@ -37,6 +37,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from posthog.api import id_jag
 from posthog.api.oauth.cimd import (
     CIMD_THROTTLE_CLASSES,
     CIMDFetchError,
@@ -1139,7 +1140,9 @@ class OAuthTokenView(TokenView):
     OAuth2 Token endpoint.
 
     This implements a POST request with the following parameters:
-    - grant_type: The type of grant to use - only "authorization_code" is supported.
+    - grant_type: The type of grant to use. "authorization_code" and "refresh_token" are
+      supported by the OAuth 2.0 flow; the ID-JAG (XAA) JWT Bearer grant
+      ("urn:ietf:params:oauth:grant-type:jwt-bearer", RFC 7523) is also served here.
     - code: The authorization code received from the /authorize request.
     - redirect_uri: The redirect URI to use - this is the same as the redirect_uri used in the authorization request.
     - code_verifier: The code verifier that was used to generate the code_challenge. The code_challenge is a sha256 hash
@@ -1147,6 +1150,42 @@ class OAuthTokenView(TokenView):
 
     RFC 6749 requires x-www-form-urlencoded, but this endpoint also accepts application/json for convenience.
     """
+
+    def _handle_jwt_bearer_grant(self, request) -> JsonResponse:
+        """ID-JAG (XAA) JWT Bearer grant (RFC 7523). The XAA spec puts the
+        ID-JAG → access-token exchange at the Authorization Server's
+        token_endpoint, so it is served from this shared endpoint rather than a
+        dedicated one. Verification and minting are delegated to
+        `posthog.api.id_jag.issue_access_token`."""
+        assertion = request.POST.get("assertion")
+        if not assertion or not isinstance(assertion, str):
+            return JsonResponse(
+                {"error": "invalid_request", "error_description": "assertion is required"},
+                status=400,
+            )
+
+        requested_scope = request.POST.get("scope")
+        request_client_id = request.POST.get("client_id")
+
+        try:
+            token, granted, expires_in_seconds = id_jag.issue_access_token(
+                assertion, requested_scope, request_client_id
+            )
+        except id_jag.IdJagError as e:
+            logger.info("id_jag_token_rejected", error=e.error_code, description=e.description)
+            return JsonResponse(
+                {"error": e.error_code, "error_description": e.description},
+                status=e.http_status,
+            )
+
+        return JsonResponse(
+            {
+                "access_token": token,
+                "token_type": "Bearer",
+                "expires_in": expires_in_seconds,
+                "scope": " ".join(granted),
+            }
+        )
 
     def post(self, request, *args, **kwargs):
         if request.content_type == "application/json" and request.body:
@@ -1162,6 +1201,10 @@ class OAuthTokenView(TokenView):
                 )
 
         grant_type = request.POST.get("grant_type", "unknown")
+
+        if grant_type == id_jag.JWT_BEARER_GRANT_TYPE:
+            return self._handle_jwt_bearer_grant(request)
+
         client_id = request.POST.get("client_id", "")
         client_id_prefix = client_id[:8] if client_id else "unknown"
         redirect_uri = request.POST.get("redirect_uri", "")
@@ -1474,7 +1517,11 @@ class OAuthAuthorizationServerMetadataView(APIView):
             "scopes_supported": all_scopes,
             "response_types_supported": ["code"],
             "response_modes_supported": ["query"],
-            "grant_types_supported": ["authorization_code", "refresh_token"],
+            "grant_types_supported": [
+                "authorization_code",
+                "refresh_token",
+                id_jag.JWT_BEARER_GRANT_TYPE,
+            ],
             "token_endpoint_auth_methods_supported": ["none", "client_secret_post"],
             "code_challenge_methods_supported": ["S256"],
             # Service documentation

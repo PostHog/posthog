@@ -6,7 +6,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1224_columnconfiguration_properties"),
+        ("posthog", "1225_team_llm_gateway_overspend_allowance_usd"),
     ]
 
     operations = [

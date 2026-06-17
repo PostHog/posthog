@@ -30,6 +30,7 @@ class SignalSourceConfig(UUIDModel):
         LOGS = "logs", "Logs"
         HEALTH_CHECKS = "health_checks", "Health checks"
         ENDPOINTS = "endpoints", "Endpoints"
+        REPLAY_VISION = "replay_vision", "Replay Vision"
 
     class SourceType(models.TextChoices):
         SESSION_ANALYSIS_CLUSTER = "session_analysis_cluster", "Session analysis cluster"
@@ -44,6 +45,7 @@ class SignalSourceConfig(UUIDModel):
         HEALTH_ISSUE = "health_issue", "Health issue"
         ENDPOINT_EXECUTION_FAILED = "endpoint_execution_failed", "Endpoint execution failed"
         ENDPOINT_BREAKDOWN_LIMIT_EXCEEDED = "endpoint_breakdown_limit_exceeded", "Endpoint breakdown limit exceeded"
+        SCANNER_FINDING = "scanner_finding", "Scanner finding"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="signal_source_configs")
     source_product = models.CharField(max_length=100, choices=SourceProduct)
@@ -62,6 +64,11 @@ class SignalSourceConfig(UUIDModel):
         For everything else, the team must have a SignalSourceConfig row with enabled=True.
         """
         if source_product == cls.SourceProduct.LLM_ANALYTICS:
+            return True
+
+        # Replay Vision scanners are self-authorizing: the scanner's `emits_signals` flag is the
+        # per-source config, so there's no separate SignalSourceConfig row to gate against.
+        if source_product == cls.SourceProduct.REPLAY_VISION and source_type == cls.SourceType.SCANNER_FINDING:
             return True
 
         # Session problem signals are emitted as part of session analysis,

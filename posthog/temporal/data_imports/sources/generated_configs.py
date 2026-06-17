@@ -1914,8 +1914,8 @@ class MySQLSourceConfig(config.Config):
     database: str
     user: str
     password: str
-    schema: str
     port: int = config.value(converter=int)
+    schema: str | None = None
     using_ssl: bool = config.value(default=config.str_to_bool("true"), converter=config.str_to_bool)
     ssh_tunnel: SSHTunnelConfig | None = None
 
@@ -2894,6 +2894,16 @@ class StockDataSourceConfig(config.Config):
 
 @config.config
 class StravaSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class StreamElementsSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class StreamlabsSourceConfig(config.Config):
     pass
 
 
@@ -3944,6 +3954,8 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.STIGG: StiggSourceConfig,
         ExternalDataSourceType.STOCKDATA: StockDataSourceConfig,
         ExternalDataSourceType.STRAVA: StravaSourceConfig,
+        ExternalDataSourceType.STREAMELEMENTS: StreamElementsSourceConfig,
+        ExternalDataSourceType.STREAMLABS: StreamlabsSourceConfig,
         ExternalDataSourceType.STRIPE: StripeSourceConfig,
         ExternalDataSourceType.SUPABASE: SupabaseSourceConfig,
         ExternalDataSourceType.SURVEYMONKEY: SurveyMonkeySourceConfig,
