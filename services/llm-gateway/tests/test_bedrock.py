@@ -398,6 +398,7 @@ class TestBedrockCountTokensViaProvider:
         call_args = mock_count_tokens.call_args
         assert call_args[0][1] == expected_model_id  # second positional arg is model
 
+    @patch.dict("os.environ", {"AWS_REGION": "", "AWS_DEFAULT_REGION": ""}, clear=False)
     @patch("llm_gateway.api.anthropic.get_settings")
     def test_requires_bedrock_region(
         self,

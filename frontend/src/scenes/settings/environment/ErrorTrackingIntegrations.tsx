@@ -1,11 +1,15 @@
+import {
+    GitLabIntegration,
+    GithubIntegration,
+    JiraIntegration,
+    LinearIntegration,
+} from 'scenes/integrations/components/Integrations'
 import { urls } from 'scenes/urls'
 
 import IconGitHub from 'public/services/github.png'
 import IconGitLab from 'public/services/gitlab.png'
 import IconJira from 'public/services/jira.svg'
 import IconLinear from 'public/services/linear.png'
-
-import { GitLabIntegration, GithubIntegration, JiraIntegration, LinearIntegration } from './Integrations'
 
 const NEXT_URL = urls.settings('environment-error-tracking', 'error-tracking-integrations')
 

@@ -10,7 +10,7 @@ import {
     CyclotronV2WorkerConfig,
 } from './types'
 
-interface RawJobRow {
+export interface RawJobRow {
     id: string
     team_id: number
     function_id: string | null
@@ -27,20 +27,20 @@ interface RawJobRow {
     lock_id: string
 }
 
-function sleep(ms: number): Promise<void> {
+export function sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 export class CyclotronV2Worker {
     private pool: Pool
-    private isConsuming = false
-    private lastPollTime = new Date()
+    protected isConsuming = false
+    protected lastPollTime = new Date()
     private consumerLoopPromise: Promise<void> | null = null
 
-    private readonly batchMaxSize: number
-    private readonly pollDelayMs: number
+    protected readonly batchMaxSize: number
+    protected readonly pollDelayMs: number
     private readonly heartbeatTimeoutMs: number
-    private readonly includeEmptyBatches: boolean
+    protected readonly includeEmptyBatches: boolean
 
     constructor(private config: CyclotronV2WorkerConfig) {
         this.pool = new Pool({
@@ -62,7 +62,7 @@ export class CyclotronV2Worker {
         this.consumerLoopPromise = this.runConsumerLoop(processBatch)
     }
 
-    private async runConsumerLoop(processBatch: (jobs: CyclotronV2DequeuedJob[]) => Promise<void>): Promise<void> {
+    protected async runConsumerLoop(processBatch: (jobs: CyclotronV2DequeuedJob[]) => Promise<void>): Promise<void> {
         while (this.isConsuming) {
             try {
                 this.lastPollTime = new Date()
@@ -85,7 +85,29 @@ export class CyclotronV2Worker {
         }
     }
 
-    private async dequeueJobs(): Promise<RawJobRow[]> {
+    /**
+     * Cheap pre-check that returns true iff any job is currently dequeueable
+     * from this worker's queue. Used by rate-limited subclasses to skip the
+     * token-bucket claim entirely on idle polls, so the limiter stays silent
+     * when there's nothing to send.
+     *
+     * Hits the same partial index as `dequeueJobs` (`idx_cyclotron_jobs_dequeue`,
+     * filtered on `status = 'available'`), so the query is sub-millisecond and
+     * strictly cheaper than the `UPDATE ... SKIP LOCKED` we'd otherwise run.
+     */
+    protected async hasWork(): Promise<boolean> {
+        const result = await this.pool.query(
+            `SELECT 1 FROM cyclotron_jobs
+             WHERE status = 'available'
+               AND queue_name = $1
+               AND scheduled <= NOW()
+             LIMIT 1`,
+            [this.config.queueName]
+        )
+        return result.rowCount !== null && result.rowCount > 0
+    }
+
+    protected async dequeueJobs(limit: number = this.batchMaxSize): Promise<RawJobRow[]> {
         const lockId = uuidv7()
         const result = await this.pool.query<RawJobRow>(
             `WITH available AS (
@@ -121,7 +143,7 @@ export class CyclotronV2Worker {
                 cyclotron_jobs.person_id,
                 cyclotron_jobs.action_id,
                 cyclotron_jobs.lock_id`,
-            [this.config.queueName, this.batchMaxSize, lockId]
+            [this.config.queueName, limit, lockId]
         )
         // UPDATE...RETURNING doesn't preserve the CTE's ORDER BY,
         // so re-sort to maintain priority ordering within the batch
@@ -131,7 +153,7 @@ export class CyclotronV2Worker {
         )
     }
 
-    private wrapJob(row: RawJobRow): CyclotronV2DequeuedJob {
+    protected wrapJob(row: RawJobRow): CyclotronV2DequeuedJob {
         const pool = this.pool
         const lockId = row.lock_id
         let released = false

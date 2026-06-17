@@ -296,8 +296,6 @@ def _copy_data_imports_via_duckgres(inputs: DuckLakeCopyDataImportsActivityInput
     stage_delta_table(
         source_uri=inputs.model.source_table_uri,
         catalog_bucket=catalog.bucket,
-        role_arn=catalog.cross_account_role_arn,
-        external_id=catalog.cross_account_external_id,
         organization_id=org_id,
     )
 
@@ -334,8 +332,6 @@ def cleanup_data_imports_staging_activity(inputs: DuckLakeDataImportsStagingClea
         return
     cleanup_staged_files(
         staging_uri=inputs.staging_uri,
-        role_arn=catalog.cross_account_role_arn,
-        external_id=catalog.cross_account_external_id,
     )
 
 

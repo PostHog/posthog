@@ -25,6 +25,8 @@ from posthog.slo.types import SloOperation, SloOutcome
 
 from products.dashboards.backend.api import widget_openapi_serializers as widget_openapi_serializers_module
 from products.dashboards.backend.constants import (
+    ACTIVITY_EVENTS_DEFAULT_LIMIT,
+    ACTIVITY_EVENTS_MAX_LIMIT,
     DEFAULT_WIDGET_LIST_LIMIT,
     MAX_WIDGET_RESULT_LIMIT,
     MAX_WIDGETS_BATCH_SIZE,
@@ -32,12 +34,17 @@ from products.dashboards.backend.constants import (
 from products.dashboards.backend.widget_catalog import WIDGET_CATALOG
 from products.dashboards.backend.widget_registry import EXPECTED_WIDGET_TYPES, WIDGET_REGISTRY, validate_widget_config
 from products.dashboards.backend.widget_specs.configs import (
+    ACTIVITY_EVENTS_LIST_WIDGET_TYPE,
     ERROR_TRACKING_LIST_WIDGET_TYPE,
     SESSION_REPLAY_LIST_WIDGET_TYPE,
     ErrorTrackingListWidgetConfig,
     SessionReplayOrderBy,
 )
 from products.dashboards.backend.widget_specs.pydantic_openapi import pydantic_model_to_openapi_components
+from products.dashboards.backend.widgets.activity_events_list import (
+    ACTIVITY_EVENTS_WIDGET_SELECT,
+    run_activity_events_list_widget,
+)
 from products.dashboards.backend.widgets.error_tracking_list import run_error_tracking_list_widget
 from products.dashboards.backend.widgets.session_replay_list import run_session_replay_list_widget
 from products.error_tracking.backend.api.query_utils import ERROR_TRACKING_LISTING_VOLUME_RESOLUTION
@@ -82,8 +89,23 @@ class TestWidgetRegistry(APIBaseTest):
         assert validated["orderBy"] == default_order_by
         assert "filterTestAccounts" not in validated
 
+    def test_validate_activity_events_list_config_defaults(self) -> None:
+        validated = validate_widget_config(ACTIVITY_EVENTS_LIST_WIDGET_TYPE, {})
+        assert validated["limit"] == ACTIVITY_EVENTS_DEFAULT_LIMIT
+        assert "orderBy" not in validated
+        assert "filterTestAccounts" not in validated
+
+    def test_validate_activity_events_list_config_accepts_limit_up_to_max(self) -> None:
+        validated = validate_widget_config(ACTIVITY_EVENTS_LIST_WIDGET_TYPE, {"limit": ACTIVITY_EVENTS_MAX_LIMIT})
+        assert validated["limit"] == ACTIVITY_EVENTS_MAX_LIMIT
+
+    def test_validate_activity_events_list_config_rejects_limit_above_max(self) -> None:
+        with self.assertRaises(Exception):
+            validate_widget_config(ACTIVITY_EVENTS_LIST_WIDGET_TYPE, {"limit": ACTIVITY_EVENTS_MAX_LIMIT + 1})
+
     @parameterized.expand(
         [
+            ("activity_events", ACTIVITY_EVENTS_LIST_WIDGET_TYPE),
             ("error_tracking", ERROR_TRACKING_LIST_WIDGET_TYPE),
             ("session_replay", SESSION_REPLAY_LIST_WIDGET_TYPE),
         ]
@@ -97,6 +119,7 @@ class TestWidgetRegistry(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("activity_events", ACTIVITY_EVENTS_LIST_WIDGET_TYPE),
             ("error_tracking", ERROR_TRACKING_LIST_WIDGET_TYPE),
             ("session_replay", SESSION_REPLAY_LIST_WIDGET_TYPE),
         ]
@@ -106,7 +129,8 @@ class TestWidgetRegistry(APIBaseTest):
             validate_widget_config(widget_type, {"limit": 100})
 
     @parameterized.expand(
-        [("error_tracking", ERROR_TRACKING_LIST_WIDGET_TYPE, date_from) for date_from in ["-1h", "-3h", "-24h"]]
+        [("activity_events", ACTIVITY_EVENTS_LIST_WIDGET_TYPE, date_from) for date_from in ["-1h", "-3h", "-24h"]]
+        + [("error_tracking", ERROR_TRACKING_LIST_WIDGET_TYPE, date_from) for date_from in ["-1h", "-3h", "-24h"]]
         + [("session_replay", SESSION_REPLAY_LIST_WIDGET_TYPE, date_from) for date_from in ["-1h", "-3h", "-24h"]]
     )
     def test_validate_list_config_accepts_short_date_ranges(
@@ -120,6 +144,7 @@ class TestWidgetRegistry(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("activity_events", ACTIVITY_EVENTS_LIST_WIDGET_TYPE),
             ("error_tracking", ERROR_TRACKING_LIST_WIDGET_TYPE),
             ("session_replay", SESSION_REPLAY_LIST_WIDGET_TYPE),
         ]
@@ -133,6 +158,7 @@ class TestWidgetRegistry(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("activity_events", ACTIVITY_EVENTS_LIST_WIDGET_TYPE),
             ("error_tracking", ERROR_TRACKING_LIST_WIDGET_TYPE),
             ("session_replay", SESSION_REPLAY_LIST_WIDGET_TYPE),
         ]
@@ -146,6 +172,7 @@ class TestWidgetRegistry(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("activity_events", ACTIVITY_EVENTS_LIST_WIDGET_TYPE, "$current_url"),
             ("error_tracking", ERROR_TRACKING_LIST_WIDGET_TYPE, "$environment"),
             ("session_replay", SESSION_REPLAY_LIST_WIDGET_TYPE, "$browser"),
         ]
@@ -270,6 +297,110 @@ class TestDashboardRunWidgets(APIBaseTest):
         self.assertEqual(body["results"][0]["result"]["limit"], 10)
         mock_list_recordings.assert_called_once()
         self.assertEqual(mock_list_recordings.call_args.kwargs["user"], self.user)
+
+    @patch("products.dashboards.backend.widgets.activity_events_list.EventsQueryRunner")
+    def test_runs_activity_events_widget_for_requested_tile(self, mock_runner_cls: MagicMock) -> None:
+        row = [
+            "0196e9ab-0000-0000-0000-000000000000",
+            "$pageview",
+            {"display_name": "Alex Chen", "id": "1", "distinct_id": "user-1"},
+            "https://app.example.test/dashboard",
+            "web",
+            "2026-05-26T08:00:00Z",
+        ]
+        mock_runner_cls.return_value.calculate.return_value = MagicMock(
+            model_dump=lambda mode="json": {"results": [row], "hasMore": False}
+        )
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(
+            dashboard_id, widget_type="activity_events_list", config={"limit": 10}
+        )
+        tile_id = dashboard_json["tiles"][0]["id"]
+
+        body = self._run(dashboard_id, [tile_id])
+
+        self.assertEqual(len(body["results"]), 1)
+        self.assertEqual(body["results"][0]["tile_id"], tile_id)
+        self.assertEqual(body["results"][0]["widget_type"], ACTIVITY_EVENTS_LIST_WIDGET_TYPE)
+        self.assertIsNone(body["results"][0]["error"])
+        result = body["results"][0]["result"]
+        self.assertEqual(result["limit"], 10)
+        self.assertEqual(
+            result["results"][0],
+            {
+                "uuid": row[0],
+                "event": "$pageview",
+                "person": {"display_name": "Alex Chen", "id": "1", "distinct_id": "user-1"},
+                "url": "https://app.example.test/dashboard",
+                "lib": "web",
+                "timestamp": "2026-05-26T08:00:00Z",
+            },
+        )
+        self.assertEqual(result["totalCount"], 1)
+        self.assertFalse(result["totalCountCapped"])
+        mock_runner_cls.assert_called_once()
+        self.assertEqual(mock_runner_cls.call_args.kwargs["user"], self.user)
+        query = mock_runner_cls.call_args.kwargs["query"]
+        self.assertEqual(query.select, ACTIVITY_EVENTS_WIDGET_SELECT)
+        self.assertEqual(query.orderBy, ["timestamp DESC"])
+        self.assertEqual(query.after, "-24h")
+        self.assertEqual(query.limit, 10)
+
+    @patch("products.dashboards.backend.widgets.activity_events_list.EventsQueryRunner")
+    def test_activity_events_widget_applies_date_range_and_widget_filters(self, mock_runner_cls: MagicMock) -> None:
+        mock_runner_cls.return_value.calculate.return_value = MagicMock(
+            model_dump=lambda mode="json": {"results": [], "hasMore": False}
+        )
+
+        run_activity_events_list_widget(
+            self.team,
+            {
+                "limit": 5,
+                "dateRange": {"date_from": "-7d"},
+                "widgetFilters": {
+                    "filter-1": {
+                        "filterId": "filter-1",
+                        "propertyName": "$current_url",
+                        "optionId": "opt-1",
+                        "operator": "icontains",
+                        "value": "/checkout",
+                    }
+                },
+            },
+            user=self.user,
+        )
+
+        query = mock_runner_cls.call_args.kwargs["query"]
+        self.assertEqual(query.after, "-7d")
+        assert query.properties is not None
+        self.assertEqual(len(query.properties), 1)
+        self.assertEqual(query.properties[0].key, "$current_url")
+        self.assertEqual(query.properties[0].value, ["/checkout"])
+
+    @patch("products.dashboards.backend.widgets.activity_events_list.EventsQueryRunner")
+    def test_activity_events_widget_returns_total_count_when_page_has_more(self, mock_runner_cls: MagicMock) -> None:
+        def make_row(index: int) -> list[Any]:
+            return [f"uuid-{index}", "$pageview", None, None, None, "2026-05-26T08:00:00Z"]
+
+        def calculate_side_effect() -> MagicMock:
+            query = mock_runner_cls.call_args.kwargs["query"]
+            if query.limit == 1:
+                return MagicMock(model_dump=lambda mode="json": {"results": [make_row(0)], "hasMore": True})
+            return MagicMock(
+                model_dump=lambda mode="json": {"results": [make_row(index) for index in range(3)], "hasMore": False}
+            )
+
+        mock_runner_cls.return_value.calculate.side_effect = calculate_side_effect
+
+        result = run_activity_events_list_widget(self.team, {"limit": 1}, user=self.user, include_total_count=True)
+
+        self.assertTrue(result["hasMore"])
+        self.assertEqual(result["totalCount"], 3)
+        self.assertFalse(result["totalCountCapped"])
+        self.assertEqual(len(result["results"]), 1)
+        self.assertEqual(mock_runner_cls.call_count, 2)
+        count_query = mock_runner_cls.call_args_list[1].kwargs["query"]
+        self.assertEqual(count_query.limit, ACTIVITY_EVENTS_MAX_LIMIT)
 
     @patch(
         "posthog.session_recordings.session_recording_api.ListingSustainedRateThrottle.allow_request", return_value=True

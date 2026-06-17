@@ -202,6 +202,10 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             # lives in the customer's object, not in our SQL. Retrying can't fix it until they repair
             # the object or reconfigure the synced columns.
             "invalid identifier": "A Snowflake table or view you're syncing references a column that no longer exists (for example a stale view definition, or a column that was dropped or renamed). Please fix the table or view in Snowflake, or reconfigure the columns selected for this table, then resync.",
+            # Snowflake error 250001 (08001): a network policy (IP allowlist) on the customer's account
+            # rejects the connection because PostHog's egress IP isn't permitted. Retrying can never
+            # succeed until their admin allowlists our IPs, so stop retrying and surface what to do.
+            "is not allowed to access Snowflake": "Snowflake rejected the connection because a network policy (IP allowlist) on your account does not permit PostHog's IP address. Ask your Snowflake administrator to add PostHog's egress IP addresses to the network policy allowlist, then resync.",
             # Raised from the shared `evolve_pyarrow_schema` in `pipelines/pipeline/utils.py`
             # when an integer column's source type was widened (e.g. a narrower NUMBER widened
             # to a larger NUMBER/BIGINT) after the destination table was created with the
