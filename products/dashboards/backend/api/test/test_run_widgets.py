@@ -259,9 +259,7 @@ class TestDashboardRunWidgets(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn(expected_detail, response.json()["detail"])
 
-    @patch(
-        "products.error_tracking.backend.hogql_queries.error_tracking_query_runner.ErrorTrackingQueryRunner.calculate"
-    )
+    @patch("products.error_tracking.backend.facade.queries.ErrorTrackingQueryRunner.calculate")
     def test_runs_widget_for_requested_tile(self, mock_calculate: MagicMock) -> None:
         mock_calculate.return_value = MagicMock(
             model_dump=lambda mode="json": {"results": [], "hasMore": False, "limit": 10, "offset": 0}
@@ -896,9 +894,7 @@ class TestDashboardRunWidgets(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn(str(MAX_WIDGETS_BATCH_SIZE), response.json()["detail"])
 
-    @patch(
-        "products.error_tracking.backend.hogql_queries.error_tracking_query_runner.ErrorTrackingQueryRunner.calculate"
-    )
+    @patch("products.error_tracking.backend.facade.queries.ErrorTrackingQueryRunner.calculate")
     def test_run_widgets_deduplicates_tile_ids(self, mock_calculate: MagicMock) -> None:
         mock_calculate.return_value = MagicMock(
             model_dump=lambda mode="json": {"results": [], "hasMore": False, "limit": 10, "offset": 0}
@@ -952,9 +948,7 @@ class TestDashboardRunWidgets(APIBaseTest):
         body = response.json()
         self.assertEqual(body["results"][0]["error"], "API key missing required scope 'error_tracking:read'")
 
-    @patch(
-        "products.error_tracking.backend.hogql_queries.error_tracking_query_runner.ErrorTrackingQueryRunner.calculate"
-    )
+    @patch("products.error_tracking.backend.facade.queries.ErrorTrackingQueryRunner.calculate")
     @patch("posthog.slo.events.posthoganalytics.capture")
     def test_run_widgets_emits_slo_on_successful_widget_delivery(
         self, mock_capture: MagicMock, mock_calculate: MagicMock
