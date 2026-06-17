@@ -177,8 +177,8 @@ tools:
             idempotent: true
         title: Delete evaluation
         description: >
-            Soft-delete an AI observability evaluation. The evaluation stops running and is hidden from list views. Historical
-            evaluation results ($ai_evaluation events) are preserved.
+            Soft-delete an AI observability evaluation. The evaluation stops running and is hidden from list views.
+            Historical evaluation results ($ai_evaluation events) are preserved.
         soft_delete: true
     llma-evaluation-get:
         operation: evaluations_retrieve
