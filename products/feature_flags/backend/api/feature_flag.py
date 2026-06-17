@@ -6,6 +6,7 @@ import json
 import math
 import logging
 import functools
+from dataclasses import asdict
 from datetime import datetime, timedelta
 from typing import Any, Optional, cast
 
@@ -102,6 +103,46 @@ BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
 
 REALTIME_COHORT_FLAG_TARGETING_FLAG = "realtime-cohort-flag-targeting"
 EARLY_EXIT_FLAG = "feature-flag-early-exit"
+
+
+def parse_created_by_ids(value: Any) -> list[int]:
+    """Parse a `created_by_id` filter value into a list of user IDs.
+
+    Accepts a single int/str, a comma-separated string, or a JSON-encoded list
+    (as sent by the frontend creator multi-select). Keeps the original
+    single-value query param working for existing API consumers.
+    """
+    if value is None:
+        return []
+    if isinstance(value, bool):
+        return []
+    if isinstance(value, int):
+        return [value]
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return []
+        if text.startswith("["):
+            try:
+                value = json.loads(text)
+            except (json.JSONDecodeError, ValueError, RecursionError):
+                # Looks like a JSON list but doesn't parse — treat as no valid IDs
+                # rather than comma-splitting, which would half-apply malformed input
+                # (e.g. "[1,2" -> ["[1", "2"] -> silently filters by user 2).
+                return []
+        else:
+            value = text.split(",")
+    if not isinstance(value, list):
+        value = [value]
+
+    ids: list[int] = []
+    for item in value:
+        try:
+            ids.append(int(item))
+        except (TypeError, ValueError):
+            continue
+    return ids
+
 
 # Fields that Rust's FeatureFlag struct expects for historical evaluation
 RUST_FLAG_FIELDS = (
@@ -340,22 +381,24 @@ def find_dependent_flags_batch(
 def _get_flag_rollout_info(flag: FeatureFlag, checker: FeatureFlagStatusChecker) -> dict[str, Any]:
     """Compute rollout state for a flag to include in bulk delete response.
 
-    Returns a dict with:
+    Thin adapter over ``FeatureFlagStatusChecker.get_rollout_summary`` so the
+    "fully rolled out" determination has a single source of truth. Maps the
+    summary to the bulk-delete vocabulary:
       - rollout_state: "fully_rolled_out", "not_rolled_out", or "partial"
       - active_variant: variant key if a multivariate flag is fully rolled out to one variant
     """
-    multivariate = flag.filters.get("multivariate", None)
+    summary = checker.get_rollout_summary(flag)
 
-    if multivariate:
-        is_fully_rolled_out, variant_key = checker.is_multivariate_flag_fully_rolled_out(flag)
-        if is_fully_rolled_out:
-            return {"rollout_state": "fully_rolled_out", "active_variant": variant_key}
-    elif checker.is_boolean_flag_fully_rolled_out(flag):
-        return {"rollout_state": "fully_rolled_out", "active_variant": None}
+    if summary.effectively_full_rollout:
+        active_variant = None
+        if summary.is_multivariate:
+            # summary already established full rollout; this only fetches the winning variant key.
+            # Both calls read the same in-memory flag, so they cannot disagree.
+            _, active_variant = checker.is_multivariate_flag_fully_rolled_out(flag)
+        return {"rollout_state": "fully_rolled_out", "active_variant": active_variant}
 
-    # Check if flag is effectively at 0%: all groups have rollout_percentage == 0
-    groups = flag.filters.get("groups", [])
-    if groups and all(g.get("rollout_percentage", None) == 0 for g in groups):
+    # Effectively at 0%: every release condition is at 0 (max across groups is 0).
+    if summary.max_rollout_percentage == 0:
         return {"rollout_state": "not_rolled_out", "active_variant": None}
 
     return {"rollout_state": "partial", "active_variant": None}
@@ -638,6 +681,26 @@ class FeatureFlagCreateRequestSchemaSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Whether this flag is a remote configuration flag that delivers a payload rather than gating a feature.",
     )
+    ensure_experience_continuity = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        help_text="Whether to persist a user's flag value across the anonymous-to-identified transition "
+        "(the 'persist across authentication steps' option). Incompatible with device_id bucketing.",
+    )
+    evaluation_runtime = serializers.ChoiceField(
+        choices=FeatureFlag.EVALUATION_RUNTIME_CHOICES,
+        required=False,
+        allow_null=True,
+        help_text="Where this flag is allowed to evaluate: 'server' (server-side SDKs only), "
+        "'client' (client-side SDKs only), or 'all' (both). Defaults to 'all'.",
+    )
+    bucketing_identifier = serializers.ChoiceField(
+        choices=FeatureFlag.BUCKETING_IDENTIFIER_CHOICES,
+        required=False,
+        allow_null=True,
+        help_text="Identifier used to bucket users into rollout percentages and variants: 'distinct_id' "
+        "(user ID, the default) or 'device_id'. Using 'device_id' is incompatible with ensure_experience_continuity=True.",
+    )
 
 
 class FeatureFlagPartialUpdateRequestSchemaSerializer(serializers.Serializer):
@@ -663,6 +726,26 @@ class FeatureFlagPartialUpdateRequestSchemaSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         help_text="Whether this flag is a remote configuration flag that delivers a payload rather than gating a feature.",
+    )
+    ensure_experience_continuity = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        help_text="Whether to persist a user's flag value across the anonymous-to-identified transition "
+        "(the 'persist across authentication steps' option). Incompatible with device_id bucketing.",
+    )
+    evaluation_runtime = serializers.ChoiceField(
+        choices=FeatureFlag.EVALUATION_RUNTIME_CHOICES,
+        required=False,
+        allow_null=True,
+        help_text="Where this flag is allowed to evaluate: 'server' (server-side SDKs only), "
+        "'client' (client-side SDKs only), or 'all' (both). Defaults to 'all'.",
+    )
+    bucketing_identifier = serializers.ChoiceField(
+        choices=FeatureFlag.BUCKETING_IDENTIFIER_CHOICES,
+        required=False,
+        allow_null=True,
+        help_text="Identifier used to bucket users into rollout percentages and variants: 'distinct_id' "
+        "(user ID, the default) or 'device_id'. Using 'device_id' is incompatible with ensure_experience_continuity=True.",
     )
 
 
@@ -2027,9 +2110,48 @@ class EvaluationReasonsResponseSerializer(serializers.Serializer):
     pass
 
 
+class FeatureFlagRolloutSummarySerializer(serializers.Serializer):
+    effectively_full_rollout = serializers.BooleanField(
+        help_text=(
+            "True if the flag is effectively rolled out to everyone, independent of recent evaluation. "
+            "For boolean flags this means at least one release condition targets 100% with no property "
+            "filters (or there are no release conditions); for multivariate flags it means a single variant "
+            "is served to 100% via a fully rolled out release condition. This is the signal for "
+            "'fully rolled out' / GA — unlike `status`, which only reflects recent evaluation."
+        )
+    )
+    has_targeting_conditions = serializers.BooleanField(
+        help_text=(
+            "True if any release condition has property filters, i.e. the flag is conditionally targeted "
+            "rather than a blanket rollout. When true, `max_rollout_percentage` is a percentage within the "
+            "targeted segment, not of the whole user base."
+        )
+    )
+    max_rollout_percentage = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "Highest rollout percentage (0-100) across the flag's release conditions, treating a missing "
+            "percentage as 100. Null when the flag has no release conditions. Interpret together with "
+            "`has_targeting_conditions`."
+        ),
+    )
+    is_multivariate = serializers.BooleanField(
+        help_text="True if the flag serves multiple variants (has a multivariate variant set)."
+    )
+
+
 class FeatureFlagStatusResponseSerializer(serializers.Serializer):
-    status = serializers.CharField(help_text="Flag status: active, stale, deleted, or unknown")
+    status = serializers.CharField(
+        help_text=(
+            "Flag staleness/evaluation status: active, stale, deleted, or unknown. 'active' means the flag "
+            "was recently evaluated (or has no usage data yet) — it does NOT mean the flag is fully rolled "
+            "out. Use the `rollout` object to determine rollout completeness."
+        )
+    )
     reason = serializers.CharField(help_text="Human-readable explanation of the status")
+    rollout = FeatureFlagRolloutSummarySerializer(
+        help_text="Summary of the flag's rollout configuration, for determining whether it is fully rolled out."
+    )
 
 
 class DependentFlagSerializer(serializers.Serializer):
@@ -2513,7 +2635,10 @@ class FeatureFlagViewSet(
                 OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
                 required=False,
-                description="The User ID which initially created the feature flag.",
+                description=(
+                    "Filter by the user(s) who created the feature flag. Accepts a single user ID, "
+                    "or a JSON-encoded / comma-separated list of user IDs to match any of them."
+                ),
             ),
             OpenApiParameter(
                 "search",
@@ -2534,7 +2659,7 @@ class FeatureFlagViewSet(
                 OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
                 required=False,
-                enum=["server", "client", "both"],
+                enum=[choice[0] for choice in FeatureFlag.EVALUATION_RUNTIME_CHOICES],
                 description="Filter feature flags by their evaluation runtime.",
             ),
             OpenApiParameter(
@@ -3194,7 +3319,9 @@ class FeatureFlagViewSet(
             if key == "active":
                 queryset = filter_flags_by_active_param(queryset, value)
             elif key == "created_by_id":
-                queryset = queryset.filter(created_by_id=value)
+                user_ids = parse_created_by_ids(value)
+                if user_ids:
+                    queryset = queryset.filter(created_by_id__in=user_ids)
             elif key == "search":
                 if isinstance(value, str):
                     value = value.strip()
@@ -3417,11 +3544,14 @@ class FeatureFlagViewSet(
             feature_flag=feature_flag,
         )
         flag_status, reason = checker.get_status()
+        rollout = checker.get_rollout_summary(feature_flag)
 
-        return Response(
-            {"status": flag_status, "reason": reason},
-            status=status.HTTP_200_OK,
+        # Route through the declared serializer so it is the single source of truth for the
+        # response shape and the dataclass cannot silently drift from the OpenAPI/MCP schema.
+        response = FeatureFlagStatusResponseSerializer(
+            {"status": flag_status, "reason": reason, "rollout": asdict(rollout)}
         )
+        return Response(response.data, status=status.HTTP_200_OK)
 
     @validated_request(
         request_serializer=FeatureFlagTestEvaluationRequestSerializer,
@@ -3746,8 +3876,16 @@ class FeatureFlagViewSet(
         if not feature_flag.is_remote_configuration:
             return Response(status=status.HTTP_404_NOT_FOUND)
 
+        # Remote config usage is tracked for telemetry only (never billed), and only genuine SDK
+        # fetches (team secret token, phs_…) count. Session and personal-key requests are the app's
+        # own preview/decrypt feature, not customer usage, and a session-authenticated GET would
+        # otherwise let a cross-site request inflate the team's usage numbers.
+        should_count = isinstance(request.successful_authenticator, TeamSecretTokenAuthentication)
+
         if not feature_flag.has_encrypted_payloads:
             payloads = feature_flag.filters.get("payloads", {})
+            if should_count:
+                increment_request_count(self.team.pk, 1, FlagRequestType.REMOTE_CONFIG)
             return Response(payloads.get("true") or None)
 
         # Note: This decryption step is protected by the feature_flag:read scope, so we can assume the
@@ -3757,9 +3895,9 @@ class FeatureFlagViewSet(
             request, feature_flag.filters.get("payloads", {})
         )
 
-        sampling_rate = getattr(settings, "DECIDE_BILLING_SAMPLING_RATE", 1.0)
-        count = int(1 / sampling_rate)
-        increment_request_count(self.team.pk, count, FlagRequestType.REMOTE_CONFIG)
+        # Count after a successful decryption so a decrypt failure (500) is never counted.
+        if should_count:
+            increment_request_count(self.team.pk, 1, FlagRequestType.REMOTE_CONFIG)
 
         return Response(decrypted_flag_payloads["true"] or None)
 

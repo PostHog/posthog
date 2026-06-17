@@ -45,6 +45,7 @@ const inboxReportsList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/`,
             query: {
+                has_implementation_pr: params.has_implementation_pr,
                 limit: params.limit,
                 offset: params.offset,
                 ordering: params.ordering,
@@ -66,6 +67,8 @@ const inboxReportsList = (): ToolBase<
                     'priority',
                     'actionability',
                     'already_addressed',
+                    'dismissal_reason',
+                    'dismissal_note',
                     'signal_count',
                     'total_weight',
                     'source_products',

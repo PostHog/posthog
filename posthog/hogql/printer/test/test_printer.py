@@ -3186,7 +3186,7 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(
             (
-                f"SELECT if(equals(%(hogql_val_0)s, %(hogql_val_1)s), toDecimal64(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_1)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10))))) AS currency "
+                f"SELECT if(equals(%(hogql_val_0)s, %(hogql_val_1)s), toDecimal128(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)) = 0, toDecimal128(0, 10), multiplyDecimal(divideDecimal(toDecimal128(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)) = 0, toDecimal128(1, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_1)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10))))) AS currency "
                 "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
             ),
             printed,
@@ -3199,11 +3199,20 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(
             (
-                f"SELECT if(equals(%(hogql_val_0)s, %(hogql_val_1)s), toDecimal64(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_1)s, today(), toDecimal64(0, 10))))) AS currency "
+                f"SELECT if(equals(%(hogql_val_0)s, %(hogql_val_1)s), toDecimal128(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)) = 0, toDecimal128(0, 10), multiplyDecimal(divideDecimal(toDecimal128(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)) = 0, toDecimal128(1, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_1)s, today(), toDecimal64(0, 10))))) AS currency "
                 "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
             ),
             printed,
         )
+
+    def test_currency_conversion_uses_decimal128(self):
+        # Regression guard: a Decimal64 amount cast (scale 10) overflows above ~10^8 integer part (Code 407)
+        # when summing converted amounts. The amount must be cast to Decimal128 so the divide/multiply path
+        # is promoted. (The dictGetOrDefault defaults stay Decimal64 — they match the dict attribute type.)
+        # test_currency_conversion asserts the full SQL; this makes the amount-cast requirement explicit.
+        printed = self._print("select convertCurrency('USD', 'EUR', 100, toDate('2021-01-01')) as currency")
+        self.assertIn("toDecimal128(100, 10)", printed)
+        self.assertNotIn("toDecimal64(100", printed)
 
     def test_sortable_semver(self):
         # Also test different capitalizations
@@ -6778,3 +6787,130 @@ class TestDuckDBPrinter(BaseTest):
         for printer in (DuckDBPrinter(context=ctx), PostgresPrinter(context=ctx)):
             with self.assertRaisesMessage(QueryError, 'is not permitted as it contains the "%" character'):
                 printer._print_identifier("bad%name")
+
+
+class TestMySQLPrinter(BaseTest):
+    maxDiff = None
+
+    def _expr(
+        self,
+        query: ast.Expr | str,
+        context: Optional[HogQLContext] = None,
+    ) -> str:
+        node = parse_expr(query, backend="cpp-json") if isinstance(query, str) else query
+        context = context or HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        select_query = ast.SelectQuery(select=[node], select_from=ast.JoinExpr(table=ast.Field(chain=["events"])))
+        prepared_select_query: ast.SelectQuery = cast(
+            ast.SelectQuery,
+            prepare_ast_for_printing(select_query, context=context, dialect="mysql", stack=[select_query]),
+        )
+        return print_prepared_ast(
+            prepared_select_query.select[0],
+            context=context,
+            dialect="mysql",
+            stack=[prepared_select_query],
+        )
+
+    @parameterized.expand(
+        [
+            ("is_null", "event is null", "(events.event IS NULL)"),
+            ("is_not_null", "event is not null", "(events.event IS NOT NULL)"),
+            ("ilike", "event ilike 'a'", "(LOWER(events.event) LIKE LOWER(%(hogql_val_0)s))"),
+            ("not_ilike", "event not ilike 'a'", "(LOWER(events.event) NOT LIKE LOWER(%(hogql_val_0)s))"),
+            ("regex", "event =~ 'a.*'", "REGEXP_LIKE(events.event, %(hogql_val_0)s, 'c')"),
+            ("not_regex", "event !~ 'a.*'", "(NOT REGEXP_LIKE(events.event, %(hogql_val_0)s, 'c'))"),
+            ("iregex", "event =~* 'a.*'", "REGEXP_LIKE(events.event, %(hogql_val_0)s, 'i')"),
+            ("null_safe_eq", "event <=> 'a'", "(events.event <=> %(hogql_val_0)s)"),
+            ("is_not_distinct_from", "event is not distinct from 'a'", "(events.event <=> %(hogql_val_0)s)"),
+            ("is_distinct_from", "event is distinct from 'a'", "(NOT (events.event <=> %(hogql_val_0)s))"),
+            ("modulo", "1 % 2", "MOD(1, 2)"),
+        ]
+    )
+    def test_mysql_operators(self, _name: str, expr: str, expected: str):
+        self.assertEqual(self._expr(expr), expected)
+
+    @parameterized.expand(
+        [
+            ("start_of_day", "toStartOfDay(timestamp)", "CAST(DATE(events.timestamp) AS DATETIME)"),
+            ("start_of_year", "toStartOfYear(timestamp)", "MAKEDATE(YEAR(events.timestamp), 1)"),
+            (
+                "start_of_month",
+                "toStartOfMonth(timestamp)",
+                "DATE_SUB(DATE(events.timestamp), INTERVAL (DAYOFMONTH(events.timestamp) - 1) DAY)",
+            ),
+            (
+                "start_of_week",
+                "toStartOfWeek(timestamp, 3)",
+                "DATE_SUB(DATE(events.timestamp), INTERVAL WEEKDAY(events.timestamp) DAY)",
+            ),
+            ("date_diff", "dateDiff('day', timestamp, now())", "TIMESTAMPDIFF(DAY, events.timestamp, NOW())"),
+            (
+                "date_trunc",
+                "date_trunc('hour', timestamp)",
+                "DATE_ADD(DATE(events.timestamp), INTERVAL HOUR(events.timestamp) HOUR)",
+            ),
+            ("to_year", "toYear(timestamp)", "EXTRACT(YEAR FROM events.timestamp)"),
+            ("to_unix", "toUnixTimestamp(timestamp)", "UNIX_TIMESTAMP(events.timestamp)"),
+            ("add_days", "addDays(timestamp, 7)", "DATE_ADD(events.timestamp, INTERVAL (7) DAY)"),
+            ("interval_add", "timestamp + toIntervalDay(1)", "(events.timestamp + INTERVAL (1) DAY)"),
+        ]
+    )
+    def test_mysql_date_functions(self, _name: str, expr: str, expected: str):
+        self.assertEqual(self._expr(expr), expected)
+
+    @parameterized.expand(
+        [
+            ("to_string", "CAST(1 AS TEXT)", "CAST(1 AS CHAR)"),
+            ("to_int", "CAST('1' AS BIGINT)", "CAST(%(hogql_val_0)s AS SIGNED)"),
+            ("to_float", "CAST('1' AS FLOAT)", "CAST(%(hogql_val_0)s AS DOUBLE)"),
+            ("to_datetime", "CAST('2020-01-01' AS TIMESTAMP)", "CAST(%(hogql_val_0)s AS DATETIME)"),
+        ]
+    )
+    def test_mysql_casts(self, _name: str, expr: str, expected: str):
+        self.assertEqual(self._expr(expr), expected)
+
+    def test_mysql_cast_unsupported_type(self):
+        with self.assertRaisesMessage(QueryError, "Unsupported CAST target"):
+            self._expr("CAST(1 AS Array(String))")
+
+    @parameterized.expand(
+        [
+            ("count_if", "countIf(1 = 1)", "COUNT(CASE WHEN (1 = 1) THEN 1 END)"),
+            ("sum_if", "sumIf(1, 2 = 2)", "SUM(CASE WHEN (2 = 2) THEN 1 END)"),
+            ("uniq", "uniq(event)", "COUNT(DISTINCT events.event)"),
+            ("if_null", "ifNull(event, 'a')", "IFNULL(events.event, %(hogql_val_0)s)"),
+            ("if_", "if(1 = 1, 'a', 'b')", "CASE WHEN (1 = 1) THEN %(hogql_val_0)s ELSE %(hogql_val_1)s END"),
+            (
+                "starts_with",
+                "startsWith(event, 'a')",
+                "(LEFT(events.event, CHAR_LENGTH(%(hogql_val_0)s)) = %(hogql_val_0)s)",
+            ),
+            ("position", "position(event, 'a')", "LOCATE(%(hogql_val_0)s, events.event)"),
+        ]
+    )
+    def test_mysql_functions(self, _name: str, expr: str, expected: str):
+        self.assertEqual(self._expr(expr), expected)
+
+    def test_mysql_unsupported_function_raises(self):
+        with self.assertRaisesMessage(QueryError, "is not supported in the MySQL dialect"):
+            self._expr("arrayJoin([1])")
+
+    def test_mysql_percentile_raises(self):
+        with self.assertRaisesMessage(QueryError, "not supported in the MySQL dialect"):
+            self._expr("percentile_cont(0.5) WITHIN GROUP (ORDER BY timestamp)")
+
+    def test_mysql_identifier_escaping(self):
+        from posthog.hogql.printer.mysql import MySQLPrinter
+
+        printer = MySQLPrinter(context=HogQLContext(team_id=self.team.pk))
+        self.assertEqual(printer._print_identifier("foo"), "foo")
+        self.assertEqual(printer._print_identifier("select"), "`select`")
+        self.assertEqual(printer._print_identifier("weird name"), "`weird name`")
+        self.assertEqual(printer._print_identifier("back`tick"), "`back``tick`")
+
+    def test_mysql_percent_in_identifier_rejected(self):
+        from posthog.hogql.printer.mysql import MySQLPrinter
+
+        printer = MySQLPrinter(context=HogQLContext(team_id=self.team.pk))
+        with self.assertRaisesMessage(QueryError, 'is not permitted as it contains the "%" character'):
+            printer._print_identifier("bad%name")

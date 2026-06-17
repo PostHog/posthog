@@ -6,7 +6,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { createWindowIdRegistry } from '@posthog/replay-shared'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { uuid } from 'lib/utils'
+import { uuid } from 'lib/utils/dom'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 

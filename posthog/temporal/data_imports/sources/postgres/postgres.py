@@ -50,9 +50,18 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     table_from_iterator,
 )
 from posthog.temporal.data_imports.sources.common.mixins import open_ssh_tunnel
-from posthog.temporal.data_imports.sources.common.sql import Column, Table, compute_projected_columns
+from posthog.temporal.data_imports.sources.common.sql import (
+    Column,
+    Table,
+    ValidatedRowFilter,
+    compute_projected_columns,
+)
 from posthog.temporal.data_imports.sources.common.sql.implementation import SQLSourceImplementation
 from posthog.temporal.data_imports.sources.common.sql.incremental import IncrementalFieldFilter
+from posthog.temporal.data_imports.sources.common.sql.predicates_psycopg import (
+    and_join,
+    render_psycopg_row_filter_conditions,
+)
 from posthog.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
 from posthog.temporal.data_imports.sources.postgres.partitioned_tables import (
     build_partition_query,
@@ -78,10 +87,24 @@ SYSTEM_POSTGRES_SCHEMAS = ["information_schema", "pg_catalog", "pg_toast"]
 # default statement_timeout on the source role.
 SYNC_STATEMENT_TIMEOUT_MS = 1000 * 60 * 10  # 10 mins
 
+# Statement timeout scoped to the schema-discovery metadata query in `_get_table`.
+# `information_schema.columns` computes `numeric_precision`/`numeric_scale` via the per-column
+# `_pg_numeric_*` SQL functions, which can be slow on large catalogs. The setup connection has no
+# statement_timeout we control until `postgres_source` sets one *after* `_get_table` returns, so
+# the query would otherwise inherit whatever (possibly very short) default the source role/server
+# imposes and get cancelled mid-discovery. Scope a generous-but-bounded budget so a too-short
+# default can't kill it.
+METADATA_STATEMENT_TIMEOUT_MS = 1000 * 60 * 10  # 10 mins
+
 # How many times the metadata-gathering phase reconnects and retries when a hot-standby
 # recovery conflict terminates the setup connection. Past this the conflict is treated as
 # sustained and surfaced as the non-retryable "successive SerializationFailure errors" abort.
 _MAX_SETUP_RECOVERY_CONFLICT_RETRIES = 10
+
+# Bounded in-process retries for a transient connection drop hit *during* the setup metadata
+# probes (not just the initial connect). Mirrors `_connect_with_dropped_retry`'s default; past
+# this the drop is treated as sustained and re-raised for Temporal to retry the whole activity.
+_MAX_SETUP_CONNECTION_DROPPED_RETRIES = 5
 
 
 def source_requires_ssl(source: ExternalDataSource, source_config: Any = None) -> bool:
@@ -132,7 +155,23 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     "consuming input failed",
     "no connection to the server",
     "terminating connection due to",
+    # psycopg's own message when libpq finds the socket already gone (PGconn.socket
+    # raises this from inside a wait, e.g. the commit at the end of get_connection).
+    # Same transient dead-socket class as the libpq drops above — recover by reconnecting.
+    "the connection is lost",
 )
+
+# Supavisor (Supabase's connection pooler) doesn't surface a dropped upstream connection with a
+# libpq/PgBouncer signature — it raises its own pooler-internal error as a generic psycopg
+# InternalError_ (SQLSTATE XX000) carrying the "(EDBHANDLEREXITED)" code. The trailing message
+# varies — both "(EDBHANDLEREXITED) DbHandler exited. Check logs for more information" and
+# "(EDBHANDLEREXITED) connection to database closed. Check logs for more information" have been
+# observed for the same condition — but the EDBHANDLEREXITED code is the stable signal: the
+# pooler's per-session DbHandler process exited because its backend connection died (idle cull,
+# backend restart, failover). That's the same transient class as the libpq drops above and
+# recovers on reconnect, so match the code itself rather than any one message wording. Genuine
+# XX000 internal errors (data corruption, etc.) carry a different code and stay non-recoverable.
+_POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS = ("edbhandlerexited",)
 
 # Exception types that can carry a connection-dropped error. ProtocolViolation is
 # PgBouncer's synthetic error packet; OperationalError is libpq detecting the dead
@@ -140,11 +179,14 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
 # when the source's idle_in_transaction_session_timeout culls our backend while a
 # server-side cursor holds a transaction open across the slow delta-merge between
 # yields — psycopg maps it to InternalError, not OperationalError, so it must be
-# named explicitly or the type-based catch below would miss it.
+# named explicitly or the type-based catch below would miss it. InternalError_ is the
+# generic XX000 class Supavisor's "DbHandler exited" pooler drop arrives as; it's only
+# treated as a drop when its message matches the narrow pooler signature above.
 _CONNECTION_DROPPED_ERROR_TYPES = (
     psycopg.errors.ProtocolViolation,
     psycopg.OperationalError,
     psycopg.errors.IdleInTransactionSessionTimeout,
+    psycopg.errors.InternalError_,
 )
 
 
@@ -180,7 +222,32 @@ def _is_connection_dropped_error(error: BaseException) -> bool:
     if isinstance(error, psycopg.errors.ProtocolViolation | psycopg.OperationalError):
         message = " ".join(str(arg) for arg in error.args).lower()
         return any(substring in message for substring in _CONNECTION_DROPPED_ERROR_SUBSTRINGS)
+    # Supavisor's pooler drop arrives as a generic XX000 InternalError_, not the libpq/PgBouncer
+    # types above, so match it on its own narrow signature (see _POOLER_CONNECTION_DROPPED_*).
+    if isinstance(error, psycopg.errors.InternalError_):
+        message = " ".join(str(arg) for arg in error.args).lower()
+        return any(substring in message for substring in _POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS)
     return False
+
+
+def _raise_if_setup_connection_broken(connection: psycopg.Connection) -> None:
+    """Surface a connection dropped during metadata discovery as a retryable error.
+
+    The best-effort probes run during `postgres_source` setup (`_explain_query`,
+    `_get_table_chunk_size`, and the numeric-scale probe in `_get_table`) isolate their
+    queries in `connection.transaction(savepoint_name=...)`. When the upstream
+    connection drops mid-probe, psycopg's `Transaction.__exit__` skips its savepoint
+    teardown — it early-returns whenever the connection is no longer OK — leaving the
+    connection's transaction-nesting counter incremented. The surrounding helpers then
+    swallow the follow-up "connection closed" errors, so discovery finishes "successfully"
+    and the implicit commit in the enclosing `with connection:` raises a misleading
+    `ProgrammingError: Explicit commit() forbidden within a Transaction context`, burying
+    the real cause. Detect the broken connection first and raise the actual
+    dropped-connection error (transient, so it stays retryable) — the activity then retries
+    on a fresh connection instead of failing on a self-inflicted commit error.
+    """
+    if connection.broken:
+        raise psycopg.OperationalError("connection to server was lost during table metadata discovery")
 
 
 def _connect_with_dropped_retry(
@@ -841,10 +908,24 @@ def get_schemas(
     names: list[str] | None = None,
 ) -> dict[str, PostgresDiscoveredSchema]:
     """Get all tables from PostgreSQL source schemas to sync."""
-    with pg_connection(
-        host=host, port=port, database=database, user=user, password=password, require_ssl=require_ssl
-    ) as connection:
+    # Schema discovery opens a fresh connection on its own periodic cadence. A momentary drop on
+    # connect — "server closed the connection unexpectedly" / an SSL EOF from a pooler, firewall,
+    # or SSH-tunnel hiccup — is transient and recovers on a retry, exactly like the drops the
+    # import read path already retries via `_connect_with_dropped_retry`. Without an in-process
+    # retry here that blip fails the whole discovery activity and surfaces as captured
+    # error-tracking noise even though the next attempt would succeed. Permanent errors (auth
+    # failures, SSL-required) re-raise immediately because `_is_connection_dropped_error` only
+    # matches transient drops.
+    connection = _connect_with_dropped_retry(
+        lambda: _connect_to_postgres(
+            host=host, port=port, database=database, user=user, password=password, require_ssl=require_ssl
+        ),
+        structlog.get_logger(),
+    )
+    try:
         return _schemas_from_conn(connection, schema, names)
+    finally:
+        connection.close()
 
 
 def get_primary_keys_for_schemas(
@@ -1203,11 +1284,15 @@ def _build_query(
     upper_bound_inclusive: Optional[Any] = None,
     enabled_columns: Optional[list[str]] = None,
     primary_keys: Optional[list[str]] = None,
+    row_filters: Optional[list[ValidatedRowFilter]] = None,
 ) -> sql.Composed:
     projected = compute_projected_columns(enabled_columns, primary_keys, incremental_field)
     select_clause: sql.Composable = (
         sql.SQL("*") if projected is None else sql.SQL(", ").join(sql.Identifier(c) for c in projected)
     )
+    # Row filters apply only to the real data path; sampling/row-count queries stay unfiltered
+    # (an over-estimate is harmless).
+    row_filter_conditions = render_psycopg_row_filter_conditions(row_filters or [])
 
     if not should_use_incremental_field:
         if add_sampling:
@@ -1219,15 +1304,14 @@ def _build_query(
                 query = sql.SQL("SELECT {cols} FROM {table} TABLESAMPLE SYSTEM (1)").format(
                     cols=select_clause, table=sql.Identifier(schema, table_name)
                 )
-        else:
-            query = sql.SQL("SELECT {cols} FROM {table}").format(
-                cols=select_clause, table=sql.Identifier(schema, table_name)
-            )
-
-        if add_sampling:
             query_with_limit = cast(LiteralString, f"{query.as_string()} LIMIT 1000")
             return sql.SQL(query_with_limit).format()
 
+        query = sql.SQL("SELECT {cols} FROM {table}").format(
+            cols=select_clause, table=sql.Identifier(schema, table_name)
+        )
+        if row_filter_conditions:
+            query = query + sql.SQL(" WHERE ") + and_join(row_filter_conditions)
         return query
 
     if incremental_field is None or incremental_field_type is None:
@@ -1287,6 +1371,9 @@ def _build_query(
             field=sql.Identifier(incremental_field),
             upper=sql.Literal(upper_bound_inclusive),
         )
+
+    if row_filter_conditions:
+        query = query + sql.SQL(" AND ") + and_join(row_filter_conditions)
 
     query_str = cast(LiteralString, f"{query.as_string()} ORDER BY {{incremental_field}} ASC")
     return sql.SQL(query_str).format(incremental_field=sql.Identifier(incremental_field))
@@ -1474,9 +1561,11 @@ def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, log
     # transaction (e.g. tests or future callers), wrap in a SAVEPOINT so that a
     # QueryCanceled doesn't abort the surrounding transaction.
     use_savepoint = not cursor.connection.autocommit
+    savepoint_active = False
     try:
         if use_savepoint:
             cursor.execute("SAVEPOINT _chunk_size_probe")
+            savepoint_active = True
 
         query = sql.SQL("""
             SELECT percentile_cont(0.95) within group (order by subquery.row_size) FROM (
@@ -1490,18 +1579,19 @@ def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, log
         cursor.execute(query)
         row = cursor.fetchone()
 
-        if use_savepoint:
+        if savepoint_active:
             cursor.execute("RELEASE SAVEPOINT _chunk_size_probe")
+            savepoint_active = False
 
         if row is None:
             logger.debug(f"_get_table_chunk_size: No results returned. Using DEFAULT_CHUNK_SIZE={DEFAULT_CHUNK_SIZE}")
-            return DEFAULT_CHUNK_SIZE
-
-        row_size_bytes = row[0] or 1
-        chunk_size = int(DEFAULT_TABLE_SIZE_BYTES / row_size_bytes)
-        logger.debug(
-            f"_get_table_chunk_size: row_size_bytes={row_size_bytes}. DEFAULT_TABLE_SIZE_BYTES={DEFAULT_TABLE_SIZE_BYTES}. Using CHUNK_SIZE={chunk_size}"
-        )
+            chunk_size = DEFAULT_CHUNK_SIZE
+        else:
+            row_size_bytes = row[0] or 1
+            chunk_size = int(DEFAULT_TABLE_SIZE_BYTES / row_size_bytes)
+            logger.debug(
+                f"_get_table_chunk_size: row_size_bytes={row_size_bytes}. DEFAULT_TABLE_SIZE_BYTES={DEFAULT_TABLE_SIZE_BYTES}. Using CHUNK_SIZE={chunk_size}"
+            )
 
         return chunk_size
     except Exception as e:
@@ -1514,11 +1604,12 @@ def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, log
         # its own dedicated QueryCanceled handling (`_statement_timeout_as_non_retryable`), so
         # re-raising the cancellation here would only bypass that path and leak a raw, retryable
         # QueryCanceled that Temporal re-attempts forever on tables this query can never complete on.
-        if use_savepoint:
+        if savepoint_active:
             try:
                 cursor.execute("ROLLBACK TO SAVEPOINT _chunk_size_probe")
-            except Exception:
-                pass
+                cursor.execute("RELEASE SAVEPOINT _chunk_size_probe")
+            except Exception as rollback_error:
+                logger.debug(f"_get_table_chunk_size: Failed to rollback savepoint: {rollback_error}")
         logger.debug(f"_get_table_chunk_size: Error: {e}. Using DEFAULT_CHUNK_SIZE={DEFAULT_CHUNK_SIZE}", exc_info=e)
 
         return DEFAULT_CHUNK_SIZE
@@ -1831,10 +1922,25 @@ def _get_table(
 
     _explain_query(cursor, query, logger)
     logger.debug(f"Running query: {query.as_string()}")
-    cursor.execute(query)
+    # Scope a generous statement_timeout to the schema-discovery query. On regular tables it reads
+    # `information_schema.columns`, whose `numeric_precision`/`numeric_scale` columns invoke the
+    # per-column `_pg_numeric_*` SQL functions — slow enough on large catalogs that a short
+    # role/server default `statement_timeout` (some hosted/pooled Postgres set one) cancels the
+    # query with QueryCanceled before discovery finishes. The outer 10-minute setup timeout isn't
+    # set until `postgres_source` continues after `_get_table` returns, so without this the query
+    # inherits that short default. Own transaction so the `SET LOCAL` scopes to this query and
+    # auto-resets (the connection is autocommit, so this is a self-contained BEGIN/COMMIT) without
+    # leaking onto the numeric probe below, which deliberately bounds itself tighter.
+    with cursor.connection.transaction():
+        cursor.execute(
+            sql.SQL("SET LOCAL statement_timeout = {timeout}").format(
+                timeout=sql.Literal(METADATA_STATEMENT_TIMEOUT_MS)
+            )
+        )
+        cursor.execute(query)
+        metadata_rows = cursor.fetchall()
 
     numeric_data_types = {"numeric", "decimal"}
-    metadata_rows = cursor.fetchall()
 
     # For unconstrained numeric columns (declared as `numeric` with no precision/scale),
     # postgres returns NULL for numeric_precision/numeric_scale in information_schema. Falling
@@ -2011,6 +2117,7 @@ def postgres_source(
     require_ssl: bool = False,
     is_initial_sync: bool = False,
     enabled_columns: Optional[list[str]] = None,
+    row_filters: Optional[list[ValidatedRowFilter]] = None,
 ) -> SourceResponse:
     table_name = table_names[0]
     if not table_name:
@@ -2061,6 +2168,7 @@ def postgres_source(
         # "successive SerializationFailure errors" abort the read path already uses, rather than
         # letting Temporal re-run setup straight back into the same wall.
         setup_recovery_conflicts = 0
+        setup_connection_dropped_errors = 0
         while True:
             # Opening the setup connection can itself hit a transient drop ("server closed the
             # connection unexpectedly", idle cull, failover) — the same class of error the read
@@ -2256,6 +2364,14 @@ def postgres_source(
                             raise
                         except Exception:
                             raise
+
+                    # If a transient drop killed the connection during one of the best-effort
+                    # savepoint probes above, the implicit commit on `with connection:` exit would
+                    # otherwise raise a misleading "Explicit commit() forbidden within a Transaction
+                    # context" (psycopg leaves the transaction-nesting counter incremented when it
+                    # tears a savepoint down on a no-longer-OK connection). Surface the real,
+                    # retryable dropped-connection error instead.
+                    _raise_if_setup_connection_broken(connection)
                 break
             except psycopg.errors.SerializationFailure as e:
                 if "conflict with recovery" not in "".join(e.args):
@@ -2272,6 +2388,26 @@ def postgres_source(
                     f"(attempt {setup_recovery_conflicts}/{_MAX_SETUP_RECOVERY_CONFLICT_RETRIES})"
                 )
                 time.sleep(min(2 * setup_recovery_conflicts, 30))
+            except _CONNECTION_DROPPED_ERROR_TYPES as e:
+                # A transient drop *during* the metadata probes (e.g. a Supavisor pooler "DbHandler
+                # exited" or a libpq "server closed the connection unexpectedly" while running
+                # `_get_table`) leaves the connection dead. `_connect_with_dropped_retry` only guards
+                # the initial connect, so without this the probe-time drop escapes and fails the
+                # whole activity. Reconnect and retry the probes in-process with bounded backoff,
+                # mirroring the recovery-conflict handler above and the read path's offset-chunking
+                # recovery. Permanent errors (auth failures, SSL-required, genuine XX000 internal
+                # errors) aren't connection drops, so they re-raise immediately.
+                if not _is_connection_dropped_error(e):
+                    raise
+                _safe_close_connection(connection)
+                setup_connection_dropped_errors += 1
+                if setup_connection_dropped_errors >= _MAX_SETUP_CONNECTION_DROPPED_RETRIES:
+                    raise
+                logger.debug(
+                    f"Connection dropped during table setup ({e}). Reconnecting and retrying "
+                    f"(attempt {setup_connection_dropped_errors}/{_MAX_SETUP_CONNECTION_DROPPED_RETRIES})"
+                )
+                time.sleep(min(2 * setup_connection_dropped_errors, 30))
 
     def get_rows(chunk_size: int) -> Iterator[Any]:
         arrow_schema = table.to_arrow_schema()
@@ -2360,6 +2496,7 @@ def postgres_source(
                     db_incremental_field_last_value,
                     enabled_columns=enabled_columns,
                     primary_keys=primary_keys,
+                    row_filters=row_filters,
                 )
 
                 successive_errors = 0
@@ -2482,6 +2619,7 @@ def postgres_source(
                         db_incremental_field_last_value,
                         enabled_columns=enabled_columns,
                         primary_keys=primary_keys,
+                        row_filters=row_filters,
                     )
 
                 yield from iterate_partitions(
@@ -2513,6 +2651,7 @@ def postgres_source(
                         upper_bound_inclusive=hi,
                         enabled_columns=enabled_columns,
                         primary_keys=primary_keys,
+                        row_filters=row_filters,
                     )
 
                 yield from iterate_date_windows(
@@ -2552,6 +2691,7 @@ def postgres_source(
                             db_incremental_field_last_value,
                             enabled_columns=enabled_columns,
                             primary_keys=primary_keys,
+                            row_filters=row_filters,
                         )
                         logger.debug(f"Postgres query: {query.as_string()}")
 
@@ -2575,6 +2715,23 @@ def postgres_source(
                     yield from offset_chunking(offset, chunk_size)
                     return
 
+                raise
+            except psycopg.errors.QueryCanceled as e:
+                # A FETCH against the server cursor exhausted the 10-min
+                # statement_timeout. QueryCanceled subclasses OperationalError, so
+                # this clause must precede the connection-dropped handler below.
+                # Retrying is futile (usually a missing index on the incremental
+                # field or a scan too large to finish in time), so map it to the
+                # same non-retryable QueryTimeoutException the offset-chunking and
+                # windowed paths raise instead of leaking a raw, retryable
+                # QueryCanceled that Temporal keeps re-attempting.
+                timeout_error = _statement_timeout_as_non_retryable(
+                    e,
+                    should_use_incremental_field=should_use_incremental_field,
+                    incremental_field=incremental_field,
+                )
+                if timeout_error is not None:
+                    raise timeout_error from e
                 raise
             except _CONNECTION_DROPPED_ERROR_TYPES as e:
                 # The server cursor holds a transaction open across the slow

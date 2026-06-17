@@ -895,11 +895,11 @@ describe('llmEvaluationLogic', () => {
                     '/api/environments/:teamId/evaluations/:id/': mockEvaluation,
                 },
                 patch: {
-                    '/api/environments/:teamId/evaluations/:id/': (_, __, ctx) => [
-                        ctx.status(400),
-                        ctx.json({
+                    '/api/environments/:teamId/evaluations/:id/': () => [
+                        400,
+                        {
                             enabled: ['Trial evaluation limit reached. Add a provider API key to re-enable.'],
-                        }),
+                        },
                     ],
                 },
             })

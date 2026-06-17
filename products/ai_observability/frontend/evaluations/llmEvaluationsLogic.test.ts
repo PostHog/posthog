@@ -180,11 +180,11 @@ describe('llmEvaluationsLogic', () => {
         it('dispatches toggleEvaluationEnabledFailure when the API rejects the toggle', async () => {
             useMocks({
                 patch: {
-                    '/api/environments/:teamId/evaluations/:id/': (_, __, ctx) => [
-                        ctx.status(400),
-                        ctx.json({
+                    '/api/environments/:teamId/evaluations/:id/': () => [
+                        400,
+                        {
                             enabled: ['Trial evaluation limit reached. Add a provider API key to re-enable.'],
-                        }),
+                        },
                     ],
                 },
             })

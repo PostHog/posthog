@@ -473,8 +473,8 @@ def _user_has_existing_credentials_from_partner(user: User, partner: OAuthApplic
 def _caller_proved_existing_trust(partner: OAuthApplication, user: User, authenticated_user: User | None) -> bool:
     """True only when the caller proved a prior trust relationship with this user.
 
-    This is what lets a skip-consent partner re-mint silently after the user has reviewed
-    their credentials. The proof differs by auth method:
+    This is what lets a skip-consent partner re-mint silently for an existing user; without
+    it the request falls through to browser consent. The proof differs by auth method:
 
     - HMAC callers authenticate with a partner-level secret, so the partner already holding
       a live OAuth credential for the user is sufficient proof of an existing relationship.
@@ -506,26 +506,28 @@ def _handle_existing_user(
     code_challenge_method: str = "S256",
     authenticated_user: User | None = None,
 ) -> Response:
-    # Pre-hijacking defense: once a user has reviewed their credentials, a partner with
-    # skip_existing_user_consent=True can only mint silently when the caller proved a prior
-    # trust relationship with this user (see _caller_proved_existing_trust). Otherwise we
-    # fall through to consent.
-    silent_blocked_post_review = (
+    # Account-takeover defense: a partner with skip_existing_user_consent=True may only mint
+    # silently for an *existing* account when the caller proved a prior trust relationship with
+    # that user (see _caller_proved_existing_trust). Without proof we fall through to consent,
+    # otherwise any caller could mint a code for an account they don't control. This holds
+    # regardless of whether the user has reviewed their credentials: an unreviewed account is
+    # still a pre-existing account, and the email may belong to a direct signup that never
+    # touched provisioning — silently linking it is the takeover.
+    silent_blocked = (
         partner is not None
         and partner.provisioning_skip_existing_user_consent
-        and user.credentials_reviewed_at is not None
         and not _caller_proved_existing_trust(partner, user, authenticated_user)
     )
 
-    if silent_blocked_post_review:
-        assert partner is not None  # implied by silent_blocked_post_review
+    if silent_blocked:
+        assert partner is not None  # implied by silent_blocked
         _capture_provisioning_event(
             "account_request",
-            "silent_blocked_post_review",
+            "silent_blocked_existing_user",
             partner=partner,
         )
 
-    if partner and (not partner.provisioning_skip_existing_user_consent or silent_blocked_post_review):
+    if partner and (not partner.provisioning_skip_existing_user_consent or silent_blocked):
         if not code_challenge:
             return Response(
                 {
