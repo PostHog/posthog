@@ -549,7 +549,7 @@ function getCriteriaValue(criteria: AnyCohortCriteriaType, key: string): any {
 // Populate empty values with default values on changing type, pruning any extra variables
 export function cleanCriteria(criteria: AnyCohortCriteriaType, shouldPurge: boolean = false): AnyCohortCriteriaType {
     const populatedCriteria: Record<string, any> = {}
-    const { fields, ...apiProps } = ROWS[criteriaToBehavioralFilterType(criteria)]
+    const { fields, ...apiProps } = ROWS[criteriaToBehavioralFilterType(criteria)] ?? { fields: [] }
     Object.entries(apiProps).forEach(([key, defaultValue]) => {
         const nextValue = getCriteriaValue(criteria, key) ?? defaultValue
         if (shouldPurge) {

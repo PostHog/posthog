@@ -45,6 +45,28 @@ describe('validateGroup', () => {
         expect(errors.id).toContain("'Did not complete event'")
     })
 
+    it('does not crash when an AND group has one negated unknown-type criterion and one positive criterion', () => {
+        // AND group with partial negation reaches the cancel-out check, which calls cleanCriteria on each
+        // criterion. Before the fix, ROWS[unknownType] was undefined and destructuring it threw.
+        const group: CohortCriteriaGroupFilter = {
+            type: FilterLogicalOperator.And,
+            values: [
+                {
+                    type: BehavioralFilterKey.Behavioral,
+                    value: 'legacy_unknown_type' as BehavioralEventType,
+                    negation: true,
+                },
+                {
+                    type: BehavioralFilterKey.Behavioral,
+                    value: BehavioralEventType.PerformEvent,
+                    negation: false,
+                },
+            ],
+        }
+
+        expect(() => validateGroup(group)).not.toThrow()
+    })
+
     it('joins multiple negated criteria with a pluralized message', () => {
         const group = groupWithNegatedCriteria([
             {
