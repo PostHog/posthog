@@ -1,5 +1,5 @@
 import json
-from typing import Any
+from typing import Any, cast
 
 from django.db import transaction
 from django.db.models import Q, QuerySet
@@ -19,13 +19,22 @@ from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
+from posthog.models import User
 from posthog.permissions import AccessControlPermission
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
 from posthog.temporal.ai_observability.run_evaluation import extract_event_io, run_hog_eval
 
+from ..feature_flags import is_sentiment_evaluations_enabled
 from ..models.evaluation_config import EvaluationConfig
-from ..models.evaluation_configs import EvaluationType, OutputType, validate_evaluation_configs
+from ..models.evaluation_configs import (
+    EvaluationType,
+    OutputType,
+    evaluation_supports_reports,
+    evaluation_uses_model_configuration,
+    get_evaluation_config_content_key,
+    validate_evaluation_configs,
+)
 from ..models.evaluation_reports import EvaluationReport
 from ..models.evaluations import Evaluation
 from ..models.model_configuration import LLMModelConfiguration
@@ -213,9 +222,14 @@ class EvaluationSerializer(serializers.ModelSerializer):
             getattr(self.instance, "model_configuration", None) if self.instance else None,
         )
 
-        if evaluation_type == EvaluationType.SENTIMENT and model_configuration is not None:
+        if self._requires_sentiment_evaluations_feature(data) and not self._sentiment_evaluations_enabled():
             raise serializers.ValidationError(
-                {"model_configuration": "Sentiment evaluations do not use model configuration."}
+                {"evaluation_type": "Sentiment evaluations are not available for this project."}
+            )
+
+        if not evaluation_uses_model_configuration(evaluation_type) and model_configuration is not None:
+            raise serializers.ValidationError(
+                {"model_configuration": "This evaluation type does not use model configuration."}
             )
 
         should_validate_configs = (
@@ -250,14 +264,42 @@ class EvaluationSerializer(serializers.ModelSerializer):
 
         return data
 
+    def _requires_sentiment_evaluations_feature(self, data: dict) -> bool:
+        if self.instance is None:
+            return (
+                data.get("evaluation_type") == EvaluationType.SENTIMENT.value
+                or data.get("output_type") == OutputType.SENTIMENT.value
+            )
+        if (
+            data.get("evaluation_type") == EvaluationType.SENTIMENT.value
+            and self.instance.evaluation_type != EvaluationType.SENTIMENT.value
+        ):
+            return True
+        if (
+            data.get("output_type") == OutputType.SENTIMENT.value
+            and self.instance.output_type != OutputType.SENTIMENT.value
+        ):
+            return True
+        return (
+            data.get("enabled") is True
+            and not self.instance.enabled
+            and self.instance.evaluation_type == EvaluationType.SENTIMENT.value
+        )
+
+    def _sentiment_evaluations_enabled(self) -> bool:
+        return is_sentiment_evaluations_enabled(
+            cast(User, self.context["request"].user),
+            self.context["get_team"](),
+        )
+
     def _validate_re_enable(self, data: dict) -> None:
         has_byok = self._has_byok_key(data)
         status_reason = getattr(self.instance, "status_reason", None)
         evaluation_type = data.get("evaluation_type") or getattr(self.instance, "evaluation_type", None)
-        # Hog evals run deterministic bytecode server-side: they never call an LLM provider,
-        # never consume trial quota, and never need a BYOK key. The trial-limit / model-allowlist /
-        # provider-key-deleted gates below all assume an LLM-judge call path, so skip them entirely.
-        if evaluation_type in (EvaluationType.HOG, EvaluationType.SENTIMENT):
+        # Non-model evals never call an LLM provider, consume trial quota, or need a BYOK key.
+        # The trial-limit / model-allowlist / provider-key-deleted gates below assume an
+        # LLM-judge call path, so skip them entirely.
+        if not evaluation_uses_model_configuration(evaluation_type):
             return
 
         # Trial limit: can only re-enable if they've attached a BYOK key (which bypasses trial quota).
@@ -498,19 +540,16 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
     def _get_config_length(instance) -> int:
         """Get the relevant config content length for tracking."""
         if instance.evaluation_config and isinstance(instance.evaluation_config, dict):
-            if instance.evaluation_type == "hog":
-                source = instance.evaluation_config.get("source", "")
-                return len(source) if isinstance(source, str) else 0
-            elif instance.evaluation_type == "llm_judge":
-                prompt = instance.evaluation_config.get("prompt", "")
-                return len(prompt) if isinstance(prompt, str) else 0
+            content_key = get_evaluation_config_content_key(instance.evaluation_type)
+            content = instance.evaluation_config.get(content_key, "") if content_key else ""
+            return len(content) if isinstance(content, str) else 0
         return 0
 
     def perform_create(self, serializer):
         with transaction.atomic():
             instance = serializer.save()
 
-            if instance.output_type == OutputType.BOOLEAN:
+            if evaluation_supports_reports(instance.output_type):
                 # Auto-create a default report config so reports are generated from the start.
                 # Defaults to count-triggered (frequency=every_n), so rrule/starts_at stay empty
                 # and users add email/Slack delivery targets later if they want notifications.
@@ -587,9 +626,13 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                         eval_type = serializer.validated_data.get(
                             "evaluation_type", serializer.instance.evaluation_type
                         )
-                        config_key = "source" if eval_type == "hog" else "prompt"
-                        old_content = old_value.get(config_key, "") if isinstance(old_value, dict) else ""
-                        new_content = new_value.get(config_key, "") if isinstance(new_value, dict) else ""
+                        config_key = get_evaluation_config_content_key(eval_type)
+                        old_content = (
+                            old_value.get(config_key, "") if config_key and isinstance(old_value, dict) else ""
+                        )
+                        new_content = (
+                            new_value.get(config_key, "") if config_key and isinstance(new_value, dict) else ""
+                        )
                         if old_content != new_content:
                             config_content_changed = True
 

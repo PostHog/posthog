@@ -33,9 +33,17 @@ export function EvaluationDisplay({ eventProperties }: { eventProperties: EventT
     const result = isNA || rawResult === null || rawResult === undefined ? null : isPass
     const sentimentLabel =
         typeof eventProperties.$ai_sentiment_label === 'string' ? eventProperties.$ai_sentiment_label : null
+    const rawResultType = eventProperties.$ai_evaluation_result_type
+    const resultType =
+        rawResultType === 'sentiment' || rawResultType === 'boolean'
+            ? rawResultType
+            : evaluationType === 'sentiment' || sentimentLabel
+              ? 'sentiment'
+              : 'boolean'
     const resultRun = {
         status: 'completed' as const,
         result,
+        result_type: resultType,
         evaluation_type: evaluationType,
         sentiment_label: sentimentLabel,
         sentiment_score: parseOptionalNumber(eventProperties.$ai_sentiment_score),

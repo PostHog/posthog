@@ -358,6 +358,13 @@ type ProviderKeyGateDefinition = {
     tagger_type?: string
 }
 
+const NON_PROVIDER_KEY_RUNTIMES = new Set(['hog', 'sentiment'])
+
+function definitionUsesProviderKey(definition: ProviderKeyGateDefinition): boolean {
+    const runtime = definition.evaluation_type ?? definition.tagger_type
+    return !runtime || !NON_PROVIDER_KEY_RUNTIMES.has(runtime)
+}
+
 export async function eachBatchEvaluationScheduler(
     messages: Message[],
     evaluationManager: EvaluationManagerService,
@@ -550,11 +557,7 @@ async function getProviderKeySkipOutcome(
         return null
     }
 
-    if (
-        definition.evaluation_type === 'hog' ||
-        definition.evaluation_type === 'sentiment' ||
-        definition.tagger_type === 'hog'
-    ) {
+    if (!definitionUsesProviderKey(definition)) {
         return null
     }
 

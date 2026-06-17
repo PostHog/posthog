@@ -33,14 +33,16 @@ interface EvaluationRunRowOverrides {
     result?: EvaluationRunRow[6]
     applicable?: EvaluationRunRow[8]
     evaluationType?: EvaluationRunRow[9]
-    sentimentLabel?: EvaluationRunRow[10]
-    sentimentScore?: EvaluationRunRow[11]
+    resultType?: EvaluationRunRow[10]
+    sentimentLabel?: EvaluationRunRow[11]
+    sentimentScore?: EvaluationRunRow[12]
 }
 
 function makeEvaluationRunRow({
     result = true,
     applicable = true,
     evaluationType = 'llm_judge',
+    resultType = 'boolean',
     sentimentLabel = null,
     sentimentScore = null,
 }: EvaluationRunRowOverrides = {}): EvaluationRunRow {
@@ -55,6 +57,7 @@ function makeEvaluationRunRow({
         'Looks good',
         applicable,
         evaluationType,
+        resultType,
         sentimentLabel,
         sentimentScore,
     ]
@@ -67,6 +70,7 @@ describe('mapEvaluationRunRow', () => {
                 result: null,
                 applicable: null,
                 evaluationType: 'sentiment',
+                resultType: 'sentiment',
                 sentimentLabel: 'positive',
                 sentimentScore: '0.91',
             })
@@ -74,8 +78,24 @@ describe('mapEvaluationRunRow', () => {
 
         expect(run.result).toBeNull()
         expect(run.evaluation_type).toBe('sentiment')
+        expect(run.result_type).toBe('sentiment')
         expect(run.sentiment_label).toBe('positive')
         expect(run.sentiment_score).toBe(0.91)
+    })
+
+    it('falls back to sentiment result type for older sentiment rows', () => {
+        const run = mapEvaluationRunRow(
+            makeEvaluationRunRow({
+                result: null,
+                applicable: null,
+                evaluationType: 'sentiment',
+                resultType: null,
+                sentimentLabel: 'negative',
+            })
+        )
+
+        expect(run.result_type).toBe('sentiment')
+        expect(run.result).toBeNull()
     })
 
     it('keeps absent boolean results as null instead of false', () => {

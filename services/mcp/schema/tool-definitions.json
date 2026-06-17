@@ -226,7 +226,7 @@
         }
     },
     "evaluation-get": {
-        "description": "Get a specific AI observability evaluation by its UUID. Returns full details including name, type (llm_judge or hog), configuration, conditions, and enabled status.",
+        "description": "Get a specific AI observability evaluation by its UUID. Returns full details including name, type (llm_judge, hog, or sentiment), configuration, conditions, and enabled status.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Get a specific evaluation by ID.",
@@ -240,7 +240,7 @@
         }
     },
     "evaluation-create": {
-        "description": "Create a new AI observability evaluation. Two types are supported: 'llm_judge' uses an LLM to score generations against a prompt you define (for subjective checks like tone, helpfulness, hallucination detection), and 'hog' runs deterministic code against each generation (for rule-based checks like format validation, keyword detection, length limits). For llm_judge evaluations, provide a prompt in evaluation_config and a model_configuration. For hog evaluations, provide source code in evaluation_config.",
+        "description": "Create a new AI observability evaluation. Supported types are 'llm_judge' (LLM scores generations against a prompt), 'hog' (deterministic code returning a boolean), and 'sentiment' (user-message sentiment analysis). For llm_judge evaluations, provide evaluation_config.prompt and model_configuration. For hog evaluations, provide evaluation_config.source. For sentiment evaluations, use output_type='sentiment', omit model_configuration, and optionally set evaluation_config.source='user_messages'.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Create a new evaluation.",

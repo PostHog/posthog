@@ -7,7 +7,7 @@ import { capitalize, formatScore } from '../sentimentUtils'
 
 type EvaluationResultLike = Pick<
     EvaluationRun,
-    'status' | 'result' | 'evaluation_type' | 'sentiment_label' | 'sentiment_score'
+    'status' | 'result' | 'result_type' | 'evaluation_type' | 'sentiment_label' | 'sentiment_score'
 >
 
 interface EvaluationResultDisplay {
@@ -24,7 +24,7 @@ const SENTIMENT_DISPLAY: Record<string, Pick<EvaluationResultDisplay, 'type' | '
 }
 
 function isSentimentRun(run: EvaluationResultLike): boolean {
-    return run.evaluation_type === 'sentiment' || !!run.sentiment_label
+    return run.result_type === 'sentiment' || run.evaluation_type === 'sentiment' || !!run.sentiment_label
 }
 
 export function getEvaluationResultDisplay(run: EvaluationResultLike): EvaluationResultDisplay {

@@ -10,15 +10,17 @@ import { urls } from 'scenes/urls'
 
 import { EvaluationResultTag, getEvaluationResultSortValue } from '../../components/EvaluationResultTag'
 import { sanitizeTraceUrlSearchParams } from '../../utils'
+import { evaluationSupportsReports } from '../evaluationCapabilities'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
 import { EvaluationRun } from '../types'
 import { EvaluationSummaryControls, EvaluationSummaryPanel } from './EvaluationSummaryPanel'
 
 export function EvaluationRunsTable(): JSX.Element {
-    const { filteredEvaluationRuns, evaluationRunsLoading, runsLookup } = useValues(llmEvaluationLogic)
+    const { filteredEvaluationRuns, evaluation, evaluationRunsLoading, runsLookup } = useValues(llmEvaluationLogic)
     const { searchParams } = useValues(router)
     const traceSearchParams = sanitizeTraceUrlSearchParams(searchParams, { removeSearch: true })
     const { refreshEvaluationRuns } = useActions(llmEvaluationLogic)
+    const showSummary = evaluationSupportsReports(evaluation)
 
     const columns: LemonTableColumns<EvaluationRun> = [
         {
@@ -88,7 +90,7 @@ export function EvaluationRunsTable(): JSX.Element {
     return (
         <div className="space-y-4">
             <div className="flex justify-between items-center">
-                <EvaluationSummaryControls />
+                {showSummary ? <EvaluationSummaryControls /> : <div />}
                 <LemonButton
                     type="secondary"
                     icon={<IconRefresh />}
@@ -101,7 +103,7 @@ export function EvaluationRunsTable(): JSX.Element {
                 </LemonButton>
             </div>
 
-            <EvaluationSummaryPanel runsLookup={runsLookup} />
+            {showSummary && <EvaluationSummaryPanel runsLookup={runsLookup} />}
 
             <LemonTable
                 columns={columns}

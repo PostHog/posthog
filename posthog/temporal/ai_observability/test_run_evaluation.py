@@ -22,8 +22,8 @@ from .run_evaluation import (
     BooleanEvalResult,
     BooleanWithNAEvalResult,
     EmitEvaluationEventInputs,
+    EvaluationActivityResult,
     ExecuteLLMJudgeInputs,
-    LLMJudgeResult,
     RunEvaluationInputs,
     RunEvaluationWorkflow,
     SendEvaluationDisabledEmailInputs,
@@ -161,7 +161,8 @@ class TestRunEvaluationWorkflow:
 
         event_data = create_mock_event_data(team.id, properties={})
 
-        result: LLMJudgeResult = {
+        result: EvaluationActivityResult = {
+            "result_type": "boolean",
             "verdict": True,
             "reasoning": "Test passed",
             "allows_na": False,
@@ -192,6 +193,7 @@ class TestRunEvaluationWorkflow:
                 assert call_kwargs["process_person_profile"] is True
                 props = call_kwargs["properties"]
                 assert props["$ai_evaluation_result"] is True
+                assert props["$ai_evaluation_result_type"] == "boolean"
                 assert props["$ai_model"] == "gpt-5-mini"
                 assert props["$ai_provider"] == "openai"
                 assert props["$ai_input_tokens"] == 42
@@ -215,7 +217,8 @@ class TestRunEvaluationWorkflow:
 
         event_data = create_mock_event_data(team.id, properties={})
 
-        result: LLMJudgeResult = {
+        result: EvaluationActivityResult = {
+            "result_type": "boolean",
             "verdict": False,
             "reasoning": "Source trace errored before producing output; evaluation skipped.",
             "input_tokens": 0,
@@ -246,6 +249,7 @@ class TestRunEvaluationWorkflow:
 
         assert props["$ai_evaluation_skipped"] is True
         assert props["$ai_evaluation_skip_reason"] == "trace_errored"
+        assert props["$ai_evaluation_result_type"] == "boolean"
         assert props["$ai_evaluation_result"] is False
         for cost_key in (
             "$ai_model",
@@ -271,7 +275,8 @@ class TestRunEvaluationWorkflow:
             "evaluation_type": "sentiment",
         }
         event_data = create_mock_event_data(team.id, properties={"$ai_trace_id": "trace-1"})
-        result: LLMJudgeResult = {
+        result: EvaluationActivityResult = {
+            "result_type": "sentiment",
             "reasoning": "Classified 1 user message as positive.",
             "sentiment_label": "positive",
             "sentiment_score": 0.9,
@@ -299,6 +304,7 @@ class TestRunEvaluationWorkflow:
                 props = mock_capture.call_args[1]["properties"]
 
         assert props["$ai_evaluation_runtime"] == "sentiment"
+        assert props["$ai_evaluation_result_type"] == "sentiment"
         assert props["$ai_sentiment_label"] == "positive"
         assert props["$ai_sentiment_score"] == 0.9
         assert props["$ai_sentiment_message_count"] == 1
@@ -553,7 +559,8 @@ class TestRunEvaluationWorkflow:
 
         event_data = create_mock_event_data(team.id, properties={})
 
-        result: LLMJudgeResult = {
+        result: EvaluationActivityResult = {
+            "result_type": "boolean",
             "verdict": True,
             "reasoning": "Test passed",
             "applicable": True,
@@ -577,6 +584,7 @@ class TestRunEvaluationWorkflow:
                 mock_capture.assert_called_once()
                 props = mock_capture.call_args[1]["properties"]
                 assert props["$ai_evaluation_result"] is True
+                assert props["$ai_evaluation_result_type"] == "boolean"
                 assert props["$ai_evaluation_applicable"] is True
                 assert props["$ai_evaluation_allows_na"] is True
 
@@ -594,7 +602,8 @@ class TestRunEvaluationWorkflow:
 
         event_data = create_mock_event_data(team.id, properties={})
 
-        result: LLMJudgeResult = {
+        result: EvaluationActivityResult = {
+            "result_type": "boolean",
             "verdict": None,
             "reasoning": "Not applicable",
             "applicable": False,
@@ -617,6 +626,7 @@ class TestRunEvaluationWorkflow:
 
                 mock_capture.assert_called_once()
                 props = mock_capture.call_args[1]["properties"]
+                assert props["$ai_evaluation_result_type"] == "boolean"
                 assert "$ai_evaluation_result" not in props
                 assert props["$ai_evaluation_applicable"] is False
                 assert props["$ai_evaluation_allows_na"] is True

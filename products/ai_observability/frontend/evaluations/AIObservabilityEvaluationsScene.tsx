@@ -46,6 +46,7 @@ import {
     PASS_RATE_WARNING_THRESHOLD,
 } from './components/EvaluationMetrics'
 import { OfflineEvaluationsTab } from './components/OfflineEvaluationsTab'
+import { evaluationTypeCanBeCreated, evaluationTypeUsesProviderKey } from './evaluationCapabilities'
 import { EvaluationStats, evaluationMetricsLogic } from './evaluationMetricsLogic'
 import { EvaluationTemplatesEmptyState } from './EvaluationTemplates'
 import { llmEvaluationsLogic } from './llmEvaluationsLogic'
@@ -78,7 +79,7 @@ function getActiveTab(
 }
 
 function getProviderKeyIssue(evaluation: EvaluationConfig, providerKeys: LLMProviderKey[]): LLMProviderKey | null {
-    if (evaluation.evaluation_type === 'hog' || evaluation.evaluation_type === 'sentiment') {
+    if (!evaluationTypeUsesProviderKey(evaluation.evaluation_type)) {
         return null
     }
 
@@ -132,6 +133,7 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
         useActions(evaluationsLogic)
     const { evaluationsWithMetrics } = useValues(metricsLogic)
     const { currentTeamId } = useValues(teamLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const { push } = useActions(router)
     const { searchParams } = useValues(router)
     const evaluationUrl = (id: string): string => combineUrl(urls.aiObservabilityEvaluation(id), searchParams).url
@@ -189,21 +191,19 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                         </Tooltip>
                     )
                 }
-                const canEnable = canEnableEvaluation(evaluation)
+                const canUseEvaluationType = evaluationTypeCanBeCreated(evaluation.evaluation_type, featureFlags)
+                const canEnable = canEnableEvaluation(evaluation) && (evaluation.enabled || canUseEvaluationType)
                 const isBlocked = !canEnable && !evaluation.enabled
+                const blockedReason = !canUseEvaluationType
+                    ? 'Sentiment evaluations are not available for this project.'
+                    : 'Trial evaluation limit reached. Add a provider API key to re-enable.'
                 return (
                     <div className="flex items-center gap-2">
                         <AccessControlAction
                             resourceType={AccessControlResourceType.LlmAnalytics}
                             minAccessLevel={AccessControlLevel.Editor}
                         >
-                            <Tooltip
-                                title={
-                                    isBlocked
-                                        ? 'Trial evaluation limit reached. Add a provider API key to re-enable.'
-                                        : undefined
-                                }
-                            >
+                            <Tooltip title={isBlocked ? blockedReason : undefined}>
                                 <span>
                                     <LemonSwitch
                                         checked={evaluation.enabled}

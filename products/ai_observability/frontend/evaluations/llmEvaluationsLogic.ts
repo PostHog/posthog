@@ -15,6 +15,7 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import { getUnhealthyProviderKey } from '../settings/providerKeyStateUtils'
 import { evaluationErrorMessage } from './apiErrors'
+import { evaluationTypeCanBeCreated, evaluationTypeUsesProviderKey } from './evaluationCapabilities'
 import type { llmEvaluationsLogicType } from './llmEvaluationsLogicType'
 import { EvaluationConfig } from './types'
 
@@ -186,6 +187,10 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
                 if (!original) {
                     return
                 }
+                if (!evaluationTypeCanBeCreated(original.evaluation_type, values.featureFlags)) {
+                    lemonToast.error('Sentiment evaluations are not available for this project.')
+                    return
+                }
 
                 const duplicate = {
                     name: `${original.name} (Copy)`,
@@ -262,8 +267,7 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
                     if (!isTrialLimitReached) {
                         return true
                     }
-                    // Hog and sentiment evals don't call an LLM judge and never consume trial quota.
-                    if (evaluation.evaluation_type === 'hog' || evaluation.evaluation_type === 'sentiment') {
+                    if (!evaluationTypeUsesProviderKey(evaluation.evaluation_type)) {
                         return true
                     }
                     return !!evaluation.model_configuration?.provider_key_id

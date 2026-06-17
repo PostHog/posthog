@@ -73,6 +73,38 @@ EVALUATION_CONFIG_MODELS: dict[tuple[str, str], tuple[type[BaseModel], type[Base
     (EvaluationType.SENTIMENT.value, OutputType.SENTIMENT.value): (SentimentEvalConfig, SentimentOutputConfig),
 }
 
+EVALUATION_CONFIG_CONTENT_KEYS: dict[str, str] = {
+    EvaluationType.LLM_JUDGE.value: "prompt",
+    EvaluationType.HOG.value: "source",
+    EvaluationType.SENTIMENT.value: "source",
+}
+
+REPORTABLE_OUTPUT_TYPES: tuple[str, ...] = (OutputType.BOOLEAN.value,)
+
+
+def evaluation_uses_model_configuration(evaluation_type: str | None) -> bool:
+    return evaluation_type == EvaluationType.LLM_JUDGE.value
+
+
+def evaluation_supports_reports(output_type: str | None) -> bool:
+    return output_type in REPORTABLE_OUTPUT_TYPES
+
+
+def get_evaluation_config_content_key(evaluation_type: str | None) -> str | None:
+    return EVALUATION_CONFIG_CONTENT_KEYS.get(evaluation_type) if evaluation_type is not None else None
+
+
+def evaluation_configs_allow_empty(evaluation_type: str, output_type: str) -> bool:
+    config_models = EVALUATION_CONFIG_MODELS.get((evaluation_type, output_type))
+    if config_models is None:
+        return False
+
+    return all(
+        not field_info.is_required()
+        for config_model in config_models
+        for field_info in config_model.model_fields.values()
+    )
+
 
 def validate_evaluation_configs(
     evaluation_type: str, output_type: str, evaluation_config: dict, output_config: dict

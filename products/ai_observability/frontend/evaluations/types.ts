@@ -88,6 +88,7 @@ export interface EvaluationRun {
     trace_id: string
     timestamp: string
     evaluation_type?: EvaluationType
+    result_type?: EvaluationOutputType
     result: boolean | null
     sentiment_label?: string | null
     sentiment_score?: number | null

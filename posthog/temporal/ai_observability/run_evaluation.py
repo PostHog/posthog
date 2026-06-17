@@ -2,7 +2,7 @@ import json
 import asyncio
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any, NotRequired, Required, TypedDict
+from typing import Any, Literal, NotRequired, Required, TypedDict
 
 from django.conf import settings
 from django.db import models
@@ -73,13 +73,13 @@ LLM_JUDGE_RETRY_POLICY = RetryPolicy(
 )
 
 
-class LLMJudgeResult(TypedDict, total=False):
+class EvaluationActivityResult(TypedDict, total=False):
     """Result produced by evaluation execution activities.
 
     `total=False` is used as the default so individual fields opt in via `Required` /
     `NotRequired`, making the contract honest about which keys every path actually sets:
 
-    - `reasoning` is set on every path and is `Required`.
+    - `result_type` and `reasoning` are set on every path and are `Required`.
     - `verdict` and `allows_na` are set for boolean outputs only.
     - `applicable` is set only when `allows_na=True`.
     - `skipped` and `skip_reason` are set only on the skip path (e.g. errored source trace).
@@ -92,6 +92,7 @@ class LLMJudgeResult(TypedDict, total=False):
       `verdict` so report and pass/fail metrics do not treat sentiment as N/A.
     """
 
+    result_type: Required[Literal["boolean", "sentiment"]]
     reasoning: Required[str]
     verdict: NotRequired[bool | None]
     allows_na: NotRequired[bool]
@@ -115,7 +116,7 @@ class LLMJudgeResult(TypedDict, total=False):
 class WorkflowResult(TypedDict, total=False):
     """Result returned by `RunEvaluationWorkflow.run`.
 
-    Composes a subset of `LLMJudgeResult` with workflow-level identifiers. Both branches
+    Composes a subset of `EvaluationActivityResult` with workflow-level identifiers. Both branches
     that build this dict — the skip-on-error branch (e.g. `trial_limit_reached`,
     `key_invalid`) and the normal-completion branch — always set `evaluation_id`,
     `evaluation_type`, and `skipped`, so those three are `Required`. The skip-on-error branch
@@ -514,17 +515,18 @@ def _is_errored_trace(properties: dict[str, Any]) -> bool:
     return False
 
 
-def _build_errored_trace_result(allows_na: bool) -> LLMJudgeResult:
+def _build_errored_trace_result(allows_na: bool) -> EvaluationActivityResult:
     """Result returned when the source trace errored — skips the LLM call entirely.
 
     `model` and `provider` are deliberately omitted so the `.get(..., DEFAULT_JUDGE_MODEL)`
     defaults in downstream activities don't silently attribute phantom calls to a model that
     was never invoked — the emit activity instead detects the `skipped` flag and drops cost
-    and model attribution entirely. The `LLMJudgeResult` TypedDict expresses the shape
+    and model attribution entirely. The `EvaluationActivityResult` TypedDict expresses the shape
     contract previously enforced by convention.
     """
     reasoning = "Source trace errored before producing output; evaluation skipped."
-    result: LLMJudgeResult = {
+    result: EvaluationActivityResult = {
+        "result_type": "boolean",
         "verdict": None if allows_na else False,
         "reasoning": reasoning,
         "input_tokens": 0,
@@ -543,7 +545,7 @@ def _build_errored_trace_result(allows_na: bool) -> LLMJudgeResult:
 
 @temporalio.activity.defn
 @posthoganalytics.scoped()
-def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> LLMJudgeResult:
+def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActivityResult:
     """Execute LLM judge to evaluate the target event.
 
     Fetches API key configuration internally to avoid passing sensitive data between activities.
@@ -551,7 +553,7 @@ def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> LLMJudgeResult:
     return _execute_llm_judge_activity(inputs)
 
 
-def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> LLMJudgeResult:
+def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActivityResult:
     evaluation = inputs.evaluation
     event_data = inputs.event_data
 
@@ -807,7 +809,8 @@ def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> LLMJudgeResult
         bind_contextvars(provider=provider, model=model)
 
     # Build result dict based on allows_na config
-    result_dict: LLMJudgeResult = {
+    result_dict: EvaluationActivityResult = {
+        "result_type": "boolean",
         "verdict": result.verdict,
         "reasoning": result.reasoning,
         "input_tokens": usage.input_tokens if usage else 0,
@@ -943,10 +946,10 @@ def run_hog_eval(bytecode: list, event_data: dict[str, Any], allows_na: bool = F
 
 
 @temporalio.activity.defn
-async def execute_hog_eval_activity(evaluation: dict[str, Any], event_data: dict[str, Any]) -> LLMJudgeResult:
+async def execute_hog_eval_activity(evaluation: dict[str, Any], event_data: dict[str, Any]) -> EvaluationActivityResult:
     """Execute Hog code to evaluate the target event.
 
-    Returns a strict subset of `LLMJudgeResult` (verdict, reasoning, allows_na, optionally
+    Returns a strict subset of `EvaluationActivityResult` (verdict, reasoning, allows_na, optionally
     applicable). The shared TypedDict lets both this activity and `execute_llm_judge_activity`
     feed `EmitEvaluationEventInputs.result` without a wider union — downstream code already
     branches on `evaluation_type` and `result.get("skipped")` before reading LLM-only keys.
@@ -976,7 +979,8 @@ async def execute_hog_eval_activity(evaluation: dict[str, Any], event_data: dict
             non_retryable=True,
         )
 
-    activity_result: LLMJudgeResult = {
+    activity_result: EvaluationActivityResult = {
+        "result_type": "boolean",
         "verdict": result["verdict"],
         "reasoning": result["reasoning"],
         "allows_na": allows_na,
@@ -987,8 +991,9 @@ async def execute_hog_eval_activity(evaluation: dict[str, Any], event_data: dict
     return activity_result
 
 
-def _neutral_sentiment_activity_result(reasoning: str) -> LLMJudgeResult:
+def _neutral_sentiment_activity_result(reasoning: str) -> EvaluationActivityResult:
     return {
+        "result_type": "sentiment",
         "reasoning": reasoning,
         "sentiment_label": "neutral",
         "sentiment_score": 0.0,
@@ -1003,7 +1008,7 @@ def _build_sentiment_activity_result(
     trace_id: str,
     user_messages: list[tuple[int, str]],
     classification_results: list[SentimentResult],
-) -> LLMJudgeResult:
+) -> EvaluationActivityResult:
     if not user_messages:
         return _neutral_sentiment_activity_result("No user messages found; sentiment defaults to neutral.")
     if not classification_results:
@@ -1025,6 +1030,7 @@ def _build_sentiment_activity_result(
     message_count = generation_result["message_count"]
 
     return {
+        "result_type": "sentiment",
         "reasoning": f"Classified {message_count} user message{'s' if message_count != 1 else ''} as {label}.",
         "sentiment_label": label,
         "sentiment_score": generation_result["score"],
@@ -1035,7 +1041,9 @@ def _build_sentiment_activity_result(
 
 
 @temporalio.activity.defn
-async def execute_sentiment_eval_activity(evaluation: dict[str, Any], event_data: dict[str, Any]) -> LLMJudgeResult:
+async def execute_sentiment_eval_activity(
+    evaluation: dict[str, Any], event_data: dict[str, Any]
+) -> EvaluationActivityResult:
     """Classify sentiment for the target event's user messages."""
     if evaluation["evaluation_type"] != "sentiment":
         raise ApplicationError(
@@ -1081,7 +1089,7 @@ async def execute_sentiment_eval_activity(evaluation: dict[str, Any], event_data
 class EmitEvaluationEventInputs:
     evaluation: dict[str, Any]
     event_data: dict[str, Any]
-    result: LLMJudgeResult
+    result: EvaluationActivityResult
     start_time: datetime
 
     @property
@@ -1123,6 +1131,7 @@ async def emit_evaluation_event_activity(inputs: EmitEvaluationEventInputs) -> N
             "$ai_evaluation_name": evaluation["name"],
             "$ai_evaluation_type": "online",
             "$ai_evaluation_runtime": evaluation_type,
+            "$ai_evaluation_result_type": result["result_type"],
             "$ai_evaluation_start_time": start_time.isoformat(),
             "$ai_evaluation_reasoning": result["reasoning"],
             "$ai_target_event_id": event_data["uuid"],
@@ -1156,7 +1165,7 @@ async def emit_evaluation_event_activity(inputs: EmitEvaluationEventInputs) -> N
             properties["$ai_evaluation_key_type"] = "byok" if result.get("is_byok") else "posthog"
             properties["$ai_evaluation_key_id"] = result.get("key_id")
 
-        if evaluation_type == "sentiment":
+        if result["result_type"] == "sentiment":
             properties["$ai_sentiment_label"] = result.get("sentiment_label")
             properties["$ai_sentiment_score"] = result.get("sentiment_score")
             properties["$ai_sentiment_scores"] = result.get("sentiment_scores")
@@ -1198,7 +1207,7 @@ async def emit_evaluation_event_activity(inputs: EmitEvaluationEventInputs) -> N
 class EmitInternalTelemetryInputs:
     evaluation: dict[str, Any]
     team_id: int
-    result: LLMJudgeResult
+    result: EvaluationActivityResult
 
     @property
     def properties_to_log(self) -> dict[str, Any]:

@@ -40,6 +40,13 @@ import { EvaluationReportConfig } from './components/EvaluationReportConfig'
 import { EvaluationReportsTab } from './components/EvaluationReportsTab'
 import { EvaluationRunsTable } from './components/EvaluationRunsTable'
 import { EvaluationTriggers } from './components/EvaluationTriggers'
+import {
+    evaluationSupportsReports,
+    evaluationTypeCanBeCreated,
+    evaluationTypeHasEditableCriteria,
+    evaluationTypeSupportsSignalEmission,
+    evaluationTypeUsesModelConfiguration,
+} from './evaluationCapabilities'
 import { LLMEvaluationLogicProps, llmEvaluationLogic } from './llmEvaluationLogic'
 import { statusReasonLabel } from './statusDisplay'
 import { EvaluationType } from './types'
@@ -58,6 +65,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
         activeTab,
         canEnable,
         canEnableReason,
+        originalEvaluation,
     } = useValues(llmEvaluationLogic)
     const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -85,16 +93,25 @@ export function AIObservabilityEvaluation(): JSX.Element {
         return <NotFound object="evaluation" />
     }
     const openInPlaygroundUrl =
-        evaluation.evaluation_type === 'llm_judge' && evaluation.id
+        evaluationTypeUsesModelConfiguration(evaluation.evaluation_type) && evaluation.id
             ? combineUrl(urls.aiObservabilityPlayground(), { source_evaluation_id: evaluation.id }).url
             : null
 
     const isHog = evaluation.evaluation_type === 'hog'
     const isSentiment = evaluation.evaluation_type === 'sentiment'
-    const isBooleanEvaluation = evaluation.output_type === 'boolean'
+    const isReportableEvaluation = evaluationSupportsReports(evaluation)
+    const hasEditableCriteria = evaluationTypeHasEditableCriteria(evaluation.evaluation_type)
+    const canUseEvaluationType = evaluationTypeCanBeCreated(evaluation.evaluation_type, featureFlags)
+    const canSaveEvaluationType =
+        canUseEvaluationType || originalEvaluation?.evaluation_type === evaluation.evaluation_type
+    const effectiveCanEnable = canEnable && (evaluation.enabled || canUseEvaluationType)
+    const effectiveCanEnableReason =
+        !evaluation.enabled && !canUseEvaluationType
+            ? 'Sentiment evaluations are not available for this project.'
+            : canEnableReason
 
     const trendInsightUrl =
-        !isSentiment && !isNewEvaluation && evaluation.id
+        isReportableEvaluation && !isNewEvaluation && evaluation.id
             ? urls.insightNew({
                   query: {
                       kind: NodeKind.InsightVizNode,
@@ -160,13 +177,15 @@ export function AIObservabilityEvaluation(): JSX.Element {
         (c) => (c.rollout_percentage ?? 0) > 100 || (c.rollout_percentage ?? 0) < 0
     )
     const hasConditions = evaluation.conditions.length > 0
-    const saveButtonDisabledReason = !hasName
-        ? 'Add a name for this evaluation'
-        : !configValid
-          ? isHog
-              ? 'Add evaluation code before saving'
-              : 'Add an evaluation prompt before saving'
-          : undefined
+    const saveButtonDisabledReason = !canSaveEvaluationType
+        ? 'Sentiment evaluations are not available for this project'
+        : !hasName
+          ? 'Add a name for this evaluation'
+          : !configValid
+            ? isHog
+                ? 'Add evaluation code before saving'
+                : 'Add an evaluation prompt before saving'
+            : undefined
 
     const focusTriggers = (): void => {
         setActiveTab('configuration')
@@ -214,16 +233,22 @@ export function AIObservabilityEvaluation(): JSX.Element {
               },
           ]
         : []
+    const sentimentEvaluationMethodOptions: { value: EvaluationType; label: string }[] =
+        evaluationTypeCanBeCreated('sentiment', featureFlags) || isSentiment
+            ? [
+                  {
+                      value: 'sentiment',
+                      label: 'Sentiment analysis',
+                  },
+              ]
+            : []
     const evaluationMethodOptions: { value: EvaluationType; label: string }[] = [
         {
             value: 'llm_judge',
             label: 'LLM as a judge',
         },
         ...hogEvaluationMethodOptions,
-        {
-            value: 'sentiment',
-            label: 'Sentiment analysis',
-        },
+        ...sentimentEvaluationMethodOptions,
     ]
 
     return (
@@ -344,7 +369,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                 <div className="font-semibold text-lg">{runsSummary.total}</div>
                                                 <div className="text-muted">Total runs</div>
                                             </div>
-                                            {isBooleanEvaluation && (
+                                            {isReportableEvaluation && (
                                                 <div className="text-center">
                                                     <div className="font-semibold text-lg text-success">
                                                         {runsSummary.successRate}%
@@ -352,7 +377,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                     <div className="text-muted">Success rate</div>
                                                 </div>
                                             )}
-                                            {isBooleanEvaluation && evaluation.output_config.allows_na && (
+                                            {isReportableEvaluation && evaluation.output_config.allows_na && (
                                                 <div className="text-center">
                                                     <div className="font-semibold text-lg">
                                                         {runsSummary.applicabilityRate}%
@@ -374,7 +399,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                         ),
                     },
                     !isNewEvaluation &&
-                        isBooleanEvaluation &&
+                        isReportableEvaluation &&
                         !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_REPORTS] && {
                             key: 'reports',
                             label: 'Reports',
@@ -445,28 +470,28 @@ export function AIObservabilityEvaluation(): JSX.Element {
 
                                             <div className="flex items-center gap-2">
                                                 <Tooltip
-                                                    title={canEnableReason}
-                                                    visible={canEnableReason ? undefined : false}
+                                                    title={effectiveCanEnableReason}
+                                                    visible={effectiveCanEnableReason ? undefined : false}
                                                 >
                                                     <span>
                                                         <LemonSwitch
                                                             checked={evaluation.enabled}
                                                             onChange={setEvaluationEnabled}
                                                             label="Enable evaluation"
-                                                            disabled={!canEnable && !evaluation.enabled}
+                                                            disabled={!effectiveCanEnable && !evaluation.enabled}
                                                         />
                                                     </span>
                                                 </Tooltip>
                                                 <span className="text-muted text-sm">
-                                                    {!canEnable && !evaluation.enabled
-                                                        ? 'Add a provider API key to re-enable this evaluation'
+                                                    {!effectiveCanEnable && !evaluation.enabled
+                                                        ? effectiveCanEnableReason
                                                         : evaluation.enabled
                                                           ? 'This evaluation will run automatically based on triggers'
                                                           : 'This evaluation is paused and will not run'}
                                                 </span>
                                             </div>
 
-                                            {isBooleanEvaluation && (
+                                            {isReportableEvaluation && (
                                                 <Field
                                                     name="allows_na"
                                                     label={
@@ -503,7 +528,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                             )}
                                             {!isNewEvaluation &&
                                                 user?.is_staff &&
-                                                evaluation.evaluation_type === 'llm_judge' && (
+                                                evaluationTypeSupportsSignalEmission(evaluation.evaluation_type) && (
                                                     <div className="flex items-center gap-2">
                                                         <LemonSwitch
                                                             checked={signalEmissionEnabled}
@@ -519,7 +544,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                     </div>
 
                                     {/* Prompt / Code Configuration */}
-                                    {!isSentiment && (
+                                    {hasEditableCriteria && (
                                         <div className="bg-bg-light border rounded p-6">
                                             <h3 className="text-lg font-semibold mb-4">
                                                 {isHog ? 'Evaluation code' : 'Evaluation prompt'}
@@ -529,7 +554,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                     )}
 
                                     {/* Judge Model Configuration (LLM judge only) */}
-                                    {evaluation.evaluation_type === 'llm_judge' &&
+                                    {evaluationTypeUsesModelConfiguration(evaluation.evaluation_type) &&
                                         featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_CUSTOM_MODELS] && (
                                             <EvaluationModelPicker />
                                         )}
@@ -545,7 +570,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
 
                                     {/* Scheduled Reports (inline config for new evaluations) */}
                                     {isNewEvaluation &&
-                                        isBooleanEvaluation &&
+                                        isReportableEvaluation &&
                                         featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_REPORTS] && (
                                             <EvaluationReportConfig evaluationId="new" />
                                         )}
@@ -553,7 +578,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
 
                                 {/* Scheduled Reports (for existing evaluations, outside the form) */}
                                 {!isNewEvaluation &&
-                                    isBooleanEvaluation &&
+                                    isReportableEvaluation &&
                                     featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_REPORTS] && (
                                         <div className="mt-6">
                                             <EvaluationReportConfig evaluationId={evaluation.id} />

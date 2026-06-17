@@ -15,8 +15,8 @@ Also available to Claude Code / Codex via `hogli sync:skill`.
   by model/provider/user/trace/custom dimension, token and cache economics,
   cost regressions, and materializing cost insights, dashboards, and alerts.
 - **exploring-llm-evaluations** — how to manage and investigate AI observability
-  evaluations (both `hog` and `llm_judge` types), run them on specific generations,
-  query individual results, and generate AI-powered summaries of pass/fail/N/A patterns.
+  evaluations (`hog`, `llm_judge`, and `sentiment`), run them on specific generations,
+  query individual results, and generate AI-powered summaries of pass/fail/N/A patterns for boolean evaluations.
 
 Skills for managing skills themselves (`skills-store`, `working-with-skills`) now live in
 the standalone Skills product — see `products/skills/skills/`.
