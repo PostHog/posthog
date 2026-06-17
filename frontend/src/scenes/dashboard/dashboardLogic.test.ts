@@ -1915,6 +1915,45 @@ describe('dashboardLogic', () => {
             })
         })
 
+        it('snapshots the dashboard before the update so a failure does not read it post-await', async () => {
+            // The unmount race (the user navigating away mid-request) makes any post-await
+            // selector read throw "[KEA] Can not find path ... in the store". The loader guards
+            // against this by capturing values.dashboard before awaiting, so the failure path
+            // returns that snapshot rather than reading the store after the await resolves.
+            let rejectUpdate!: (e: Error) => void
+            const pending = new Promise<never>((_, reject) => {
+                rejectUpdate = reject
+            })
+            const updateSpy = jest.spyOn(api, 'update').mockReturnValueOnce(pending as any)
+            const lemonToastErrorSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast-id')
+
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            const dashboardBeforeUpdate = logic.values.dashboard
+
+            logic.actions.duplicateTile(WIDGET_TILE)
+
+            // The dashboard reference changes while the request is in flight.
+            logic.actions.loadDashboardSuccess({
+                ...(dashboardBeforeUpdate as DashboardType<QueryBasedInsightModel>),
+                name: 'changed mid-request',
+            })
+
+            rejectUpdate(new Error('aborted'))
+            await pending.catch(() => {})
+            await expectLogic(logic).toFinishAllListeners()
+
+            // On failure the loader returns the pre-await snapshot, not whatever the store held
+            // after the await — the read that would have thrown had the logic unmounted.
+            expect(lemonToastErrorSpy).toHaveBeenCalled()
+            expect(logic.values.dashboard?.name).toBe(dashboardBeforeUpdate?.name)
+
+            lemonToastErrorSpy.mockRestore()
+            updateSpy.mockRestore()
+        })
+
         it('addWidgetTiles refreshes newly created widget tiles', async () => {
             const addedTile = {
                 id: 99,

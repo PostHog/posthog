@@ -603,16 +603,20 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     return values.dashboard
                 },
                 duplicateTile: async ({ tile }) => {
+                    // Cache store-backed values before the await — the logic may unmount mid-request
+                    // (e.g. the user navigates away), removing its path from the store and making any
+                    // post-await selector read throw "[KEA] Can not find path ... in the store".
+                    const { currentTeamId, layouts, dashboard: currentDashboard } = values
                     try {
                         const newTile = { ...tile } as Partial<DashboardTile<QueryBasedInsightModel>>
                         if (newTile.text) {
                             newTile.text = { body: newTile.text.body } as TextModel
                         }
 
-                        const { duplicateLayouts, tilesToUpdate } = calculateDuplicateLayout(values.layouts, tile.id)
+                        const { duplicateLayouts, tilesToUpdate } = calculateDuplicateLayout(layouts, tile.id)
 
                         const dashboard: DashboardType<InsightModel> = await api.update(
-                            `api/environments/${values.currentTeamId}/dashboards/${props.id}`,
+                            `api/environments/${currentTeamId}/dashboards/${props.id}`,
                             {
                                 duplicate_tiles: [{ ...newTile, layouts: duplicateLayouts }],
                                 tiles: tilesToUpdate.length > 0 ? tilesToUpdate : undefined,
@@ -621,7 +625,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         return getQueryBasedDashboard(dashboard)
                     } catch (e) {
                         lemonToast.error('Could not duplicate tile: ' + String(e))
-                        return values.dashboard
+                        return currentDashboard
                     }
                 },
                 moveToDashboard: async ({ tile, fromDashboard, toDashboard }) => {
