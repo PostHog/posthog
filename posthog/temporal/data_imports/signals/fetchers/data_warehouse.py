@@ -61,7 +61,11 @@ def data_warehouse_record_fetcher(
     )
     parsed = parse_select(query, placeholders=placeholders) if placeholders else parse_select(query)
     try:
-        result = execute_hogql_query(query=parsed, team=team, query_type="EmitSignalsNewRecords")
+        # Internal data-import signal fetcher (no user); bypass warehouse HogQL access control so it
+        # can read the source warehouse table.
+        result = execute_hogql_query(
+            query=parsed, team=team, query_type="EmitSignalsNewRecords", bypass_access_control=True
+        )
     except Exception as e:
         logger.exception(f"Error querying new records: {e}", **extra)
         # Raising to avoid creating permanent gaps in emitted signals, in hope the activity will fix itself on the restart

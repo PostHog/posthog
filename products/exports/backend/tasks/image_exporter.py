@@ -511,7 +511,8 @@ def export_image(
                         team=exported_asset.team,
                         dashboard=exported_asset.dashboard,
                         execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-                        user=None,
+                        # Background render (no request user); attribute the read to the export owner.
+                        user=exported_asset.created_by,
                         variables_override=None,
                         tile_filters_override=tile_filters_override,
                         query_override=query_override,
@@ -524,7 +525,8 @@ def export_image(
                             team=exported_asset.team,
                             dashboard=exported_asset.dashboard,
                             execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-                            user=None,
+                            # Background render (no request user); attribute the read to the export owner.
+                            user=exported_asset.created_by,
                             variables_override=dashboard_variables,
                             tile_filters_override=tile_filters_override,
                             analytics_props=export_analytics_props,
@@ -560,7 +562,8 @@ def export_image(
                             team=exported_asset.team,
                             dashboard=exported_asset.dashboard,
                             execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-                            user=None,
+                            # Background render (no request user); attribute the read to the export owner.
+                            user=exported_asset.created_by,
                             variables_override=dashboard_variables,
                             tile_filters_override=tile.filters_overrides,
                             analytics_props=export_analytics_props,

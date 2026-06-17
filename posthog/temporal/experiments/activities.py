@@ -193,6 +193,9 @@ def _calculate_experiment_regular_metric_sync(
             query=experiment_query,
             team=experiment.team,
             workload=Workload.OFFLINE,
+            # Scheduled recalc (no request user); experiment metrics are canonical team-level aggregates
+            # behind experiment access control, so bypass warehouse HogQL access control.
+            bypass_access_control=True,
         )
         # .run() writes to the response cache. The "warming/*" trigger tells
         # run() this is a scheduled job, not a user query, so it skips logging
@@ -460,6 +463,9 @@ def _calculate_experiment_saved_metric_sync(
             query=experiment_query,
             team=experiment.team,
             workload=Workload.OFFLINE,
+            # Scheduled recalc (no request user); experiment metrics are canonical team-level aggregates
+            # behind experiment access control, so bypass warehouse HogQL access control.
+            bypass_access_control=True,
         )
         # .run() writes to the response cache. The "warming/*" trigger tells
         # run() this is a scheduled job, not a user query, so it skips logging
@@ -621,6 +627,9 @@ def _backfill_experiment_metric_sync(recalculation_id: str) -> dict[str, Any]:
                     team=experiment.team,
                     override_end_date=query_to_utc,
                     workload=Workload.OFFLINE,
+                    # Scheduled backfill (no request user); experiment metrics are canonical team-level
+                    # aggregates behind experiment access control, so bypass warehouse HogQL access control.
+                    bypass_access_control=True,
                 )
                 result = query_runner._calculate()
 

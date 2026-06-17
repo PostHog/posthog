@@ -132,7 +132,9 @@ class TrendsExtractor:
             insight,
             team=alert.team,
             execution_mode=execution_mode,
-            user=None,
+            # Scheduled alert check (no request user); attribute the read to the alert owner so
+            # warehouse HogQL access control resolves against their access.
+            user=alert.created_by,
             filters_override=filters_override,
             analytics_props={"source": EventSource.ALERT},
         )

@@ -127,12 +127,14 @@ class ExperimentQueryRunner(QueryRunner):
         override_end_date: Optional[datetime] = None,
         user_facing: bool = True,
         max_execution_time: Optional[int] = None,
+        bypass_access_control: bool = False,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
         self.override_end_date = override_end_date
         self.user_facing = user_facing
         self.max_execution_time = max_execution_time if max_execution_time is not None else MAX_EXECUTION_TIME
+        self.bypass_access_control = bypass_access_control
 
         if not self.query.experiment_id:
             raise ValidationError("experiment_id is required")
@@ -457,6 +459,7 @@ class ExperimentQueryRunner(QueryRunner):
             query=experiment_query_ast,
             team=self.team,
             user=self.user,
+            bypass_access_control=self.bypass_access_control,
             timings=self.timings,
             modifiers=modifiers,
             settings=settings,

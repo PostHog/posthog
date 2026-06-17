@@ -1,4 +1,4 @@
-from typing import Any, cast
+from typing import Any, Optional, cast
 from zoneinfo import ZoneInfo
 
 import numpy as np
@@ -8,6 +8,7 @@ from posthog.schema import IntervalType, NodeKind, TrendsAlertConfig, TrendsQuer
 from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.models.user import User
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 
 # Low-level scoring/extraction primitives still live in the legacy detector module.
@@ -36,6 +37,7 @@ def extract_detector_series(
     *,
     series_index: int = 0,
     date_from: str | None = None,
+    user: Optional[User] = None,
 ) -> ExtractionResult:
     """Run a trends insight over the detector's lookback window and normalize it into series.
 
@@ -66,7 +68,7 @@ def extract_detector_series(
         execution_mode = ExecutionMode.CALCULATE_BLOCKING_ALWAYS
 
     calculation_result = calculate_for_query_based_insight(
-        insight, team=team, execution_mode=execution_mode, user=None, filters_override=filters_override
+        insight, team=team, execution_mode=execution_mode, user=user, filters_override=filters_override
     )
 
     if calculation_result.result is None:
@@ -188,7 +190,9 @@ class TrendsDetectorExtractor:
             raise ValueError("TrendsDetectorExtractor requires detector_config — dispatcher invariant violated")
         trends_query = TrendsQuery.model_validate(query)
         series_index = (alert.config or {}).get("series_index", 0)
-        return extract_detector_series(insight, alert.team, trends_query, detector_config, series_index=series_index)
+        return extract_detector_series(
+            insight, alert.team, trends_query, detector_config, series_index=series_index, user=alert.created_by
+        )
 
 
 def simulate_detector_on_insight(
@@ -197,6 +201,7 @@ def simulate_detector_on_insight(
     detector_config: dict[str, Any],
     series_index: int = 0,
     date_from: str | None = None,
+    user: Optional[User] = None,
 ) -> dict[str, Any]:
     """Run a detector over historical insight data for chart visualization. Read-only (no AlertCheck)."""
     if insight.query is None:
@@ -217,7 +222,7 @@ def simulate_detector_on_insight(
     tag_queries(product=Product.PRODUCT_ANALYTICS, feature=Feature.ALERTING)
     detector_type_str = detector_config.get("type", "zscore")
     result = extract_detector_series(
-        insight, team, trends_query, detector_config, series_index=series_index, date_from=date_from
+        insight, team, trends_query, detector_config, series_index=series_index, date_from=date_from, user=user
     )
     interval_value = trends_query.interval.value if trends_query.interval else None
 

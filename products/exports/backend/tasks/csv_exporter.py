@@ -490,6 +490,9 @@ def get_from_query(
                 query_json=paginated_query,
                 limit_context=LimitContext.EXPORT,
                 execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                # Background export (no request user); attribute the read to the export owner so
+                # warehouse HogQL access control resolves against their access.
+                user=exported_asset.created_by,
                 pagination_cursor=cursor,
                 analytics_props=analytics_props,
             )

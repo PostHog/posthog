@@ -113,6 +113,7 @@ def _run_detector_simulation(
             team=team,
             detector_config=alert.detector_config or {"type": "zscore", "threshold": 0.95},
             date_from=date_from,
+            user=alert.created_by,
         )
     except Exception as err:
         return str(err)
