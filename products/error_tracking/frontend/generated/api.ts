@@ -23,6 +23,7 @@ import type {
     ErrorTrackingGroupingRuleCreateRequestApi,
     ErrorTrackingGroupingRuleListResponseApi,
     ErrorTrackingGroupingRuleUpdateRequestApi,
+    ErrorTrackingGroupingRulesListParams,
     ErrorTrackingIssueDetailApi,
     ErrorTrackingIssueEventsQueryRequestApi,
     ErrorTrackingIssueEventsResponseApi,
@@ -448,18 +449,37 @@ export const errorTrackingGitProviderFileLinksResolveGitlabRetrieve = async (
     )
 }
 
-export const getErrorTrackingGroupingRulesListUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/error_tracking/grouping_rules/`
+export const getErrorTrackingGroupingRulesListUrl = (
+    projectId: string,
+    params?: ErrorTrackingGroupingRulesListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/error_tracking/grouping_rules/?${stringifiedParams}`
+        : `/api/projects/${projectId}/error_tracking/grouping_rules/`
 }
 
 export const errorTrackingGroupingRulesList = async (
     projectId: string,
+    params?: ErrorTrackingGroupingRulesListParams,
     options?: RequestInit
 ): Promise<ErrorTrackingGroupingRuleListResponseApi> => {
-    return apiMutator<ErrorTrackingGroupingRuleListResponseApi>(getErrorTrackingGroupingRulesListUrl(projectId), {
-        ...options,
-        method: 'GET',
-    })
+    return apiMutator<ErrorTrackingGroupingRuleListResponseApi>(
+        getErrorTrackingGroupingRulesListUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getErrorTrackingGroupingRulesCreateUrl = (projectId: string) => {
@@ -989,7 +1009,7 @@ export const getErrorTrackingReleasesCreateUrl = (projectId: string) => {
 
 export const errorTrackingReleasesCreate = async (
     projectId: string,
-    errorTrackingReleaseApi: NonReadonly<ErrorTrackingReleaseApi>,
+    errorTrackingReleaseApi: ErrorTrackingReleaseApi,
     options?: RequestInit
 ): Promise<ErrorTrackingReleaseApi> => {
     return apiMutator<ErrorTrackingReleaseApi>(getErrorTrackingReleasesCreateUrl(projectId), {
@@ -1022,7 +1042,7 @@ export const getErrorTrackingReleasesUpdateUrl = (projectId: string, id: string)
 export const errorTrackingReleasesUpdate = async (
     projectId: string,
     id: string,
-    errorTrackingReleaseApi: NonReadonly<ErrorTrackingReleaseApi>,
+    errorTrackingReleaseApi: ErrorTrackingReleaseApi,
     options?: RequestInit
 ): Promise<ErrorTrackingReleaseApi> => {
     return apiMutator<ErrorTrackingReleaseApi>(getErrorTrackingReleasesUpdateUrl(projectId, id), {
@@ -1040,7 +1060,7 @@ export const getErrorTrackingReleasesPartialUpdateUrl = (projectId: string, id: 
 export const errorTrackingReleasesPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedErrorTrackingReleaseApi?: NonReadonly<PatchedErrorTrackingReleaseApi>,
+    patchedErrorTrackingReleaseApi?: PatchedErrorTrackingReleaseApi,
     options?: RequestInit
 ): Promise<ErrorTrackingReleaseApi> => {
     return apiMutator<ErrorTrackingReleaseApi>(getErrorTrackingReleasesPartialUpdateUrl(projectId, id), {
@@ -1215,31 +1235,13 @@ export const errorTrackingStackFramesRetrieve = async (
     })
 }
 
-export const getErrorTrackingStackFramesDestroyUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/error_tracking/stack_frames/${id}/`
-}
-
-/**
- * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
- */
-export const errorTrackingStackFramesDestroy = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<unknown> => {
-    return apiMutator<unknown>(getErrorTrackingStackFramesDestroyUrl(projectId, id), {
-        ...options,
-        method: 'DELETE',
-    })
-}
-
 export const getErrorTrackingStackFramesBatchGetCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/error_tracking/stack_frames/batch_get/`
 }
 
 export const errorTrackingStackFramesBatchGetCreate = async (
     projectId: string,
-    errorTrackingStackFrameApi: NonReadonly<ErrorTrackingStackFrameApi>,
+    errorTrackingStackFrameApi: ErrorTrackingStackFrameApi,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getErrorTrackingStackFramesBatchGetCreateUrl(projectId), {

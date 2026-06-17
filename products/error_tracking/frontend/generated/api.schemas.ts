@@ -20,12 +20,8 @@ export interface ErrorTrackingAssignmentRuleApi {
     filters: unknown
     /** @nullable */
     readonly assignee: ErrorTrackingAssignmentRuleApiAssignee
-    /**
-     * @minimum -2147483648
-     * @maximum 2147483647
-     */
     order_key: number
-    disabled_data?: unknown
+    disabled_data: unknown
     readonly created_at: string
     readonly updated_at: string
 }
@@ -368,10 +364,6 @@ export interface PatchedErrorTrackingAssignmentRuleApi {
     filters?: unknown
     /** @nullable */
     readonly assignee?: PatchedErrorTrackingAssignmentRuleApiAssignee
-    /**
-     * @minimum -2147483648
-     * @maximum 2147483647
-     */
     order_key?: number
     disabled_data?: unknown
     readonly created_at?: string
@@ -447,18 +439,14 @@ export interface ErrorTrackingGroupingRuleApi {
     /** @nullable */
     readonly assignee: ErrorTrackingGroupingRuleApiAssignee
     /** @nullable */
-    description?: string | null
+    description: string | null
     /**
      * Issue linked to this rule
      * @nullable
      */
     readonly issue: ErrorTrackingGroupingRuleApiIssue
-    /**
-     * @minimum -2147483648
-     * @maximum 2147483647
-     */
     order_key: number
-    disabled_data?: unknown
+    disabled_data: unknown
     readonly created_at: string
     readonly updated_at: string
 }
@@ -525,10 +513,6 @@ export interface PatchedErrorTrackingGroupingRuleApi {
      * @nullable
      */
     readonly issue?: PatchedErrorTrackingGroupingRuleApiIssue
-    /**
-     * @minimum -2147483648
-     * @maximum 2147483647
-     */
     order_key?: number
     disabled_data?: unknown
     readonly created_at?: string
@@ -1295,12 +1279,18 @@ export interface PaginatedErrorTrackingRecommendationListApi {
     results: ErrorTrackingRecommendationApi[]
 }
 
+/**
+ * @nullable
+ */
+export type ErrorTrackingReleaseApiMetadata = { [key: string]: unknown } | null
+
 export interface ErrorTrackingReleaseApi {
-    readonly id: string
+    id: string
     hash_id: string
-    readonly team_id: number
-    readonly created_at: string
-    metadata?: unknown
+    team_id: number
+    created_at: string
+    /** @nullable */
+    metadata: ErrorTrackingReleaseApiMetadata
     version: string
     project: string
 }
@@ -1314,12 +1304,18 @@ export interface PaginatedErrorTrackingReleaseListApi {
     results: ErrorTrackingReleaseApi[]
 }
 
+/**
+ * @nullable
+ */
+export type PatchedErrorTrackingReleaseApiMetadata = { [key: string]: unknown } | null
+
 export interface PatchedErrorTrackingReleaseApi {
-    readonly id?: string
+    id?: string
     hash_id?: string
-    readonly team_id?: number
-    readonly created_at?: string
-    metadata?: unknown
+    team_id?: number
+    created_at?: string
+    /** @nullable */
+    metadata?: PatchedErrorTrackingReleaseApiMetadata
     version?: string
     project?: string
 }
@@ -1415,19 +1411,19 @@ export interface PatchedErrorTrackingSpikeDetectionConfigApi {
 }
 
 export interface ErrorTrackingSpikeEventIssueApi {
-    readonly id: string
+    id: string
     /** @nullable */
-    readonly name: string | null
+    name: string | null
     /** @nullable */
-    readonly description: string | null
+    description: string | null
 }
 
 export interface ErrorTrackingSpikeEventApi {
-    readonly id: string
-    readonly issue: ErrorTrackingSpikeEventIssueApi
-    readonly detected_at: string
-    readonly computed_baseline: number
-    readonly current_bucket_value: number
+    id: string
+    issue: ErrorTrackingSpikeEventIssueApi
+    detected_at: string
+    computed_baseline: number
+    current_bucket_value: number
 }
 
 export interface PaginatedErrorTrackingSpikeEventListApi {
@@ -1439,16 +1435,24 @@ export interface PaginatedErrorTrackingSpikeEventListApi {
     results: ErrorTrackingSpikeEventApi[]
 }
 
+export type ErrorTrackingStackFrameApiContents = { [key: string]: unknown }
+
+/**
+ * @nullable
+ */
+export type ErrorTrackingStackFrameApiContext = { [key: string]: unknown } | null
+
 export interface ErrorTrackingStackFrameApi {
-    readonly id: string
-    /** Raw frame ID in 'hash/part' format */
-    readonly raw_id: string
-    readonly created_at: string
-    contents: unknown
+    id: string
+    raw_id: string
+    created_at: string
+    contents: ErrorTrackingStackFrameApiContents
     resolved: boolean
-    context?: unknown
-    symbol_set_ref?: string
-    readonly release: ErrorTrackingReleaseApi
+    /** @nullable */
+    context: ErrorTrackingStackFrameApiContext
+    /** @nullable */
+    symbol_set_ref: string | null
+    release: ErrorTrackingReleaseApi | null
 }
 
 export interface PaginatedErrorTrackingStackFrameListApi {
@@ -1463,13 +1467,9 @@ export interface PaginatedErrorTrackingStackFrameListApi {
 export interface ErrorTrackingSuppressionRuleApi {
     readonly id: string
     filters: unknown
-    /**
-     * @minimum -2147483648
-     * @maximum 2147483647
-     */
     order_key: number
-    disabled_data?: unknown
-    sampling_rate?: number
+    disabled_data: unknown
+    sampling_rate: number
     readonly created_at: string
     readonly updated_at: string
 }
@@ -1519,10 +1519,6 @@ export interface PatchedErrorTrackingSuppressionRuleUpdateRequestApi {
 export interface PatchedErrorTrackingSuppressionRuleApi {
     readonly id?: string
     filters?: unknown
-    /**
-     * @minimum -2147483648
-     * @maximum 2147483647
-     */
     order_key?: number
     disabled_data?: unknown
     sampling_rate?: number
@@ -1706,6 +1702,17 @@ export type ErrorTrackingGitProviderFileLinksResolveGitlabRetrieveParams = {
      * @minLength 1
      */
     repository: string
+}
+
+export type ErrorTrackingGroupingRulesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type ErrorTrackingIssuesListParams = {

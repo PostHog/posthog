@@ -1012,6 +1012,11 @@ export const ErrorTrackingGroupingRulesListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const ErrorTrackingGroupingRulesListQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+})
+
 export const ErrorTrackingGroupingRulesCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
@@ -2004,7 +2009,7 @@ export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
 })
 
 export const ErrorTrackingGroupingRulesUpdateParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this error tracking grouping rule.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -4537,7 +4542,7 @@ export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod.objec
 })
 
 export const ErrorTrackingSuppressionRulesUpdateParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this error tracking suppression rule.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
