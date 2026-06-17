@@ -23,6 +23,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     QueryTimeoutException,
     TemporaryFileSizeExceedsLimitException,
 )
+from posthog.temporal.data_imports.sources.common.sql.predicates import ColumnTypeCategory, ValidatedRowFilter
 from posthog.temporal.data_imports.sources.postgres.partitioned_tables import (
     WINDOW_MAX_QUERY_CANCELED_RETRIES,
     WINDOW_MAX_SERIALIZATION_RETRIES,
@@ -271,6 +272,10 @@ class TestPostgresSourceNonRetryableErrors:
             'connection failed: connection to server at "52.45.94.125", port 6543 failed: FATAL:  (ENOTFOUND) tenant/user postgres.hksbxxtlcfeyyalgveif not found',
             "ProtocolViolation: server login has been failing, cached error: connect timeout (server_login_retry)",
             "server login has been failing, cached error: connection refused (server_login_retry)",
+            # AWS RDS Proxy rejects bad credentials with its own wording (validated against Secrets
+            # Manager), not PostgreSQL's "password authentication failed for user". Newlines are
+            # normalized to spaces upstream, so the real message arrives as the doubled single line.
+            'connection failed: connection to server at "127.0.0.1", port 35425 failed: FATAL:  The password that was provided for the role postgres is wrong. connection to server at "127.0.0.1", port 35425 failed: FATAL:  This RDS Proxy requires TLS connections',
         ],
     )
     def test_permanent_connection_errors_are_non_retryable(self, source, error_msg):
@@ -324,6 +329,22 @@ class TestPostgresSourceNonRetryableErrors:
         friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
         assert friendly, "Exceeded compute-time quota error should surface an actionable message"
         assert "compute-time quota" in friendly[0]
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            'connection failed: connection to server at "127.0.0.1", port 35425 failed: FATAL:  The password that was provided for the role postgres is wrong.',
+            'connection failed: connection to server at "10.0.0.1", port 5432 failed: FATAL:  The password that was provided for the role posthog_readonly is wrong.',
+        ],
+    )
+    def test_rds_proxy_wrong_password_is_non_retryable(self, source, error_msg):
+        # RDS Proxy's wrong-credentials wording isn't covered by the PostgreSQL "password
+        # authentication failed for user" key, so confirm the dedicated role-password key is what
+        # recognises it, independent of the volatile role name.
+        non_retryable = source.get_non_retryable_errors()
+        assert "The password that was provided for the role" in non_retryable
+        assert "password authentication failed for user" not in error_msg
+        assert any(pattern in error_msg for pattern in non_retryable.keys())
 
     def test_supavisor_enotfound_tenant_user_uses_new_key(self, source):
         # The older tenant/user patterns don't cover the newer "(ENOTFOUND) tenant/user" wording,
@@ -922,6 +943,9 @@ class TestServerCursorStatementTimeout:
         def __init__(self):
             self.autocommit = False
             self.closed = False
+            # Real psycopg connections expose `broken`; the setup path probes it via
+            # `_raise_if_setup_connection_broken`, so the fake must carry it too.
+            self.broken = False
             self.adapters = mock.Mock()
 
         def cursor(self, *args, **kwargs):
@@ -1315,6 +1339,64 @@ class TestPostgresSchemaDiscovery:
         connection = mock.MagicMock()
         connection.cursor.return_value = cursor_context
         return connection
+
+    def test_get_schemas_retries_transient_connection_drop_on_connect(self):
+        # A transient drop on the discovery connect ("server closed the connection unexpectedly")
+        # is the same class of error the import read path already recovers from. Discovery must
+        # retry the connect in-process and recover instead of failing the whole run — and surfacing
+        # as captured error-tracking noise — on the first blip.
+        drop = psycopg.OperationalError(
+            'connection failed: connection to server at "66.33.22.246", port 11212 failed: '
+            "server closed the connection unexpectedly"
+        )
+        connection = self._mock_connection(
+            [("public", "users")],
+            [("public", "users", "id", "integer", "NO", 1)],
+        )
+
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
+            side_effect=[drop, connection],
+        ) as connect_mock:
+            with mock.patch("posthog.temporal.data_imports.sources.postgres.postgres.time.sleep"):
+                schemas = get_schemas(
+                    host="localhost",
+                    port=5432,
+                    database="postgres",
+                    user="postgres",
+                    password="postgres",
+                    schema="",
+                )
+
+        # First connect dropped, second succeeded — before the fix the drop escaped on the first
+        # connect (call_count == 1) and failed the discovery activity.
+        assert connect_mock.call_count == 2
+        assert set(schemas.keys()) == {"public.users"}
+        connection.close.assert_called_once()
+
+    def test_get_schemas_does_not_retry_permanent_connect_error(self):
+        # A permanent connect failure (bad password) must propagate on the first attempt — the
+        # dropped-connection retry is scoped strictly to transient drops.
+        err = psycopg.OperationalError(
+            'connection to server at "10.0.0.1" failed: FATAL: password authentication failed for user "postgres"'
+        )
+
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
+            side_effect=err,
+        ) as connect_mock:
+            with mock.patch("posthog.temporal.data_imports.sources.postgres.postgres.time.sleep"):
+                with pytest.raises(psycopg.OperationalError):
+                    get_schemas(
+                        host="localhost",
+                        port=5432,
+                        database="postgres",
+                        user="postgres",
+                        password="postgres",
+                        schema="",
+                    )
+
+        assert connect_mock.call_count == 1
 
     def test_get_schemas_qualifies_table_names_when_schema_is_blank(self):
         connection = self._mock_connection(
@@ -2008,6 +2090,103 @@ class TestBuildQuery:
         assert '"cursor" > ' in rendered
         assert '"cursor" >= ' not in rendered
 
+    def test_row_filter_full_refresh(self):
+        query = _build_query(
+            "public",
+            "users",
+            False,
+            "table",
+            None,
+            None,
+            None,
+            row_filters=[ValidatedRowFilter(column="age", operator=">", value=21, category=ColumnTypeCategory.INTEGER)],
+        )
+        rendered = self._render(query)
+        assert 'WHERE "age" > 21' in rendered
+
+    def test_row_filter_composes_with_incremental(self):
+        query = _build_query(
+            "public",
+            "events",
+            True,
+            "table",
+            "created_at",
+            IncrementalFieldType.Timestamp,
+            "2024-01-01",
+            row_filters=[ValidatedRowFilter(column="age", operator=">", value=21, category=ColumnTypeCategory.INTEGER)],
+        )
+        rendered = self._render(query)
+        assert '"created_at"' in rendered
+        assert 'AND "age" > 21' in rendered
+        assert rendered.rstrip().endswith('ORDER BY "created_at" ASC')
+
+    def test_row_filter_in_list_renders_parenthesized(self):
+        query = _build_query(
+            "public",
+            "users",
+            False,
+            "table",
+            None,
+            None,
+            None,
+            row_filters=[
+                ValidatedRowFilter(column="age", operator="IN", value=[21, 30, 40], category=ColumnTypeCategory.INTEGER)
+            ],
+        )
+        rendered = self._render(query)
+        assert 'WHERE "age" IN (21, 30, 40)' in rendered
+
+    def test_row_filter_composes_with_windowed_upper_bound(self):
+        query = _build_query(
+            "public",
+            "events",
+            True,
+            "table",
+            "cursor",
+            IncrementalFieldType.Date,
+            date(2026, 5, 13),
+            upper_bound_inclusive=date(2026, 5, 14),
+            row_filters=[ValidatedRowFilter(column="age", operator=">", value=21, category=ColumnTypeCategory.INTEGER)],
+        )
+        rendered = self._render(query)
+        # Row filter is ANDed after the window's upper bound, before ORDER BY.
+        assert '"cursor" <= ' in rendered
+        assert 'AND "age" > 21' in rendered
+        assert rendered.index('"cursor" <= ') < rendered.index('"age" > 21')
+
+    def test_row_filter_not_applied_to_sampling(self):
+        query = _build_query(
+            "public",
+            "users",
+            False,
+            "table",
+            None,
+            None,
+            None,
+            add_sampling=True,
+            row_filters=[ValidatedRowFilter(column="age", operator=">", value=21, category=ColumnTypeCategory.INTEGER)],
+        )
+        rendered = self._render(query)
+        assert '"age"' not in rendered
+
+    def test_row_filter_string_value_is_escaped_literal(self):
+        query = _build_query(
+            "public",
+            "users",
+            False,
+            "table",
+            None,
+            None,
+            None,
+            row_filters=[
+                ValidatedRowFilter(
+                    column="name", operator="=", value="x'; DROP TABLE y; --", category=ColumnTypeCategory.STRING
+                )
+            ],
+        )
+        rendered = self._render(query)
+        assert "'x''; DROP TABLE y; --'" in rendered
+
 
 class TestBuildPartitionQuery:
     def _render(self, composed: sql.Composed) -> str:
@@ -2071,6 +2250,34 @@ class TestBuildPartitionQuery:
         )
         rendered = self._render(query)
         assert f'"cursor" {expected_operator} ' in rendered
+
+    def test_row_filter_full_refresh(self):
+        query = build_partition_query(
+            "public",
+            "events_2026_01",
+            should_use_incremental_field=False,
+            incremental_field=None,
+            incremental_field_type=None,
+            db_incremental_field_last_value=None,
+            row_filters=[ValidatedRowFilter(column="age", operator=">", value=21, category=ColumnTypeCategory.INTEGER)],
+        )
+        rendered = self._render(query)
+        assert 'WHERE "age" > 21' in rendered
+
+    def test_row_filter_composes_with_incremental(self):
+        query = build_partition_query(
+            "public",
+            "events_2026_01",
+            should_use_incremental_field=True,
+            incremental_field="created_at",
+            incremental_field_type=IncrementalFieldType.Timestamp,
+            db_incremental_field_last_value="2026-01-15",
+            row_filters=[ValidatedRowFilter(column="age", operator=">", value=21, category=ColumnTypeCategory.INTEGER)],
+        )
+        rendered = self._render(query)
+        assert '"created_at" > ' in rendered
+        assert 'AND "age" > 21' in rendered
+        assert rendered.rstrip().endswith('ORDER BY "created_at" ASC')
 
 
 class TestBuildCountQuery:

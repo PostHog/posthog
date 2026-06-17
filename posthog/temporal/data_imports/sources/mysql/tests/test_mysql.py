@@ -9,6 +9,7 @@ import pymysql
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from posthog.temporal.data_imports.sources.common.sql import Table, TableStats
+from posthog.temporal.data_imports.sources.common.sql.predicates import ColumnTypeCategory, ValidatedRowFilter
 from posthog.temporal.data_imports.sources.generated_configs import MySQLSourceConfig
 from posthog.temporal.data_imports.sources.mysql.mysql import (
     STATEMENT_TIMEOUT_SECONDS,
@@ -804,6 +805,66 @@ class TestBuildQueryEnabledColumns:
         assert "WHERE `created_at` > %(incremental_value)s" in query
 
 
+class TestBuildQueryRowFilters:
+    def test_full_refresh_row_filter(self):
+        query, params = _build_query(
+            schema="mydb",
+            table_name="message",
+            should_use_incremental_field=False,
+            incremental_field=None,
+            incremental_field_type=None,
+            db_incremental_field_last_value=None,
+            row_filters=[ValidatedRowFilter(column="age", operator=">", value=21, category=ColumnTypeCategory.INTEGER)],
+        )
+        assert "WHERE `age` > %(row_filter_0)s" in query
+        assert params == {"row_filter_0": 21}
+
+    def test_in_filter_expands_to_named_placeholders(self):
+        query, params = _build_query(
+            schema="mydb",
+            table_name="message",
+            should_use_incremental_field=False,
+            incremental_field=None,
+            incremental_field_type=None,
+            db_incremental_field_last_value=None,
+            row_filters=[
+                ValidatedRowFilter(column="age", operator="IN", value=[21, 30], category=ColumnTypeCategory.INTEGER)
+            ],
+        )
+        assert "WHERE `age` IN (%(row_filter_0_0)s, %(row_filter_0_1)s)" in query
+        assert params == {"row_filter_0_0": 21, "row_filter_0_1": 30}
+
+    def test_row_filters_compose_with_incremental(self):
+        query, params = _build_query(
+            schema="mydb",
+            table_name="message",
+            should_use_incremental_field=True,
+            incremental_field="created_at",
+            incremental_field_type=IncrementalFieldType.DateTime,
+            db_incremental_field_last_value="2025-01-01",
+            row_filters=[ValidatedRowFilter(column="age", operator=">", value=21, category=ColumnTypeCategory.INTEGER)],
+        )
+        assert "WHERE `created_at` > %(incremental_value)s AND `age` > %(row_filter_0)s" in query
+        assert params == {"incremental_value": "2025-01-01", "row_filter_0": 21}
+
+    def test_value_never_interpolated(self):
+        query, params = _build_query(
+            schema="mydb",
+            table_name="message",
+            should_use_incremental_field=False,
+            incremental_field=None,
+            incremental_field_type=None,
+            db_incremental_field_last_value=None,
+            row_filters=[
+                ValidatedRowFilter(
+                    column="name", operator="=", value="x'; DROP TABLE y; --", category=ColumnTypeCategory.STRING
+                )
+            ],
+        )
+        assert "DROP TABLE" not in query
+        assert params == {"row_filter_0": "x'; DROP TABLE y; --"}
+
+
 class TestMySQLSourceNonRetryableErrors:
     @pytest.fixture
     def source(self):
@@ -922,27 +983,39 @@ class TestMySQLSourceValidateCredentials:
         return source
 
     @pytest.mark.parametrize(
-        "raised",
+        "raised,expected_error",
         [
             # The exact error that fired this triage: an unreachable host surfaces as a
             # pymysql OperationalError(2003) wrapping an OSError — already non-retryable.
-            pymysql.err.OperationalError(
-                2003, "Can't connect to MySQL server on 'db.example.com' ([Errno 101] Network is unreachable)"
+            # A connection failure keeps the generic "check connection details" message.
+            (
+                pymysql.err.OperationalError(
+                    2003, "Can't connect to MySQL server on 'db.example.com' ([Errno 101] Network is unreachable)"
+                ),
+                "Could not connect to MySQL. Please check all connection details are valid.",
             ),
-            pymysql.err.OperationalError(
-                2003, "Can't connect to MySQL server on 'db.example.com' ([Errno 111] Connection refused)"
+            (
+                pymysql.err.OperationalError(
+                    2003, "Can't connect to MySQL server on 'db.example.com' ([Errno 111] Connection refused)"
+                ),
+                "Could not connect to MySQL. Please check all connection details are valid.",
             ),
-            pymysql.err.OperationalError(1045, "Access denied for user 'u'@'1.2.3.4' (using password: YES)"),
+            # An auth failure (error 1045) must name the credentials, not the generic message
+            # that sends the user to inspect the host/port instead. Mirrors Postgres.
+            (
+                pymysql.err.OperationalError(1045, "Access denied for user 'u'@'1.2.3.4' (using password: YES)"),
+                "Invalid user or password",
+            ),
         ],
     )
-    def test_known_connection_errors_are_not_captured(self, source, mocker, raised):
+    def test_known_connection_errors_are_not_captured(self, source, mocker, raised, expected_error):
         capture = mocker.patch("posthog.temporal.data_imports.sources.mysql.source.capture_exception")
         mocker.patch.object(source, "get_schemas", side_effect=raised)
 
         valid, error = source.validate_credentials(_make_config(), team_id=1)
 
         assert valid is False
-        assert error is not None
+        assert error == expected_error
         capture.assert_not_called()
 
     def test_unexpected_errors_are_still_captured(self, source, mocker):

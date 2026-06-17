@@ -210,6 +210,17 @@ export const AgentRevisionApiSpecReasoning = {
     Xhigh: 'xhigh',
 } as const
 
+export type AgentRevisionApiSpecFrameworkPromptOmitItem =
+    (typeof AgentRevisionApiSpecFrameworkPromptOmitItem)[keyof typeof AgentRevisionApiSpecFrameworkPromptOmitItem]
+
+export const AgentRevisionApiSpecFrameworkPromptOmitItem = {
+    MetaToolGuidance: 'meta_tool_guidance',
+    StateContract: 'state_contract',
+    ToolFailureGuidance: 'tool_failure_guidance',
+    ApprovalGuidance: 'approval_guidance',
+    ReasoningHint: 'reasoning_hint',
+} as const
+
 export type AgentRevisionApiSpecTriggersItem =
     | {
           type: 'slack'
@@ -219,6 +230,7 @@ export type AgentRevisionApiSpecTriggersItem =
               auto_resume_threads: boolean
               allow_workspace_participants: boolean
               ack_reaction?: string
+              allow_direct_messages: boolean
               trusted_workspaces: string[] | '*'
           }
       }
@@ -236,6 +248,7 @@ export type AgentRevisionApiSpecTriggersItem =
                   | {
                         type: 'posthog'
                         scopes?: string[]
+                        audience?: 'project' | 'organization'
                     }
                   | {
                         type: 'jwt'
@@ -291,6 +304,7 @@ export type AgentRevisionApiSpecTriggersItem =
                   | {
                         type: 'posthog'
                         scopes?: string[]
+                        audience?: 'project' | 'organization'
                     }
                   | {
                         type: 'jwt'
@@ -324,6 +338,7 @@ export type AgentRevisionApiSpecTriggersItem =
                   | {
                         type: 'posthog'
                         scopes?: string[]
+                        audience?: 'project' | 'organization'
                     }
                   | {
                         type: 'jwt'
@@ -446,6 +461,18 @@ export type AgentRevisionApiSpecSkillsItem = {
     version?: number
 }
 
+export type AgentRevisionApiSpecSecretsItem =
+    | string
+    | {
+          /** @minLength 1 */
+          name: string
+          /**
+           * @minItems 1
+           * @items.minLength 1
+           */
+          allowed_hosts: string[]
+      }
+
 export type AgentRevisionApiSpecLimits = {
     /**
      * @maximum 2147483647
@@ -467,6 +494,34 @@ export type AgentRevisionApiSpecLimits = {
      * @exclusiveMinimum 0
      */
     max_output_tokens?: number
+    /**
+     * @maximum 16384
+     * @exclusiveMinimum 0
+     */
+    max_memory_mb: number
+    /**
+     * @maximum 8
+     * @exclusiveMinimum 0
+     */
+    max_cpu_cores: number
+}
+
+export type AgentRevisionApiSpecFrameworkPrompt = {
+    omit: AgentRevisionApiSpecFrameworkPromptOmitItem[]
+    /**
+     * @maximum 2147483647
+     * @exclusiveMinimum 0
+     */
+    version_pin?: number
+}
+
+export type AgentRevisionApiSpecResume = {
+    enabled: boolean
+    /**
+     * @maximum 2147483647
+     * @exclusiveMinimum 0
+     */
+    max_completed_age_ms: number
 }
 
 export type AgentRevisionApiSpec = {
@@ -477,10 +532,12 @@ export type AgentRevisionApiSpec = {
     mcps: AgentRevisionApiSpecMcpsItem[]
     skills: AgentRevisionApiSpecSkillsItem[]
     integrations: string[]
-    secrets: string[]
+    secrets: AgentRevisionApiSpecSecretsItem[]
     limits: AgentRevisionApiSpecLimits
     entrypoint: string
     reasoning?: AgentRevisionApiSpecReasoning
+    framework_prompt?: AgentRevisionApiSpecFrameworkPrompt
+    resume?: AgentRevisionApiSpecResume
 }
 
 /**
@@ -532,6 +589,7 @@ export type PatchedAgentRevisionApiSpecTriggersItem =
               auto_resume_threads: boolean
               allow_workspace_participants: boolean
               ack_reaction?: string
+              allow_direct_messages: boolean
               trusted_workspaces: string[] | '*'
           }
       }
@@ -549,6 +607,7 @@ export type PatchedAgentRevisionApiSpecTriggersItem =
                   | {
                         type: 'posthog'
                         scopes?: string[]
+                        audience?: 'project' | 'organization'
                     }
                   | {
                         type: 'jwt'
@@ -604,6 +663,7 @@ export type PatchedAgentRevisionApiSpecTriggersItem =
                   | {
                         type: 'posthog'
                         scopes?: string[]
+                        audience?: 'project' | 'organization'
                     }
                   | {
                         type: 'jwt'
@@ -637,6 +697,7 @@ export type PatchedAgentRevisionApiSpecTriggersItem =
                   | {
                         type: 'posthog'
                         scopes?: string[]
+                        audience?: 'project' | 'organization'
                     }
                   | {
                         type: 'jwt'
@@ -759,6 +820,18 @@ export type PatchedAgentRevisionApiSpecSkillsItem = {
     version?: number
 }
 
+export type PatchedAgentRevisionApiSpecSecretsItem =
+    | string
+    | {
+          /** @minLength 1 */
+          name: string
+          /**
+           * @minItems 1
+           * @items.minLength 1
+           */
+          allowed_hosts: string[]
+      }
+
 export type PatchedAgentRevisionApiSpecLimits = {
     /**
      * @maximum 2147483647
@@ -780,6 +853,16 @@ export type PatchedAgentRevisionApiSpecLimits = {
      * @exclusiveMinimum 0
      */
     max_output_tokens?: number
+    /**
+     * @maximum 16384
+     * @exclusiveMinimum 0
+     */
+    max_memory_mb: number
+    /**
+     * @maximum 8
+     * @exclusiveMinimum 0
+     */
+    max_cpu_cores: number
 }
 
 export type PatchedAgentRevisionApiSpecReasoning =
@@ -793,6 +876,35 @@ export const PatchedAgentRevisionApiSpecReasoning = {
     Xhigh: 'xhigh',
 } as const
 
+export type PatchedAgentRevisionApiSpecFrameworkPromptOmitItem =
+    (typeof PatchedAgentRevisionApiSpecFrameworkPromptOmitItem)[keyof typeof PatchedAgentRevisionApiSpecFrameworkPromptOmitItem]
+
+export const PatchedAgentRevisionApiSpecFrameworkPromptOmitItem = {
+    MetaToolGuidance: 'meta_tool_guidance',
+    StateContract: 'state_contract',
+    ToolFailureGuidance: 'tool_failure_guidance',
+    ApprovalGuidance: 'approval_guidance',
+    ReasoningHint: 'reasoning_hint',
+} as const
+
+export type PatchedAgentRevisionApiSpecFrameworkPrompt = {
+    omit: PatchedAgentRevisionApiSpecFrameworkPromptOmitItem[]
+    /**
+     * @maximum 2147483647
+     * @exclusiveMinimum 0
+     */
+    version_pin?: number
+}
+
+export type PatchedAgentRevisionApiSpecResume = {
+    enabled: boolean
+    /**
+     * @maximum 2147483647
+     * @exclusiveMinimum 0
+     */
+    max_completed_age_ms: number
+}
+
 export type PatchedAgentRevisionApiSpec = {
     /** @minLength 1 */
     model: string
@@ -801,10 +913,12 @@ export type PatchedAgentRevisionApiSpec = {
     mcps: PatchedAgentRevisionApiSpecMcpsItem[]
     skills: PatchedAgentRevisionApiSpecSkillsItem[]
     integrations: string[]
-    secrets: string[]
+    secrets: PatchedAgentRevisionApiSpecSecretsItem[]
     limits: PatchedAgentRevisionApiSpecLimits
     entrypoint: string
     reasoning?: PatchedAgentRevisionApiSpecReasoning
+    framework_prompt?: PatchedAgentRevisionApiSpecFrameworkPrompt
+    resume?: PatchedAgentRevisionApiSpecResume
 }
 
 /**
@@ -871,7 +985,7 @@ export interface WriteToolRequestApi {
 
 /**
  * Body shape for PUT /revisions/<id>/bundle/ — the full-replace typed
- * payload. See docs/agent-platform/plans/typed-bundle-authoring-api.md §3.
+ * payload.
  */
 export interface WriteTypedBundleRequestApi {
     agent_md: string
@@ -943,7 +1057,7 @@ export interface AgentRevisionSystemPromptResponseApi {
     revision_id: string
     /** Active framework preamble version. Bumps when the platform's `# Platform guidance` content changes meaningfully (decision rules, sections renamed, behavioural defaults flipped). Authors can pin to a specific version via `spec.framework_prompt.version_pin`. */
     framework_prompt_version: number
-    /** Fully-assembled system prompt the runner would pass to pi-ai for a session against this revision. Concatenates the platform framework preamble, the bundle's `agent.md` (or `spec.entrypoint`), and the skills index. Inspect before promotion to confirm the model will see what you expect — see docs/agent-platform/plans/framework-system-prompt.md §4. */
+    /** Fully-assembled system prompt the runner would pass to pi-ai for a session against this revision. Concatenates the platform framework preamble, the bundle's `agent.md` (or `spec.entrypoint`), and the skills index. Inspect before promotion to confirm the model will see what you expect. */
     system_prompt: string
 }
 
@@ -1158,8 +1272,6 @@ export const DecisionEnumApi = {
 
 /**
  * Body shape for POST /agent_applications/<id>/approvals/<approval_id>/decide/.
- *
- * See docs/agent-platform/plans/approval-gated-tools.md.
  */
 export interface DecideApprovalRequestApi {
     /** The approver's decision. `approve` runs the tool platform-side with the (possibly edited) args; `reject` records a terminal rejection and wakes the session with a synthetic rejected tool_result.

@@ -50,9 +50,18 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     table_from_iterator,
 )
 from posthog.temporal.data_imports.sources.common.mixins import open_ssh_tunnel
-from posthog.temporal.data_imports.sources.common.sql import Column, Table, compute_projected_columns
+from posthog.temporal.data_imports.sources.common.sql import (
+    Column,
+    Table,
+    ValidatedRowFilter,
+    compute_projected_columns,
+)
 from posthog.temporal.data_imports.sources.common.sql.implementation import SQLSourceImplementation
 from posthog.temporal.data_imports.sources.common.sql.incremental import IncrementalFieldFilter
+from posthog.temporal.data_imports.sources.common.sql.predicates_psycopg import (
+    and_join,
+    render_psycopg_row_filter_conditions,
+)
 from posthog.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
 from posthog.temporal.data_imports.sources.postgres.partitioned_tables import (
     build_partition_query,
@@ -899,10 +908,24 @@ def get_schemas(
     names: list[str] | None = None,
 ) -> dict[str, PostgresDiscoveredSchema]:
     """Get all tables from PostgreSQL source schemas to sync."""
-    with pg_connection(
-        host=host, port=port, database=database, user=user, password=password, require_ssl=require_ssl
-    ) as connection:
+    # Schema discovery opens a fresh connection on its own periodic cadence. A momentary drop on
+    # connect — "server closed the connection unexpectedly" / an SSL EOF from a pooler, firewall,
+    # or SSH-tunnel hiccup — is transient and recovers on a retry, exactly like the drops the
+    # import read path already retries via `_connect_with_dropped_retry`. Without an in-process
+    # retry here that blip fails the whole discovery activity and surfaces as captured
+    # error-tracking noise even though the next attempt would succeed. Permanent errors (auth
+    # failures, SSL-required) re-raise immediately because `_is_connection_dropped_error` only
+    # matches transient drops.
+    connection = _connect_with_dropped_retry(
+        lambda: _connect_to_postgres(
+            host=host, port=port, database=database, user=user, password=password, require_ssl=require_ssl
+        ),
+        structlog.get_logger(),
+    )
+    try:
         return _schemas_from_conn(connection, schema, names)
+    finally:
+        connection.close()
 
 
 def get_primary_keys_for_schemas(
@@ -1261,11 +1284,15 @@ def _build_query(
     upper_bound_inclusive: Optional[Any] = None,
     enabled_columns: Optional[list[str]] = None,
     primary_keys: Optional[list[str]] = None,
+    row_filters: Optional[list[ValidatedRowFilter]] = None,
 ) -> sql.Composed:
     projected = compute_projected_columns(enabled_columns, primary_keys, incremental_field)
     select_clause: sql.Composable = (
         sql.SQL("*") if projected is None else sql.SQL(", ").join(sql.Identifier(c) for c in projected)
     )
+    # Row filters apply only to the real data path; sampling/row-count queries stay unfiltered
+    # (an over-estimate is harmless).
+    row_filter_conditions = render_psycopg_row_filter_conditions(row_filters or [])
 
     if not should_use_incremental_field:
         if add_sampling:
@@ -1277,15 +1304,14 @@ def _build_query(
                 query = sql.SQL("SELECT {cols} FROM {table} TABLESAMPLE SYSTEM (1)").format(
                     cols=select_clause, table=sql.Identifier(schema, table_name)
                 )
-        else:
-            query = sql.SQL("SELECT {cols} FROM {table}").format(
-                cols=select_clause, table=sql.Identifier(schema, table_name)
-            )
-
-        if add_sampling:
             query_with_limit = cast(LiteralString, f"{query.as_string()} LIMIT 1000")
             return sql.SQL(query_with_limit).format()
 
+        query = sql.SQL("SELECT {cols} FROM {table}").format(
+            cols=select_clause, table=sql.Identifier(schema, table_name)
+        )
+        if row_filter_conditions:
+            query = query + sql.SQL(" WHERE ") + and_join(row_filter_conditions)
         return query
 
     if incremental_field is None or incremental_field_type is None:
@@ -1345,6 +1371,9 @@ def _build_query(
             field=sql.Identifier(incremental_field),
             upper=sql.Literal(upper_bound_inclusive),
         )
+
+    if row_filter_conditions:
+        query = query + sql.SQL(" AND ") + and_join(row_filter_conditions)
 
     query_str = cast(LiteralString, f"{query.as_string()} ORDER BY {{incremental_field}} ASC")
     return sql.SQL(query_str).format(incremental_field=sql.Identifier(incremental_field))
@@ -2084,6 +2113,7 @@ def postgres_source(
     require_ssl: bool = False,
     is_initial_sync: bool = False,
     enabled_columns: Optional[list[str]] = None,
+    row_filters: Optional[list[ValidatedRowFilter]] = None,
 ) -> SourceResponse:
     table_name = table_names[0]
     if not table_name:
@@ -2462,6 +2492,7 @@ def postgres_source(
                     db_incremental_field_last_value,
                     enabled_columns=enabled_columns,
                     primary_keys=primary_keys,
+                    row_filters=row_filters,
                 )
 
                 successive_errors = 0
@@ -2584,6 +2615,7 @@ def postgres_source(
                         db_incremental_field_last_value,
                         enabled_columns=enabled_columns,
                         primary_keys=primary_keys,
+                        row_filters=row_filters,
                     )
 
                 yield from iterate_partitions(
@@ -2615,6 +2647,7 @@ def postgres_source(
                         upper_bound_inclusive=hi,
                         enabled_columns=enabled_columns,
                         primary_keys=primary_keys,
+                        row_filters=row_filters,
                     )
 
                 yield from iterate_date_windows(
@@ -2654,6 +2687,7 @@ def postgres_source(
                             db_incremental_field_last_value,
                             enabled_columns=enabled_columns,
                             primary_keys=primary_keys,
+                            row_filters=row_filters,
                         )
                         logger.debug(f"Postgres query: {query.as_string()}")
 

@@ -90,6 +90,14 @@ export const CdcTableModeEnumApi = {
  */
 export type ExternalDataSchemaApiTable = { [key: string]: unknown } | null
 
+export type ExternalDataSchemaApiRowFiltersItem = {
+    column: string
+    /** One of: > >= < <= = != IN "NOT IN". */
+    operator: string
+    /** Comparison value; must match the column's type. For `IN` / `NOT IN`, a comma-separated list (e.g. `1, 2, 3` or `'a','b'`). */
+    value: unknown
+}
+
 export type ExternalDataSchemaApiAvailableColumnsItem = {
     name: string
     data_type?: string
@@ -185,6 +193,11 @@ export interface ExternalDataSchemaApi {
      * @nullable
      */
     enabled_columns?: string[] | null
+    /**
+     * Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`/empty (default) syncs all rows. The operator must be one of `> >= < <= = != IN "NOT IN"` and the value must match the column's type (for `IN`/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). Applied on the next sync — not retroactive to already-synced rows.
+     * @nullable
+     */
+    row_filters?: ExternalDataSchemaApiRowFiltersItem[] | null
     /** Source-side column metadata (name, data type, nullable) discovered for this schema. Empty until the source has been refreshed via `refresh_schemas`. */
     readonly available_columns: readonly ExternalDataSchemaApiAvailableColumnsItem[]
     /**
@@ -207,6 +220,14 @@ export interface PaginatedExternalDataSchemaListApi {
  * @nullable
  */
 export type PatchedExternalDataSchemaApiTable = { [key: string]: unknown } | null
+
+export type PatchedExternalDataSchemaApiRowFiltersItem = {
+    column: string
+    /** One of: > >= < <= = != IN "NOT IN". */
+    operator: string
+    /** Comparison value; must match the column's type. For `IN` / `NOT IN`, a comma-separated list (e.g. `1, 2, 3` or `'a','b'`). */
+    value: unknown
+}
 
 export type PatchedExternalDataSchemaApiAvailableColumnsItem = {
     name: string
@@ -303,6 +324,11 @@ export interface PatchedExternalDataSchemaApi {
      * @nullable
      */
     enabled_columns?: string[] | null
+    /**
+     * Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`/empty (default) syncs all rows. The operator must be one of `> >= < <= = != IN "NOT IN"` and the value must match the column's type (for `IN`/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). Applied on the next sync — not retroactive to already-synced rows.
+     * @nullable
+     */
+    row_filters?: PatchedExternalDataSchemaApiRowFiltersItem[] | null
     /** Source-side column metadata (name, data type, nullable) discovered for this schema. Empty until the source has been refreshed via `refresh_schemas`. */
     readonly available_columns?: readonly PatchedExternalDataSchemaApiAvailableColumnsItem[]
     /**
@@ -946,6 +972,7 @@ export const CreatedViaEnumApi = {
  * * `YahooFinance` - YahooFinance
  * * `Clarifai` - Clarifai
  * * `Adapty` - Adapty
+ * * `Braintrust` - Braintrust
  * * `Custom` - Custom
  */
 export type ExternalDataSourceTypeEnumApi =
@@ -1572,6 +1599,7 @@ export const ExternalDataSourceTypeEnumApi = {
     YahooFinance: 'YahooFinance',
     Clarifai: 'Clarifai',
     Adapty: 'Adapty',
+    Braintrust: 'Braintrust',
     Custom: 'Custom',
 } as const
 
@@ -2292,6 +2320,7 @@ export interface ExternalDataSourceCreateApi {
      * * `YahooFinance` - YahooFinance
      * * `Clarifai` - Clarifai
      * * `Adapty` - Adapty
+     * * `Braintrust` - Braintrust
      * * `Custom` - Custom */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
@@ -2374,6 +2403,14 @@ export interface PatchedExternalDataSourceSerializersApi {
     readonly supports_column_selection?: boolean
 }
 
+export type ExternalDataSourceBulkUpdateSchemaApiRowFiltersItem = {
+    column: string
+    /** One of: > >= < <= = != IN "NOT IN". */
+    operator: string
+    /** Comparison value; must match the column's type. For `IN` / `NOT IN`, a comma-separated list (e.g. `1, 2, 3` or `'a','b'`). */
+    value: unknown
+}
+
 export interface ExternalDataSourceBulkUpdateSchemaApi {
     /** Schema identifier to update. */
     id: string
@@ -2418,6 +2455,11 @@ export interface ExternalDataSourceBulkUpdateSchemaApi {
      * @nullable
      */
     enabled_columns?: string[] | null
+    /**
+     * Row-filter predicates ANDed onto the source query. Null/empty means sync all rows.
+     * @nullable
+     */
+    row_filters?: ExternalDataSourceBulkUpdateSchemaApiRowFiltersItem[] | null
 }
 
 export interface PatchedExternalDataSourceBulkUpdateSchemasApi {
@@ -3100,6 +3142,7 @@ export interface DatabaseSchemaRequestApi {
      * * `YahooFinance` - YahooFinance
      * * `Clarifai` - Clarifai
      * * `Adapty` - Adapty
+     * * `Braintrust` - Braintrust
      * * `Custom` - Custom */
     source_type: ExternalDataSourceTypeEnumApi
 }
@@ -3732,6 +3775,7 @@ export interface SourceSetupApi {
      * * `YahooFinance` - YahooFinance
      * * `Clarifai` - Clarifai
      * * `Adapty` - Adapty
+     * * `Braintrust` - Braintrust
      * * `Custom` - Custom */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
@@ -4402,6 +4446,7 @@ export interface SourceCredentialCreateApi {
      * * `YahooFinance` - YahooFinance
      * * `Clarifai` - Clarifai
      * * `Adapty` - Adapty
+     * * `Braintrust` - Braintrust
      * * `Custom` - Custom */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
