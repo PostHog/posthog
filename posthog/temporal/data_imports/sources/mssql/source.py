@@ -65,6 +65,11 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # not the volatile object name / procedure / line number in the rest of the message.
             "Invalid object name": "One of the tables or views you're syncing references a database object that no longer exists or that this login can't access (SQL Server error 208). Check that the object still exists and that the connection user has permission to read it (including any tables a view depends on), then re-sync.",
             "Cannot find the CREDENTIAL": "Cannot find the credential - check that it exists and you have permission to access it",
+            # SQL Server error 207, the column-level counterpart of 208: the `SELECT` references a
+            # column that doesn't exist — a column dropped or renamed at the source, or a view
+            # whose definition selects a column that's no longer present. Fixed source-data shape,
+            # so retrying won't help.
+            "Invalid column name": "One of the columns being synced no longer exists in your SQL Server. A column was likely dropped or renamed, or a view's definition references a column that's no longer present. Fix the column or view definition at the source, then re-enable the sync.",
             # Raised by the `sshtunnel` library (via the shared `open_ssh_tunnel` helper) when the
             # SSH tunnel can't be brought up — the bastion host is unreachable, the host/port is
             # wrong, the SSH key/credentials are rejected, or a firewall blocks PostHog's IPs. This
