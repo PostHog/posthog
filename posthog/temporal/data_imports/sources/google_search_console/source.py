@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 import requests
+from google.auth.exceptions import RefreshError
 
 from posthog.schema import (
     DataWarehouseSourceCategory,
@@ -12,6 +13,7 @@ from posthog.schema import (
     SourceFieldOauthConfig,
 )
 
+from posthog.models.integration import Integration
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
@@ -109,6 +111,11 @@ class GoogleSearchConsoleSource(
     ) -> tuple[bool, str | None]:
         try:
             session = google_search_console_session(config.google_search_console_integration_id, team_id)
+        except Integration.DoesNotExist:
+            return (
+                False,
+                "The Google Search Console connection for this source no longer exists. Please reconnect your Google account.",
+            )
         except Exception as e:
             if "matching query does not exist" in str(e):
                 return False, (
@@ -127,6 +134,17 @@ class GoogleSearchConsoleSource(
                     "Google Search Console rejected the credentials. Please reconnect your account and ensure it has read access to the property.",
                 )
             return False, f"Failed to list Google Search Console sites: {e}"
+        except RefreshError:
+            # Raised while AuthorizedSession refreshes the OAuth access token (e.g. invalid_scope or
+            # invalid_grant): the stored token is missing the required permissions, or has expired or
+            # been revoked. Retrying can't recover it — the raw RefreshError repr is meaningless to
+            # users, so guide them to reconnect.
+            return (
+                False,
+                "PostHog could not authenticate with Google Search Console. Your connection may have "
+                "expired or is missing the required permissions. Please reconnect your Google account "
+                "and grant access to Search Console.",
+            )
         except Exception as e:
             return False, f"Failed to list Google Search Console sites: {e}"
 

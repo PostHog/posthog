@@ -25,8 +25,8 @@ import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { ENTITY_MATCH_TYPE } from 'lib/constants'
 import { scrollToFormError } from 'lib/forms/scrollToFormError'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { isOperatorDate } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { isOperatorDate } from 'lib/utils/operators'
 import { NEW_COHORT, NEW_CRITERIA, NEW_CRITERIA_GROUP } from 'scenes/cohorts/CohortFilters/constants'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
 import {
@@ -609,7 +609,8 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                         if (!(error instanceof ApiError) || error.status !== 404) {
                             posthog.captureException(error, { feature: 'cohort-used-in' })
                         }
-                        return null
+                        // Keep any previously loaded value so a failed refresh doesn't blank the banner.
+                        return values.usedIn
                     }
                 },
             },
@@ -660,11 +661,6 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 fallbackErrorMessage:
                     'There was an error submitting this cohort. Make sure the cohort filters are correct.',
             })
-        },
-        // Refresh once the save request actually resolves; submitCohortSuccess fires as soon
-        // as the synchronous submit handler dispatches saveCohort.
-        saveCohortSuccess: () => {
-            actions.loadUsedIn()
         },
         checkIfFinishedCalculating: async ({ cohort }, breakpoint) => {
             const isPendingCalculation = checkIsPendingCalculation(cohort)

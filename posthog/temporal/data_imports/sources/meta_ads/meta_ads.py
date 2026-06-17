@@ -19,9 +19,23 @@ from posthog.temporal.data_imports.sources.meta_ads.schemas import RESOURCE_SCHE
 
 from products.data_warehouse.backend.types import IncrementalFieldType
 
-# Meta Ads API only supports data from the last 3 years
+# Meta Ads API only supports data from the last 3 years. Meta's insights endpoints
+# reject a `time_range` whose start is beyond ~37 months from today with error code
+# 3018 ("The start date of the time range cannot be beyond 37 months from the current
+# date"); 3 * 365 days stays comfortably inside that window.
 META_ADS_MAX_HISTORY_DAYS = 3 * 365
 DEFAULT_SYNC_LOOKBACK_DAYS = 90
+
+
+def _earliest_supported_since(today: dt.date) -> dt.date:
+    """Earliest ``since`` date Meta will accept for an insights ``time_range``.
+
+    Meta rejects insights queries whose start is beyond ~37 months from today with
+    error code 3018. We clamp to ``META_ADS_MAX_HISTORY_DAYS`` (kept safely under that
+    limit) so a `since` derived from an aged incremental cursor — or from a dormant
+    account whose latest activity sits near the boundary — never trips it.
+    """
+    return today - dt.timedelta(days=META_ADS_MAX_HISTORY_DAYS)
 
 
 @dataclass
@@ -513,6 +527,11 @@ def meta_ads_source(
             raise ValueError("Access token is required for Meta Ads integration")
 
         # Determine date range for incremental sync
+        today = dt.date.today()
+        # Never request data older than Meta will serve, otherwise it returns a hard
+        # 400 (code 3018) and the whole sync fails instead of importing the supported
+        # window. Data beyond this point is unavailable from Meta regardless.
+        earliest_since = _earliest_supported_since(today)
         time_range = None
 
         if should_use_incremental_field:
@@ -520,21 +539,22 @@ def meta_ads_source(
                 raise ValueError("incremental_field and incremental_field_type can't be None")
 
             if db_incremental_field_last_value is None:
-                last_value: dt.date = dt.date.today() - dt.timedelta(days=sync_lookback_days)
+                last_value: dt.date = today - dt.timedelta(days=sync_lookback_days)
             else:
                 last_value = db_incremental_field_last_value
 
-            start_date = last_value.strftime("%Y-%m-%d")
-            # Meta Ads API is day based so only import if the day is complete
-            end_date = dt.date.today().strftime("%Y-%m-%d")
+            since = last_value.date() if isinstance(last_value, dt.datetime) else last_value
+            since = max(since, earliest_since)
             time_range = {
-                "since": start_date,
-                "until": end_date,
+                "since": since.strftime("%Y-%m-%d"),
+                # Meta Ads API is day based so only import if the day is complete
+                "until": today.strftime("%Y-%m-%d"),
             }
         elif schema.is_stats:
+            since = max(today - dt.timedelta(days=sync_lookback_days), earliest_since)
             time_range = {
-                "since": (dt.date.today() - dt.timedelta(days=sync_lookback_days)).strftime("%Y-%m-%d"),
-                "until": dt.date.today().strftime("%Y-%m-%d"),
+                "since": since.strftime("%Y-%m-%d"),
+                "until": today.strftime("%Y-%m-%d"),
             }
 
         formatted_url = schema.url.format(

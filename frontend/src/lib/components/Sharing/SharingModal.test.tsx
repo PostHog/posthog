@@ -7,12 +7,13 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { useAvailableFeatures } from '~/mocks/features'
 import { useMocks } from '~/mocks/jest'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { InsightShortId, QueryBasedInsightModel } from '~/types'
 import { AvailableFeature } from '~/types'
 
 import { sharingLogic } from './sharingLogic'
-import { SharingModal, SharingModalProps } from './SharingModal'
+import { getInsightDefinitionUrl, SharingModal, SharingModalProps } from './SharingModal'
 
 const createdAt = '2022-06-28T12:30:51.459746Z'
 const accessToken = '1AEQjQ2xNLGoiyI0UnNlLzOiBZWWMQ'
@@ -192,5 +193,52 @@ describe('SharingModal (insight)', () => {
         expect(modal).toBeTruthy()
 
         expect(within(modal as HTMLElement).queryByText(/Show insight details/i)).toBeNull()
+    })
+})
+
+describe('getInsightDefinitionUrl', () => {
+    it('generates a template link for an unsaved insight (raw query)', () => {
+        const query = {
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.TrendsQuery,
+                series: [
+                    {
+                        kind: NodeKind.EventsNode,
+                        event: null,
+                        name: 'All events',
+                        math: 'total',
+                    },
+                ],
+                trendsFilter: {},
+            },
+        }
+        const url = getInsightDefinitionUrl({ query }, 'https://app.posthog.com')
+        expect(url).toMatch(/^https:\/\/app\.posthog\.com\/insights\/new#insight=TRENDS&q=%7B.*%7D(%20)?$/)
+        // Should not include /project/<id>
+        expect(url).not.toContain('/project/')
+    })
+
+    it('generates a template link for a saved insight (model)', () => {
+        interface MinimalInsight {
+            query: any
+            id: number
+            name: string
+        }
+        const savedInsight: MinimalInsight = {
+            query: {
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.FunnelsQuery,
+                    series: [],
+                    funnelsFilter: {},
+                },
+            },
+            id: 123,
+            name: 'My Funnel',
+        }
+        const url = getInsightDefinitionUrl(savedInsight, 'https://app.posthog.com')
+        expect(url).toMatch(/^https:\/\/app\.posthog\.com\/insights\/new#insight=FUNNELS&q=%7B.*%7D(%20)?$/)
+        expect(url).not.toContain('/project/')
     })
 })

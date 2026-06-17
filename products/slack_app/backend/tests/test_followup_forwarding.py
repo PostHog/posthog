@@ -154,6 +154,16 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         self.team = Team.objects.create(organization=self.org, name="TestTeam")
         self.user = User.objects.create(email="alice@test.com", distinct_id="user-1")
         self.integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T_SLACK", config={})
+        # The mock SlackIntegration doesn't stub `auth_test`, so `get_cached_bot_user_id`
+        # would return None and the bot-mention fast-path strip wouldn't kick in. Force
+        # it to return the literal "BOT" so `<@BOT>` in test inputs is stripped from
+        # the agent prompt as it would be in production.
+        bot_id_patcher = patch(
+            "products.slack_app.backend.services.slack_messages.get_cached_bot_user_id",
+            return_value="BOT",
+        )
+        bot_id_patcher.start()
+        self.addCleanup(bot_id_patcher.stop)
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
@@ -544,6 +554,15 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         self.team = Team.objects.create(organization=self.org, name="TestTeam")
         self.user = User.objects.create(email="alice@test.com")
         self.integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T_SLACK", config={})
+        # See note in TestCreatePostHogCodeTaskForRepoActivity.setUp: force the
+        # bot-id lookup so `<@BOT>` mentions in test inputs strip the way they
+        # do in production.
+        bot_id_patcher = patch(
+            "products.slack_app.backend.services.slack_messages.get_cached_bot_user_id",
+            return_value="BOT",
+        )
+        bot_id_patcher.start()
+        self.addCleanup(bot_id_patcher.stop)
         self.task = self.Task.objects.create(
             team=self.team,
             title="Test task",

@@ -8,7 +8,7 @@ from urllib.parse import quote, urljoin
 import structlog
 from dateutil import parser as dateutil_parser
 from requests import Request, Response
-from requests.exceptions import RequestException
+from requests.exceptions import HTTPError, RequestException
 from tenacity import RetryCallState, retry, retry_if_exception_type, retry_if_result, stop_after_attempt
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
@@ -400,7 +400,25 @@ def _iter_issue_tag_values_rows(
                     break
 
                 response = _request_with_retry(url=values_url, headers=headers, params=values_params)
-                response.raise_for_status()
+                try:
+                    response.raise_for_status()
+                except HTTPError:
+                    # Sentry intermittently returns a persistent 5xx for a single
+                    # (issue, tag) values endpoint — seen on tags with unusual
+                    # keys/values. Retries are already exhausted by
+                    # _request_with_retry, so skip this tag's remaining values
+                    # rather than failing the whole sync. Non-server errors
+                    # (auth, etc.) still propagate to the job-level handler.
+                    if response.status_code >= 500:
+                        logger.warning(
+                            "sentry_source.issue_tag_values_server_error_skipped",
+                            organization_slug=organization_slug,
+                            issue_id=issue_id,
+                            tag_key=tag_key,
+                            status_code=response.status_code,
+                        )
+                        break
+                    raise
                 rows = response.json()
 
                 should_stop = False
@@ -530,6 +548,33 @@ def get_resource(
 # ---------------------------------------------------------------------------
 
 
+def _skip_endpoint_on_forbidden(resource: Iterable[Any], endpoint: str) -> Iterator[Any]:
+    """Yield pages from a fan-out resource, treating a 403 as "endpoint not
+    available for this organization" and stopping gracefully.
+
+    Sentry's project service hooks API is gated at the organization level, so it
+    returns 403 Forbidden even for tokens that already hold full project/admin
+    scopes. Letting that 403 propagate marks the whole schema as a non-retryable
+    failure (see ``SentrySource.get_non_retryable_errors``), permanently erroring
+    a source whose credentials are otherwise valid. Skipping the endpoint instead
+    lets the sync complete with an empty table — the same graceful-skip approach
+    used for persistent server errors in ``_iter_issue_tag_values_rows``. Genuine
+    scope problems still surface on the other (non-skipped) endpoints.
+    """
+    try:
+        yield from resource
+    except HTTPError as exc:
+        response = exc.response
+        if response is not None and response.status_code == 403:
+            logger.warning(
+                "sentry_source.endpoint_forbidden_skipped",
+                endpoint=endpoint,
+                status_code=response.status_code,
+            )
+            return
+        raise
+
+
 def _make_source_response(endpoint_config: SentryEndpointConfig, items_fn) -> SourceResponse:
     return SourceResponse(
         name=endpoint_config.name,
@@ -602,6 +647,13 @@ def sentry_source(
                 incremental_config_factory=_sentry_incremental_window,
             ),
         )
+        # Sentry gates the service hooks API at the org level, so it 403s even
+        # for fully-scoped tokens. Skip it gracefully rather than permanently
+        # erroring the schema (which the non-retryable 403 handling would do).
+        if endpoint == "project_service_hooks":
+            return _make_source_response(
+                endpoint_config, lambda: _skip_endpoint_on_forbidden(dependent_resource, endpoint)
+            )
         return _make_source_response(endpoint_config, lambda: dependent_resource)
 
     # --- Flat org-level endpoints (via rest_api_resources) ---

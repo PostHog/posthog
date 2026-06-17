@@ -35,6 +35,9 @@ class TemporalIOSource(ResumableSource[TemporalIOSourceConfig, TemporalIOResumeC
         # rustls surfaces mTLS rejections as TLS alert names inside the tonic transport
         # error. These are credential problems — retrying can never recover.
         return {
+            # The Temporal core builds the connection target from the configured host:port. An empty
+            # or scheme-only host yields no parseable host — a config problem retrying never fixes.
+            "invalid target URL: empty host": "Temporal could not connect because the configured host is empty or invalid. Update the source with the hostname of your Temporal namespace's gRPC endpoint (for example, your-namespace.account.tmprl.cloud) — without a protocol scheme or port.",
             "received fatal alert: UnknownCA": "Temporal rejected this source's client certificate because it is not signed by a certificate authority the namespace trusts. This usually means the namespace's CA certificates were rotated — update the source with a client certificate and key signed by the current CA.",
             "received fatal alert: CertificateExpired": "This source's client certificate has expired. Update the source with a renewed client certificate and key.",
             "received fatal alert: CertificateRevoked": "This source's client certificate has been revoked. Update the source with a new client certificate and key.",
@@ -45,7 +48,11 @@ class TemporalIOSource(ResumableSource[TemporalIOSourceConfig, TemporalIOResumeC
             # decoded at all (vs the alerts above, which reject an otherwise-parseable cert). The blobs
             # come straight from the source config, so this is a malformed-credential problem — retrying
             # can never recover.
-            "CertificateParseError": "Temporal could not parse this source's TLS credentials. Check that the client certificate, client private key, and server root CA are valid PEM and re-enter them on the source.",
+            "CertificateParseError": "PostHog could not parse the TLS certificate or key configured for this source. Check that the client certificate, client private key, and server client root CA are valid PEM and were pasted in full, including the BEGIN and END lines.",
+            # tonic surfaces a gRPC UNAUTHENTICATED status when the server requires API key (JWT/Bearer)
+            # authentication, which this source does not provide — it authenticates with mTLS client
+            # certificates. This is a credential/host configuration problem, so retrying can never recover.
+            "code: Unauthenticated": "Temporal rejected the connection because it requires API key (JWT) authentication, which this source does not provide. This usually means the configured host points at a Temporal Cloud API endpoint that uses API key authentication rather than your namespace's mTLS gRPC endpoint (typically <namespace>.<account>.tmprl.cloud:7233). Update the source's host to the namespace's gRPC endpoint that accepts client-certificate (mTLS) authentication.",
         }
 
     def get_schemas(
@@ -132,6 +139,14 @@ class TemporalIOSource(ResumableSource[TemporalIOSourceConfig, TemporalIOResumeC
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=False,
                         placeholder="",
+                        secret=True,
+                    ),
+                    SourceFieldInputConfig(
+                        name="fallback_decryption_keys",
+                        label="Fallback decryption keys",
+                        type=SourceFieldInputConfigType.PASSWORD,
+                        required=False,
+                        placeholder="key1,key2,key3",
                         secret=True,
                     ),
                     SourceFieldInputConfig(
