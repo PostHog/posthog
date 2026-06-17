@@ -1479,7 +1479,22 @@ class OAuthUserInfoView(UserInfoView):
     pass
 
 
-class OAuthAuthorizationServerMetadataView(APIView):
+class _PublicMetadataView(APIView):
+    """Shared base for the unauthenticated OAuth discovery documents.
+
+    Pins the base URL to SITE_URL rather than the request Host header so a spoofed
+    Host on a permissive-ALLOWED_HOSTS instance cannot steer these discovery
+    documents to an attacker-controlled origin.
+    """
+
+    permission_classes: list = []
+    authentication_classes: list = []
+
+    def base_url(self) -> str:
+        return absolute_uri().rstrip("/")
+
+
+class OAuthAuthorizationServerMetadataView(_PublicMetadataView):
     """
     OAuth 2.0 Authorization Server Metadata (RFC 8414).
 
@@ -1490,15 +1505,8 @@ class OAuthAuthorizationServerMetadataView(APIView):
     is specifically for OAuth-only clients that need DCR support.
     """
 
-    permission_classes = []
-    authentication_classes = []
-
     def get(self, request, *args, **kwargs):
-        # Pin to SITE_URL rather than the request Host header so the advertised
-        # endpoints (including the agent_auth discovery URLs) can't be steered to
-        # an attacker-controlled origin via Host on permissive ALLOWED_HOSTS, and
-        # so issuer matches the protected resource metadata's authorization_servers.
-        base_url = absolute_uri().rstrip("/")
+        base_url = self.base_url()
 
         all_scopes = get_oauth_scopes_supported()
 
@@ -1550,7 +1558,7 @@ class OAuthAuthorizationServerMetadataView(APIView):
         return JsonResponse(metadata)
 
 
-class OAuthProtectedResourceMetadataView(APIView):
+class OAuthProtectedResourceMetadataView(_PublicMetadataView):
     """
     OAuth 2.0 Protected Resource Metadata (RFC 9728).
 
@@ -1561,14 +1569,8 @@ class OAuthProtectedResourceMetadataView(APIView):
     for this API, which scopes exist, and how to present the token.
     """
 
-    permission_classes = []
-    authentication_classes = []
-
     def get(self, request, *args, **kwargs):
-        # Pin to SITE_URL rather than the request Host header: with permissive
-        # ALLOWED_HOSTS an attacker could otherwise steer this discovery document
-        # to an attacker-controlled origin (matches posthog/exceptions.py).
-        base_url = absolute_uri().rstrip("/")
+        base_url = self.base_url()
 
         metadata = {
             # Required by RFC 9728
@@ -1591,7 +1593,7 @@ _OIDC_SCOPE_DESCRIPTIONS = {
 }
 
 
-class OAuthClientManifestView(APIView):
+class OAuthClientManifestView(_PublicMetadataView):
     """
     auth.md agent-registration manifest (https://workos.com/auth-md).
 
@@ -1600,12 +1602,8 @@ class OAuthClientManifestView(APIView):
     location the authorization server metadata's `agent_auth.skill` points at.
     """
 
-    permission_classes = []
-    authentication_classes = []
-
     def get(self, request, *args, **kwargs):
-        # Pin to SITE_URL, not the request Host header (see the metadata views).
-        base_url = absolute_uri().rstrip("/")
+        base_url = self.base_url()
 
         descriptions = get_scope_descriptions()
         scopes = [
