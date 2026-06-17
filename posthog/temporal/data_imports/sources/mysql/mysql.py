@@ -33,7 +33,6 @@ from pymysql.cursors import Cursor, SSCursor
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
-from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     DEFAULT_NUMERIC_PRECISION,
@@ -48,11 +47,17 @@ from posthog.temporal.data_imports.sources.common.sql import (
     InvalidIdentifierError,
     SelectQueryBuilder,
     Table,
+    ValidatedRowFilter,
     compute_projected_columns,
     project_arrow_columns,
 )
-from posthog.temporal.data_imports.sources.common.sql.implementation import SQLSourceImplementation, TableStats
+from posthog.temporal.data_imports.sources.common.sql.implementation import (
+    SourceMetadata,
+    SQLSourceImplementation,
+    TableStats,
+)
 from posthog.temporal.data_imports.sources.common.sql.incremental import IncrementalFieldFilter
+from posthog.temporal.data_imports.sources.common.sql.location import normalize_namespace, resolve_source_location
 from posthog.temporal.data_imports.sources.generated_configs import MySQLSourceConfig
 
 from products.data_warehouse.backend.types import IncrementalFieldType
@@ -62,6 +67,7 @@ __all__ = [
     "MySQLImplementation",
     "STATEMENT_TIMEOUT_SECONDS",
     "filter_mysql_incremental_fields",
+    "get_connection_metadata",
 ]
 
 _IDENTIFIER_QUOTER = BacktickIdentifierQuoter()
@@ -88,6 +94,53 @@ _LOST_CONNECTION_DURING_QUERY_CODE = 2013
 # index order and skip the filesort entirely, so the same FORCE INDEX fallback
 # resolves it.
 _OUT_OF_SORT_MEMORY_CODE = 1038
+
+_SYSTEM_SCHEMAS = ("information_schema", "mysql", "performance_schema", "sys")
+
+
+def _configured_schema(config: MySQLSourceConfig) -> str | None:
+    return normalize_namespace(config.schema)
+
+
+def _display_table_name(source_schema: str, table_name: str, *, configured_schema: str | None) -> str:
+    if configured_schema is not None:
+        return table_name
+    return f"{source_schema}.{table_name}"
+
+
+def _source_table_names(display_names: list[str], *, configured_schema: str | None) -> tuple[str, ...]:
+    names = set()
+    for display_name in display_names:
+        if configured_schema is None and "." in display_name:
+            _, _, table_name = display_name.partition(".")
+            names.add(table_name)
+        else:
+            names.add(display_name)
+    return tuple(sorted(names))
+
+
+def _matches_requested_name(
+    requested_names: set[str],
+    *,
+    source_schema: str,
+    table_name: str,
+    configured_schema: str | None,
+) -> bool:
+    display_name = _display_table_name(source_schema, table_name, configured_schema=configured_schema)
+    return (
+        display_name in requested_names
+        or table_name in requested_names
+        or f"{source_schema}.{table_name}" in requested_names
+    )
+
+
+def _source_location_from_display_name(display_name: str, *, configured_schema: str | None) -> tuple[str | None, str]:
+    if configured_schema is not None:
+        return configured_schema, display_name
+    source_schema, separator, table_name = display_name.partition(".")
+    if separator:
+        return normalize_namespace(source_schema), table_name
+    return None, display_name
 
 
 def _safe_convert_date(obj: Any) -> datetime.date | None:
@@ -171,6 +224,7 @@ def _build_query(
     force_index_name: str | None = None,
     enabled_columns: list[str] | None = None,
     primary_keys: list[str] | None = None,
+    row_filters: list[ValidatedRowFilter] | None = None,
 ) -> tuple[str, dict[str, Any]]:
     hint: str | None = None
     if force_index_name is not None:
@@ -184,6 +238,7 @@ def _build_query(
             extra_table_hint=hint,
             enabled_columns=enabled_columns,
             primary_keys=primary_keys,
+            row_filters=row_filters,
         )
         params = result.params if isinstance(result.params, dict) else {}
         return result.sql, params
@@ -200,6 +255,7 @@ def _build_query(
         extra_table_hint=hint,
         enabled_columns=enabled_columns,
         primary_keys=primary_keys,
+        row_filters=row_filters,
     )
     params = result.params if isinstance(result.params, dict) else {}
     return result.sql, params
@@ -243,6 +299,22 @@ def _release_streaming_cursor(cursor: SSCursor) -> None:
     # PyMySQL clears this same attribute once a query is fully consumed; the
     # stub types it non-optional, so we mirror that runtime behaviour here.
     cursor.connection = None  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+
+
+def get_connection_metadata(conn: pymysql.Connection, *, database: str) -> dict[str, Any]:
+    """Connection metadata persisted on a direct-query source for the HogQL executor."""
+    with conn.cursor() as cursor:
+        cursor.execute("SELECT DATABASE(), VERSION()")
+        row = cursor.fetchone()
+    current_database = str(row[0]) if row and row[0] is not None else database
+    version = str(row[1]) if row and row[1] is not None else ""
+    # The HogQL direct-query executor only branches postgres-vs-mysql on `engine`, so
+    # MariaDB also reports "mysql"; the version string still identifies MariaDB servers.
+    return {
+        "database": current_database,
+        "version": version,
+        "engine": "mysql",
+    }
 
 
 class MySQLColumn(Column):
@@ -390,25 +462,42 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
         config: MySQLSourceConfig,
         names: list[str] | None,
     ) -> dict[str, list[tuple[str, str, bool]]]:
-        params: dict[str, Any] = {"schema": config.schema}
+        configured_schema = _configured_schema(config)
+        requested_names = set(names or [])
+        params: dict[str, Any] = {}
+        schema_filter = "table_schema NOT IN %(system_schemas)s"
+        if configured_schema is not None:
+            schema_filter = "table_schema = %(schema)s"
+            params["schema"] = configured_schema
+        else:
+            params["system_schemas"] = _SYSTEM_SCHEMAS
+
         names_filter = ""
         if names:
-            params["names"] = tuple(names)
+            params["names"] = _source_table_names(names, configured_schema=configured_schema)
             names_filter = "AND table_name IN %(names)s"
 
         with conn.cursor() as cursor:
             cursor.execute(
-                "SELECT table_name, column_name, data_type, is_nullable"
+                "SELECT table_schema, table_name, column_name, data_type, is_nullable"
                 " FROM information_schema.columns"
-                f" WHERE table_schema = %(schema)s {names_filter}"
-                " ORDER BY table_name ASC",
+                f" WHERE {schema_filter} {names_filter}"
+                " ORDER BY table_schema ASC, table_name ASC, ordinal_position ASC",
                 params,
             )
             rows = cursor.fetchall()
 
         result: dict[str, list[tuple[str, str, bool]]] = collections.defaultdict(list)
-        for table_name, column_name, data_type, is_nullable in rows:
-            result[table_name].append((column_name, data_type, is_nullable == "YES"))
+        for source_schema, table_name, column_name, data_type, is_nullable in rows:
+            if requested_names and not _matches_requested_name(
+                requested_names,
+                source_schema=source_schema,
+                table_name=table_name,
+                configured_schema=configured_schema,
+            ):
+                continue
+            display_name = _display_table_name(source_schema, table_name, configured_schema=configured_schema)
+            result[display_name].append((column_name, data_type, is_nullable == "YES"))
         return dict(result)
 
     def get_primary_keys(
@@ -427,21 +516,32 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
         if not tables:
             return result
 
+        configured_schema = _configured_schema(config)
+        schema_filter = "tc.TABLE_SCHEMA NOT IN %(system_schemas)s"
+        params: dict[str, Any] = {
+            "names": _source_table_names(tables, configured_schema=configured_schema),
+        }
+        if configured_schema is not None:
+            schema_filter = "tc.TABLE_SCHEMA = %(schema)s"
+            params["schema"] = configured_schema
+        else:
+            params["system_schemas"] = _SYSTEM_SCHEMAS
+
         try:
             with conn.cursor() as cursor:
                 cursor.execute(
                     """
-                    SELECT tc.TABLE_NAME, kcu.COLUMN_NAME
+                    SELECT tc.TABLE_SCHEMA, tc.TABLE_NAME, kcu.COLUMN_NAME
                     FROM information_schema.TABLE_CONSTRAINTS tc
                     JOIN information_schema.KEY_COLUMN_USAGE kcu
                     ON tc.CONSTRAINT_NAME = kcu.CONSTRAINT_NAME
                     AND tc.TABLE_SCHEMA = kcu.TABLE_SCHEMA
                     AND tc.TABLE_NAME = kcu.TABLE_NAME
-                    WHERE tc.TABLE_SCHEMA = %(schema)s
+                    WHERE {schema_filter}
                     AND tc.TABLE_NAME IN %(names)s
                     AND tc.CONSTRAINT_TYPE = 'PRIMARY KEY'
-                    """,
-                    {"schema": config.schema, "names": tuple(tables)},
+                    """.format(schema_filter=schema_filter),
+                    params,
                 )
                 rows = cursor.fetchall()
         except Exception as e:
@@ -449,8 +549,10 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
             return result
 
         pks: dict[str, list[str]] = collections.defaultdict(list)
-        for table_name, column_name in rows:
-            pks[table_name].append(column_name)
+        for source_schema, table_name, column_name in rows:
+            display_name = _display_table_name(source_schema, table_name, configured_schema=configured_schema)
+            if display_name in result:
+                pks[display_name].append(column_name)
         for table_name, pk_cols in pks.items():
             result[table_name] = pk_cols
         return result
@@ -477,25 +579,55 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
         if not tables:
             return {}
 
+        configured_schema = _configured_schema(config)
+        schema_filter = "TABLE_SCHEMA NOT IN %(system_schemas)s"
+        params: dict[str, Any] = {
+            "names": _source_table_names(tables, configured_schema=configured_schema),
+        }
+        if configured_schema is not None:
+            schema_filter = "TABLE_SCHEMA = %(schema)s"
+            params["schema"] = configured_schema
+        else:
+            params["system_schemas"] = _SYSTEM_SCHEMAS
+
         result: dict[str, set[str]] = {table: set() for table in tables}
         try:
             with conn.cursor() as cursor:
                 cursor.execute(
                     """
-                    SELECT TABLE_NAME, COLUMN_NAME
+                    SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME
                     FROM information_schema.STATISTICS
-                    WHERE TABLE_SCHEMA = %(schema)s
+                    WHERE {schema_filter}
                       AND TABLE_NAME IN %(names)s
                       AND SEQ_IN_INDEX = 1
-                    """,
-                    {"schema": config.schema, "names": tuple(tables)},
+                    """.format(schema_filter=schema_filter),
+                    params,
                 )
-                for table_name, column_name in cursor.fetchall():
-                    result.setdefault(table_name, set()).add(column_name)
+                for source_schema, table_name, column_name in cursor.fetchall():
+                    display_name = _display_table_name(source_schema, table_name, configured_schema=configured_schema)
+                    if display_name in result:
+                        result[display_name].add(column_name)
         except Exception as e:
             structlog.get_logger().warning("Failed to detect leading index columns for MySQL schemas", exc_info=e)
             return None
         return result
+
+    def get_source_metadata(
+        self,
+        conn: pymysql.Connection,
+        config: MySQLSourceConfig,
+        tables: list[str],
+    ) -> SourceMetadata:
+        configured_schema = _configured_schema(config)
+        metadata = SourceMetadata()
+        for display_name in tables:
+            source_schema, source_table_name = _source_location_from_display_name(
+                display_name,
+                configured_schema=configured_schema,
+            )
+            metadata.schema_by_table[display_name] = source_schema
+            metadata.table_name_by_table[display_name] = source_table_name
+        return metadata
 
     # ------------------------------------------------------------------
     # Per-cursor metadata — used during `build_pipeline`
@@ -677,7 +809,30 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                 return None
 
             columns = [row[0] for row in rows]
-            length_sum = " + ".join(f"LENGTH(COALESCE({_IDENTIFIER_QUOTER.quote(col)}, ''))" for col in columns)
+            # Column names come from the DB catalog and can legitimately contain
+            # characters the identifier allowlist rejects (e.g. `:` or spaces in
+            # `Ach:CompanyId`). Row-size estimation is best-effort, so skip any
+            # column we can't safely quote rather than abandoning the whole
+            # estimate. The allowlist stays the hard boundary for user-supplied
+            # identifiers elsewhere.
+            quoted_columns = []
+            skipped_columns = []
+            for col in columns:
+                try:
+                    quoted_columns.append(_IDENTIFIER_QUOTER.quote(col))
+                except InvalidIdentifierError:
+                    skipped_columns.append(col)
+
+            if skipped_columns:
+                logger.debug(
+                    f"fetch_average_row_size: skipping {len(skipped_columns)} unquotable column(s): {skipped_columns}."
+                )
+
+            if not quoted_columns:
+                logger.debug("fetch_average_row_size: No quotable columns found.")
+                return None
+
+            length_sum = " + ".join(f"LENGTH(COALESCE({quoted}, ''))" for quoted in quoted_columns)
             # length_sum and inner_query are built from sanitized identifiers;
             # no user-supplied values are interpolated into the SQL itself.
             size_query = "SELECT AVG(" + length_sum + ") as avg_row_size FROM (" + inner_query + " LIMIT 1000) as t"
@@ -756,25 +911,38 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
             explain_lines = [str(dict(zip(column_names, row))) for row in rows]
             logger.debug(f"EXPLAIN result: {' | '.join(explain_lines) if explain_lines else '(empty)'}")
         except Exception as e:
+            # EXPLAIN is best-effort diagnostics; its failure never affects the
+            # sync (the streaming query runs right after regardless). Capturing
+            # here just floods error tracking with benign, non-actionable noise —
+            # e.g. MySQL 1345 when EXPLAINing a view whose underlying tables the
+            # connected user lacks SHOW VIEW on. Debug-log only, like
+            # `find_index_for_cursor`.
             logger.debug(f"EXPLAIN raised an exception: {e}", exc_info=e)
-            capture_exception(e)
 
     # ------------------------------------------------------------------
     # Pipeline build — the dlt `SourceResponse` for a single table
     # ------------------------------------------------------------------
 
     def build_pipeline(self, config: MySQLSourceConfig, inputs: SourceInputs) -> SourceResponse:
-        table_name = inputs.schema_name
+        location = resolve_source_location(
+            inputs,
+            config_namespace=_configured_schema(config),
+            default=normalize_namespace(config.database),
+        )
+        schema = location.schema
+        table_name = location.table_name
+        if not schema:
+            raise ValueError("Schema is missing")
         if not table_name:
             raise ValueError("Table name is missing")
 
-        schema = config.schema
         logger = inputs.logger
         should_use_incremental_field = inputs.should_use_incremental_field
         incremental_field = inputs.incremental_field
         incremental_field_type = inputs.incremental_field_type
         db_incremental_field_last_value = inputs.db_incremental_field_last_value
         enabled_columns = inputs.enabled_columns
+        row_filters = inputs.row_filters
 
         with self.connect(config) as connection:
             with connection.cursor() as cursor:
@@ -799,6 +967,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                     db_incremental_field_last_value,
                     enabled_columns=enabled_columns,
                     primary_keys=primary_keys,
+                    row_filters=row_filters,
                 )
 
                 rows_to_sync = self.get_rows_to_sync(cursor, inner_query, inner_query_args, logger)
@@ -842,6 +1011,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                         force_index_name=force_index_name,
                         enabled_columns=enabled_columns,
                         primary_keys=primary_keys,
+                        row_filters=row_filters,
                     )
                     logger.debug(f"MySQL query: {query.format(args)}")
 
@@ -924,10 +1094,8 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                 logger.warning(f"Retrying streaming query with FORCE INDEX ({force_index_name}) after bad query plan")
                 yield from _stream_with_optional_force_index(force_index_name)
 
-        name = NamingConvention.normalize_identifier(table_name)
-
         return SourceResponse(
-            name=name,
+            name=location.response_name,
             items=get_rows,
             primary_keys=primary_keys,
             partition_count=partition_settings.partition_count if partition_settings else None,

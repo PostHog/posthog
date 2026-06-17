@@ -113,6 +113,12 @@ MESSAGING_TASK_QUEUE = _set_temporal_task_queue("messaging-task-queue")
 ANALYTICS_PLATFORM_TASK_QUEUE = _set_temporal_task_queue("analytics-platform-task-queue")
 SESSION_REPLAY_TASK_QUEUE = _set_temporal_task_queue("session-replay-task-queue")
 REPLAY_VISION_TASK_QUEUE = _set_temporal_task_queue("replay-vision-task-queue")
+# The XGBoost-based session surfacing scoring sweep runs on the session-replay
+# worker (it's the only OpenMP user there; that worker sets OMP_NUM_THREADS=1).
+# Sharing the queue means start_temporal_worker aggregates its workflow +
+# activities onto the replay worker and warmup() runs on replay-worker boot —
+# no dedicated pod needed (see surfacing_scoring_sweep/README.md).
+SURFACING_SCORING_SWEEP_TASK_QUEUE = SESSION_REPLAY_TASK_QUEUE
 WEEKLY_DIGEST_TASK_QUEUE = _set_temporal_task_queue("weekly-digest-task-queue")
 LLMA_EVALS_TASK_QUEUE = _set_temporal_task_queue("llm-analytics-evals-task-queue")
 LLMA_SENTIMENT_TASK_QUEUE = _set_temporal_task_queue("llm-analytics-sentiment-task-queue")
@@ -124,9 +130,11 @@ LOGS_ALERTING_TASK_QUEUE = _set_temporal_task_queue("logs-alerting-task-queue")
 RASTERIZATION_TASK_QUEUE = "rasterization-task-queue"  # Not collapsed in dev — separate Node.js worker process
 
 # Error tracking
-ERROR_TRACKING_AUTO_MERGE_FINGERPRINT_TEAM_IDS: list[int] = [
-    int(team_id) for team_id in get_list(os.getenv("ERROR_TRACKING_AUTO_MERGE_FINGERPRINT_TEAM_IDS", "")) if team_id
-]
+# Global on/off switch for auto-merging close fingerprints into their nearest issue.
+# Off by default; enabled per-deployment (e.g. EU).
+ERROR_TRACKING_AUTO_MERGE_ENABLED: bool = get_from_env(
+    "ERROR_TRACKING_AUTO_MERGE_ENABLED", False, type_cast=str_to_bool
+)
 
 # Signals inbox notification: how long to wait for an auto-started implementation PR before
 # notifying anyway, and how often to poll for it.

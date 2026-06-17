@@ -29,7 +29,10 @@ from posthog.hogql.transforms.preaggregated_table_transformation import is_integ
 
 from posthog.models.team import Team
 
-from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import is_precompute_enabled_for_team
+from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
+    LAZY_TTL_SECONDS,  # noqa: F401 — re-exported; several runners import it from this module
+    is_precompute_enabled_for_team,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -59,17 +62,6 @@ WEB_ANALYTICS_LAZY_PRECOMPUTE_SUCCESS = Counter(
     "Requests served from the lazy precompute path, by family.",
     ["family"],
 )
-
-# Bucketing the precompute hourly keeps reads correct for any whole-hour-offset
-# timezone — boundaries line up exactly when the team-local window is converted
-# to UTC before filtering on `time_window_start`. Half-hour-offset timezones
-# (IST, Newfoundland, Nepal, etc.) are explicitly gated out below.
-LAZY_TTL_SECONDS: dict[str, int] = {
-    "0d": 15 * 60,
-    "1d": 60 * 60,
-    "7d": 24 * 60 * 60,
-    "default": 7 * 24 * 60 * 60,
-}
 
 # Today the gate accepts: empty user filters, or a single EventPropertyFilter
 # on `$host` with operator `exact`. Test-account filters are always allowed

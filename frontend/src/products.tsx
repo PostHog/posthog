@@ -5,7 +5,7 @@ import { combineUrl } from 'kea-router'
 
 import { AlertType } from 'lib/components/Alerts/types'
 import { FEATURE_FLAGS, INSIGHT_VISUAL_ORDER } from 'lib/constants'
-import { toParams } from 'lib/utils'
+import { toParams } from 'lib/utils/url'
 import type { Params } from 'scenes/sceneTypes'
 import { SurveysTabs } from 'scenes/surveys/surveysLogic'
 import { urls } from 'scenes/urls'
@@ -581,8 +581,7 @@ export const productConfiguration: Record<string, any> = {
         name: 'Data ops',
         projectBased: true,
         activityScope: 'DataWarehouse',
-        description:
-            'Manage your data warehouse sources and queries. New source syncs are always free for the first 7 days',
+        description: "Manage your organization's shared data warehouse.",
         iconType: 'data_warehouse',
     },
     Models: {

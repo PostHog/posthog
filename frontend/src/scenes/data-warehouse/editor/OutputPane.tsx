@@ -31,7 +31,6 @@ import { IconTableChart } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { transformDataTableToDataTableRows } from 'lib/utils/dataTableTransformations'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
 import { urls } from 'scenes/urls'
@@ -42,6 +41,7 @@ import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { LoadPreviewText } from '~/queries/nodes/DataNode/LoadNext'
 import { QueryExecutionDetails } from '~/queries/nodes/DataNode/QueryExecutionDetails'
+import { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/LineGraph'
 import { PieChart } from '~/queries/nodes/DataVisualization/Components/Charts/PieChart'
 import { TwoDimensionalHeatmap } from '~/queries/nodes/DataVisualization/Components/Heatmap/TwoDimensionalHeatmap'
@@ -396,6 +396,23 @@ function VisualizationActions({
             </div>
         </div>
     )
+}
+
+/**
+ * Transforms DataTable format back to DataTableRow format for clipboard operations
+ */
+function transformDataTableToDataTableRows(rows: Record<string, any>[], columns: string[]): DataTableRow[] {
+    if (!columns.length || !rows.length) {
+        return []
+    }
+
+    return rows.map((row) => ({
+        result: columns.map((col, index) => {
+            // Handle both direct column access and column_index format
+            const columnKey = `${col}_${index}`
+            return row[columnKey] !== undefined ? row[columnKey] : row[col]
+        }),
+    }))
 }
 
 interface ResultsActionsProps {

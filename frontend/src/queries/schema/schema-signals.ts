@@ -14,6 +14,8 @@ export enum SignalSourceProduct {
     PGANALYZE = 'pganalyze',
     SIGNALS_SCOUT = 'signals_scout',
     LOGS = 'logs',
+    HEALTH_CHECKS = 'health_checks',
+    REPLAY_VISION = 'replay_vision',
 }
 
 export enum SignalSourceType {
@@ -27,8 +29,11 @@ export enum SignalSourceType {
     ISSUE_REOPENED = 'issue_reopened',
     ISSUE_SPIKING = 'issue_spiking',
     ENDPOINT_EXECUTION_FAILED = 'endpoint_execution_failed',
+    ENDPOINT_BREAKDOWN_LIMIT_EXCEEDED = 'endpoint_breakdown_limit_exceeded',
     CROSS_SOURCE_ISSUE = 'cross_source_issue',
     ALERT_STATE_CHANGE = 'alert_state_change',
+    HEALTH_ISSUE = 'health_issue',
+    SCANNER_FINDING = 'scanner_finding',
 }
 
 // ── Shared optional remediation ──────────────────────────────────────────────────
@@ -298,6 +303,19 @@ export interface EndpointExecutionFailedSignalInput extends SignalInputBase {
     extra: EndpointExecutionFailedSignalExtra
 }
 
+// Endpoint breakdown limit exceeded — the 'Other' bucket appeared in results
+
+export interface EndpointBreakdownLimitExceededSignalExtra extends SignalExtraBase {
+    endpoint_name: string
+    breakdown_limit: number
+}
+
+export interface EndpointBreakdownLimitExceededSignalInput extends SignalInputBase {
+    source_type: 'endpoint_breakdown_limit_exceeded'
+    source_product: 'endpoints'
+    extra: EndpointBreakdownLimitExceededSignalExtra
+}
+
 // Signals scout — cross-source findings emitted by the headless Signals scout harness.
 
 export interface SignalsScoutEvidenceEntry {
@@ -363,6 +381,49 @@ export interface LogsAlertStateChangeSignalInput extends SignalInputBase {
     extra: LogsAlertStateChangeSignalExtra
 }
 
+// Replay Vision scanner finding — the optional "side mission" finding a scanner's LLM pass
+// may attach to an observation when the scanner has `emits_signals` enabled.
+
+export interface ReplayVisionScannerFindingSignalExtra extends SignalExtraBase {
+    scanner_id: string
+    scanner_name: string
+    /** Replay Vision scanner type, e.g. 'monitor' / 'classifier' / 'scorer' / 'summarizer'. Kept open so new scanner types don't fail signal validation. */
+    scanner_type: string
+    observation_id: string
+    session_id: string
+    /** The model's self-reported confidence in the finding, in [0, 1]. Independent of `weight`. */
+    confidence: number
+}
+
+export interface ReplayVisionScannerFindingSignalInput extends SignalInputBase {
+    source_type: 'scanner_finding'
+    source_product: 'replay_vision'
+    extra: ReplayVisionScannerFindingSignalExtra
+}
+
+// Health-check issue (instrumentation problem detected by a HealthCheck)
+
+export type HealthCheckSeverity = 'critical' | 'warning' | 'info'
+
+export interface HealthCheckSignalExtra extends SignalExtraBase {
+    kind: string
+    severity: HealthCheckSeverity
+    issue_id: string
+    title: string
+    summary: string
+    /** Relative in-app path to the resource, e.g. '/web'. */
+    link: string
+    /** Absolute URL ({project.url} + link). */
+    url: string
+    payload: Record<string, unknown>
+}
+
+export interface HealthCheckSignalInput extends SignalInputBase {
+    source_type: 'health_issue'
+    source_product: 'health_checks'
+    extra: HealthCheckSignalExtra
+}
+
 // ── Report reviewer types ────────────────────────────────────────────────────────
 
 export interface RelevantCommit {
@@ -401,6 +462,9 @@ export type SignalInput =
     | ConversationsTicketSignalInput
     | ErrorTrackingSignalInput
     | EndpointExecutionFailedSignalInput
+    | EndpointBreakdownLimitExceededSignalInput
     | PgAnalyzeIssueSignalInput
     | SignalsScoutSignalInput
     | LogsAlertStateChangeSignalInput
+    | HealthCheckSignalInput
+    | ReplayVisionScannerFindingSignalInput

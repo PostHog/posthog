@@ -121,6 +121,17 @@ impl RawNodeFrame {
         format!("{:x}", hasher.finalize())
     }
 
+    // Clients compute in_app from their local layout (and default to true when
+    // unsure), so identical stacks arrive with different in_app masks depending
+    // on the host they were captured on. Fingerprinting selects frames by in_app,
+    // so each mask would mint a new fingerprint for the same crash. Demote frames
+    // that are clearly dependency or runtime code; we never promote, so an explicit
+    // client in_app=false still wins. Mirrors the node_modules check already applied
+    // on the sourcemap-resolved path, extending it to the unresolved frame paths.
+    pub fn in_app(&self) -> bool {
+        self.meta.in_app && !is_dependency_source(&self.filename)
+    }
+
     pub fn get_context(&self) -> Option<Context> {
         let context_line = self.context_line.as_ref()?;
         let lineno = self.lineno?;
@@ -156,7 +167,7 @@ impl From<&RawNodeFrame> for Frame {
             line: raw.lineno,
             column: None,
             source: Some(raw.filename.clone()),
-            in_app: raw.meta.in_app,
+            in_app: raw.in_app(),
             resolved_name: Some(raw.function.clone()),
             lang: "javascript".to_string(),
             resolved: true,
@@ -186,9 +197,11 @@ impl From<(&RawNodeFrame, SourceLocation<'_>)> for Frame {
             .and_then(|f| f.name())
             .map(|s| s.to_string());
 
-        let in_app = source
-            .map(|s| !s.contains("node_modules"))
-            .unwrap_or(raw_frame.meta.in_app);
+        // Demote-only, consistent with the unresolved paths: honor an explicit
+        // client in_app=false rather than promoting it back to true on resolution.
+        // Base on raw_frame.in_app() so the raw filename is still checked when the
+        // resolved source has no name.
+        let in_app = raw_frame.in_app() && !source.as_deref().is_some_and(is_dependency_source);
 
         let mut res = Self {
             frame_id: FrameId::placeholder(),
@@ -255,7 +268,7 @@ impl From<(&RawNodeFrame, JsResolveErr)> for Frame {
             line: raw_frame.lineno,
             column: raw_frame.colno,
             source: None,
-            in_app: raw_frame.meta.in_app,
+            in_app: raw_frame.in_app(),
             resolved_name,
             lang: "javascript".to_string(),
             resolved,
@@ -287,4 +300,78 @@ fn context_likely_minified(ctx: &Context) -> bool {
         .sum::<usize>() as f64
         / (ctx.before.len() + ctx.after.len()) as f64;
     avg_len > 300.0
+}
+
+// Source markers that identify non-application Node code: installed dependencies
+// (node_modules) and Node's built-in modules (the `node:` scheme, e.g. `node:fs`).
+fn is_dependency_source(source: &str) -> bool {
+    source.contains("node_modules") || source.starts_with("node:")
+}
+
+#[cfg(test)]
+mod test {
+    use super::RawNodeFrame;
+
+    #[test]
+    fn test_in_app_normalization() {
+        let cases = [
+            (
+                "node_modules frames are demoted",
+                serde_json::json!({
+                    "filename": "/app/node_modules/express/lib/router/index.js",
+                    "function": "handle",
+                    "in_app": true,
+                }),
+                false,
+            ),
+            (
+                "node builtin modules are demoted",
+                serde_json::json!({
+                    "filename": "node:internal/process/task_queues",
+                    "function": "processTicksAndRejections",
+                    "in_app": true,
+                }),
+                false,
+            ),
+            (
+                "unset in_app defaults true but dependency code is still demoted",
+                serde_json::json!({
+                    "filename": "/app/node_modules/pg/lib/client.js",
+                    "function": "query",
+                }),
+                false,
+            ),
+            (
+                "application frames stay in_app",
+                serde_json::json!({
+                    "filename": "/app/src/handlers/user.js",
+                    "function": "getUser",
+                    "in_app": true,
+                }),
+                true,
+            ),
+            (
+                "application frame with no in_app field defaults to true",
+                serde_json::json!({
+                    "filename": "/app/src/index.js",
+                    "function": "main",
+                }),
+                true,
+            ),
+            (
+                "explicit client false is never promoted",
+                serde_json::json!({
+                    "filename": "/app/src/handlers/user.js",
+                    "function": "getUser",
+                    "in_app": false,
+                }),
+                false,
+            ),
+        ];
+
+        for (case, value, expected) in cases {
+            let raw: RawNodeFrame = serde_json::from_value(value).unwrap();
+            assert_eq!(raw.in_app(), expected, "{case}");
+        }
+    }
 }

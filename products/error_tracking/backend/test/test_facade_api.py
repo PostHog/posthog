@@ -8,10 +8,7 @@ from parameterized import parameterized
 
 from posthog.models import Team
 
-from products.error_tracking.backend.facade import (
-    api,
-    types as contracts,
-)
+from products.error_tracking.backend.facade import api, contracts
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,

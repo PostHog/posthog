@@ -67,7 +67,9 @@ tools:
         enabled: false
     mcp-feedback-submit:
         operation: mcp_analytics_feedback_create
-        enabled: false
+        enabled: true
+        scopes:
+            - mcp_analytics:write
         annotations:
             readOnly: false
             destructive: false
@@ -81,12 +83,15 @@ tools:
             - feedback
             - category
             - attempted_tool
+        feature_flag: mcp-analytics
     mcp-missing-capability-list:
         operation: mcp_analytics_missing_capabilities_list
         enabled: false
     mcp-missing-capability-report:
         operation: mcp_analytics_missing_capabilities_create
-        enabled: false
+        enabled: true
+        scopes:
+            - mcp_analytics:write
         annotations:
             readOnly: false
             destructive: false
@@ -100,3 +105,4 @@ tools:
             - missing_capability
             - blocked
             - attempted_tool
+        feature_flag: mcp-analytics

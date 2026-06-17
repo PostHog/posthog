@@ -200,8 +200,23 @@ jobs:
 
                   # Filter the diff to source files jest can resolve. Any code under
                   # frontend/, products/, common/, ee/frontend/ — anything else (docs,
-                  # workflows, backend) doesn't reach the jest module graph.
-                  CHANGED_FILES=$(grep -E '^(frontend/|products/|common/|ee/frontend/)' /tmp/changed.txt | grep -E '\.(ts|tsx|js|jsx|mjs|cjs)$' | tr '\n' ' ' | sed 's/ $//')
+                  # workflows, backend) doesn't reach the jest module graph. Convert
+                  # repo-root paths to paths relative to the @posthog/frontend package
+                  # cwd because `pnpm --filter=@posthog/frontend exec` runs from there.
+                  CHANGED_FILES=$(
+                      awk '
+                          /\.(ts|tsx|js|jsx|mjs|cjs)$/ {
+                              if ($0 ~ /^frontend\//) {
+                                  sub(/^frontend\//, "", $0)
+                                  print
+                                  next
+                              }
+                              if ($0 ~ /^(products|common|ee\/frontend)\//) {
+                                  print "../" $0
+                              }
+                          }
+                      ' /tmp/changed.txt | tr '\n' ' ' | sed 's/ $//'
+                  )
 
                   if [[ -z "$CHANGED_FILES" ]]; then
                       # No frontend source changes (e.g. PR only edits backend or docs)
@@ -496,14 +511,8 @@ jobs:
                   path: .typegen
                   key: ${{ runner.os }}-typegen-${{ hashFiles('pnpm-lock.yaml') }}
 
-            - name: Run typescript with strict
+            - name: Run typescript check (tsgo)
               run: pnpm --filter=@posthog/frontend typescript:check
-              env:
-                  NODE_OPTIONS: --max-old-space-size=16384
-
-            - name: Run tsgo (shadow, non-blocking)
-              run: pnpm --filter=@posthog/frontend typescript:check:tsgo
-              continue-on-error: true
 
             - name: Check if schema.json and validators.js are up to date
               run: pnpm --filter=@posthog/frontend schema:build:json && git diff --exit-code
@@ -583,11 +592,18 @@ jobs:
                       # --findRelatedTests walks jest's import graph from the changed
                       # source files and runs the matching tests. No --shard: single
                       # job runs the entire selected set.
+                      #
+                      # No --testPathPattern: it is mutually exclusive with
+                      # --findRelatedTests (jest folds both into one path regex and
+                      # matches nothing), and CHANGED_FILES is already scoped to
+                      # frontend source files by select-jest-tests. --passWithNoTests
+                      # so a changed source file with no related test doesn't fail the
+                      # run — the ready-for-review full matrix is the gate.
                       pnpm --filter=@posthog/frontend build:products
                       # shellcheck disable=SC2086
                       pnpm --filter=@posthog/frontend exec jest \
-                          --testPathPattern='(frontend/|products/|common/)' \
                           --forceExit \
+                          --passWithNoTests \
                           --findRelatedTests $CHANGED_FILES
                   else
                       bin/turbo run test --filter=@posthog/frontend -- --maxWorkers=2

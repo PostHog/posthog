@@ -1,1 +1,1 @@
-1221_oauthaccesstoken_scope_trgm
+1224_columnconfiguration_properties

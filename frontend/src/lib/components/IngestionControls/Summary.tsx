@@ -3,7 +3,7 @@ import { match } from 'ts-pattern'
 import { IconCheck, IconCircleDashed } from '@posthog/icons'
 import { LemonBanner, Link } from '@posthog/lemon-ui'
 
-import { pluralize } from 'lib/utils'
+import { pluralize } from 'lib/utils/strings'
 
 import { Trigger, TriggerType } from './types'
 

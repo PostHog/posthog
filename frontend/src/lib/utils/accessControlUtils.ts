@@ -1,7 +1,7 @@
 import posthog from 'posthog-js'
 
-import { toSentenceCase } from 'lib/utils'
 import { getAppContext } from 'lib/utils/getAppContext'
+import { toSentenceCase } from 'lib/utils/strings'
 
 import { APIScopeObject, AccessControlLevel, AccessControlResourceType, AvailableFeature } from '~/types'
 

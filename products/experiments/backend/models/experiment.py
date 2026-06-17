@@ -143,15 +143,21 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
             return Experiment.Status.RUNNING
         return Experiment.Status.DRAFT
 
+    @property
+    def status_label(self) -> str:
+        """Public status string (draft/running/paused/stopped) — single source for the API
+        serializer and dashboard widgets."""
+        if self.is_paused:
+            return "paused"
+        return self.status or self.computed_status.value
+
     def get_feature_flag_key(self):
         # Strip the soft-delete tombstone so the API and analytics surface the original
         # key, matching what the query runners resolve against historical events.
         return self.feature_flag.key_without_tombstone()
 
     def get_analytics_metadata(self) -> dict[str, Any]:
-        variants = (self.parameters or {}).get("feature_flag_variants")
-        if not variants:
-            variants = self.feature_flag.filters.get("multivariate", {}).get("variants", [])
+        variants = self.feature_flag.variants
 
         return {
             "experiment_id": self.id,

@@ -47,6 +47,21 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
             # key value (volatile) followed by this stable type-coercion phrase. The account id is a
             # fixed config value, so retrying can't help — fail fast and tell the user to fix it.
             "must be of type 'java.lang.Long'": "LinkedIn rejected the configured Account ID. It must be the numeric LinkedIn ad account ID (digits only). Please correct the Account ID in your source settings and re-sync.",
+            # LinkedIn returns a 404 with this stable error code when the requested ad account /
+            # resource can't be resolved — typically a deleted account, a wrong Account ID, or lost
+            # access. Retrying can't recover it, so stop syncing instead of looping the 404.
+            "RESOURCE_NOT_FOUND": "LinkedIn could not find the requested ad account. It may have been deleted, the configured Account ID may be wrong, or PostHog may have lost access. Check the Account ID and re-authorize the LinkedIn Ads integration.",
+            # LinkedIn returns a 401 with this stable error code when the member who authorized the
+            # integration has been restricted on LinkedIn's side (suspended / flagged account). The
+            # token can't be used until LinkedIn lifts the restriction, so retrying never recovers —
+            # stop syncing and tell the user to resolve it with LinkedIn and re-authorize.
+            "RESTRICTED_MEMBER": "LinkedIn has restricted the account that authorized this integration, so PostHog can no longer access your ad data. Resolve the restriction with LinkedIn, then re-authorize the LinkedIn Ads integration.",
+            # The Account ID is a free-text field. A malformed value (a profile URL, a name, stray
+            # whitespace) makes LinkedIn reject the `urn:li:sponsoredAccount:<id>` accounts param with
+            # a deterministic 400 ("...is invalid. Reason: Deserializing output ... failed"). Retrying
+            # never succeeds, so fail fast and tell the user to fix the configured Account ID. Match on
+            # the stable prefix only — the offending value that follows varies per source.
+            "Array parameter 'accounts' value 'urn:li:sponsoredAccount:": "The LinkedIn Ads Account ID is invalid. Please check the Account ID in your source configuration — it should be the numeric account ID from your LinkedIn Campaign Manager.",
         }
 
     @property

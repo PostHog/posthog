@@ -59,6 +59,17 @@ TIME_BUCKET_DATE_RANGE_WHERE = (
     "and toStartOfDay(time_bucket, 'UTC') <= toStartOfDay({date_to}, 'UTC')"
 )
 
+# Value-search probes attribute_value with ILIKE %search%, which scans far more rows than
+# the key-only path. Require a meaningfully specific term so short prefixes (e.g. "id")
+# don't trigger an expensive scan.
+MIN_VALUE_SEARCH_LENGTH = 4
+
+
+def _ilike_pattern(search: str) -> str:
+    # Escape ILIKE wildcards so a search for "%" matches a literal percent sign, not every row.
+    escaped = search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
+
 
 def _normalise_to_base64(value: str) -> str:
     try:
@@ -380,14 +391,19 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
         raise UserAccessControlError("tracing", "viewer")
 
     def _calculate(self) -> TraceSpansQueryResponse:
-        limit_by_n = self.query.prefetchSpans or 1
+        flat = self._flat_spans
+        # Flat mode returns one row per matching span (no per-trace prefetch), so don't inflate the
+        # page size. Grouped mode locks pagination into the trace-id subquery (outer paginator at
+        # offset 0); flat mode has no subquery, so its duration-order offset rides the paginator here
+        # (timestamp order keysets in the WHERE instead).
+        limit_by_n = 1 if flat else (self.query.prefetchSpans or 1)
         query = self.to_query()
         # original pagination settings are locked in in the trace id subquery already
         # override limit to allow for N * limit for the trace spans
         self.paginator = HogQLHasMorePaginator.from_limit_context(
             limit_context=LimitContext.QUERY,
             limit=self.query.limit * limit_by_n if self.query.limit else None,
-            offset=0,
+            offset=self.query.offset if flat else 0,
         )
 
         response = self.paginator.execute_hogql_query(
@@ -441,26 +457,41 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
         """Ordering by duration paginates via offset; ordering by timestamp via the time keyset."""
         return self.query.orderBy == "duration"
 
-    def _parse_after_cursor(self) -> tuple[dt.datetime, str] | None:
-        """Decode the opaque `after` cursor into (trace_start_ts, trace_id_base64).
+    @property
+    def _flat_spans(self) -> bool:
+        """Return the matching spans themselves (one row per span), not whole-trace groups.
 
-        The cursor identifies the last trace of the previous page by its start time (the root
-        span's timestamp) and trace id. `trace_id` travels as hex (the human form the rest of the
-        API uses) and is re-encoded to the table's base64 storage form for comparison.
+        Set explicitly by the viewer's "Spans" mode. The whole-trace path groups every matching span
+        by trace_id to rank traces — an unbounded, high-cardinality aggregation that exceeds
+        ClickHouse's memory limit for hot child attributes (e.g. code.filepath). Flat mode skips the
+        GROUP BY + window and streams matches under ORDER BY ... LIMIT instead. Distinct from
+        `rootSpans` (whole-trace scoping); the single-trace waterfall never sets it.
+        """
+        return self.query.flatSpans is True
+
+    def _parse_after_cursor(self, secondary_key: str = "trace_id") -> tuple[dt.datetime, str] | None:
+        """Decode the opaque `after` cursor into (timestamp, secondary_id_base64).
+
+        `secondary_key` selects the keyset tiebreaker for the previous page's boundary row: "trace_id"
+        for the whole-trace list (keyed on the trace's start time) or "span_id" for the flat span list
+        (keyed on the span's own timestamp). The secondary id travels as hex (the human form the rest of
+        the API uses) and is re-encoded to the table's base64 storage form for comparison.
         """
         if not self.query.after:
             return None
         try:
             cursor = json.loads(base64.b64decode(self.query.after).decode("utf-8"))
             cursor_ts = dt.datetime.fromisoformat(cursor["timestamp"])
-            cursor_trace_id_b64 = base64.b64encode(bytes.fromhex(cursor["trace_id"])).decode("ascii")
+            cursor_id_b64 = base64.b64encode(bytes.fromhex(cursor[secondary_key])).decode("ascii")
         except (KeyError, ValueError, json.JSONDecodeError) as e:
             raise ValueError(f"Invalid cursor format: {e}")
-        return cursor_ts, cursor_trace_id_b64
+        return cursor_ts, cursor_id_b64
 
     def to_query(self) -> ast.SelectQuery:
         by_duration = self._by_duration
         order_dir = "ASC" if self.query.orderDirection == "ASC" else "DESC"
+        if self._flat_spans:
+            return self._build_flat_spans_query(by_duration=by_duration, order_dir=order_dir)
         limit_by_n = self.query.prefetchSpans or 1
 
         # The list paginates by trace. We GROUP BY trace_id so the page key lands on a stable
@@ -591,6 +622,11 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
         # Root rows drive the displayed list order. Time sorts order them by timestamp; duration sorts
         # by the per-trace duration window (constant within a trace, so spans of a trace stay grouped).
         base_order = [parse_order_expr("is_root_span DESC"), parse_order_expr("matched_filter DESC")]
+        # The single-trace waterfall paginates *within* one trace: order its spans purely by start
+        # time so the per-trace `LIMIT BY` window is the first `prefetchSpans` spans by start time,
+        # and an `offset` pages through the rest (infinite scroll). The multi-trace list keeps its
+        # root/matched-first grouping so a trace's root and matching spans stay visible.
+        single_trace = self.query.traceId is not None
         if by_duration:
             query.order_by = [
                 *base_order,
@@ -598,14 +634,103 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
                 parse_order_expr(f"trace_id {order_dir}"),
                 parse_order_expr("timestamp ASC"),
             ]
+        elif single_trace:
+            query.order_by = [
+                parse_order_expr(f"timestamp {order_dir}"),
+                parse_order_expr(f"span_id {order_dir}"),
+            ]
         else:
             query.order_by = [*base_order, parse_order_expr(f"timestamp {order_dir}")]
 
         query.limit_by = ast.LimitByExpr(
             n=ast.Constant(value=limit_by_n),
             exprs=[ast.Field(chain=["trace_id"])],
+            # Within-trace offset paging — only meaningful for the single-trace waterfall (timestamp
+            # order). The paginator's own offset stays 0 in grouped mode, so these don't compound.
+            offset_value=ast.Constant(value=self.query.offset) if single_trace and self.query.offset else None,
         )
 
+        return query
+
+    def _build_flat_spans_query(self, *, by_duration: bool, order_dir: str) -> ast.SelectQuery:
+        """Flat span list: the matching spans themselves, no whole-trace expansion (see _flat_spans).
+
+        Streams matches under ORDER BY ... LIMIT (keyset on timestamp, offset on duration) instead of a
+        per-trace GROUP BY + window, so a filter on a hot child attribute stays bounded. Returns the
+        same positional columns as the whole-trace query so _calculate's row mapping stays shared:
+        matched_filter is a constant 1 (every returned row matched), and trace_start / trace_duration
+        are the span's own timestamp / duration.
+        """
+        where_exprs: list[ast.Expr] = [self.where()]
+
+        # Time order keysets on (timestamp, span_id) in the WHERE; duration order offset-paginates via
+        # the paginator (see _calculate). The coarse UTC day bound lets ClickHouse prune parts first —
+        # pin UTC for the same reason as the date bound in where(): the cursor constant prints UTC, so
+        # an unpinned toStartOfDay would truncate on the session-tz day grid and drop same-day rows.
+        if not by_duration:
+            cursor = self._parse_after_cursor("span_id")
+            if cursor is not None:
+                cursor_ts, cursor_span_id = cursor
+                row_op = ">" if order_dir == "ASC" else "<"
+                day_op = ">=" if order_dir == "ASC" else "<="
+                where_exprs.append(
+                    parse_expr(
+                        f"toStartOfDay(time_bucket, 'UTC') {day_op} toStartOfDay({{cursor_ts}}, 'UTC')",
+                        placeholders={"cursor_ts": ast.Constant(value=cursor_ts)},
+                    )
+                )
+                where_exprs.append(
+                    parse_expr(
+                        f"(timestamp, span_id) {row_op} ({{cursor_ts}}, {{cursor_span_id}})",
+                        placeholders={
+                            "cursor_ts": ast.Constant(value=cursor_ts),
+                            "cursor_span_id": ast.Constant(value=cursor_span_id),
+                        },
+                    )
+                )
+
+        where: ast.Expr = where_exprs[0] if len(where_exprs) == 1 else ast.And(exprs=where_exprs)
+
+        query = parse_select(
+            """
+            SELECT
+                uuid,
+                hex(tryBase64Decode(trace_id)),
+                hex(tryBase64Decode(span_id)),
+                hex(tryBase64Decode(parent_span_id)),
+                name,
+                kind,
+                service_name,
+                status_code,
+                timestamp,
+                end_time,
+                duration_nano,
+                is_root_span,
+                1 as matched_filter,
+                timestamp as trace_start,
+                {attributes},
+                {resource_attributes},
+                duration_nano as trace_duration
+            FROM posthog.trace_spans
+            WHERE {where}
+        """,
+            placeholders={
+                "where": where,
+                "attributes": parse_expr("map() AS attributes" if self.query.excludeAttributes else "attributes"),
+                "resource_attributes": parse_expr(
+                    "map() AS resource_attributes" if self.query.excludeAttributes else "resource_attributes"
+                ),
+            },
+        )
+        assert isinstance(query, ast.SelectQuery)
+
+        # span_id is the per-span tiebreaker (base64 storage form, matching the cursor) — keeps the
+        # ORDER BY and the keyset WHERE on the same representation so pagination is stable.
+        sort_col = "duration_nano" if by_duration else "timestamp"
+        query.order_by = [
+            parse_order_expr(f"{sort_col} {order_dir}"),
+            parse_order_expr(f"span_id {order_dir}"),
+        ]
         return query
 
 
@@ -635,7 +760,7 @@ def run_service_names_query(
         exprs.append(
             parse_expr(
                 "service_name ILIKE {search}",
-                placeholders={"search": ast.Constant(value=f"%{search}%")},
+                placeholders={"search": ast.Constant(value=_ilike_pattern(search))},
             )
         )
 
@@ -675,10 +800,25 @@ def run_attribute_names_query(
     date_range: DateRange,
     attribute_type: str = "span_attribute",
     search: str = "",
+    search_values: bool = False,
     limit: int = 100,
     offset: int = 0,
 ) -> tuple[list[dict], int]:
-    """Return attribute names from trace_attributes table."""
+    """Return attribute names from trace_attributes table.
+
+    When search_values is set and the search term is specific enough, also match
+    on attribute values so a user can find the key holding e.g. a trace_id.
+    """
+    if search_values and search and len(search) >= MIN_VALUE_SEARCH_LENGTH:
+        return _run_attribute_names_value_search(
+            team=team,
+            date_range=date_range,
+            attribute_type=attribute_type,
+            search=search,
+            limit=limit,
+            offset=offset,
+        )
+
     query_date_range = QueryDateRange(
         date_range=date_range,
         team=team,
@@ -705,14 +845,14 @@ def run_attribute_names_query(
             WHERE time_bucket >= {date_from_start_of_interval}
             AND time_bucket <= {date_to_start_of_interval} + {one_interval_period}
             AND attribute_type = {attributeType}
-            AND attribute_key LIKE {search}
+            AND attribute_key ILIKE {search}
             GROUP BY team_id, attribute_key
             ORDER BY sum(attribute_count) desc, attribute_key asc
             OFFSET {offset}
         )
         """,
         placeholders={
-            "search": ast.Constant(value=f"%{search}%"),
+            "search": ast.Constant(value=_ilike_pattern(search)),
             "attributeType": ast.Constant(value=attribute_type),
             "limit": ast.Constant(value=limit),
             "offset": ast.Constant(value=offset),
@@ -737,10 +877,119 @@ def run_attribute_names_query(
     count = 0
     if isinstance(response.results, list) and len(response.results) > 0 and len(response.results[0]) > 0:
         for name in response.results[0][0]:
-            results.append({"name": name, "propertyFilterType": property_filter_type})
+            results.append({"name": name, "propertyFilterType": property_filter_type, "matchedOn": "key"})
         count = response.results[0][1] + offset
 
     return results, count
+
+
+def _run_attribute_names_value_search(
+    team: "Team",
+    date_range: DateRange,
+    attribute_type: str,
+    search: str,
+    limit: int,
+    offset: int,
+) -> tuple[list[dict], int]:
+    # UNION ALL of two branches:
+    #   (1) keys whose name matches the search
+    #   (2) keys whose values match the search but whose name does NOT match
+    # The NOT-ILIKE on the value branch dedupes — a key never appears twice.
+    # match_type lets the outer ORDER BY put key matches above value matches.
+    query_date_range = QueryDateRange(
+        date_range=date_range,
+        team=team,
+        interval=IntervalType.MINUTE,
+        interval_count=10,
+        now=dt.datetime.now(),
+        timezone_info=ZoneInfo("UTC"),
+    )
+
+    property_filter_type = (
+        attribute_type if attribute_type in ("span_attribute", "span_resource_attribute") else "span_attribute"
+    )
+
+    query = parse_select(
+        """
+        SELECT
+            attribute_key,
+            match_type,
+            sample_value,
+            total_count
+        FROM (
+            SELECT
+                attribute_key,
+                'key' AS match_type,
+                '' AS sample_value,
+                sum(attribute_count) AS total_count
+            FROM posthog.trace_attributes
+            WHERE time_bucket >= {date_from_start_of_interval}
+            AND time_bucket <= {date_to_start_of_interval} + {one_interval_period}
+            AND attribute_type = {attributeType}
+            AND attribute_key ILIKE {search}
+            GROUP BY team_id, attribute_key
+
+            UNION ALL
+
+            SELECT
+                attribute_key,
+                'value' AS match_type,
+                argMax(attribute_value, attribute_count) AS sample_value,
+                sum(attribute_count) AS total_count
+            FROM posthog.trace_attributes
+            WHERE time_bucket >= {date_from_start_of_interval}
+            AND time_bucket <= {date_to_start_of_interval} + {one_interval_period}
+            AND attribute_type = {attributeType}
+            AND attribute_value ILIKE {search}
+            AND attribute_key NOT ILIKE {search}
+            GROUP BY team_id, attribute_key
+        )
+        ORDER BY
+            match_type = 'key' DESC,
+            total_count DESC,
+            attribute_key ASC
+        LIMIT {limit}
+        OFFSET {offset}
+        """,
+        placeholders={
+            "search": ast.Constant(value=_ilike_pattern(search)),
+            "attributeType": ast.Constant(value=attribute_type),
+            "limit": ast.Constant(value=limit),
+            "offset": ast.Constant(value=offset),
+            **query_date_range.to_placeholders(),
+        },
+    )
+
+    response = execute_hogql_query(
+        query_type="TracingAttributeNamesQuery",
+        query=query,
+        team=team,
+        workload=Workload.LOGS,
+        filters=HogQLFilters(dateRange=date_range),
+        modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
+        settings=HogQLGlobalSettings(
+            read_overflow_mode="break",
+            max_bytes_to_read=5_000_000_000,
+        ),
+    )
+
+    results = []
+    if isinstance(response.results, list):
+        for row in response.results:
+            attribute_key, match_type, sample_value, _total_count = row
+            matched_on_key = match_type == "key"
+            results.append(
+                {
+                    "name": attribute_key,
+                    "propertyFilterType": property_filter_type,
+                    "matchedOn": "key" if matched_on_key else "value",
+                    "matchedValue": None if matched_on_key else (sample_value or None),
+                }
+            )
+
+    # Total count for value-search isn't separately computed; use the returned page
+    # size plus offset as a lower bound — enough for the "load more" affordance.
+    return results, len(results) + offset
 
 
 def run_attribute_values_query(
@@ -783,7 +1032,7 @@ def run_attribute_values_query(
         )
         """,
         placeholders={
-            "search": ast.Constant(value=f"%{search}%"),
+            "search": ast.Constant(value=_ilike_pattern(search)),
             "attributeType": ast.Constant(value=attribute_type),
             "attributeKey": ast.Constant(value=attribute_key),
             "limit": ast.Constant(value=limit),

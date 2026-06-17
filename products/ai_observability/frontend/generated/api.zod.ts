@@ -978,15 +978,24 @@ export const LlmAnalyticsOfflineEvaluationsExperimentItemsCreateBody = /* @__PUR
 
 export const llmAnalyticsParserRecipesCreateBodyNameMax = 255
 
+export const llmAnalyticsParserRecipesCreateBodySourceMax = 100000
+
 export const LlmAnalyticsParserRecipesCreateBody = /* @__PURE__ */ zod.object({
     name: zod
         .string()
         .max(llmAnalyticsParserRecipesCreateBodyNameMax)
         .describe('Human-readable recipe name shown in the editor.'),
-    source: zod.string().describe('Raw YAML recipe source, compiled and validated client-side.'),
+    source: zod
+        .string()
+        .max(llmAnalyticsParserRecipesCreateBodySourceMax)
+        .describe(
+            'Raw YAML recipe source. Must parse as YAML; recipe semantics are compiled and validated client-side.'
+        ),
 })
 
 export const llmAnalyticsParserRecipesPartialUpdateBodyNameMax = 255
+
+export const llmAnalyticsParserRecipesPartialUpdateBodySourceMax = 100000
 
 export const LlmAnalyticsParserRecipesPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod
@@ -994,7 +1003,13 @@ export const LlmAnalyticsParserRecipesPartialUpdateBody = /* @__PURE__ */ zod.ob
         .max(llmAnalyticsParserRecipesPartialUpdateBodyNameMax)
         .optional()
         .describe('Human-readable recipe name shown in the editor.'),
-    source: zod.string().optional().describe('Raw YAML recipe source, compiled and validated client-side.'),
+    source: zod
+        .string()
+        .max(llmAnalyticsParserRecipesPartialUpdateBodySourceMax)
+        .optional()
+        .describe(
+            'Raw YAML recipe source. Must parse as YAML; recipe semantics are compiled and validated client-side.'
+        ),
 })
 
 export const llmAnalyticsProviderKeysCreateBodyNameMax = 255
