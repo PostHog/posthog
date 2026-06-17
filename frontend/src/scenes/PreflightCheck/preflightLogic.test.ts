@@ -96,6 +96,8 @@ describe('preflightLogic', () => {
                         },
                     ],
                 })
+            // Drain trailing listeners so the mode-change reload doesn't bleed into the next test
+            await expectLogic(logic).toFinishAllListeners()
         })
 
         it('parses checks correctly for experimentation mode', async () => {

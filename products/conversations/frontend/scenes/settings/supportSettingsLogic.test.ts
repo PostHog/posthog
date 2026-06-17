@@ -15,7 +15,7 @@ describe('supportSettingsLogic', () => {
                 'api/conversations/v1/email/status': { configs: [] },
             },
             post: {
-                'api/environments/:team_id/': (req: any) => [200, req.body],
+                'api/environments/:team_id/': async ({ request }) => [200, await request.json()],
             },
         })
         initKeaTests()

@@ -58,7 +58,19 @@ if [ ${#stories_to_verify[@]} -eq 0 ]; then
     exit 0
 fi
 
-echo "Verifying ${#stories_to_verify[@]} file(s) × $REPEAT_COUNT runs:"
+# Scale repeats down for large story sets so the job fits its time budget
+# (runs are sequential with --maxWorkers=1). Small PRs keep full verification;
+# mass refactors degrade to fewer passes instead of timing out.
+file_count=${#stories_to_verify[@]}
+if [ "$file_count" -gt 30 ] && [ "$REPEAT_COUNT" -gt 1 ]; then
+    echo "NOTE: $file_count story files changed — reducing repeat count from $REPEAT_COUNT to 1 to fit the job time budget"
+    REPEAT_COUNT=1
+elif [ "$file_count" -gt 10 ] && [ "$REPEAT_COUNT" -gt 2 ]; then
+    echo "NOTE: $file_count story files changed — reducing repeat count from $REPEAT_COUNT to 2 to fit the job time budget"
+    REPEAT_COUNT=2
+fi
+
+echo "Verifying $file_count file(s) × $REPEAT_COUNT runs:"
 printf "  %s\n" "${stories_to_verify[@]}"
 
 # Build a regex pattern matching any of the changed story files.
