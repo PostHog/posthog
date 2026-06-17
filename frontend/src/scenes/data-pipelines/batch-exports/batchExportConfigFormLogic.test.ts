@@ -450,7 +450,7 @@ describe('batchExportConfigFormLogic', () => {
             },
             {
                 service: 'Postgres' as const,
-                fields: ['user', 'password', 'host', 'port', 'database', 'schema', 'table_name'],
+                fields: ['integration_id', 'database', 'schema', 'table_name'],
             },
             {
                 service: 'Redshift' as const,
@@ -805,21 +805,15 @@ describe('batchExportConfigFormLogic', () => {
                 name: 'Postgres',
                 service: 'Postgres' as const,
                 requiredValues: {
-                    user: 'pg-user',
-                    password: 'pg-pass',
-                    host: 'pg-host',
-                    port: 5432,
+                    integration_id: 13,
                     database: 'pg-db',
                     schema: 'public',
                     table_name: 'events',
                 },
                 expectedDestination: {
                     type: 'Postgres',
+                    integration: 13,
                     config: {
-                        user: 'pg-user',
-                        password: 'pg-pass',
-                        host: 'pg-host',
-                        port: 5432,
                         database: 'pg-db',
                         schema: 'public',
                         table_name: 'events',
