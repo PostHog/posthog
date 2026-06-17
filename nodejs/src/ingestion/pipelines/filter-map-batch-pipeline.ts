@@ -17,6 +17,10 @@ export type FilterMapMappingFunction<TInput, TOutput, CInput, COutput> = (
  * Non-OK results are returned immediately without buffering, which may break
  * ordering relative to OK results that go through the subpipeline.
  *
+ * Failures poison the pipeline: if the upstream, the mapping function, or the
+ * subpipeline throws, results already in flight still drain, then next() rejects
+ * with that error permanently.
+ *
  * Synchronization (pulling upstream, feeding the subpipeline, draining it, and
  * staying responsive to concurrent feeds so a parked subpipeline can't strand
  * newly fed input) is handled by {@link InterleavingBatchPipeline}. This class

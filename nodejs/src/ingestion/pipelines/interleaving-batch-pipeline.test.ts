@@ -118,16 +118,24 @@ describe('InterleavingBatchPipeline', () => {
         expect(onProcessPull).toHaveBeenCalledTimes(1)
     })
 
-    it('propagates a sub error, then re-issues the sub pull on the next call', async () => {
-        // A poisoned sub can still hand out remaining completed batches before it
-        // re-rejects, so a throw must clear the memoized pull.
+    it('poisons after a sub error, draining remaining in-flight results first', async () => {
+        // The sub surfaces the error, then can still hand out work that was already
+        // in flight; once it is exhausted the stage rejects permanently.
         const remaining = batch('remaining')
-        const onProcessPull = jest.fn().mockRejectedValueOnce(new Error('poisoned')).mockResolvedValueOnce(remaining)
-        const pipeline = build({ onSourcePull: jest.fn().mockResolvedValue({ kind: 'drain' }), onProcessPull })
+        const onSourcePull = jest.fn().mockResolvedValue({ kind: 'drain' })
+        const onProcessPull = jest
+            .fn()
+            .mockRejectedValueOnce(new Error('poisoned'))
+            .mockResolvedValueOnce(remaining)
+            .mockResolvedValue(null)
+        const pipeline = build({ onSourcePull, onProcessPull })
 
-        await expect(pipeline.next()).rejects.toThrow('poisoned')
-        expect(await pipeline.next()).toBe(remaining)
-        expect(onProcessPull).toHaveBeenCalledTimes(2)
+        await expect(pipeline.next()).rejects.toThrow('poisoned') // first surfacing
+        expect(await pipeline.next()).toBe(remaining) // drained in-flight result
+        await expect(pipeline.next()).rejects.toThrow('poisoned') // then poisoned
+        await expect(pipeline.next()).rejects.toThrow('poisoned') // permanently
+        expect(onSourcePull).toHaveBeenCalledTimes(1) // no source pulls after poison
+        expect(onProcessPull).toHaveBeenCalledTimes(4)
     })
 
     it('reuses the in-flight sub pull across a feed wake and returns its eventual value', async () => {
@@ -235,18 +243,28 @@ describe('InterleavingBatchPipeline', () => {
         expect(onSourcePull).toHaveBeenCalledTimes(1)
     })
 
-    it('propagates a source-pull rejection and stays usable on the next call', async () => {
+    it('poisons after a source error, draining in-flight sub results first', async () => {
         const remaining = batch('remaining')
         const onSourcePull = jest
             .fn()
             .mockRejectedValueOnce(new Error('source boom'))
-            .mockResolvedValueOnce({ kind: 'drain' })
-        const onProcessPull = jest.fn().mockResolvedValue(remaining)
+            .mockResolvedValue({ kind: 'drain' })
+        const onProcessPull = jest.fn().mockResolvedValueOnce(remaining).mockResolvedValue(null)
+        const pipeline = build({ onSourcePull, onProcessPull })
+
+        expect(await pipeline.next()).toBe(remaining) // source failed, but in-flight sub result drains first
+        await expect(pipeline.next()).rejects.toThrow('source boom')
+        await expect(pipeline.next()).rejects.toThrow('source boom') // permanently
+        expect(onSourcePull).toHaveBeenCalledTimes(1) // no source pulls after poison
+    })
+
+    it('rejects immediately on a source error when nothing is in flight', async () => {
+        const onSourcePull = jest.fn().mockRejectedValue(new Error('source boom'))
+        const onProcessPull = jest.fn().mockResolvedValue(null)
         const pipeline = build({ onSourcePull, onProcessPull })
 
         await expect(pipeline.next()).rejects.toThrow('source boom')
-        expect(await pipeline.next()).toBe(remaining)
-        expect(onProcessPull).toHaveBeenCalledTimes(1)
+        await expect(pipeline.next()).rejects.toThrow('source boom')
     })
 
     it('picks up a feed that lands during the source pull and re-pulls, reusing the sub', async () => {

@@ -12,6 +12,10 @@ import { isOkResult } from './results'
  * via {@link InterleavingBatchPipeline}, so a slow head no longer blocks newly
  * fed items from starting to process (it only delays their *emission*, which
  * stays FIFO by design).
+ *
+ * Failures poison the pipeline: if the upstream or a processor throws, items
+ * already in flight still drain in FIFO order, then next() rejects with that
+ * error permanently.
  */
 export class ConcurrentBatchProcessingPipeline<
     TInput,

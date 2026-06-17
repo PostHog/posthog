@@ -17,6 +17,10 @@ export type GroupingFunction<TInput, TKey> = (input: TInput) => TKey
  * - Results are returned unordered between groups - as each group completes processing,
  *   its results are made available
  *
+ * Failures poison the pipeline: if the upstream or a processor throws, results
+ * from groups that already completed still drain, then next() rejects with that
+ * error permanently.
+ *
  * Synchronization (pulling upstream, draining completed groups, and staying
  * responsive to concurrent feeds so a parked drain isn't stranded) is handled by
  * {@link InterleavingBatchPipeline}. This class supplies the grouping policy:

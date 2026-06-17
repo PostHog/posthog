@@ -835,5 +835,31 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
             expect(drained.map((r) => r.result.value.value).sort()).toEqual(['a1', 'b1'])
             expect(thrown?.message).toBe('group C failed')
         })
+
+        it('keeps rejecting after a processor error', async () => {
+            const processor = createNewPipeline<{ value: string; group: string }>().pipe(() =>
+                Promise.reject(new Error('processor boom'))
+            )
+            const previousPipeline = createNewBatchPipeline<{ value: string; group: string }>().build()
+            previousPipeline.feed([createOkContext({ value: 'a1', group: 'A' }, context1)])
+            const pipeline = new ConcurrentlyGroupingBatchPipeline((input) => input.group, processor, previousPipeline)
+
+            await expect(pipeline.next()).rejects.toThrow('processor boom')
+            await expect(pipeline.next()).rejects.toThrow('processor boom')
+        })
+
+        it('poisons permanently after a source error', async () => {
+            const processor = createNewPipeline<{ value: string; group: string }>().pipe((input) =>
+                Promise.resolve(ok(input))
+            )
+            const previousPipeline = {
+                feed: jest.fn(),
+                next: jest.fn().mockRejectedValueOnce(new Error('source boom')).mockResolvedValue(null),
+            }
+            const pipeline = new ConcurrentlyGroupingBatchPipeline((input) => input.group, processor, previousPipeline)
+
+            await expect(pipeline.next()).rejects.toThrow('source boom')
+            await expect(pipeline.next()).rejects.toThrow('source boom')
+        })
     })
 })

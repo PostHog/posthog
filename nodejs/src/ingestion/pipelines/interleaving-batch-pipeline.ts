@@ -43,6 +43,13 @@ export interface InterleavingCallbacks<TInput, TOutput, CInput, COutput, R exten
  * See `FilterMapBatchPipeline` for the canonical wiring; the same shape fits any
  * pull-from-prev / feed-sub / drain-sub stage.
  *
+ * Failures poison the whole stage. The first error from either callback (the
+ * source pull or the sub drain) is latched: from then on `next()` issues no new
+ * source pulls, drains whatever was already in flight in the sub, and once that
+ * is exhausted rejects with the original error — permanently. This mirrors the
+ * grouping stage's processor-failure handling (drain what completed, then wedge)
+ * and gives callers a consistent terminal rejection instead of partial recovery.
+ *
  * @remarks `next()` must not be called concurrently — `subPending` is shared
  * mutable state, so two overlapping calls would issue duplicate `onProcessPull`
  * pulls and tear it. Callers serialize externally (e.g. `BatchingPipeline`'s
@@ -56,6 +63,9 @@ export class InterleavingBatchPipeline<TInput, TOutput, CInput, COutput, R exten
     // safe for concurrent callers, so a feed waking us mid-drain must re-await
     // the same pending next() rather than issue a second one.
     private subPending: Promise<BatchPipelineResultWithContext<TOutput, COutput, R> | null> | null = null
+    // The first error seen from either callback. Once set, the stage is poisoned:
+    // no more source pulls, drain the sub dry, then reject with this forever.
+    private failure: { error: unknown } | null = null
 
     constructor(private callbacks: InterleavingCallbacks<TInput, TOutput, CInput, COutput, R>) {}
 
@@ -67,6 +77,12 @@ export class InterleavingBatchPipeline<TInput, TOutput, CInput, COutput, R exten
     }
 
     async next(): Promise<BatchPipelineResultWithContext<TOutput, COutput, R> | null> {
+        // Once poisoned, stop pulling new input: drain what is still in flight in
+        // the sub, then reject permanently with the original error.
+        if (this.failure) {
+            return this.drainThenReject()
+        }
+
         while (true) {
             // Arm a fresh wake-up before pulling. A feed landing during the pull
             // is still seen by the race below (not lost), while a stale signal
@@ -75,7 +91,15 @@ export class InterleavingBatchPipeline<TInput, TOutput, CInput, COutput, R exten
             // that downstream stages like gather() expect to stay separate).
             this.newInputSignal.reset()
 
-            const pulled = await this.callbacks.onSourcePull()
+            let pulled: PullOutcome<TOutput, COutput, R>
+            try {
+                pulled = await this.callbacks.onSourcePull()
+            } catch (error) {
+                // Source failed: latch and switch to draining the sub before
+                // rejecting, so any already in-flight results still come out.
+                this.failure = { error }
+                return this.drainThenReject()
+            }
             if (pulled.kind === 'emit') {
                 return pulled.batch
             }
@@ -86,11 +110,8 @@ export class InterleavingBatchPipeline<TInput, TOutput, CInput, COutput, R exten
             if (!this.subPending) {
                 this.subPending = this.callbacks.onProcessPull()
             }
-            // Tag a rejection as a value so (a) when the signal wins instead the
-            // sub branch is not an unhandled rejection, and (b) on a rejection we
-            // clear subPending and the next call re-issues a fresh next() — a
-            // poisoned subpipeline may still hand out other completed batches
-            // before it re-rejects.
+            // Tag a rejection as a value so that when the signal wins the race
+            // instead, the sub branch is not an unhandled rejection.
             const winner = await Promise.race([
                 this.subPending.then(
                     (result) => ({ source: 'sub' as const, result }),
@@ -105,6 +126,9 @@ export class InterleavingBatchPipeline<TInput, TOutput, CInput, COutput, R exten
 
             this.subPending = null
             if (winner.source === 'sub-error') {
+                // Surface the sub failure now and latch it; later calls drain any
+                // remaining in-flight results, then reject permanently.
+                this.failure = { error: winner.error }
                 throw winner.error
             }
             if (winner.result !== null) {
@@ -116,5 +140,27 @@ export class InterleavingBatchPipeline<TInput, TOutput, CInput, COutput, R exten
                 return null
             }
         }
+    }
+
+    /**
+     * Poisoned drain: pull the sub for any work still in flight and emit it, but
+     * issue no new source pulls. When the sub is exhausted (null) or re-throws,
+     * reject with the latched failure — permanently, since `failure` stays set.
+     */
+    private async drainThenReject(): Promise<BatchPipelineResultWithContext<TOutput, COutput, R> | null> {
+        if (!this.subPending) {
+            this.subPending = this.callbacks.onProcessPull()
+        }
+        try {
+            const result = await this.subPending
+            this.subPending = null
+            if (result !== null) {
+                return result
+            }
+        } catch {
+            // The sub re-threw: it has nothing left to hand out.
+            this.subPending = null
+        }
+        throw this.failure!.error
     }
 }
