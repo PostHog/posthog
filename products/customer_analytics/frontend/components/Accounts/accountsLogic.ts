@@ -588,9 +588,9 @@ export const accountsLogic = kea<accountsLogicType>([
     urlToAction(({ actions, values }) => {
         // Path route `/accounts/:accountId/:tab`: filter the list to one account and open the tab.
         // Neither setter is wired into actionToUrl, so the URL stays on the path (no navigate-away).
-        const openAccountByPath = (accountId: string, rawTab?: string): void => {
+        const openAccountByPath = (accountId: string | undefined, rawTab?: string): void => {
             // Guard the path param before it's interpolated into the HogQL id filter.
-            if (!isUUIDLike(accountId)) {
+            if (!accountId || !isUUIDLike(accountId)) {
                 return
             }
             const tab =
