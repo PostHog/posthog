@@ -36,6 +36,11 @@ LIST_ISSUE_FIELDS = [
 # Keep in sync with ERROR_TRACKING_LISTING_RESOLUTION in products/error_tracking/frontend/utils.ts
 ERROR_TRACKING_LISTING_VOLUME_RESOLUTION = 20
 
+
+def normalize_volume_resolution(volume_resolution: int) -> int:
+    return max(volume_resolution, 1)
+
+
 CONTEXT_EVENT_SELECTS = ["properties.$exception_list", "properties.$exception_releases"]
 EVENT_PROPERTY_SELECTS = [
     "properties.$exception_types",

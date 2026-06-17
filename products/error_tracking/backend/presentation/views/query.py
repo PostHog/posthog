@@ -15,17 +15,7 @@ from posthog.api.utils import action
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 
-from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
-from products.error_tracking.backend.models import ErrorTrackingIssue, resolve_fingerprints_for_issues
-from products.error_tracking.backend.presentation.views.query_serializers import (
-    ErrorTrackingIssueDetailSerializer,
-    ErrorTrackingIssueEventsQueryRequestSerializer,
-    ErrorTrackingIssueEventsResponseSerializer,
-    ErrorTrackingIssueQueryRequestSerializer,
-    ErrorTrackingIssuesListQueryRequestSerializer,
-    ErrorTrackingIssuesListResponseSerializer,
-)
-from products.error_tracking.backend.presentation.views.query_utils import (
+from products.error_tracking.backend.facade.query_utils import (
     CONTEXT_EVENT_SELECTS,
     EVENT_SELECTS,
     ISSUE_FIELDS,
@@ -44,14 +34,21 @@ from products.error_tracking.backend.presentation.views.query_utils import (
     get_page_info,
     map_context_event_properties,
     map_event_row,
+    normalize_volume_resolution,
     pick_fields,
+)
+from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
+from products.error_tracking.backend.models import ErrorTrackingIssue, resolve_fingerprints_for_issues
+from products.error_tracking.backend.presentation.views.query_serializers import (
+    ErrorTrackingIssueDetailSerializer,
+    ErrorTrackingIssueEventsQueryRequestSerializer,
+    ErrorTrackingIssueEventsResponseSerializer,
+    ErrorTrackingIssueQueryRequestSerializer,
+    ErrorTrackingIssuesListQueryRequestSerializer,
+    ErrorTrackingIssuesListResponseSerializer,
 )
 
 logger = structlog.get_logger(__name__)
-
-
-def normalize_volume_resolution(volume_resolution: int) -> int:
-    return max(volume_resolution, 1)
 
 
 def build_fingerprint_filter_group(fingerprints: list[str]) -> dict[str, object]:

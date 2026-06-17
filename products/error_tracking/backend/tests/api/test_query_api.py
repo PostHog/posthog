@@ -12,18 +12,18 @@ from dateutil.relativedelta import relativedelta
 
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags
 
+from products.error_tracking.backend.facade.query_utils import (
+    build_fingerprint_event_where,
+    build_issue_filters,
+    build_search_query,
+    build_sparkline,
+)
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
     ErrorTrackingIssueFingerprintV2,
     sync_issues_to_clickhouse,
-)
-from products.error_tracking.backend.presentation.views.query_utils import (
-    build_fingerprint_event_where,
-    build_issue_filters,
-    build_search_query,
-    build_sparkline,
 )
 
 
