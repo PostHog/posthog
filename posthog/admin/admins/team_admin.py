@@ -3,6 +3,7 @@ import csv
 import json
 import uuid
 import asyncio
+import hashlib
 import tempfile
 import dataclasses
 from datetime import datetime, timedelta
@@ -55,6 +56,9 @@ from posthog.temporal.session_replay.import_recording.types import ImportRecordi
 from products.replay.backend.models.exported_recording import ExportedRecording
 
 logger = get_logger()
+
+# Upper bound on a single admin AI gateway top-up, to catch fat-fingered amounts.
+MAX_CREDIT_USD = Decimal("1000000")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -470,15 +474,16 @@ class TeamAdmin(admin.ModelAdmin):
                 **self.admin_site.each_context(request),
                 "team": team,
                 "title": f"Add AI gateway credit - {team.name}",
-                # Tie idempotency to the rendered form so a double-submit replays
-                # the same key and the gateway dedupes the top-up.
-                "idempotency_key": str(uuid.uuid4()),
+                # Per-render nonce; combined with amount + reason on submit to form the
+                # idempotency key, so a double-submit dedupes but a back-edit-resubmit
+                # of a different amount is treated as a new top-up.
+                "form_nonce": str(uuid.uuid4()),
             }
             return render(request, "admin/posthog/team/add_ai_gateway_credit_form.html", context)
 
         amount_raw = request.POST.get("amount_usd", "").strip()
         reason = request.POST.get("reason", "").strip()
-        idempotency_key = request.POST.get("idempotency_key", "").strip() or str(uuid.uuid4())
+        form_nonce = request.POST.get("form_nonce", "").strip() or str(uuid.uuid4())
 
         if not reason:
             messages.error(request, "Reason is required")
@@ -488,13 +493,27 @@ class TeamAdmin(admin.ModelAdmin):
         except InvalidOperation:
             messages.error(request, "Amount must be a valid decimal")
             return redirect(credit_url)
-        if amount <= 0:
-            messages.error(request, "Amount must be positive")
+        # is_finite() rejects NaN/sNaN/±Inf before `amount <= 0`, which raises on NaN.
+        if not amount.is_finite() or amount <= 0:
+            messages.error(request, "Amount must be a positive number")
+            return redirect(credit_url)
+        if amount > MAX_CREDIT_USD:
+            messages.error(request, f"Amount exceeds the ${MAX_CREDIT_USD:,} per-top-up limit")
             return redirect(credit_url)
 
+        # Bind the key to the amount + reason so editing the amount after a submit
+        # produces a new key instead of replaying the prior top-up.
+        idempotency_key = hashlib.sha256(f"{form_nonce}:{amount}:{reason}".encode()).hexdigest()
         try:
             result = add_credit(team.id, str(amount), reason, idempotency_key)
         except AIGatewayInternalError as exc:
+            logger.warning(
+                "admin_add_ai_gateway_credit_failed",
+                team_id=team.id,
+                amount_usd=amount_raw,
+                error=str(exc),
+                triggered_by=request.user.email,
+            )
             messages.error(request, f"Failed to add credit: {exc}")
             return redirect(credit_url)
 
@@ -558,22 +577,37 @@ class TeamAdmin(admin.ModelAdmin):
     def ai_gateway_wallet(self, team: Team):
         if not team.pk:
             return "-"
-        try:
-            wallet = get_wallet(team.id)
-        except AIGatewayNotConfigured:
-            return format_html("<em>(ai-gateway internal API not configured in this region)</em>")
-        except AIGatewayInternalError as exc:
-            return format_html("<em>(wallet unavailable: {})</em>", str(exc))
+        # The balance read is a blocking call to the gateway, so defer it behind a
+        # link (mirrors remote_config_cache_actions) instead of fetching on every
+        # team page render.
         # nosemgrep: python.django.security.audit.avoid-mark-safe.avoid-mark-safe (admin-only, renders trusted template)
         return mark_safe(
             render_to_string(
-                "admin/posthog/team/ai_gateway_wallet.html",
+                "admin/posthog/team/ai_gateway_wallet_actions.html",
                 {
-                    "wallet": wallet,
+                    "wallet_url": reverse("admin:posthog_team_ai_gateway_wallet", args=[team.pk]),
                     "add_credit_url": reverse("admin:posthog_team_add_ai_gateway_credit", args=[team.pk]),
                 },
             )
         )
+
+    def ai_gateway_wallet_view(self, request, object_id):
+        team = Team.objects.get(pk=object_id)
+        if not self.has_view_permission(request, team):
+            raise PermissionDenied
+        context = {
+            **self.admin_site.each_context(request),
+            "team": team,
+            "title": f"AI gateway wallet - {team.name}",
+            "add_credit_url": reverse("admin:posthog_team_add_ai_gateway_credit", args=[team.pk]),
+        }
+        try:
+            context["wallet"] = get_wallet(team.id)
+        except AIGatewayNotConfigured:
+            context["error"] = "ai-gateway internal API not configured in this region"
+        except AIGatewayInternalError as exc:
+            context["error"] = f"wallet unavailable: {exc}"
+        return render(request, "admin/posthog/team/ai_gateway_wallet_page.html", context)
 
     @admin.display(description="Policy cache blob (what the gateway sees)")
     def policy_cache_blob(self, team: Team):
@@ -671,6 +705,11 @@ class TeamAdmin(admin.ModelAdmin):
                 "<path:object_id>/add-ai-gateway-credit/",
                 self.admin_site.admin_view(self.add_ai_gateway_credit_view),
                 name="posthog_team_add_ai_gateway_credit",
+            ),
+            path(
+                "<path:object_id>/ai-gateway-wallet/",
+                self.admin_site.admin_view(self.ai_gateway_wallet_view),
+                name="posthog_team_ai_gateway_wallet",
             ),
         ]
         return custom_urls + urls

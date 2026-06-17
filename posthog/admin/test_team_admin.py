@@ -1,3 +1,4 @@
+import hashlib
 from datetime import timedelta
 
 from freezegun import freeze_time
@@ -343,18 +344,34 @@ class TestTeamAdminAIGatewayWallet(BaseTest):
         _attach_messages(request)
         return request
 
-    def test_wallet_field_not_configured_degrades_gracefully(self) -> None:
+    def _get(self):
+        request = self.factory.get("/")
+        request.user = self.user
+        _attach_messages(request)
+        return request
+
+    def test_wallet_field_renders_actions_without_fetching(self) -> None:
+        with patch("posthog.admin.admins.team_admin.get_wallet") as mock_get_wallet:
+            rendered = str(self.admin.ai_gateway_wallet(self.team))
+        mock_get_wallet.assert_not_called()
+        assert "View wallet" in rendered
+        assert "Add credit" in rendered
+
+    def test_wallet_view_not_configured_degrades_gracefully(self) -> None:
         with patch("posthog.admin.admins.team_admin.get_wallet", side_effect=AIGatewayNotConfigured()):
-            rendered = str(self.admin.ai_gateway_wallet(self.team))
-        assert "not configured" in rendered
+            with patch("posthog.admin.admins.team_admin.render") as mock_render:
+                self.admin.ai_gateway_wallet_view(self._get(), str(self.team.pk))
+        assert "not configured" in mock_render.call_args.args[2]["error"]
 
-    def test_wallet_field_unavailable_degrades_gracefully(self) -> None:
+    def test_wallet_view_unavailable_degrades_gracefully(self) -> None:
         with patch("posthog.admin.admins.team_admin.get_wallet", side_effect=AIGatewayInternalError("boom")):
-            rendered = str(self.admin.ai_gateway_wallet(self.team))
-        assert "wallet unavailable" in rendered
-        assert "boom" in rendered
+            with patch("posthog.admin.admins.team_admin.render") as mock_render:
+                self.admin.ai_gateway_wallet_view(self._get(), str(self.team.pk))
+        error = mock_render.call_args.args[2]["error"]
+        assert "wallet unavailable" in error
+        assert "boom" in error
 
-    def test_wallet_field_renders_balance(self) -> None:
+    def test_wallet_view_renders_balance(self) -> None:
         wallet = Wallet(
             team_id=self.team.id,
             known=True,
@@ -363,23 +380,25 @@ class TestTeamAdminAIGatewayWallet(BaseTest):
             recent=[LedgerEntry("2026-06-01", "topup", "funding", "prepaid", "10.000000", "ref-1")],
         )
         with patch("posthog.admin.admins.team_admin.get_wallet", return_value=wallet):
-            rendered = str(self.admin.ai_gateway_wallet(self.team))
-        assert "9.500000" in rendered
-        assert "Add credit" in rendered
+            with patch("posthog.admin.admins.team_admin.render") as mock_render:
+                self.admin.ai_gateway_wallet_view(self._get(), str(self.team.pk))
+        assert mock_render.call_args.args[2]["wallet"].balance == "9.500000"
 
-    def test_add_credit_get_renders_form_with_idempotency_key(self) -> None:
-        request = self.factory.get("/")
-        request.user = self.user
-        _attach_messages(request)
+    def test_wallet_view_requires_view_permission(self) -> None:
+        with patch.object(self.admin, "has_view_permission", return_value=False):
+            with self.assertRaises(PermissionDenied):
+                self.admin.ai_gateway_wallet_view(self._get(), str(self.team.pk))
+
+    def test_add_credit_get_renders_form_with_nonce(self) -> None:
         with patch("posthog.admin.admins.team_admin.render") as mock_render:
-            self.admin.add_ai_gateway_credit_view(request, str(self.team.pk))
+            self.admin.add_ai_gateway_credit_view(self._get(), str(self.team.pk))
         template = mock_render.call_args.args[1]
         context = mock_render.call_args.args[2]
         assert template == "admin/posthog/team/add_ai_gateway_credit_form.html"
-        assert context["idempotency_key"]
+        assert context["form_nonce"]
 
     def test_add_credit_post_valid_calls_client_and_redirects_to_change(self) -> None:
-        request = self._post({"amount_usd": "25.00", "reason": "topup", "idempotency_key": "key-1"})
+        request = self._post({"amount_usd": "25.00", "reason": "topup", "form_nonce": "nonce-1"})
         result = CreditResult(
             team_id=self.team.id, entry_id="e1", amount_usd="25.000000", balance_usd="35.000000", duplicate=False
         )
@@ -387,9 +406,28 @@ class TestTeamAdminAIGatewayWallet(BaseTest):
             response = self.admin.add_ai_gateway_credit_view(request, str(self.team.pk))
         assert response.status_code == 302
         assert response["Location"] == self.team_change_url
-        assert mock_add.call_args.args == (self.team.id, "25.00", "topup", "key-1")
+        expected_key = hashlib.sha256(b"nonce-1:25.00:topup").hexdigest()
+        assert mock_add.call_args.args == (self.team.id, "25.00", "topup", expected_key)
 
-    def test_add_credit_post_generates_key_when_absent(self) -> None:
+    def test_add_credit_key_changes_when_amount_changes(self) -> None:
+        # Same form nonce, different amount → different key, so a back-edit-resubmit
+        # applies the new amount instead of replaying the old top-up.
+        result = CreditResult(team_id=self.team.id, entry_id="e1", amount_usd="0", balance_usd="0", duplicate=False)
+        with patch("posthog.admin.admins.team_admin.add_credit", return_value=result) as mock_add:
+            for amount in ("10", "20"):
+                request = self._post({"amount_usd": amount, "reason": "x", "form_nonce": "same-nonce"})
+                self.admin.add_ai_gateway_credit_view(request, str(self.team.pk))
+        assert mock_add.call_args_list[0].args[3] != mock_add.call_args_list[1].args[3]
+
+    def test_add_credit_key_stable_for_same_inputs(self) -> None:
+        result = CreditResult(team_id=self.team.id, entry_id="e1", amount_usd="0", balance_usd="0", duplicate=False)
+        with patch("posthog.admin.admins.team_admin.add_credit", return_value=result) as mock_add:
+            for _ in range(2):
+                request = self._post({"amount_usd": "10", "reason": "x", "form_nonce": "same-nonce"})
+                self.admin.add_ai_gateway_credit_view(request, str(self.team.pk))
+        assert mock_add.call_args_list[0].args[3] == mock_add.call_args_list[1].args[3]
+
+    def test_add_credit_post_generates_key_when_nonce_absent(self) -> None:
         request = self._post({"amount_usd": "5", "reason": "topup"})
         result = CreditResult(team_id=self.team.id, entry_id="e1", amount_usd="5", balance_usd="5", duplicate=False)
         with patch("posthog.admin.admins.team_admin.add_credit", return_value=result) as mock_add:
@@ -401,6 +439,10 @@ class TestTeamAdminAIGatewayWallet(BaseTest):
             ("invalid_amount", {"amount_usd": "abc", "reason": "x"}),
             ("zero_amount", {"amount_usd": "0", "reason": "x"}),
             ("negative_amount", {"amount_usd": "-5", "reason": "x"}),
+            ("nan_amount", {"amount_usd": "NaN", "reason": "x"}),
+            ("infinity_amount", {"amount_usd": "Infinity", "reason": "x"}),
+            ("huge_amount", {"amount_usd": "1e999", "reason": "x"}),
+            ("over_cap_amount", {"amount_usd": "1000001", "reason": "x"}),
             ("missing_reason", {"amount_usd": "5", "reason": "  "}),
         ]
     )
@@ -414,12 +456,15 @@ class TestTeamAdminAIGatewayWallet(BaseTest):
         assert response["Location"] == self.credit_url
         mock_add.assert_not_called()
 
-    def test_add_credit_post_gateway_error_shows_message_and_redirects_to_form(self) -> None:
+    def test_add_credit_post_gateway_error_logs_and_redirects_to_form(self) -> None:
         request = self._post({"amount_usd": "5", "reason": "x"})
         with patch("posthog.admin.admins.team_admin.add_credit", side_effect=AIGatewayInternalError("nope")):
-            response = self.admin.add_ai_gateway_credit_view(request, str(self.team.pk))
+            with patch("posthog.admin.admins.team_admin.logger") as mock_logger:
+                response = self.admin.add_ai_gateway_credit_view(request, str(self.team.pk))
         assert response.status_code == 302
         assert response["Location"] == self.credit_url
+        mock_logger.warning.assert_called_once()
+        assert mock_logger.warning.call_args.args[0] == "admin_add_ai_gateway_credit_failed"
 
     def test_add_credit_duplicate_redirects_to_change(self) -> None:
         request = self._post({"amount_usd": "5", "reason": "x"})

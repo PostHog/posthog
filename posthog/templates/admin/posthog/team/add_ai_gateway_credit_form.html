@@ -6,7 +6,7 @@
 
 <form method="post" onsubmit="this.querySelector('input[type=submit]').disabled = true;">
     {% csrf_token %}
-    <input type="hidden" name="idempotency_key" value="{{ idempotency_key }}" />
+    <input type="hidden" name="form_nonce" value="{{ form_nonce }}" />
     <div style="margin: 20px 0;">
         <label for="amount_usd" style="display: block; margin-bottom: 5px; font-weight: bold;">Amount (USD):</label>
         <input type="text" id="amount_usd" name="amount_usd" placeholder="e.g. 25.00" style="width: 200px; padding: 8px;" required />
