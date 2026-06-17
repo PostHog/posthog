@@ -7817,6 +7817,7 @@ export namespace Schemas {
       auto_resume_threads: boolean;
       allow_workspace_participants: boolean;
       ack_reaction?: string;
+      allow_direct_messages: boolean;
       trusted_workspaces: string[] | '*';
     };
     } | {
@@ -7831,6 +7832,7 @@ export namespace Schemas {
     } | {
       type: 'posthog';
       scopes?: string[];
+      audience?: 'project' | 'organization';
     } | {
       type: 'jwt';
       /** @minLength 1 */
@@ -7878,6 +7880,7 @@ export namespace Schemas {
     } | {
       type: 'posthog';
       scopes?: string[];
+      audience?: 'project' | 'organization';
     } | {
       type: 'jwt';
       /** @minLength 1 */
@@ -7904,6 +7907,7 @@ export namespace Schemas {
     } | {
       type: 'posthog';
       scopes?: string[];
+      audience?: 'project' | 'organization';
     } | {
       type: 'jwt';
       /** @minLength 1 */
@@ -8016,6 +8020,16 @@ export namespace Schemas {
       version?: number;
     };
 
+    export type AgentRevisionSpecSecretsItem = string | {
+      /** @minLength 1 */
+      name: string;
+      /**
+         * @minItems 1
+         * @items.minLength 1
+         */
+      allowed_hosts: string[];
+    };
+
     export type AgentRevisionSpecLimits = {
       /**
          * @maximum 2147483647
@@ -8037,6 +8051,16 @@ export namespace Schemas {
          * @exclusiveMinimum 0
          */
       max_output_tokens?: number;
+      /**
+         * @maximum 16384
+         * @exclusiveMinimum 0
+         */
+      max_memory_mb: number;
+      /**
+         * @maximum 8
+         * @exclusiveMinimum 0
+         */
+      max_cpu_cores: number;
     };
 
     export type AgentRevisionSpecReasoning = typeof AgentRevisionSpecReasoning[keyof typeof AgentRevisionSpecReasoning];
@@ -8050,6 +8074,35 @@ export namespace Schemas {
       Xhigh: 'xhigh',
     } as const;
 
+    export type AgentRevisionSpecFrameworkPromptOmitItem = typeof AgentRevisionSpecFrameworkPromptOmitItem[keyof typeof AgentRevisionSpecFrameworkPromptOmitItem];
+
+
+    export const AgentRevisionSpecFrameworkPromptOmitItem = {
+      MetaToolGuidance: 'meta_tool_guidance',
+      StateContract: 'state_contract',
+      ToolFailureGuidance: 'tool_failure_guidance',
+      ApprovalGuidance: 'approval_guidance',
+      ReasoningHint: 'reasoning_hint',
+    } as const;
+
+    export type AgentRevisionSpecFrameworkPrompt = {
+      omit: AgentRevisionSpecFrameworkPromptOmitItem[];
+      /**
+         * @maximum 2147483647
+         * @exclusiveMinimum 0
+         */
+      version_pin?: number;
+    };
+
+    export type AgentRevisionSpecResume = {
+      enabled: boolean;
+      /**
+         * @maximum 2147483647
+         * @exclusiveMinimum 0
+         */
+      max_completed_age_ms: number;
+    };
+
     export type AgentRevisionSpec = {
       /** @minLength 1 */
       model: string;
@@ -8058,10 +8111,12 @@ export namespace Schemas {
       mcps: AgentRevisionSpecMcpsItem[];
       skills: AgentRevisionSpecSkillsItem[];
       integrations: string[];
-      secrets: string[];
+      secrets: AgentRevisionSpecSecretsItem[];
       limits: AgentRevisionSpecLimits;
       entrypoint: string;
       reasoning?: AgentRevisionSpecReasoning;
+      framework_prompt?: AgentRevisionSpecFrameworkPrompt;
+      resume?: AgentRevisionSpecResume;
     };
 
     /**
@@ -8156,7 +8211,7 @@ export namespace Schemas {
       revision_id: string;
       /** Active framework preamble version. Bumps when the platform's `# Platform guidance` content changes meaningfully (decision rules, sections renamed, behavioural defaults flipped). Authors can pin to a specific version via `spec.framework_prompt.version_pin`. */
       framework_prompt_version: number;
-      /** Fully-assembled system prompt the runner would pass to pi-ai for a session against this revision. Concatenates the platform framework preamble, the bundle's `agent.md` (or `spec.entrypoint`), and the skills index. Inspect before promotion to confirm the model will see what you expect — see docs/agent-platform/plans/framework-system-prompt.md §4. */
+      /** Fully-assembled system prompt the runner would pass to pi-ai for a session against this revision. Concatenates the platform framework preamble, the bundle's `agent.md` (or `spec.entrypoint`), and the skills index. Inspect before promotion to confirm the model will see what you expect. */
       system_prompt: string;
     }
 
@@ -16460,8 +16515,6 @@ export namespace Schemas {
 
     /**
      * Body shape for POST /agent_applications/<id>/approvals/<approval_id>/decide/.
-     *
-     * See docs/agent-platform/plans/approval-gated-tools.md.
      */
     export interface DecideApprovalRequest {
       /** The approver's decision. `approve` runs the tool platform-side with the (possibly edited) args; `reject` records a terminal rejection and wakes the session with a synthetic rejected tool_result.
@@ -20298,6 +20351,14 @@ export namespace Schemas {
      */
     export type ExternalDataSchemaTable = { [key: string]: unknown } | null;
 
+    export type ExternalDataSchemaRowFiltersItem = {
+      column: string;
+      /** One of: > >= < <= = != IN "NOT IN". */
+      operator: string;
+      /** Comparison value; must match the column's type. For `IN` / `NOT IN`, a comma-separated list (e.g. `1, 2, 3` or `'a','b'`). */
+      value: unknown;
+    };
+
     export type ExternalDataSchemaAvailableColumnsItem = {
       name: string;
       data_type?: string;
@@ -20461,6 +20522,11 @@ export namespace Schemas {
          * @nullable
          */
       enabled_columns?: string[] | null;
+      /**
+         * Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`/empty (default) syncs all rows. The operator must be one of `> >= < <= = != IN "NOT IN"` and the value must match the column's type (for `IN`/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). Applied on the next sync — not retroactive to already-synced rows.
+         * @nullable
+         */
+      row_filters?: ExternalDataSchemaRowFiltersItem[] | null;
       /** Source-side column metadata (name, data type, nullable) discovered for this schema. Empty until the source has been refreshed via `refresh_schemas`. */
       readonly available_columns: readonly ExternalDataSchemaAvailableColumnsItem[];
       /**
@@ -20469,6 +20535,14 @@ export namespace Schemas {
          */
       readonly source: ExternalDataSchemaSource;
     }
+
+    export type ExternalDataSourceBulkUpdateSchemaRowFiltersItem = {
+      column: string;
+      /** One of: > >= < <= = != IN "NOT IN". */
+      operator: string;
+      /** Comparison value; must match the column's type. For `IN` / `NOT IN`, a comma-separated list (e.g. `1, 2, 3` or `'a','b'`). */
+      value: unknown;
+    };
 
     export interface ExternalDataSourceBulkUpdateSchema {
       /** Schema identifier to update. */
@@ -20514,6 +20588,11 @@ export namespace Schemas {
          * @nullable
          */
       enabled_columns?: string[] | null;
+      /**
+         * Row-filter predicates ANDed onto the source query. Null/empty means sync all rows.
+         * @nullable
+         */
+      row_filters?: ExternalDataSourceBulkUpdateSchemaRowFiltersItem[] | null;
     }
 
     export interface ExternalDataSourceConnectionOption {
@@ -23239,6 +23318,48 @@ export namespace Schemas {
     }
 
     /**
+     * * `update_action` - update_action
+     * * `add_action` - add_action
+     * * `remove_action` - remove_action
+     * * `add_edge` - add_edge
+     * * `remove_edge` - remove_edge
+     * * `replace_action_edges` - replace_action_edges
+     */
+    export type HogFlowGraphOperationOpEnum = typeof HogFlowGraphOperationOpEnum[keyof typeof HogFlowGraphOperationOpEnum];
+
+
+    export const HogFlowGraphOperationOpEnum = {
+      UpdateAction: 'update_action',
+      AddAction: 'add_action',
+      RemoveAction: 'remove_action',
+      AddEdge: 'add_edge',
+      RemoveEdge: 'remove_edge',
+      ReplaceActionEdges: 'replace_action_edges',
+    } as const;
+
+    export interface HogFlowGraphOperation {
+      /** Graph edit. update_action {id, patch}: deep-merge patch into the action's fields (a null leaf deletes that key) — the surgical path for tweaking one config value. add_action {action}: append a full action node. remove_action {id}: delete a node and reconnect its incoming edges to its first outgoer. add_edge {edge} / remove_edge {edge}: add or delete one edge. replace_action_edges {id, edges}: replace this action's outgoing edges with the given set (use when adding/removing branch conditions); incoming edges are left intact.
+       *
+       * * `update_action` - update_action
+       * * `add_action` - add_action
+       * * `remove_action` - remove_action
+       * * `add_edge` - add_edge
+       * * `remove_edge` - remove_edge
+       * * `replace_action_edges` - replace_action_edges */
+      op: HogFlowGraphOperationOpEnum;
+      /** Action id. Required for update_action, remove_action, replace_action_edges. */
+      id?: string;
+      /** update_action only. Partial action fields, deep-merged into the existing action; a null leaf deletes that key. e.g. {config: {inputs: {subject: {value: 'Hi'}}}} changes only that input. */
+      patch?: unknown;
+      /** add_action only. A full action node {id, name, type, config, ...}; same shape as in actions. */
+      action?: unknown;
+      /** add_edge / remove_edge only. The edge {from, to, type, index?}. */
+      edge?: HogFlowEdge;
+      /** replace_action_edges only. The complete set of the action's outgoing edges; incoming edges are preserved. */
+      edges?: HogFlowEdge[];
+    }
+
+    /**
      * Test trigger payload, typically {event, person, groups}.
      */
     export type HogFlowInvocationGlobals = { [key: string]: unknown };
@@ -23250,7 +23371,7 @@ export namespace Schemas {
       globals?: HogFlowInvocationGlobals;
       /** True (default) mocks HTTP/email/SMS. False fires real side effects. */
       mock_async_functions?: boolean;
-      /** Start from this action ID instead of the trigger. */
+      /** Start execution from this action ID instead of the trigger. Each test run executes a single node and returns the next action id. */
       current_action_id?: string;
     }
 
@@ -26981,6 +27102,24 @@ export namespace Schemas {
       Week: 'week',
     } as const;
 
+    /**
+     * * `funnel` - funnel
+     * * `mean_count` - mean_count
+     * * `mean_sum_or_avg` - mean_sum_or_avg
+     * * `ratio` - ratio
+     * * `retention` - retention
+     */
+    export type MetricTypeEnum = typeof MetricTypeEnum[keyof typeof MetricTypeEnum];
+
+
+    export const MetricTypeEnum = {
+      Funnel: 'funnel',
+      MeanCount: 'mean_count',
+      MeanSumOrAvg: 'mean_sum_or_avg',
+      Ratio: 'ratio',
+      Retention: 'retention',
+    } as const;
+
     export interface MinimalPerson {
       /** Numeric person ID. */
       readonly id: number;
@@ -27916,6 +28055,7 @@ export namespace Schemas {
      * * `session_summaries` - Session Summaries
      * * `signal_report` - Signal Report
      * * `signals_scout` - Signals Scout
+     * * `support_reply` - Support Reply
      */
     export type OriginProductEnum = typeof OriginProductEnum[keyof typeof OriginProductEnum];
 
@@ -27930,6 +28070,7 @@ export namespace Schemas {
       SessionSummaries: 'session_summaries',
       SignalReport: 'signal_report',
       SignalsScout: 'signals_scout',
+      SupportReply: 'support_reply',
     } as const;
 
     /**
@@ -29072,7 +29213,10 @@ export namespace Schemas {
          * @maxLength 255
          */
       name: string;
-      /** Raw YAML recipe source, compiled and validated client-side. */
+      /**
+         * Raw YAML recipe source. Must parse as YAML; recipe semantics are compiled and validated client-side.
+         * @maxLength 100000
+         */
       source: string;
       /** User who created the recipe. */
       readonly created_by: UserBasic | null;
@@ -30148,6 +30292,16 @@ export namespace Schemas {
          * @nullable
          */
       readonly already_addressed: boolean | null;
+      /**
+         * Reason code from the latest dismissal artefact, set when the report was suppressed (when present).
+         * @nullable
+         */
+      readonly dismissal_reason: string | null;
+      /**
+         * Free-form note captured alongside the dismissal reason (when present).
+         * @nullable
+         */
+      readonly dismissal_note: string | null;
       readonly is_suggested_reviewer: boolean;
       /** Distinct source products contributing signals to this report (from ClickHouse). */
       readonly source_products: readonly string[];
@@ -31161,7 +31315,8 @@ export namespace Schemas {
        * * `support_queue` - Support Queue
        * * `session_summaries` - Session Summaries
        * * `signal_report` - Signal Report
-       * * `signals_scout` - Signals Scout */
+       * * `signals_scout` - Signals Scout
+       * * `support_reply` - Support Reply */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -32425,6 +32580,7 @@ export namespace Schemas {
       auto_resume_threads: boolean;
       allow_workspace_participants: boolean;
       ack_reaction?: string;
+      allow_direct_messages: boolean;
       trusted_workspaces: string[] | '*';
     };
     } | {
@@ -32439,6 +32595,7 @@ export namespace Schemas {
     } | {
       type: 'posthog';
       scopes?: string[];
+      audience?: 'project' | 'organization';
     } | {
       type: 'jwt';
       /** @minLength 1 */
@@ -32486,6 +32643,7 @@ export namespace Schemas {
     } | {
       type: 'posthog';
       scopes?: string[];
+      audience?: 'project' | 'organization';
     } | {
       type: 'jwt';
       /** @minLength 1 */
@@ -32512,6 +32670,7 @@ export namespace Schemas {
     } | {
       type: 'posthog';
       scopes?: string[];
+      audience?: 'project' | 'organization';
     } | {
       type: 'jwt';
       /** @minLength 1 */
@@ -32624,6 +32783,16 @@ export namespace Schemas {
       version?: number;
     };
 
+    export type PatchedAgentRevisionSpecSecretsItem = string | {
+      /** @minLength 1 */
+      name: string;
+      /**
+         * @minItems 1
+         * @items.minLength 1
+         */
+      allowed_hosts: string[];
+    };
+
     export type PatchedAgentRevisionSpecLimits = {
       /**
          * @maximum 2147483647
@@ -32645,6 +32814,16 @@ export namespace Schemas {
          * @exclusiveMinimum 0
          */
       max_output_tokens?: number;
+      /**
+         * @maximum 16384
+         * @exclusiveMinimum 0
+         */
+      max_memory_mb: number;
+      /**
+         * @maximum 8
+         * @exclusiveMinimum 0
+         */
+      max_cpu_cores: number;
     };
 
     export type PatchedAgentRevisionSpecReasoning = typeof PatchedAgentRevisionSpecReasoning[keyof typeof PatchedAgentRevisionSpecReasoning];
@@ -32658,6 +32837,35 @@ export namespace Schemas {
       Xhigh: 'xhigh',
     } as const;
 
+    export type PatchedAgentRevisionSpecFrameworkPromptOmitItem = typeof PatchedAgentRevisionSpecFrameworkPromptOmitItem[keyof typeof PatchedAgentRevisionSpecFrameworkPromptOmitItem];
+
+
+    export const PatchedAgentRevisionSpecFrameworkPromptOmitItem = {
+      MetaToolGuidance: 'meta_tool_guidance',
+      StateContract: 'state_contract',
+      ToolFailureGuidance: 'tool_failure_guidance',
+      ApprovalGuidance: 'approval_guidance',
+      ReasoningHint: 'reasoning_hint',
+    } as const;
+
+    export type PatchedAgentRevisionSpecFrameworkPrompt = {
+      omit: PatchedAgentRevisionSpecFrameworkPromptOmitItem[];
+      /**
+         * @maximum 2147483647
+         * @exclusiveMinimum 0
+         */
+      version_pin?: number;
+    };
+
+    export type PatchedAgentRevisionSpecResume = {
+      enabled: boolean;
+      /**
+         * @maximum 2147483647
+         * @exclusiveMinimum 0
+         */
+      max_completed_age_ms: number;
+    };
+
     export type PatchedAgentRevisionSpec = {
       /** @minLength 1 */
       model: string;
@@ -32666,10 +32874,12 @@ export namespace Schemas {
       mcps: PatchedAgentRevisionSpecMcpsItem[];
       skills: PatchedAgentRevisionSpecSkillsItem[];
       integrations: string[];
-      secrets: string[];
+      secrets: PatchedAgentRevisionSpecSecretsItem[];
       limits: PatchedAgentRevisionSpecLimits;
       entrypoint: string;
       reasoning?: PatchedAgentRevisionSpecReasoning;
+      framework_prompt?: PatchedAgentRevisionSpecFrameworkPrompt;
+      resume?: PatchedAgentRevisionSpecResume;
     };
 
     /**
@@ -34148,6 +34358,14 @@ export namespace Schemas {
      */
     export type PatchedExternalDataSchemaTable = { [key: string]: unknown } | null;
 
+    export type PatchedExternalDataSchemaRowFiltersItem = {
+      column: string;
+      /** One of: > >= < <= = != IN "NOT IN". */
+      operator: string;
+      /** Comparison value; must match the column's type. For `IN` / `NOT IN`, a comma-separated list (e.g. `1, 2, 3` or `'a','b'`). */
+      value: unknown;
+    };
+
     export type PatchedExternalDataSchemaAvailableColumnsItem = {
       name: string;
       data_type?: string;
@@ -34243,6 +34461,11 @@ export namespace Schemas {
          * @nullable
          */
       enabled_columns?: string[] | null;
+      /**
+         * Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`/empty (default) syncs all rows. The operator must be one of `> >= < <= = != IN "NOT IN"` and the value must match the column's type (for `IN`/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). Applied on the next sync — not retroactive to already-synced rows.
+         * @nullable
+         */
+      row_filters?: PatchedExternalDataSchemaRowFiltersItem[] | null;
       /** Source-side column metadata (name, data type, nullable) discovered for this schema. Empty until the source has been refreshed via `refresh_schemas`. */
       readonly available_columns?: readonly PatchedExternalDataSchemaAvailableColumnsItem[];
       /**
@@ -34647,6 +34870,11 @@ export namespace Schemas {
       readonly billable_action_types?: unknown;
       /** Recurring schedules attached to this workflow (read-only here; manage via the schedules sub-resource). A batch/schedule workflow only fires when it's active AND has an active schedule. Empty for non-scheduled workflows. */
       readonly schedules?: readonly HogFlowSchedule[];
+    }
+
+    export interface PatchedHogFlowGraphUpdate {
+      /** Ordered graph edits applied atomically to a draft workflow: the stored graph is read, the ops are applied in order, the result is fully validated, and it's saved only if valid — otherwise the workflow is unchanged. Reference nodes/edges by id so you never resend the whole graph. The full updated workflow is returned. */
+      operations?: HogFlowGraphOperation[];
     }
 
     export interface PatchedHogFlowSchedule {
@@ -35616,7 +35844,10 @@ export namespace Schemas {
          * @maxLength 255
          */
       name?: string;
-      /** Raw YAML recipe source, compiled and validated client-side. */
+      /**
+         * Raw YAML recipe source. Must parse as YAML; recipe semantics are compiled and validated client-side.
+         * @maxLength 100000
+         */
       source?: string;
       /** User who created the recipe. */
       readonly created_by?: UserBasic | null;
@@ -38033,7 +38264,8 @@ export namespace Schemas {
        * * `support_queue` - Support Queue
        * * `session_summaries` - Session Summaries
        * * `signal_report` - Signal Report
-       * * `signals_scout` - Signals Scout */
+       * * `signals_scout` - Signals Scout
+       * * `support_reply` - Support Reply */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -43248,6 +43480,109 @@ export namespace Schemas {
     }
 
     /**
+     * Raw control-group statistics the calculator uses to derive a baseline value and variance.
+     *
+     * Supply this when you want the server to compute the baseline value and (for ratio/retention)
+     * the delta-method variance, instead of passing `baseline_value`/`variance` directly.
+     */
+    export interface RunningTimeBaselineStats {
+      /**
+         * Number of control-group samples (users/units) observed.
+         * @minimum 0
+         */
+      number_of_samples: number;
+      /** Sum of the metric values across the control group (for funnels, the numerator/conversions). */
+      sum: number;
+      /** Sum of squared metric values. Required for ratio/retention variance. */
+      sum_squares?: number;
+      /**
+         * Sum of the denominator values. Required for ratio/retention metrics.
+         * @nullable
+         */
+      denominator_sum?: number | null;
+      /**
+         * Sum of squared denominator values (ratio/retention variance).
+         * @nullable
+         */
+      denominator_sum_squares?: number | null;
+      /**
+         * Sum of numerator×denominator products, used for the delta-method covariance term.
+         * @nullable
+         */
+      numerator_denominator_sum_product?: number | null;
+      /** Per-step counts for funnel metrics; the last entry is the final-step count. */
+      step_counts?: number[];
+    }
+
+    /**
+     * Inputs for estimating the recommended sample size and running time of an experiment.
+     */
+    export interface RunningTimeCalculationInput {
+      /** Metric type to size for. 'funnel' for conversion rates, 'mean_count' for event counts per user, 'mean_sum_or_avg' for summed property values per user, 'ratio' and 'retention' for ratio-style metrics (both require baseline_stats or an explicit variance).
+       *
+       * * `funnel` - funnel
+       * * `mean_count` - mean_count
+       * * `mean_sum_or_avg` - mean_sum_or_avg
+       * * `ratio` - ratio
+       * * `retention` - retention */
+      metric_type: MetricTypeEnum;
+      /**
+         * Smallest relative change to detect, as a percentage (e.g. 5 means a 5% lift). Must be > 0.
+         * @minimum 0
+         */
+      minimum_detectable_effect: number;
+      /**
+         * Total number of variants including control (default 2).
+         * @minimum 2
+         */
+      number_of_variants?: number;
+      /**
+         * Expected exposures per day. When provided, the response includes the recommended running time.
+         * @minimum 0
+         * @nullable
+         */
+      exposure_rate_per_day?: number | null;
+      /**
+         * Baseline metric value: conversion rate as a fraction 0-1 (funnel), average per user (mean), or the ratio (ratio/retention). Provide this or baseline_stats.
+         * @nullable
+         */
+      baseline_value?: number | null;
+      /**
+         * Pre-computed variance for ratio/retention metrics. Provide this or baseline_stats when metric_type is ratio/retention and baseline_value is given directly.
+         * @nullable
+         */
+      variance?: number | null;
+      /** Raw control-group statistics. When provided, the server derives baseline_value and variance. */
+      baseline_stats?: RunningTimeBaselineStats | null;
+    }
+
+    /**
+     * Estimated sample size and running time for the given inputs.
+     */
+    export interface RunningTimeCalculationResult {
+      /**
+         * Baseline metric value used in the calculation (echoed or derived from stats).
+         * @nullable
+         */
+      baseline_value: number | null;
+      /**
+         * Variance used in the calculation; null for funnel metrics (implicit in p(1-p)).
+         * @nullable
+         */
+      variance: number | null;
+      /**
+         * Total recommended sample size across all variants. Null if inputs are insufficient.
+         * @nullable
+         */
+      recommended_sample_size: number | null;
+      /**
+         * Estimated days to reach the recommended sample size. Null when exposure_rate_per_day is omitted.
+         * @nullable
+         */
+      recommended_running_time_days: number | null;
+    }
+
+    /**
      * Form fields that must be submitted verbatim with the file upload
      */
     export type S3PresignedPostFields = {[key: string]: string};
@@ -47927,7 +48262,7 @@ export namespace Schemas {
 
     /**
      * Body shape for PUT /revisions/<id>/bundle/ — the full-replace typed
-     * payload. See docs/agent-platform/plans/typed-bundle-authoring-api.md §3.
+     * payload.
      */
     export interface WriteTypedBundleRequest {
       agent_md: string;
@@ -55615,6 +55950,13 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type EngineeringAnalyticsCiCardsParams = {
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    };
+
     export type EngineeringAnalyticsPrLifecycleParams = {
     /**
      * Pull request number to inspect.
@@ -55624,6 +55966,10 @@ export namespace Schemas {
      * Optional 'owner/name' repository to disambiguate when the PR number exists in more than one connected repo.
      */
     repo?: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
     };
 
     export type EngineeringAnalyticsPullRequestsParams = {
@@ -55631,6 +55977,10 @@ export namespace Schemas {
      * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
      */
     date_from?: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
     };
 
     export type EngineeringAnalyticsWorkflowHealthParams = {
@@ -55642,6 +55992,10 @@ export namespace Schemas {
      * Window end: relative or ISO8601. Defaults to now.
      */
     date_to?: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
     };
 
     export type EnvironmentsListParams = {
@@ -59640,6 +59994,10 @@ export namespace Schemas {
 
     export type SurveysListParams = {
     archived?: boolean;
+    /**
+     * Multiple values may be separated by commas.
+     */
+    ids?: string[];
     /**
      * Number of results to return per page.
      */

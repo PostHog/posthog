@@ -396,6 +396,73 @@ export function validateDistinctIdPersonIdExclusive(
     }
 }
 
+const WorkflowGraphEdgeSchema = z.object({
+    from: z.string().describe('Source action id.'),
+    to: z.string().describe('Target action id.'),
+    type: z
+        .enum(['continue', 'branch'])
+        .describe(
+            "'continue' = fall-through (sequential or no-match path); 'branch' = a condition/cohort branch (needs index)."
+        ),
+    index: z
+        .number()
+        .int()
+        .optional()
+        .describe('Required for type=branch: which condition/cohort slot this branch matches (0-based).'),
+})
+
+const WorkflowGraphOperationSchema = z.discriminatedUnion('op', [
+    z.object({
+        op: z.literal('update_action'),
+        id: z.string().describe('Id of the action to update.'),
+        patch: z
+            .record(z.string(), z.unknown())
+            .describe(
+                'Partial action fields, deep-merged into the existing action; a null leaf deletes that key. ' +
+                    'e.g. {config: {inputs: {subject: {value: "Hi"}}}} changes only that one input.'
+            ),
+    }),
+    z.object({
+        op: z.literal('add_action'),
+        action: z
+            .record(z.string(), z.unknown())
+            .describe(
+                'A full action node {id, name, type, config, ...}; same shape as entries in the workflow actions array.'
+            ),
+    }),
+    z.object({
+        op: z.literal('remove_action'),
+        id: z.string().describe('Id of the action to remove. Its incoming edges reconnect to its first outgoer.'),
+    }),
+    z.object({
+        op: z.literal('add_edge'),
+        edge: WorkflowGraphEdgeSchema.describe('The edge to add.'),
+    }),
+    z.object({
+        op: z.literal('remove_edge'),
+        edge: WorkflowGraphEdgeSchema.describe('The edge to remove (matched on from/to/type/index).'),
+    }),
+    z.object({
+        op: z.literal('replace_action_edges'),
+        id: z.string().describe('Action id whose outgoing edges are being replaced.'),
+        edges: z
+            .array(WorkflowGraphEdgeSchema)
+            .describe("The complete set of the action's outgoing edges; incoming edges are preserved."),
+    }),
+])
+
+export const WorkflowGraphPatchSchema = z.object({
+    id: z.string().describe('The workflow (HogFlow) id to edit. Draft only — active workflows are read-only via MCP.'),
+    operations: z
+        .array(WorkflowGraphOperationSchema)
+        .min(1)
+        .describe(
+            'Ordered graph edits applied atomically: the stored graph is read, ops are applied in order, the result ' +
+                'is fully validated, and it is saved only if valid — otherwise the workflow is left unchanged. Reference ' +
+                'nodes/edges by id so you never resend the whole graph. The full updated workflow is returned.'
+        ),
+})
+
 // Surgical edits to an email template's Unlayer design — one discriminated op per change, addressed by
 // the stable block id. Mirrors DesignOperationSerializer; kept as a hand-authored discriminated union so
 // the LLM sees exactly which fields each op needs (the auto-generated PATCH schema flattens them all to

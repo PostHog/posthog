@@ -294,6 +294,35 @@ export const funnelTrendsSteps = {
                 breakdown_value: 'Bramble',
             },
         ] satisfies FunnelStepData[],
+        // Query order (Safari, Chrome, Firefox), alphabetical order, and value-at-index-2 order
+        // (Firefox 60, Safari 40, Chrome 20) all differ, so a tooltip sorted by descending value
+        // can't accidentally match the input order.
+        browser: [
+            {
+                count: 40,
+                data: [30, 35, 40, 45, 38],
+                days,
+                labels,
+                name: '$pageview → Napped',
+                breakdown_value: 'Safari',
+            },
+            {
+                count: 20,
+                data: [10, 15, 20, 25, 18],
+                days,
+                labels,
+                name: '$pageview → Napped',
+                breakdown_value: 'Chrome',
+            },
+            {
+                count: 60,
+                data: [50, 55, 60, 65, 58],
+                days,
+                labels,
+                name: '$pageview → Napped',
+                breakdown_value: 'Firefox',
+            },
+        ] satisfies FunnelStepData[],
     } as Record<string, FunnelStepData[]>,
     // Compare-to-previous + breakdown: current and previous rows per breakdown value, each
     // tagged with `compare_label` so the tooltip can split them into their own rows.

@@ -3288,22 +3288,36 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         if !matches!(self.peek(), TokenKind::Keyword(Kw::Filter)) {
             return Ok(None);
         }
+        // cpp's window FILTER (`VISIT(ColumnExprWinFunction)`) grammar-parses
+        // the WHERE body but never visits it; aggregate FILTER does visit.
+        // We can't peek `OVER` until the body is consumed, so optimistically
+        // parse with both suppressions (window form) and re-parse strictly
+        // below if no OVER follows.
+        let cp_before_filter = self.checkpoint();
         self.bump()?;
         self.expect(TokenKind::LParen, "(")?;
         self.expect_kw(Kw::Where, "WHERE")?;
-        // cpp's `VISIT(ColumnExprWinFunction)` parses the FILTER
-        // where-expression at the grammar level but never visits it
-        // into the AST — so the SelectStmt-visitor semantic checks
-        // (ARRAY JOIN without FROM / unaliased ARRAY JOIN arrays)
-        // never fire for a subquery nested in here. Suppress them
-        // during this parse so `f() FILTER (WHERE (SELECT 1 ARRAY
-        // JOIN 2)) OVER w` is accepted the same way.
-        let prev = self.suppress_array_join_checks;
+        let prev_array_join = self.suppress_array_join_checks;
+        let prev_unvisited = self.suppress_unvisited_clause_checks;
         self.suppress_array_join_checks = true;
+        self.suppress_unvisited_clause_checks = true;
         let result = self.parse_expr_bp(0);
-        self.suppress_array_join_checks = prev;
+        self.suppress_array_join_checks = prev_array_join;
+        self.suppress_unvisited_clause_checks = prev_unvisited;
         let expr = result?;
         self.expect(TokenKind::RParen, ")")?;
+        // No OVER → aggregate FILTER. Re-parse strictly so cpp's visit-time
+        // rejections (ARRAY JOIN, DATE/TIMESTAMP/INTERVAL, ColumnTypeExprEnum)
+        // fire.
+        if !matches!(self.peek(), TokenKind::Keyword(Kw::Over)) {
+            self.restore(cp_before_filter)?;
+            self.bump()?;
+            self.expect(TokenKind::LParen, "(")?;
+            self.expect_kw(Kw::Where, "WHERE")?;
+            let strict_expr = self.parse_expr_bp(0)?;
+            self.expect(TokenKind::RParen, ")")?;
+            return Ok(Some(strict_expr));
+        }
         Ok(Some(expr))
     }
 
@@ -3505,6 +3519,14 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             // cpp ACCEPTS. So gate the reject on the full enum-list shape and let
             // the Param path below handle the rest.
             if self.paren_body_is_enum_value_list() {
+                if self.suppress_unvisited_clause_checks {
+                    // Unvisited clause: consume the enum body, return a placeholder.
+                    while self.peek() != TokenKind::RParen {
+                        self.bump()?;
+                    }
+                    self.expect(TokenKind::RParen, ")")?;
+                    return Ok(format!("{head_name}(<discarded-enum>)"));
+                }
                 let start = self.peek0.start;
                 let end = self.peek0.end;
                 // Fatal so the outer `try_alt`'s parse_ident_lead

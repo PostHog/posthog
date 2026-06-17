@@ -48,6 +48,13 @@ class TestSummarize:
         assert summary == ScoreSessionsBatchResult(total_scored=10, chunks_dispatched=3, chunks_failed=1)
 
 
+class TestParseInputs:
+    # inputs_optional lets the workflow start with no inputs; "{}" still parses.
+    @pytest.mark.parametrize("inputs", [[], ["{}"]])
+    def test_parse_inputs_returns_default(self, inputs: list[str]) -> None:
+        assert ScoreSessionsBatchWorkflow.parse_inputs(inputs) == ScoreSessionsBatchInputs()
+
+
 @pytest.mark.asyncio
 async def test_workflow_noop_when_plan_has_no_chunks() -> None:
     @activity.defn(name="list_chunks_activity")

@@ -424,9 +424,10 @@ class TestExternalDataSource(APIBaseTest):
 
     @patch(
         "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
-        return_value=False,
+        return_value=True,
     )
     def test_bulk_update_schemas_runs_deferred_temporal_updates(self, _mock_workflow_exists):
+        # Enabled schema with an existing schedule: a frequency change re-issues (updates) it.
         source = self._create_external_data_source()
         schema = ExternalDataSchema.objects.create(
             name="Customers",
@@ -1599,6 +1600,7 @@ class TestExternalDataSource(APIBaseTest):
                     "primary_key_columns": None,
                     "cdc_table_mode": "consolidated",
                     "enabled_columns": None,
+                    "row_filters": None,
                     "available_columns": [],
                     "source": None,
                 }
@@ -2580,6 +2582,61 @@ class TestExternalDataSource(APIBaseTest):
             ).count(),
             1,
         )
+
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_create_direct_postgres_rejects_row_filters(self, mock_get_source):
+        source_mock = mock_get_source.return_value
+        source_mock.validate_config.return_value = (True, [])
+        parsed_config = Mock()
+        parsed_config.to_dict.return_value = {
+            "host": "localhost",
+            "port": 5432,
+            "database": "app",
+            "user": "user",
+            "password": "pass",
+            "schema": "public",
+        }
+        source_mock.parse_config.return_value = parsed_config
+        source_mock.validate_credentials.return_value = (True, None)
+        source_mock.get_schemas.return_value = [
+            SourceSchema(
+                name="accounts",
+                supports_incremental=False,
+                supports_append=False,
+                columns=[("id", "integer", False)],
+                foreign_keys=[],
+            ),
+        ]
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Postgres",
+                "created_via": "web",
+                "access_method": "direct",
+                "prefix": "Primary database",
+                "payload": {
+                    "host": "localhost",
+                    "port": 5432,
+                    "database": "app",
+                    "user": "user",
+                    "password": "pass",
+                    "schema": "public",
+                    "schemas": [
+                        {
+                            "name": "accounts",
+                            "should_sync": True,
+                            "sync_type": None,
+                            "row_filters": [{"column": "id", "operator": ">", "value": 10}],
+                        },
+                    ],
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("not supported for direct Postgres", str(response.json()))
+        self.assertFalse(ExternalDataSource.objects.filter(team_id=self.team.pk).exists())
 
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     def test_create_direct_postgres_blank_schema_prefixes_table_names_and_preserves_physical_schema(

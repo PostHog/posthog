@@ -292,4 +292,39 @@ describe('ConcurrentBatchProcessingPipeline', () => {
             ])
         })
     })
+
+    describe('error poisoning', () => {
+        it('poisons permanently after a source error', async () => {
+            const processor = createNewPipeline<string>().pipe((input: string) => Promise.resolve(ok(input)))
+            const previousPipeline = {
+                feed: jest.fn(),
+                next: jest.fn().mockRejectedValueOnce(new Error('source boom')).mockResolvedValue(null),
+            }
+            const pipeline = new ConcurrentBatchProcessingPipeline(processor, previousPipeline)
+
+            await expect(pipeline.next()).rejects.toThrow('source boom')
+            await expect(pipeline.next()).rejects.toThrow('source boom')
+        })
+
+        it('drains in-flight items after a processing error, then poisons', async () => {
+            const processor = createNewPipeline<{ value: string; fail?: boolean }>().pipe((input) =>
+                input.fail ? Promise.reject(new Error('item boom')) : Promise.resolve(ok(input))
+            )
+            const previousPipeline = createNewBatchPipeline<{ value: string; fail?: boolean }>().build()
+            const pipeline = new ConcurrentBatchProcessingPipeline(processor, previousPipeline)
+
+            // FIFO: the failing head surfaces first, the already in-flight item
+            // drains next, then the stage rejects permanently.
+            previousPipeline.feed([
+                createOkContext({ value: 'i1', fail: true }, context1),
+                createOkContext({ value: 'i2' }, context2),
+            ])
+
+            await expect(pipeline.next()).rejects.toThrow('item boom')
+            expect(await pipeline.next()).toEqual([
+                { result: ok({ value: 'i2' }), context: expect.objectContaining({ message: message2 }) },
+            ])
+            await expect(pipeline.next()).rejects.toThrow('item boom')
+        })
+    })
 })
