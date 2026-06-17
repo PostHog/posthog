@@ -12,12 +12,14 @@ describe('experimentPickerLogic', () => {
     let logic: ReturnType<typeof experimentPickerLogic.build>
     let listMock: jest.Mock
     let retrieveMock: jest.Mock
+    let lastSearch: string | null = null
 
     beforeEach(() => {
-        listMock = jest.fn(() => [
-            200,
-            { results: [experiment(101, 'New signup CTA'), experiment(102, 'Pricing page')], count: 2 },
-        ])
+        lastSearch = null
+        listMock = jest.fn((req) => {
+            lastSearch = req.url.searchParams.get('search')
+            return [200, { results: [experiment(101, 'New signup CTA'), experiment(102, 'Pricing page')], count: 2 }]
+        })
         retrieveMock = jest.fn((req) => [200, experiment(Number(req.params.id), `Experiment ${req.params.id}`)])
         useMocks({
             get: {
@@ -57,9 +59,7 @@ describe('experimentPickerLogic', () => {
         logic = experimentPickerLogic({ pickerKey: 'tile-1' })
         logic.mount()
         logic.actions.setSearch('signup')
-        await waitFor(() => expect(listMock).toHaveBeenCalled())
-        const lastUrl = String(listMock.mock.calls.at(-1)?.[0]?.url ?? '')
-        expect(lastUrl).toContain('search=signup')
+        await waitFor(() => expect(lastSearch).toBe('signup'))
     })
 
     it('resolves the selected experiment by id and skips reloading the same id', async () => {

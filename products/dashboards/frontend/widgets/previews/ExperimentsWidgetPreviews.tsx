@@ -44,19 +44,18 @@ export function ExperimentsListWidgetPreview(): JSX.Element {
     )
 }
 
-const RESULTS_PREVIEW_EXPERIMENT = experimentResultsSamplePayload.experiment
-const RESULTS_PREVIEW_METRIC = experimentResultsSamplePayload.metrics[0]
-
 export function ExperimentResultsWidgetPreview(): JSX.Element {
+    const experiment = experimentResultsSamplePayload.experiment
+    const metric = experimentResultsSamplePayload.metrics[0]
     return (
         <div className="pointer-events-none flex flex-col gap-2 p-2 shadow-sm">
             <div className="flex items-center justify-between gap-2">
-                <span className="truncate font-semibold">{RESULTS_PREVIEW_EXPERIMENT.name}</span>
-                <StatusTag status={RESULTS_PREVIEW_EXPERIMENT.status as ExperimentStatus} />
+                <span className="truncate font-semibold">{experiment.name}</span>
+                <StatusTag status={experiment.status as ExperimentStatus} />
             </div>
             <NotebookCompactTable
-                result={RESULTS_PREVIEW_METRIC.result as unknown as NewExperimentQueryResponse}
-                metric={RESULTS_PREVIEW_METRIC.metric as unknown as ExperimentMetric}
+                result={metric.result as unknown as NewExperimentQueryResponse}
+                metric={metric.metric as unknown as ExperimentMetric}
             />
         </div>
     )
