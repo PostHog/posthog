@@ -68,6 +68,16 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # access. The "Access Denied:"/403 keys above only cover BigQuery's own IAM wording, so
             # this lowercase upstream form slips through and retries forever.
             "permission denied for table": 'BigQuery couldn\'t read a federated table because the underlying database denied permission ("permission denied for table"). Please grant the database user behind your BigQuery connection read access to the table, then reconnect the source.',
+            # Raised from the Storage Read API's `create_read_session` (see `get_rows` in
+            # `bigquery.py`) when the service account is missing the `bigquery.readsessions.create`
+            # permission the Read API requires. The google.api_core PermissionDenied stringifies as
+            # "403 request failed: the user does not have 'bigquery.readsessions.create' permission
+            # for 'projects/<id>'", so neither the "Access Denied:"/403 keys nor "PermissionDenied:
+            # 403 request failed" cover this wording, and it retries forever. This is an IAM config
+            # problem on the customer's service account — retrying can't resolve it; the user must
+            # grant the missing permission (e.g. the BigQuery Read Session User role). Matched on the
+            # stable permission name rather than the volatile project id.
+            "bigquery.readsessions.create": "BigQuery denied access to the Storage Read API: your service account is missing the bigquery.readsessions.create permission. Please grant it (for example via the BigQuery Read Session User role) on the project you're syncing, then reconnect the source.",
             # Raised from schema discovery (`get_columns`) and query jobs when the configured
             # dataset/table doesn't exist in the location we query — the dataset was deleted or
             # renamed, or it lives in a different region than the one we run against. The google
