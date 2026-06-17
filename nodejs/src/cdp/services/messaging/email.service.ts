@@ -101,13 +101,22 @@ export function parseAddressList(value?: string): string[] | undefined {
 }
 
 /**
+ * Escapes a display name for safe use inside an RFC 5322 quoted-string. Escapes
+ * backslashes first, then quotes, so a name containing `"` (or a trailing `\`)
+ * can't break out of the quotes and inject extra `name <addr>` mailboxes.
+ */
+function escapeDisplayName(name: string): string {
+    return name.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+}
+
+/**
  * Builds the `ToAddresses` list. The To field is free text that may contain a
  * comma-separated list, so split it like Cc/Bcc and apply the optional display
  * name to each resulting address.
  */
 export function formatToAddresses(to: { email: string; name?: string }): string[] {
     const addresses = parseAddressList(to.email) ?? [to.email]
-    return addresses.map((address) => (to.name ? `"${to.name}" <${address}>` : address))
+    return addresses.map((address) => (to.name ? `"${escapeDisplayName(to.name)}" <${address}>` : address))
 }
 
 export class EmailService {

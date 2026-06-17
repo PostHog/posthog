@@ -71,6 +71,16 @@ describe('formatToAddresses', () => {
             ['"A" <a@x.com>', '"A" <b@x.com>'],
         ],
         ['trims whitespace around commas', { email: '  a@x.com ,  b@x.com  ' }, ['a@x.com', 'b@x.com']],
+        [
+            'escapes quotes in the display name to prevent recipient injection',
+            { email: 'real@example.com', name: 'Name" <evil@attacker.com>, "Victim' },
+            ['"Name\\" <evil@attacker.com>, \\"Victim" <real@example.com>'],
+        ],
+        [
+            'escapes a trailing backslash in the display name',
+            { email: 'real@example.com', name: 'Name\\' },
+            ['"Name\\\\" <real@example.com>'],
+        ],
     ])('%s', (_name, input, expected) => {
         expect(formatToAddresses(input)).toEqual(expected)
     })
