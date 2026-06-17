@@ -5,6 +5,7 @@ import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
+import { isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
 import { InsightLogicProps } from '~/types'
 
 import { dataRetentionBannerLogic } from './dataRetentionBannerLogic'
@@ -22,17 +23,21 @@ export const insightRetentionBannerLogic = kea<insightRetentionBannerLogicType>(
             dataRetentionBannerLogic,
             ['warningEligible', 'retentionPeriodDays'],
             insightDataLogic(props),
-            ['insightData'],
+            ['insightData', 'query'],
             insightVizDataLogic(props),
             ['dateRange'],
         ],
     })),
     selectors({
         rangeExceedsRetention: [
-            (s) => [s.dateRange, s.insightData, s.retentionPeriodDays],
-            (dateRange, insightData, retentionPeriodDays): boolean => {
+            (s) => [s.dateRange, s.insightData, s.retentionPeriodDays, s.query],
+            (dateRange, insightData, retentionPeriodDays, query): boolean => {
                 if (!retentionPeriodDays) {
                     return false
+                }
+                // SQL/HogQL insights can scan arbitrary history with no resolvable range, so warn whenever eligible.
+                if (query && (isHogQLQuery(query) || (isDataVisualizationNode(query) && isHogQLQuery(query.source)))) {
+                    return true
                 }
                 // "All time" is an unbounded intent: warn even when the team's data doesn't yet reach that far back.
                 if (dateRange?.date_from === 'all') {

@@ -14,8 +14,8 @@ def _team(*, current_period: str, feature_unit: str | None, feature_limit: int |
         organization.get_available_feature.return_value = None
     else:
         organization.get_available_feature.return_value = {
-            "name": AvailableFeature.EVENT_DATA_RETENTION,
-            "key": AvailableFeature.EVENT_DATA_RETENTION,
+            "name": AvailableFeature.PRODUCT_ANALYTICS_DATA_RETENTION,
+            "key": AvailableFeature.PRODUCT_ANALYTICS_DATA_RETENTION,
             "limit": feature_limit,
             "unit": feature_unit,
         }
@@ -30,6 +30,9 @@ class _FakeQuerySet:
     def __init__(self, teams: list[MagicMock]) -> None:
         self._teams = teams
 
+    def select_related(self, *_):
+        return self
+
     def only(self, *_):
         return self
 
@@ -43,7 +46,7 @@ class _FakeQuerySet:
 
 def _patch_team_objects(teams: list[MagicMock], bulk_update: MagicMock):
     objects = MagicMock()
-    objects.only.return_value = _FakeQuerySet(teams)
+    objects.select_related.return_value = _FakeQuerySet(teams)
     objects.bulk_update = bulk_update
     return patch(
         "posthog.temporal.sync_events_retention.activities.Team.objects",
@@ -62,6 +65,8 @@ async def test_sets_period_from_entitlement():
     assert team.event_retention_period == "1y"
     bulk_update.assert_called_once()
     assert bulk_update.call_args[0][0] == [team]
+    # Guard the billing key: the sync must read the entitlement billing actually emits.
+    team.organization.get_available_feature.assert_called_with(AvailableFeature.PRODUCT_ANALYTICS_DATA_RETENTION)
 
 
 @pytest.mark.asyncio

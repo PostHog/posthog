@@ -16,6 +16,7 @@ class Migration(migrations.Migration):
                 choices=[
                     ("1y", "1 Year"),
                     ("2y", "2 Years"),
+                    ("3y", "3 Years"),
                     ("5y", "5 Years"),
                     ("7y", "7 Years"),
                 ],

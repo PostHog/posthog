@@ -83,7 +83,7 @@ def events_retention_window_for_team(team: Optional[Team], team_id: Optional[int
 
 
 # Billing entitlement key the sync job reconciles Team.event_retention_period against.
-EVENTS_DATA_RETENTION_FEATURE = AvailableFeature.EVENT_DATA_RETENTION
+EVENTS_DATA_RETENTION_FEATURE = AvailableFeature.PRODUCT_ANALYTICS_DATA_RETENTION
 
 
 def parse_events_feature_to_period(retention_feature: ProductFeature | None) -> str:

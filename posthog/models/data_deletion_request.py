@@ -61,7 +61,14 @@ def compile_hogql_predicate(obj) -> tuple[str, dict]:
     # ``within_non_hogql_query=True`` instructs the printer to emit unqualified column
     # references for the outer expression so the fragment splices into both the
     # Distributed ``events`` SELECT and the ``sharded_events`` DELETE mutation.
-    context = HogQLContext(team_id=obj.team_id, within_non_hogql_query=True, enable_select_queries=True)
+    context = HogQLContext(
+        team_id=obj.team_id,
+        within_non_hogql_query=True,
+        enable_select_queries=True,
+        # A deletion predicate must match rows regardless of retention; the events-retention floor would otherwise
+        # narrow an events sub-query here and leave events older than the window un-deleted.
+        apply_events_retention_floor=False,
+    )
     try:
         sql = translate_hogql(predicate, context, dialect="clickhouse")
     except Exception as exc:

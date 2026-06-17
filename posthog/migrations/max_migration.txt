@@ -1,1 +1,1 @@
-1226_alter_team_event_retention_period
+1225_team_event_retention_period

@@ -113,6 +113,10 @@ class HogQLContext:
     # Cohort-gated events data retention: when set, the ClickHouse printer floors every events-table scan to
     # now() - this window. Computed once per query in prepare_ast_for_printing; None means not enforced.
     events_retention_window: Optional[timedelta] = None
+    # Backend-only switch for the events-retention floor. Defaults on; server-side paths that must act on all rows
+    # regardless of retention — notably the GDPR data-deletion mutation path — set this False. Deliberately NOT a
+    # HogQLQueryModifier, so a query can't disable enforcement.
+    apply_events_retention_floor: bool = True
 
     def __post_init__(self):
         if self.team:

@@ -238,8 +238,12 @@ def prepare_ast_for_printing(
 
         # Cohort-gated events data retention: floor every events scan to now() - retention. Computed once here
         # (the per-scan printer hook can't afford the team lookup + flag eval); the printer reads it off the context.
+        # Gated on the backend-only apply_events_retention_floor flag so server-side paths that must bypass the floor
+        # — e.g. the GDPR data-deletion mutation path — can opt out; the flag can't be set from a query, so the
+        # enforcement floor still can't be circumvented by a query-supplied modifier.
         with context.timings.measure("events_retention_floor"):
-            context.events_retention_window = events_retention_window_for_team(context.team, context.team_id)
+            if context.apply_events_retention_floor:
+                context.events_retention_window = events_retention_window_for_team(context.team, context.team_id)
 
         # Events predicate pushdown runs on the lowered AST (between lowering and property resolution), so it matches the
         # dialect-neutral PropertyAccess form. Its pre-filtering subquery projects only source columns (raw blobs and
