@@ -3,6 +3,8 @@ from __future__ import annotations
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from parameterized import parameterized
+
 from products.conversations.backend.temporal.pipeline import (
     MAX_ATTEMPTS,
     BuildContextOutput,
@@ -307,35 +309,83 @@ class TestPersistReplyActivity:
         assert comment.item_context["confidence"] == 0.85
 
 
+class TestStripJsonFence:
+    @parameterized.expand(
+        [
+            ("plain_json", '{"grounded": true}', '{"grounded": true}'),
+            ("json_fence", '```json\n{"grounded": true}\n```', '{"grounded": true}'),
+            ("json_fence_no_newline", '```json{"grounded": true}```', '{"grounded": true}'),
+            ("plain_fence", '```\n{"grounded": true}\n```', '{"grounded": true}'),
+            ("uppercase_json", '```JSON\n{"grounded": true}\n```', '{"grounded": true}'),
+            ("with_whitespace", '  ```json\n{"grounded": true}\n```  ', '{"grounded": true}'),
+            (
+                "nested_content",
+                '```json\n{\n  "grounded": true,\n  "missing": []\n}\n```',
+                '{\n  "grounded": true,\n  "missing": []\n}',
+            ),
+        ]
+    )
+    def test_strips_fence_correctly(self, _name, input_text, expected):
+        from products.conversations.backend.temporal.pipeline import _strip_json_fence
+
+        assert _strip_json_fence(input_text) == expected
+
+
 @pytest.mark.django_db
 class TestValidateActivity:
+    @parameterized.expand(
+        [
+            (
+                "valid_json",
+                '{"grounded": true, "coverage": 0.8, "confidence": 0.75, "missing": ["deployment details"]}',
+                True,
+                0.8,
+                0.75,
+                ["deployment details"],
+            ),
+            (
+                "json_in_fence",
+                '```json\n{"grounded": true, "coverage": 0.9, "confidence": 0.85, "missing": []}\n```',
+                True,
+                0.9,
+                0.85,
+                [],
+            ),
+            (
+                "partial_fields",
+                '{"grounded": false, "coverage": 0.5}',
+                False,
+                0.5,
+                0.0,
+                [],
+            ),
+        ]
+    )
     @patch(f"{PIPELINE_MODULE}.MaxChatAnthropic")
-    def test_parses_valid_json_response(self, mock_llm_cls):
-        import json
-
+    def test_parses_llm_response(
+        self,
+        _name,
+        llm_response,
+        expected_grounded,
+        expected_coverage,
+        expected_confidence,
+        expected_missing,
+        mock_llm_cls,
+    ):
         from posthog.models.organization import Organization
         from posthog.models.team.team import Team
         from posthog.models.user import User
 
         from products.conversations.backend.temporal.pipeline import _validate_sync
 
-        org = Organization.objects.create(name="Validate Org")
-        team = Team.objects.create(organization=org, name="Validate Team")
-        user = User.objects.create(email="validate@test.com", first_name="Test")
+        org = Organization.objects.create(name=f"Validate Org {_name}")
+        team = Team.objects.create(organization=org, name=f"Validate Team {_name}")
+        user = User.objects.create(email=f"validate-{_name}@test.com", first_name="Test")
         org.members.add(user)
 
         mock_llm = MagicMock()
         mock_llm_cls.return_value = mock_llm
-        mock_llm.invoke.return_value = MagicMock(
-            content=json.dumps(
-                {
-                    "grounded": True,
-                    "coverage": 0.8,
-                    "confidence": 0.75,
-                    "missing": ["deployment details"],
-                }
-            )
-        )
+        mock_llm.invoke.return_value = MagicMock(content=llm_response)
 
         result = _validate_sync(
             team_id=team.id,
@@ -345,27 +395,35 @@ class TestValidateActivity:
             chunks=[{"chunk_id": "chunk-1", "content": "Docker compose deployment guide"}],
         )
 
-        assert result.grounded is True
-        assert result.coverage == 0.8
-        assert result.confidence == 0.75
-        assert result.missing == ["deployment details"]
+        assert result.grounded is expected_grounded
+        assert result.coverage == expected_coverage
+        assert result.confidence == expected_confidence
+        assert result.missing == expected_missing
 
+    @parameterized.expand(
+        [
+            ("invalid_json", "not valid json at all"),
+            ("empty_string", ""),
+            ("html_response", "<html><body>Error</body></html>"),
+            ("truncated_json", '{"grounded": true, "coverage":'),
+        ]
+    )
     @patch(f"{PIPELINE_MODULE}.MaxChatAnthropic")
-    def test_returns_zero_on_parse_failure(self, mock_llm_cls):
+    def test_returns_zero_on_parse_failure(self, _name, llm_response, mock_llm_cls):
         from posthog.models.organization import Organization
         from posthog.models.team.team import Team
         from posthog.models.user import User
 
         from products.conversations.backend.temporal.pipeline import _validate_sync
 
-        org = Organization.objects.create(name="Parse Fail Org")
-        team = Team.objects.create(organization=org, name="Parse Fail Team")
-        user = User.objects.create(email="parsefail@test.com", first_name="Test")
+        org = Organization.objects.create(name=f"Parse Fail Org {_name}")
+        team = Team.objects.create(organization=org, name=f"Parse Fail Team {_name}")
+        user = User.objects.create(email=f"parsefail-{_name}@test.com", first_name="Test")
         org.members.add(user)
 
         mock_llm = MagicMock()
         mock_llm_cls.return_value = mock_llm
-        mock_llm.invoke.return_value = MagicMock(content="not valid json at all")
+        mock_llm.invoke.return_value = MagicMock(content=llm_response)
 
         result = _validate_sync(
             team_id=team.id,
