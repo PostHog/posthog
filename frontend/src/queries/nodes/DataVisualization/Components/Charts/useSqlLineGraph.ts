@@ -13,10 +13,10 @@ import { buildTheme } from 'lib/charts/utils/theme'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { LineGraphProps } from './LineGraph'
-import { SqlLineSeriesMeta, buildLineChartConfig, buildSeries, capYSeriesData } from './sqlLineGraphAdapter'
+import { buildLineChartConfig, buildSeries, capYSeriesData } from './sqlLineGraphAdapter'
 
 export interface SqlLineGraphModel {
-    series: Series<SqlLineSeriesMeta>[]
+    series: Series[]
     labels: string[]
     theme: ChartTheme
     config: TimeSeriesLineChartConfig

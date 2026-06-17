@@ -17,11 +17,6 @@ export const MAX_SERIES = 200
 
 export type SqlLineYSeries = AxisSeries<number | null> | AxisBreakdownSeries<number | null>
 
-/** Original per-series settings carried into the tooltip so it can format values. */
-export interface SqlLineSeriesMeta {
-    settings?: AxisSeriesSettings
-}
-
 const isAreaSeries = (visualizationType: ChartDisplayType, settings: AxisSeriesSettings | undefined): boolean =>
     visualizationType === ChartDisplayType.ActionsAreaGraph || settings?.display?.displayType === 'area'
 
@@ -71,7 +66,7 @@ export function capYSeriesData(
     return yData
 }
 
-export function buildSeries(yData: SqlLineYSeries[], visualizationType: ChartDisplayType): Series<SqlLineSeriesMeta>[] {
+export function buildSeries(yData: SqlLineYSeries[], visualizationType: ChartDisplayType): Series[] {
     return yData.map((series, index) => {
         const settings = series.settings
         // quill places the default axis on the left and the next distinct axis on the right, so
@@ -84,7 +79,6 @@ export function buildSeries(yData: SqlLineYSeries[], visualizationType: ChartDis
             // null -> NaN so quill draws a gap rather than a zero.
             data: series.data.map((value) => (value == null ? NaN : value)),
             color: settings?.display?.color ?? getSeriesColor(index),
-            meta: { settings },
             ...(yAxisId ? { yAxisId } : {}),
             ...(isAreaSeries(visualizationType, settings) ? { fill: { opacity: 0.5 } } : {}),
         }
