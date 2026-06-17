@@ -396,8 +396,13 @@ def hour_window(hours_back: int) -> tuple[datetime, datetime]:
 
 
 def run_backfill_command(*args, stderr=None):
-    """Run the backfill_batch_export_runs management command with --no-delay and --no-confirm."""
-    call_command("backfill_batch_export_runs", *args, "--no-delay", "--no-confirm", stderr=stderr)
+    """Run the backfill_batch_export_runs management command with --no-confirm.
+
+    Deliberately does NOT pass --no-delay: when multiple non-contiguous intervals are
+    backfilled, the command spaces consecutive Temporal backfill requests apart, and
+    submitting them back-to-back (as --no-delay does) races and can drop an action.
+    """
+    call_command("backfill_batch_export_runs", *args, "--no-confirm", stderr=stderr)
 
 
 @pytest.mark.django_db

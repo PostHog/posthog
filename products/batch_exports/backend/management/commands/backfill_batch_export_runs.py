@@ -265,7 +265,7 @@ class Command(BaseCommand):
             )
             return False
 
-        for overall_interval_start, overall_interval_end in missing_intervals:
+        for index, (overall_interval_start, overall_interval_end) in enumerate(missing_intervals):
             # We want to trigger backfills based on the interval_end values
             first_interval_end = next_interval_boundary(overall_interval_start, export)
             backfill_start, backfill_end = get_backfill_bounds(export, first_interval_end, overall_interval_end)
@@ -275,6 +275,11 @@ class Command(BaseCommand):
                     f"        Would backfill {overall_interval_start.isoformat()} -> {overall_interval_end.isoformat()}"
                 )
             else:
+                # Space consecutive backfill requests so the schedule registers each one before the
+                # next arrives -- submitting them back-to-back races and can drop an action. Sleep
+                # between requests only, not after the last one.
+                if not no_delay and index > 0:
+                    await asyncio.sleep(2)
                 self.stdout.write(
                     f"        Backfilling {overall_interval_start.isoformat()} -> {overall_interval_end.isoformat()}"
                 )
@@ -284,8 +289,6 @@ class Command(BaseCommand):
                     overlap=overlap_policy,
                 )
                 await handle.backfill(backfill)
-                if not no_delay:
-                    await asyncio.sleep(2)
 
         return True
 
