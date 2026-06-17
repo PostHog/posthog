@@ -7,6 +7,7 @@ import temporalio
 from pydantic import BaseModel, Field, model_validator
 
 from posthog.temporal.common.scoped import scoped_temporal
+from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.models import SignalReportArtefact
 from products.signals.backend.temporal.llm import call_llm
@@ -74,6 +75,7 @@ def _build_report_safety_judge_prompt(
 # to the average embedding for all signals of the same type - if it's some enormous outlier, it's probably a warning
 # that it's a bit odd (but the mechanics of exactly how that comparison should work are TBD).
 async def judge_report_safety(
+    team_id: int,
     signals: list[SignalData],
 ) -> SafetyJudgeResponse:
     """
@@ -89,10 +91,12 @@ async def judge_report_safety(
         return SafetyJudgeResponse.model_validate(data)
 
     return await call_llm(
+        team_id=team_id,
         system_prompt=REPORT_SAFETY_JUDGE_SYSTEM_PROMPT,
         user_prompt=user_prompt,
         validate=validate,
         thinking=True,
+        stage="report_safety_judge",
     )
 
 
@@ -111,10 +115,12 @@ class SafetyJudgeOutput:
 
 @temporalio.activity.defn
 @scoped_temporal()
+@close_db_connections
 async def report_safety_judge_activity(input: SafetyJudgeInput) -> SafetyJudgeOutput:
     """Assess report for prompt injection attacks and store result as artefact."""
     try:
         result = await judge_report_safety(
+            team_id=input.team_id,
             signals=input.signals,
         )
 

@@ -16,7 +16,6 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
@@ -26,9 +25,9 @@ import { Popover } from 'lib/lemon-ui/Popover'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Splotch, SplotchColor } from 'lib/lemon-ui/Splotch'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { capitalizeFirstLetter } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -133,9 +132,12 @@ export function InsightMeta({
         variablesOverride: variablesOverride ?? null,
         tileFiltersOverride: tileFiltersOverride ?? null,
     }
-    const { insightFeedback, canToggleDisplayLabelsForInsight, canToggleLegendForInsight } = useValues(
-        insightLogic(insightLogicProps)
-    )
+    const {
+        insightFeedback,
+        canToggleDisplayLabelsForInsight,
+        canToggleLegendForInsight,
+        canToggleAnnotationsForInsight,
+    } = useValues(insightLogic(insightLogicProps))
     const { setInsightFeedback } = useActions(insightLogic(insightLogicProps))
     const { exportContext, insightData, query } = useValues(insightDataLogic(insightLogicProps))
     const [isManageAlertsModalOpen, setIsManageAlertsModalOpen] = useState(false)
@@ -199,6 +201,7 @@ export function InsightMeta({
 
     const canToggleDisplayLabels = isUsedAsDashboardTile && canEditInsight && canToggleDisplayLabelsForInsight
     const canToggleLegend = isUsedAsDashboardTile && canEditInsight && canToggleLegendForInsight
+    const canToggleAnnotations = isUsedAsDashboardTile && canEditInsight && canToggleAnnotationsForInsight
 
     const hasTileStyleActions = !!(showCompactTile && toggleShowDescription && insight.description) || !!updateColor
     const canShowCopyToDashboardTile = showCompactTile && !!copyToDashboard && canViewInsight
@@ -439,11 +442,14 @@ export function InsightMeta({
                             dashboardId={dashboardId}
                             canToggleDisplayLabels={canToggleDisplayLabels}
                             canToggleLegend={canToggleLegend}
+                            canToggleAnnotations={canToggleAnnotations}
                         />
 
                         {canShowCopyToDashboardTile && !canEditDashboard && (
                             <>
-                                {!canToggleDisplayLabels && <LemonDivider />}
+                                {!canToggleDisplayLabels && !canToggleLegend && !canToggleAnnotations && (
+                                    <LemonDivider />
+                                )}
                                 <h5 className="mx-2 my-1">Dashboard</h5>
                                 <DashboardWidgetPlacementMenus
                                     placementDestinations={copyToDestinations}
@@ -455,7 +461,9 @@ export function InsightMeta({
                         {/* Dashboard related */}
                         {canEditDashboard && (
                             <>
-                                {!canToggleDisplayLabels && !canToggleLegend && <LemonDivider />}
+                                {!canToggleDisplayLabels && !canToggleLegend && !canToggleAnnotations && (
+                                    <LemonDivider />
+                                )}
                                 {showCompactTile && toggleShowDescription && !!insight.description && (
                                     <LemonButton onClick={toggleShowDescription} fullWidth>
                                         {tile?.show_description === false ? 'Show description' : 'Hide description'}
@@ -499,25 +507,7 @@ export function InsightMeta({
                                             onCopyToDashboard={canShowCopyToDashboardTile ? copyToDashboard : undefined}
                                         />
                                         {removeFromDashboard && (
-                                            <LemonButton
-                                                status="danger"
-                                                onClick={() =>
-                                                    LemonDialog.open({
-                                                        title: 'Remove from dashboard',
-                                                        description:
-                                                            'Are you sure you want to remove this insight from the dashboard?',
-                                                        primaryButton: {
-                                                            children: 'Remove from dashboard',
-                                                            status: 'danger',
-                                                            onClick: removeFromDashboard,
-                                                        },
-                                                        secondaryButton: {
-                                                            children: 'Cancel',
-                                                        },
-                                                    })
-                                                }
-                                                fullWidth
-                                            >
+                                            <LemonButton status="danger" onClick={removeFromDashboard} fullWidth>
                                                 Remove from dashboard
                                             </LemonButton>
                                         )}
@@ -657,7 +647,7 @@ export function InsightMetaContent({
 }): JSX.Element {
     const titleContent = (
         <>
-            <span className={clsx(infoPopover && 'truncate text-primary')}>
+            <span className={clsx('text-primary', infoPopover && 'truncate')}>
                 {title || <i>{fallbackTitle || 'Untitled'}</i>}
             </span>
             {(loading || loadingQueued) && (

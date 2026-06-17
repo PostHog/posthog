@@ -37,6 +37,7 @@ export const CyclotronV2RescheduleOptionsSchema = z.object({
     distinctId: z.string().nullish(),
     personId: z.string().nullish(),
     actionId: z.string().nullish(),
+    queueName: z.string().optional(),
 })
 
 export type CyclotronV2RescheduleOptions = z.infer<typeof CyclotronV2RescheduleOptionsSchema>
@@ -68,6 +69,14 @@ export type CyclotronV2ManagerConfig = {
     depthLimit?: number
     depthCheckIntervalMs?: number
 }
+
+/**
+ * Per-poll decision returned by a rate-limited worker's hook.
+ *   `{ limit: 0, sleepMs }` → skip the dequeue and sleep.
+ *   `{ limit: N }`          → dequeue up to `min(N, batchMaxSize)` rows.
+ *   `undefined`             → fall back to the static `batchMaxSize`.
+ */
+export type CyclotronV2BatchLimit = { limit: number; sleepMs?: number }
 
 export type CyclotronV2WorkerConfig = {
     pool: CyclotronV2PoolConfig

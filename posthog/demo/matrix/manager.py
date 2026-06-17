@@ -12,7 +12,6 @@ from django.db import IntegrityError, transaction
 from posthog.clickhouse.client import query_with_columns, sync_execute
 from posthog.demo.matrix.taxonomy_inference import infer_taxonomy_for_team
 from posthog.models import (
-    Cohort,
     Group,
     GroupTypeMapping,
     Organization,
@@ -22,7 +21,9 @@ from posthog.models import (
     Team,
     User,
 )
-from posthog.models.utils import UUIDT
+from posthog.models.utils import UUIDT, generate_random_token_project
+
+from products.cohorts.backend.models.cohort import Cohort
 
 from .matrix import Matrix
 from .models import SimEvent, SimPerson
@@ -55,6 +56,7 @@ class MatrixManager:
         password: str | None = None,
         is_staff: bool = False,
         email_collision_handling: Literal["log_in", "disambiguate"] = "log_in",
+        api_token: str | None = None,
     ) -> tuple[Organization, Team, User]:
         """If there's an email collision in signup in the demo environment, we treat it as a login."""
         existing_user: User | None = User.objects.filter(email=email).first()
@@ -90,7 +92,11 @@ class MatrixManager:
                     theme_mode="system",
                     role_at_organization="engineering",
                 )
-                team = self.create_team(organization)
+                if api_token:
+                    # api_token is unique, so release it from any team that claimed it on a previous run
+                    # before the new team claims it. Kept in the same transaction so a failure can't orphan it.
+                    Team.objects.filter(api_token=api_token).update(api_token=generate_random_token_project())
+                team = self.create_team(organization, **({"api_token": api_token} if api_token else {}))
             self.run_on_team(team, new_user)
             return (organization, team, new_user)
         elif existing_user.is_staff:

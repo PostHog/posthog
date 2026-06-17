@@ -12,11 +12,10 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from posthog.models.feature_flag.feature_flag import FeatureFlag as FeatureFlagModel
-
 from products.experiments.backend.facade.api import create_experiment
 from products.experiments.backend.facade.contracts import CreateExperimentInput, Experiment
 from products.experiments.backend.models.experiment import Experiment as ExperimentModel
+from products.feature_flags.backend.models.feature_flag import FeatureFlag as FeatureFlagModel
 
 
 class TestCreateExperiment(BaseTest):

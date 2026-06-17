@@ -2,9 +2,9 @@ from django.conf import settings
 
 from rest_framework.request import Request
 
-from posthog.models.insight_variable import InsightVariable
-
 from products.endpoints.backend.models import Endpoint, EndpointVersion
+from products.endpoints.backend.services.strategies import InsightEndpointStrategy
+from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 INSIGHT_VARIABLE_TYPE_TO_OPENAPI: dict[str, dict] = {
     InsightVariable.Type.STRING: {"type": "string"},
@@ -27,7 +27,7 @@ def generate_openapi_spec(
         version: Specific version to generate spec for. If None, uses current version.
     """
     base_url = settings.SITE_URL
-    run_path = f"/api/environments/{team_id}/endpoints/{endpoint.name}/run"
+    run_path = f"/api/projects/{team_id}/endpoints/{endpoint.name}/run"
     target_version = version or endpoint.get_version()
     description = target_version.description
 
@@ -237,10 +237,6 @@ def _get_single_breakdown_property(breakdown_filter: dict) -> str | None:
     return None
 
 
-# Query types that support user-configurable breakdown filtering
-BREAKDOWN_SUPPORTED_QUERY_TYPES = {"TrendsQuery", "RetentionQuery"}
-
-
 def _build_variables_schema(query: dict, is_materialized: bool, team_id: int) -> dict | None:
     """Build schema for variables based on query type and materialization state."""
     query_kind = query.get("kind")
@@ -275,7 +271,7 @@ def _build_variables_schema(query: dict, is_materialized: bool, team_id: int) ->
                     properties[code_name]["example"] = default_value
     else:
         # Insight queries - only include breakdown for supported query types
-        if query_kind in BREAKDOWN_SUPPORTED_QUERY_TYPES:
+        if query_kind in InsightEndpointStrategy.BREAKDOWN_SUPPORTED_QUERY_TYPES:
             breakdown_filter = query.get("breakdownFilter") or {}
             breakdown = _get_single_breakdown_property(breakdown_filter)
             if breakdown:

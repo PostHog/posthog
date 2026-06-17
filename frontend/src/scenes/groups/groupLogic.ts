@@ -7,9 +7,10 @@ import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { objectsEqual, toParams } from 'lib/utils'
-import { capitalizeFirstLetter } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { objectsEqual } from 'lib/utils/objects'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
+import { toParams } from 'lib/utils/url'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -50,12 +51,11 @@ function getGroupEventsQuery(groupTypeIndex: number, groupKey: string): DataTabl
 export type GroupLogicProps = {
     groupTypeIndex: number
     groupKey: string
-    tabId?: string
 }
 
 export const groupLogic = kea<groupLogicType>([
     props({} as GroupLogicProps),
-    key(({ groupKey, groupTypeIndex, tabId }) => `${groupTypeIndex}-${groupKey}-${tabId}`),
+    key(({ groupKey, groupTypeIndex }) => `${groupTypeIndex}-${groupKey}`),
     path((key) => ['scenes', 'groups', 'groupLogic', key]),
     connect(() => ({
         actions: [groupsModel, ['createDetailDashboard']],

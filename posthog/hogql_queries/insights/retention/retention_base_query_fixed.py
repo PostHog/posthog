@@ -255,6 +255,12 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
                 start_event_timestamps_expr = ast.Array(exprs=[])
                 return_event_timestamps_expr = timestamps_expr
 
+        # First-time retention only affects the start side: replace the recurring set of within-window start
+        # intervals with the single cohorting interval derived from the entity-polymorphic first-time anchor.
+        # Mirrors the wrapping that build_base_query_legacy applies (lines below in this class).
+        if query_kind == "start" and (self.is_first_occurrence_matching_filters or self.is_first_ever_occurrence):
+            start_event_timestamps_expr = self._first_time_start_event_timestamps_expr(entity)
+
         table_name = entity.table_name if entity_is_dwh else "events"
         assert table_name
         where_expr = None if entity_is_dwh else ast.And(exprs=self._event_filters())
@@ -278,6 +284,23 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             select_from=ast.JoinExpr(table=ast.Field(chain=[table_name])),
             where=where_expr,
             group_by=[ast.Field(chain=["actor_id"])],
+        )
+
+    def _first_time_start_event_timestamps_expr(self, entity: RetentionEntity) -> ast.Expr:
+        # The variant subquery is already GROUP BY actor_id, so the polymorphic first-time anchor (a minIf)
+        # resolves to one cohorting timestamp per actor. Emit that single bucketed interval when the anchor falls
+        # inside the query window, otherwise nothing. This mirrors the legacy
+        # if(has(_start_event_timestamps, min_timestamp), _start_event_timestamps, []) wrapping: in first-time
+        # mode the only element ever read is start_event_timestamps[1] (the minimum), so a single-element array is
+        # equivalent. A null anchor (first-ever occurrence not matching filters) or an out-of-window anchor both
+        # fail the window check and yield an empty array, excluding the actor.
+        anchor_expr = self.get_first_time_anchor_expr(entity)
+        return parse_expr(
+            "if({within_window}, [{bucketed_anchor}], [])",
+            {
+                "within_window": self.events_timestamp_filter(field=anchor_expr),
+                "bucketed_anchor": self.query_date_range.date_to_start_of_interval_hogql(anchor_expr),
+            },
         )
 
     def _get_dwh_property_aggregation_event_data_expr(
@@ -403,7 +426,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             return_event_values = None
 
         if self.is_first_occurrence_matching_filters or self.is_first_ever_occurrence:
-            min_timestamp_inner_expr = self.get_first_time_anchor_expr()
+            min_timestamp_inner_expr = self.get_first_time_anchor_expr(self.start_event)
 
             start_event_timestamps = parse_expr(
                 """

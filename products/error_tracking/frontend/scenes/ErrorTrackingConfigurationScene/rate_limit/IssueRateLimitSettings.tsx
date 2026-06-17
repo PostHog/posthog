@@ -1,13 +1,13 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { LemonSelect, Link } from '@posthog/lemon-ui'
+import { LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { humanFriendlyLargeNumber } from 'lib/utils'
+import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
 import { issueRateLimitConfigLogic } from './issueRateLimitConfigLogic'
@@ -29,9 +29,14 @@ export function IssueRateLimitSettings(): JSX.Element {
     return (
         <div className="space-y-4">
             <div>
-                <h3 className="font-semibold text-base mb-1">Per-issue rate limit</h3>
+                <div className="flex items-center gap-2 mb-1">
+                    <h3 className="font-semibold text-base mb-0">Per-issue rate limit</h3>
+                    <LemonTag type="warning" size="small">
+                        Experimental
+                    </LemonTag>
+                </div>
                 <p className="text-muted-foreground">
-                    This limit applies to each issue individually. Once an issue exceeds the configured rate, further
+                    This limit applies to each issue per window. Once an issue exceeds the configured rate, further
                     exceptions for it are dropped at ingestion.
                 </p>
             </div>
@@ -84,9 +89,7 @@ function ConfigColumn(): JSX.Element {
                 )}
             </LemonField>
 
-            <p className="text-muted-foreground text-xs">
-                Applies to every issue independently. Leave the value empty for no limit.
-            </p>
+            <p className="text-muted-foreground text-xs">Leave the value empty for no limit.</p>
 
             <div className="flex justify-start pt-2">
                 <LemonButton
@@ -103,10 +106,11 @@ function ConfigColumn(): JSX.Element {
 }
 
 function IssuesListColumn(): JSX.Element {
-    const { topIssues, topIssuesLoading, selectedIssueId } = useValues(issueRateLimitConfigLogic)
+    const { topIssues, topIssuesLoading, selectedIssueId, configForm } = useValues(issueRateLimitConfigLogic)
     const { selectIssue } = useActions(issueRateLimitConfigLogic)
 
-    const heading = <div className="text-sm font-medium mb-1">Most active issues — past 7 days</div>
+    const windowLabel = formatTotalDuration(configForm.per_issue_rate_limit_bucket_size_minutes)
+    const heading = <div className="text-sm font-medium mb-1">Most active issues — past {windowLabel}</div>
 
     if (topIssuesLoading) {
         return (
@@ -122,7 +126,7 @@ function IssuesListColumn(): JSX.Element {
             <div className="space-y-1">
                 {heading}
                 <div className="border rounded p-4 text-sm text-muted-foreground h-80 flex items-center justify-center text-center">
-                    No exceptions captured in the past 7 days yet.
+                    No exceptions captured in the past {windowLabel} yet.
                 </div>
             </div>
         )

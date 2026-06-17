@@ -12,9 +12,11 @@ from parameterized import parameterized
 
 from posthog.schema import AssistantEventType, FailureMessage
 
+from products.posthog_ai.backend.models.assistant import Conversation
+
 from ee.hogai.core.base import BaseAssistantGraph
+from ee.hogai.tool import ClientToolCallRequest
 from ee.hogai.utils.types.base import AssistantState, ConversationTitleAction, PartialAssistantState
-from ee.models.assistant import Conversation
 
 
 @asynccontextmanager
@@ -740,3 +742,84 @@ class TestRunnerConversationTitleAction(BaseTest):
         self.assertEqual(len(conversation_events), 1)
         _, conversation = conversation_events[0]
         self.assertEqual(conversation.title, "Streamed Title")
+
+
+class TestRunnerClientToolCallInterrupt(BaseTest):
+    """
+    A ClientToolCallRequest interrupt must stream nothing and leave graph state untouched,
+    so the frontend handler can resume it with a payload (or a new human message can abandon
+    it and start fresh).
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.conversation = Conversation.objects.create(team=self.team, user=self.user)
+
+    def _create_runner_with_interrupt(self, interrupt_value):
+        from ee.hogai.core.runner import BaseAgentRunner
+
+        async def empty_stream():
+            return
+            yield
+
+        mock_graph = MagicMock()
+        mock_graph.astream = MagicMock(return_value=empty_stream())
+        mock_state = MagicMock()
+        mock_state.values = {}
+        mock_state.next = ["pending_node"]
+        mock_state.tasks = [MagicMock(interrupts=[MagicMock(value=interrupt_value)])]
+        mock_graph.aget_state = AsyncMock(return_value=mock_state)
+        mock_graph.aupdate_state = AsyncMock()
+
+        mock_stream_processor = MagicMock()
+        mock_stream_processor.mark_id_as_streamed = MagicMock()
+
+        class TestRunner(BaseAgentRunner):
+            def get_initial_state(self):
+                return AssistantState(messages=[])
+
+            def get_resumed_state(self):
+                return PartialAssistantState(messages=[])
+
+        runner = TestRunner(
+            team=self.team,
+            conversation=self.conversation,
+            user=self.user,
+            graph_class=cast(type[BaseAssistantGraph], mock_graph),
+            state_type=AssistantState,
+            partial_state_type=PartialAssistantState,
+            stream_processor=mock_stream_processor,
+            use_checkpointer=True,
+        )
+        runner._graph = mock_graph
+        return runner, mock_graph
+
+    async def _collect_message_events(self, runner):
+        with (
+            patch.object(runner, "_init_or_update_state", new_callable=AsyncMock, return_value=None),
+            patch.object(runner, "_lock_conversation", return_value=mock_lock_conversation()),
+        ):
+            results = []
+            async for event_type, payload in runner.astream(
+                stream_message_chunks=False, stream_first_message=False, stream_only_assistant_messages=True
+            ):
+                results.append((event_type, payload))
+        return [payload for event_type, payload in results if event_type == AssistantEventType.MESSAGE]
+
+    async def test_streams_nothing_and_skips_state_update(self):
+        runner, mock_graph = self._create_runner_with_interrupt(
+            ClientToolCallRequest(tool_name="create_form", original_tool_call_id="call_1")
+        )
+
+        messages = await self._collect_message_events(runner)
+
+        self.assertEqual(messages, [])
+        mock_graph.aupdate_state.assert_not_called()
+
+    async def test_string_interrupt_still_streams_message_and_updates_state(self):
+        runner, mock_graph = self._create_runner_with_interrupt("Please clarify your request")
+
+        messages = await self._collect_message_events(runner)
+
+        self.assertTrue(any(getattr(m, "content", None) == "Please clarify your request" for m in messages))
+        mock_graph.aupdate_state.assert_called_once()

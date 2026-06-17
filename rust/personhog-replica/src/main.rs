@@ -6,6 +6,7 @@ use common_database::{get_pool_with_config, PoolConfig};
 use envconfig::Envconfig;
 use lifecycle::{ComponentOptions, Manager};
 use metrics_exporter_prometheus::PrometheusBuilder;
+use personhog_common::async_gzip::{AsyncGzipConfig, AsyncGzipLayer};
 use personhog_common::grpc::{tracked_tcp_incoming, GrpcLoadShedLayer, GrpcMetricsLayer};
 use personhog_proto::personhog::replica::v1::person_hog_replica_server::PersonHogReplicaServer;
 use tonic::codec::CompressionEncoding;
@@ -307,7 +308,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let max_send = config.grpc_max_send_message_size;
     let max_recv = config.grpc_max_recv_message_size;
     let max_concurrent_requests = config.max_concurrent_requests;
+    let max_response_size = if config.gzip_max_response_size > 0 {
+        Some(config.gzip_max_response_size)
+    } else {
+        None
+    };
+    let gzip_config = AsyncGzipConfig::new(
+        config.gzip_response_compression,
+        config.gzip_compression_level,
+        config.gzip_min_payload_size,
+    )
+    .with_max_response_size(max_response_size, config.gzip_max_response_size_enforce);
 
+    if gzip_config.enabled {
+        tracing::info!(
+            level = gzip_config.compression_level,
+            min_payload_size = gzip_config.min_payload_size,
+            "Async gzip response compression enabled"
+        );
+    }
+    if let Some(limit) = gzip_config.max_response_size {
+        tracing::info!(
+            limit_bytes = limit,
+            enforce = gzip_config.max_response_size_enforce,
+            "Response size limit active"
+        );
+    }
     if max_concurrent_requests > 0 {
         tracing::info!(
             limit = max_concurrent_requests,
@@ -333,6 +359,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             server = server.max_connection_age(age);
         }
         if let Err(e) = server
+            .layer(AsyncGzipLayer::new(gzip_config))
             .layer(GrpcMetricsLayer::default().with_processing_time_header())
             .layer(GrpcLoadShedLayer::new(max_concurrent_requests))
             .add_service(
@@ -340,9 +367,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .max_encoding_message_size(max_send)
                     .max_decoding_message_size(max_recv)
                     .accept_compressed(CompressionEncoding::Zstd)
-                    .send_compressed(CompressionEncoding::Zstd)
-                    .accept_compressed(CompressionEncoding::Gzip)
-                    .send_compressed(CompressionEncoding::Gzip),
+                    .send_compressed(CompressionEncoding::Zstd),
             )
             .serve_with_incoming_shutdown(incoming, grpc_handle.shutdown_signal())
             .await

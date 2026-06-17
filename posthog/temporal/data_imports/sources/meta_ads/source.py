@@ -1,7 +1,9 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
+    ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
@@ -19,7 +21,11 @@ from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import MetaAdsSourceConfig
-from posthog.temporal.data_imports.sources.meta_ads.meta_ads import MetaAdsResumeConfig, meta_ads_source
+from posthog.temporal.data_imports.sources.meta_ads.meta_ads import (
+    META_AUTH_ERROR_MESSAGE,
+    MetaAdsResumeConfig,
+    meta_ads_source,
+)
 from posthog.temporal.data_imports.sources.meta_ads.schemas import ENDPOINTS, INCREMENTAL_FIELDS
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
@@ -34,8 +40,25 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig]):
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "Failed to refresh token for Meta Ads integration. Please re-authorize the integration.": None,
+            # The data warehouse source still references a `meta_ads_integration_id` whose
+            # Integration row no longer exists for the team (the integration was deleted or
+            # de-authorized). `get_integration` then raises Django's `Integration.DoesNotExist`
+            # ("Integration matching query does not exist."); retrying can never make the row
+            # reappear — the only fix is the user reconnecting the integration.
+            "Integration matching query does not exist.": (
+                "The Meta Ads integration for this source no longer exists. Please reconnect the Meta Ads integration."
+            ),
+            # Permanent auth/permission failures from the Graph API (e.g. revoked or expired
+            # access tokens, checkpoint-required, invalidated sessions, permission denials).
+            # `meta_ads._raise_meta_api_error` prefixes these with this exact message.
+            META_AUTH_ERROR_MESSAGE: META_AUTH_ERROR_MESSAGE,
             "Ad account owner has NOT": None,
             "cannot be loaded due to missing permissions": None,
+            # Meta returns this 500 when the requested query is too large for their backend to
+            # service. Both pagination paths adapt to it (stats chunks shrink 30 → 7 → 1 day, and
+            # both paths shrink the per-page limit 500 → 100 → 50); if it still escapes after those
+            # fallbacks are exhausted, retrying the whole job won't help.
+            "Please reduce the amount of data you're asking for": None,
         }
 
     def get_schemas(
@@ -88,6 +111,8 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.META_ADS,
+            category=DataWarehouseSourceCategory.ADVERTISING,
+            keywords=["facebook ads", "instagram ads"],
             label="Meta Ads",
             caption="Ensure you have granted PostHog access to your Meta Ads account, learn how to do this in the [documentation](https://posthog.com/docs/cdp/sources/meta-ads).",
             iconPath="/static/services/meta-ads.png",
@@ -118,7 +143,7 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig]):
                     ),
                 ],
             ),
-            releaseStatus="beta",
+            releaseStatus=ReleaseStatus.GA,
             suggestedTables=[
                 SuggestedTable(
                     table="campaigns",

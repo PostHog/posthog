@@ -97,6 +97,7 @@ export interface CdpCoreServices {
     recipientTokensService: RecipientTokensService
     /** Resolved outputs shared across every CDP service/consumer. */
     outputs: CdpOutputs
+    emailService: EmailService
 }
 
 export type CdpCoreServicesConfig = Pick<
@@ -140,6 +141,8 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_FETCH_RETRIES'
         | 'CDP_FETCH_BACKOFF_BASE_MS'
         | 'CDP_FETCH_BACKOFF_MAX_MS'
+        | 'CDP_SELF_LOOP_GUARD_MODE'
+        | 'CDP_EMAIL_QUEUE_ROUTING'
         | 'HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC'
         | 'HOG_FUNCTION_MONITORING_APP_METRICS_PRODUCER'
         | 'HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC'
@@ -393,6 +396,8 @@ export function createCdpCoreServices(
             fetchRetries: config.CDP_FETCH_RETRIES,
             fetchBackoffBaseMs: config.CDP_FETCH_BACKOFF_BASE_MS,
             fetchBackoffMaxMs: config.CDP_FETCH_BACKOFF_MAX_MS,
+            emailQueueRouting: config.CDP_EMAIL_QUEUE_ROUTING,
+            selfLoopGuardMode: config.CDP_SELF_LOOP_GUARD_MODE,
         },
         { teamManager: deps.teamManager, siteUrl: config.SITE_URL },
         hogInputsService,
@@ -454,5 +459,6 @@ export function createCdpCoreServices(
         segmentDestinationExecutorService,
         recipientTokensService,
         outputs,
+        emailService,
     }
 }

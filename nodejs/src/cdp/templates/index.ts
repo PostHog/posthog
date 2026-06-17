@@ -21,6 +21,7 @@ import { template as posthogGroupIdentifyTemplate } from './_destinations/postho
 import { template as posthogUpdatePersonPropertiesTemplate } from './_destinations/posthog_capture/posthog-update-person-properties.template'
 import { template as posthogGetTicketTemplate } from './_destinations/posthog_conversations/posthog-get-ticket.template'
 import { template as posthogUpdateTicketTemplate } from './_destinations/posthog_conversations/posthog-update-ticket.template'
+import { template as posthogGetAccountTemplate } from './_destinations/posthog_customer_analytics/posthog-get-account.template'
 import { template as posthogSetHogflowVariableTemplate } from './_destinations/posthog_workflows/posthog-set-variable.template'
 import { template as redditAdsTemplate } from './_destinations/reddit_ads/reddit.template'
 import { template as snapchatAdsTemplate } from './_destinations/snapchat_ads/snapchat.template'
@@ -28,6 +29,7 @@ import { template as tiktokAdsTemplate } from './_destinations/tiktok_ads/tiktok
 import { template as twilioTemplate } from './_destinations/twilio/twilio.template'
 import { template as unifyTemplate } from './_destinations/unify/unify.template'
 import { template as webhookTemplate } from './_destinations/webhook/webhook.template'
+import { template as whatsappTemplate } from './_destinations/whatsapp/whatsapp.template'
 import { template as pixelTemplate } from './_sources/pixel/pixel.template'
 import { template as stripeWebhookTemplate } from './_sources/stripe/stripe_webhook.template'
 import { template as vercelLogDrainTemplate } from './_sources/vercel/vercel_log_drain.template'
@@ -57,6 +59,7 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     linkedinAdsTemplate,
     redditAdsTemplate,
     twilioTemplate,
+    whatsappTemplate,
     googleSheetsTemplate,
     googleTagManagerTemplate,
     emailTemplate,
@@ -68,6 +71,7 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     posthogSetHogflowVariableTemplate,
     posthogGetTicketTemplate,
     posthogUpdateTicketTemplate,
+    posthogGetAccountTemplate,
     hubspotCompanyTemplate,
     accoilTemplate,
     klimeTemplate,

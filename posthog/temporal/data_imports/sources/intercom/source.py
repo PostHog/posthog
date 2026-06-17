@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -32,12 +33,19 @@ class IntercomSource(SimpleSource[IntercomSourceConfig], OAuthMixin):
         return {
             "401 Client Error": "Your Intercom connection is invalid or expired. Please reconnect it.",
             "403 Client Error": "Your Intercom connection is missing required scopes. Please update permissions and reconnect.",
+            # Deterministic credential/config errors from OAuthMixin and source_for_pipeline. The
+            # integration row is gone or unconfigured, so retrying can never succeed — the customer
+            # must reconnect. Match on the stable prefix so the volatile integration ID is ignored.
+            "Missing integration ID": "Intercom integration ID is not configured. Please reconnect your Intercom account.",
+            "Integration not found": "The linked Intercom integration no longer exists. Please reconnect your Intercom account.",
+            "Intercom access token not found": "Intercom OAuth access token is missing. Please reconnect your Intercom account.",
         }
 
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.INTERCOM,
+            category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             caption="Select an existing Intercom workspace to link to PostHog or create a new connection",
             iconPath="/static/services/intercom.png",
             docsUrl="https://posthog.com/docs/cdp/sources/intercom",
@@ -53,7 +61,7 @@ class IntercomSource(SimpleSource[IntercomSourceConfig], OAuthMixin):
                 ],
             ),
             featureFlag="dwh_intercom",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )
 
     def get_schemas(

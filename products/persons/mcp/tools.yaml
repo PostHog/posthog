@@ -9,9 +9,6 @@ feature: persons
 url_prefix: /persons
 ui_apps: {}
 tools:
-    cohorts-persons-retrieve:
-        operation: cohorts_persons_retrieve
-        enabled: false
     persons-activity-retrieve:
         operation: persons_activity_retrieve
         enabled: false
@@ -57,12 +54,6 @@ tools:
             - format
     persons-deletion-status-list:
         operation: persons_deletion_status_list
-        enabled: false
-    persons-funnel-correlation-create:
-        operation: persons_funnel_correlation_create
-        enabled: false
-    persons-funnel-correlation-retrieve:
-        operation: persons_funnel_correlation_retrieve
         enabled: false
     persons-funnel-create:
         operation: persons_funnel_create

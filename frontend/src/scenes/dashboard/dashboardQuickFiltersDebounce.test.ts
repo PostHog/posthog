@@ -13,7 +13,7 @@ import { QuickFilterContext } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { InsightShortId, PropertyOperator, QueryBasedInsightModel, QuickFilterOption } from '~/types'
 
-import { dashboardResult, insightOnDashboard, tileFromInsight } from './dashboardLogic.test'
+import { dashboardResult, insightOnDashboard, tileFromInsight } from './dashboardLogic.testHelpers'
 import { QUICK_FILTER_DEBOUNCE_MS } from './dashboardUtils'
 
 const mockOption: QuickFilterOption = {
@@ -78,11 +78,9 @@ function setupDashboard(quickFilterIds: string[] | null): () => {
                     previous: null,
                     results: [dashboard],
                 },
-                '/api/environments/:team_id/insights/:id/': (req) => {
+                '/api/environments/:team_id/insights/:id/': ({ params }) => {
                     const id =
-                        typeof req.params['id'] === 'string'
-                            ? parseInt(req.params['id'])
-                            : parseInt(req.params['id'][0])
+                        typeof params.id === 'string' ? parseInt(params.id) : parseInt((params.id as string[])[0])
                     if (id === 101) {
                         return [200, insight1]
                     }

@@ -7,7 +7,9 @@ import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
-import { capitalizeFirstLetter, isGroupType, percentage } from 'lib/utils'
+import { isGroupType } from 'lib/utils/guards'
+import { percentage } from 'lib/utils/numbers'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { asDisplay } from 'scenes/persons/person-utils'
@@ -40,6 +42,7 @@ export function RetentionModal(): JSX.Element | null {
         isCohortModalOpen,
         theme,
         retentionFilter,
+        selectedColumnIndex,
     } = useValues(retentionModalLogic(insightProps))
     const { closeModal, saveAsCohort, setIsCohortModalOpen } = useActions(retentionModalLogic(insightProps))
     const { startExport } = useActions(exportsLogic)
@@ -178,7 +181,13 @@ export function RetentionModal(): JSX.Element | null {
                                         <th>{capitalizeFirstLetter(aggregationTargetLabel.singular)}</th>
                                         {row.values?.map((data: any, index: number) => {
                                             return (
-                                                <th key={index}>
+                                                <th
+                                                    key={index}
+                                                    className={clsx('!pl-2', {
+                                                        'RetentionTable__SelectedColumn--header':
+                                                            index === selectedColumnIndex,
+                                                    })}
+                                                >
                                                     <div>{data.label}</div>
                                                     <div>
                                                         {data.count}
@@ -211,11 +220,12 @@ export function RetentionModal(): JSX.Element | null {
                                                                 personAppearances.person.properties
                                                             )}
                                                         </LemonButton>
-                                                    ) : 'distinct_ids' in personAppearances.person ? (
+                                                    ) : 'distinct_ids' in personAppearances.person &&
+                                                      personAppearances.person.distinct_ids?.[0] ? (
                                                         <LemonButton
                                                             size="small"
                                                             to={urls.personByDistinctId(
-                                                                personAppearances.person.distinct_ids?.[0]
+                                                                personAppearances.person.distinct_ids[0]
                                                             )}
                                                             data-attr="retention-person-link"
                                                         >
@@ -230,7 +240,13 @@ export function RetentionModal(): JSX.Element | null {
                                                     .map((appearance: number, index: number) => {
                                                         const hasAppearance = !!appearance
                                                         return (
-                                                            <td key={index}>
+                                                            <td
+                                                                key={index}
+                                                                className={clsx({
+                                                                    'RetentionTable__SelectedColumn--cell':
+                                                                        index === selectedColumnIndex,
+                                                                })}
+                                                            >
                                                                 <div
                                                                     className={clsx(
                                                                         'RetentionTable__Tab',

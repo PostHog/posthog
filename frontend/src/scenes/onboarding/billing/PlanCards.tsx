@@ -9,13 +9,13 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
 import { HeartHog } from 'lib/components/hedgehogs'
-import { pluralize } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { pluralize } from 'lib/utils/strings'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { billingProductLogic } from 'scenes/billing/billingProductLogic'
 import { paymentEntryLogic } from 'scenes/billing/paymentEntryLogic'
 
-import { type BillingProductV2Type, OnboardingStepKey } from '~/types'
+import { type BillingFeatureType, type BillingProductV2Type, OnboardingStepKey } from '~/types'
 
 import { onboardingLogic } from '../onboardingLogic'
 import { FreeTierLimits } from './FreeTierLimits'
@@ -51,6 +51,16 @@ type PlanCardProps = {
     hogPosition?: 'top-right' | 'top-left'
 }
 
+// Retention differs per product: analytics is measured in years, session replay in months. Billing
+// supplies the unit ('year(s)' | 'month(s)' | 'day(s)'), so format from it rather than assuming years.
+export function formatDataRetentionFeature(feature?: BillingFeatureType): string | null {
+    if (!feature?.limit || !feature.unit) {
+        return null
+    }
+    const singularUnit = feature.unit.replace(/s$/, '')
+    return `${pluralize(feature.limit, singularUnit)} data retention`
+}
+
 export const PlanCard: React.FC<PlanCardProps> = ({ planData, product, highlight, hogPosition = 'top-right' }) => {
     const { billing } = useValues(billingLogic)
     const { billingProductLoading } = useValues(billingProductLogic({ product }))
@@ -69,6 +79,7 @@ export const PlanCard: React.FC<PlanCardProps> = ({ planData, product, highlight
         (feature) => feature.key === `${product.type}_data_retention`
     )
     const projectLimitFeature = platformPlan?.features.find((feature) => feature.key === 'organizations_projects')
+    const dataRetentionLabel = formatDataRetentionFeature(dataRetentionFeature)
 
     const features = [
         ...(projectLimitFeature?.limit
@@ -79,9 +90,7 @@ export const PlanCard: React.FC<PlanCardProps> = ({ planData, product, highlight
                   },
               ]
             : []),
-        ...(dataRetentionFeature?.limit
-            ? [{ name: `${dataRetentionFeature.limit}-year data retention`, available: true }]
-            : []),
+        ...(dataRetentionLabel ? [{ name: dataRetentionLabel, available: true }] : []),
         ...planData.features,
     ]
 

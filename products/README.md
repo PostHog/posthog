@@ -24,6 +24,7 @@ products/
       apps.py
       models.py
       logic.py              # business logic
+      routes.py             # API routes: register_routes(routers), auto-discovered from INSTALLED_APPS
       migrations/
       facade/               # cross-product Python interface
         __init__.py
@@ -92,7 +93,8 @@ This avoids circular imports and keeps migrations/app labels stable.
 - Each `frontend/` directory contains the frontend app for the product.
 - It lives under the same package as the backend.
 - Backend and frontend tooling can be independent (`requirements.txt` vs. `package.json`) but remain in the same Turborepo package.
-- Tests for frontend code live inside `frontend/tests/`.
+- Jest unit tests for frontend code live inside `frontend/tests/` (or alongside the file as `*.test.ts` / `*.spec.ts`).
+- Playwright end-to-end tests for a product live inside `frontend/e2e/` as `*.spec.ts` — these are discovered by `playwright.config.ts` and run by the E2E CI workflow. Import shared fixtures via the `@playwright-utils/*` and `@playwright-pages/*` aliases. See `playwright/README.md` for details.
 
 ## Shared code
 
@@ -159,7 +161,7 @@ The lint command validates:
   - Register the backend as a Django app with an `AppConfig` that sets `label = "<name>"` (not `products.<name>`).
   - Modify `posthog/settings/web.py` and add your new product under `PRODUCTS_APPS`.
   - Modify `tach.toml` and add a new block for your product. We use `tach` to track cross-dependencies between python apps.
-  - Modify `posthog/api/__init__.py` and add your API routes as you normally would (e.g. `import products.early_access_features.backend.api as early_access_feature`)
+  - Add your API routes in `backend/routes.py` with a `register_routes(routers)` function (e.g. `routers.projects.register(r"my_thing", MyThingViewSet, "project_my_thing", ["team_id"])`). It is auto-discovered — once the product is in `PRODUCTS_APPS`, `posthog/api/__init__.py` finds and calls `register_routes(routers)` with no edit to core. See `posthog/api/routing.py:RouterRegistry` for the available router handles (`projects`/`environments`/`organizations`/`root`).
   - NOTE: we will automate some of these steps in the future, but for now, please do them manually.
 
 ## Adding or moving backend models and migrations
@@ -244,6 +246,17 @@ This aligns with the facade pattern: if your product needs data from Team or Use
 - No `select_related`/`prefetch_related` across databases — use the facade or manual batch fetching
 - No `ON DELETE CASCADE` from the main DB — handle cleanup in application code or via background tasks
 - No `transaction.atomic()` spanning both databases — design for eventual consistency across boundaries
+
+### Resilience: the circuit breaker
+
+Separate databases only isolate failures if your product's outage can't drag the rest of the app down with it. Two layers provide that:
+
+1. **`connect_timeout=3`** on every product alias — a connection to an unreachable host fails in 3s instead of blocking on the OS TCP default (60-120s).
+2. **A fail-fast circuit breaker** (`posthog/db_circuit_breaker.py`) on a custom database backend (`posthog.db_backends.failopen`). When a product DB is unreachable, the breaker opens after a few connection failures and then raises immediately on connect — in microseconds, instead of waiting on the timeout. This frees the worker to serve other requests, so one product database going down can't exhaust the shared worker pool and take the whole app offline.
+
+Breaker state lives in Redis, so one worker tripping the breaker is seen by all pods at once. The breaker is **per product alias**: while it's open, only that product's endpoints fail (fast, with an `OperationalError`); everything else is unaffected. After a cooldown, a single probe request tests recovery and closes the breaker on success. If Redis itself is unavailable the breaker fails safe (stays closed) so it can never be what takes a healthy database offline.
+
+There is **no fail-open redirect to `default`** — product tables don't exist there, so a redirect would only produce a different error. The isolation win is _fast, contained failure_, not silent degradation. Tune via `PRODUCT_DB_CIRCUIT_BREAKER_*` env vars; disabled in tests by default.
 
 ## Running tests with Turbo
 

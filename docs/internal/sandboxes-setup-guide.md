@@ -11,11 +11,22 @@ The setup command is idempotent — re-run it anytime. It writes the dev JWT key
 to your `.env`, creates the Array OAuth application, enables the `tasks` feature
 flag for every team, and builds the agent skills bundle.
 
+> To trigger runs from Slack (`@PostHog <task>`) instead of the UI, set up a dev Slack
+> workspace and app once this guide is working — see
+> [slack-local-setup-guide.md](./slack-local-setup-guide.md).
+
 ## GitHub App
 
 Each engineer needs their own GitHub App. The setup command will print these
 instructions and offer to open the creation page in your browser, but for
 reference:
+
+> **Shortcut:** `python manage.py create_github_app` automates everything below
+> via GitHub's [App Manifest flow](https://docs.github.com/en/apps/sharing-github-apps/registering-a-github-app-from-a-manifest).
+> It opens the browser with the manifest pre-filled; on the single "Create
+> GitHub App" click it writes the four `GITHUB_APP_*` values straight to your
+> `.env` and verifies the key works. Add `--org <name>` to create it under an
+> organization. The manual steps below remain the fallback / reference.
 
 | Permission    | Access       | Purpose                                   |
 | ------------- | ------------ | ----------------------------------------- |
@@ -197,6 +208,18 @@ cd /path/to/posthog-code/packages/agent && pnpm build
 | `modal` (default) | `SANDBOX_PROVIDER=modal`        | Production. Uses the published `@posthog/agent` npm package from the GHCR image.                                                                                                                                                                                                       |
 | `MODAL_DOCKER`    | `SANDBOX_PROVIDER=MODAL_DOCKER` | **Local development with Modal.** Same as `modal` but uses a separate Modal app (`posthog-sandbox-modal-docker-*`) so local image builds don't pollute the production app cache. When `LOCAL_POSTHOG_CODE_MONOREPO_ROOT` is set, the local agent packages are overlaid onto the image. |
 | `docker`          | `SANDBOX_PROVIDER=docker`       | Local-only Docker containers (`DEBUG=True` required). No Modal account needed. This is the recommended option for local development.                                                                                                                                                   |
+
+### Sandbox templates
+
+Each sandbox is created from a template that determines its base image and capabilities.
+
+| Template        | Image                                      | Description                                                                                                                                                    |
+| --------------- | ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DEFAULT_BASE`  | `ghcr.io/posthog/posthog-sandbox-base`     | Standard sandbox template (default).                                                                                                                           |
+| `NOTEBOOK_BASE` | `ghcr.io/posthog/posthog-sandbox-notebook` | Template for notebook functionality.                                                                                                                           |
+| `VM_BASE`       | `ghcr.io/posthog/posthog-sandbox-vm`       | Docker-in-Docker capable. Layers Docker engine, compose v2, and buildx on the base image. Includes an idempotent `start-dockerd` helper for on-demand dockerd. |
+
+`VM_BASE` uses the Modal VM runtime (real Linux kernel) instead of gVisor because `dockerd` cannot run under gVisor. When a sandbox is created with `template=SandboxTemplate.VM_BASE`, `ModalSandbox.create` automatically sets `experimental_options={"vm_runtime": True}`.
 
 ### Optional: local repository mounts (Docker only)
 

@@ -722,12 +722,15 @@ class TestLogsAlertAPI(APIBaseTest):
 
     def _sync_destination_templates(self) -> None:
         # Destination creation goes through the full HogFunctionSerializer pipeline,
-        # which looks up a HogFunctionTemplate by template_id. Seed Slack + webhook.
+        # which looks up a HogFunctionTemplate by template_id. Seed Slack + Teams + webhook.
         from posthog.cdp.templates.hog_function_template import sync_template_to_db
+        from posthog.cdp.templates.microsoft_teams.template_microsoft_teams import template as template_microsoft_teams
         from posthog.cdp.templates.slack.template_slack import template as template_slack
-        from posthog.models.hog_function_template import HogFunctionTemplate
+
+        from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 
         sync_template_to_db(template_slack)
+        sync_template_to_db(template_microsoft_teams)
         HogFunctionTemplate.objects.get_or_create(
             template_id="template-webhook",
             defaults={
@@ -747,7 +750,7 @@ class TestLogsAlertAPI(APIBaseTest):
     @patch("products.logs.backend.alerts_api.report_user_action")
     def test_create_slack_destination_creates_one_hog_function_per_event_kind(self, mock_report):
         self._sync_destination_templates()
-        from posthog.models.hog_functions.hog_function import HogFunction
+        from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
         created = self._create_via_api()
         response = self.client.post(
@@ -791,7 +794,7 @@ class TestLogsAlertAPI(APIBaseTest):
         assert len(reset_calls) == 1
 
     def test_create_webhook_destination_creates_one_hog_function_per_event_kind(self):
-        from posthog.models.hog_functions.hog_function import HogFunction
+        from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
         self._sync_destination_templates()
         created = self._create_via_api()
@@ -817,12 +820,39 @@ class TestLogsAlertAPI(APIBaseTest):
                 "logs_alert.errored",
             )
 
+    def test_create_teams_destination_creates_one_hog_function_per_event_kind(self):
+        from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        teams_url = "https://prod-00.westus.logic.azure.com:443/workflows/abc/triggers/manual/paths/invoke?api-version=2016-06-01"
+        response = self.client.post(
+            self._destinations_url(created["id"]),
+            {"type": "teams", "webhook_url": teams_url},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        ids = response.json()["hog_function_ids"]
+        assert len(ids) == 4  # firing + resolved + broken + errored
+
+        hog_functions = HogFunction.objects.filter(id__in=ids)
+        for hf in hog_functions:
+            assert hf.template_id == "template-microsoft-teams"
+            inputs = hf.inputs or {}
+            assert inputs["webhookUrl"]["value"] == teams_url
+            text_value = inputs["text"]["value"]
+            # Adaptive Card markdown: bold label and an inline action link, not Slack-style single asterisks.
+            assert text_value.startswith("**")
+            assert "[View logs](" in text_value or "[View alert](" in text_value
+
     @parameterized.expand(
         [
             ("slack_missing_workspace", {"type": "slack", "slack_channel_id": "C1"}),
             ("slack_missing_channel", {"type": "slack", "slack_workspace_id": 1}),
             ("webhook_missing_url", {"type": "webhook"}),
             ("webhook_invalid_url", {"type": "webhook", "webhook_url": "not-a-url"}),
+            ("teams_missing_url", {"type": "teams"}),
+            ("teams_invalid_url", {"type": "teams", "webhook_url": "not-a-url"}),
         ]
     )
     def test_create_destination_rejects_invalid_payloads(self, _name: str, payload: dict) -> None:
@@ -843,7 +873,7 @@ class TestLogsAlertAPI(APIBaseTest):
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_delete_destination_removes_hog_functions(self):
-        from posthog.models.hog_functions.hog_function import HogFunction
+        from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
         self._sync_destination_templates()
         created = self._create_via_api()
@@ -1933,3 +1963,141 @@ class TestSimulateEvaluatorLifecycleParity(ClickhouseTestMixin, APIBaseTest):
         assert eval_events == sim_events, f"cadence={cadence}: eval={eval_events}\nsim={sim_events}"
         assert any(k == "fire" for _, k in eval_events)
         assert any(k == "resolve" for _, k in eval_events)
+
+
+class TestLogsAlertAPIPersonalAPIKeyScopes(APIBaseTest):
+    CONFIG_AUTO_LOGIN = False
+
+    def setUp(self):
+        super().setUp()
+        self._ff_patcher = patch("posthoganalytics.feature_enabled", return_value=True)
+        self._ff_patcher.start()
+        self.addCleanup(self._ff_patcher.stop)
+        self.base_url = f"/api/projects/{self.team.pk}/logs/alerts/"
+
+    def _auth(self, value: str) -> dict:
+        return {"HTTP_AUTHORIZATION": f"Bearer {value}"}
+
+    # --- events action (GET detail, requires logs:read) ---
+
+    @parameterized.expand(
+        [
+            ("logs_read", ["logs:read"]),
+            ("logs_write", ["logs:write"]),
+        ]
+    )
+    def test_events_action_allowed(self, _name: str, scopes: list[str]):
+        key = self.create_personal_api_key_with_scopes(scopes)
+        # Target a non-existent UUID so the action body doesn't run; a 404 proves the scope
+        # gate was passed cleanly (403 = gate rejected the key; a 401/500 would also slip past
+        # a bare `!= 403` check, so assert the exact code).
+        url = f"{self.base_url}{uuid4()}/events/"
+        response = self.client.get(url, **self._auth(key))
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
+
+    @parameterized.expand(
+        [
+            ("unrelated_scope", ["insight:read"]),
+            ("no_scopes", []),
+        ]
+    )
+    def test_events_action_rejected_without_logs_scope(self, _name: str, scopes: list[str]):
+        key = self.create_personal_api_key_with_scopes(scopes)
+        url = f"{self.base_url}{uuid4()}/events/"
+        response = self.client.get(url, **self._auth(key))
+        assert response.status_code == 403, response.json()
+
+    # --- simulate action (POST non-detail, requires logs:read) ---
+
+    @parameterized.expand(
+        [
+            ("logs_read", ["logs:read"]),
+            ("logs_write", ["logs:write"]),
+        ]
+    )
+    def test_simulate_action_allowed(self, _name: str, scopes: list[str]):
+        key = self.create_personal_api_key_with_scopes(scopes)
+        url = f"{self.base_url}simulate/"
+        # Empty body triggers 400 from serializer validation — proves the scope gate passed
+        # (asserting the exact code rules out a 401/500 sneaking past a bare `!= 403`).
+        response = self.client.post(url, {}, format="json", **self._auth(key))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+    @parameterized.expand(
+        [
+            ("unrelated_scope", ["insight:read"]),
+            ("no_scopes", []),
+        ]
+    )
+    def test_simulate_action_rejected_without_logs_scope(self, _name: str, scopes: list[str]):
+        key = self.create_personal_api_key_with_scopes(scopes)
+        url = f"{self.base_url}simulate/"
+        response = self.client.post(url, {}, format="json", **self._auth(key))
+        assert response.status_code == 403, response.json()
+
+    # --- create_destination action (POST detail, requires logs:write) ---
+
+    def test_create_destination_allowed_with_logs_write_scope(self):
+        key = self.create_personal_api_key_with_scopes(["logs:write"])
+        # Detail action against a non-existent UUID: get_object 404s before the body runs,
+        # proving the scope gate passed (a bare `!= 403` would also pass on a 401/500).
+        url = f"{self.base_url}{uuid4()}/destinations/"
+        response = self.client.post(url, {}, format="json", **self._auth(key))
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
+
+    @parameterized.expand(
+        [
+            ("read_scope_cannot_satisfy_write", ["logs:read"]),
+            ("unrelated_scope", ["insight:read"]),
+            ("no_scopes", []),
+        ]
+    )
+    def test_create_destination_rejected_without_logs_write_scope(self, _name: str, scopes: list[str]):
+        key = self.create_personal_api_key_with_scopes(scopes)
+        url = f"{self.base_url}{uuid4()}/destinations/"
+        response = self.client.post(url, {}, format="json", **self._auth(key))
+        assert response.status_code == 403, response.json()
+
+    # --- delete_destination action (POST detail, requires logs:write) ---
+
+    def test_delete_destination_allowed_with_logs_write_scope(self):
+        key = self.create_personal_api_key_with_scopes(["logs:write"])
+        url = f"{self.base_url}{uuid4()}/destinations/delete/"
+        response = self.client.post(url, {}, format="json", **self._auth(key))
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
+
+    @parameterized.expand(
+        [
+            ("read_scope_cannot_satisfy_write", ["logs:read"]),
+            ("unrelated_scope", ["insight:read"]),
+            ("no_scopes", []),
+        ]
+    )
+    def test_delete_destination_rejected_without_logs_write_scope(self, _name: str, scopes: list[str]):
+        key = self.create_personal_api_key_with_scopes(scopes)
+        url = f"{self.base_url}{uuid4()}/destinations/delete/"
+        response = self.client.post(url, {}, format="json", **self._auth(key))
+        assert response.status_code == 403, response.json()
+
+    # --- reset action (POST detail, requires logs:write) ---
+
+    def test_reset_allowed_with_logs_write_scope(self):
+        key = self.create_personal_api_key_with_scopes(["logs:write"])
+        # Detail action against a non-existent UUID: get_object 404s before the body runs,
+        # proving the scope gate passed (a bare `!= 403` would also pass on a 401/500).
+        url = f"{self.base_url}{uuid4()}/reset/"
+        response = self.client.post(url, {}, format="json", **self._auth(key))
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
+
+    @parameterized.expand(
+        [
+            ("read_scope_cannot_satisfy_write", ["logs:read"]),
+            ("unrelated_scope", ["insight:read"]),
+            ("no_scopes", []),
+        ]
+    )
+    def test_reset_rejected_without_logs_write_scope(self, _name: str, scopes: list[str]):
+        key = self.create_personal_api_key_with_scopes(scopes)
+        url = f"{self.base_url}{uuid4()}/reset/"
+        response = self.client.post(url, {}, format="json", **self._auth(key))
+        assert response.status_code == 403, response.json()

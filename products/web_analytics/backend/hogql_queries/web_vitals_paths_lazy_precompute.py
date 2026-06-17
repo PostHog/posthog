@@ -211,6 +211,7 @@ def ensure_web_vitals_paths_precomputed(
         table=LazyComputationTable.WEB_VITALS_PATHS_PREAGGREGATED,
         placeholders=placeholders,
         query_type="web_vitals_paths_lazy_insert",
+        spill_to_disk=True,  # high-cardinality path breakdown GROUP BY; can build a large hash table
     )
 
 

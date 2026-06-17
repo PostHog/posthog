@@ -7,11 +7,15 @@ import { ModuleGraphPlugin } from './plugins/module-graph-plugin'
 // Repo root = three levels up from this file (common/storybook/.storybook/main.ts).
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..')
 
+const createStoriesPathFor = (path: string): string => `../../../${path}/**/*.stories.@(js|jsx|ts|tsx)`
+
 const config: StorybookConfig = {
     stories: [
-        '../../../frontend/src/**/*.stories.@(js|jsx|ts|tsx|mdx)',
-        '../../../products/**/frontend/**/*.stories.@(js|jsx|ts|tsx|mdx)',
-        '../../../products/**/mcp/**/*.stories.@(js|jsx|ts|tsx|mdx)',
+        createStoriesPathFor('frontend/src'),
+        createStoriesPathFor('products/**/frontend'),
+        createStoriesPathFor('products/**/mcp/apps'),
+        createStoriesPathFor('services/mcp/src/ui-apps'),
+        createStoriesPathFor('packages/quill/packages/charts/src'),
     ],
 
     addons: [
@@ -28,13 +32,17 @@ const config: StorybookConfig = {
         { from: '../../../frontend/node_modules/@posthog/hedgehog-mode/assets', to: '/static/hedgehog-mode' },
     ],
 
-    webpackFinal: (config) => {
+    webpackFinal: (config, { configType }) => {
         const mainConfig = createEntry('main')
         return {
             ...config,
             // Disable filesystem cache in CI to avoid heap OOM during cache shutdown
             // (especially on memory-constrained environments like Cloudflare Pages)
             cache: process.env.CI ? false : { type: 'filesystem' },
+            // The hosted build doesn't need source maps, and generating them is what
+            // tips Terser over the heap limit during minification (webpack 5 ties
+            // Terser's source maps to `devtool`). Keep them for local `storybook dev`.
+            devtool: configType === 'PRODUCTION' ? false : config.devtool,
             plugins: [...(config.plugins ?? []), new ModuleGraphPlugin(REPO_ROOT)],
             resolve: {
                 ...config.resolve,
@@ -61,14 +69,14 @@ const config: StorybookConfig = {
     build: {
         test: {
             disableSourcemaps: !!process.env.CI,
+            // esbuild minifier: the default swc one rejects `extractComments` and breaks prod builds
+            esbuildMinify: true,
         },
     },
 
     docs: {
         autodocs: 'tag',
     },
-
-    typescript: { reactDocgen: 'react-docgen' }, // Shouldn't be needed in Storybook 8
 }
 
 export default config

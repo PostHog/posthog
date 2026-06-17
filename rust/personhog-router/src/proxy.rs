@@ -9,7 +9,10 @@ use http::{HeaderMap, HeaderValue};
 use http_body::Frame;
 use http_body_util::{BodyExt, Empty, Full};
 use metrics::{counter, histogram};
-use personhog_common::grpc::{current_client_name, ClientInFlightGuard, PROCESSING_TIME_HEADER};
+use personhog_common::grpc::{
+    current_caller_tag, current_client_name, ClientInFlightGuard, GZIP_OVERHEAD_HEADER,
+    PROCESSING_TIME_HEADER,
+};
 use personhog_proto::personhog::types::v1::{GetPersonRequest, UpdatePersonPropertiesRequest};
 use prost::Message;
 use rand::Rng;
@@ -26,6 +29,7 @@ const REPLICA_PREFIX: &str = "/personhog.replica.v1.PersonHogReplica/";
 pub const KNOWN_METHODS: &[&str] = &[
     "CheckCohortMembership",
     "CountCohortMembers",
+    "CountGroupTypeMappings",
     "CreateGroup",
     "DeleteCohortMember",
     "DeleteCohortMembersBulk",
@@ -56,6 +60,7 @@ pub const KNOWN_METHODS: &[&str] = &[
     "InsertCohortMembers",
     "ListCohortMemberIds",
     "ListGroups",
+    "SplitPerson",
     "UpdateGroup",
     "UpdateGroupTypeMapping",
     "UpdatePersonProperties",
@@ -75,6 +80,7 @@ struct RawProxyInner {
     leader: Option<Arc<LeaderBackend>>,
     retry_config: RetryConfig,
     max_recv_message_size: usize,
+    response_size_warn_bytes: usize,
 }
 
 impl RawProxyService {
@@ -83,6 +89,7 @@ impl RawProxyService {
         leader: Option<Arc<LeaderBackend>>,
         retry_config: RetryConfig,
         max_recv_message_size: usize,
+        response_size_warn_bytes: usize,
     ) -> Self {
         Self {
             inner: Arc::new(RawProxyInner {
@@ -90,6 +97,7 @@ impl RawProxyService {
                 leader,
                 retry_config,
                 max_recv_message_size,
+                response_size_warn_bytes,
             }),
         }
     }
@@ -140,12 +148,17 @@ impl RawProxyInner {
             );
         }
 
-        let method = method_name.to_string();
+        let method: Arc<str> = Arc::from(method_name);
         let client = current_client_name();
+        let caller_tag = current_caller_tag();
         let start = Instant::now();
 
-        let (mut response, backend) = match method_name {
-            "UpdatePersonProperties" => (self.handle_update_person_properties(req).await, "leader"),
+        let (mut response, backend, channel_call_ms) = match method_name {
+            "UpdatePersonProperties" => (
+                self.handle_update_person_properties(req).await,
+                "leader",
+                None,
+            ),
             "GetPerson" => {
                 let is_strong = req
                     .headers()
@@ -154,12 +167,16 @@ impl RawProxyInner {
                     == Some("strong");
 
                 if is_strong {
-                    (self.handle_get_person_strong(req).await, "leader")
+                    (self.handle_get_person_strong(req).await, "leader", None)
                 } else {
-                    (self.raw_proxy_to_replica(req, method_name).await, "replica")
+                    let (resp, call_ms) = self.raw_proxy_to_replica(req, method.clone()).await;
+                    (resp, "replica", call_ms)
                 }
             }
-            _ => (self.raw_proxy_to_replica(req, method_name).await, "replica"),
+            _ => {
+                let (resp, call_ms) = self.raw_proxy_to_replica(req, method.clone()).await;
+                (resp, "replica", call_ms)
+            }
         };
 
         let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
@@ -177,15 +194,21 @@ impl RawProxyInner {
             "method" => method.clone(),
             "backend" => backend,
             "client" => client.clone(),
+            "caller_tag" => caller_tag.clone(),
         )
         .record(duration_ms);
 
-        if let Some(processing_ms) = response
-            .headers()
-            .get(PROCESSING_TIME_HEADER)
-            .and_then(|v| v.to_str().ok())
-            .and_then(|s| s.parse::<f64>().ok())
-        {
+        let processing_ms = response
+            .headers_mut()
+            .remove(PROCESSING_TIME_HEADER)
+            .and_then(|v| v.to_str().ok().and_then(|s| s.parse::<f64>().ok()));
+
+        let gzip_overhead_ms = response
+            .headers_mut()
+            .remove(GZIP_OVERHEAD_HEADER)
+            .and_then(|v| v.to_str().ok().and_then(|s| s.parse::<f64>().ok()));
+
+        if let Some(processing_ms) = processing_ms {
             histogram!(
                 "personhog_router_transport_overhead_ms",
                 "method" => method.clone(),
@@ -193,7 +216,17 @@ impl RawProxyInner {
                 "client" => client.clone(),
             )
             .record((duration_ms - processing_ms).max(0.0));
-            response.headers_mut().remove(PROCESSING_TIME_HEADER);
+
+            if let Some(call_ms) = channel_call_ms {
+                let replica_total_ms = processing_ms + gzip_overhead_ms.unwrap_or(0.0);
+                histogram!(
+                    "personhog_router_network_overhead_ms",
+                    "method" => method.clone(),
+                    "backend" => backend,
+                    "client" => client.clone(),
+                )
+                .record((call_ms - replica_total_ms).max(0.0));
+            }
         }
 
         if is_grpc_error_response(&response) {
@@ -207,21 +240,36 @@ impl RawProxyInner {
         }
 
         let (parts, body) = response.into_parts();
-        let counted = ByteCountedBody::new(body, method, backend, client);
+        let counted = ByteCountedBody::new(
+            body,
+            method,
+            backend,
+            client,
+            caller_tag,
+            self.response_size_warn_bytes,
+        );
         http::Response::from_parts(parts, BoxBody::new(counted))
     }
 
     async fn raw_proxy_to_replica(
         &self,
         req: http::Request<BoxBody>,
-        method: &str,
-    ) -> http::Response<BoxBody> {
+        method: Arc<str>,
+    ) -> (http::Response<BoxBody>, Option<f64>) {
         let (parts, body) = req.into_parts();
 
+        let collect_start = Instant::now();
         let body_bytes = match collect_body_limited(body, self.max_recv_message_size).await {
             Ok(b) => b,
-            Err(resp) => return resp,
+            Err(resp) => return (resp, None),
         };
+        let client = current_client_name();
+        histogram!(
+            "personhog_router_body_collect_ms",
+            "method" => method.clone(),
+            "client" => client.clone(),
+        )
+        .record(collect_start.elapsed().as_secs_f64() * 1000.0);
 
         let new_path = format!("{REPLICA_PREFIX}{method}");
 
@@ -235,12 +283,59 @@ impl RawProxyInner {
         parts: &http::request::Parts,
         body_bytes: &Bytes,
         new_path: &str,
-        method: &str,
-    ) -> http::Response<BoxBody> {
+        method: Arc<str>,
+    ) -> (http::Response<BoxBody>, Option<f64>) {
         let mut delay_ms = self.retry_config.initial_backoff_ms;
+        let client = current_client_name();
 
         for attempt in 0..=self.retry_config.max_retries {
-            let channel = self.replica.next_raw_channel_for(method);
+            let mut channel = self.replica.channel();
+
+            let ready_start = Instant::now();
+            let ready_channel = match channel.ready().await {
+                Ok(c) => c,
+                Err(e) => {
+                    histogram!(
+                        "personhog_router_channel_ready_wait_ms",
+                        "method" => method.clone(),
+                        "client" => client.clone(),
+                        "outcome" => "error",
+                    )
+                    .record(ready_start.elapsed().as_secs_f64() * 1000.0);
+
+                    let is_last = attempt >= self.retry_config.max_retries;
+                    if is_last {
+                        return (
+                            grpc_error_response(
+                                Code::Unavailable,
+                                &format!("replica channel not ready: {e}"),
+                            ),
+                            None,
+                        );
+                    }
+
+                    counter!(
+                        "personhog_router_backend_retries_total",
+                        "method" => method.clone(),
+                        "status_code" => "unavailable",
+                        "client" => client.clone(),
+                    )
+                    .increment(1);
+
+                    let base = delay_ms / 2;
+                    let jittered = base + rand::thread_rng().gen_range(0..=base);
+                    tokio::time::sleep(std::time::Duration::from_millis(jittered)).await;
+                    delay_ms = (delay_ms * 2).min(self.retry_config.max_backoff_ms);
+                    continue;
+                }
+            };
+            histogram!(
+                "personhog_router_channel_ready_wait_ms",
+                "method" => method.clone(),
+                "client" => client.clone(),
+                "outcome" => "ok",
+            )
+            .record(ready_start.elapsed().as_secs_f64() * 1000.0);
 
             let body = BoxBody::new(Full::new(body_bytes.clone()).map_err(|never| match never {}));
 
@@ -253,23 +348,44 @@ impl RawProxyInner {
             *req.version_mut() = parts.version;
             *req.headers_mut() = parts.headers.clone();
 
-            match channel.oneshot(req).await {
-                Ok(response) => return response,
+            let call_start = Instant::now();
+            match ready_channel.call(req).await {
+                Ok(response) => {
+                    let channel_call_ms = call_start.elapsed().as_secs_f64() * 1000.0;
+                    histogram!(
+                        "personhog_router_channel_call_ms",
+                        "method" => method.clone(),
+                        "client" => client.clone(),
+                        "outcome" => "ok",
+                    )
+                    .record(channel_call_ms);
+                    return (response, Some(channel_call_ms));
+                }
                 Err(e) => {
+                    histogram!(
+                        "personhog_router_channel_call_ms",
+                        "method" => method.clone(),
+                        "client" => client.clone(),
+                        "outcome" => "error",
+                    )
+                    .record(call_start.elapsed().as_secs_f64() * 1000.0);
+
                     let is_last = attempt >= self.retry_config.max_retries;
                     if is_last {
-                        return grpc_error_response(
-                            Code::Unavailable,
-                            &format!("replica backend error: {e}"),
+                        return (
+                            grpc_error_response(
+                                Code::Unavailable,
+                                &format!("replica backend error: {e}"),
+                            ),
+                            None,
                         );
                     }
 
-                    let client = current_client_name();
                     counter!(
                         "personhog_router_backend_retries_total",
-                        "method" => method.to_string(),
+                        "method" => method.clone(),
                         "status_code" => "unavailable",
-                        "client" => client,
+                        "client" => client.clone(),
                     )
                     .increment(1);
 
@@ -466,23 +582,35 @@ fn percent_encode_grpc(s: &str) -> String {
 }
 
 /// Response body wrapper that counts bytes from DATA frames and records
-/// the total to a histogram on drop.
+/// the total to a histogram on drop. Emits a structured warning when the
+/// response exceeds `warn_threshold` bytes.
 struct ByteCountedBody {
     inner: BoxBody,
     bytes_counted: usize,
-    method: String,
+    method: Arc<str>,
     backend: &'static str,
     client: Arc<str>,
+    caller_tag: Arc<str>,
+    warn_threshold: usize,
 }
 
 impl ByteCountedBody {
-    fn new(inner: BoxBody, method: String, backend: &'static str, client: Arc<str>) -> Self {
+    fn new(
+        inner: BoxBody,
+        method: Arc<str>,
+        backend: &'static str,
+        client: Arc<str>,
+        caller_tag: Arc<str>,
+        warn_threshold: usize,
+    ) -> Self {
         Self {
             inner,
             bytes_counted: 0,
             method,
             backend,
             client,
+            caller_tag,
+            warn_threshold,
         }
     }
 }
@@ -513,8 +641,20 @@ impl Drop for ByteCountedBody {
             "method" => self.method.clone(),
             "backend" => self.backend,
             "client" => self.client.clone(),
+            "caller_tag" => self.caller_tag.clone(),
         )
         .record(self.bytes_counted as f64);
+
+        if self.warn_threshold > 0 && self.bytes_counted > self.warn_threshold {
+            tracing::warn!(
+                response_size_bytes = self.bytes_counted,
+                method = %self.method,
+                backend = self.backend,
+                client = %self.client,
+                caller_tag = %self.caller_tag,
+                "oversized gRPC response"
+            );
+        }
     }
 }
 

@@ -85,6 +85,7 @@ def to_dict(query: BaseModel) -> dict:
                     not in [
                         "showLegend",
                         "showPercentStackView",
+                        "stackBreakdownValues",
                         "showValuesOnSeries",
                         "aggregationAxisFormat",
                         "aggregationAxisPrefix",
@@ -112,6 +113,7 @@ def to_dict(query: BaseModel) -> dict:
                         "stacked",
                         "detailedResultsAggregationType",
                         "excludeBoxPlotOutliers",
+                        "showAnnotations",
                         "showFullUrls",
                         "selectedInterval",
                         "funnelStepReference",
@@ -195,6 +197,10 @@ def grouped_chart_display_types(display: ChartDisplayType) -> ChartDisplayType:
         case ChartDisplayType.BOX_PLOT:
             # separate runner
             return ChartDisplayType.BOX_PLOT
+
+        case ChartDisplayType.SLOPE_GRAPH:
+            # separate runner — only the two range endpoints, cached on its own key
+            return ChartDisplayType.SLOPE_GRAPH
 
         case ChartDisplayType.AUTO:
             return ChartDisplayType.AUTO

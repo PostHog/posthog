@@ -389,6 +389,11 @@ class TestSavedQuery(APIBaseTest):
         assert saved_query.deleted_name == query_name
         assert saved_query.name.startswith("POSTHOG_DELETED_")
 
+        delete_activity = ActivityLog.objects.get(
+            item_id=str(saved_query.id), scope="DataWarehouseSavedQuery", activity="deleted"
+        )
+        assert cast(dict[str, Any], delete_activity.detail)["name"] == query_name
+
     def test_update_folder_assignment(self):
         folder = DataWarehouseSavedQueryFolder.objects.create(
             team=self.team, name="Warehouse ops", created_by=self.user

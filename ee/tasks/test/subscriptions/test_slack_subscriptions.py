@@ -9,15 +9,17 @@ from parameterized import parameterized
 from slack_sdk.errors import SlackApiError
 from slack_sdk.web.async_slack_response import AsyncSlackResponse
 
-from posthog.models.exported_asset import ExportedAsset
-from posthog.models.insight import Insight
+from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 from posthog.models.integration import Integration
-from posthog.models.subscription import Subscription
 
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.exports.backend.models.exported_asset import ExportedAsset
+from products.exports.backend.models.subscription import Subscription
+from products.product_analytics.backend.models.insight import Insight
 
 from ee.tasks.subscriptions.slack_subscriptions import (
     _block_for_asset,
+    _prepare_slack_message,
     send_slack_message_with_integration_async,
     send_slack_subscription_report,
 )
@@ -103,6 +105,15 @@ class TestSlackSubscriptionsTasks(APIBaseTest):
                         "text": {"type": "plain_text", "text": "Manage Subscription"},
                         "url": f"http://localhost:8010/insights/123456/subscriptions/{self.subscription.id}?utm_source=posthog&utm_campaign=subscription_report&utm_medium=slack",
                     },
+                ],
+            },
+            {
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "mrkdwn",
+                        "text": "💬 <https://posthog.com/docs/slack-app?utm_source=posthog&utm_campaign=subscription_report&utm_medium=slack|Set up the @PostHog bot> to ask follow-up questions about your reports here.",
+                    }
                 ],
             },
         ]
@@ -205,6 +216,15 @@ class TestSlackSubscriptionsTasks(APIBaseTest):
                         "text": {"type": "plain_text", "text": "Manage Subscription"},
                         "url": f"http://localhost:8010/dashboard/{self.dashboard.id}/subscriptions/{self.subscription.id}?utm_source=posthog&utm_campaign=subscription_report&utm_medium=slack",
                     },
+                ],
+            },
+            {
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "mrkdwn",
+                        "text": "💬 <https://posthog.com/docs/slack-app?utm_source=posthog&utm_campaign=subscription_report&utm_medium=slack|Set up the @PostHog bot> to ask follow-up questions about your reports here.",
+                    }
                 ],
             },
         ]
@@ -604,3 +624,108 @@ class TestSlackErrorTruncation(APIBaseTest):
         text = block["text"]["text"]
         assert "*My Test subscription*" in text
         assert ASSET_GENERATION_FAILED_MESSAGE in text
+
+
+class TestSlackSummaryNotice(APIBaseTest):
+    def setUp(self) -> None:
+        self.insight = Insight.objects.create(team=self.team, short_id="123456", name="My Test subscription")
+        self.asset = ExportedAsset.objects.create(
+            team=self.team,
+            insight_id=self.insight.id,
+            export_format="image/png",
+            content_location="s3://bucket/test.png",
+        )
+        self.subscription = create_subscription(
+            team=self.team,
+            insight=self.insight,
+            created_by=self.user,
+            target_type="slack",
+            target_value="C12345|#test-channel",
+        )
+
+    def _block_texts(self, change_summary: str | None, summary_skipped_over_budget: bool) -> list[str]:
+        message = _prepare_slack_message(
+            self.subscription,
+            [self.asset],
+            total_asset_count=1,
+            change_summary=change_summary,
+            summary_skipped_over_budget=summary_skipped_over_budget,
+        )
+        return [block.get("text", {}).get("text", "") for block in message.blocks] + [
+            element.get("text", "")
+            for block in message.blocks
+            for element in block.get("elements", [])
+            if isinstance(element, dict)
+        ]
+
+    def test_shows_over_budget_notice_when_summary_skipped(self) -> None:
+        texts = self._block_texts(change_summary=None, summary_skipped_over_budget=True)
+        notice = next((t for t in texts if "AI summary skipped" in t), None)
+        assert notice is not None
+        # "Billing settings" is an inline mrkdwn link (<url|label>) in the notice text itself.
+        assert "/organization/billing" in notice
+        assert "|Billing settings>" in notice
+
+    def test_no_notice_when_summary_present(self) -> None:
+        # A generated summary wins — the over-budget notice never doubles up with it.
+        texts = self._block_texts(change_summary="- trending up", summary_skipped_over_budget=True)
+        assert any("*AI summary:*" in text for text in texts)
+        assert all("AI summary skipped" not in text for text in texts)
+
+    def test_no_notice_when_under_budget_and_no_summary(self) -> None:
+        texts = self._block_texts(change_summary=None, summary_skipped_over_budget=False)
+        assert all("AI summary skipped" not in text for text in texts)
+
+
+class TestSlackExploreHint(APIBaseTest):
+    def setUp(self) -> None:
+        self.insight = Insight.objects.create(team=self.team, short_id="123456", name="My Test subscription")
+        self.asset = ExportedAsset.objects.create(
+            team=self.team,
+            insight_id=self.insight.id,
+            export_format="image/png",
+            content_location="s3://bucket/test.png",
+        )
+        self.subscription = create_subscription(
+            team=self.team,
+            insight=self.insight,
+            created_by=self.user,
+            target_type="slack",
+            target_value="C12345|#test-channel",
+        )
+
+    def _hint_texts(self, integration: Integration | None) -> list[str]:
+        message = _prepare_slack_message(
+            self.subscription,
+            [self.asset],
+            total_asset_count=1,
+            integration=integration,
+        )
+        return [el["text"] for block in message.blocks if block.get("type") == "context" for el in block["elements"]]
+
+    def _make_integration(self, scopes: frozenset[str]) -> Integration:
+        return Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T12345",
+            config={"scope": ",".join(sorted(scopes))},
+            sensitive_config={"access_token": "xoxb-test"},
+        )
+
+    def test_no_hint_without_integration(self) -> None:
+        assert self._hint_texts(None) == []
+
+    def test_bot_ready_hint_nudges_mention(self) -> None:
+        texts = self._hint_texts(self._make_integration(REQUIRED_SLACK_SCOPES))
+        assert any("@PostHog" in t and "docs/slack-app" not in t for t in texts)
+
+    def test_bot_not_ready_hint_links_docs(self) -> None:
+        texts = self._hint_texts(self._make_integration(frozenset({"chat:write"})))
+        assert any("docs/slack-app" in t for t in texts)
+        assert not any("Reply in this thread" in t for t in texts)
+
+    def test_no_hint_when_ai_not_approved(self) -> None:
+        org = self.team.organization
+        org.is_ai_data_processing_approved = False
+        org.save()
+        assert self._hint_texts(self._make_integration(REQUIRED_SLACK_SCOPES)) == []

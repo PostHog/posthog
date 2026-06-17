@@ -46,6 +46,11 @@
     'refreshing',
   ])
 # ---
+# name: TestVisitorFieldSnapshots.test_excluded_fields_DashboardWidget
+  list([
+    'last_modified_at',
+  ])
+# ---
 # name: TestVisitorFieldSnapshots.test_excluded_fields_EarlyAccessFeature
   list([
     'created_at',
@@ -180,6 +185,14 @@
     'transparent_background',
   ])
 # ---
+# name: TestVisitorFieldSnapshots.test_primitive_fields_DashboardWidget
+  list([
+    'config',
+    'description',
+    'name',
+    'widget_type',
+  ])
+# ---
 # name: TestVisitorFieldSnapshots.test_primitive_fields_EarlyAccessFeature
   list([
     'description',
@@ -200,6 +213,7 @@
     'only_count_matured_users',
     'parameters',
     'primary_metrics_ordered_uuids',
+    'running_time_calculation',
     'scheduling_config',
     'secondary_metrics',
     'secondary_metrics_ordered_uuids',
@@ -335,6 +349,14 @@
     'insight',
     'team',
     'text',
+    'widget',
+  ])
+# ---
+# name: TestVisitorFieldSnapshots.test_relation_fields_DashboardWidget
+  list([
+    'created_by',
+    'last_modified_by',
+    'team',
   ])
 # ---
 # name: TestVisitorFieldSnapshots.test_relation_fields_EarlyAccessFeature
@@ -414,7 +436,9 @@
     'DoesNotExist',
     'MultipleObjectsReturned',
     '__doc__',
+    '__firstlineno__',
     '__module__',
+    '__static_attributes__',
     '__str__',
     '_meta',
     'action_steps',
@@ -455,14 +479,13 @@
     'DoesNotExist',
     'MultipleObjectsReturned',
     '__doc__',
+    '__firstlineno__',
     '__module__',
     '__repr__',
+    '__static_attributes__',
     '__str__',
     '_get_existing_ch_member_uuids',
-    '_get_uuids_for_distinct_ids_batch',
-    '_get_uuids_for_emails_batch',
     '_get_uuids_for_emails_batch_ch',
-    '_get_uuids_for_emails_batch_pg',
     '_insert_batch_via_personhog',
     '_insert_users_list_with_batching',
     '_meta',
@@ -510,8 +533,10 @@
     'PrivilegeLevel',
     'RestrictionLevel',
     '__doc__',
+    '__firstlineno__',
     '__module__',
     '__repr__',
+    '__static_attributes__',
     '__str__',
     '_meta',
     'analytics_dashboards',
@@ -557,7 +582,9 @@
     'DoesNotExist',
     'MultipleObjectsReturned',
     '__doc__',
+    '__firstlineno__',
     '__module__',
+    '__static_attributes__',
     '_meta',
     'button_tile_id',
     'caching_state',
@@ -579,6 +606,27 @@
     'sort_tiles_by_layout',
     'team_id',
     'text_id',
+    'widget_id',
+  ])
+# ---
+# name: TestVisitorFieldSnapshots.test_skipped_fields_DashboardWidget
+  list([
+    'DoesNotExist',
+    'MultipleObjectsReturned',
+    '__doc__',
+    '__firstlineno__',
+    '__module__',
+    '__static_attributes__',
+    '_meta',
+    'all_teams',
+    'created_by_id',
+    'dashboard_tiles',
+    'get_next_by_last_modified_at',
+    'get_previous_by_last_modified_at',
+    'id',
+    'last_modified_at',
+    'last_modified_by_id',
+    'team_id',
   ])
 # ---
 # name: TestVisitorFieldSnapshots.test_skipped_fields_EarlyAccessFeature
@@ -588,8 +636,10 @@
     'MultipleObjectsReturned',
     'Stage',
     '__doc__',
+    '__firstlineno__',
     '__module__',
     '__repr__',
+    '__static_attributes__',
     '__str__',
     '_meta',
     'created_at',
@@ -610,7 +660,9 @@
     'MultipleObjectsReturned',
     'Status',
     '__doc__',
+    '__firstlineno__',
     '__module__',
+    '__static_attributes__',
     '__str__',
     '_meta',
     'archived',
@@ -622,6 +674,7 @@
     'deleted',
     'end_date',
     'experimentmetricresult_set',
+    'experimentmetricsrecalculation_set',
     'experimenttimeseriesrecalculation_set',
     'experimenttosavedmetric_set',
     'exposure_cohort_id',
@@ -657,7 +710,9 @@
     'DoesNotExist',
     'MultipleObjectsReturned',
     '__doc__',
+    '__firstlineno__',
     '__module__',
+    '__static_attributes__',
     '_meta',
     'created_at',
     'created_by_id',
@@ -677,7 +732,9 @@
     'DoesNotExist',
     'MultipleObjectsReturned',
     '__doc__',
+    '__firstlineno__',
     '__module__',
+    '__static_attributes__',
     '_meta',
     'created_at',
     'created_by_id',
@@ -697,7 +754,9 @@
     'DoesNotExist',
     'MultipleObjectsReturned',
     '__doc__',
+    '__firstlineno__',
     '__module__',
+    '__static_attributes__',
     '__str__',
     '_meta',
     'activity_logging_on_delete',
@@ -720,11 +779,14 @@
     'EVALUATION_RUNTIME_CHOICES',
     'MultipleObjectsReturned',
     '__doc__',
+    '__firstlineno__',
     '__module__',
+    '__static_attributes__',
     '__str__',
     '_evaluation_tag_names',
     '_meta',
     '_payloads',
+    '_tombstone_suffix',
     'access',
     'aggregation_group_type_index',
     'analytics_dashboards',
@@ -751,6 +813,7 @@
     'has_feature_enrollment',
     'holdout',
     'id',
+    'key_without_tombstone',
     'last_called_at',
     'last_modified_by_id',
     'objects',
@@ -761,13 +824,13 @@
     'rollback_conditions',
     'rollout_percentage',
     'scheduled_changes_dispatcher',
-    'super_conditions',
     'surveys_internal_response_sampling_flag',
     'surveys_internal_targeting_flag',
     'surveys_linked_flag',
     'surveys_targeting_flag',
     'tagged_items',
     'team_id',
+    'tombstoned_key',
     'transform_cohort_filters_for_easy_evaluation',
     'usage_dashboard',
     'usage_dashboard_has_enriched_insights',
@@ -782,9 +845,11 @@
     'MATERIAL_INSIGHT_FIELDS',
     'MultipleObjectsReturned',
     '__doc__',
+    '__firstlineno__',
     '__init__',
     '__module__',
     '__repr__',
+    '__static_attributes__',
     '__str__',
     '_meta',
     'alert_set',
@@ -806,6 +871,8 @@
     'filters_hash',
     'funnel',
     'generate_query_metadata',
+    'get_analytics_query_kinds',
+    'get_analytics_query_metadata',
     'get_effective_query',
     'get_file_system_representation',
     'get_file_system_unfiled',
@@ -845,7 +912,9 @@
     'SurveySamplingIntervalType',
     'SurveyType',
     '__doc__',
+    '__firstlineno__',
     '__module__',
+    '__static_attributes__',
     '_meta',
     'created_by_id',
     'get_file_system_representation',
@@ -894,7 +963,9 @@
     'DoesNotExist',
     'MultipleObjectsReturned',
     '__doc__',
+    '__firstlineno__',
     '__module__',
+    '__static_attributes__',
     '_meta',
     'created_by_id',
     'dashboard_tiles',

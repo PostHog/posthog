@@ -20,7 +20,7 @@ describe('GeoIp', () => {
     })
 
     const commonCheck = (geoip: GeoIp) => {
-        expect(geoip.city('12.87.118.0')).toMatchObject({ city: { names: { en: 'Cleveland' } } })
+        expect(geoip.city('216.160.83.56')).toMatchObject({ city: { names: { en: 'Milton' } } })
     }
 
     describe('from disk', () => {
@@ -34,7 +34,7 @@ describe('GeoIp', () => {
             service = new GeoIPService('non-existent-file.mmdb')
             const geoip = await service.get()
             expect(geoip).toBeTruthy()
-            expect(geoip.city('12.87.118.0')).toBeNull()
+            expect(geoip.city('216.160.83.56')).toBeNull()
         })
 
         it('should only load mmdb from disk once', async () => {

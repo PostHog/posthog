@@ -1,4 +1,4 @@
-import { uuid } from 'lib/utils'
+import { uuid } from 'lib/utils/dom'
 import { urls } from 'scenes/urls'
 
 import { PersonType } from '~/types'
@@ -81,9 +81,13 @@ describe('the person header', () => {
         it.each(personLinksTestCases.map((testCase) => [testCase.name, testCase]))(
             'returns a link %s',
             (_, testCase) => {
-                expect(asLink({ distinct_ids: testCase.distinctIds })).toEqual(testCase.expectedLink)
+                expect(asLink({ distinct_ids: testCase.distinctIds, properties: {} })).toEqual(testCase.expectedLink)
             }
         )
+
+        it('returns undefined for a person without a profile', () => {
+            expect(asLink({ distinct_ids: ['a uuid'] })).toBeUndefined()
+        })
     })
 
     const displayTestCases = [

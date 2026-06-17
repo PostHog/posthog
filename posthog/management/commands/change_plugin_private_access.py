@@ -7,7 +7,8 @@ from django.core.management.base import BaseCommand
 import structlog
 
 from posthog.models import Organization
-from posthog.models.plugin import Plugin
+
+from products.cdp.backend.models.plugin import Plugin
 
 logger = structlog.get_logger(__name__)
 logger.setLevel(logging.INFO)

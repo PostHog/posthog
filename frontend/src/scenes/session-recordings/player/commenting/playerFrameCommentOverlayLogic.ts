@@ -6,7 +6,8 @@ import api from 'lib/api'
 import { JSONContent, RichContentEditorType } from 'lib/components/RichContentEditor/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { colonDelimitedDuration } from 'lib/utils'
+import { colonDelimitedDuration } from 'lib/utils/durations'
+import { membersLogic } from 'scenes/organization/membersLogic'
 import { playerCommentModel } from 'scenes/session-recordings/player/commenting/playerCommentModel'
 import { isSingleEmoji } from 'scenes/session-recordings/utils'
 
@@ -39,7 +40,7 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
     props({} as PlayerCommentOverlayLogicProps),
     connect((props: PlayerCommentOverlayLogicProps) => ({
         values: [sessionRecordingPlayerLogic(props), ['currentPlayerTime', 'currentTimestamp', 'sessionPlayerData']],
-        actions: [sessionRecordingPlayerLogic(props), ['setIsCommenting']],
+        actions: [sessionRecordingPlayerLogic(props), ['setIsCommenting'], membersLogic, ['ensureAllMembersLoaded']],
     })),
     actions({
         editComment: (comment: RecordingCommentForm) => ({ comment }),
@@ -125,7 +126,10 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
             }
         },
         setIsCommenting: ({ isCommenting }) => {
-            if (!isCommenting) {
+            if (isCommenting) {
+                // Load org members so @-mentions in the comment editor can resolve.
+                actions.ensureAllMembersLoaded()
+            } else {
                 actions.resetRecordingComment()
                 // Don't let "Add as task" leak into the next overlay session.
                 actions.setAsTask(false)

@@ -1,3 +1,4 @@
+import os
 import json
 import base64
 from datetime import datetime, timedelta
@@ -12,17 +13,18 @@ from unittest.mock import call, patch
 from django.core.cache import cache
 from django.core.handlers.wsgi import WSGIRequest
 from django.http import HttpRequest
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.test.client import RequestFactory
 
 from parameterized import parameterized
 from rest_framework.request import Request
 
 from posthog.exceptions import RequestParsingError, UnspecifiedCompressionFallbackParsingError
-from posthog.models import EventDefinition, GroupTypeMapping
+from posthog.models import EventDefinition, GroupTypeMapping, Organization, Team, User
 from posthog.settings.utils import get_from_env
 from posthog.utils import (
     PotentialSecurityProblemException,
+    _build_flag_provider,
     absolute_uri,
     base64_decode,
     filters_override_requested_by_client,
@@ -32,12 +34,16 @@ from posthog.utils import (
     get_compare_period_dates,
     get_default_event_info,
     get_default_event_name,
+    get_dogfood_flags_team_id,
     get_ip_address,
     get_js_url,
+    get_self_capture_team_id,
     get_short_user_agent,
     load_data_from_request,
     refresh_requested_by_client,
     relative_date_parse,
+    resolve_dogfood_flags_team,
+    resolve_self_capture_team,
     str_to_int_set,
     tile_filters_override_requested_by_client,
     variables_override_requested_by_client,
@@ -120,6 +126,19 @@ class TestAbsoluteUrls(TestCase):
         with self.settings(SITE_URL=""):
             with pytest.raises(PotentialSecurityProblemException):
                 (absolute_uri("https://an.external.domain.com/something-outside-posthog"),)
+
+    @parameterized.expand(
+        [
+            # `urlparse` returns hostname='app.posthog.com' so the SITE_URL host check
+            # passes, but HTTP clients/browsers route to attacker.example.
+            ("raw_backslash", "https://attacker.example\\@app.posthog.com/path"),
+            ("percent_encoded_backslash", "https://attacker.example%5C@app.posthog.com/path"),
+        ]
+    )
+    def test_absolute_uri_rejects_backslash_authority_bypass(self, _name: str, url: str) -> None:
+        with self.settings(SITE_URL="https://app.posthog.com"):
+            with pytest.raises(PotentialSecurityProblemException):
+                absolute_uri(url)
 
 
 class TestFormatUrls(TestCase):
@@ -940,7 +959,10 @@ class TestSharingOverrideProtection(TestCase):
             ("password_protected_auth",),
         ]
     )
-    @patch("posthog.api.insight_variable.map_stale_to_latest", side_effect=lambda variables, _: variables)
+    @patch(
+        "products.product_analytics.backend.api.insight_variable.map_stale_to_latest",
+        side_effect=lambda variables, _: variables,
+    )
     def test_variables_override_blocked_for_sharing_authenticators(self, auth_type, _mock):
         from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
 
@@ -958,7 +980,10 @@ class TestSharingOverrideProtection(TestCase):
 
         assert result == {"var1": {"value": "safe"}}
 
-    @patch("posthog.api.insight_variable.map_stale_to_latest", side_effect=lambda variables, _: variables)
+    @patch(
+        "products.product_analytics.backend.api.insight_variable.map_stale_to_latest",
+        side_effect=lambda variables, _: variables,
+    )
     def test_variables_override_allowed_for_normal_auth(self, _mock):
         request = self._make_request(
             None, query_params={"variables_override": json.dumps({"var1": {"value": "custom"}})}
@@ -1040,3 +1065,138 @@ class TestTemplateContextHistogram(TestCase):
             get_context_for_template("index.html", request)
 
         assert self._count_for_labels("index.html", expected_label) == before + 1
+
+
+class TestResolveSelfCaptureTeam(TestCase):
+    PASSWORD = "testpassword12345"
+
+    def setUp(self):
+        super().setUp()
+        # resolve_self_capture_team() reads the whole users/teams tables, so each test must
+        # control global state. Clear any rows left in the reused test DB; deleting an
+        # organization cascades to its projects and teams, and these deletes roll back with
+        # the test transaction.
+        User.objects.all().delete()
+        Organization.objects.all().delete()
+
+    def test_prefers_most_recently_logged_in_users_current_team(self):
+        organization = Organization.objects.create(name="Org")
+        first_team = Team.objects.create(organization=organization, name="First")
+        recent_team = Team.objects.create(organization=organization, name="Recent")
+
+        older_user = User.objects.create_and_join(organization, "older@posthog.com", self.PASSWORD)
+        older_user.current_team = first_team
+        older_user.last_login = datetime(2026, 1, 1, tzinfo=ZoneInfo("UTC"))
+        older_user.save()
+
+        recent_user = User.objects.create_and_join(organization, "recent@posthog.com", self.PASSWORD)
+        recent_user.current_team = recent_team
+        recent_user.last_login = datetime(2026, 1, 2, tzinfo=ZoneInfo("UTC"))
+        recent_user.save()
+
+        assert resolve_self_capture_team() == recent_team
+        assert get_self_capture_team_id() == recent_team.id
+
+    def test_falls_back_to_first_team_when_no_qualifying_user(self):
+        organization = Organization.objects.create(name="Org")
+        first_team = Team.objects.create(organization=organization, name="First")
+        second_team = Team.objects.create(organization=organization, name="Second")
+
+        # A user that has never logged in (last_login is None) must not qualify,
+        # even though its current_team points at the second team.
+        never_logged_in = User.objects.create_and_join(organization, "never@posthog.com", self.PASSWORD)
+        never_logged_in.current_team = second_team
+        never_logged_in.last_login = None
+        never_logged_in.save()
+
+        assert resolve_self_capture_team() == first_team
+        assert get_self_capture_team_id() == first_team.id
+
+    def test_falls_back_to_first_team_when_logged_in_user_has_no_current_team(self):
+        organization = Organization.objects.create(name="Org")
+        first_team = Team.objects.create(organization=organization, name="First")
+        Team.objects.create(organization=organization, name="Second")
+
+        # A logged-in user whose current_team is None still falls back to the first team.
+        user = User.objects.create_and_join(organization, "user@posthog.com", self.PASSWORD)
+        user.current_team = None
+        user.last_login = datetime(2026, 1, 1, tzinfo=ZoneInfo("UTC"))
+        user.save()
+
+        assert resolve_self_capture_team() == first_team
+        assert get_self_capture_team_id() == first_team.id
+
+    def test_returns_none_when_there_are_no_teams(self):
+        assert resolve_self_capture_team() is None
+        assert get_self_capture_team_id() is None
+
+
+class TestResolveDogfoodFlagsTeam(TestCase):
+    PASSWORD = "testpassword12345"
+
+    def setUp(self):
+        super().setUp()
+        # resolve_dogfood_flags_team() reads the whole teams table, so each test must control
+        # global state. Deleting an organization cascades to its projects and teams, and these
+        # deletes roll back with the test transaction.
+        User.objects.all().delete()
+        Organization.objects.all().delete()
+
+    def test_returns_first_team_not_current_team(self):
+        # The dogfood-flags team is the first/oldest team (the sync write target), even when the
+        # most-recently-logged-in user's current_team is a different team. The two resolvers
+        # intentionally diverge: self-capture follows current_team, dogfood-flags follows first team.
+        organization = Organization.objects.create(name="Org")
+        first_team = Team.objects.create(organization=organization, name="First")
+        recent_team = Team.objects.create(organization=organization, name="Recent")
+
+        recent_user = User.objects.create_and_join(organization, "recent@posthog.com", self.PASSWORD)
+        recent_user.current_team = recent_team
+        recent_user.last_login = datetime(2026, 1, 2, tzinfo=ZoneInfo("UTC"))
+        recent_user.save()
+
+        assert resolve_dogfood_flags_team() == first_team
+        assert get_dogfood_flags_team_id() == first_team.id
+        # Same instance state, the two resolvers point at different teams.
+        assert get_self_capture_team_id() == recent_team.id
+
+    def test_returns_none_when_there_are_no_teams(self):
+        assert resolve_dogfood_flags_team() is None
+        assert get_dogfood_flags_team_id() is None
+
+
+class TestBuildFlagProvider(TestCase):
+    def setUp(self):
+        super().setUp()
+        # The dogfood branch reads the whole teams table; clear ambient rows so the team we
+        # create is the first one. Cascade deletes roll back with the test transaction.
+        User.objects.all().delete()
+        Organization.objects.all().delete()
+
+    @patch.dict(os.environ, {"POSTHOG_SELF_TEAM_ID": "5"}, clear=False)
+    @override_settings(SELF_CAPTURE=True, E2E_TESTING=False)
+    def test_explicit_env_team_id_wins_over_self_capture(self):
+        assert _build_flag_provider()._resolve_team_id() == 5
+
+    @patch.dict(os.environ, {}, clear=False)
+    @override_settings(SELF_CAPTURE=True, E2E_TESTING=False)
+    def test_self_capture_routes_to_dogfood_first_team(self):
+        os.environ.pop("POSTHOG_SELF_TEAM_ID", None)
+        organization = Organization.objects.create(name="Org")
+        first_team = Team.objects.create(organization=organization, name="First")
+
+        assert _build_flag_provider()._resolve_team_id() == first_team.id
+
+    @patch.dict(os.environ, {}, clear=False)
+    @override_settings(SELF_CAPTURE=False, E2E_TESTING=False)
+    def test_falls_back_to_team_2_off_self_capture(self):
+        os.environ.pop("POSTHOG_SELF_TEAM_ID", None)
+
+        assert _build_flag_provider()._resolve_team_id() == 2
+
+    @patch.dict(os.environ, {}, clear=False)
+    @override_settings(SELF_CAPTURE=True, E2E_TESTING=True)
+    def test_e2e_overrides_self_capture_to_team_2(self):
+        os.environ.pop("POSTHOG_SELF_TEAM_ID", None)
+
+        assert _build_flag_provider()._resolve_team_id() == 2

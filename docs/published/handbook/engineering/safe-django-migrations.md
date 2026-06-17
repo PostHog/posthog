@@ -12,6 +12,7 @@ This guide explains how to safely perform dangerous Django migration operations 
 
 ## Table of Contents
 
+- [Altering Hot Tables](#altering-hot-tables)
 - [Dropping Tables](#dropping-tables)
 - [Dropping Columns](#dropping-columns)
 - [Renaming Tables](#renaming-tables)
@@ -22,6 +23,26 @@ This guide explains how to safely perform dangerous Django migration operations 
 - [Running Data Migrations](#running-data-migrations)
 - [Using SeparateDatabaseAndState](#using-separatedatabaseandstate)
 - [General Best Practices](#general-best-practices)
+
+## Altering Hot Tables
+
+**Problem:** `posthog_team`, `posthog_user`, `posthog_organization`, and `posthog_project` are read on virtually every request. Every `ALTER TABLE` — including the "safe" patterns elsewhere in this guide, like adding a nullable column — needs an `ACCESS EXCLUSIVE` lock. The danger is not the ALTER itself (a nullable `ADD COLUMN` is metadata-only and takes milliseconds once it runs); it's the **lock queue**: while the ALTER waits behind in-flight queries, Postgres queues every later query on the table behind it. On a hot table that means site-wide request pile-ups and 5xx errors until `lock_timeout` cancels the ALTER — and since `bin/migrate` retries with exponential backoff, the stall repeats in waves until the ALTER finally wins the race.
+
+This is not theoretical: a plain nullable `AddField` on `Team` — exactly what this guide's NOT NULL section recommends as the safe pattern — has caused roughly an hour of recurring 5xx waves in production while it lost the lock race retry after retry.
+
+### Safe Approach: Don't Alter the Table
+
+For `Team`, most new fields shouldn't be on the table at all. Domain-specific fields belong on a **Team extension model** (see `posthog/models/team/README.md`) — that's a `CREATE TABLE`, which takes no lock on `posthog_team` whatsoever.
+
+`CREATE INDEX CONCURRENTLY` (via `CreateIndexConcurrently`, see [Adding Indexes](#adding-indexes)) is also fine: it only takes `SHARE UPDATE EXCLUSIVE`, which doesn't block reads or writes.
+
+### If You Genuinely Must Alter a Hot Table
+
+The migration analyzer (`HotTableAlterPolicy`) blocks any DDL on these tables in CI. To accept the risk:
+
+1. Confirm the field really is core (team identity, cross-product settings, SDK config) and not a candidate for an extension model.
+2. Add `<app_label>.<migration_name>` to `posthog/management/migration_analysis/hot_table_acknowledged_migrations.txt` — this is the explicit "I accept the risk" act, and it's visible in review.
+3. Coordinate the deploy with #team-infrastructure for a low-traffic window.
 
 ## Dropping Tables
 
@@ -200,6 +221,8 @@ This gives you a clean Python API without the risk of renaming the database colu
 2. Backfill data
 3. Add NOT NULL constraint
 
+> **Note:** "safe" here means no table rewrite. On [hot tables](#altering-hot-tables) even a nullable `ADD COLUMN` can stall traffic while it waits for its lock.
+
 **Step 1: Add column as nullable**
 
 ```python
@@ -289,51 +312,111 @@ class Migration(migrations.Migration):
 - **Blocks all writes:** No data can be written during index creation
 - **Deployment timeout:** Migration might exceed timeout limits
 
-### Safe Approach: Concurrent Index Creation
+### Why `AddIndexConcurrently` Is Not Enough
 
-**Recommended: Use Django's built-in concurrent operations (PostgreSQL only):**
+Do not use `AddIndexConcurrently` / `RemoveIndexConcurrently` directly.
+They are non-blocking, but they are **not idempotent**:
+Django emits a bare `CREATE INDEX CONCURRENTLY` (or `DROP INDEX CONCURRENTLY`)
+with no `IF NOT EXISTS` / `IF EXISTS`, and there is no hook to disable
+`lock_timeout` or `statement_timeout` for the build.
+
+Deploy runs migrations under a `lock_timeout`, and `bin/migrate` re-runs the
+**entire** migration on failure with exponential backoff.
+`CREATE INDEX CONCURRENTLY` is non-transactional and runs with `atomic = False`,
+so if the build is cancelled (a single transient `lock_timeout` while another
+session holds a conflicting lock is enough; OOM, deploy timeout, statement_timeout,
+SIGTERM and PG restarts can do the same) PostgreSQL leaves an **invalid** index
+behind with nothing to roll it back.
+The next retry then re-issues the same bare statement and fails with
+`relation "..." already exists` (or `index "..." does not exist` for drops).
+The migration is now stuck and blocks all deploys until someone drops or
+`REINDEX`es the invalid index by hand.
+
+`IF NOT EXISTS` alone is **not enough** either. PG's `IF NOT EXISTS` is
+name-level, not state-level — it skips when an index with that name exists,
+regardless of whether it is valid (`indisvalid = false`). A bare retry under
+`IF NOT EXISTS` will silently no-op past an invalid leftover and mark the
+migration applied while the index does nothing.
+
+This is enforced: `ConcurrentIndexIdempotencyPolicy` in the migration risk
+analyzer blocks any migration that uses `AddIndexConcurrently`,
+`RemoveIndexConcurrently`, or a raw `RunSQL` concurrent index without
+`IF [NOT] EXISTS`.
+
+### Safe Approach: `CreateIndexConcurrently` Helper (Recommended)
+
+The `posthog.migration_helpers.CreateIndexConcurrently` helper handles the
+full safe pattern: disables `lock_timeout` and `statement_timeout` on the
+migration connection, looks the target index up in `pg_index`, drops it if
+it was left in an invalid state by a prior interrupted build, then runs
+`CREATE INDEX CONCURRENTLY IF NOT EXISTS`.
+
+Wrap it in `SeparateDatabaseAndState` so Django model state still tracks the
+index (keeps `makemigrations --check` and the ORM correct):
 
 ```python
-from django.contrib.postgres.operations import AddIndexConcurrently
 from django.db import migrations, models
 
+from posthog.migration_helpers import CreateIndexConcurrently
+
+
 class Migration(migrations.Migration):
     atomic = False  # Required for CONCURRENTLY
 
     operations = [
-        AddIndexConcurrently(
-            model_name='mymodel',
-            index=models.Index(fields=['field_name'], name='mymodel_field_idx'),
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.AddIndex(
+                    model_name="mymodel",
+                    index=models.Index(fields=["field_name"], name="mymodel_field_idx"),
+                ),
+            ],
+            database_operations=[
+                CreateIndexConcurrently(
+                    index_name="mymodel_field_idx",
+                    table_name="mymodel",
+                    columns="(field_name)",
+                ),
+            ],
         ),
     ]
 ```
 
-**If you need `IF NOT EXISTS` for idempotency, use RunSQL:**
+Dropping an index uses the mirror helper, `DropIndexConcurrently`, with
+`RemoveIndex` in `state_operations`.
+
+### Fallback: Raw `RunSQL` + `lock_timeout = 0` + `IF NOT EXISTS`
+
+For exotic cases the helper doesn't cover (partitioned tables, custom
+operator classes the helper hasn't grown a knob for yet, etc.), raw `RunSQL`
+is still accepted by the policy as long as it includes `IF [NOT] EXISTS`:
 
 ```python
-from django.db import migrations
-
-class Migration(migrations.Migration):
-    atomic = False  # Required for CONCURRENTLY
-
-    operations = [
-        migrations.RunSQL(
-            sql="""
-                CREATE INDEX CONCURRENTLY IF NOT EXISTS mymodel_field_idx
-                ON mymodel (field_name)
-            """,
-            reverse_sql="DROP INDEX CONCURRENTLY IF EXISTS mymodel_field_idx",
-        ),
-    ]
+migrations.RunSQL(
+    sql="""
+        SET lock_timeout = 0;
+        SET statement_timeout = 0;
+        CREATE INDEX CONCURRENTLY IF NOT EXISTS mymodel_field_idx
+        ON mymodel (field_name);
+    """,
+    reverse_sql="DROP INDEX CONCURRENTLY IF EXISTS mymodel_field_idx;",
+)
 ```
+
+This form is strictly weaker than the helper: it does not detect or clean up
+an `indisvalid = false` leftover. If a prior deploy was interrupted by
+anything other than `lock_timeout`, manual `REINDEX INDEX CONCURRENTLY` or
+`DROP INDEX CONCURRENTLY IF EXISTS` is needed before re-running. Prefer the
+helper.
 
 ### Key Points
 
-- **Use `AddIndexConcurrently` for existing large tables** - it handles the SQL correctly
-- `AddIndexConcurrently` does not support `IF NOT EXISTS` - use `RunSQL` if you need idempotency
-- Set `atomic = False` in the migration (required for all CONCURRENTLY operations)
-- Concurrent index creation is slower but doesn't block writes
-- Use `RemoveIndexConcurrently` to drop indexes safely
+- **Never use `AddIndexConcurrently` / `RemoveIndexConcurrently` directly** — they are non-idempotent and the CI policy blocks them
+- **Prefer `CreateIndexConcurrently` / `DropIndexConcurrently` from `posthog.migration_helpers`** — it disables both timeouts and recovers from invalid leftover indexes
+- Raw `RunSQL` with `SET lock_timeout = 0; SET statement_timeout = 0; CREATE INDEX CONCURRENTLY IF NOT EXISTS ...` is acceptable as a fallback but does not recover from invalid leftovers
+- Wrap in `SeparateDatabaseAndState` so Django model state still tracks the index
+- Set `atomic = False` (required for all `CONCURRENTLY` operations)
+- If a prior deploy already left an invalid index (the helper would catch this on next run, but the fallback won't), clean it up with `REINDEX INDEX CONCURRENTLY` or `DROP INDEX CONCURRENTLY IF EXISTS` before re-running
 
 ## Adding Constraints
 
@@ -597,21 +680,37 @@ class Migration(migrations.Migration):
 PostgreSQL's `CONCURRENTLY` operations cannot run inside transactions. Use `atomic=False` **only** when required.
 
 ```python
+from posthog.migration_helpers import CreateIndexConcurrently
+
+
 class Migration(migrations.Migration):
     atomic = False  # Required for CONCURRENTLY
 
     operations = [
-        AddIndexConcurrently(
-            model_name="mymodel",
-            index=models.Index(fields=["field_name"], name="mymodel_field_idx"),
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.AddIndex(
+                    model_name="mymodel",
+                    index=models.Index(fields=["field_name"], name="mymodel_field_idx"),
+                ),
+            ],
+            database_operations=[
+                CreateIndexConcurrently(
+                    index_name="mymodel_field_idx",
+                    table_name="mymodel",
+                    columns="(field_name)",
+                ),
+            ],
         ),
     ]
 ```
 
+See [Adding Indexes](#adding-indexes) for why the bare `AddIndexConcurrently` form is unsafe and what the helper does under the hood.
+
 **When to use `atomic=False`:**
 
-- `CREATE INDEX CONCURRENTLY` (required - `AddIndexConcurrently` needs this)
-- `DROP INDEX CONCURRENTLY` (required - `RemoveIndexConcurrently` needs this)
+- `CREATE INDEX CONCURRENTLY` (required — use `CreateIndexConcurrently`, not `AddIndexConcurrently`)
+- `DROP INDEX CONCURRENTLY` (required — use `DropIndexConcurrently`, not `RemoveIndexConcurrently`)
 - `REINDEX CONCURRENTLY` (required)
 
 **When NOT to use `atomic=False`:**

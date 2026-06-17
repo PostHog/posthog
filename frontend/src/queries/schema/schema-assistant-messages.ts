@@ -189,12 +189,22 @@ export interface FormDismissPayload {
     action: 'dismiss_form'
 }
 
-export type ResumePayload = ApprovalResumePayload | FormResumePayload | FormDismissPayload
+export interface ClientToolResultPayload {
+    action: 'client_tool_result'
+    /** Tool call id this result answers — echoed back so misdelivery fails loudly instead of silently */
+    tool_call_id?: string
+    /** Result produced by the tool's client-side handler, returned verbatim to the tool awaiting it */
+    result: Record<string, unknown>
+}
+
+export type ResumePayload = ApprovalResumePayload | FormResumePayload | FormDismissPayload | ClientToolResultPayload
 
 export interface AssistantMessageMetadata {
     form?: AssistantForm
     /** Thinking blocks, as well as server_tool_use and web_search_tool_result ones. Anthropic format of blocks. */
     thinking?: Record<string, unknown>[]
+    /** Provenance for non-LLM-authored messages. Format: `slash_command:<name>`. */
+    source?: string
 }
 
 export interface AssistantToolCall {
@@ -450,6 +460,7 @@ export type ApprovalCardUIStatus = ApprovalDecisionStatus | 'approving' | 'rejec
 
 export type AssistantTool =
     | 'search_session_recordings'
+    | 'create_ai_trace_parser'
     | 'fix_hogql_query'
     | 'analyze_user_interviews'
     | 'create_user_interview_topic'
@@ -492,13 +503,34 @@ export type AssistantTool =
     | 'manage_memories'
     | 'create_notebook'
     | 'list_data'
+    | 'list_feature_flags'
     | 'upsert_alert'
     | 'finalize_plan'
     | 'call_mcp_server'
     | 'search_llm_traces'
     | 'run_hog_eval_test'
+    | 'list_llm_skills'
+    | 'get_llm_skill'
+    | 'get_llm_skill_file'
+    | 'create_llm_skill'
+    | 'update_llm_skill'
+    | 'archive_llm_skill'
     | 'diagnose_proxy'
     | 'web_analytics_doctor'
+    | 'assess_heatmap'
+    | 'marketing_diagnose_setup'
+    | 'marketing_explain_conversion_goal'
+    | 'marketing_list_conversion_goals'
+    | 'marketing_list_data_sources'
+    | 'marketing_audit_utm'
+    | 'marketing_suggest_conversion_goals'
+    | 'marketing_suggest_utm_mappings'
+    | 'summarize_replay_vision_summaries'
+    | 'draft_replay_vision_scanner_prompt'
+    | 'search_replay_vision_observations'
+    | 'upsert_account'
+    | 'upsert_account_notebook'
+    | 'open_account'
 
 export enum AgentMode {
     ProductAnalytics = 'product_analytics',
@@ -510,9 +542,10 @@ export enum AgentMode {
     Survey = 'survey',
     Research = 'research',
     Flags = 'flags',
-    LLMAnalytics = 'llm_analytics',
+    AIObservability = 'llm_analytics',
     Sandbox = 'sandbox',
     UserInterview = 'user_interview',
+    CustomerAnalytics = 'customer_analytics',
 }
 
 export enum SlashCommandName {

@@ -4,7 +4,9 @@ These are team coding guidelines, not database safety issues.
 Policies enforce architectural decisions and coding standards.
 """
 
+import re
 from abc import ABC, abstractmethod
+from pathlib import Path
 
 # Apps owned by PostHog where policies are enforced
 POSTHOG_OWNED_APPS = ["posthog", "ee"]
@@ -109,6 +111,9 @@ class AtomicFalsePolicy(MigrationPolicy):
     CONCURRENT_OP_TYPES = {
         "AddIndexConcurrently",
         "RemoveIndexConcurrently",
+        # PostHog helpers (see posthog/migration_helpers/concurrent_index.py)
+        "CreateIndexConcurrently",
+        "DropIndexConcurrently",
     }
 
     def check_operation(self, op) -> list[str]:
@@ -242,8 +247,314 @@ class AtomicFalsePolicy(MigrationPolicy):
         return False
 
 
+class ConcurrentIndexIdempotencyPolicy(MigrationPolicy):
+    """
+    Policy: concurrent index operations must be idempotent.
+
+    Rationale:
+    - bin/migrate re-runs the ENTIRE migration on failure, with exponential
+      backoff, up to MIGRATE_MAX_RETRIES times.
+    - CREATE/DROP INDEX CONCURRENTLY is non-transactional and runs with
+      atomic=False, so a cancelled or interrupted build leaves an INVALID
+      index behind - there is no transaction to roll it back.
+    - Django's AddIndexConcurrently / RemoveIndexConcurrently emit a bare
+      CREATE/DROP INDEX CONCURRENTLY with no IF [NOT] EXISTS and give no way
+      to disable lock_timeout. Deploy runs under a lock_timeout, so a single
+      transient cancellation leaves an invalid index, and every subsequent
+      retry then fails with "relation already exists" (or "does not exist"
+      for drops). The migration is stuck and blocks deploys until the invalid
+      index is cleaned up by hand.
+    - The safe pattern is RunSQL with `SET lock_timeout = 0;` plus
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS` (and the matching
+      `DROP INDEX CONCURRENTLY IF EXISTS` reverse), wrapped in
+      SeparateDatabaseAndState so Django model state still tracks the index.
+      lock_timeout = 0 stops the build from being cancelled in the first
+      place; IF NOT EXISTS makes the retry idempotent if it is.
+    """
+
+    DJANGO_CONCURRENT_OPS = {"AddIndexConcurrently", "RemoveIndexConcurrently"}
+
+    # The PostHog helpers in posthog/migration_helpers/concurrent_index.py
+    # encode the idempotency guarantees this policy enforces (indisvalid
+    # recovery + IF [NOT] EXISTS + timeout disabling) at the operation
+    # level, so they are explicitly exempt from the static SQL check.
+    POSTHOG_SAFE_HELPER_OPS = {"CreateIndexConcurrently", "DropIndexConcurrently"}
+
+    GUIDANCE = (
+        "Use posthog.migration_helpers.CreateIndexConcurrently (or DropIndexConcurrently),\n"
+        "wrapped in SeparateDatabaseAndState so Django model state still tracks the index:\n"
+        "\n"
+        "    from posthog.migration_helpers import CreateIndexConcurrently\n"
+        "\n"
+        "    migrations.SeparateDatabaseAndState(\n"
+        "        state_operations=[migrations.AddIndex(...)],\n"
+        "        database_operations=[CreateIndexConcurrently(\n"
+        '            index_name="my_idx",\n'
+        '            table_name="my_table",\n'
+        '            columns="(col)",\n'
+        "        )],\n"
+        "    )\n"
+        "\n"
+        "The helper disables lock_timeout and statement_timeout, drops any invalid leftover\n"
+        "index (recovering from a prior interrupted build), then runs CREATE INDEX\n"
+        "CONCURRENTLY IF NOT EXISTS. Raw RunSQL with `SET lock_timeout = 0;\n"
+        "CREATE INDEX CONCURRENTLY IF NOT EXISTS ...` is still accepted as a fallback for\n"
+        "exotic cases, but the helper is the recommended form.\n"
+        "\n"
+        "See https://github.com/PostHog/posthog/blob/master/docs/published/handbook/engineering/safe-django-migrations.md#adding-indexes"
+    )
+
+    def check_operation(self, op) -> list[str]:
+        return []  # Checked at migration level
+
+    def check_migration(self, migration) -> list[str]:
+        if not is_posthog_app(migration.app_label, migration):
+            return []
+
+        violations = []
+        for op in self._iter_executed_operations(migration):
+            violations.extend(self._check_single_operation(op))
+        return violations
+
+    def _iter_executed_operations(self, migration):
+        """Yield operations that emit SQL, descending recursively into
+        SeparateDatabaseAndState.database_operations.
+
+        SDAS can legally nest (a database_operations entry can itself be a
+        SeparateDatabaseAndState); a non-recursive descent would silently skip
+        the inner ops and reopen the incident class. state_operations never
+        touch the database, so they are not descended.
+        """
+        yield from self._descend(migration.operations)
+
+    def _descend(self, ops):
+        for op in ops or []:
+            if op.__class__.__name__ == "SeparateDatabaseAndState":
+                yield from self._descend(getattr(op, "database_operations", []) or [])
+            else:
+                yield op
+
+    def _check_single_operation(self, op) -> list[str]:
+        op_type = op.__class__.__name__
+
+        if op_type in self.POSTHOG_SAFE_HELPER_OPS:
+            # The helpers handle indisvalid recovery + IF [NOT] EXISTS +
+            # timeout disabling internally. Trust the type, skip the SQL
+            # check (which would false-positive on the helper's display SQL).
+            return []
+
+        if op_type in self.DJANGO_CONCURRENT_OPS:
+            return [
+                f"❌ BLOCKED: {op_type} emits a non-idempotent CREATE/DROP INDEX CONCURRENTLY "
+                "and cannot disable lock_timeout. A single transient lock_timeout cancellation "
+                "during deploy leaves an INVALID index; bin/migrate then re-runs the migration "
+                'and every retry fails with "relation already exists" - a stuck migration that '
+                f"blocks deploys.\n{self.GUIDANCE}"
+            ]
+
+        if op_type == "RunSQL":
+            return self._check_runsql(op)
+
+        return []
+
+    def _check_runsql(self, op) -> list[str]:
+        # Both forward `sql` and `reverse_sql` flow through bin/migrate's retry
+        # loop (rollbacks rerun on failure too), so a non-idempotent reverse
+        # reopens the same stuck-migration class as a non-idempotent forward.
+        violations = []
+        violations.extend(self._check_sql(getattr(op, "sql", ""), "sql"))
+        violations.extend(self._check_sql(getattr(op, "reverse_sql", ""), "reverse_sql"))
+        return violations
+
+    # Match the specific concurrent-index statement, not the whole RunSQL blob.
+    # Substring checks (`"IF NOT EXISTS" in sql`) false-negative when an unrelated
+    # statement in the same RunSQL legitimately uses IF [NOT] EXISTS (e.g.
+    # `CREATE TABLE IF NOT EXISTS ...; CREATE INDEX CONCURRENTLY idx ...`).
+    _BARE_CREATE_INDEX_CONCURRENTLY = re.compile(
+        r"CREATE\s+(?:UNIQUE\s+)?INDEX\s+CONCURRENTLY\b(?!\s+IF\s+NOT\s+EXISTS\b)",
+        re.IGNORECASE,
+    )
+    _BARE_DROP_INDEX_CONCURRENTLY = re.compile(
+        r"DROP\s+INDEX\s+CONCURRENTLY\b(?!\s+IF\s+EXISTS\b)",
+        re.IGNORECASE,
+    )
+
+    def _check_sql(self, sql, attr_name: str) -> list[str]:
+        sql = str(sql)
+        # Strip /* */, -- and # comments so keywords inside comments don't match
+        sql = re.sub(r"/\*.*?\*/", "", sql, flags=re.S)
+        sql = re.sub(r"--[^\n]*", "", sql)
+        sql = re.sub(r"#[^\n]*", "", sql)
+
+        violations = []
+        if self._BARE_CREATE_INDEX_CONCURRENTLY.search(sql):
+            violations.append(
+                f"❌ BLOCKED: RunSQL {attr_name} CREATE INDEX CONCURRENTLY is missing IF NOT EXISTS, "
+                "so it is non-idempotent. A cancelled build leaves an INVALID index and every "
+                f'bin/migrate retry then fails with "relation already exists".\n{self.GUIDANCE}'
+            )
+        if self._BARE_DROP_INDEX_CONCURRENTLY.search(sql):
+            violations.append(
+                f"❌ BLOCKED: RunSQL {attr_name} DROP INDEX CONCURRENTLY is missing IF EXISTS, "
+                "so it is non-idempotent. After a partial failure every bin/migrate retry then "
+                f'fails with "index does not exist".\n{self.GUIDANCE}'
+            )
+        return violations
+
+
+class HotTableAlterPolicy(MigrationPolicy):
+    """
+    Policy: DDL on hot tables must be explicitly acknowledged.
+
+    Rationale:
+    - posthog_team, posthog_user, posthog_organization, and posthog_project are
+      read on virtually every request.
+    - Any ALTER TABLE on them needs an ACCESS EXCLUSIVE lock. While that lock
+      request waits behind in-flight queries, every later query on the table
+      queues behind it - so even a metadata-only ADD COLUMN of a nullable
+      column can stall site-wide traffic until lock_timeout cancels it, and
+      each bin/migrate retry repeats the stall. This has caused production
+      5xx incidents.
+    - Most new team fields should not be on Team at all: a Team extension
+      model (posthog/models/team/README.md) only creates a new table, which
+      takes no lock on posthog_team.
+    - When DDL on a hot table is genuinely needed, the author accepts the risk
+      by adding "<app_label>.<migration_name>" to
+      hot_table_acknowledged_migrations.txt - a deliberate, reviewable act
+      that also coordinates the deploy.
+    """
+
+    HOT_MODELS = {"team", "user", "organization", "project"}
+
+    # Op types that carry the target model in `model_name`
+    FIELD_LEVEL_OPS = {
+        "AddField",
+        "RemoveField",
+        "AlterField",
+        "RenameField",
+        "AddConstraint",
+        "RemoveConstraint",
+        "AddIndex",
+        "RemoveIndex",
+    }
+    # Op types that carry the target model in `name`
+    MODEL_LEVEL_OPS = {
+        "DeleteModel",
+        "RenameModel",
+        "AlterModelTable",
+        "AlterUniqueTogether",
+        "AlterIndexTogether",
+    }
+
+    ACKNOWLEDGMENTS_FILE = Path(__file__).with_name("hot_table_acknowledged_migrations.txt")
+
+    # Only ALTER TABLE is matched; CONCURRENTLY index builds take SHARE UPDATE EXCLUSIVE, which
+    # doesn't block reads or writes. Mirrors the Postgres grammar: ALTER TABLE [ IF EXISTS ]
+    # [ ONLY ] [ schema. ] name, with optional double-quoting on the schema and table identifiers.
+    _ALTER_HOT_TABLE = re.compile(
+        r"ALTER\s+TABLE\s+"
+        r"(?:IF\s+EXISTS\s+)?"
+        r"(?:ONLY\s+)?"
+        r'(?:"?\w+"?\s*\.\s*)?'  # optional schema qualifier, e.g. public.
+        r'"?(posthog_team|posthog_user|posthog_organization|posthog_project)"?\b',
+        re.IGNORECASE,
+    )
+
+    def check_operation(self, op) -> list[str]:
+        return []  # Checked at migration level (needs the migration label for the acknowledgment hint)
+
+    def check_migration(self, migration) -> list[str]:
+        if not is_posthog_app(migration.app_label, migration):
+            return []
+
+        label = f"{migration.app_label}.{migration.name}"
+        if label in self._acknowledged_migrations():
+            return []
+
+        violations = []
+        for op in self._descend(migration.operations):
+            table = self._hot_table_target(op, migration.app_label)
+            if table:
+                violations.append(self._violation(op, table, label))
+        return violations
+
+    def _acknowledged_migrations(self) -> set[str]:
+        if not self.ACKNOWLEDGMENTS_FILE.exists():
+            return set()
+        lines = self.ACKNOWLEDGMENTS_FILE.read_text().splitlines()
+        return {line.strip() for line in lines if line.strip() and not line.strip().startswith("#")}
+
+    def _descend(self, ops):
+        """Yield operations that emit SQL, descending into SeparateDatabaseAndState.database_operations.
+
+        state_operations never touch the database, so they are not descended.
+        """
+        for op in ops or []:
+            if op.__class__.__name__ == "SeparateDatabaseAndState":
+                yield from self._descend(getattr(op, "database_operations", []) or [])
+            else:
+                yield op
+
+    def _hot_table_target(self, op, app_label: str) -> str | None:
+        """Return the hot table an operation alters, or None."""
+        op_type = op.__class__.__name__
+
+        # The hot models all live in the posthog app; same-named models in
+        # product apps map to different tables.
+        if app_label == "posthog":
+            model_name = None
+            if op_type in self.FIELD_LEVEL_OPS:
+                model_name = getattr(op, "model_name", None)
+            elif op_type in self.MODEL_LEVEL_OPS:
+                model_name = getattr(op, "name", None)
+            if model_name and model_name.lower() in self.HOT_MODELS:
+                return f"posthog_{model_name.lower()}"
+
+        # Hand-written DDL can hit a hot table from any app
+        if op_type == "RunSQL":
+            for attr in ("sql", "reverse_sql"):
+                table = self._hot_table_in_sql(getattr(op, attr, ""))
+                if table:
+                    return table
+
+        return None
+
+    def _hot_table_in_sql(self, sql) -> str | None:
+        sql = str(sql)
+        # Strip /* */, -- and # comments so table names inside comments don't match
+        sql = re.sub(r"/\*.*?\*/", "", sql, flags=re.S)
+        sql = re.sub(r"--[^\n]*", "", sql)
+        sql = re.sub(r"#[^\n]*", "", sql)
+
+        for statement in sql.split(";"):
+            # VALIDATE CONSTRAINT only takes SHARE UPDATE EXCLUSIVE, which doesn't block reads or writes
+            if "VALIDATE CONSTRAINT" in statement.upper():
+                continue
+            match = self._ALTER_HOT_TABLE.search(statement)
+            if match:
+                return match.group(1).lower()
+        return None
+
+    def _violation(self, op, table: str, label: str) -> str:
+        return (
+            f'❌ BLOCKED: {op.__class__.__name__} on "{table}" - this table is read on virtually every '
+            "request. Any ALTER TABLE on it takes an ACCESS EXCLUSIVE lock; while that lock request waits "
+            "behind in-flight queries, every later query on the table queues behind it, so even a "
+            "metadata-only ADD COLUMN can stall site-wide traffic until lock_timeout cancels it - and "
+            "each bin/migrate retry repeats the stall. This has caused production 5xx incidents.\n"
+            "Prefer not altering this table at all: new domain-specific team fields belong on a Team "
+            "extension model (see posthog/models/team/README.md), which only creates a new table.\n"
+            f'If this change genuinely must alter {table}, add "{label}" to '
+            "posthog/management/migration_analysis/hot_table_acknowledged_migrations.txt to accept the "
+            "risk, and coordinate the deploy with #team-infrastructure for a low-traffic window.\n"
+            "See https://github.com/PostHog/posthog/blob/master/docs/published/handbook/engineering/safe-django-migrations.md#altering-hot-tables"
+        )
+
+
 # Registry of all PostHog policies
 POSTHOG_POLICIES = [
     UUIDPrimaryKeyPolicy(),
     AtomicFalsePolicy(),
+    ConcurrentIndexIdempotencyPolicy(),
+    HotTableAlterPolicy(),
 ]

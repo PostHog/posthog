@@ -5,14 +5,22 @@
     },
     "dependencies": {
         "kea": "catalog:",
+        "kea-forms": "catalog:",
         "kea-loaders": "catalog:",
         "kea-router": "catalog:",
         "kea-test-utils": "catalog:",
         "posthog-js": "catalog:"
     },
     "peerDependencies": {
+        "@dnd-kit/core": "*",
+        "@dnd-kit/modifiers": "*",
+        "@dnd-kit/sortable": "*",
+        "@dnd-kit/utilities": "*",
         "@posthog/icons": "*",
-        "@storybook/react": "*",
+        "@storybook/react": "catalog:",
+        "@testing-library/dom": "*",
+        "@testing-library/react": "*",
+        "@testing-library/user-event": "*",
         "@types/react": "*",
         "clsx": "*",
         "fuse.js": "*",

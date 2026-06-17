@@ -1,5 +1,3 @@
-import './ImagePreview.scss'
-
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
@@ -7,6 +5,7 @@ import { useEffect, useState } from 'react'
 import { IconCollapse, IconExpand, IconShare } from '@posthog/icons'
 import { LemonButton, LemonMenu, Link } from '@posthog/lemon-ui'
 
+import { AutocapturePreviewImage } from 'lib/components/AutocapturePreviewImage/AutocapturePreviewImage'
 import { ErrorDisplay, idFrom } from 'lib/components/Errors/ErrorDisplay'
 import { ErrorEventType } from 'lib/components/Errors/types'
 import { getExceptionAttributes } from 'lib/components/Errors/utils'
@@ -15,11 +14,15 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SimpleKeyValueList } from 'lib/components/SimpleKeyValueList'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TitledSnack } from 'lib/components/TitledSnack'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { autoCaptureEventToDescription, capitalizeFirstLetter, ceilMsToClosestSecond, isString } from 'lib/utils'
-import { AutocapturePreviewImage } from 'lib/utils/autocapture-previews'
-import { getPrimaryPropertyForEvent } from 'lib/utils/primaryEventProperty'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { ceilMsToClosestSecond } from 'lib/utils/durations'
+import { autoCaptureEventToDescription } from 'lib/utils/events'
+import { getPrimaryPropertyForEvent } from 'lib/utils/events'
+import { isString } from 'lib/utils/guards'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { insightUrlForEvent } from 'scenes/insights/utils'
 import { urls } from 'scenes/urls'
 
@@ -29,6 +32,7 @@ import { ItemTimeDisplay } from '../../../components/ItemTimeDisplay'
 import { sessionRecordingPlayerLogic } from '../../sessionRecordingPlayerLogic'
 import { InspectorListItemEvent } from '../playerInspectorLogic'
 import { AIEventExpanded, AIEventSummary } from './AIEventItems'
+import { PinPrimaryPropertyButton } from './PinPrimaryPropertyButton'
 
 export interface ItemEventProps {
     item: InspectorListItemEvent
@@ -168,7 +172,7 @@ export function ItemEventMenu({ item }: ItemEventProps): JSX.Element {
     // Get trace ID for linking to LLM trace view
     const traceId = item.data.properties.$ai_trace_id
     const traceParams = item.data.id && item.data.event !== '$ai_trace' ? { event: item.data.id } : {}
-    const traceUrl = traceId ? urls.llmAnalyticsTrace(traceId, traceParams) : null
+    const traceUrl = traceId ? urls.aiObservabilityTrace(traceId, traceParams) : null
 
     return (
         <LemonMenu
@@ -215,6 +219,18 @@ export function ItemEventMenu({ item }: ItemEventProps): JSX.Element {
 }
 
 function SingleEventDetail({ item }: ItemEventProps): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const canPinPrimaryProperty = !!featureFlags[FEATURE_FLAGS.PROMOTED_EVENT_PROPERTIES_EDIT]
+    const eventName = item.data.event
+
+    const primaryPropertyActions =
+        canPinPrimaryProperty && isString(eventName)
+            ? (key: string, isRowHovered: boolean): JSX.Element | null =>
+                  key in item.data.properties ? (
+                      <PinPrimaryPropertyButton eventName={eventName} propertyKey={key} isRowHovered={isRowHovered} />
+                  ) : null
+            : undefined
+
     return item.data.fullyLoaded ? (
         <EventPropertyTabs
             size="small"
@@ -248,7 +264,7 @@ function SingleEventDetail({ item }: ItemEventProps): JSX.Element {
                             <>
                                 <p>
                                     "Set once" person properties sent with this event. Will replace any property value
-                                    that have never been set on this person profile before now.{' '}
+                                    that has never been set on this person profile before now.{' '}
                                     <Link to="https://posthog.com/docs/getting-started/person-properties">
                                         Learn more
                                     </Link>
@@ -265,6 +281,14 @@ function SingleEventDetail({ item }: ItemEventProps): JSX.Element {
                         )
                     case 'error_display':
                         return <ErrorDisplay eventProperties={properties} eventId={idFrom(event as ErrorEventType)} />
+                    case 'properties':
+                        return (
+                            <SimpleKeyValueList
+                                item={properties}
+                                promotedKeys={promotedKeys}
+                                rowActions={primaryPropertyActions}
+                            />
+                        )
                     default:
                         return <SimpleKeyValueList item={properties} promotedKeys={promotedKeys} />
                 }

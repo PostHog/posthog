@@ -8,7 +8,7 @@ thin PostHog-layer wrapper that just holds an instance and validates
 credentials.
 
 Module-level free helpers (`_build_query`, `_sanitize_identifier`,
-`_safe_convert_date`, `_safe_convert_datetime`, `_is_bad_plan_timeout`)
+`_safe_convert_date`, `_safe_convert_datetime`, `_is_bad_plan_error`)
 are pure functions used by `MySQLImplementation` and exercised directly
 by unit tests. They take no MySQL-driver state and are fine as
 module-scope primitives.
@@ -48,6 +48,9 @@ from posthog.temporal.data_imports.sources.common.sql import (
     InvalidIdentifierError,
     SelectQueryBuilder,
     Table,
+    ValidatedRowFilter,
+    compute_projected_columns,
+    project_arrow_columns,
 )
 from posthog.temporal.data_imports.sources.common.sql.implementation import SQLSourceImplementation, TableStats
 from posthog.temporal.data_imports.sources.common.sql.incremental import IncrementalFieldFilter
@@ -77,6 +80,15 @@ STATEMENT_TIMEOUT_SECONDS = 600  # 10 mins
 # the filesort preparation exceeds a middlebox / server-side query timeout
 # before any rows stream back.
 _LOST_CONNECTION_DURING_QUERY_CODE = 2013
+
+# pymysql error code for "Out of sort memory, consider increasing server sort
+# buffer size" — the same bad plan (full scan + filesort over the incremental
+# field) seen from the other side: the filesort completes its planning but the
+# server's `sort_buffer_size` is too small to hold the sort, so MySQL aborts
+# before streaming. Forcing the incremental-field index lets MySQL read rows in
+# index order and skip the filesort entirely, so the same FORCE INDEX fallback
+# resolves it.
+_OUT_OF_SORT_MEMORY_CODE = 1038
 
 
 def _safe_convert_date(obj: Any) -> datetime.date | None:
@@ -158,6 +170,9 @@ def _build_query(
     incremental_field_type: IncrementalFieldType | None,
     db_incremental_field_last_value: Any | None,
     force_index_name: str | None = None,
+    enabled_columns: list[str] | None = None,
+    primary_keys: list[str] | None = None,
+    row_filters: list[ValidatedRowFilter] | None = None,
 ) -> tuple[str, dict[str, Any]]:
     hint: str | None = None
     if force_index_name is not None:
@@ -169,6 +184,9 @@ def _build_query(
             schema=schema,
             table_name=table_name,
             extra_table_hint=hint,
+            enabled_columns=enabled_columns,
+            primary_keys=primary_keys,
+            row_filters=row_filters,
         )
         params = result.params if isinstance(result.params, dict) else {}
         return result.sql, params
@@ -183,19 +201,52 @@ def _build_query(
         incremental_field_type=incremental_field_type,
         incremental_last_value=db_incremental_field_last_value,
         extra_table_hint=hint,
+        enabled_columns=enabled_columns,
+        primary_keys=primary_keys,
+        row_filters=row_filters,
     )
     params = result.params if isinstance(result.params, dict) else {}
     return result.sql, params
 
 
-def _is_bad_plan_timeout(e: pymysql.err.OperationalError) -> bool:
-    """Return True if the error suggests we hit a bad-plan-induced query timeout.
+def _is_bad_plan_error(e: pymysql.err.OperationalError) -> bool:
+    """Return True if the error is a symptom of MySQL filesorting the incremental
+    `ORDER BY` instead of using an index — recoverable via the FORCE INDEX fallback.
 
-    Narrowly matches `OperationalError(2013, ...)`. Other `OperationalError`s
-    (access denied, table missing, etc.) should propagate untouched.
+    Matches two codes, both signalling the optimizer picked a full scan + filesort
+    over the incremental field:
+
+    - `2013` (lost connection during query): the filesort preparation outran a
+      middlebox / server-side query timeout before any rows streamed back.
+    - `1038` (out of sort memory): the filesort itself overran the server's
+      `sort_buffer_size`.
+
+    Forcing the incremental-field index makes MySQL read rows in index order and
+    skip the filesort, resolving both. Other `OperationalError`s (access denied,
+    table missing, etc.) should propagate untouched.
     """
     code = e.args[0] if e.args else None
-    return code == _LOST_CONNECTION_DURING_QUERY_CODE
+    return code in (_LOST_CONNECTION_DURING_QUERY_CODE, _OUT_OF_SORT_MEMORY_CODE)
+
+
+def _release_streaming_cursor(cursor: SSCursor) -> None:
+    """Detach an unbuffered cursor from its connection without draining it.
+
+    PyMySQL's `SSCursor.close()` (and its `__del__`) finishes the unbuffered
+    query by reading every outstanding row packet from the server via
+    `_finish_unbuffered_query`. When we abandon a stream early — a cancelled
+    Temporal activity injects `GeneratorExit`, or the FORCE INDEX fallback
+    restarts the query — that drain runs against a connection that is already
+    going away and raises `OperationalError(2013, 'Lost connection to MySQL
+    server during query')` from inside the teardown path, masking the real
+    reason iteration stopped. Clearing the connection reference is exactly what
+    PyMySQL does once a query is fully consumed, so the cursor's later
+    `close`/`__del__` becomes a no-op and the owning `with self.connect(...)`
+    block closes the socket cleanly.
+    """
+    # PyMySQL clears this same attribute once a query is fully consumed; the
+    # stub types it non-optional, so we mirror that runtime behaviour here.
+    cursor.connection = None  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
 
 class MySQLColumn(Column):
@@ -546,8 +597,13 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
             logger.debug(f"get_rows_to_sync: rows_to_sync_int={rows_to_sync_int}")
             return rows_to_sync_int
         except Exception as e:
+            # This COUNT(*) is a best-effort estimate for progress reporting and partition sizing.
+            # It shares its FROM/WHERE with the real streaming query, so any genuine problem
+            # (missing column, bad incremental field, permissions) resurfaces there and is
+            # classified through the normal retryable/non-retryable path. The MAX_EXECUTION_TIME
+            # hint above also makes timeouts here expected. Capturing it would only flood error
+            # tracking with handled duplicates, so we log at debug and fall back to 0.
             logger.debug(f"get_rows_to_sync: Error: {e}. Using 0 as rows to sync", exc_info=e)
-            capture_exception(e)
             return 0
 
     def fetch_table_stats(
@@ -625,7 +681,30 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                 return None
 
             columns = [row[0] for row in rows]
-            length_sum = " + ".join(f"LENGTH(COALESCE({_IDENTIFIER_QUOTER.quote(col)}, ''))" for col in columns)
+            # Column names come from the DB catalog and can legitimately contain
+            # characters the identifier allowlist rejects (e.g. `:` or spaces in
+            # `Ach:CompanyId`). Row-size estimation is best-effort, so skip any
+            # column we can't safely quote rather than abandoning the whole
+            # estimate. The allowlist stays the hard boundary for user-supplied
+            # identifiers elsewhere.
+            quoted_columns = []
+            skipped_columns = []
+            for col in columns:
+                try:
+                    quoted_columns.append(_IDENTIFIER_QUOTER.quote(col))
+                except InvalidIdentifierError:
+                    skipped_columns.append(col)
+
+            if skipped_columns:
+                logger.debug(
+                    f"fetch_average_row_size: skipping {len(skipped_columns)} unquotable column(s): {skipped_columns}."
+                )
+
+            if not quoted_columns:
+                logger.debug("fetch_average_row_size: No quotable columns found.")
+                return None
+
+            length_sum = " + ".join(f"LENGTH(COALESCE({quoted}, ''))" for quoted in quoted_columns)
             # length_sum and inner_query are built from sanitized identifiers;
             # no user-supplied values are interpolated into the SQL itself.
             size_query = "SELECT AVG(" + length_sum + ") as avg_row_size FROM (" + inner_query + " LIMIT 1000) as t"
@@ -704,8 +783,13 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
             explain_lines = [str(dict(zip(column_names, row))) for row in rows]
             logger.debug(f"EXPLAIN result: {' | '.join(explain_lines) if explain_lines else '(empty)'}")
         except Exception as e:
+            # EXPLAIN is best-effort diagnostics; its failure never affects the
+            # sync (the streaming query runs right after regardless). Capturing
+            # here just floods error tracking with benign, non-actionable noise —
+            # e.g. MySQL 1345 when EXPLAINing a view whose underlying tables the
+            # connected user lacks SHOW VIEW on. Debug-log only, like
+            # `find_index_for_cursor`.
             logger.debug(f"EXPLAIN raised an exception: {e}", exc_info=e)
-            capture_exception(e)
 
     # ------------------------------------------------------------------
     # Pipeline build — the dlt `SourceResponse` for a single table
@@ -722,9 +806,23 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
         incremental_field = inputs.incremental_field
         incremental_field_type = inputs.incremental_field_type
         db_incremental_field_last_value = inputs.db_incremental_field_last_value
+        enabled_columns = inputs.enabled_columns
+        row_filters = inputs.row_filters
 
         with self.connect(config) as connection:
             with connection.cursor() as cursor:
+                primary_keys = self.get_primary_keys_for_table(cursor, schema, table_name)
+                full_table = self.get_table_metadata(cursor, schema, table_name)
+
+                # Resolve PKs before the projection so probe/sample queries match the streaming SELECT.
+                if primary_keys is None and "id" in full_table:
+                    primary_keys = ["id"]
+
+                projected = compute_projected_columns(enabled_columns, primary_keys, incremental_field)
+                table = project_arrow_columns(full_table, projected)
+                arrow_schema = table.to_arrow_schema()
+                logger.debug(f"Source schema: {arrow_schema}")
+
                 inner_query, inner_query_args = _build_query(
                     schema,
                     table_name,
@@ -732,12 +830,11 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                     incremental_field,
                     incremental_field_type,
                     db_incremental_field_last_value,
+                    enabled_columns=enabled_columns,
+                    primary_keys=primary_keys,
+                    row_filters=row_filters,
                 )
 
-                primary_keys = self.get_primary_keys_for_table(cursor, schema, table_name)
-                table = self.get_table_metadata(cursor, schema, table_name)
-                arrow_schema = table.to_arrow_schema()
-                logger.debug(f"Source schema: {arrow_schema}")
                 rows_to_sync = self.get_rows_to_sync(cursor, inner_query, inner_query_args, logger)
                 chunk_size = self.get_chunk_size(cursor, schema, table_name, inner_query, inner_query_args, logger)
                 partition_settings = (
@@ -745,10 +842,6 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                     if should_use_incremental_field
                     else None
                 )
-
-                # Fallback on checking for an `id` field on the table
-                if primary_keys is None and "id" in table:
-                    primary_keys = ["id"]
 
         def _stream_with_optional_force_index(force_index_name: str | None) -> Iterator[Any]:
             """Open a fresh connection and stream rows.
@@ -771,7 +864,8 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                         )
                 except Exception as e:
                     logger.warning(f"Failed to set session timeouts on MySQL sync connection: {e}")
-                with streaming_connection.cursor(SSCursor) as ss_cursor:
+                ss_cursor = streaming_connection.cursor(SSCursor)
+                try:
                     query, args = _build_query(
                         schema,
                         table_name,
@@ -780,6 +874,9 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                         incremental_field_type,
                         db_incremental_field_last_value,
                         force_index_name=force_index_name,
+                        enabled_columns=enabled_columns,
+                        primary_keys=primary_keys,
+                        row_filters=row_filters,
                     )
                     logger.debug(f"MySQL query: {query.format(args)}")
 
@@ -802,6 +899,12 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                             break
 
                         yield table_from_iterator((dict(zip(column_names, row)) for row in batch), arrow_schema)
+                finally:
+                    # Tear the streaming cursor down without draining the rest of
+                    # the unbuffered result set — see `_release_streaming_cursor`.
+                    # Closing it normally here would reissue the lost-connection
+                    # error over a cancellation or the FORCE INDEX restart.
+                    _release_streaming_cursor(ss_cursor)
 
         def get_rows() -> Iterator[Any]:
             # Track whether any batch reached the pipeline. If one did,
@@ -820,22 +923,22 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                     yield chunk
                 return
             except pymysql.err.OperationalError as e:
-                if not _is_bad_plan_timeout(e):
+                if not _is_bad_plan_error(e):
                     raise
                 if yielded_any:
                     logger.warning(
-                        f"Streaming query died with bad-plan timeout (error {e.args[0] if e.args else '?'}) "
+                        f"Streaming query died with a bad query plan (error {e.args[0] if e.args else '?'}) "
                         f"after already yielding rows — skipping FORCE INDEX fallback to avoid duplicates."
                     )
                     raise
                 logger.warning(
-                    f"Streaming query died with bad-plan timeout (error {e.args[0] if e.args else '?'}). "
+                    f"Streaming query died with a bad query plan (error {e.args[0] if e.args else '?'}). "
                     f"Attempting FORCE INDEX fallback."
                 )
                 if not should_use_incremental_field or not incremental_field:
                     # Without an incremental field there's no cursor to force an index on.
                     logger.warning(
-                        "Bad-plan timeout hit, but sync has no incremental field — cannot apply FORCE INDEX fallback."
+                        "Bad query plan hit, but sync has no incremental field — cannot apply FORCE INDEX fallback."
                     )
                     raise
 
@@ -847,13 +950,13 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
 
                 if not force_index_name:
                     logger.warning(
-                        f"Bad-plan timeout hit and no usable index on "
+                        f"Bad query plan hit and no usable index on "
                         f"{schema}.{table_name}.{incremental_field} — cannot apply FORCE INDEX fallback. "
                         f"Customer should add an index on the incremental field."
                     )
                     raise
 
-                logger.warning(f"Retrying streaming query with FORCE INDEX ({force_index_name}) after bad-plan timeout")
+                logger.warning(f"Retrying streaming query with FORCE INDEX ({force_index_name}) after bad query plan")
                 yield from _stream_with_optional_force_index(force_index_name)
 
         name = NamingConvention.normalize_identifier(table_name)

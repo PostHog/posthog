@@ -10,10 +10,12 @@ from unittest.mock import patch
 
 from click.testing import CliRunner
 from hogli import telemetry
-from hogli.cli import cli
+from hogli.cli import _outcome, _should_track, cli
 
 _TELEMETRY_ENV_VARS = (
-    "CI",
+    # Every CI marker the gate checks must be cleared, otherwise the suite
+    # running on GitHub Actions (GITHUB_ACTIONS=1) would see telemetry disabled.
+    *telemetry._CI_ENV_VARS,
     "POSTHOG_TELEMETRY_OPT_OUT",
     "DO_NOT_TRACK",
     "POSTHOG_TELEMETRY_HOST",
@@ -40,6 +42,9 @@ def test_is_enabled_by_default():
         ({"POSTHOG_TELEMETRY_OPT_OUT": "1"}, {}),
         ({"DO_NOT_TRACK": "1"}, {}),
         ({"CI": "true"}, {}),
+        ({"GITHUB_ACTIONS": "true"}, {}),
+        ({"BUILDKITE": "true"}, {}),
+        ({"GITLAB_CI": "true"}, {}),
         ({"POSTHOG_TELEMETRY_OPT_OUT": "1"}, {"enabled": True}),
     ],
 )
@@ -49,6 +54,13 @@ def test_is_disabled(monkeypatch: pytest.MonkeyPatch, telemetry_config: Path, en
     for key, value in env_vars.items():
         monkeypatch.setenv(key, value)
     assert telemetry.is_enabled() is False
+
+
+@pytest.mark.parametrize("ci_var", telemetry._CI_ENV_VARS)
+def test_is_ci_detects_each_provider(monkeypatch: pytest.MonkeyPatch, ci_var: str):
+    assert telemetry.is_ci() is False
+    monkeypatch.setenv(ci_var, "true")
+    assert telemetry.is_ci() is True
 
 
 def test_is_disabled_when_no_api_key_configured(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -117,6 +129,19 @@ class TestTrack:
             telemetry.flush(timeout=1.0)
             mock_send.assert_not_called()
 
+    def test_flush_async_drains_queue_without_blocking(self, telemetry_config: Path):
+        telemetry_config.write_text(
+            json.dumps({"enabled": True, "anonymous_id": "test-id", "first_run_notice_shown": True})
+        )
+        with patch.object(telemetry._client, "_send_batch") as mock_send:
+            telemetry.track("command_started", {"command": "test"})
+            telemetry.flush_async()
+            # The later blocking flush only joins the in-flight send; the queue
+            # was already drained, so exactly one batch goes out.
+            telemetry.flush(timeout=2.0)
+            mock_send.assert_called_once()
+            assert mock_send.call_args[0][0][0]["event"] == "command_started"
+
 
 class TestFirstRunNotice:
     def test_creates_config(self, telemetry_config: Path):
@@ -136,6 +161,14 @@ class TestFirstRunNotice:
         telemetry.show_first_run_notice_if_needed()
         captured_second = capsys.readouterr()
         assert captured_second.err == ""
+
+    @pytest.mark.parametrize("ci_var", telemetry._CI_ENV_VARS)
+    def test_suppressed_in_ci(self, monkeypatch: pytest.MonkeyPatch, telemetry_config: Path, capsys, ci_var: str):
+        monkeypatch.setenv(ci_var, "true")
+        telemetry.show_first_run_notice_if_needed()
+        captured = capsys.readouterr()
+        assert captured.err == ""
+        assert not telemetry_config.exists()
 
 
 class TestTelemetryCommands:
@@ -173,14 +206,18 @@ class TestInvokeTelemetry:
         )
         monkeypatch.setenv("POSTHOG_TELEMETRY_HOST", "http://localhost")
         monkeypatch.setenv("POSTHOG_TELEMETRY_API_KEY", "test-key")
+        # The suite itself may run under `hogli test`, which marks its whole
+        # process tree nested; pin the import-time capture for a stable assert.
+        monkeypatch.setattr("hogli.cli._IS_NESTED", False)
         with patch.object(telemetry._client, "_send_batch") as mock_send:
             runner = CliRunner()
             result = runner.invoke(cli, ["quickstart"])
             assert result.exit_code == 0
 
-            # Single batch call containing both events
-            mock_send.assert_called_once()
-            batch = mock_send.call_args[0][0]
+            # started is flushed eagerly in its own batch; completed flushes at
+            # command end -- two sends, so a hard kill can't lose the started event.
+            assert mock_send.call_count == 2
+            batch = [event for call in mock_send.call_args_list for event in call.args[0]]
             events = {e["event"] for e in batch}
             assert "command_started" in events
             assert "command_completed" in events
@@ -188,9 +225,98 @@ class TestInvokeTelemetry:
             started = next(e for e in batch if e["event"] == "command_started")
             assert started["properties"]["command"] == "quickstart"
             assert "is_ci" in started["properties"]
+            assert "hogli_version" in started["properties"]
+            assert started["properties"]["is_nested"] is False
 
             completed = next(e for e in batch if e["event"] == "command_completed")
             assert completed["properties"]["command"] == "quickstart"
             assert completed["properties"]["exit_code"] == 0
+            assert completed["properties"]["outcome"] == "success"
             assert "duration_s" in completed["properties"]
             assert "is_ci" in completed["properties"]
+
+    def test_first_run_shows_notice_and_emits_events(self, monkeypatch: pytest.MonkeyPatch, telemetry_config: Path):
+        """A brand-new install (no config file) must arm itself and emit events
+        in the same invocation -- the notice block must run before the gate."""
+        assert not telemetry_config.exists()
+        monkeypatch.setenv("POSTHOG_TELEMETRY_HOST", "http://localhost")
+        monkeypatch.setenv("POSTHOG_TELEMETRY_API_KEY", "test-key")
+        monkeypatch.setattr("hogli.cli._IS_NESTED", False)
+        with patch.object(telemetry._client, "_send_batch") as mock_send:
+            result = CliRunner().invoke(cli, ["quickstart"])
+            assert result.exit_code == 0
+            events = {e["event"] for call in mock_send.call_args_list for e in call.args[0]}
+            assert events == {"command_started", "command_completed"}
+        assert "hogli collects anonymous usage data" in result.output
+
+    @pytest.mark.parametrize("command", ["telemetry:on", "telemetry:off", "telemetry:status"])
+    def test_management_commands_emit_no_events(
+        self, monkeypatch: pytest.MonkeyPatch, telemetry_config: Path, command: str
+    ):
+        telemetry_config.write_text(
+            json.dumps({"enabled": True, "anonymous_id": "test-id", "first_run_notice_shown": True})
+        )
+        monkeypatch.setenv("POSTHOG_TELEMETRY_HOST", "http://localhost")
+        monkeypatch.setenv("POSTHOG_TELEMETRY_API_KEY", "test-key")
+        with patch.object(telemetry._client, "_send_batch") as mock_send:
+            result = CliRunner().invoke(cli, [command])
+            assert result.exit_code == 0
+            mock_send.assert_not_called()
+
+
+def _patch_cli_manifest(monkeypatch: pytest.MonkeyPatch, command_config: dict | None) -> None:
+    """Point hogli.cli at a fake manifest whose every command has *command_config*.
+
+    Keeps core tests off PostHog's hogli.yaml per the framework boundary.
+    """
+
+    class _FakeManifest:
+        def command_flag(self, command, key):
+            return bool((command_config or {}).get(key, False))
+
+        def get_command_config(self, command):
+            return command_config
+
+    monkeypatch.setattr("hogli.cli.get_manifest", lambda: _FakeManifest())
+
+
+class TestShouldTrack:
+    @pytest.fixture(autouse=True)
+    def _no_untracked_manifest(self, monkeypatch: pytest.MonkeyPatch):
+        _patch_cli_manifest(monkeypatch, None)
+
+    @pytest.mark.parametrize(
+        "command, expected",
+        [
+            ("test", True),
+            ("migrations:run", True),
+            (None, False),
+            ("telemetry:on", False),
+            ("telemetry:off", False),
+            ("telemetry:status", False),
+            ("run", False),  # exec-replaces the process; events could never pair
+        ],
+    )
+    def test_should_track(self, command, expected):
+        assert _should_track(command) is expected
+
+    def test_manifest_untracked_key_suppresses_tracking(self, monkeypatch: pytest.MonkeyPatch):
+        _patch_cli_manifest(monkeypatch, {"untracked": True})
+        assert _should_track("devbox:ssh") is False
+
+
+class TestOutcome:
+    @pytest.mark.parametrize(
+        "exit_code, expected",
+        [
+            (0, "success"),
+            (1, "error"),
+            (2, "error"),
+            (128, "error"),  # application-error idiom (e.g. git fatal), not a signal
+            (130, "interrupted"),  # SIGINT (Ctrl-C)
+            (143, "interrupted"),  # SIGTERM
+            (-13, "interrupted"),  # subprocess killed by signal
+        ],
+    )
+    def test_outcome(self, exit_code, expected):
+        assert _outcome(exit_code) == expected

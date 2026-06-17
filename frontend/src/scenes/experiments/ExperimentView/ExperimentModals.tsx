@@ -5,6 +5,8 @@ import { useEffect, useState } from 'react'
 import { IconCheckCircle, IconGlobe, IconList } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonLabel, LemonModal, LemonSelect, LemonTextArea, Link } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -196,11 +198,13 @@ export function ResumeExperimentModal(): JSX.Element {
 }
 
 export function FinishExperimentModal(): JSX.Element {
-    const { experiment, isSingleVariantShipped, shippedVariantKey } = useValues(experimentLogic)
+    const { experiment, isSingleVariantShipped, shippedVariantKey, endExperimentLoading } = useValues(experimentLogic)
     const { finishExperiment, endExperimentWithoutShipping, restoreUnmodifiedExperiment } = useActions(experimentLogic)
     const { closeFinishExperimentModal } = useActions(modalsLogic)
     const { isFinishExperimentModalOpen } = useValues(modalsLogic)
     const { aggregationLabel } = useValues(groupsModel)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const conclusionFirst = !!featureFlags[FEATURE_FLAGS.EXPERIMENTS_END_MODAL_CONCLUSION_FIRST]
 
     const [selectedVariantKey, setSelectedVariantKey] = useState<string | null>()
     const [releaseToEveryone, setReleaseToEveryone] = useState<boolean>(false)
@@ -273,6 +277,7 @@ export function FinishExperimentModal(): JSX.Element {
                         <LemonButton
                             onClick={handleEndExperiment}
                             type="primary"
+                            loading={endExperimentLoading}
                             disabledReason={!experiment.conclusion && 'Select a conclusion'}
                         >
                             End experiment
@@ -281,6 +286,7 @@ export function FinishExperimentModal(): JSX.Element {
                 }
             >
                 <div className="space-y-4">
+                    {conclusionFirst && <ConclusionForm />}
                     {isSingleVariantShipped ? (
                         <div>
                             <LemonBanner type="info" className="mb-4">
@@ -294,7 +300,10 @@ export function FinishExperimentModal(): JSX.Element {
                     ) : (
                         <>
                             <div>
-                                <LemonLabel>Variant to keep</LemonLabel>
+                                <LemonLabel showOptional>Variant to keep</LemonLabel>
+                                <div className="text-xs text-muted mb-1">
+                                    Leave blank to end the experiment without rolling out a variant.
+                                </div>
                                 <div className="w-1/2 mt-1">
                                     <LemonSelect
                                         className="w-full"
@@ -376,7 +385,7 @@ export function FinishExperimentModal(): JSX.Element {
                             )}
                         </>
                     )}
-                    <ConclusionForm />
+                    {!conclusionFirst && <ConclusionForm />}
                     {!isSingleVariantShipped && (
                         <LemonBanner type="info" className="mb-4">
                             For more precise control over your release, adjust the rollout percentage and release

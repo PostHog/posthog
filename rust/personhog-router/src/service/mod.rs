@@ -6,14 +6,15 @@ use std::sync::Arc;
 use personhog_proto::personhog::service::v1::person_hog_service_server::PersonHogService;
 use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, CohortMembershipResponse, CountCohortMembersRequest,
-    CountCohortMembersResponse, CreateGroupRequest, CreateGroupResponse, DeleteCohortMemberRequest,
-    DeleteCohortMemberResponse, DeleteCohortMembersBulkRequest, DeleteCohortMembersBulkResponse,
-    DeleteGroupTypeMappingRequest, DeleteGroupTypeMappingResponse,
-    DeleteGroupTypeMappingsBatchForTeamRequest, DeleteGroupTypeMappingsBatchForTeamResponse,
-    DeleteGroupsBatchForTeamRequest, DeleteGroupsBatchForTeamResponse,
-    DeleteHashKeyOverridesByTeamsRequest, DeleteHashKeyOverridesByTeamsResponse,
-    DeletePersonsBatchForTeamRequest, DeletePersonsBatchForTeamResponse, DeletePersonsRequest,
-    DeletePersonsResponse, GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
+    CountCohortMembersResponse, CountGroupTypeMappingsRequest, CountGroupTypeMappingsResponse,
+    CreateGroupRequest, CreateGroupResponse, DeleteCohortMemberRequest, DeleteCohortMemberResponse,
+    DeleteCohortMembersBulkRequest, DeleteCohortMembersBulkResponse, DeleteGroupTypeMappingRequest,
+    DeleteGroupTypeMappingResponse, DeleteGroupTypeMappingsBatchForTeamRequest,
+    DeleteGroupTypeMappingsBatchForTeamResponse, DeleteGroupsBatchForTeamRequest,
+    DeleteGroupsBatchForTeamResponse, DeleteHashKeyOverridesByTeamsRequest,
+    DeleteHashKeyOverridesByTeamsResponse, DeletePersonsBatchForTeamRequest,
+    DeletePersonsBatchForTeamResponse, DeletePersonsRequest, DeletePersonsResponse,
+    GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
     GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
     GetGroupResponse, GetGroupTypeMappingByDashboardIdRequest,
     GetGroupTypeMappingByDashboardIdResponse, GetGroupTypeMappingsByProjectIdRequest,
@@ -26,9 +27,9 @@ use personhog_proto::personhog::types::v1::{
     InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
     ListCohortMemberIdsResponse, ListGroupsRequest, ListGroupsResponse,
     PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse, PersonsResponse,
-    UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
-    UpdateGroupTypeMappingResponse, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
-    UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
+    SplitPersonRequest, SplitPersonResponse, UpdateGroupRequest, UpdateGroupResponse,
+    UpdateGroupTypeMappingRequest, UpdateGroupTypeMappingResponse, UpdatePersonPropertiesRequest,
+    UpdatePersonPropertiesResponse, UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
 use tonic::{Request, Response, Status};
 
@@ -261,6 +262,13 @@ impl PersonHogService for PersonHogRouterService {
         route_request!(self, get_group_type_mappings_by_project_ids, request)
     }
 
+    async fn count_group_type_mappings(
+        &self,
+        request: Request<CountGroupTypeMappingsRequest>,
+    ) -> Result<Response<CountGroupTypeMappingsResponse>, Status> {
+        route_request!(self, count_group_type_mappings, request)
+    }
+
     async fn get_group_type_mapping_by_dashboard_id(
         &self,
         request: Request<GetGroupTypeMappingByDashboardIdRequest>,
@@ -328,6 +336,15 @@ impl PersonHogService for PersonHogRouterService {
         request: Request<DeletePersonsBatchForTeamRequest>,
     ) -> Result<Response<DeletePersonsBatchForTeamResponse>, Status> {
         route_request!(self, delete_persons_batch_for_team, request)
+    }
+
+    // Person split
+
+    async fn split_person(
+        &self,
+        request: Request<SplitPersonRequest>,
+    ) -> Result<Response<SplitPersonResponse>, Status> {
+        route_request!(self, split_person, request)
     }
 
     // Person property updates (routed to leader)

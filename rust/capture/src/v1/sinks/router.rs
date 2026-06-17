@@ -176,15 +176,14 @@ mod tests {
                 dlq_reason: None,
                 dlq_step: None,
                 dlq_timestamp: None,
+                content_encoding: None,
             }
         }
-        fn partition_key(&self, _ctx: &Context, buf: &mut String) {
-            use std::fmt::Write;
-            let _ = write!(buf, "key:{}", self.uuid());
+        fn partition_key(&self, _ctx: &Context) -> String {
+            format!("key:{}", self.uuid())
         }
-        fn serialize_into(&self, _ctx: &Context, buf: &mut String) -> anyhow::Result<()> {
-            buf.push_str(r#"{"event":"test"}"#);
-            Ok(())
+        fn serialize(&self, _ctx: &Context) -> anyhow::Result<String> {
+            Ok(r#"{"event":"test"}"#.to_string())
         }
     }
 

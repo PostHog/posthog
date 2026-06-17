@@ -1,10 +1,9 @@
 from datetime import datetime
-from time import sleep
 from typing import Any
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
-from unittest import TestCase
+from unittest import TestCase, mock
 
 from parameterized import parameterized
 from rest_framework import status
@@ -12,14 +11,14 @@ from rest_framework import status
 from posthog.schema import EndpointLastExecutionTimesRequest
 
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.models.insight_variable import InsightVariable
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
-from products.endpoints.backend.models import Endpoint
+from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
+from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 
 class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
@@ -437,6 +436,19 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
         self.assertEqual(response.json()["name"], "reusable_name")
 
+    def test_create_rolls_back_endpoint_when_version_creation_fails(self):
+        payload = {"name": "rollback-endpoint", "query": {"kind": "HogQLQuery", "query": "SELECT 1"}}
+
+        with mock.patch.object(EndpointVersion.objects, "create", side_effect=RuntimeError("boom")):
+            response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(Endpoint.objects.filter(team=self.team, name="rollback-endpoint", deleted=False).count(), 0)
+
+        # The name must be reusable after the failed create
+        response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+
     def test_soft_deleted_endpoint_not_runnable(self):
         create_endpoint_with_version(
             name="run_deleted",
@@ -791,7 +803,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             is_active=True,
         )
 
-        # Execute the endpoints using API key to generate query_log entries with is_personal_api_key_request=true
+        # Execute the endpoints using API key to update Postgres execution timestamps.
         response1 = self.client.get(
             f"/api/environments/{self.team.id}/endpoints/test_query_1/run/",
             headers={"authorization": f"Bearer {self.api_key}"},
@@ -803,9 +815,6 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             headers={"authorization": f"Bearer {self.api_key}"},
         )
         self.assertEqual(response2.status_code, status.HTTP_200_OK)
-
-        # wait for the queries to end up in query_log :/
-        sleep(3)
 
         data = {"names": ["test_query_1", "test_query_2", "nonexistent_query"]}
         response = self.client.post(
@@ -836,6 +845,62 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             datetime.fromisoformat(query_timestamps["test_query_2"]),
             f"Invalid timestamp format for test_query_2: {query_timestamps['test_query_2']}",
         )
+
+        endpoint = Endpoint.objects.get(name="test_query_1", team=self.team)
+        version = EndpointVersion.objects.get(endpoint=endpoint, version=1)
+        self.assertIsNotNone(endpoint.last_executed_at)
+        self.assertIsNotNone(version.last_executed_at)
+
+    def test_last_execution_times_is_endpoint_level_only(self):
+        """last_execution_times returns endpoint-level rows only — per-version data is not exposed."""
+        endpoint = create_endpoint_with_version(
+            name="test_query_versions",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT 1"},
+            created_by=self.user,
+            is_active=True,
+            current_version=2,
+        )
+        endpoint.last_executed_at = datetime.fromisoformat("2026-05-02T12:00:00+00:00")
+        endpoint.save(update_fields=["last_executed_at"])
+        # A per-version timestamp must not surface through this endpoint.
+        version_2 = endpoint.get_version(2)
+        assert version_2 is not None
+        version_2.last_executed_at = datetime.fromisoformat("2026-05-09T12:00:00+00:00")
+        version_2.save(update_fields=["last_executed_at"])
+
+        data = {"names": ["test_query_versions"]}
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/last_execution_times/", data, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        results = response.json()["query_status"]["results"]
+        # Endpoint-level shape [name, last_executed_at] — two elements, no version, endpoint timestamp.
+        self.assertEqual(results, [["test_query_versions", "2026-05-02T12:00:00+00:00"]])
+
+    def test_versions_endpoint_reports_per_version_last_executed_at(self):
+        """endpoint-versions reports each version's own last_executed_at, not the endpoint-level one."""
+        endpoint = create_endpoint_with_version(
+            name="v_test",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT 1"},
+            created_by=self.user,
+            is_active=True,
+        )
+        endpoint.last_executed_at = datetime.fromisoformat("2026-05-02T12:00:00+00:00")
+        endpoint.save(update_fields=["last_executed_at"])
+        version = endpoint.get_version()
+        assert version is not None
+        version.last_executed_at = datetime.fromisoformat("2026-05-09T12:00:00+00:00")
+        version.save(update_fields=["last_executed_at"])
+
+        response = self.client.get(f"/api/environments/{self.team.id}/endpoints/v_test/versions/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        rows = response.json()["results"]
+        self.assertEqual(len(rows), 1)
+        # The version's own timestamp, not the endpoint-level one.
+        self.assertEqual(rows[0]["last_executed_at"], "2026-05-09T12:00:00+00:00")
 
     def test_get_last_execution_times_with_nonexistent_query(self):
         """Test getting last execution times with a nonexistent query."""
@@ -876,6 +941,30 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         query_status = response_data["query_status"]
         self.assertIsInstance(query_status["results"], list)
         self.assertEqual(len(query_status["results"]), 0, query_status)
+
+    def test_get_last_execution_times_with_personal_api_key(self):
+        """Personal API key access must be allowed — the MCP server calls this action via a personal API key."""
+        create_endpoint_with_version(
+            name="test_query_1",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT 1"},
+            created_by=self.user,
+            is_active=True,
+        )
+
+        # Drop session auth so the request is authenticated purely by the personal API key,
+        # matching how the MCP server reaches this endpoint.
+        self.client.logout()
+
+        data = {"names": ["test_query_1"]}
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/last_execution_times/",
+            data,
+            format="json",
+            headers={"authorization": f"Bearer {self.api_key}"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
 
     @parameterized.expand(
         [
@@ -1172,7 +1261,7 @@ class TestMaterializationPreview(ClickhouseTestMixin, APIBaseTest):
         }
 
     def _create_endpoint_with_variables(self, name="range-endpoint"):
-        from posthog.models.insight_variable import InsightVariable
+        from products.product_analytics.backend.models.insight_variable import InsightVariable
 
         InsightVariable.objects.create(
             team=self.team, id="00000000-0000-0000-0000-000000000001", code_name="start_ts", type="String"
@@ -1252,7 +1341,7 @@ class TestMaterializationPreview(ClickhouseTestMixin, APIBaseTest):
         assert endpoint_data.get("materialization", {}).get("status") is None
 
     def test_bucket_overrides_stored_on_version(self):
-        from posthog.models.insight_variable import InsightVariable
+        from products.product_analytics.backend.models.insight_variable import InsightVariable
 
         InsightVariable.objects.create(
             team=self.team, id="00000000-0000-0000-0000-000000000001", code_name="start_ts", type="String"
@@ -1378,7 +1467,7 @@ class TestMaterializationPreview(ClickhouseTestMixin, APIBaseTest):
         assert version.bucket_overrides == {"timestamp": "week"}
 
         # Change bucket_overrides — should trigger an immediate refresh
-        with mock.patch("products.endpoints.backend.api.trigger_saved_query_schedule") as mock_trigger:
+        with mock.patch("products.endpoints.backend.services.crud.trigger_saved_query_schedule") as mock_trigger:
             response = self.client.patch(
                 f"/api/environments/{self.team.id}/endpoints/trigger-bucket/",
                 {"bucket_overrides": {"timestamp": "hour"}},

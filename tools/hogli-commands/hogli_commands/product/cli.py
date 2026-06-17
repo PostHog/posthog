@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import click
 
-from .lint import lint_all_products, lint_product
+from .lint import lint_all_products, lint_owners, lint_product
 from .maturity import generate_codegen_report, generate_detail, generate_report, score_all_products, score_product
 from .scaffold import bootstrap_product
 
@@ -84,6 +84,17 @@ def cmd_lint(name: str | None, lint_all: bool) -> None:
     raise SystemExit(1)
 
 
+@click.command(
+    name="product:lint:owners",
+    help="Validate product.yaml owners against PostHog/posthog collaborator teams. "
+    "Pass product names to limit to those (CI passes the list derived from changed yamls); "
+    "no args = sweep every product.",
+)
+@click.argument("names", nargs=-1)
+def cmd_lint_owners(names: tuple[str, ...]) -> None:
+    lint_owners(list(names))
+
+
 @click.command(name="product:maturity", help="Score product maturity across isolation dimensions")
 @click.argument("name", required=False)
 @click.option("--all", "score_all", is_flag=True, help="Score all products and generate ranked report")
@@ -110,3 +121,50 @@ def cmd_maturity(name: str | None, score_all: bool, codegen_detail: bool) -> Non
 
     ps = score_product(name)
     click.echo(generate_detail(ps))
+
+
+@click.command(
+    name="product:isolate:scan",
+    help="Read-only isolation recon: classified import map, coupling count, strict-lint preflight",
+)
+@click.argument("name")
+@click.option("--json", "as_json", is_flag=True, help="Emit the machine-readable recipe instead of the report")
+def cmd_isolate_scan(name: str, as_json: bool) -> None:
+    import json as json_module
+
+    from .isolate import build_scan_report, render_scan_report
+
+    try:
+        report = build_scan_report(name)
+    except ValueError as e:
+        raise click.ClickException(str(e))
+    click.echo(json_module.dumps(report, indent=2) if as_json else render_scan_report(report))
+
+
+@click.command(
+    name="product:isolate:move",
+    help="Mechanical isolation moves: viewsets to presentation/views/, tasks.py to tasks/ (names pinned), repo-wide path rewrites",
+)
+@click.argument("name")
+@click.option(
+    "--views",
+    multiple=True,
+    help="Backend-relative view module paths to move, e.g. api/heatmaps_api.py (default: auto-detect ViewSet modules at backend root)",
+)
+@click.option("--dry-run", is_flag=True, help="Print the plan without changing anything")
+def cmd_isolate_move(name: str, views: tuple[str, ...], dry_run: bool) -> None:
+    from .isolate import build_move_plan, execute_move_plan
+
+    try:
+        plan = build_move_plan(name, list(views) or None)
+        if not plan.view_moves and not plan.tasks_move:
+            click.echo("Nothing to move: no ViewSet modules at backend root and no root tasks.py")
+            return
+        for line in execute_move_plan(plan, dry_run=dry_run):
+            click.echo(line)
+    except ValueError as e:
+        raise click.ClickException(str(e))
+    if dry_run:
+        click.echo("\n(dry run — nothing changed)")
+    else:
+        click.echo("\nNext: review `git status`, then run tach check + lint-imports + hogli product:lint")

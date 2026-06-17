@@ -1,10 +1,13 @@
 import uuid
+from collections.abc import Mapping
 from urllib.parse import parse_qs, urlparse
 
 import pytest
 from unittest import mock
 
 import stripe as stripe_lib
+from parameterized import parameterized
+from stripe._http_client import HTTPClient
 
 from posthog.models.integration import Integration
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -13,7 +16,9 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
     ACCOUNT_RESOURCE_NAME,
     CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
     CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
+    SUBSCRIPTION_RESOURCE_NAME,
 )
+from posthog.temporal.data_imports.sources.stripe.settings import WEBHOOK_ONLY_ENDPOINTS
 from posthog.temporal.data_imports.sources.stripe.source import StripeSource
 from posthog.temporal.data_imports.sources.stripe.stripe import (
     StripeAuthenticationError,
@@ -23,8 +28,11 @@ from posthog.temporal.data_imports.sources.stripe.stripe import (
     StripeResumeConfig,
     StripeValidationError,
     _build_resources,
+    _call_stripe,
     _clean_stripe_error_message,
+    _tracked_stripe_http_client,
     check_endpoint_permissions,
+    get_rows,
     validate_credentials,
 )
 from posthog.temporal.tests.data_imports.conftest import run_external_data_job_workflow
@@ -35,6 +43,12 @@ from products.warehouse_sources.backend.models.external_data_source import Exter
 from .data import BALANCE_TRANSACTIONS
 
 pytestmark = pytest.mark.usefixtures("minio_client")
+
+
+def _exception_with_code(message: str, code: str) -> Exception:
+    error = Exception(message)
+    error.code = code  # type: ignore[attr-defined]
+    return error
 
 
 @pytest.fixture
@@ -239,6 +253,7 @@ def _mock_all_stripe_endpoints(mock_client):
     mock_client.subscriptions.list = mock.MagicMock()
     mock_client.refunds.list = mock.MagicMock()
     mock_client.credit_notes.list = mock.MagicMock()
+    mock_client.coupons.list = mock.MagicMock()
 
 
 def test_validate_credentials_basic_only_probes_one_endpoint():
@@ -268,6 +283,91 @@ def test_validate_credentials_basic_only_probes_one_endpoint():
         mock_client.subscriptions.list.assert_not_called()
         mock_client.refunds.list.assert_not_called()
         mock_client.credit_notes.list.assert_not_called()
+        mock_client.coupons.list.assert_not_called()
+
+
+def test_subscription_list_uses_expand_for_discounts():
+    """Subscription list call must expand discounts so coupon details ride inline.
+
+    Without `expand=data.discounts` Stripe returns an array of discount IDs, which is
+    insufficient for revenue projection — customers need amount_off / percent_off /
+    duration. Item-level discounts (`items.data.discounts`) need the same treatment.
+    """
+    mock_client = mock.MagicMock()
+
+    # Empty page response — we only care about how the list method was invoked.
+    empty_page = mock.MagicMock()
+    empty_page.auto_paging_iter.return_value = iter([])
+    mock_client.subscriptions.list.return_value = empty_page
+
+    resumable_manager = mock.MagicMock()
+    resumable_manager.can_resume.return_value = False
+
+    with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client):
+        # Drain the generator so the list call actually happens.
+        list(
+            get_rows(
+                api_key="api_key",
+                endpoint=SUBSCRIPTION_RESOURCE_NAME,
+                account_id=None,
+                db_incremental_field_last_value=None,
+                db_incremental_field_earliest_value=None,
+                logger=mock.MagicMock(),
+                resumable_source_manager=resumable_manager,
+                should_use_incremental_field=False,
+            )
+        )
+
+    mock_client.subscriptions.list.assert_called_once()
+    call_params = mock_client.subscriptions.list.call_args.kwargs["params"]
+    assert call_params["status"] == "all"
+    # Key must be "expand" (not "expand[]"): a list under "expand[]" encodes to expand[][0]=…
+    # (doubled brackets) which Stripe rejects. See _build_resources for the full explanation.
+    assert call_params["expand"] == ["data.discounts", "data.items.data.discounts"]
+    assert "expand[]" not in call_params
+
+
+@pytest.mark.parametrize("endpoint", WEBHOOK_ONLY_ENDPOINTS)
+def test_webhook_only_endpoint_yields_no_rows(endpoint):
+    """Webhook-only resources have no API list endpoint; get_rows must short-circuit
+    cleanly so the initial sync completes and the webhook source manager can take over."""
+    mock_client = mock.MagicMock()
+    resumable_manager = mock.MagicMock()
+    resumable_manager.can_resume.return_value = False
+
+    with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client):
+        rows = list(
+            get_rows(
+                api_key="api_key",
+                endpoint=endpoint,
+                account_id=None,
+                db_incremental_field_last_value=None,
+                db_incremental_field_earliest_value=None,
+                logger=mock.MagicMock(),
+                resumable_source_manager=resumable_manager,
+                should_use_incremental_field=False,
+            )
+        )
+
+    assert rows == []
+    # No Stripe list endpoint should be hit for a webhook-only resource.
+    mock_client.subscriptions.list.assert_not_called()
+    mock_client.coupons.list.assert_not_called()
+
+
+@pytest.mark.parametrize("endpoint", WEBHOOK_ONLY_ENDPOINTS)
+def test_validate_credentials_skips_webhook_only_resource(endpoint):
+    """Webhook-only resources have no list endpoint, so validation should short-circuit
+    and not hit Stripe."""
+    mock_client = mock.MagicMock()
+
+    with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client):
+        result = validate_credentials("api_key", [endpoint])
+
+    assert result is True
+    # No list method should be called when validating a webhook-only resource.
+    mock_client.coupons.list.assert_not_called()
+    mock_client.subscriptions.list.assert_not_called()
 
 
 def test_validate_credentials_basic_treats_403_as_success():
@@ -475,6 +575,96 @@ def test_clean_stripe_error_message_passthrough_when_no_redaction():
     assert _clean_stripe_error_message(msg) == msg
 
 
+def test_subscription_expand_encodes_as_array_not_object():
+    """End-to-end encoding regression: the discount expand must reach Stripe as
+    expand[0]=…&expand[1]=… (a real array), not expand[][0]=… which Stripe parses as an
+    array-of-one-object and rejects with "Invalid string: {...}". The mock-based test above
+    can't catch this because it intercepts above the SDK's query-string encoding."""
+    captured: dict[str, str] = {}
+
+    class RecordingHTTPClient(HTTPClient):
+        name = "recording"
+
+        def request_with_retries(self, method, url, headers, post_data=None, max_network_retries=None, *, _usage=None):
+            captured["url"] = url
+            body = '{"object":"list","data":[],"has_more":false,"url":"/v1/subscriptions"}'
+            return body, 200, {"request-id": "req_test"}
+
+        def request_stream_with_retries(
+            self, method, url, headers, post_data=None, max_network_retries=None, *, _usage=None
+        ):
+            raise NotImplementedError
+
+    client = stripe_lib.StripeClient("sk_test_x", http_client=RecordingHTTPClient())
+    resources = _build_resources(client)
+    subscription = resources[SUBSCRIPTION_RESOURCE_NAME]
+    subscription.method(params=subscription.params)
+
+    url = captured["url"]
+    assert "expand[0]=data.discounts" in url
+    assert "expand[1]=data.items.data.discounts" in url
+    # The doubled-bracket form is the bug — Stripe rejects it.
+    assert "expand[][0]" not in url
+
+
+@pytest.mark.parametrize(
+    "error_factory",
+    [
+        # InvalidRequestError requires a positional `param` — the regression that broke imports.
+        lambda msg: stripe_lib.InvalidRequestError(msg, "expand[]"),
+        lambda msg: stripe_lib.PermissionError(msg),
+        lambda msg: stripe_lib.AuthenticationError(msg),
+        lambda msg: stripe_lib.APIConnectionError(msg),
+    ],
+)
+def test_call_stripe_cleans_message_and_preserves_error_type(error_factory):
+    """_call_stripe must re-raise the same StripeError subclass with a cleaned message.
+    Reconstructing via `type(e)(message=...)` broke for subclasses with extra required
+    args (e.g. InvalidRequestError's `param`), so we mutate the message in place instead."""
+    raw = "The provided key 'rk_live_" + ("*" * 80) + "gbeftZ' is invalid"
+
+    def boom():
+        raise error_factory(raw)
+
+    with pytest.raises(stripe_lib.StripeError) as exc_info:
+        _call_stripe(boom)
+
+    raised = exc_info.value
+    assert type(raised) is type(error_factory(raw))
+    assert "*" * 80 not in str(raised)
+    assert "rk_live_***gbeftZ" in str(raised)
+
+
+def test_call_stripe_passes_through_successful_result():
+    assert _call_stripe(lambda x: x + 1, 41) == 42
+
+
+@parameterized.expand(
+    [
+        # (status_code, num_retries, max_network_retries, expected)
+        # 429 is now retried while budget remains — the SDK omits this on its own.
+        ("rate_limit_retried", 429, 0, 2, True),
+        # ...but stops once the retry budget is exhausted, so we don't loop forever.
+        ("rate_limit_budget_exhausted", 429, 2, 2, False),
+        # 5xx keeps the SDK's built-in retry behavior.
+        ("server_error_still_retried", 503, 0, 2, True),
+        # Non-retryable 4xx (e.g. a bad request) must NOT be retried.
+        ("bad_request_not_retried", 400, 0, 2, False),
+    ]
+)
+def test_stripe_http_client_retries_rate_limits(_name, status_code, num_retries, max_network_retries, expected):
+    """Stripe's SDK never retries 429s, so a transient rate limit during pagination would crash
+    the import activity. Our client opts 429 into the SDK's Retry-After-aware backoff while
+    preserving the base behavior for 5xx and leaving non-retryable 4xx alone."""
+    client = _tracked_stripe_http_client()
+    response: tuple[bytes, int, Mapping[str, str]] = (b"", status_code, {})
+
+    assert (
+        client._should_retry(response, None, num_retries=num_retries, max_network_retries=max_network_retries)
+        is expected
+    )
+
+
 def test_validate_credentials_nested_resources_have_registered_parents():
     """Invariant: every StripeNestedResource's `parent_name` must point at a key that is
     also registered as a top-level StripeResource in _build_resources. validate_credentials
@@ -525,6 +715,7 @@ def test_validate_credentials_with_missing_table_name():
     mock_client.subscriptions.list.assert_not_called()
     mock_client.refunds.list.assert_not_called()
     mock_client.credit_notes.list.assert_not_called()
+    mock_client.coupons.list.assert_not_called()
 
     assert "bad_table" in str(e)
 
@@ -682,3 +873,171 @@ class TestGetEndpointPermissions:
         # Generic message — never leak the raw exception body to the UI.
         assert result == {"Customer": "Stripe credentials are not available"}
         assert "secret123" not in result["Customer"]
+
+
+class TestUpdateWebhookEvents:
+    """`update_webhook_events` reconciles a Stripe endpoint's enabled_events with the desired set."""
+
+    WEBHOOK_URL = "https://webhooks.us.posthog.com/public/webhooks/dwh/123"
+
+    def _mock_client_with_endpoint(self, *, url, enabled_events):
+        endpoint = mock.MagicMock()
+        endpoint.id = "we_123"
+        endpoint.url = url
+        endpoint.enabled_events = enabled_events
+
+        mock_client = mock.MagicMock()
+        mock_client.webhook_endpoints.list.return_value.auto_paging_iter.return_value = [endpoint]
+        return mock_client, endpoint
+
+    def test_drift_calls_update_with_merged_set(self):
+        from posthog.temporal.data_imports.sources.stripe.stripe import update_webhook_events
+
+        mock_client, endpoint = self._mock_client_with_endpoint(
+            url=self.WEBHOOK_URL, enabled_events=["charge.captured"]
+        )
+
+        with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client):
+            result = update_webhook_events("rk_test", None, self.WEBHOOK_URL, ["charge.captured", "customer.created"])
+
+        assert result.success
+        mock_client.webhook_endpoints.update.assert_called_once()
+        args, kwargs = mock_client.webhook_endpoints.update.call_args
+        # Stripe SDK signature is update(endpoint_id, params={...}) — endpoint id positional,
+        # events nested under `params`. Asserting this exact shape guards against passing
+        # enabled_events as a bare kwarg (a silent TypeError that never actually updates).
+        assert args[0] == "we_123"
+        enabled = kwargs["params"]["enabled_events"]
+        assert "customer.created" in enabled
+        # Pre-existing events the user had are preserved.
+        assert "charge.captured" in enabled
+
+    @parameterized.expand(
+        [
+            # endpoint already carries everything desired
+            ("already in sync", WEBHOOK_URL, ["charge.captured", "customer.created"]),
+            # endpoint listens to all events
+            ("wildcard endpoint", WEBHOOK_URL, ["*"]),
+            # no endpoint matches our url
+            ("no matching endpoint", "https://other.example.com", ["charge.captured"]),
+        ]
+    )
+    def test_does_not_write_when_no_drift(self, _name, endpoint_url, enabled_events):
+        from posthog.temporal.data_imports.sources.stripe.stripe import update_webhook_events
+
+        mock_client, _ = self._mock_client_with_endpoint(url=endpoint_url, enabled_events=enabled_events)
+
+        with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client):
+            result = update_webhook_events("rk_test", None, self.WEBHOOK_URL, ["charge.captured", "customer.created"])
+
+        assert result.success
+        mock_client.webhook_endpoints.update.assert_not_called()
+
+    def test_permission_error_returns_actionable_failure_without_raising(self):
+        from posthog.temporal.data_imports.sources.stripe.stripe import update_webhook_events
+
+        mock_client, _ = self._mock_client_with_endpoint(url=self.WEBHOOK_URL, enabled_events=["charge.captured"])
+        mock_client.webhook_endpoints.update.side_effect = stripe_lib.PermissionError(message="Forbidden")
+
+        with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client):
+            result = update_webhook_events("rk_test", None, self.WEBHOOK_URL, ["customer.created"])
+
+        assert result.success is False
+        assert result.error is not None
+        assert "Write" in result.error
+        assert "customer.created" in result.error
+
+    def test_empty_desired_is_noop(self):
+        from posthog.temporal.data_imports.sources.stripe.stripe import update_webhook_events
+
+        with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient") as mock_client_cls:
+            result = update_webhook_events("rk_test", None, "https://x", [])
+
+        assert result.success
+        mock_client_cls.assert_not_called()
+
+
+class TestAllKnownWebhookEvents:
+    """Guards the event-derivation the create + reconcile paths both depend on."""
+
+    def test_only_emits_events_under_mapped_prefixes(self):
+        from posthog.temporal.data_imports.sources.stripe.constants import RESOURCE_TO_STRIPE_WEBHOOK_EVENT
+        from posthog.temporal.data_imports.sources.stripe.stripe import _all_known_webhook_events
+
+        events = _all_known_webhook_events()
+
+        assert len(events) > 0
+        # Never subscribe to an event outside a mapped prefix — that's noise we'd drop anyway.
+        prefixes = set(RESOURCE_TO_STRIPE_WEBHOOK_EVENT.values())
+        for event in events:
+            assert any(event.startswith(f"{p}.") for p in prefixes), f"unmapped event leaked in: {event}"
+
+    def test_includes_revenue_critical_resource_events(self):
+        from posthog.temporal.data_imports.sources.stripe.stripe import _all_known_webhook_events
+
+        events = set(_all_known_webhook_events())
+        # The resources Revenue analytics depends on must always be covered. Disputes ride in via
+        # `charge.dispute.*` (the `dispute` prefix itself yields nothing — events are charge-scoped).
+        for expected in ["charge.captured", "customer.created", "invoice.created", "customer.subscription.created"]:
+            assert expected in events, f"missing critical event: {expected}"
+        assert any(e.startswith("charge.dispute.") for e in events)
+
+
+class TestCreateWebhook:
+    def test_creates_endpoint_with_full_known_event_set(self):
+        from posthog.temporal.data_imports.sources.stripe.stripe import _all_known_webhook_events, create_webhook
+
+        endpoint = mock.MagicMock()
+        endpoint.secret = "whsec_abc"
+        mock_client = mock.MagicMock()
+        mock_client.webhook_endpoints.create.return_value = endpoint
+
+        url = "https://webhooks.us.posthog.com/public/webhooks/dwh/123"
+        with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client):
+            result = create_webhook("rk_test", None, url)
+
+        assert result.success
+        assert result.extra_inputs == {"signing_secret": "whsec_abc"}
+        _, kwargs = mock_client.webhook_endpoints.create.call_args
+        params = kwargs["params"]
+        assert params["url"] == url
+        # Refactor guard: create must still register exactly the full known event set.
+        assert params["enabled_events"] == _all_known_webhook_events()
+
+    def test_permission_error_returns_actionable_failure(self):
+        from posthog.temporal.data_imports.sources.stripe.stripe import create_webhook
+
+        mock_client = mock.MagicMock()
+        mock_client.webhook_endpoints.create.side_effect = Exception("403 Forbidden")
+
+        with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client):
+            result = create_webhook("rk_test", None, "https://x")
+
+        assert result.success is False
+        assert result.error is not None
+        assert "permission" in result.error.lower()
+
+    @parameterized.expand(
+        [
+            # (name, exception)
+            ("message", Exception("The provided key does not have access to account 'acct_123'.")),
+            ("revoked", Exception("Application access may have been revoked.")),
+            ("account_invalid_code", _exception_with_code("403 Forbidden", "account_invalid")),
+        ]
+    )
+    def test_account_access_error_points_to_manual_setup(self, _name, exception):
+        from posthog.temporal.data_imports.sources.stripe.stripe import create_webhook
+
+        mock_client = mock.MagicMock()
+        mock_client.webhook_endpoints.create.side_effect = exception
+
+        with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client):
+            result = create_webhook("rk_test", "acct_123", "https://x")
+
+        assert result.success is False
+        assert result.error is not None
+        # Account-access errors must surface the actionable account guidance, never the raw fallback
+        # or the generic webhook-scope permission message.
+        assert "account" in result.error.lower()
+        assert "Failed to create webhook automatically" not in result.error
+        assert "permission to create webhooks" not in result.error

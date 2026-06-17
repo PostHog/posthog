@@ -5,7 +5,8 @@ import clsx from 'clsx'
 import { useValues } from 'kea'
 import { useRef } from 'react'
 
-import { hashCodeForString, humanFriendlyDuration } from 'lib/utils'
+import { humanFriendlyDuration } from 'lib/utils/durations'
+import { hashCodeForString } from 'lib/utils/strings'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { Histogram } from 'scenes/insights/views/Histogram'
 

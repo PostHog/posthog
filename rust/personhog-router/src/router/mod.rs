@@ -9,14 +9,15 @@ use metrics::{counter, histogram};
 use personhog_common::grpc::{current_client_name, ClientInFlightGuard};
 use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, CohortMembershipResponse, CountCohortMembersRequest,
-    CountCohortMembersResponse, CreateGroupRequest, CreateGroupResponse, DeleteCohortMemberRequest,
-    DeleteCohortMemberResponse, DeleteCohortMembersBulkRequest, DeleteCohortMembersBulkResponse,
-    DeleteGroupTypeMappingRequest, DeleteGroupTypeMappingResponse,
-    DeleteGroupTypeMappingsBatchForTeamRequest, DeleteGroupTypeMappingsBatchForTeamResponse,
-    DeleteGroupsBatchForTeamRequest, DeleteGroupsBatchForTeamResponse,
-    DeleteHashKeyOverridesByTeamsRequest, DeleteHashKeyOverridesByTeamsResponse,
-    DeletePersonsBatchForTeamRequest, DeletePersonsBatchForTeamResponse, DeletePersonsRequest,
-    DeletePersonsResponse, GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
+    CountCohortMembersResponse, CountGroupTypeMappingsRequest, CountGroupTypeMappingsResponse,
+    CreateGroupRequest, CreateGroupResponse, DeleteCohortMemberRequest, DeleteCohortMemberResponse,
+    DeleteCohortMembersBulkRequest, DeleteCohortMembersBulkResponse, DeleteGroupTypeMappingRequest,
+    DeleteGroupTypeMappingResponse, DeleteGroupTypeMappingsBatchForTeamRequest,
+    DeleteGroupTypeMappingsBatchForTeamResponse, DeleteGroupsBatchForTeamRequest,
+    DeleteGroupsBatchForTeamResponse, DeleteHashKeyOverridesByTeamsRequest,
+    DeleteHashKeyOverridesByTeamsResponse, DeletePersonsBatchForTeamRequest,
+    DeletePersonsBatchForTeamResponse, DeletePersonsRequest, DeletePersonsResponse,
+    GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
     GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
     GetGroupResponse, GetGroupTypeMappingByDashboardIdRequest,
     GetGroupTypeMappingByDashboardIdResponse, GetGroupTypeMappingsByProjectIdRequest,
@@ -29,9 +30,9 @@ use personhog_proto::personhog::types::v1::{
     InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
     ListCohortMemberIdsResponse, ListGroupsRequest, ListGroupsResponse,
     PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse, PersonsResponse,
-    UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
-    UpdateGroupTypeMappingResponse, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
-    UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
+    SplitPersonRequest, SplitPersonResponse, UpdateGroupRequest, UpdateGroupResponse,
+    UpdateGroupTypeMappingRequest, UpdateGroupTypeMappingResponse, UpdatePersonPropertiesRequest,
+    UpdatePersonPropertiesResponse, UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
 use tonic::metadata::MetadataMap;
 use tonic::Status;
@@ -484,6 +485,18 @@ impl PersonHogRouter {
         )
     }
 
+    pub async fn count_group_type_mappings(
+        &self,
+        request: CountGroupTypeMappingsRequest,
+    ) -> Result<CountGroupTypeMappingsResponse, Status> {
+        call_backend!(
+            self,
+            "CountGroupTypeMappings",
+            count_group_type_mappings,
+            request
+        )
+    }
+
     pub async fn get_group_type_mapping_by_dashboard_id(
         &self,
         request: GetGroupTypeMappingByDashboardIdRequest,
@@ -596,6 +609,18 @@ impl PersonHogRouter {
             delete_persons_batch_for_team,
             request
         )
+    }
+
+    /// Split distinct_ids off a person onto new persons.
+    ///
+    /// WARNING: Same routing caveat as delete_persons above — write operation on
+    /// person data routed through replica (primary pool) until leader supports
+    /// transactional writes.
+    pub async fn split_person(
+        &self,
+        request: SplitPersonRequest,
+    ) -> Result<SplitPersonResponse, Status> {
+        call_backend!(self, "SplitPerson", split_person, request)
     }
 
     // ============================================================

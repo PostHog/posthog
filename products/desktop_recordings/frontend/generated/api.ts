@@ -40,21 +40,21 @@ export const getDesktopRecordingsListUrl = (projectId: string, params?: DesktopR
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/desktop_recordings/?${stringifiedParams}`
-        : `/api/environments/${projectId}/desktop_recordings/`
+        ? `/api/projects/${projectId}/desktop_recordings/?${stringifiedParams}`
+        : `/api/projects/${projectId}/desktop_recordings/`
 }
 
 /**
  * RESTful API for managing desktop meeting recordings.
-
-Standard CRUD operations plus transcript management as a subresource.
+ *
+ * Standard CRUD operations plus transcript management as a subresource.
  */
 export const desktopRecordingsList = async (
     projectId: string,
@@ -68,7 +68,7 @@ export const desktopRecordingsList = async (
 }
 
 export const getDesktopRecordingsCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/desktop_recordings/`
+    return `/api/projects/${projectId}/desktop_recordings/`
 }
 
 /**
@@ -88,13 +88,13 @@ export const desktopRecordingsCreate = async (
 }
 
 export const getDesktopRecordingsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/desktop_recordings/${id}/`
+    return `/api/projects/${projectId}/desktop_recordings/${id}/`
 }
 
 /**
  * RESTful API for managing desktop meeting recordings.
-
-Standard CRUD operations plus transcript management as a subresource.
+ *
+ * Standard CRUD operations plus transcript management as a subresource.
  */
 export const desktopRecordingsRetrieve = async (
     projectId: string,
@@ -108,13 +108,13 @@ export const desktopRecordingsRetrieve = async (
 }
 
 export const getDesktopRecordingsUpdateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/desktop_recordings/${id}/`
+    return `/api/projects/${projectId}/desktop_recordings/${id}/`
 }
 
 /**
  * RESTful API for managing desktop meeting recordings.
-
-Standard CRUD operations plus transcript management as a subresource.
+ *
+ * Standard CRUD operations plus transcript management as a subresource.
  */
 export const desktopRecordingsUpdate = async (
     projectId: string,
@@ -131,13 +131,13 @@ export const desktopRecordingsUpdate = async (
 }
 
 export const getDesktopRecordingsPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/desktop_recordings/${id}/`
+    return `/api/projects/${projectId}/desktop_recordings/${id}/`
 }
 
 /**
  * RESTful API for managing desktop meeting recordings.
-
-Standard CRUD operations plus transcript management as a subresource.
+ *
+ * Standard CRUD operations plus transcript management as a subresource.
  */
 export const desktopRecordingsPartialUpdate = async (
     projectId: string,
@@ -154,13 +154,13 @@ export const desktopRecordingsPartialUpdate = async (
 }
 
 export const getDesktopRecordingsDestroyUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/desktop_recordings/${id}/`
+    return `/api/projects/${projectId}/desktop_recordings/${id}/`
 }
 
 /**
  * RESTful API for managing desktop meeting recordings.
-
-Standard CRUD operations plus transcript management as a subresource.
+ *
+ * Standard CRUD operations plus transcript management as a subresource.
  */
 export const desktopRecordingsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getDesktopRecordingsDestroyUrl(projectId, id), {
@@ -170,7 +170,7 @@ export const desktopRecordingsDestroy = async (projectId: string, id: string, op
 }
 
 export const getDesktopRecordingsAppendSegmentsCreateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/desktop_recordings/${id}/append_segments/`
+    return `/api/projects/${projectId}/desktop_recordings/${id}/append_segments/`
 }
 
 /**

@@ -7,12 +7,12 @@ import { eventPropertyFilteringLogic } from 'lib/components/EventPropertyTabs/ev
 import { HTMLElementsDisplay } from 'lib/components/HTMLElementsDisplay/HTMLElementsDisplay'
 import { dayjs } from 'lib/dayjs'
 import { LemonTab, LemonTabs, LemonTabsProps } from 'lib/lemon-ui/LemonTabs'
-import { isKeyOf } from 'lib/utils'
-import { AutocaptureImageTab, autocaptureToImage } from 'lib/utils/autocapture-previews'
+import { isKeyOf } from 'lib/utils/guards'
 
 import { CORE_FILTER_DEFINITIONS_BY_GROUP, POSTHOG_EVENT_PROMOTED_PROPERTIES } from '~/taxonomy/taxonomy'
 import { EventType, RecordingEventType } from '~/types'
 
+import { AutocaptureImageTab, hasAutocaptureImage } from '../AutocapturePreviewImage/AutocapturePreviewImage'
 import { ErrorEventType } from '../Errors/types'
 
 export type ErrorPropertyTabEvent = EventType | RecordingEventType | ErrorEventType
@@ -34,6 +34,7 @@ type EventPropertyTabKey =
     | 'raw'
     | 'conversation'
     | 'evaluation'
+    | 'tag'
     | 'exception_properties'
     | 'error_display'
     | 'debug_properties'
@@ -55,6 +56,7 @@ export const EventPropertyTabs = ({
     const isAIGenerationEvent = event.event === '$ai_generation'
     const isAIConversationEvent = isAIGenerationEvent || event.event === '$ai_span' || event.event === '$ai_trace'
     const isAIEvaluationEvent = event.event === '$ai_evaluation'
+    const isAITagEvent = event.event === '$ai_tag'
 
     const isErrorEvent = event.event === '$exception'
     const isSurveyResponseEvent = event.event === 'survey sent'
@@ -68,13 +70,15 @@ export const EventPropertyTabs = ({
             ? 'conversation'
             : isAIEvaluationEvent
               ? 'evaluation'
-              : isErrorEvent
-                ? 'error_display'
-                : isSurveyResponseEvent
-                  ? 'survey_response'
-                  : isMcpEvent
-                    ? 'mcp'
-                    : 'properties'
+              : isAITagEvent
+                ? 'tag'
+                : isErrorEvent
+                  ? 'error_display'
+                  : isSurveyResponseEvent
+                    ? 'survey_response'
+                    : isMcpEvent
+                      ? 'mcp'
+                      : 'properties'
     )
 
     const promotedKeys = isKeyOf(event.event, POSTHOG_EVENT_PROMOTED_PROPERTIES)
@@ -140,6 +144,13 @@ export const EventPropertyTabs = ({
                   content: tabContentComponentFn({ event, properties: event.properties, tabKey: 'evaluation' }),
               }
             : null,
+        isAITagEvent
+            ? {
+                  key: 'tag',
+                  label: 'Tag',
+                  content: tabContentComponentFn({ event, properties: event.properties, tabKey: 'tag' }),
+              }
+            : null,
         {
             key: 'properties',
             label: 'Properties',
@@ -177,7 +188,7 @@ export const EventPropertyTabs = ({
                   ),
               }
             : null,
-        event.elements && autocaptureToImage(event.elements)
+        event.elements && hasAutocaptureImage(event.elements)
             ? {
                   key: 'image',
                   label: 'Image',

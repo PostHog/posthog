@@ -11,12 +11,14 @@ import psycopg
 from parameterized import parameterized
 
 from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.database.schema.duckdb_table_functions import is_dangerous_table_function
 from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.escape_sql import escape_postgres_identifier
 from posthog.hogql.query import (
     HogQLQueryExecutor,
     LenientDirectPostgresDateLoader,
     direct_postgres_session_setup_sql,
+    ensure_single_direct_postgres_statement,
     get_runtime_direct_postgres_connection_metadata,
     parse_lenient_direct_postgres_date,
     postgres_error_to_message,
@@ -410,6 +412,67 @@ class TestDirectPostgresQuery(APIBaseTest):
 
         self.assertIn(expected_sql_fragment, sql)
         self.assertEqual(executor.direct_postgres_source_id, str(source.id))
+
+    @parameterized.expand(
+        [
+            ("read_text", "SELECT * FROM read_text('/etc/passwd')"),
+            ("read_csv", "SELECT * FROM read_csv('http://169.254.169.254/latest/meta-data')"),
+            ("glob", "SELECT * FROM glob('/etc/*')"),
+            ("postgres_query", "SELECT * FROM postgres_query('db', 'SELECT 1')"),
+            ("query", "SELECT * FROM query('SELECT * FROM read_text(''/etc/passwd'')')"),
+        ]
+    )
+    def test_generate_sql_rejects_dangerous_table_function_even_if_cached_in_metadata(
+        self, function_name: str, query: str
+    ):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+            job_inputs={
+                "host": "localhost",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "ph3",
+            },
+            connection_metadata={"available_table_functions": [function_name]},
+        )
+
+        executor = HogQLQueryExecutor(query=query, team=self.team, connection_id=str(source.id))
+
+        with self.assertRaises((QueryError, ExposedHogQLError)) as ctx:
+            executor.generate_clickhouse_sql()
+
+        # Must fail at resolve time, not as an accepted opaque table (which fails generically at print).
+        self.assertNotIn("is not supported in ClickHouse dialect", str(ctx.exception))
+
+    @parameterized.expand(
+        [
+            ("query", True),
+            ("read_csv", True),
+            ("postgres_query", True),
+            ("glob", True),
+            ("READ_TEXT", True),
+            ("read_anything", True),
+            ("scan_anything", True),
+            ("foo_scan", True),
+            ("foo_attach", True),
+            ("build_query", False),
+            ("get_query", False),
+            ("run_query", False),
+            ("range", False),
+            ("generate_series", False),
+            ("unnest", False),
+        ]
+    )
+    def test_is_dangerous_table_function(self, function_name: str, expected: bool):
+        self.assertEqual(is_dangerous_table_function(function_name), expected)
 
     def test_generate_sql_for_duckdb_direct_postgres_table_uses_connection_catalog(self):
         source = ExternalDataSource.objects.create(
@@ -1036,6 +1099,62 @@ class TestDirectPostgresQuery(APIBaseTest):
         self.assertEqual(response.results, [(1,)])
         mocked_connection.execute.assert_called_once_with("SELECT current_database(), version()")
         mocked_cursor.execute.assert_called_once_with("SELECT 1 AS value", None)
+
+    @parameterized.expand(
+        [
+            ("explicit_read_write", "COMMIT; BEGIN READ WRITE; UPDATE t SET a = 1; COMMIT;"),
+            ("set_then_write", "SET default_transaction_read_only = off; UPDATE t SET a = 1;"),
+            ("two_selects", "SELECT 1; SELECT 2"),
+        ]
+    )
+    def test_ensure_single_direct_postgres_statement_rejects_multi_statement(self, _name: str, sql: str):
+        with self.assertRaises(ExposedHogQLError):
+            ensure_single_direct_postgres_statement(sql)
+
+    @parameterized.expand(
+        [
+            ("plain_select", "SELECT 1 AS value"),
+            ("trailing_semicolon", "SELECT 1 AS value;"),
+            ("stray_empty_statements", "SELECT 1 AS value;   ;  "),
+            ("percent_literal", "SELECT name FROM t WHERE name LIKE '%admin%'"),
+            ("semicolon_in_literal", "SELECT 'a;b' AS value"),
+            ("dollar_quoted", "SELECT $$a;b;c$$ AS value"),
+        ]
+    )
+    def test_ensure_single_direct_postgres_statement_allows_single_statement(self, _name: str, sql: str):
+        self.assertEqual(ensure_single_direct_postgres_statement(sql), sql)
+
+    @patch("posthog.hogql.query.psycopg.connect")
+    def test_send_raw_query_rejects_multi_statement_before_execution(self, mock_connect):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+            job_inputs={
+                "host": "localhost",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "ph3",
+            },
+        )
+
+        executor = HogQLQueryExecutor(
+            query="COMMIT; BEGIN READ WRITE; UPDATE t SET a = 1; COMMIT;",
+            team=self.team,
+            connection_id=str(source.id),
+            send_raw_query=True,
+        )
+
+        with self.assertRaises(ExposedHogQLError):
+            executor.execute()
+
+        mock_connect.assert_not_called()
 
     def test_selected_connection_rejects_disabled_direct_tables(self):
         source = ExternalDataSource.objects.create(

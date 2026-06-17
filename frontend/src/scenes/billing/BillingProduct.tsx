@@ -13,7 +13,8 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { capitalizeFirstLetter, humanFriendlyCurrency } from 'lib/utils'
+import { humanFriendlyCurrency } from 'lib/utils/numbers'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { getProductIcon } from 'scenes/onboarding/utils'
 
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -92,6 +93,8 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
         workflows_emails: 'Workflows',
     }
     const displayProductName = productDisplayNameOverrides[product.type] || product.name
+    const isPlatformProduct = product.type === 'platform_and_support'
+    const addonSectionLabel = isPlatformProduct ? 'Packages' : 'Add-ons'
 
     const upgradeToPlanKey = upgradePlan?.plan_key
     const currentPlanKey = currentPlan?.plan_key
@@ -536,12 +539,13 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                     {product.addons?.length > 0 && !isProductWithVariants && (
                         <div className="pb-8">
                             {/* Add-ons title */}
-                            <h4 className="my-4">Add-ons</h4>
+                            <h4 className="my-4">{addonSectionLabel}</h4>
                             {billing?.subscription_level == 'free' && (
                                 <LemonBanner type="warning" className="text-sm mb-4" hideIcon>
                                     <div className="flex justify-between items-center">
                                         <div>
-                                            Add-ons are only available on paid plans. Upgrade to access these features.
+                                            {addonSectionLabel} are only available on paid plans. Upgrade to access
+                                            these features.
                                         </div>
                                         <BillingUpgradeCTA
                                             type="primary"

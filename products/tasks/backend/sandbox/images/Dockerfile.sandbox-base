@@ -61,8 +61,19 @@ RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && \
 # Install additional language package managers
 RUN npm install -g yarn pnpm typescript ts-node nodemon
 
+# Install ruff and ty
+# uv comes from its pinned, registry-verified official image (same pattern as the
+# main Dockerfile) rather than piping a remote installer script to a shell.
+COPY --from=ghcr.io/astral-sh/uv:0.11.14 /uv /uvx /usr/local/bin/
+ARG RUFF_VERSION=0.14.11
+ARG TY_VERSION=0.0.29
+RUN UV_TOOL_BIN_DIR=/usr/local/bin uv tool install "ruff==${RUFF_VERSION}" && \
+    UV_TOOL_BIN_DIR=/usr/local/bin uv tool install "ty==${TY_VERSION}" && \
+    ruff --version && \
+    ty --version
+
 # Install GitHub CLI without adding another apt repository refresh.
-ARG GH_CLI_VERSION=2.92.0
+ARG GH_CLI_VERSION=2.93.0
 RUN set -eux; \
     arch="$(dpkg --print-architecture)"; \
     curl -fsSL -o /tmp/gh.deb \
@@ -96,7 +107,7 @@ ENV AGENTSH_SERVER=http://127.0.0.1:18080
 ###
 
 # Set up /scripts as a Node.js project and install @posthog/agent
-# COMMIT_HASH changes every build, busting the cache so we always get @latest
+# COMMIT_HASH changes every build, busting the cache so each build pulls @latest
 ARG COMMIT_HASH
 RUN mkdir -p /scripts && \
     cd /scripts && \

@@ -12,7 +12,7 @@ from prometheus_client import Counter
 from rest_framework.throttling import SimpleRateThrottle, UserRateThrottle
 from statshog.defaults.django import statsd
 
-from posthog.auth import PersonalAPIKeyAuthentication
+from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.metrics import LABEL_PATH, LABEL_ROUTE, LABEL_TEAM_ID
@@ -323,7 +323,7 @@ class SignupIPThrottle(IPThrottle):
     """
 
     scope = "signup_ip"
-    rate = "5/day"
+    rate = settings.SIGNUP_IP_THROTTLE_RATE
 
 
 class WebAuthnSignupRegistrationThrottle(IPThrottle):
@@ -380,6 +380,46 @@ class PersonalApiKeyOrUserRateThrottle(PersonalApiKeyRateThrottle):
 
     def allow_request(self, request, view):
         return self._allow_request_internal(request, view, personal_api_key_only=False)
+
+
+class PersonalOrProjectSecretApiKeyRateThrottle(PersonalApiKeyRateThrottle):
+    """
+    Rate limit personal API key and project secret API key (PSAK) requests, keyed per key.
+
+    PSAK requests carry no personal API key, so they slip past PersonalApiKeyRateThrottle's
+    personal_api_key_only gate; this also throttles them. Session/web users still bypass.
+    """
+
+    def allow_request(self, request, view):
+        if isinstance(request.successful_authenticator, ProjectSecretAPIKeyAuthentication):
+            return self._allow_request_internal(request, view, personal_api_key_only=False)
+        return super().allow_request(request, view)
+
+    def get_cache_key(self, request, view):
+        auth = request.successful_authenticator
+        if isinstance(auth, ProjectSecretAPIKeyAuthentication):
+            return self.cache_format % {"scope": self.scope, "ident": f"psak:{auth.project_secret_api_key.id}"}
+        return super().get_cache_key(request, view)
+
+
+class ProjectSecretApiKeyTeamRateThrottle(PersonalApiKeyRateThrottle):
+    """
+    Per-team aggregate throttle for project secret API key (PSAK) requests.
+
+    Stack alongside a per-key throttle (PersonalOrProjectSecretApiKeyRateThrottle) so a project's
+    total PSAK load is capped regardless of how many keys it mints — the per-key throttle gives
+    each credential a fair budget, this caps the sum. Only PSAK requests count; any other auth
+    (personal key, OAuth, session) bypasses and is left to its own throttles.
+    """
+
+    def allow_request(self, request, view):
+        if isinstance(request.successful_authenticator, ProjectSecretAPIKeyAuthentication):
+            return self._allow_request_internal(request, view, personal_api_key_only=False)
+        return True
+
+    def get_cache_key(self, request, view):
+        team_id = request.successful_authenticator.project_secret_api_key.team_id
+        return self.cache_format % {"scope": self.scope, "ident": f"psak-team:{team_id}"}
 
 
 class ClickHouseBurstRateThrottle(PersonalApiKeyRateThrottle):
@@ -541,58 +581,58 @@ class APIQueriesSustainedThrottle(PersonalApiKeyRateThrottle):
     rate = "2400/hour"
 
 
-class LLMAnalyticsTextReprBurstThrottle(PersonalApiKeyRateThrottle):
+class AIObservabilityTextReprBurstThrottle(PersonalApiKeyRateThrottle):
     scope = "llm_analytics_text_repr_burst"
     rate = "120/minute"
 
 
-class LLMAnalyticsTextReprSustainedThrottle(PersonalApiKeyRateThrottle):
+class AIObservabilityTextReprSustainedThrottle(PersonalApiKeyRateThrottle):
     scope = "llm_analytics_text_repr_sustained"
     rate = "600/hour"
 
 
-class LLMAnalyticsTranslationBurstThrottle(PersonalApiKeyRateThrottle):
+class AIObservabilityTranslationBurstThrottle(PersonalApiKeyRateThrottle):
     scope = "llm_analytics_translation_burst"
     rate = "30/minute"
 
 
-class LLMAnalyticsTranslationSustainedThrottle(PersonalApiKeyRateThrottle):
+class AIObservabilityTranslationSustainedThrottle(PersonalApiKeyRateThrottle):
     scope = "llm_analytics_translation_sustained"
     rate = "200/hour"
 
 
-class LLMAnalyticsTranslationDailyThrottle(PersonalApiKeyRateThrottle):
+class AIObservabilityTranslationDailyThrottle(PersonalApiKeyRateThrottle):
     # Daily cap for LLM-powered translation endpoint
     # Hard limit to prevent runaway costs
     scope = "llm_analytics_translation_daily"
     rate = "500/day"
 
 
-class LLMAnalyticsSentimentBurstThrottle(PersonalApiKeyRateThrottle):
+class AIObservabilitySentimentBurstThrottle(PersonalApiKeyRateThrottle):
     scope = "llm_analytics_sentiment_burst"
     rate = "60/minute"
 
 
-class LLMAnalyticsSentimentSustainedThrottle(PersonalApiKeyRateThrottle):
+class AIObservabilitySentimentSustainedThrottle(PersonalApiKeyRateThrottle):
     scope = "llm_analytics_sentiment_sustained"
     rate = "600/hour"
 
 
-class LLMAnalyticsSummarizationBurstThrottle(PersonalApiKeyRateThrottle):
+class AIObservabilitySummarizationBurstThrottle(PersonalApiKeyRateThrottle):
     # Rate limit for LLM-powered summarization endpoint
     # Conservative limits to control OpenAI API costs
     scope = "llm_analytics_summarization_burst"
     rate = "50/minute"
 
 
-class LLMAnalyticsSummarizationSustainedThrottle(PersonalApiKeyRateThrottle):
+class AIObservabilitySummarizationSustainedThrottle(PersonalApiKeyRateThrottle):
     # Rate limit for LLM-powered summarization endpoint
     # Conservative limits to control OpenAI API costs
     scope = "llm_analytics_summarization_sustained"
     rate = "200/hour"
 
 
-class LLMAnalyticsSummarizationDailyThrottle(PersonalApiKeyRateThrottle):
+class AIObservabilitySummarizationDailyThrottle(PersonalApiKeyRateThrottle):
     # Daily cap for LLM-powered summarization endpoint
     # Hard limit to prevent runaway costs
     scope = "llm_analytics_summarization_daily"
@@ -923,6 +963,28 @@ class SubscriptionTestDeliveryThrottle(PersonalApiKeyOrUserRateThrottle):
             return self.cache_format % {"scope": self.scope, "ident": f"team_{team_id}"}
 
 
+class UserInterviewInviteThrottle(PersonalApiKeyOrUserRateThrottle):
+    # Cap how often a team can fire the user-interview send_invites action.
+    #
+    # The content (subject + intro) and the recipient list are both
+    # user-controlled, so without a limit a member could use the action as a
+    # PostHog-branded spam relay by rotating the topic's interviewee_emails and
+    # re-sending. Idempotency only stops re-sending to the *same*
+    # SharingConfiguration, not sending to fresh addresses.
+    #
+    # Keyed per team (not per personal API key, not per topic) so neither
+    # rotating topics nor minting extra API keys bypasses the limit. Extends
+    # PersonalApiKeyOrUserRateThrottle so every authenticated caller is covered
+    # (PATs, OAuth bearer tokens, and session-cookie UI users alike).
+    scope = "user_interview_invite"
+    rate = "10/minute"
+
+    def get_cache_key(self, request, view):
+        team_id = self.safely_get_team_id_from_view(view)
+        if team_id:
+            return self.cache_format % {"scope": self.scope, "ident": f"team_{team_id}"}
+
+
 class _OrganizationInviteRateThrottleBase(PersonalApiKeyOrUserRateThrottle):
     # Cap how many organization invites a single organization can create in a
     # given window. A malicious member can otherwise use the invite flow to
@@ -1013,7 +1075,7 @@ class GitHubRepositoryRefreshThrottle(PersonalApiKeyOrUserRateThrottle):
 
 class HealthIssueRefreshThrottle(PersonalApiKeyOrUserRateThrottle):
     scope = "health_issue_refresh"
-    rate = "1/15minutes"
+    rate = "1/5minutes"
 
     def parse_rate(self, rate):
         if rate is None:

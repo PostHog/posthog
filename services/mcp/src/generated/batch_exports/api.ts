@@ -514,11 +514,11 @@ export const FileDownloadBatchExportsCreateBody = /* @__PURE__ */ zod.union([
 ])
 
 /**
- * Get a run of a batch export on demand.
-
-If the underlying batch export run has completed, we return keys to the
-generated file downloads so that users may download them by making a request
-to /download.
+ * Get a batch export on demand run.
+ *
+ * If the underlying batch export run has completed, we return keys to the
+ * generated file downloads so that users may download them by making a request
+ * to /download.
  */
 export const FileDownloadBatchExportsRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this batch export run.'),

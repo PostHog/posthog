@@ -12,9 +12,11 @@ import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { FeatureFlagsSet, featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
-import { allOperatorsMapping, hasFormErrors, isObject, objectClean } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { isObject } from 'lib/utils/guards'
+import { hasFormErrors, objectClean } from 'lib/utils/objects'
+import { allOperatorsMapping } from 'lib/utils/operators'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -1155,7 +1157,10 @@ export const surveyLogic = kea<surveyLogicType>([
                 router.actions.replace(urls.survey(survey.id))
                 actions.reportSurveyCreated(survey)
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CreateSurvey)
-                tryShowMCPHint('surveys.create')
+                const surveyType = survey.type ? `${survey.type} ` : ''
+                tryShowMCPHint('surveys.create', {
+                    derivedPrompt: survey.name ? `Create a ${surveyType}survey called ${survey.name}` : undefined,
+                })
             },
             updateSurveySuccess: ({ survey }) => {
                 lemonToast.success(<>Survey {survey.name} updated</>)
@@ -2292,7 +2297,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         groups: survey.targeting_flag_filters.groups,
                         multivariate: null,
                         payloads: {},
-                        super_groups: undefined,
+                        feature_enrollment: undefined,
                     }
                 }
                 return survey.targeting_flag?.filters || undefined

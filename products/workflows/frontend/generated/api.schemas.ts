@@ -9,8 +9,8 @@
  */
 /**
  * * `team` - Only team
- * `organization` - Organization
- * `global` - Global
+ * * `organization` - Organization
+ * * `global` - Global
  */
 export type HogFlowTemplateScopeEnumApi = (typeof HogFlowTemplateScopeEnumApi)[keyof typeof HogFlowTemplateScopeEnumApi]
 
@@ -22,22 +22,28 @@ export const HogFlowTemplateScopeEnumApi = {
 
 export interface HogFlowMaskingApi {
     /**
+     * Seconds (60 to ~94M / 3y) to suppress repeat firings of the same hash.
      * @minimum 60
      * @maximum 94608000
      * @nullable
      */
     ttl?: number | null
-    /** @nullable */
+    /**
+     * Fire once per N matches of the same hash within ttl — a sampler: N=3 fires on the 1st, 4th, 7th… match. Omit to fire on the first match, then suppress repeats within ttl.
+     * @nullable
+     */
     threshold?: number | null
+    /** HogQL template defining the dedup/grouping key, e.g. '{person.id}' (once per person) within ttl. */
     hash: string
+    /** Auto-compiled from hash. Do not set. */
     bytecode?: unknown
 }
 
 /**
  * * `exit_on_conversion` - Conversion
- * `exit_on_trigger_not_matched` - Trigger Not Matched
- * `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion
- * `exit_only_at_end` - Only At End
+ * * `exit_on_trigger_not_matched` - Trigger Not Matched
+ * * `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion
+ * * `exit_only_at_end` - Only At End
  */
 export type ExitConditionEnumApi = (typeof ExitConditionEnumApi)[keyof typeof ExitConditionEnumApi]
 
@@ -50,23 +56,19 @@ export const ExitConditionEnumApi = {
 
 /**
  * * `continue` - continue
- * `abort` - abort
- * `complete` - complete
- * `branch` - branch
+ * * `abort` - abort
  */
 export type OnErrorEnumApi = (typeof OnErrorEnumApi)[keyof typeof OnErrorEnumApi]
 
 export const OnErrorEnumApi = {
     Continue: 'continue',
     Abort: 'abort',
-    Complete: 'complete',
-    Branch: 'branch',
 } as const
 
 /**
  * * `events` - events
- * `person-updates` - person-updates
- * `data-warehouse-table` - data-warehouse-table
+ * * `person-updates` - person-updates
+ * * `data-warehouse-table` - data-warehouse-table
  */
 export type HogFunctionFiltersSourceEnumApi =
     (typeof HogFunctionFiltersSourceEnumApi)[keyof typeof HogFunctionFiltersSourceEnumApi]
@@ -99,13 +101,17 @@ export interface HogFunctionFiltersApi {
 
 /**
  * Custom action serializer for templates that skips input validation
-(since templates should have default/empty values).
+ * (since templates should have default/empty values).
  */
 export interface HogFlowTemplateActionApi {
     id: string
     /** @maxLength 400 */
     name: string
     description?: string
+    /** On failure: continue (skip the action and proceed) or abort (stop the run).
+     *
+     * * `continue` - continue
+     * * `abort` - abort */
     on_error?: OnErrorEnumApi | null
     created_at?: number
     updated_at?: number
@@ -121,11 +127,14 @@ export interface HogFlowTemplateActionApi {
  */
 export type HogFlowTemplateApiCreatedBy = { [key: string]: unknown } | null
 
+/**
+ * Variable: {key, type: string|number|boolean, default}.
+ */
 export type HogFlowTemplateApiVariablesItem = { [key: string]: string }
 
 /**
  * Serializer for creating hog flow templates.
-Validates and sanitizes the workflow before creating it as a template.
+ * Validates and sanitizes the workflow before creating it as a template.
  */
 export interface HogFlowTemplateApi {
     readonly id: string
@@ -171,11 +180,14 @@ export interface PaginatedHogFlowTemplateListApi {
  */
 export type PatchedHogFlowTemplateApiCreatedBy = { [key: string]: unknown } | null
 
+/**
+ * Variable: {key, type: string|number|boolean, default}.
+ */
 export type PatchedHogFlowTemplateApiVariablesItem = { [key: string]: string }
 
 /**
  * Serializer for creating hog flow templates.
-Validates and sanitizes the workflow before creating it as a template.
+ * Validates and sanitizes the workflow before creating it as a template.
  */
 export interface PatchedHogFlowTemplateApi {
     readonly id?: string
@@ -209,8 +221,8 @@ export interface PatchedHogFlowTemplateApi {
 
 /**
  * * `draft` - Draft
- * `active` - Active
- * `archived` - Archived
+ * * `active` - Active
+ * * `archived` - Archived
  */
 export type HogFlowStatusEnumApi = (typeof HogFlowStatusEnumApi)[keyof typeof HogFlowStatusEnumApi]
 
@@ -222,13 +234,13 @@ export const HogFlowStatusEnumApi = {
 
 /**
  * * `engineering` - Engineering
- * `data` - Data
- * `product` - Product Management
- * `founder` - Founder
- * `leadership` - Leadership
- * `marketing` - Marketing
- * `sales` - Sales / Success
- * `other` - Other
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
@@ -306,73 +318,351 @@ export interface PaginatedHogFlowMinimalListApi {
     results: HogFlowMinimalApi[]
 }
 
+/**
+ * Variable: {key, type: string|number|boolean, default}.
+ */
 export type HogFlowApiVariablesItem = { [key: string]: string }
 
+/**
+ * * `continue` - continue
+ * * `branch` - branch
+ */
+export type HogFlowEdgeTypeEnumApi = (typeof HogFlowEdgeTypeEnumApi)[keyof typeof HogFlowEdgeTypeEnumApi]
+
+export const HogFlowEdgeTypeEnumApi = {
+    Continue: 'continue',
+    Branch: 'branch',
+} as const
+
+export interface HogFlowEdgeApi {
+    /** Target action id. */
+    to: string
+    /** continue: fall-through (sequential or the no-match path of conditional_branch). branch: requires 'index' matching config.conditions[index].
+     *
+     * * `continue` - continue
+     * * `branch` - branch */
+    type: HogFlowEdgeTypeEnumApi
+    /** Required for type='branch'. Index into config.conditions on conditional_branch / wait_until_condition. */
+    index?: number
+    /** Source action id. */
+    from: string
+}
+
 export interface HogFlowActionApi {
+    /** Unique node ID within the workflow. */
     id: string
-    /** @maxLength 400 */
+    /**
+     * Display name.
+     * @maxLength 400
+     */
     name: string
+    /** Optional description. */
     description?: string
+    /** On failure: continue (skip the action and proceed) or abort (stop the run).
+     *
+     * * `continue` - continue
+     * * `abort` - abort */
     on_error?: OnErrorEnumApi | null
+    /** Created at (epoch ms). Frontend-managed. */
     created_at?: number
+    /** Updated at (epoch ms). Frontend-managed. */
     updated_at?: number
+    /** Property filters gating this action. */
     filters?: HogFunctionFiltersApi | null
-    /** @maxLength 100 */
+    /**
+     * trigger | function | function_email | function_sms | delay | conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit.
+     * @maxLength 100
+     */
     type: string
+    /** Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, max_wait_duration: <duration>} (same rules as delay). exit: {reason}. */
     config: unknown
+    /** Output variable definition for downstream actions. */
     output_variable?: unknown
+}
+
+/**
+ * * `active` - Active
+ * * `paused` - Paused
+ * * `completed` - Completed
+ */
+export type HogFlowScheduleStatusEnumApi =
+    (typeof HogFlowScheduleStatusEnumApi)[keyof typeof HogFlowScheduleStatusEnumApi]
+
+export const HogFlowScheduleStatusEnumApi = {
+    Active: 'active',
+    Paused: 'paused',
+    Completed: 'completed',
+} as const
+
+export interface HogFlowScheduleApi {
+    readonly id: string
+    /** iCalendar RRULE string (e.g. 'FREQ=DAILY;INTERVAL=1'). Must produce occurrences at most once per hour. */
+    rrule: string
+    /** ISO 8601 datetime the schedule starts from. */
+    starts_at: string
+    /**
+     * IANA timezone for interpreting the RRULE (default 'UTC').
+     * @maxLength 64
+     */
+    timezone?: string
+    /** Variable value overrides merged with the workflow defaults on each run. */
+    variables?: unknown
+    /** active, paused, or completed (set once the RRULE's COUNT/UNTIL is exhausted).
+     *
+     * * `active` - Active
+     * * `paused` - Paused
+     * * `completed` - Completed */
+    readonly status: HogFlowScheduleStatusEnumApi
+    /**
+     * Next scheduled fire time, computed by the scheduler.
+     * @nullable
+     */
+    readonly next_run_at: string | null
+    readonly created_at: string
+    readonly updated_at: string
 }
 
 export interface HogFlowApi {
     readonly id: string
     /**
+     * Workflow name.
      * @maxLength 400
      * @nullable
      */
     name?: string | null
+    /** Optional description. */
     description?: string
     readonly version: number
+    /** draft (no execution), active (live), archived (disabled).
+     *
+     * * `draft` - Draft
+     * * `active` - Active
+     * * `archived` - Archived */
     status?: HogFlowStatusEnumApi
     readonly created_at: string
     readonly created_by: UserBasicApi
     readonly updated_at: string
-    trigger?: unknown
+    readonly trigger: unknown
+    /** Optional dedup/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable. */
     trigger_masking?: HogFlowMaskingApi | null
+    /** Conversion goal: {filters: [<cond>, ...], window_minutes}. <cond>: {key, value, operator, type: event|person|group}. Empty filters = any event in window. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
     conversion?: unknown
+    /** exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').
+     *
+     * * `exit_on_conversion` - Conversion
+     * * `exit_on_trigger_not_matched` - Trigger Not Matched
+     * * `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion
+     * * `exit_only_at_end` - Only At End */
     exit_condition?: ExitConditionEnumApi
-    edges?: unknown
+    /** Graph edges: [{from, to, type: 'continue'|'branch', index?}]. 'continue' = fall-through (sequential, or no-match path of conditional_branch). 'branch' requires 'index': matches config.conditions[index] on conditional_branch / wait_until_condition. Every non-exit action needs a reachable next action ('No next action found' otherwise). */
+    edges?: HogFlowEdgeApi[]
+    /** Ordered action nodes. Exactly one type='trigger' required. Typically one type='exit' too. */
     actions: HogFlowActionApi[]
     /** @nullable */
     readonly abort_action: string | null
+    /** Workflow vars (key, type, default). Total <5KB. */
     variables?: HogFlowApiVariablesItem[]
     readonly billable_action_types: unknown
+    /** Recurring schedules attached to this workflow (read-only here; manage via the schedules sub-resource). A batch/schedule workflow only fires when it's active AND has an active schedule. Empty for non-scheduled workflows. */
+    readonly schedules: readonly HogFlowScheduleApi[]
 }
 
+/**
+ * Variable: {key, type: string|number|boolean, default}.
+ */
 export type PatchedHogFlowApiVariablesItem = { [key: string]: string }
 
 export interface PatchedHogFlowApi {
     readonly id?: string
     /**
+     * Workflow name.
      * @maxLength 400
      * @nullable
      */
     name?: string | null
+    /** Optional description. */
     description?: string
     readonly version?: number
+    /** draft (no execution), active (live), archived (disabled).
+     *
+     * * `draft` - Draft
+     * * `active` - Active
+     * * `archived` - Archived */
     status?: HogFlowStatusEnumApi
     readonly created_at?: string
     readonly created_by?: UserBasicApi
     readonly updated_at?: string
-    trigger?: unknown
+    readonly trigger?: unknown
+    /** Optional dedup/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable. */
     trigger_masking?: HogFlowMaskingApi | null
+    /** Conversion goal: {filters: [<cond>, ...], window_minutes}. <cond>: {key, value, operator, type: event|person|group}. Empty filters = any event in window. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
     conversion?: unknown
+    /** exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').
+     *
+     * * `exit_on_conversion` - Conversion
+     * * `exit_on_trigger_not_matched` - Trigger Not Matched
+     * * `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion
+     * * `exit_only_at_end` - Only At End */
     exit_condition?: ExitConditionEnumApi
-    edges?: unknown
+    /** Graph edges: [{from, to, type: 'continue'|'branch', index?}]. 'continue' = fall-through (sequential, or no-match path of conditional_branch). 'branch' requires 'index': matches config.conditions[index] on conditional_branch / wait_until_condition. Every non-exit action needs a reachable next action ('No next action found' otherwise). */
+    edges?: HogFlowEdgeApi[]
+    /** Ordered action nodes. Exactly one type='trigger' required. Typically one type='exit' too. */
     actions?: HogFlowActionApi[]
     /** @nullable */
     readonly abort_action?: string | null
+    /** Workflow vars (key, type, default). Total <5KB. */
     variables?: PatchedHogFlowApiVariablesItem[]
     readonly billable_action_types?: unknown
+    /** Recurring schedules attached to this workflow (read-only here; manage via the schedules sub-resource). A batch/schedule workflow only fires when it's active AND has an active schedule. Empty for non-scheduled workflows. */
+    readonly schedules?: readonly HogFlowScheduleApi[]
+}
+
+/**
+ * * `waiting` - Waiting
+ * * `queued` - Queued
+ * * `active` - Active
+ * * `completed` - Completed
+ * * `cancelled` - Cancelled
+ * * `failed` - Failed
+ */
+export type HogFlowBatchJobStatusEnumApi =
+    (typeof HogFlowBatchJobStatusEnumApi)[keyof typeof HogFlowBatchJobStatusEnumApi]
+
+export const HogFlowBatchJobStatusEnumApi = {
+    Waiting: 'waiting',
+    Queued: 'queued',
+    Active: 'active',
+    Completed: 'completed',
+    Cancelled: 'cancelled',
+    Failed: 'failed',
+} as const
+
+export interface HogFlowBatchJobApi {
+    readonly id: string
+    /** Not currently tracked — stays at its initial value. Use the workflow logs/metrics endpoints for run outcome.
+     *
+     * * `waiting` - Waiting
+     * * `queued` - Queued
+     * * `active` - Active
+     * * `completed` - Completed
+     * * `cancelled` - Cancelled
+     * * `failed` - Failed */
+    status?: HogFlowBatchJobStatusEnumApi
+    /** ID of the workflow this batch run belongs to. */
+    hog_flow: string
+    /** Audience snapshot the run fanned out to, taken from the workflow's batch trigger filters. */
+    filters?: unknown
+    /** Variable value overrides applied to this run. */
+    variables?: unknown
+    readonly created_at: string
+    readonly created_by: UserBasicApi
+    readonly updated_at: string
+}
+
+/**
+ * * `update_action` - update_action
+ * * `add_action` - add_action
+ * * `remove_action` - remove_action
+ * * `add_edge` - add_edge
+ * * `remove_edge` - remove_edge
+ * * `replace_action_edges` - replace_action_edges
+ */
+export type HogFlowGraphOperationOpEnumApi =
+    (typeof HogFlowGraphOperationOpEnumApi)[keyof typeof HogFlowGraphOperationOpEnumApi]
+
+export const HogFlowGraphOperationOpEnumApi = {
+    UpdateAction: 'update_action',
+    AddAction: 'add_action',
+    RemoveAction: 'remove_action',
+    AddEdge: 'add_edge',
+    RemoveEdge: 'remove_edge',
+    ReplaceActionEdges: 'replace_action_edges',
+} as const
+
+export interface HogFlowGraphOperationApi {
+    /** Graph edit. update_action {id, patch}: deep-merge patch into the action's fields (a null leaf deletes that key) — the surgical path for tweaking one config value. add_action {action}: append a full action node. remove_action {id}: delete a node and reconnect its incoming edges to its first outgoer. add_edge {edge} / remove_edge {edge}: add or delete one edge. replace_action_edges {id, edges}: replace this action's outgoing edges with the given set (use when adding/removing branch conditions); incoming edges are left intact.
+     *
+     * * `update_action` - update_action
+     * * `add_action` - add_action
+     * * `remove_action` - remove_action
+     * * `add_edge` - add_edge
+     * * `remove_edge` - remove_edge
+     * * `replace_action_edges` - replace_action_edges */
+    op: HogFlowGraphOperationOpEnumApi
+    /** Action id. Required for update_action, remove_action, replace_action_edges. */
+    id?: string
+    /** update_action only. Partial action fields, deep-merged into the existing action; a null leaf deletes that key. e.g. {config: {inputs: {subject: {value: 'Hi'}}}} changes only that input. */
+    patch?: unknown
+    /** add_action only. A full action node {id, name, type, config, ...}; same shape as in actions. */
+    action?: unknown
+    /** add_edge / remove_edge only. The edge {from, to, type, index?}. */
+    edge?: HogFlowEdgeApi
+    /** replace_action_edges only. The complete set of the action's outgoing edges; incoming edges are preserved. */
+    edges?: HogFlowEdgeApi[]
+}
+
+export interface PatchedHogFlowGraphUpdateApi {
+    /** Ordered graph edits applied atomically to a draft workflow: the stored graph is read, the ops are applied in order, the result is fully validated, and it's saved only if valid — otherwise the workflow is unchanged. Reference nodes/edges by id so you never resend the whole graph. The full updated workflow is returned. */
+    operations?: HogFlowGraphOperationApi[]
+}
+
+export interface HogInvocationResultApi {
+    invocation_id: string
+    status: string
+    error_kind: string
+    error_message: string
+    distinct_id: string
+    person_id: string
+    scheduled_at: string
+    /** @nullable */
+    started_at: string | null
+    /** @nullable */
+    finished_at: string | null
+    /** @nullable */
+    duration_ms: number | null
+    attempts: number
+    is_retry: boolean
+}
+
+/**
+ * The triggering payload (event/person/groups) the run executed against, as a JSON object.
+ */
+export type HogInvocationResultDetailApiInvocationGlobals = { [key: string]: unknown }
+
+export interface HogInvocationResultDetailApi {
+    /** The triggering payload (event/person/groups) the run executed against, as a JSON object. */
+    invocation_globals: HogInvocationResultDetailApiInvocationGlobals
+    invocation_id: string
+    status: string
+    error_kind: string
+    error_message: string
+    distinct_id: string
+    person_id: string
+    scheduled_at: string
+    /** @nullable */
+    started_at: string | null
+    /** @nullable */
+    finished_at: string | null
+    /** @nullable */
+    duration_ms: number | null
+    attempts: number
+    is_retry: boolean
+}
+
+/**
+ * Test trigger payload, typically {event, person, groups}.
+ */
+export type HogFlowInvocationApiGlobals = { [key: string]: unknown }
+
+export interface HogFlowInvocationApi {
+    /** Optional override; omit to use saved definition. */
+    configuration?: HogFlowApi
+    /** Test trigger payload, typically {event, person, groups}. */
+    globals?: HogFlowInvocationApiGlobals
+    /** True (default) mocks HTTP/email/SMS. False fires real side effects. */
+    mock_async_functions?: boolean
+    /** Start execution from this action ID instead of the trigger. Each test run executes a single node and returns the next action id. */
+    current_action_id?: string
 }
 
 export interface AppMetricSeriesApi {
@@ -391,41 +681,41 @@ export interface AppMetricsTotalsResponseApi {
     totals: AppMetricsTotalsResponseApiTotals
 }
 
-/**
- * * `active` - Active
- * `paused` - Paused
- * `completed` - Completed
- */
-export type HogFlowScheduleStatusEnumApi =
-    (typeof HogFlowScheduleStatusEnumApi)[keyof typeof HogFlowScheduleStatusEnumApi]
-
-export const HogFlowScheduleStatusEnumApi = {
-    Active: 'active',
-    Paused: 'paused',
-    Completed: 'completed',
-} as const
-
-export interface HogFlowScheduleApi {
-    readonly id: string
-    rrule: string
-    starts_at: string
-    /** @maxLength 64 */
+export interface PatchedHogFlowScheduleApi {
+    readonly id?: string
+    /** iCalendar RRULE string (e.g. 'FREQ=DAILY;INTERVAL=1'). Must produce occurrences at most once per hour. */
+    rrule?: string
+    /** ISO 8601 datetime the schedule starts from. */
+    starts_at?: string
+    /**
+     * IANA timezone for interpreting the RRULE (default 'UTC').
+     * @maxLength 64
+     */
     timezone?: string
+    /** Variable value overrides merged with the workflow defaults on each run. */
     variables?: unknown
-    readonly status: HogFlowScheduleStatusEnumApi
-    /** @nullable */
-    readonly next_run_at: string | null
-    readonly created_at: string
-    readonly updated_at: string
+    /** active, paused, or completed (set once the RRULE's COUNT/UNTIL is exhausted).
+     *
+     * * `active` - Active
+     * * `paused` - Paused
+     * * `completed` - Completed */
+    readonly status?: HogFlowScheduleStatusEnumApi
+    /**
+     * Next scheduled fire time, computed by the scheduler.
+     * @nullable
+     */
+    readonly next_run_at?: string | null
+    readonly created_at?: string
+    readonly updated_at?: string
 }
 
-export interface PaginatedHogFlowScheduleListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: HogFlowScheduleApi[]
+export interface WorkflowStatsRowApi {
+    /** The workflow these counts are for. */
+    workflow_id: string
+    /** Successful invocations in the window. */
+    succeeded: number
+    /** Failed invocations in the window. */
+    failed: number
 }
 
 /**
@@ -505,7 +795,50 @@ export type HogFlowsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * * `draft` - Draft
+     * * `active` - Active
+     * * `archived` - Archived
+     */
+    status?: HogFlowsListStatus
     updated_at?: string
+}
+
+export type HogFlowsListStatus = (typeof HogFlowsListStatus)[keyof typeof HogFlowsListStatus]
+
+export const HogFlowsListStatus = {
+    Active: 'active',
+    Archived: 'archived',
+    Draft: 'draft',
+} as const
+
+export type HogFlowsInvocationResultsRetrieveParams = {
+    /**
+     * Start of the time range, matched on scheduled time. Relative ('-7d', '-24h') or ISO 8601. Defaults to -7d — bounds the ClickHouse partition scan, so widen it explicitly for older runs.
+     * @minLength 1
+     */
+    after?: string
+    /**
+     * End of the time range, matched on scheduled time. Same format as 'after'. Defaults to now.
+     * @minLength 1
+     */
+    before?: string
+    /**
+     * Only return invocations triggered for this distinct_id (the person the run executed for).
+     * @minLength 1
+     */
+    distinct_id?: string
+    /**
+     * Maximum number of invocations to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /**
+     * Comma-separated invocation statuses to include, e.g. 'failed' or 'success,failed'.
+     * @minLength 1
+     */
+    status?: string
 }
 
 export type HogFlowsLogsRetrieveParams = {
@@ -552,12 +885,12 @@ export type HogFlowsMetricsRetrieveParams = {
      */
     before?: string
     /**
- * Group the series by metric 'name' or 'kind'. Defaults to 'kind'.
-
-* `name` - name
-* `kind` - kind
- * @minLength 1
- */
+     * Group the series by metric 'name' or 'kind'. Defaults to 'kind'.
+     *
+     * * `name` - name
+     * * `kind` - kind
+     * @minLength 1
+     */
     breakdown_by?: HogFlowsMetricsRetrieveBreakdownBy
     /**
      * Filter metrics to a specific execution instance.
@@ -565,13 +898,13 @@ export type HogFlowsMetricsRetrieveParams = {
      */
     instance_id?: string
     /**
- * Time bucket size for the series. One of: hour, day, week. Defaults to 'day'.
-
-* `hour` - hour
-* `day` - day
-* `week` - week
- * @minLength 1
- */
+     * Time bucket size for the series. One of: hour, day, week. Defaults to 'day'.
+     *
+     * * `hour` - hour
+     * * `day` - day
+     * * `week` - week
+     * @minLength 1
+     */
     interval?: HogFlowsMetricsRetrieveInterval
     /**
      * Comma-separated metric kinds to filter by, e.g. 'success,failure'.
@@ -614,12 +947,12 @@ export type HogFlowsMetricsTotalsRetrieveParams = {
      */
     before?: string
     /**
- * Group the series by metric 'name' or 'kind'. Defaults to 'kind'.
-
-* `name` - name
-* `kind` - kind
- * @minLength 1
- */
+     * Group the series by metric 'name' or 'kind'. Defaults to 'kind'.
+     *
+     * * `name` - name
+     * * `kind` - kind
+     * @minLength 1
+     */
     breakdown_by?: HogFlowsMetricsTotalsRetrieveBreakdownBy
     /**
      * Filter metrics to a specific execution instance.
@@ -627,13 +960,13 @@ export type HogFlowsMetricsTotalsRetrieveParams = {
      */
     instance_id?: string
     /**
- * Time bucket size for the series. One of: hour, day, week. Defaults to 'day'.
-
-* `hour` - hour
-* `day` - day
-* `week` - week
- * @minLength 1
- */
+     * Time bucket size for the series. One of: hour, day, week. Defaults to 'day'.
+     *
+     * * `hour` - hour
+     * * `day` - day
+     * * `week` - week
+     * @minLength 1
+     */
     interval?: HogFlowsMetricsTotalsRetrieveInterval
     /**
      * Comma-separated metric kinds to filter by, e.g. 'success,failure'.
@@ -664,32 +997,15 @@ export const HogFlowsMetricsTotalsRetrieveInterval = {
     Week: 'week',
 } as const
 
-export type HogFlowsSchedulesListParams = {
-    created_at?: string
-    created_by?: number
-    id?: string
+export type HogFlowsMetricsGlobalRetrieveParams = {
     /**
-     * Number of results to return per page.
+     * Start of the window, matched on metric time. Relative ('-7d', '-24h') or ISO 8601. Defaults to -7d.
+     * @minLength 1
      */
-    limit?: number
+    after?: string
     /**
-     * The initial index from which to return the results.
+     * End of the window. Same format as 'after'. Defaults to now.
+     * @minLength 1
      */
-    offset?: number
-    updated_at?: string
-}
-
-export type HogFlowsSchedulesCreateParams = {
-    created_at?: string
-    created_by?: number
-    id?: string
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-    updated_at?: string
+    before?: string
 }

@@ -1,6 +1,18 @@
 import { z } from 'zod'
 
-import { DataVisualizationNodeSchema, HogQLQuerySchema, InsightVizNodeSchema, PropertyFilter } from './query'
+export const BusinessKnowledgeUrlSourceCreateSchema = z.object({
+    name: z
+        .string()
+        .max(255)
+        .describe('Short human label for the source. Shown in the settings list and in agent citations.'),
+    url: z.string().url().max(2048).describe('Public HTTP(S) URL to fetch. Private or internal hosts are rejected.'),
+    source_type: z.literal('url').default('url').describe('Source type. Always "url" for this tool.'),
+    refresh_interval: z
+        .enum(['manual', '1h', '6h', '24h', '7d'])
+        .optional()
+        .default('manual')
+        .describe('How often to auto-refresh this source in the background. Defaults to "manual" (no auto-refresh).'),
+})
 
 export const ExternalDataJobsAfterSchema = z
     .string()
@@ -148,21 +160,17 @@ export const PromptListInputSchema = z.object({
         ),
 })
 
-export const DocumentationSearchSchema = z.object({
-    query: z.string(),
-})
-
 export const FeedbackSubmitSchema = z.object({
     summary: z
         .string()
         .min(1)
         .describe(
-            'A one-sentence headline summarising your feedback (e.g. "query-trends descriptions made it hard to choose between trends and funnels").'
+            'A one-sentence headline naming the problem (e.g. "query-trends descriptions made it hard to choose between trends and funnels"). Only submit when something went wrong or was missing — never for positive or "everything worked" feedback.'
         ),
     sentiment: z
-        .enum(['positive', 'negative', 'mixed'])
+        .enum(['negative', 'mixed'])
         .describe(
-            'Your overall impression of the MCP server for this task. Use "positive" if it helped you, "negative" if it blocked you, "mixed" for a bit of both.'
+            'How much the MCP server got in your way for this task. Use "negative" if it blocked you, "mixed" if it mostly worked but had a concrete problem worth fixing. Do not submit purely positive feedback — only report problems.'
         ),
     category: z
         .enum([
@@ -194,13 +202,13 @@ export const FeedbackSubmitSchema = z.object({
         .string()
         .optional()
         .describe(
-            'Concrete points of friction, confusion, or surprise — what slowed you down or made you guess. Quote the exact tool name, parameter, or error text where possible.'
+            "Clear, concise bullet points describing friction with the MCP server itself — what slowed you down or made you guess. Quote the exact tool name, parameter, or error text. Keep it about the MCP, not the user's task or data."
         ),
     suggested_improvement: z
         .string()
         .optional()
         .describe(
-            'The single most impactful change you would make to the MCP server right now. Be specific (e.g. "add a `filters` example to query-funnel\'s description").'
+            'The single most impactful, concrete change that would fix the problem you hit. Be specific (e.g. "add a `filters` example to query-funnel\'s description"). If you cannot name a specific change, do not submit feedback.'
         ),
     user_request: z
         .string()
@@ -208,7 +216,12 @@ export const FeedbackSubmitSchema = z.object({
         .describe(
             'A short, anonymised paraphrase of what the user originally asked you to do. Do not include PII, customer names, or sensitive query content.'
         ),
-    details: z.string().optional().describe("Any additional context that doesn't fit the other fields."),
+    details: z
+        .string()
+        .optional()
+        .describe(
+            "Any additional context about the MCP server that doesn't fit the other fields. Keep it to clear, concise bullet points."
+        ),
 })
 
 export const ExperimentResultsGetSchema = z.object({
@@ -218,238 +231,6 @@ export const ExperimentResultsGetSchema = z.object({
         .optional()
         .default(false)
         .describe('Force refresh of results instead of using cached values. Defaults to false.'),
-})
-
-/**
- * User-friendly input schema for experiment updates
- * This provides a simplified interface that gets transformed to API format
- */
-export const ExperimentUpdateInputSchema = z.object({
-    name: z.string().optional().describe('Update experiment name'),
-
-    description: z.string().optional().describe('Update experiment description'),
-
-    // Primary metrics with guidance
-    primary_metrics: z
-        .array(
-            z.object({
-                name: z.string().optional().describe('Human-readable metric name'),
-                metric_type: z
-                    .enum(['mean', 'funnel', 'ratio'])
-                    .describe(
-                        "Metric type: 'mean' for average values, 'funnel' for conversion flows, 'ratio' for comparing two metrics"
-                    ),
-                event_name: z.string().describe("PostHog event name (e.g., '$pageview', 'add_to_cart', 'purchase')"),
-                funnel_steps: z
-                    .array(z.string())
-                    .optional()
-                    .describe('For funnel metrics only: Array of event names for each funnel step'),
-                properties: z
-                    .array(PropertyFilter)
-                    .optional()
-                    .describe(
-                        'Event property filters as an array, e.g. [{ key: "$browser", value: "Chrome", operator: "exact", type: "event" }]'
-                    ),
-                description: z.string().optional().describe('What this metric measures'),
-            })
-        )
-        .optional()
-        .describe('Update primary metrics'),
-
-    secondary_metrics: z
-        .array(
-            z.object({
-                name: z.string().optional().describe('Human-readable metric name'),
-                metric_type: z.enum(['mean', 'funnel', 'ratio']).describe('Metric type'),
-                event_name: z.string().describe('PostHog event name'),
-                funnel_steps: z.array(z.string()).optional().describe('For funnel metrics only: Array of event names'),
-                properties: z
-                    .array(PropertyFilter)
-                    .optional()
-                    .describe(
-                        'Event property filters as an array, e.g. [{ key: "$browser", value: "Chrome", operator: "exact", type: "event" }]'
-                    ),
-                description: z.string().optional().describe('What this metric measures'),
-            })
-        )
-        .optional()
-        .describe('Update secondary metrics'),
-
-    minimum_detectable_effect: z.number().optional().describe('Update minimum detectable effect in percentage'),
-
-    // Experiment state management
-    launch: z.boolean().optional().describe('Launch experiment (set start_date) or keep as draft'),
-
-    conclude: z
-        .enum(['won', 'lost', 'inconclusive', 'stopped_early', 'invalid'])
-        .optional()
-        .describe('Conclude experiment with result'),
-
-    conclusion_comment: z.string().optional().describe('Comment about experiment conclusion'),
-
-    restart: z
-        .boolean()
-        .optional()
-        .describe('Restart concluded experiment as draft (clears start_date, end_date, and conclusion)'),
-
-    archive: z.boolean().optional().describe('Archive or unarchive experiment'),
-})
-
-export const ExperimentUpdateSchema = z.object({
-    experimentId: z.number().describe('The ID of the experiment to update'),
-    data: ExperimentUpdateInputSchema.describe('The experiment data to update using user-friendly format'),
-})
-
-export const ExperimentCreateSchema = z.object({
-    name: z.string().min(1).describe('Experiment name - should clearly describe what is being tested'),
-
-    description: z
-        .string()
-        .optional()
-        .describe(
-            'Detailed description of the experiment hypothesis, what changes are being tested, and expected outcomes'
-        ),
-
-    feature_flag_key: z
-        .string()
-        .describe(
-            'Feature flag key (letters, numbers, hyphens, underscores only). IMPORTANT: First search for existing feature flags that might be suitable using the feature-flags-get-all tool, then suggest reusing existing ones or creating a new key based on the experiment name'
-        ),
-
-    // Primary metrics with guidance
-    primary_metrics: z
-        .array(
-            z.object({
-                name: z.string().optional().describe('Human-readable metric name'),
-                metric_type: z
-                    .enum(['mean', 'funnel', 'ratio'])
-                    .describe(
-                        "Metric type: 'mean' for average values (revenue, time spent), 'funnel' for conversion flows, 'ratio' for comparing two metrics"
-                    ),
-                event_name: z
-                    .string()
-                    .describe(
-                        "REQUIRED for metrics to work: PostHog event name (e.g., '$pageview', 'add_to_cart', 'purchase'). For funnels, this is the first step. Use '$pageview' if unsure. Search project-property-definitions tool for available events."
-                    ),
-                funnel_steps: z
-                    .array(z.string())
-                    .optional()
-                    .describe(
-                        "For funnel metrics only: Array of event names for each funnel step (e.g., ['product_view', 'add_to_cart', 'checkout', 'purchase'])"
-                    ),
-                properties: z
-                    .array(PropertyFilter)
-                    .optional()
-                    .describe(
-                        'Event property filters as an array, e.g. [{ key: "$browser", value: "Chrome", operator: "exact", type: "event" }]'
-                    ),
-                description: z
-                    .string()
-                    .optional()
-                    .describe("What this metric measures and why it's important for the experiment"),
-            })
-        )
-        .optional()
-        .describe(
-            'Primary metrics to measure experiment success. IMPORTANT: Each metric needs event_name to track data. For funnels, provide funnel_steps array with event names for each step. Ask user what events they track, or use project-property-definitions to find available events.'
-        ),
-
-    // Secondary metrics for additional insights
-    secondary_metrics: z
-        .array(
-            z.object({
-                name: z.string().optional().describe('Human-readable metric name'),
-                metric_type: z
-                    .enum(['mean', 'funnel', 'ratio'])
-                    .describe(
-                        "Metric type: 'mean' for average values, 'funnel' for conversion flows, 'ratio' for comparing two metrics"
-                    ),
-                event_name: z.string().describe("REQUIRED: PostHog event name. Use '$pageview' if unsure."),
-                funnel_steps: z
-                    .array(z.string())
-                    .optional()
-                    .describe('For funnel metrics only: Array of event names for each funnel step'),
-                properties: z
-                    .array(PropertyFilter)
-                    .optional()
-                    .describe(
-                        'Event property filters as an array, e.g. [{ key: "$browser", value: "Chrome", operator: "exact", type: "event" }]'
-                    ),
-                description: z.string().optional().describe('What this secondary metric measures'),
-            })
-        )
-        .optional()
-        .describe(
-            'Secondary metrics to monitor for potential side effects or additional insights. Each metric needs event_name.'
-        ),
-
-    // Feature flag variants
-    variants: z
-        .array(
-            z.object({
-                key: z.string().describe("Variant key (e.g., 'control', 'variant_a', 'new_design')"),
-                name: z.string().optional().describe('Human-readable variant name'),
-                split_percent: z
-                    .number()
-                    .min(0)
-                    .max(100)
-                    .optional()
-                    .describe(
-                        'Percentage of traffic allocated to this variant (0-100). All variants must sum to 100. One of split_percent (recommended) or rollout_percentage (deprecated) must be provided per variant.'
-                    ),
-                rollout_percentage: z
-                    .number()
-                    .min(0)
-                    .max(100)
-                    .optional()
-                    .describe('Deprecated: use split_percent instead. Accepted for backward compatibility.'),
-            })
-        )
-        .optional()
-        .describe(
-            'Experiment variants. If not specified, defaults to 50/50 control/test split. Ask user how many variants they need and what each tests'
-        ),
-
-    // Experiment parameters
-    minimum_detectable_effect: z
-        .number()
-        .default(30)
-        .describe(
-            'Minimum detectable effect in percentage. Lower values require more users but detect smaller changes. Suggest 20-30% for most experiments'
-        ),
-
-    // Exposure and targeting
-    filter_test_accounts: z.boolean().default(true).describe('Whether to filter out internal test accounts'),
-
-    target_properties: z
-        .record(z.string(), z.any())
-        .optional()
-        .describe('Properties to target specific user segments (e.g., country, subscription type)'),
-
-    // Control flags
-    draft: z
-        .boolean()
-        .default(true)
-        .describe('Create as draft (true) or launch immediately (false). Recommend draft for review first'),
-
-    holdout_id: z
-        .number()
-        .optional()
-        .describe('Holdout group ID if this experiment should exclude users from other experiments'),
-
-    allow_unknown_events: z
-        .boolean()
-        .optional()
-        .describe(
-            "Suppresses the validation that rejects metrics referencing events not yet ingested by this project. REQUIRES explicit user confirmation before being set to true — never flip this silently to retry a failed call. The default validation catches typo'd event names and missing instrumentation. Set this to true only when the user has confirmed the event is intentional (e.g. they are about to instrument it)."
-        ),
-})
-
-export const InsightGenerateHogQLFromQuestionSchema = z.object({
-    question: z
-        .string()
-        .max(1000)
-        .describe('Your natural language query describing the SQL insight (max 1000 characters).'),
 })
 
 export const InsightQueryInputSchema = z.object({
@@ -475,7 +256,7 @@ export const InsightQueryInputSchema = z.object({
         ),
 })
 
-export const LLMAnalyticsGetCostsSchema = z.object({
+export const AIObservabilityGetCostsSchema = z.object({
     projectId: z.number().int().positive(),
     days: z.number().optional(),
 })
@@ -485,12 +266,6 @@ export const OrganizationSetActiveSchema = z.object({
 })
 
 export const ProjectGetAllSchema = z.object({})
-
-export const ProjectEventDefinitionsSchema = z.object({
-    q: z.string().optional().describe('Search query to filter event names. Only use if there are lots of events.'),
-    limit: z.number().int().positive().optional(),
-    offset: z.number().int().min(0).optional(),
-})
 
 export const EventDefinitionUpdateInputSchema = z.object({
     description: z.string().optional().describe('Description explaining when the event is triggered'),
@@ -515,81 +290,8 @@ export const EventDefinitionUpdateSchema = z.object({
     data: EventDefinitionUpdateInputSchema.describe('The event definition data to update'),
 })
 
-export const ProjectPropertyDefinitionsInputSchema = z.object({
-    type: z.enum(['event', 'person']).describe('Type of properties to get'),
-    eventName: z.string().describe('Event name to filter properties by, required for event type').optional(),
-    includePredefinedProperties: z.boolean().optional().describe('Whether to include predefined properties'),
-    limit: z.number().int().positive().optional(),
-    offset: z.number().int().min(0).optional(),
-})
-
 export const ProjectSetActiveSchema = z.object({
     projectId: z.number().int().positive(),
-})
-
-export const SurveyResponseCountsSchema = z.object({})
-
-const QueryRunQuerySchema = z.discriminatedUnion('kind', [
-    InsightVizNodeSchema,
-    DataVisualizationNodeSchema,
-    HogQLQuerySchema,
-])
-
-export const QueryRunInputSchema = z.object({
-    query: QueryRunQuerySchema,
-})
-
-export const HogQLSchemaInputSchema = z.object({
-    connectionId: z
-        .string()
-        .optional()
-        .describe(
-            'Optional id of an external data source (e.g. a Postgres or DuckDB direct-query connection). When set, returns the schema of that source instead of the ClickHouse catalog. Use external-data-sources-list to discover available connection ids.'
-        ),
-})
-
-export const QueryValidateInputSchema = z.object({
-    query: z
-        .string()
-        .min(1)
-        .describe(
-            'The HogQL (ClickHouse-flavored SQL) query to validate. Parsed and type-checked without executing, so there is no ClickHouse cost.'
-        ),
-    language: z
-        .enum(['hogQL', 'hogQLExpr', 'hog', 'hogTemplate'])
-        .default('hogQL')
-        .describe(
-            "Language to validate. Defaults to 'hogQL' (full SELECT statements). Use 'hogQLExpr' for a bare expression, 'hog' or 'hogTemplate' for Hog source."
-        ),
-    connectionId: z
-        .string()
-        .optional()
-        .describe(
-            'Optional id of an external data source (e.g. a Postgres or DuckDB direct-query connection). When set, validates against that source instead of the ClickHouse catalog. Use external-data-sources-list to discover available connection ids.'
-        ),
-})
-
-// Entity Search
-export const EntitySearchSchema = z.object({
-    query: z.string().min(1).describe('Search query to find entities by name or description'),
-    entities: z
-        .array(
-            z.enum([
-                'insight',
-                'dashboard',
-                'experiment',
-                'feature_flag',
-                'notebook',
-                'action',
-                'cohort',
-                'event_definition',
-                'survey',
-            ])
-        )
-        .optional()
-        .describe(
-            'Entity types to search. If not specified, searches all types. Available: insight, dashboard, experiment, feature_flag, notebook, action, cohort, event_definition, survey'
-        ),
 })
 
 // Debug MCP UI Apps
@@ -606,6 +308,12 @@ export const ExecuteSQLSchema = z.object({
         .default(true)
         .describe(
             'Whether to truncate large blob/JSON values in results. Defaults to true. Set to false when you need full untruncated results (e.g., for dumping to a file).'
+        ),
+    connectionId: z
+        .string()
+        .optional()
+        .describe(
+            'Optional id of an external data source (e.g. a Postgres or DuckDB direct-query connection). When set, runs the query against that source instead of the ClickHouse catalog. Use external-data-sources-list to discover available connection ids.'
         ),
 })
 
@@ -687,3 +395,146 @@ export function validateDistinctIdPersonIdExclusive(
         })
     }
 }
+
+const WorkflowGraphEdgeSchema = z.object({
+    from: z.string().describe('Source action id.'),
+    to: z.string().describe('Target action id.'),
+    type: z
+        .enum(['continue', 'branch'])
+        .describe(
+            "'continue' = fall-through (sequential or no-match path); 'branch' = a condition/cohort branch (needs index)."
+        ),
+    index: z
+        .number()
+        .int()
+        .optional()
+        .describe('Required for type=branch: which condition/cohort slot this branch matches (0-based).'),
+})
+
+const WorkflowGraphOperationSchema = z.discriminatedUnion('op', [
+    z.object({
+        op: z.literal('update_action'),
+        id: z.string().describe('Id of the action to update.'),
+        patch: z
+            .record(z.string(), z.unknown())
+            .describe(
+                'Partial action fields, deep-merged into the existing action; a null leaf deletes that key. ' +
+                    'e.g. {config: {inputs: {subject: {value: "Hi"}}}} changes only that one input.'
+            ),
+    }),
+    z.object({
+        op: z.literal('add_action'),
+        action: z
+            .record(z.string(), z.unknown())
+            .describe(
+                'A full action node {id, name, type, config, ...}; same shape as entries in the workflow actions array.'
+            ),
+    }),
+    z.object({
+        op: z.literal('remove_action'),
+        id: z.string().describe('Id of the action to remove. Its incoming edges reconnect to its first outgoer.'),
+    }),
+    z.object({
+        op: z.literal('add_edge'),
+        edge: WorkflowGraphEdgeSchema.describe('The edge to add.'),
+    }),
+    z.object({
+        op: z.literal('remove_edge'),
+        edge: WorkflowGraphEdgeSchema.describe('The edge to remove (matched on from/to/type/index).'),
+    }),
+    z.object({
+        op: z.literal('replace_action_edges'),
+        id: z.string().describe('Action id whose outgoing edges are being replaced.'),
+        edges: z
+            .array(WorkflowGraphEdgeSchema)
+            .describe("The complete set of the action's outgoing edges; incoming edges are preserved."),
+    }),
+])
+
+export const WorkflowGraphPatchSchema = z.object({
+    id: z.string().describe('The workflow (HogFlow) id to edit. Draft only — active workflows are read-only via MCP.'),
+    operations: z
+        .array(WorkflowGraphOperationSchema)
+        .min(1)
+        .describe(
+            'Ordered graph edits applied atomically: the stored graph is read, ops are applied in order, the result ' +
+                'is fully validated, and it is saved only if valid — otherwise the workflow is left unchanged. Reference ' +
+                'nodes/edges by id so you never resend the whole graph. The full updated workflow is returned.'
+        ),
+})
+
+// Surgical edits to an email template's Unlayer design — one discriminated op per change, addressed by
+// the stable block id. Mirrors DesignOperationSerializer; kept as a hand-authored discriminated union so
+// the LLM sees exactly which fields each op needs (the auto-generated PATCH schema flattens them all to
+// optional). `patch`/`content`/`row` are freeform Unlayer JSON.
+const EmailDesignFreeformObject = z.record(z.string(), z.unknown())
+
+const EmailDesignPatchOperationSchema = z.discriminatedUnion('op', [
+    z.object({
+        op: z.literal('update_content'),
+        id: z.string().describe('Id of the content block to update.'),
+        patch: EmailDesignFreeformObject.describe(
+            'Partial content-block fields, deep-merged into the existing block; a null leaf deletes that key. ' +
+                "e.g. {values: {text: '<p>Hi</p>'}} changes only the block's text."
+        ),
+    }),
+    z.object({
+        op: z.literal('update_column'),
+        id: z.string().describe('Id of the column to update.'),
+        patch: EmailDesignFreeformObject.describe('Partial column fields, deep-merged; a null leaf deletes that key.'),
+    }),
+    z.object({
+        op: z.literal('update_row'),
+        id: z.string().describe('Id of the row to update.'),
+        patch: EmailDesignFreeformObject.describe('Partial row fields, deep-merged; a null leaf deletes that key.'),
+    }),
+    z.object({
+        op: z.literal('update_body'),
+        patch: EmailDesignFreeformObject.describe(
+            "Partial body fields, deep-merged. e.g. {values: {backgroundColor: '#ffffff'}}."
+        ),
+    }),
+    z.object({
+        op: z.literal('add_content'),
+        column_id: z.string().describe('Id of the column to insert the block into.'),
+        content: EmailDesignFreeformObject.describe(
+            'A content block {type, values: {...}}; omit id and values._meta — they are assigned server-side. ' +
+                'type is one of text, heading, button, image, divider, html, etc.'
+        ),
+        index: z.number().int().optional().describe('0-based insert position; omit to append to the end.'),
+    }),
+    z.object({
+        op: z.literal('remove_content'),
+        id: z.string().describe('Id of the content block to remove.'),
+    }),
+    z.object({
+        op: z.literal('move_content'),
+        id: z.string().describe('Id of the content block to move.'),
+        column_id: z.string().describe('Id of the destination column.'),
+        index: z.number().int().optional().describe('0-based position in the destination column; omit to append.'),
+    }),
+    z.object({
+        op: z.literal('add_row'),
+        row: EmailDesignFreeformObject.describe(
+            'A full row {cells, columns: [{contents: [...], values}], values}; ids and Unlayer numbering are ' +
+                'assigned server-side for the row and everything nested in it.'
+        ),
+        index: z.number().int().optional().describe('0-based insert position; omit to append to the end.'),
+    }),
+    z.object({
+        op: z.literal('remove_row'),
+        id: z.string().describe('Id of the row to remove.'),
+    }),
+])
+
+export const EmailTemplateDesignPatchSchema = z.object({
+    id: z.string().describe('The email template id to edit.'),
+    operations: z
+        .array(EmailDesignPatchOperationSchema)
+        .min(1)
+        .describe(
+            "Ordered edits applied atomically to the template's Unlayer design: the stored design is read, the ops " +
+                'are applied in order, the result is validated and re-rendered to HTML, and saved only if valid — ' +
+                'otherwise the template is left unchanged. Reference blocks by id so you never resend the whole design.'
+        ),
+})

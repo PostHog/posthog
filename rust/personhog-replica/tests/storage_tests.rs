@@ -4,6 +4,7 @@ use common::TestContext;
 use personhog_replica::storage::postgres::ConsistencyLevel;
 use personhog_replica::storage::GroupKey;
 use rand::Rng;
+use rstest::rstest;
 use uuid::Uuid;
 
 #[tokio::test]
@@ -81,7 +82,7 @@ async fn test_get_persons_by_ids() {
 
     let result = ctx
         .storage
-        .get_persons_by_ids(ctx.team_id, &[person1.id, person2.id, 999999999])
+        .get_persons_by_ids(ctx.team_id, &[person1.id, person2.id, 999999999], true)
         .await
         .expect("Failed to get persons");
 
@@ -160,7 +161,8 @@ async fn test_get_group() {
     let fetched = result.unwrap();
     assert_eq!(fetched.group_key, "company_123");
     assert_eq!(fetched.group_type_index, 0);
-    let fetched_props: serde_json::Value = serde_json::from_str(&fetched.group_properties).unwrap();
+    let fetched_props: serde_json::Value =
+        serde_json::from_str(fetched.group_properties.as_deref().unwrap()).unwrap();
     assert_eq!(fetched_props, properties);
 
     ctx.cleanup().await.ok();
@@ -185,6 +187,90 @@ async fn test_get_group_type_mappings() {
     let group_types: Vec<&str> = result.iter().map(|m| m.group_type.as_str()).collect();
     assert!(group_types.contains(&"project"));
     assert!(group_types.contains(&"organization"));
+
+    ctx.cleanup().await.ok();
+}
+
+#[rstest]
+#[case::no_mappings(&[], None)]
+#[case::one_mapping(&[("organization", 0)], Some(1))]
+#[case::three_mappings(&[("organization", 0), ("project", 1), ("instance", 2)], Some(3))]
+#[tokio::test]
+async fn test_count_group_type_mappings(
+    #[case] mappings: &[(&str, i32)],
+    #[case] expected_count: Option<i64>,
+) {
+    let ctx = TestContext::new().await;
+
+    for (group_type, index) in mappings {
+        ctx.insert_group_type_mapping(group_type, *index)
+            .await
+            .expect("Failed to insert mapping");
+    }
+
+    let result = ctx
+        .storage
+        .count_group_type_mappings(ConsistencyLevel::Eventual)
+        .await
+        .expect("Failed to count group type mappings");
+
+    let entry = result.iter().find(|(tid, _)| *tid == ctx.team_id);
+    match expected_count {
+        Some(count) => assert_eq!(entry, Some(&(ctx.team_id, count))),
+        None => assert!(entry.is_none()),
+    }
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_count_group_type_mappings_multiple_teams() {
+    let ctx1 = TestContext::new().await;
+    let ctx2 = TestContext::new().await;
+
+    ctx1.insert_group_type_mapping("org", 0)
+        .await
+        .expect("Failed to insert mapping");
+    ctx2.insert_group_type_mapping("company", 0)
+        .await
+        .expect("Failed to insert mapping");
+    ctx2.insert_group_type_mapping("project", 1)
+        .await
+        .expect("Failed to insert mapping");
+
+    let result = ctx1
+        .storage
+        .count_group_type_mappings(ConsistencyLevel::Eventual)
+        .await
+        .expect("Failed to count group type mappings");
+
+    let entry1 = result.iter().find(|(tid, _)| *tid == ctx1.team_id);
+    let entry2 = result.iter().find(|(tid, _)| *tid == ctx2.team_id);
+    assert_eq!(entry1, Some(&(ctx1.team_id, 1)));
+    assert_eq!(entry2, Some(&(ctx2.team_id, 2)));
+
+    ctx1.cleanup().await.ok();
+    ctx2.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_count_group_type_mappings_ordered_by_team_id() {
+    let ctx = TestContext::new().await;
+
+    ctx.insert_group_type_mapping("org", 0)
+        .await
+        .expect("Failed to insert mapping");
+
+    let result = ctx
+        .storage
+        .count_group_type_mappings(ConsistencyLevel::Eventual)
+        .await
+        .expect("Failed to count group type mappings");
+
+    let team_ids: Vec<i64> = result.iter().map(|(tid, _)| *tid).collect();
+    let mut sorted = team_ids.clone();
+    sorted.sort();
+    assert_eq!(team_ids, sorted);
 
     ctx.cleanup().await.ok();
 }
@@ -223,6 +309,65 @@ async fn test_check_cohort_membership() {
     ctx.cleanup().await.ok();
 }
 
+async fn cohort_row_count(pool: &sqlx::PgPool, cohort_id: i64, person_ids: &[i64]) -> i64 {
+    sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM posthog_cohortpeople WHERE cohort_id = $1 AND person_id = ANY($2)",
+    )
+    .bind(cohort_id)
+    .bind(person_ids)
+    .fetch_one(pool)
+    .await
+    .expect("count cohort rows")
+}
+
+// Idempotency across the concurrent chunked insert: a re-send of the full list (the retry /
+// partial-failure recovery case) must skip already-present members and never duplicate rows.
+#[rstest]
+#[case::all_new(0, 120)]
+#[case::retry_after_partial(70, 50)]
+#[case::full_retry(120, 0)]
+#[tokio::test]
+async fn test_insert_cohort_members_idempotent(
+    #[case] prior: usize,
+    #[case] expected_inserted: i64,
+) {
+    let ctx = TestContext::new().await;
+    let cohort_id: i64 = 7700;
+
+    // 120 persons exercises the concurrent chunk path (bulk_chunk_size = 50 → 3 chunks).
+    let mut person_ids = Vec::new();
+    for i in 0..120 {
+        let p = ctx
+            .insert_person(&format!("cohort_insert_{i}@example.com"), None)
+            .await
+            .expect("insert person");
+        person_ids.push(p.id);
+    }
+
+    // Seed `prior` members to simulate a prior partial commit that a retry re-sends in full.
+    for &pid in &person_ids[..prior] {
+        ctx.add_person_to_cohort(pid, cohort_id)
+            .await
+            .expect("seed prior members");
+    }
+
+    let inserted = ctx
+        .storage
+        .insert_cohort_members(cohort_id, &person_ids, Some(1))
+        .await
+        .expect("insert cohort members");
+
+    // Only the not-yet-present members are inserted; NOT EXISTS skips the rest.
+    assert_eq!(inserted, expected_inserted);
+    // Exactly one row per person — no duplicates, regardless of prior state or chunk fan-out.
+    assert_eq!(
+        cohort_row_count(&ctx.pool, cohort_id, &person_ids).await,
+        120
+    );
+
+    ctx.cleanup().await.ok();
+}
+
 #[tokio::test]
 async fn test_person_properties() {
     let ctx = TestContext::new().await;
@@ -246,7 +391,8 @@ async fn test_person_properties() {
 
     assert!(result.is_some());
     let fetched = result.unwrap();
-    let props: serde_json::Value = serde_json::from_str(&fetched.properties).unwrap();
+    let props: serde_json::Value =
+        serde_json::from_str(fetched.properties.as_deref().unwrap()).unwrap();
     assert_eq!(props["email"], "props_test@example.com");
     assert_eq!(props["plan"], "enterprise");
 
@@ -270,7 +416,11 @@ async fn test_get_persons_by_uuids() {
 
     let result = ctx
         .storage
-        .get_persons_by_uuids(ctx.team_id, &[person1.uuid, person2.uuid, nonexistent_uuid])
+        .get_persons_by_uuids(
+            ctx.team_id,
+            &[person1.uuid, person2.uuid, nonexistent_uuid],
+            true,
+        )
         .await
         .expect("Failed to get persons by uuids");
 
@@ -364,7 +514,7 @@ async fn test_get_groups_batch() {
 
     let result = ctx
         .storage
-        .get_groups_batch(&keys, ConsistencyLevel::Eventual)
+        .get_groups_batch(&keys, ConsistencyLevel::Eventual, true)
         .await
         .expect("Failed to get groups batch");
 
@@ -1411,5 +1561,1020 @@ async fn test_delete_persons_partial_failure_returns_error() {
         .execute(&ctx.pool)
         .await
         .ok();
+    ctx.cleanup().await.ok();
+}
+
+// ============================================================
+// Bulk read chunking tests — exercise the parallel path
+// (test chunk_size=50, so >50 items triggers chunking)
+// ============================================================
+
+#[tokio::test]
+async fn test_get_persons_by_ids_chunked() {
+    let ctx = TestContext::new().await;
+
+    let mut ids = Vec::new();
+    for i in 0..80 {
+        let p = ctx
+            .insert_person(&format!("bulk_id_{i}"), None)
+            .await
+            .unwrap();
+        ids.push(p.id);
+    }
+
+    let result = ctx
+        .storage
+        .get_persons_by_ids(ctx.team_id, &ids, true)
+        .await
+        .expect("Failed to get persons by ids");
+
+    assert_eq!(result.len(), 80);
+    let returned_ids: Vec<i64> = result.iter().map(|p| p.id).collect();
+    for id in &ids {
+        assert!(returned_ids.contains(id), "Missing person id {id}");
+    }
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_get_persons_by_uuids_chunked() {
+    let ctx = TestContext::new().await;
+
+    let mut uuids = Vec::new();
+    for i in 0..80 {
+        let p = ctx
+            .insert_person(&format!("bulk_uuid_{i}"), None)
+            .await
+            .unwrap();
+        uuids.push(p.uuid);
+    }
+
+    let result = ctx
+        .storage
+        .get_persons_by_uuids(ctx.team_id, &uuids, true)
+        .await
+        .expect("Failed to get persons by uuids");
+
+    assert_eq!(result.len(), 80);
+    let returned_uuids: Vec<Uuid> = result.iter().map(|p| p.uuid).collect();
+    for uuid in &uuids {
+        assert!(returned_uuids.contains(uuid), "Missing person uuid {uuid}");
+    }
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_get_persons_by_distinct_ids_in_team_chunked() {
+    let ctx = TestContext::new().await;
+
+    let mut distinct_ids = Vec::new();
+    for i in 0..80 {
+        let did = format!("bulk_did_{i}");
+        ctx.insert_person(&did, None).await.unwrap();
+        distinct_ids.push(did);
+    }
+
+    let result = ctx
+        .storage
+        .get_persons_by_distinct_ids_in_team(ctx.team_id, &distinct_ids, true)
+        .await
+        .expect("Failed to get persons by distinct ids");
+
+    assert_eq!(result.len(), 80);
+    let mut found_count = 0;
+    for (did, person) in &result {
+        assert!(
+            distinct_ids.contains(did),
+            "Unexpected distinct_id {did} in result"
+        );
+        if person.is_some() {
+            found_count += 1;
+        }
+    }
+    assert_eq!(found_count, 80, "All persons should be found");
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_get_persons_by_distinct_ids_in_team_chunked_preserves_missing() {
+    let ctx = TestContext::new().await;
+
+    // Create 60 persons but request 80 distinct_ids (20 nonexistent)
+    let mut distinct_ids = Vec::new();
+    for i in 0..60 {
+        let did = format!("partial_did_{i}");
+        ctx.insert_person(&did, None).await.unwrap();
+        distinct_ids.push(did);
+    }
+    for i in 60..80 {
+        distinct_ids.push(format!("missing_did_{i}"));
+    }
+
+    let result = ctx
+        .storage
+        .get_persons_by_distinct_ids_in_team(ctx.team_id, &distinct_ids, true)
+        .await
+        .expect("Failed to get persons");
+
+    assert_eq!(result.len(), 80);
+    let found: Vec<_> = result.iter().filter(|(_, p)| p.is_some()).collect();
+    let missing: Vec<_> = result.iter().filter(|(_, p)| p.is_none()).collect();
+    assert_eq!(found.len(), 60);
+    assert_eq!(missing.len(), 20);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_get_persons_by_distinct_ids_in_team_handles_duplicates() {
+    let ctx = TestContext::new().await;
+
+    ctx.insert_person("dup_did_a", None).await.unwrap();
+    ctx.insert_person("dup_did_b", None).await.unwrap();
+
+    // A repeated distinct_id, plus a repeated non-existent one. The query
+    // deduplicates these, while the response mirrors the input list: each id
+    // resolves on its first occurrence and is None on any repeat.
+    let distinct_ids = vec![
+        "dup_did_a".to_string(),
+        "dup_did_a".to_string(),
+        "dup_did_b".to_string(),
+        "missing_dup".to_string(),
+        "missing_dup".to_string(),
+    ];
+
+    let result = ctx
+        .storage
+        .get_persons_by_distinct_ids_in_team(ctx.team_id, &distinct_ids, true)
+        .await
+        .expect("Failed to get persons");
+
+    assert_eq!(
+        result
+            .iter()
+            .map(|(did, _)| did.clone())
+            .collect::<Vec<_>>(),
+        distinct_ids
+    );
+    assert!(result[0].1.is_some());
+    assert!(result[1].1.is_none());
+    assert!(result[2].1.is_some());
+    assert!(result[3].1.is_none());
+    assert!(result[4].1.is_none());
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_get_distinct_ids_for_persons_chunked() {
+    let ctx = TestContext::new().await;
+
+    let mut person_ids = Vec::new();
+    for i in 0..80 {
+        let p = ctx
+            .insert_person(&format!("did_bulk_{i}"), None)
+            .await
+            .unwrap();
+        // Add a second distinct_id to some persons
+        if i % 5 == 0 {
+            ctx.add_distinct_id_to_person(p.id, &format!("did_bulk_{i}_extra"))
+                .await
+                .unwrap();
+        }
+        person_ids.push(p.id);
+    }
+
+    let result = ctx
+        .storage
+        .get_distinct_ids_for_persons(ctx.team_id, &person_ids, ConsistencyLevel::Eventual, None)
+        .await
+        .expect("Failed to get distinct ids for persons");
+
+    // 80 persons, 16 with 2 distinct_ids each = 96 total
+    assert_eq!(result.len(), 96);
+
+    // Every person_id should appear at least once
+    let returned_person_ids: std::collections::HashSet<i64> =
+        result.iter().map(|d| d.person_id).collect();
+    for pid in &person_ids {
+        assert!(returned_person_ids.contains(pid), "Missing person_id {pid}");
+    }
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_get_distinct_ids_for_persons_chunked_with_limit() {
+    let ctx = TestContext::new().await;
+
+    let mut person_ids = Vec::new();
+    for i in 0..80 {
+        let p = ctx
+            .insert_person(&format!("did_lim_{i}"), None)
+            .await
+            .unwrap();
+        ctx.add_distinct_id_to_person(p.id, &format!("did_lim_{i}_b"))
+            .await
+            .unwrap();
+        ctx.add_distinct_id_to_person(p.id, &format!("did_lim_{i}_c"))
+            .await
+            .unwrap();
+        person_ids.push(p.id);
+    }
+
+    // Each person has 3 distinct_ids, limit to 1 per person
+    let result = ctx
+        .storage
+        .get_distinct_ids_for_persons(
+            ctx.team_id,
+            &person_ids,
+            ConsistencyLevel::Eventual,
+            Some(1),
+        )
+        .await
+        .expect("Failed to get distinct ids with limit");
+
+    // Should get exactly 80 rows (1 per person)
+    assert_eq!(result.len(), 80);
+
+    ctx.cleanup().await.ok();
+}
+
+// ============================================================
+// include_properties=false storage tests
+// ============================================================
+
+#[tokio::test]
+async fn test_get_persons_by_ids_without_properties() {
+    let ctx = TestContext::new().await;
+    let props = serde_json::json!({"email": "test@example.com"});
+    let person = ctx
+        .insert_person("props_test_1", Some(props))
+        .await
+        .expect("Failed to insert person");
+
+    let with_props = ctx
+        .storage
+        .get_persons_by_ids(ctx.team_id, &[person.id], true)
+        .await
+        .expect("Failed to get persons with props");
+    assert_eq!(with_props.len(), 1);
+    assert!(with_props[0].properties.is_some());
+
+    let without_props = ctx
+        .storage
+        .get_persons_by_ids(ctx.team_id, &[person.id], false)
+        .await
+        .expect("Failed to get persons without props");
+    assert_eq!(without_props.len(), 1);
+    assert_eq!(without_props[0].id, person.id);
+    assert!(without_props[0].properties.is_none());
+    assert!(without_props[0].properties_last_updated_at.is_none());
+    assert!(without_props[0].properties_last_operation.is_none());
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_get_persons_by_uuids_without_properties() {
+    let ctx = TestContext::new().await;
+    let props = serde_json::json!({"email": "test@example.com"});
+    let person = ctx
+        .insert_person("props_test_2", Some(props))
+        .await
+        .expect("Failed to insert person");
+
+    let without_props = ctx
+        .storage
+        .get_persons_by_uuids(ctx.team_id, &[person.uuid], false)
+        .await
+        .expect("Failed to get persons without props");
+    assert_eq!(without_props.len(), 1);
+    assert_eq!(without_props[0].id, person.id);
+    assert!(without_props[0].properties.is_none());
+    assert!(without_props[0].properties_last_updated_at.is_none());
+    assert!(without_props[0].properties_last_operation.is_none());
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_get_persons_by_distinct_ids_in_team_without_properties() {
+    let ctx = TestContext::new().await;
+    let props = serde_json::json!({"email": "test@example.com"});
+    ctx.insert_person("props_did_test", Some(props))
+        .await
+        .expect("Failed to insert person");
+
+    let results = ctx
+        .storage
+        .get_persons_by_distinct_ids_in_team(ctx.team_id, &["props_did_test".to_string()], false)
+        .await
+        .expect("Failed to get persons without props");
+    assert_eq!(results.len(), 1);
+    let person = results[0].1.as_ref().expect("Person should be found");
+    assert!(person.properties.is_none());
+    assert!(person.properties_last_updated_at.is_none());
+    assert!(person.properties_last_operation.is_none());
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_get_persons_by_distinct_ids_cross_team_without_properties() {
+    let ctx = TestContext::new().await;
+    let props = serde_json::json!({"email": "test@example.com"});
+    ctx.insert_person("props_cross_test", Some(props))
+        .await
+        .expect("Failed to insert person");
+
+    let results = ctx
+        .storage
+        .get_persons_by_distinct_ids_cross_team(
+            &[(ctx.team_id, "props_cross_test".to_string())],
+            false,
+        )
+        .await
+        .expect("Failed to get persons without props");
+    assert_eq!(results.len(), 1);
+    let person = results[0].1.as_ref().expect("Person should be found");
+    assert!(person.properties.is_none());
+    assert!(person.properties_last_updated_at.is_none());
+    assert!(person.properties_last_operation.is_none());
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_get_groups_without_properties() {
+    let ctx = TestContext::new().await;
+    let props = serde_json::json!({"name": "Acme Corp"});
+    ctx.insert_group(0, "grp_props_test", Some(props))
+        .await
+        .expect("Failed to insert group");
+
+    let with_props = ctx
+        .storage
+        .get_groups(
+            ctx.team_id,
+            &[personhog_replica::storage::GroupIdentifier {
+                group_type_index: 0,
+                group_key: "grp_props_test".to_string(),
+            }],
+            ConsistencyLevel::Eventual,
+            true,
+        )
+        .await
+        .expect("Failed to get groups with props");
+    assert_eq!(with_props.len(), 1);
+    assert!(with_props[0].group_properties.is_some());
+
+    let without_props = ctx
+        .storage
+        .get_groups(
+            ctx.team_id,
+            &[personhog_replica::storage::GroupIdentifier {
+                group_type_index: 0,
+                group_key: "grp_props_test".to_string(),
+            }],
+            ConsistencyLevel::Eventual,
+            false,
+        )
+        .await
+        .expect("Failed to get groups without props");
+    assert_eq!(without_props.len(), 1);
+    assert!(without_props[0].group_properties.is_none());
+    assert!(without_props[0].properties_last_updated_at.is_none());
+    assert!(without_props[0].properties_last_operation.is_none());
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_get_groups_batch_without_properties() {
+    let ctx = TestContext::new().await;
+    let props = serde_json::json!({"name": "Batch Corp"});
+    ctx.insert_group(0, "grp_batch_props", Some(props))
+        .await
+        .expect("Failed to insert group");
+
+    let without_props = ctx
+        .storage
+        .get_groups_batch(
+            &[GroupKey {
+                team_id: ctx.team_id,
+                group_type_index: 0,
+                group_key: "grp_batch_props".to_string(),
+            }],
+            ConsistencyLevel::Eventual,
+            false,
+        )
+        .await
+        .expect("Failed to get groups batch without props");
+    assert_eq!(without_props.len(), 1);
+    assert!(without_props[0].1.group_properties.is_none());
+    assert!(without_props[0].1.properties_last_updated_at.is_none());
+    assert!(without_props[0].1.properties_last_operation.is_none());
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_list_groups_without_properties() {
+    let ctx = TestContext::new().await;
+    let props = serde_json::json!({"name": "Listed Corp"});
+    ctx.insert_group(0, "grp_list_props", Some(props))
+        .await
+        .expect("Failed to insert group");
+
+    let (groups, _) = ctx
+        .storage
+        .list_groups(
+            ctx.team_id,
+            0,
+            "",
+            "",
+            None,
+            0,
+            100,
+            ConsistencyLevel::Eventual,
+            false,
+        )
+        .await
+        .expect("Failed to list groups without props");
+    assert!(!groups.is_empty());
+    for g in &groups {
+        assert!(g.group_properties.is_none());
+        assert!(g.properties_last_updated_at.is_none());
+        assert!(g.properties_last_operation.is_none());
+    }
+
+    ctx.cleanup().await.ok();
+}
+
+// ============================================================
+// split_person storage tests
+// ============================================================
+
+#[tokio::test]
+async fn test_split_person_empty_distinct_ids() {
+    let ctx = TestContext::new().await;
+    let person = ctx
+        .insert_person("original@example.com", None)
+        .await
+        .unwrap();
+
+    let results = ctx
+        .storage
+        .split_person(ctx.team_id, person.id, &[])
+        .await
+        .expect("Empty split should succeed");
+
+    assert!(results.is_empty());
+    ctx.cleanup().await.ok();
+}
+
+#[rstest]
+#[case::single_split(1)]
+#[case::two_splits(2)]
+#[case::five_splits(5)]
+#[tokio::test]
+async fn test_split_person_creates_new_persons(#[case] num_splits: usize) {
+    let ctx = TestContext::new().await;
+    let person = ctx.insert_person("keeper@example.com", None).await.unwrap();
+
+    let mut split_dids = Vec::new();
+    for i in 0..num_splits {
+        let did = format!("split_{i}@example.com");
+        ctx.add_distinct_id_to_person(person.id, &did)
+            .await
+            .unwrap();
+        split_dids.push(did);
+    }
+
+    let results = ctx
+        .storage
+        .split_person(ctx.team_id, person.id, &split_dids)
+        .await
+        .expect("Split should succeed");
+
+    assert_eq!(results.len(), num_splits);
+
+    for (i, result) in results.iter().enumerate() {
+        // Results come back in request order
+        assert_eq!(result.distinct_id, split_dids[i]);
+        assert_eq!(result.new_person_version, 101); // original version 0 + 101
+        assert_eq!(result.pdi_version, 101); // original PDI version 0 + 101
+
+        // New person should exist in DB
+        let new_person = ctx
+            .storage
+            .get_person_by_uuid(ctx.team_id, result.new_person_uuid)
+            .await
+            .expect("Lookup should succeed")
+            .expect("New person should exist");
+        assert_eq!(new_person.version, Some(101));
+        assert_eq!(new_person.created_at, result.new_person_created_at);
+
+        // PDI should now point to the new person
+        let looked_up = ctx
+            .storage
+            .get_person_by_distinct_id(ctx.team_id, &result.distinct_id)
+            .await
+            .expect("Lookup should succeed")
+            .expect("Person for distinct_id should exist");
+        assert_eq!(looked_up.uuid, result.new_person_uuid);
+    }
+
+    // Original person still exists with its keeper distinct_id
+    let original = ctx
+        .storage
+        .get_person_by_id(ctx.team_id, person.id)
+        .await
+        .expect("Lookup should succeed")
+        .expect("Original person should still exist");
+    assert_eq!(original.uuid, person.uuid);
+
+    let original_by_did = ctx
+        .storage
+        .get_person_by_distinct_id(ctx.team_id, "keeper@example.com")
+        .await
+        .expect("Lookup should succeed")
+        .expect("Keeper DID should still resolve to original");
+    assert_eq!(original_by_did.id, person.id);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_split_person_version_arithmetic() {
+    let ctx = TestContext::new().await;
+
+    // Insert a person with a non-zero version
+    let person_id = rand::thread_rng().gen_range(1_000_000i64..100_000_000);
+    let person_uuid = Uuid::now_v7();
+    let person_version: i64 = 42;
+
+    sqlx::query(
+        r#"INSERT INTO posthog_person
+        (id, uuid, team_id, properties, properties_last_updated_at,
+         properties_last_operation, created_at, version, is_identified, is_user_id)
+        VALUES ($1, $2, $3, '{}'::jsonb, '{}', '{}', NOW(), $4, false, NULL)"#,
+    )
+    .bind(person_id)
+    .bind(person_uuid)
+    .bind(ctx.team_id)
+    .bind(person_version)
+    .execute(&ctx.pool)
+    .await
+    .unwrap();
+
+    // Insert PDIs with non-zero versions
+    let pdi_version: i64 = 7;
+    for did in &["v_did_a", "v_did_b"] {
+        sqlx::query(
+            r#"INSERT INTO posthog_persondistinctid
+            (distinct_id, person_id, team_id, version) VALUES ($1, $2, $3, $4)"#,
+        )
+        .bind(*did)
+        .bind(person_id)
+        .bind(ctx.team_id)
+        .bind(pdi_version)
+        .execute(&ctx.pool)
+        .await
+        .unwrap();
+    }
+
+    let results = ctx
+        .storage
+        .split_person(
+            ctx.team_id,
+            person_id,
+            &["v_did_a".to_string(), "v_did_b".to_string()],
+        )
+        .await
+        .expect("Split should succeed");
+
+    for result in &results {
+        assert_eq!(
+            result.new_person_version,
+            person_version + 101,
+            "New person version should be original + 101"
+        );
+        assert_eq!(
+            result.pdi_version,
+            pdi_version + 101,
+            "PDI version should be original + 101"
+        );
+    }
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_split_person_deterministic_uuids() {
+    let ctx = TestContext::new().await;
+    let person = ctx
+        .insert_person("det_keeper@example.com", None)
+        .await
+        .unwrap();
+    ctx.add_distinct_id_to_person(person.id, "det_split@example.com")
+        .await
+        .unwrap();
+
+    let results = ctx
+        .storage
+        .split_person(
+            ctx.team_id,
+            person.id,
+            &["det_split@example.com".to_string()],
+        )
+        .await
+        .expect("Split should succeed");
+
+    // Compute expected UUID the same way the implementation does
+    let namespace = Uuid::from_bytes([
+        0x93, 0x29, 0x79, 0xb4, 0x65, 0xc3, 0x44, 0x24, 0x84, 0x67, 0x0b, 0x66, 0xec, 0x27, 0xbc,
+        0x22,
+    ]);
+    let expected_uuid = Uuid::new_v5(
+        &namespace,
+        format!("{}:det_split@example.com", ctx.team_id).as_bytes(),
+    );
+
+    assert_eq!(results[0].new_person_uuid, expected_uuid);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_split_person_idempotent() {
+    let ctx = TestContext::new().await;
+    let person = ctx
+        .insert_person("idem_keeper@example.com", None)
+        .await
+        .unwrap();
+    ctx.add_distinct_id_to_person(person.id, "idem_split@example.com")
+        .await
+        .unwrap();
+
+    let results1 = ctx
+        .storage
+        .split_person(
+            ctx.team_id,
+            person.id,
+            &["idem_split@example.com".to_string()],
+        )
+        .await
+        .expect("First split should succeed");
+
+    // After the first split, the PDI is reassigned to the new person.
+    // A second call with the same person_id should get NOT_FOUND because
+    // the distinct_id no longer belongs to that person.
+    let err = ctx
+        .storage
+        .split_person(
+            ctx.team_id,
+            person.id,
+            &["idem_split@example.com".to_string()],
+        )
+        .await
+        .expect_err("Second split should fail because DID moved");
+
+    let msg = err.to_string();
+    assert!(
+        msg.contains("Not found"),
+        "Expected NotFound error, got: {msg}"
+    );
+
+    // The new person should still exist with the correct UUID
+    let new_person = ctx
+        .storage
+        .get_person_by_uuid(ctx.team_id, results1[0].new_person_uuid)
+        .await
+        .expect("Lookup should succeed")
+        .expect("New person should still exist");
+    assert_eq!(new_person.version, Some(results1[0].new_person_version));
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_split_person_preserves_created_at_of_existing_person() {
+    let ctx = TestContext::new().await;
+    let person = ctx
+        .insert_person("preexist_keeper@example.com", None)
+        .await
+        .unwrap();
+    ctx.add_distinct_id_to_person(person.id, "preexist_split@example.com")
+        .await
+        .unwrap();
+
+    // Pre-create the person the split will upsert into (same deterministic
+    // UUIDv5), with a created_at in the past.
+    let namespace = Uuid::from_bytes([
+        0x93, 0x29, 0x79, 0xb4, 0x65, 0xc3, 0x44, 0x24, 0x84, 0x67, 0x0b, 0x66, 0xec, 0x27, 0xbc,
+        0x22,
+    ]);
+    let split_uuid = Uuid::new_v5(
+        &namespace,
+        format!("{}:preexist_split@example.com", ctx.team_id).as_bytes(),
+    );
+    let old_created_at = chrono::DateTime::parse_from_rfc3339("2020-01-02T03:04:05Z")
+        .unwrap()
+        .with_timezone(&chrono::Utc);
+    let existing_id = rand::thread_rng().gen_range(1_000_000i64..100_000_000);
+    sqlx::query(
+        r#"INSERT INTO posthog_person
+        (id, uuid, team_id, properties, properties_last_updated_at,
+         properties_last_operation, created_at, version, is_identified, is_user_id)
+        VALUES ($1, $2, $3, '{}'::jsonb, '{}', '{}', $4, 3, false, NULL)"#,
+    )
+    .bind(existing_id)
+    .bind(split_uuid)
+    .bind(ctx.team_id)
+    .bind(old_created_at)
+    .execute(&ctx.pool)
+    .await
+    .unwrap();
+
+    let results = ctx
+        .storage
+        .split_person(
+            ctx.team_id,
+            person.id,
+            &["preexist_split@example.com".to_string()],
+        )
+        .await
+        .expect("Split should succeed");
+
+    // The upsert keeps the existing person's created_at; the response must
+    // report it so callers publish the value that matches Postgres.
+    assert_eq!(results[0].new_person_uuid, split_uuid);
+    assert_eq!(results[0].new_person_created_at, old_created_at);
+    assert_eq!(results[0].new_person_version, 101); // source person version 0 + 101
+
+    let upserted = ctx
+        .storage
+        .get_person_by_uuid(ctx.team_id, split_uuid)
+        .await
+        .expect("Lookup should succeed")
+        .expect("Upserted person should exist");
+    assert_eq!(upserted.created_at, old_created_at);
+    assert_eq!(upserted.version, Some(101));
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_split_person_not_found_unknown_distinct_id() {
+    let ctx = TestContext::new().await;
+    let person = ctx
+        .insert_person("nf_keeper@example.com", None)
+        .await
+        .unwrap();
+
+    let err = ctx
+        .storage
+        .split_person(
+            ctx.team_id,
+            person.id,
+            &["nonexistent@example.com".to_string()],
+        )
+        .await
+        .expect_err("Should fail with NOT_FOUND");
+
+    let msg = err.to_string();
+    assert!(
+        msg.contains("Not found"),
+        "Expected NotFound error, got: {msg}"
+    );
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_split_person_not_found_wrong_person() {
+    let ctx = TestContext::new().await;
+    let person_a = ctx.insert_person("a@example.com", None).await.unwrap();
+    let _person_b = ctx.insert_person("b@example.com", None).await.unwrap();
+
+    // Try to split person_b's distinct_id from person_a
+    let err = ctx
+        .storage
+        .split_person(ctx.team_id, person_a.id, &["b@example.com".to_string()])
+        .await
+        .expect_err("Should fail with NOT_FOUND");
+
+    let msg = err.to_string();
+    assert!(
+        msg.contains("Not found"),
+        "Expected NotFound error, got: {msg}"
+    );
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_split_person_not_found_nonexistent_person() {
+    let ctx = TestContext::new().await;
+
+    let err = ctx
+        .storage
+        .split_person(
+            ctx.team_id,
+            999999999,
+            &["anything@example.com".to_string()],
+        )
+        .await
+        .expect_err("Should fail for nonexistent person");
+
+    let msg = err.to_string();
+    assert!(
+        msg.contains("Not found"),
+        "Expected NotFound error, got: {msg}"
+    );
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_split_person_cross_team_isolation() {
+    let ctx = TestContext::new().await;
+    let person = ctx
+        .insert_person("iso_keeper@example.com", None)
+        .await
+        .unwrap();
+    ctx.add_distinct_id_to_person(person.id, "iso_split@example.com")
+        .await
+        .unwrap();
+
+    let other_team_id = ctx.team_id + 1;
+
+    // Splitting with wrong team_id should fail
+    let err = ctx
+        .storage
+        .split_person(
+            other_team_id,
+            person.id,
+            &["iso_split@example.com".to_string()],
+        )
+        .await
+        .expect_err("Should fail with wrong team_id");
+
+    let msg = err.to_string();
+    assert!(
+        msg.contains("Not found"),
+        "Expected NotFound error, got: {msg}"
+    );
+
+    // Original should be untouched
+    let original = ctx
+        .storage
+        .get_person_by_distinct_id(ctx.team_id, "iso_split@example.com")
+        .await
+        .expect("Lookup should succeed")
+        .expect("Original DID should still resolve");
+    assert_eq!(original.id, person.id);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_split_person_transaction_rollback_on_partial_failure() {
+    let ctx = TestContext::new().await;
+    let person = ctx
+        .insert_person("tx_keeper@example.com", None)
+        .await
+        .unwrap();
+    ctx.add_distinct_id_to_person(person.id, "tx_split_a@example.com")
+        .await
+        .unwrap();
+
+    // Request includes one valid and one invalid distinct_id.
+    // Ownership validation under the lock should reject the whole request.
+    let err = ctx
+        .storage
+        .split_person(
+            ctx.team_id,
+            person.id,
+            &[
+                "tx_split_a@example.com".to_string(),
+                "tx_nonexistent@example.com".to_string(),
+            ],
+        )
+        .await
+        .expect_err("Should fail due to unknown distinct_id");
+
+    let msg = err.to_string();
+    assert!(
+        msg.contains("Not found"),
+        "Expected NotFound error, got: {msg}"
+    );
+
+    // Valid distinct_id should NOT have been reassigned (no partial commit)
+    let still_original = ctx
+        .storage
+        .get_person_by_distinct_id(ctx.team_id, "tx_split_a@example.com")
+        .await
+        .expect("Lookup should succeed")
+        .expect("DID should still resolve to original");
+    assert_eq!(
+        still_original.id, person.id,
+        "tx_split_a should still belong to original person after failed split"
+    );
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_split_person_new_persons_have_empty_properties() {
+    let ctx = TestContext::new().await;
+    let props = serde_json::json!({"email": "rich@example.com", "plan": "enterprise"});
+    let person = ctx
+        .insert_person("prop_keeper@example.com", Some(props))
+        .await
+        .unwrap();
+    ctx.add_distinct_id_to_person(person.id, "prop_split@example.com")
+        .await
+        .unwrap();
+
+    let results = ctx
+        .storage
+        .split_person(
+            ctx.team_id,
+            person.id,
+            &["prop_split@example.com".to_string()],
+        )
+        .await
+        .expect("Split should succeed");
+
+    let new_person = ctx
+        .storage
+        .get_person_by_uuid(ctx.team_id, results[0].new_person_uuid)
+        .await
+        .expect("Lookup should succeed")
+        .expect("New person should exist");
+
+    // New persons from split get empty properties, not the original's
+    let props_str = new_person.properties.expect("properties should be set");
+    let props_val: serde_json::Value =
+        serde_json::from_str(&props_str).expect("properties should be valid JSON");
+    assert_eq!(props_val, serde_json::json!({}));
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_split_person_each_did_gets_unique_person() {
+    let ctx = TestContext::new().await;
+    let person = ctx
+        .insert_person("multi_keeper@example.com", None)
+        .await
+        .unwrap();
+    ctx.add_distinct_id_to_person(person.id, "multi_a@example.com")
+        .await
+        .unwrap();
+    ctx.add_distinct_id_to_person(person.id, "multi_b@example.com")
+        .await
+        .unwrap();
+    ctx.add_distinct_id_to_person(person.id, "multi_c@example.com")
+        .await
+        .unwrap();
+
+    let results = ctx
+        .storage
+        .split_person(
+            ctx.team_id,
+            person.id,
+            &[
+                "multi_a@example.com".to_string(),
+                "multi_b@example.com".to_string(),
+                "multi_c@example.com".to_string(),
+            ],
+        )
+        .await
+        .expect("Split should succeed");
+
+    // Each split distinct_id should get a different new person UUID
+    let uuids: std::collections::HashSet<Uuid> =
+        results.iter().map(|r| r.new_person_uuid).collect();
+    assert_eq!(
+        uuids.len(),
+        3,
+        "Each split DID should produce a unique person"
+    );
+
+    // None of them should be the original person
+    for uuid in &uuids {
+        assert_ne!(
+            *uuid, person.uuid,
+            "New person UUID must differ from original"
+        );
+    }
+
     ctx.cleanup().await.ok();
 }

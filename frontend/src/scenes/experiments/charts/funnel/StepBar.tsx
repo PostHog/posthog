@@ -3,7 +3,7 @@ import { useActions } from 'kea'
 import { useRef } from 'react'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { percentage } from 'lib/utils'
+import { percentage } from 'lib/utils/numbers'
 
 import {
     ExperimentActorsQuery,
@@ -134,15 +134,18 @@ export function StepBar({ step, stepIndex }: StepBarProps): JSX.Element | null {
         ? step.breakdown_value[0]?.toString() || ''
         : step.breakdown_value?.toString() || ''
 
+    // Source variants from the feature flag (the source of truth used by VariantTag and the rest
+    // of the experiment UI). `parameters.feature_flag_variants` is an optional mirror that some
+    // experiments never populate, which would otherwise leave the bars uncolored.
     const seriesColor =
-        experiment?.parameters?.feature_flag_variants && variantKey
-            ? getVariantColor(variantKey, experiment.parameters.feature_flag_variants)
-            : 'var(--text-muted)'
+        experiment.feature_flag?.filters.multivariate?.variants && variantKey
+            ? getVariantColor(variantKey, experiment.feature_flag?.filters.multivariate?.variants)
+            : 'var(--muted)'
 
     // Get sampled sessions from the experiment result
     let sessionData: SessionData[] | undefined
     if (experimentResult && variantKey) {
-        if (variantKey === 'control') {
+        if (variantKey === experimentResult.baseline.key) {
             sessionData = experimentResult.baseline.step_sessions?.[stepIndex]
         } else {
             const variantResult = experimentResult.variant_results?.find((v: any) => v.key === variantKey)

@@ -24,8 +24,6 @@ export interface TopIssue {
     occurrences: number
 }
 
-const TOP_ISSUES_WINDOW_DAYS = 7
-
 const DEFAULT_CONFIG: IssueRateLimitConfigForm = {
     per_issue_rate_limit_value: null,
     per_issue_rate_limit_bucket_size_minutes: DEFAULT_BUCKET_MINUTES,
@@ -72,7 +70,10 @@ export const issueRateLimitConfigLogic = kea<issueRateLimitConfigLogicType>([
         topIssues: [
             [] as TopIssue[],
             {
-                loadTopIssues: async () => {
+                loadTopIssues: async ({ bucketMinutes }: { bucketMinutes: number }, breakpoint) => {
+                    const option = getBucketOption(bucketMinutes)
+                    const totalMinutes = option.minutes * option.bucketCount
+                    await breakpoint(300)
                     const response = (await api.query({
                         kind: NodeKind.HogQLQuery,
                         query: `
@@ -83,14 +84,15 @@ export const issueRateLimitConfigLogic = kea<issueRateLimitConfigLogicType>([
                                 count() AS occurrences
                             FROM events
                             WHERE event = '$exception'
-                              AND timestamp >= now() - INTERVAL ${TOP_ISSUES_WINDOW_DAYS} DAY
+                              AND timestamp >= now() - INTERVAL ${totalMinutes} MINUTE
                               AND issue_id_v2 IS NOT NULL
                             GROUP BY issue_id_v2
                             ORDER BY occurrences DESC
-                            LIMIT 100
+                            LIMIT 10
                         `,
                         tags: { productKey: ProductKey.ERROR_TRACKING },
                     })) as HogQLQueryResponse
+                    breakpoint()
                     return (response.results ?? []).map(([issue_id, name, description, occurrences]) => ({
                         issue_id: String(issue_id),
                         name: name == null ? null : String(name),
@@ -103,15 +105,19 @@ export const issueRateLimitConfigLogic = kea<issueRateLimitConfigLogicType>([
         selectedIssueVolume: [
             [] as ExceptionVolumeBucket[],
             {
-                loadSelectedIssueVolume: async ({
-                    issueId,
-                    bucketMinutes,
-                }: {
-                    issueId: string
-                    bucketMinutes: number
-                }) => {
+                loadSelectedIssueVolume: async (
+                    {
+                        issueId,
+                        bucketMinutes,
+                    }: {
+                        issueId: string
+                        bucketMinutes: number
+                    },
+                    breakpoint
+                ) => {
                     const option = getBucketOption(bucketMinutes)
                     const totalMinutes = option.minutes * option.bucketCount
+                    await breakpoint(300)
                     const response = (await api.query({
                         kind: NodeKind.HogQLQuery,
                         query: `
@@ -124,9 +130,11 @@ export const issueRateLimitConfigLogic = kea<issueRateLimitConfigLogicType>([
                               AND toString(issue_id_v2) = '${issueId}'
                             GROUP BY bucket
                             ORDER BY bucket
+                            LIMIT ${option.bucketCount + 1}
                         `,
                         tags: { productKey: ProductKey.ERROR_TRACKING },
                     })) as HogQLQueryResponse
+                    breakpoint()
                     return (response.results ?? []).map(([bucket, count]) => ({
                         bucket: String(bucket),
                         count: Number(count),
@@ -169,7 +177,9 @@ export const issueRateLimitConfigLogic = kea<issueRateLimitConfigLogicType>([
 
     listeners(({ actions, values }) => ({
         loadConfigSuccess: ({ config }) => {
-            const bucket = config?.per_issue_rate_limit_bucket_size_minutes ?? DEFAULT_BUCKET_MINUTES
+            const bucket = getBucketOption(
+                config?.per_issue_rate_limit_bucket_size_minutes ?? DEFAULT_BUCKET_MINUTES
+            ).minutes
             const limit = config?.per_issue_rate_limit_value ?? null
             if (config) {
                 actions.resetConfigForm({
@@ -177,19 +187,12 @@ export const issueRateLimitConfigLogic = kea<issueRateLimitConfigLogicType>([
                     per_issue_rate_limit_bucket_size_minutes: bucket,
                 })
             }
-            actions.loadTopIssues()
+            actions.loadTopIssues({ bucketMinutes: bucket })
         },
         setConfigFormValue: ({ name, value }) => {
             const fieldName = Array.isArray(name) ? name[name.length - 1] : name
-            if (
-                fieldName === 'per_issue_rate_limit_bucket_size_minutes' &&
-                typeof value === 'number' &&
-                values.selectedIssueId
-            ) {
-                actions.loadSelectedIssueVolume({
-                    issueId: values.selectedIssueId,
-                    bucketMinutes: value,
-                })
+            if (fieldName === 'per_issue_rate_limit_bucket_size_minutes' && typeof value === 'number') {
+                actions.loadTopIssues({ bucketMinutes: value })
             }
         },
         selectIssue: ({ issueId }) => {
@@ -201,9 +204,11 @@ export const issueRateLimitConfigLogic = kea<issueRateLimitConfigLogicType>([
             }
         },
         loadTopIssuesSuccess: ({ topIssues }) => {
-            const first = topIssues[0]
-            if (first) {
-                actions.selectIssue(first.issue_id)
+            const current = values.selectedIssueId
+            const keep = current && topIssues.some((i) => i.issue_id === current)
+            const nextId = keep ? current : (topIssues[0]?.issue_id ?? null)
+            if (nextId) {
+                actions.selectIssue(nextId)
             }
         },
     })),

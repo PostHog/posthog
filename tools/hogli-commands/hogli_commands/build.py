@@ -20,6 +20,7 @@ TRIGGERS: dict[str, tuple[str, ...]] = {
         "ee/api/*",
         "products/*/backend/api/*",
         "products/*/backend/presentation/*",
+        "products/*/backend/widget_specs/*",
         "products/*/mcp/tools.yaml",
         "services/mcp/definitions/*",
     ),

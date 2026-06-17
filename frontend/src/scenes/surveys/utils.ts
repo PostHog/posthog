@@ -3,7 +3,7 @@ import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
 import posthog from 'posthog-js'
 
 import { dayjs } from 'lib/dayjs'
-import { dateStringToDayJs } from 'lib/utils'
+import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { NEW_SURVEY, NewSurvey, SURVEY_CREATED_SOURCE, SURVEY_RATING_SCALE } from 'scenes/surveys/constants'
 import { SurveyRatingResults } from 'scenes/surveys/surveyLogic'
@@ -1046,7 +1046,7 @@ export function isSimpleSurveyAudienceTargeting(filters?: FeatureFlagFilters | n
         return true
     }
 
-    if (filters.groups.length !== 1 || filters.aggregation_group_type_index != null || filters.super_groups?.length) {
+    if (filters.groups.length !== 1 || filters.aggregation_group_type_index != null || filters.feature_enrollment) {
         return false
     }
 

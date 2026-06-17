@@ -4,8 +4,8 @@ import { actionToUrl, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { isUserLoggedIn } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { isUserLoggedIn } from 'lib/utils/getAppContext'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -58,6 +58,7 @@ const EDITABLE_INSTANCE_SETTINGS = [
     'PARALLEL_DASHBOARD_ITEM_CACHE',
     'RATE_LIMIT_ENABLED',
     'RATE_LIMITING_ALLOW_LIST_TEAMS',
+    'FLAGS_LOG_BODIES_TEAMS',
     'CLICKHOUSE_KILL_SWITCH',
     'CLICKHOUSE_KILL_SWITCH_LIGHT_TEAMS',
     'CLICKHOUSE_KILL_SWITCH_FULL_TEAMS',

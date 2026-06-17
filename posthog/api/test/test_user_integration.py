@@ -132,6 +132,53 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         response = self.client.delete("/api/users/@me/integrations/github/99999/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
+    @patch("posthog.api.user_integration.UserGitHubIntegration.uninstall_app_installation")
+    def test_delete_last_reference_calls_github_uninstall(self, mock_uninstall):
+        mock_uninstall.return_value = True
+        _create_user_integration(self.user, integration_id="12345")
+
+        response = self.client.delete("/api/users/@me/integrations/github/12345/")
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        mock_uninstall.assert_called_once_with("12345")
+        self.assertFalse(UserIntegration.objects.filter(integration_id="12345").exists())
+
+    @patch("posthog.api.user_integration.UserGitHubIntegration.uninstall_app_installation")
+    def test_delete_skips_uninstall_when_team_reference_exists(self, mock_uninstall):
+        _create_user_integration(self.user, integration_id="12345")
+        Integration.objects.create(
+            team=self.team, kind="github", integration_id="12345", config={}, sensitive_config={}
+        )
+
+        response = self.client.delete("/api/users/@me/integrations/github/12345/")
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        mock_uninstall.assert_not_called()
+        self.assertFalse(UserIntegration.objects.filter(user=self.user, integration_id="12345").exists())
+
+    @patch("posthog.api.user_integration.UserGitHubIntegration.uninstall_app_installation")
+    def test_delete_skips_uninstall_when_other_user_reference_exists(self, mock_uninstall):
+        other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
+        _create_user_integration(self.user, integration_id="12345")
+        _create_user_integration(other_user, integration_id="12345")
+
+        response = self.client.delete("/api/users/@me/integrations/github/12345/")
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        mock_uninstall.assert_not_called()
+
+    @patch(
+        "posthog.api.user_integration.UserGitHubIntegration.uninstall_if_last_reference",
+        side_effect=Exception("GitHub API error"),
+    )
+    def test_delete_still_returns_204_when_uninstall_fails(self, _mock_uninstall):
+        _create_user_integration(self.user, integration_id="12345")
+
+        response = self.client.delete("/api/users/@me/integrations/github/12345/")
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(UserIntegration.objects.filter(integration_id="12345").exists())
+
     @override_settings(GITHUB_APP_CLIENT_ID="client_id")
     @patch(
         "posthog.api.github_callback.personal_state.get_instance_settings",
@@ -163,12 +210,8 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         self.assertIn("client_id=gh_client_123", url)
         self.assertIn("redirect_uri=https%3A%2F%2Fus.posthog.com%2Fcomplete%2Fgithub-link%2F", url)
 
-    @override_settings(GITHUB_APP_CLIENT_ID="gh_client_123")
-    @patch(
-        "posthog.api.github_callback.personal_state.get_instance_settings",
-        return_value={"GITHUB_APP_SLUG": "posthog-dev"},
-    )
-    def test_github_start_returns_install_url_even_when_team_has_github_integration(self, _mock_settings):
+    @override_settings(GITHUB_APP_CLIENT_ID="gh_client_123", SITE_URL="https://us.posthog.com")
+    def test_github_start_web_fast_path_returns_oauth_url_when_team_has_github_integration(self):
         Integration.objects.create(
             team=self.team,
             kind="github",
@@ -181,8 +224,11 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
         self.assertIn("install_url", data)
-        self.assertEqual(data.get("connect_flow"), "app_install")
-        self.assertIn("github.com/apps/posthog-dev/installations/new", data["install_url"])
+        self.assertEqual(data.get("connect_flow"), "oauth_authorize")
+        url = data["install_url"]
+        self.assertIn("github.com/login/oauth/authorize", url)
+        self.assertIn("client_id=gh_client_123", url)
+        self.assertIn("redirect_uri=https%3A%2F%2Fus.posthog.com%2Fcomplete%2Fgithub-link%2F", url)
 
     @override_settings(
         GITHUB_APP_CLIENT_ID="gh_client_123", SITE_URL="https://us.posthog.com", GITHUB_APP_CLIENT_SECRET="s"

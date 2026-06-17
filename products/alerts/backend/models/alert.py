@@ -14,11 +14,10 @@ if TYPE_CHECKING:
 import pydantic
 import posthoganalytics
 
-from posthog.schema import AlertCalculationInterval, AlertState, InsightThreshold
-
 from posthog.constants import ALERTS_15_MINUTE_INTERVAL_FEATURE_FLAG_KEY, AvailableFeature
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import CreatedMetaFields, UUIDTModel
+from posthog.schema_enums import AlertCalculationInterval, AlertState
 
 ALERT_STATE_CHOICES = [
     (AlertState.FIRING, AlertState.FIRING),
@@ -68,7 +67,7 @@ def derive_detector_event_fields(detector_config: dict | None) -> dict:
 # @deprecated("AlertConfiguration should be used instead.")
 class Alert(models.Model):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE)
+    insight = models.ForeignKey("product_analytics.Insight", on_delete=models.CASCADE)
 
     name = models.CharField(max_length=100)
     target_value = models.TextField()
@@ -85,7 +84,7 @@ class Threshold(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
     """
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE)
+    insight = models.ForeignKey("product_analytics.Insight", on_delete=models.CASCADE)
 
     name = models.CharField(max_length=255, blank=True)
     configuration = models.JSONField(default=dict)
@@ -95,6 +94,10 @@ class Threshold(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
 
     def clean(self) -> None:
         try:
+            # Deferred: posthog.schema (the pydantic models) stays off django.setup(),
+            # where this model loads in every process.
+            from posthog.schema import InsightThreshold  # noqa: PLC0415
+
             config = InsightThreshold.model_validate(self.configuration)
         except pydantic.ValidationError as e:
             raise ValidationError(f"Invalid threshold configuration: {e}")
@@ -110,7 +113,7 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
     ALERTS_ALLOWED_ON_FREE_TIER = 5
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE)
+    insight = models.ForeignKey("product_analytics.Insight", on_delete=models.CASCADE)
 
     name = models.CharField(max_length=255, blank=True)
     subscribed_users = models.ManyToManyField(

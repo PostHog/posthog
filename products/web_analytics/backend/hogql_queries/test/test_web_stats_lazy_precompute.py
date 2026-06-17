@@ -37,6 +37,9 @@ PARITY_BREAKDOWNS = [
     ("region", WebStatsBreakdown.REGION),
     ("channel_type", WebStatsBreakdown.INITIAL_CHANNEL_TYPE),
     ("initial_referring_domain", WebStatsBreakdown.INITIAL_REFERRING_DOMAIN),
+    ("initial_referring_url", WebStatsBreakdown.INITIAL_REFERRING_URL),
+    ("language", WebStatsBreakdown.LANGUAGE),
+    ("exit_page", WebStatsBreakdown.EXIT_PAGE),
 ]
 
 
@@ -56,7 +59,7 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         # manager the default `posthoganalytics.feature_enabled` returns False
         # (no API key in tests), which models a flag-disabled org.
         return patch(
-            "products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute.posthoganalytics.feature_enabled",
+            "products.web_analytics.backend.hogql_queries.web_lazy_precompute_common.posthoganalytics.feature_enabled",
             return_value=True,
         )
 
@@ -65,6 +68,7 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             "$browser": "Chrome",
             "$os": "Linux",
             "$device_type": "Desktop",
+            "$browser_language": "en-US",
             "$geoip_country_code": "US",
             "$geoip_subdivision_1_code": "US-CA",
             "$geoip_subdivision_1_name": "California",
@@ -113,6 +117,7 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
                     "$browser": "Firefox",
                     "$os": "Windows",
                     "$device_type": "Mobile",
+                    "$browser_language": "en-GB",
                     "$geoip_country_code": "GB",
                     "$geoip_subdivision_1_code": "GB-ENG",
                     "$geoip_subdivision_1_name": "England",
@@ -302,13 +307,12 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             ("page", WebStatsBreakdown.PAGE),
             ("initial_page", WebStatsBreakdown.INITIAL_PAGE),
             ("exit_click", WebStatsBreakdown.EXIT_CLICK),
-            ("initial_referring_url", WebStatsBreakdown.INITIAL_REFERRING_URL),
         ]
     )
     @freeze_time("2024-01-15T12:00:00Z")
     def test_high_cardinality_breakdown_falls_through(self, _name: str, breakdown_by: WebStatsBreakdown):
-        # Page/path/referring-URL breakdowns are intentionally excluded — too
-        # high cardinality for the in-Python read. They fall through to raw.
+        # Page/path breakdowns are intentionally excluded — handled by the
+        # dedicated paths lazy precompute. They fall through to raw here.
         self._seed()
         with self._enable_lazy():
             self._run(self._build_query(breakdown_by=breakdown_by))
@@ -316,14 +320,83 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert self._job_count() == 0
 
     @freeze_time("2024-01-15T12:00:00Z")
-    def test_language_breakdown_falls_through(self):
-        # LANGUAGE needs an extra topK aggregation column that can't be rebuilt
-        # from hourly states — it must fall through to the raw path.
+    def test_language_breakdown_precomputes_and_groups_by_prefix(self):
+        # LANGUAGE precomputes: the INSERT stores the full `$browser_language`
+        # ("en-US"/"en-GB"); the read groups by the "en" prefix and labels it with
+        # the most-common region (US wins on views), reproducing the raw two-level
+        # query entirely on read. en-US (u1, 3 views) + en-GB (u2, 1 view) collapse
+        # to one "en-US" row with 2 visitors / 4 views.
         self._seed()
         with self._enable_lazy():
-            self._run(self._build_query(breakdown_by=WebStatsBreakdown.LANGUAGE))
+            response = self._run(self._build_query(breakdown_by=WebStatsBreakdown.LANGUAGE))
 
-        assert self._job_count() == 0
+        assert self._job_count() > 0
+        assert response.usedLazyPrecompute is True
+        assert self._metrics(response) == [("en-US", (2.0, None), (4.0, None))]
+
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_language_breakdown_keeps_missing_value(self):
+        # The raw LANGUAGE query keeps rows with no `$browser_language`
+        # (outer_where_breakdown is None for LANGUAGE) so the tile total stays
+        # consistent with the overview. The lazy read must do the same — assert
+        # parity rather than a hardcoded label so it tracks whatever the raw path
+        # renders for the missing bucket.
+        self._seed()
+        _create_person(team_id=self.team.pk, distinct_ids=["u3"], properties={"name": "u3"})
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="u3",
+            timestamp="2024-01-05T08:00:00Z",
+            properties=self._props(
+                **{
+                    "$session_id": str(uuid7("2024-01-05")),
+                    "$host": "example.com",
+                    "$current_url": "https://example.com/a",
+                    "$pathname": "/a",
+                    "$browser_language": None,
+                }
+            ),
+        )
+
+        raw = self._metrics(self._run(self._build_query(breakdown_by=WebStatsBreakdown.LANGUAGE)))
+        with self._enable_lazy():
+            lazy_response = self._run(self._build_query(breakdown_by=WebStatsBreakdown.LANGUAGE))
+
+        assert lazy_response.usedLazyPrecompute is True
+        assert self._metrics(lazy_response) == raw
+
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_language_breakdown_three_part_tag_matches_raw(self):
+        # 3-component BCP-47 tags (e.g. `zh-Hans-CN`) must split the same way as the
+        # raw query, which uses `splitByChar('-', ..., 2)`. Assert parity against the
+        # raw path rather than a hardcoded label so it holds under any cluster's
+        # `splitby_max_substrings_includes_remaining_string` setting.
+        self._seed()
+        _create_person(team_id=self.team.pk, distinct_ids=["u4"], properties={"name": "u4"})
+        for path, ts in (("/a", "2024-01-05T08:00:00Z"), ("/b", "2024-01-05T08:05:00Z")):
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="u4",
+                timestamp=ts,
+                properties=self._props(
+                    **{
+                        "$session_id": str(uuid7("2024-01-05")),
+                        "$host": "example.com",
+                        "$current_url": f"https://example.com{path}",
+                        "$pathname": path,
+                        "$browser_language": "zh-Hans-CN",
+                    }
+                ),
+            )
+
+        raw = self._metrics(self._run(self._build_query(breakdown_by=WebStatsBreakdown.LANGUAGE)))
+        with self._enable_lazy():
+            lazy_response = self._run(self._build_query(breakdown_by=WebStatsBreakdown.LANGUAGE))
+
+        assert lazy_response.usedLazyPrecompute is True
+        assert self._metrics(lazy_response) == raw, f"raw={raw} lazy={self._metrics(lazy_response)}"
 
     @freeze_time("2024-01-15T12:00:00Z")
     def test_conversion_goal_falls_through(self):

@@ -17,6 +17,7 @@ import {
     sanitizePropertyFilter,
 } from 'lib/components/PropertyFilters/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { taxonomicTriggerWrapperClassName } from 'lib/components/TaxonomicFilter/menu/triggerLayout'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import {
     TaxonomicFilterGroup,
@@ -29,7 +30,8 @@ import { TaxonomicMenuToggle } from 'lib/components/TaxonomicPopover/TaxonomicMe
 import { TaxonomicPopoverMenu } from 'lib/components/TaxonomicPopover/TaxonomicPopoverMenu'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { isOperatorMulti, isOperatorRegex, toParams } from 'lib/utils'
+import { isOperatorMulti, isOperatorRegex } from 'lib/utils/operators'
+import { toParams } from 'lib/utils/url'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { cohortsModel } from '~/models/cohortsModel'
@@ -86,6 +88,7 @@ export function TaxonomicPropertyFilter({
     operatorAllowlist,
     endpointFilters,
     hogQLGlobals,
+    triggerVariant = 'button',
 }: PropertyFilterInternalProps): JSX.Element {
     const pageKey = useMemo(() => pageKeyInput || `filter-${uniqueMemoizedIndex++}`, [pageKeyInput])
     const baseGroupTypes = taxonomicGroupTypes || DEFAULT_TAXONOMIC_GROUP_TYPES
@@ -185,6 +188,7 @@ export function TaxonomicPropertyFilter({
             excludedOperators={excludedOperators}
             selectingKeyOnly={selectingKeyOnly}
             enableKeywordShortcuts
+            collapseUrlsToContainsRow
         />
     )
 
@@ -296,16 +300,16 @@ export function TaxonomicPropertyFilter({
     // away via `showInitialSearchInline`; `disablePopover` still renders a
     // button + dropdown here, so it's fine to swap.
     //
-    // `selectingKeyOnly` rows keep the classic filter — the rebuilt menu
-    // doesn't model key-only selection semantics yet, and silently swapping
-    // would change what `onChange` commits.
+    // Key-only rows route through the rebuilt menu too — the picker fires
+    // the same `taxonomicOnChange` callback in either mode, so the commit
+    // shape is identical (cohort id → `setFilter` with `type: 'cohort'`).
     //
     // The rebuilt menu carries its own toggle inside its trigger wrapper, so
     // it needs no extra DOM and inherits the row's layout exactly. The
     // legacy path gets a thin positioned wrapper to host the floating toggle.
     const editablePicker = !menuRebuildEnabled ? (
         legacyDropdown
-    ) : useNewMenu && !isKeyOnlyRow ? (
+    ) : useNewMenu ? (
         <TaxonomicPopoverMenu
             groupType={filterTaxonomicGroupType ?? groupTypes[0]}
             value={cohortOrOtherValue}
@@ -323,16 +327,18 @@ export function TaxonomicPropertyFilter({
             endpointFilters={endpointFilters}
             hogQLGlobals={hogQLGlobals}
             enableKeywordShortcuts
+            triggerVariant={triggerVariant}
             triggerButtonProps={{
                 type: 'secondary',
                 size,
                 truncate: true,
                 sideIcon: null,
+                fullWidth: triggerVariant === 'input',
                 icon: !valuePresent ? <IconPlusSmall /> : undefined,
             }}
         />
     ) : (
-        <span className="relative inline-flex max-w-full min-w-0">
+        <span className={taxonomicTriggerWrapperClassName()}>
             {legacyDropdown}
             <TaxonomicMenuToggle />
         </span>

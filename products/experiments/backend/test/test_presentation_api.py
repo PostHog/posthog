@@ -6,6 +6,8 @@ from posthog.test.base import ClickhouseTestMixin, FuzzyInt, _create_event, _cre
 from unittest.mock import ANY, MagicMock, patch
 
 from django.core.cache import cache
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 
 from dateutil import parser
 from parameterized import parameterized
@@ -13,17 +15,23 @@ from rest_framework import status
 
 from posthog.models import Organization, Team
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.models.cohort.cohort import Cohort
-from posthog.models.feature_flag import FeatureFlag, get_feature_flags_for_team_in_cache
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.user import User
 from posthog.test.test_journeys import journeys_for
 
 from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.event_definition import EventDefinition
-from products.experiments.backend.models.experiment import Experiment, ExperimentHoldout, ExperimentSavedMetric
+from products.experiments.backend.models.experiment import (
+    Experiment,
+    ExperimentHoldout,
+    ExperimentSavedMetric,
+    ExperimentToSavedMetric,
+)
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.models.web_experiment import WebExperiment
+from products.feature_flags.backend.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
+from products.feature_flags.backend.models.feature_flag import FeatureFlag, get_feature_flags_for_team_in_cache
 
 from ee.api.test.base import APILicensedTest
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
@@ -33,6 +41,43 @@ class TestExperimentCRUD(APILicensedTest):
     # List experiments
     def test_can_list_experiments(self):
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    @parameterized.expand(
+        [
+            (None, None),
+            (None, []),
+            ([], None),
+        ]
+    )
+    def test_can_list_experiments_with_null_metrics(self, metrics: list | None, metrics_secondary: list | None) -> None:
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="null-metrics-flag",
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "name": "Control", "rollout_percentage": 50},
+                        {"key": "test", "name": "Test", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        )
+        experiment = Experiment.objects.create(
+            team=self.team,
+            name="Null metrics experiment",
+            feature_flag=flag,
+            metrics=metrics,
+            metrics_secondary=metrics_secondary,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_can_list_eligible_feature_flags(self) -> None:
@@ -127,6 +172,92 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(response.json()["count"], 1)
         self.assertEqual(response.json()["results"][0]["status"], expected_status)
 
+    def _create_experiment_with_metric_event(self, name: str, flag_key: str, event: str) -> Experiment:
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key=flag_key,
+            name=f"Flag for {flag_key}",
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "name": "Control", "rollout_percentage": 50},
+                        {"key": "test", "name": "Test", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        )
+        return Experiment.objects.create(
+            team=self.team,
+            name=name,
+            feature_flag=flag,
+            metrics=[
+                {"kind": "ExperimentMetric", "metric_type": "mean", "source": {"kind": "EventsNode", "event": event}}
+            ],
+        )
+
+    def test_can_filter_experiments_by_event(self) -> None:
+        purchase_experiment = self._create_experiment_with_metric_event("Purchase", "purchase-flag", "purchase")
+        self._create_experiment_with_metric_event("Signup", "signup-flag", "signup")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/?event=purchase")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["id"], purchase_experiment.id)
+
+    def test_filter_by_event_resolves_actions(self) -> None:
+        action = Action.objects.create(team=self.team, name="Checked out", steps_json=[{"event": "checkout"}])
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="action-flag",
+            name="Flag for action-flag",
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "name": "Control", "rollout_percentage": 50},
+                        {"key": "test", "name": "Test", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        )
+        experiment = Experiment.objects.create(
+            team=self.team,
+            name="Action experiment",
+            feature_flag=flag,
+            metrics=[
+                {"kind": "ExperimentMetric", "metric_type": "mean", "source": {"kind": "ActionsNode", "id": action.id}}
+            ],
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/?event=checkout")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["id"], experiment.id)
+
+    def test_filter_by_event_matches_saved_metric(self) -> None:
+        experiment = self._create_experiment_with_metric_event("Saved metric", "saved-metric-flag", "primary_event")
+        saved_metric = ExperimentSavedMetric.objects.create(
+            team=self.team,
+            name="Conversion",
+            query={
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "source": {"kind": "EventsNode", "event": "saved_event"},
+            },
+        )
+        ExperimentToSavedMetric.objects.create(experiment=experiment, saved_metric=saved_metric)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/?event=saved_event")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["id"], experiment.id)
+
     def test_getting_experiments_is_not_nplus1(self) -> None:
         self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
@@ -154,7 +285,7 @@ class TestExperimentCRUD(APILicensedTest):
             format="json",
         ).json()
 
-        with self.assertNumQueries(FuzzyInt(18, 22)):
+        with self.assertNumQueries(FuzzyInt(13, 17)):
             response = self.client.get(f"/api/projects/{self.team.id}/experiments")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -171,9 +302,70 @@ class TestExperimentCRUD(APILicensedTest):
                 format="json",
             ).json()
 
-        with self.assertNumQueries(FuzzyInt(18, 22)):
+        with self.assertNumQueries(FuzzyInt(13, 17)):
             response = self.client.get(f"/api/projects/{self.team.id}/experiments")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def _create_fully_populated_experiment(self, index: int) -> Experiment:
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key=f"populated-flag-{index}",
+            created_by=self.user,
+        )
+        context = EvaluationContext.objects.create(team=self.team, name=f"context-{index}")
+        FeatureFlagEvaluationContext.objects.create(feature_flag=flag, evaluation_context=context)
+
+        holdout = ExperimentHoldout.objects.create(
+            team=self.team,
+            name=f"Holdout {index}",
+            created_by=self.user,
+            filters=[{"properties": [], "rollout_percentage": 10, "variant": f"holdout-{index}"}],
+        )
+        cohort = Cohort.objects.create(team=self.team, name=f"Cohort {index}")
+
+        experiment = Experiment.objects.create(
+            team=self.team,
+            name=f"Populated experiment {index}",
+            feature_flag=flag,
+            holdout=holdout,
+            exposure_cohort=cohort,
+            created_by=self.user,
+            start_date=datetime(2021, 12, 1, 10, 23, tzinfo=UTC),
+        )
+
+        saved_metric = ExperimentSavedMetric.objects.create(
+            team=self.team,
+            name=f"Saved metric {index}",
+            created_by=self.user,
+            query={
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "source": {"kind": "EventsNode", "event": "$pageview"},
+            },
+        )
+        ExperimentToSavedMetric.objects.create(experiment=experiment, saved_metric=saved_metric)
+        return experiment
+
+    def test_listing_experiments_with_related_objects_is_not_nplus1(self) -> None:
+        # Each experiment carries a feature flag (+ evaluation context), a holdout (+ created_by),
+        # an exposure cohort, and a saved metric — the relations that previously triggered N+1 queries.
+        self._create_fully_populated_experiment(0)
+
+        with CaptureQueriesContext(connection) as single_row:
+            response = self.client.get(f"/api/projects/{self.team.id}/experiments")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.json()["count"], 1)
+
+        for i in range(1, 5):
+            self._create_fully_populated_experiment(i)
+
+        with CaptureQueriesContext(connection) as five_rows:
+            response = self.client.get(f"/api/projects/{self.team.id}/experiments")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.json()["count"], 5)
+
+        # Query count must stay flat as rows grow — five experiments must not cost more than one.
+        self.assertLessEqual(len(five_rows.captured_queries), len(single_row.captured_queries))
 
     def test_creating_updating_basic_experiment(self):
         ff_key = "a-b-tests"
@@ -260,6 +452,7 @@ class TestExperimentCRUD(APILicensedTest):
                 "metrics_count": 0,
                 "secondary_metrics_count": 0,
                 "has_description": False,
+                "has_conclusion_comment": False,
                 "variant_count": 2,
                 "created_at": ANY,
                 "creation_mode": "new",
@@ -2200,7 +2393,7 @@ class TestExperimentCRUD(APILicensedTest):
 
         # TODO: Make sure permission bool doesn't cause n + 1
         # +1 query for survey internal flag IDs lookup
-        with self.assertNumQueries(24):
+        with self.assertNumQueries(22):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             result = response.json()
@@ -3486,6 +3679,7 @@ class TestExperimentCRUD(APILicensedTest):
                 "metrics_count": 0,
                 "secondary_metrics_count": 0,
                 "has_description": False,
+                "has_conclusion_comment": False,
                 "variant_count": 2,
                 "created_at": ANY,
                 "creation_mode": expected_mode,
@@ -5274,6 +5468,42 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
         # Verify the fix: the update activity log should NOT show the first user
         self.assertNotEqual(update_logs[0].user, self.user)
 
+    def test_web_experiment_activity_logging_excludes_parameters_through_main_endpoint(self):
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team,
+            name="Web experiment activity logging flag",
+            key="web-experiment-activity-logging",
+            filters={},
+        )
+        experiment = Experiment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Web experiment activity logging",
+            description="Original description",
+            type=Experiment.ExperimentType.WEB,
+            parameters={},
+            feature_flag=feature_flag,
+        )
+
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment.id}/",
+            {
+                "description": "Updated through the main experiments endpoint",
+                "parameters": None,
+            },
+            format="json",
+        )
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+
+        activity_log = ActivityLog.objects.filter(
+            scope="Experiment", item_id=str(experiment.id), activity="updated"
+        ).latest("created_at")
+        assert activity_log.detail is not None
+
+        change_fields = [change["field"] for change in activity_log.detail["changes"]]
+        self.assertIn("description", change_fields)
+        self.assertNotIn("parameters", change_fields)
+
     def test_experiment_saved_metric_activity_logging_shows_correct_user_for_updates(self):
         """Test that experiment saved metric activity logs show the correct user for both creation and updates."""
 
@@ -6534,3 +6764,271 @@ class TestExperimentParametersFieldMutation(APILicensedTest):
                 {"key": "test", "rollout_percentage": 50},
             ]
         }
+
+
+class TestExperimentRunningTimeCalculation(APILicensedTest):
+    EXPOSURE_ESTIMATE_CONFIG = {
+        "conversionRateInputType": "manual",
+        "manualMetricType": "funnel",
+        "manualBaselineValue": 5,
+        "manualExposureRate": 100,
+    }
+
+    def _create_experiment(self, **overrides: Any) -> dict:
+        payload: dict[str, Any] = {
+            "name": "Running time experiment",
+            "feature_flag_key": "running-time-flag",
+            "filters": {"events": [{"order": 0, "id": "$pageview"}], "properties": []},
+            **overrides,
+        }
+        response = self.client.post(f"/api/projects/{self.team.id}/experiments/", payload)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        return response.json()
+
+    def test_create_with_legacy_parameters_populates_running_time_calculation(self):
+        created = self._create_experiment(
+            parameters={
+                "minimum_detectable_effect": 25,
+                "recommended_running_time": 14,
+                "recommended_sample_size": 5000,
+                "exposure_estimate_config": self.EXPOSURE_ESTIMATE_CONFIG,
+            }
+        )
+
+        expected = {
+            "minimum_detectable_effect": 25,
+            "recommended_running_time": 14,
+            "recommended_sample_size": 5000,
+            "exposure_estimate_config": self.EXPOSURE_ESTIMATE_CONFIG,
+        }
+        self.assertEqual(created["running_time_calculation"], expected)
+        self.assertEqual(created["parameters"]["minimum_detectable_effect"], 25)
+
+        experiment = Experiment.objects.get(pk=created["id"])
+        self.assertEqual(experiment.running_time_calculation, expected)
+
+    def test_create_with_running_time_calculation_mirrors_into_parameters(self):
+        created = self._create_experiment(
+            running_time_calculation={
+                "minimum_detectable_effect": 20,
+                "exposure_estimate_config": self.EXPOSURE_ESTIMATE_CONFIG,
+            }
+        )
+
+        self.assertEqual(
+            created["running_time_calculation"],
+            {"minimum_detectable_effect": 20, "exposure_estimate_config": self.EXPOSURE_ESTIMATE_CONFIG},
+        )
+        self.assertEqual(created["parameters"]["minimum_detectable_effect"], 20)
+        self.assertEqual(created["parameters"]["exposure_estimate_config"], self.EXPOSURE_ESTIMATE_CONFIG)
+
+        experiment = Experiment.objects.get(pk=created["id"])
+        assert experiment.parameters is not None
+        self.assertEqual(experiment.parameters["minimum_detectable_effect"], 20)
+
+    def test_update_running_time_calculation_merges_into_parameters(self):
+        created = self._create_experiment(
+            parameters={
+                "feature_flag_variants": [
+                    {"key": "control", "rollout_percentage": 50},
+                    {"key": "test", "rollout_percentage": 50},
+                ],
+                "minimum_detectable_effect": 25,
+                "recommended_sample_size": 5000,
+            }
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{created['id']}/",
+            {"running_time_calculation": {"minimum_detectable_effect": 10, "recommended_running_time": 7}},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        experiment = Experiment.objects.get(pk=created["id"])
+        self.assertEqual(
+            experiment.running_time_calculation,
+            {"minimum_detectable_effect": 10, "recommended_running_time": 7},
+        )
+        # Other parameters keys survive; calculator keys are replaced wholesale
+        assert experiment.parameters is not None
+        self.assertEqual(len(experiment.parameters["feature_flag_variants"]), 2)
+        self.assertEqual(experiment.parameters["minimum_detectable_effect"], 10)
+        self.assertEqual(experiment.parameters["recommended_running_time"], 7)
+        self.assertNotIn("recommended_sample_size", experiment.parameters)
+
+    def test_update_running_time_calculation_does_not_touch_feature_flag(self):
+        variants = [
+            {"key": "control", "rollout_percentage": 34},
+            {"key": "test_a", "rollout_percentage": 33},
+            {"key": "test_b", "rollout_percentage": 33},
+        ]
+        created = self._create_experiment(parameters={"feature_flag_variants": variants})
+        flag = FeatureFlag.objects.get(key="running-time-flag")
+        self.assertEqual(len(flag.filters["multivariate"]["variants"]), 3)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{created['id']}/",
+            {"running_time_calculation": {"minimum_detectable_effect": 15}},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        flag.refresh_from_db()
+        self.assertEqual(len(flag.filters["multivariate"]["variants"]), 3)
+
+    def test_update_parameters_derives_running_time_calculation(self):
+        created = self._create_experiment()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{created['id']}/",
+            {"parameters": {"minimum_detectable_effect": 30, "recommended_sample_size": 1000}},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        experiment = Experiment.objects.get(pk=created["id"])
+        self.assertEqual(
+            experiment.running_time_calculation,
+            {"minimum_detectable_effect": 30, "recommended_sample_size": 1000},
+        )
+
+        # parameters replaces wholesale, so dropping the keys clears the canonical field too
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{created['id']}/",
+            {"parameters": {}},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        experiment.refresh_from_db()
+        self.assertEqual(experiment.running_time_calculation, {})
+
+    def test_running_time_calculation_wins_when_both_sent(self):
+        created = self._create_experiment()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{created['id']}/",
+            {
+                "parameters": {"minimum_detectable_effect": 99},
+                "running_time_calculation": {"minimum_detectable_effect": 11},
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        experiment = Experiment.objects.get(pk=created["id"])
+        self.assertEqual(experiment.running_time_calculation, {"minimum_detectable_effect": 11})
+        assert experiment.parameters is not None
+        self.assertEqual(experiment.parameters["minimum_detectable_effect"], 11)
+
+    @parameterized.expand(
+        [
+            ("unknown_key", {"not_a_real_key": 1}),
+            ("non_numeric_mde", {"minimum_detectable_effect": "twenty"}),
+            ("boolean_running_time", {"recommended_running_time": True}),
+            ("non_object_exposure_config", {"exposure_estimate_config": "manual"}),
+        ]
+    )
+    def test_invalid_running_time_calculation_rejected(self, _name: str, value: dict):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Invalid running time",
+                "feature_flag_key": "invalid-running-time-flag",
+                "running_time_calculation": value,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class TestCalculateRunningTimeEndpoint(APILicensedTest):
+    def _calculate(self, payload: dict[str, Any]):
+        return self.client.post(
+            f"/api/projects/{self.team.id}/experiments/calculate_running_time/",
+            payload,
+            format="json",
+        )
+
+    @parameterized.expand(
+        [
+            ("mean_count", {"metric_type": "mean_count", "baseline_value": 4, "minimum_detectable_effect": 5}, 6400),
+            (
+                "mean_sum_or_avg",
+                {"metric_type": "mean_sum_or_avg", "baseline_value": 50, "minimum_detectable_effect": 5},
+                3200,
+            ),
+            ("funnel", {"metric_type": "funnel", "baseline_value": 0.1, "minimum_detectable_effect": 50}, 1152),
+        ]
+    )
+    def test_sample_size_from_baseline_value(self, _name: str, payload: dict, expected_sample_size: int):
+        response = self._calculate(payload)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.json()["recommended_sample_size"], expected_sample_size)
+
+    def test_includes_running_time_when_exposure_rate_given(self):
+        response = self._calculate(
+            {
+                "metric_type": "mean_count",
+                "baseline_value": 4,
+                "minimum_detectable_effect": 5,
+                "exposure_rate_per_day": 100,
+            }
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        body = response.json()
+        self.assertEqual(body["recommended_sample_size"], 6400)
+        self.assertEqual(body["recommended_running_time_days"], 64)
+
+    def test_running_time_is_null_without_exposure_rate(self):
+        response = self._calculate({"metric_type": "funnel", "baseline_value": 0.1, "minimum_detectable_effect": 50})
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertIsNone(response.json()["recommended_running_time_days"])
+
+    def test_ratio_from_baseline_stats(self):
+        response = self._calculate(
+            {
+                "metric_type": "ratio",
+                "minimum_detectable_effect": 10,
+                "baseline_stats": {
+                    "number_of_samples": 10000,
+                    "sum": 500000,
+                    "sum_squares": 30000000,
+                    "denominator_sum": 50000,
+                    "denominator_sum_squares": 300000,
+                    "numerator_denominator_sum_product": 2600000,
+                },
+            }
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        body = response.json()
+        self.assertAlmostEqual(body["baseline_value"], 10, places=4)
+        self.assertAlmostEqual(body["variance"], 32, places=1)
+        self.assertEqual(body["recommended_sample_size"], 1024)
+
+    def test_funnel_from_step_counts(self):
+        response = self._calculate(
+            {
+                "metric_type": "funnel",
+                "minimum_detectable_effect": 50,
+                "baseline_stats": {"number_of_samples": 1000, "sum": 100, "step_counts": [1000, 100]},
+            }
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        body = response.json()
+        self.assertAlmostEqual(body["baseline_value"], 0.1, places=4)
+        self.assertIsNone(body["variance"])
+        self.assertEqual(body["recommended_sample_size"], 1152)
+
+    @parameterized.expand(
+        [
+            ("missing_baseline", {"metric_type": "funnel", "minimum_detectable_effect": 5}),
+            ("zero_mde", {"metric_type": "funnel", "baseline_value": 0.1, "minimum_detectable_effect": 0}),
+            ("ratio_without_variance", {"metric_type": "ratio", "baseline_value": 10, "minimum_detectable_effect": 10}),
+            (
+                "ratio_stats_without_denominator_sum",
+                {
+                    "metric_type": "ratio",
+                    "minimum_detectable_effect": 10,
+                    "baseline_stats": {"number_of_samples": 10000, "sum": 500000, "sum_squares": 30000000},
+                },
+            ),
+        ]
+    )
+    def test_invalid_input_rejected(self, _name: str, payload: dict):
+        response = self._calculate(payload)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())

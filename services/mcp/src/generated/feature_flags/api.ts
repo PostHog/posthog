@@ -42,8 +42,8 @@ export const FeatureFlagsCopyFlagsCreateBody = /* @__PURE__ */ zod.object({
 
 /**
  * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
-
-If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
+ *
+ * If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
 export const FeatureFlagsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -55,9 +55,14 @@ export const FeatureFlagsListParams = /* @__PURE__ */ zod.object({
 
 export const FeatureFlagsListQueryParams = /* @__PURE__ */ zod.object({
     active: zod.enum(['STALE', 'false', 'true']).optional(),
-    created_by_id: zod.string().optional().describe('The User ID which initially created the feature flag.'),
+    created_by_id: zod
+        .string()
+        .optional()
+        .describe(
+            'Filter by the user(s) who created the feature flag. Accepts a single user ID, or a JSON-encoded / comma-separated list of user IDs to match any of them.'
+        ),
     evaluation_runtime: zod
-        .enum(['both', 'client', 'server'])
+        .enum(['all', 'client', 'server'])
         .optional()
         .describe('Filter feature flags by their evaluation runtime.'),
     excluded_properties: zod
@@ -79,8 +84,8 @@ export const FeatureFlagsListQueryParams = /* @__PURE__ */ zod.object({
 
 /**
  * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
-
-If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
+ *
+ * If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
 export const FeatureFlagsCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -89,6 +94,8 @@ export const FeatureFlagsCreateParams = /* @__PURE__ */ zod.object({
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
 })
+
+export const featureFlagsCreateBodyFiltersOneEarlyExitDefault = false
 
 export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
     key: zod.string().optional().describe('Feature flag key.'),
@@ -361,15 +368,17 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                 .record(zod.string(), zod.string())
                 .optional()
                 .describe('Optional payload values keyed by variant key.'),
-            super_groups: zod
-                .array(zod.record(zod.string(), zod.unknown()))
-                .optional()
-                .describe('Additional super condition groups used by experiments.'),
             feature_enrollment: zod
                 .boolean()
                 .nullish()
                 .describe(
                     'Whether this flag has early access feature enrollment enabled. When true, the flag is evaluated against the person property $feature_enrollment/{flag_key}.'
+                ),
+            early_exit: zod
+                .boolean()
+                .default(featureFlagsCreateBodyFiltersOneEarlyExitDefault)
+                .describe(
+                    'When true, condition evaluation stops at the first matching condition set rather than continuing to evaluate subsequent groups.'
                 ),
         })
         .optional()
@@ -380,12 +389,44 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
         .array(zod.string())
         .optional()
         .describe('Evaluation contexts that control where this flag evaluates at runtime.'),
+    is_remote_configuration: zod
+        .boolean()
+        .nullish()
+        .describe(
+            'Whether this flag is a remote configuration flag that delivers a payload rather than gating a feature.'
+        ),
+    ensure_experience_continuity: zod
+        .boolean()
+        .nullish()
+        .describe(
+            "Whether to persist a user's flag value across the anonymous-to-identified transition (the 'persist across authentication steps' option). Incompatible with device_id bucketing."
+        ),
+    evaluation_runtime: zod
+        .union([
+            zod.enum(['server', 'client', 'all']).describe('* `server` - Server\n* `client` - Client\n* `all` - All'),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            "Where this flag is allowed to evaluate: 'server' (server-side SDKs only), 'client' (client-side SDKs only), or 'all' (both). Defaults to 'all'.\n\n* `server` - Server\n* `client` - Client\n* `all` - All"
+        ),
+    bucketing_identifier: zod
+        .union([
+            zod
+                .enum(['distinct_id', 'device_id'])
+                .describe('* `distinct_id` - User ID (default)\n* `device_id` - Device ID'),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            "Identifier used to bucket users into rollout percentages and variants: 'distinct_id' (user ID, the default) or 'device_id'. Using 'device_id' is incompatible with ensure_experience_continuity=True.\n\n* `distinct_id` - User ID (default)\n* `device_id` - Device ID"
+        ),
 })
 
 /**
  * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
-
-If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
+ *
+ * If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
 export const FeatureFlagsRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this feature flag.'),
@@ -398,8 +439,8 @@ export const FeatureFlagsRetrieveParams = /* @__PURE__ */ zod.object({
 
 /**
  * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
-
-If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
+ *
+ * If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
 export const FeatureFlagsPartialUpdateParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this feature flag.'),
@@ -409,6 +450,8 @@ export const FeatureFlagsPartialUpdateParams = /* @__PURE__ */ zod.object({
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
 })
+
+export const featureFlagsPartialUpdateBodyFiltersOneEarlyExitDefault = false
 
 export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
     key: zod.string().optional().describe('Feature flag key.'),
@@ -681,15 +724,17 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                 .record(zod.string(), zod.string())
                 .optional()
                 .describe('Optional payload values keyed by variant key.'),
-            super_groups: zod
-                .array(zod.record(zod.string(), zod.unknown()))
-                .optional()
-                .describe('Additional super condition groups used by experiments.'),
             feature_enrollment: zod
                 .boolean()
                 .nullish()
                 .describe(
                     'Whether this flag has early access feature enrollment enabled. When true, the flag is evaluated against the person property $feature_enrollment/{flag_key}.'
+                ),
+            early_exit: zod
+                .boolean()
+                .default(featureFlagsPartialUpdateBodyFiltersOneEarlyExitDefault)
+                .describe(
+                    'When true, condition evaluation stops at the first matching condition set rather than continuing to evaluate subsequent groups.'
                 ),
         })
         .optional()
@@ -700,6 +745,38 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .array(zod.string())
         .optional()
         .describe('Evaluation contexts that control where this flag evaluates at runtime.'),
+    is_remote_configuration: zod
+        .boolean()
+        .nullish()
+        .describe(
+            'Whether this flag is a remote configuration flag that delivers a payload rather than gating a feature.'
+        ),
+    ensure_experience_continuity: zod
+        .boolean()
+        .nullish()
+        .describe(
+            "Whether to persist a user's flag value across the anonymous-to-identified transition (the 'persist across authentication steps' option). Incompatible with device_id bucketing."
+        ),
+    evaluation_runtime: zod
+        .union([
+            zod.enum(['server', 'client', 'all']).describe('* `server` - Server\n* `client` - Client\n* `all` - All'),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            "Where this flag is allowed to evaluate: 'server' (server-side SDKs only), 'client' (client-side SDKs only), or 'all' (both). Defaults to 'all'.\n\n* `server` - Server\n* `client` - Client\n* `all` - All"
+        ),
+    bucketing_identifier: zod
+        .union([
+            zod
+                .enum(['distinct_id', 'device_id'])
+                .describe('* `distinct_id` - User ID (default)\n* `device_id` - Device ID'),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            "Identifier used to bucket users into rollout percentages and variants: 'distinct_id' (user ID, the default) or 'device_id'. Using 'device_id' is incompatible with ensure_experience_continuity=True.\n\n* `distinct_id` - User ID (default)\n* `device_id` - Device ID"
+        ),
 })
 
 /**
@@ -716,8 +793,8 @@ export const FeatureFlagsDestroyParams = /* @__PURE__ */ zod.object({
 
 /**
  * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
-
-If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
+ *
+ * If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
 export const FeatureFlagsActivityRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this feature flag.'),
@@ -755,8 +832,8 @@ export const FeatureFlagsDependentFlagsListParams = /* @__PURE__ */ zod.object({
 
 /**
  * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
-
-If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
+ *
+ * If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
 export const FeatureFlagsStatusRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this feature flag.'),
@@ -769,10 +846,10 @@ export const FeatureFlagsStatusRetrieveParams = /* @__PURE__ */ zod.object({
 
 /**
  * Test feature flag evaluation against a specific user at an optional point in time.
-
-This endpoint allows testing how a feature flag would evaluate for a specific user,
-optionally at a historical timestamp. When a timestamp is provided, both the flag
-conditions and person properties are evaluated as they existed at that time.
+ *
+ * This endpoint allows testing how a feature flag would evaluate for a specific user,
+ * optionally at a historical timestamp. When a timestamp is provided, both the flag
+ * conditions and person properties are evaluated as they existed at that time.
  */
 export const FeatureFlagsTestEvaluationCreateParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this feature flag.'),
@@ -803,15 +880,15 @@ export const FeatureFlagsTestEvaluationCreateBody = /* @__PURE__ */ zod.object({
 
 /**
  * Bulk delete feature flags by filter criteria or explicit IDs.
-
-Accepts either:
-- {"filters": {...}} - Same filter params as list endpoint (search, active, type, etc.)
-- {"ids": [...]} - Explicit list of flag IDs (no limit)
-
-Returns same format as bulk_delete for UI compatibility.
-
-Uses bulk operations for efficiency: database updates are batched and cache
-invalidation happens once at the end rather than per-flag.
+ *
+ * Accepts either:
+ * - {"filters": {...}} - Same filter params as list endpoint (search, active, type, etc.)
+ * - {"ids": [...]} - Explicit list of flag IDs (no limit)
+ *
+ * Returns same format as bulk_delete for UI compatibility.
+ *
+ * Uses bulk operations for efficiency: database updates are batched and cache
+ * invalidation happens once at the end rather than per-flag.
  */
 export const FeatureFlagsBulkDeleteCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -871,9 +948,9 @@ export const FeatureFlagsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
 
 /**
  * Get feature flag keys by IDs.
-Accepts a list of feature flag IDs and returns a mapping of ID to key.
+ * Accepts a list of feature flag IDs and returns a mapping of ID to key.
  */
-export const FeatureFlagsBulkKeysCreateParams = /* @__PURE__ */ zod.object({
+export const FeatureFlagsBulkKeysRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
@@ -881,7 +958,7 @@ export const FeatureFlagsBulkKeysCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const FeatureFlagsBulkKeysCreateBody = /* @__PURE__ */ zod.object({
+export const FeatureFlagsBulkKeysRetrieveBody = /* @__PURE__ */ zod.object({
     ids: zod
         .array(zod.unknown())
         .optional()
@@ -892,22 +969,22 @@ export const FeatureFlagsBulkKeysCreateBody = /* @__PURE__ */ zod.object({
 
 /**
  * Bulk update tags on multiple objects.
-
-PAT access: this action has no ``required_scopes=`` on the decorator —
-inheriting viewsets must add ``"bulk_update_tags"`` to their
-``scope_object_write_actions`` list to accept personal API keys.
-Without that opt-in, ``APIScopePermission`` rejects PAT requests with
-"This action does not support personal API key access". Done per-viewset
-so granting ``<scope>:write`` for one resource doesn't leak access to
-sibling resources that share this mixin.
-
-Accepts:
-- {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
-
-Actions:
-- "add": Add tags to existing tags on each object
-- "remove": Remove specific tags from each object
-- "set": Replace all tags on each object with the provided list
+ *
+ * PAT access: this action has no ``required_scopes=`` on the decorator —
+ * inheriting viewsets must add ``"bulk_update_tags"`` to their
+ * ``scope_object_write_actions`` list to accept personal API keys.
+ * Without that opt-in, ``APIScopePermission`` rejects PAT requests with
+ * "This action does not support personal API key access". Done per-viewset
+ * so granting ``<scope>:write`` for one resource doesn't leak access to
+ * sibling resources that share this mixin.
+ *
+ * Accepts:
+ * - {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
+ *
+ * Actions:
+ * - "add": Add tags to existing tags on each object
+ * - "remove": Remove specific tags from each object
+ * - "set": Replace all tags on each object with the provided list
  */
 export const FeatureFlagsBulkUpdateTagsCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -935,8 +1012,8 @@ export const FeatureFlagsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.object({
 
 /**
  * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
-
-If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
+ *
+ * If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
 export const FeatureFlagsEvaluationReasonsRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -958,8 +1035,8 @@ export const FeatureFlagsEvaluationReasonsRetrieveQueryParams = /* @__PURE__ */ 
 
 /**
  * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
-
-If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
+ *
+ * If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
 export const FeatureFlagsMyFlagsRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -980,8 +1057,8 @@ export const FeatureFlagsMyFlagsRetrieveQueryParams = /* @__PURE__ */ zod.object
 
 /**
  * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
-
-If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
+ *
+ * If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
 export const FeatureFlagsUserBlastRadiusCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod

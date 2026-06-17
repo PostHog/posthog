@@ -3,6 +3,7 @@ from datetime import date, datetime
 from typing import ClassVar, Literal, Optional, TypedDict, Union, cast
 
 import psycopg
+import sqlparse
 from opentelemetry import trace
 from psycopg.types.datetime import DateLoader
 
@@ -50,6 +51,7 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.transforms.preaggregated_table_transformation import do_preaggregated_table_transforms
 from posthog.hogql.variables import replace_variables
 from posthog.hogql.visitor import clone_expr
+from posthog.hogql.warehouse_warnings import record_warnings
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
@@ -58,6 +60,7 @@ from posthog.errors import ExposedCHQueryError
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.rbac.user_access_control import UserAccessControl
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 tracer = trace.get_tracer(__name__)
@@ -138,6 +141,20 @@ def postgres_error_to_message(error: Exception) -> str:
     if not message:
         return "Postgres query failed."
     return message.splitlines()[0]
+
+
+def ensure_single_direct_postgres_statement(sql: str) -> str:
+    """Reject multi-statement raw SQL.
+
+    Raw queries run without bound parameters, so psycopg uses the simple query
+    protocol, which runs every ``;``-separated statement in one round trip. A
+    caller could commit out of the read-only transaction and ``BEGIN READ WRITE``
+    to perform writes; restricting to one statement keeps it read-only.
+    """
+    statements = [statement for statement in sqlparse.split(sql) if statement.strip(" \t\r\n;")]
+    if len(statements) > 1:
+        raise ExposedHogQLError("Raw queries must contain a single statement.")
+    return sql
 
 
 def direct_postgres_session_setup_sql(
@@ -260,6 +277,7 @@ class HogQLQueryExecutor:
     connection_id: Optional[str] = None
     send_raw_query: bool = False
     user: Optional[User] = None
+    user_access_control: Optional[UserAccessControl] = None
 
     __uninitialized_context: ClassVar[HogQLContext] = HogQLContext()
 
@@ -272,7 +290,11 @@ class HogQLQueryExecutor:
     @tracer.start_as_current_span("HogQLQueryExecutor.__post_init__")
     def __post_init__(self):
         if self.context is self.__uninitialized_context:
-            self.context = HogQLContext(team_id=self.team.pk, user=self.user)
+            self.context = HogQLContext(
+                team_id=self.team.pk, user=self.user, user_access_control=self.user_access_control
+            )
+        elif self.context.user_access_control is None:
+            self.context.user_access_control = self.user_access_control
 
         self.query_modifiers = create_default_modifiers_for_team(self.team, self.modifiers)
         self.debug = self.modifiers is not None and self.modifiers.debug
@@ -325,6 +347,7 @@ class HogQLQueryExecutor:
                     self.context.database = Database.create_for(
                         team=self.team,
                         user=self.user,
+                        user_access_control=self.context.user_access_control,
                         modifiers=self.query_modifiers,
                         timings=self.timings,
                     )
@@ -384,10 +407,16 @@ class HogQLQueryExecutor:
             database = Database.create_for(
                 team=self.team,
                 user=self.user,
+                user_access_control=self.context.user_access_control,
                 modifiers=self.query_modifiers,
                 timings=self.timings,
                 connection_id=self.connection_id,
             )
+
+        # Reset between executions: the resolver appends per query, and dataclasses.replace below
+        # shares this dict by reference. Without reset, callers reusing a HogQLContext across
+        # executors would see warnings from prior runs.
+        self.context.data_warehouse_sync_warnings.clear()
 
         self.hogql_context = dataclasses.replace(
             self.context,
@@ -749,7 +778,7 @@ class HogQLQueryExecutor:
             raise ExposedHogQLError("Sending a raw query requires a valid connection.")
         self.connection_id = str(source.id)
         self.direct_postgres_source_id = self.connection_id
-        self.direct_postgres_sql = str(self.query)
+        self.direct_postgres_sql = ensure_single_direct_postgres_statement(str(self.query))
         self._execute_direct_postgres_query()
 
     def _capture_send_raw_query_translation_error(self) -> None:
@@ -869,17 +898,33 @@ class HogQLQueryExecutor:
 
     @tracer.start_as_current_span("HogQLQueryExecutor.execute")
     def execute(self) -> HogQLQueryResponse:
-        if self.send_raw_query and self.connection_id is not None:
-            self._execute_raw_direct_postgres_query()
-            self._capture_send_raw_query_translation_error()
-        else:
-            prepared_execution = self._prepare_execution()
+        trace.get_current_span().set_attribute("team_id", self.team.pk)
+        try:
+            if self.send_raw_query and self.connection_id is not None:
+                self._execute_raw_direct_postgres_query()
+                self._capture_send_raw_query_translation_error()
+            else:
+                prepared_execution = self._prepare_execution()
 
-            if prepared_execution.engine == "direct_postgres":
-                self._execute_direct_postgres_query()
-            elif self.clickhouse_sql is not None:
-                self._execute_clickhouse_query()
+                if prepared_execution.engine == "direct_postgres":
+                    self._execute_direct_postgres_query()
+                elif self.clickhouse_sql is not None:
+                    if self.clickhouse_sql == "":
+                        self.results = []
+                        self.types = []
+                        if self.error is None:
+                            self.error = "Unknown error"
+                    else:
+                        self._execute_clickhouse_query()
+        finally:
+            # Side-channel: push collected warnings to the query-runner-level accumulator even on
+            # failure. The warning is often the actual explanation for the query error (e.g. a
+            # FAILED warehouse sync left the table unreadable); throwing it away when execution
+            # raises would hide the most useful signal.
+            if self.context and self.context.data_warehouse_sync_warnings:
+                record_warnings(self.context.data_warehouse_sync_warnings.values())
 
+        warnings = list(self.context.data_warehouse_sync_warnings.values()) if self.context else []
         return HogQLQueryResponse(
             query=self.query,
             hogql=self.hogql,
@@ -892,6 +937,7 @@ class HogQLQueryExecutor:
             modifiers=self.query_modifiers,
             explain=self.explain,
             metadata=self.metadata,
+            warnings=warnings or None,
             hasMore=self.has_more,
             limit=self.limit,
             offset=self.offset,

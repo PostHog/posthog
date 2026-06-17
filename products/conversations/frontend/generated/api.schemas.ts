@@ -9,8 +9,8 @@
  */
 /**
  * * `idle` - Idle
- * `in_progress` - In progress
- * `canceling` - Canceling
+ * * `in_progress` - In progress
+ * * `canceling` - Canceling
  */
 export type ConversationStatusApi = (typeof ConversationStatusApi)[keyof typeof ConversationStatusApi]
 
@@ -21,14 +21,39 @@ export const ConversationStatusApi = {
 } as const
 
 /**
+ * * `web_analytics` - Web analytics
+ * * `product_analytics` - Product analytics
+ * * `session_replay` - Session replay
+ * * `surveys` - Surveys
+ * * `feature_flags` - Feature flags
+ * * `experiments` - Experiments
+ * * `error_tracking` - Error tracking
+ * * `data_warehouse` - Data warehouse
+ * * `other` - Other
+ */
+export type TopicEnumApi = (typeof TopicEnumApi)[keyof typeof TopicEnumApi]
+
+export const TopicEnumApi = {
+    WebAnalytics: 'web_analytics',
+    ProductAnalytics: 'product_analytics',
+    SessionReplay: 'session_replay',
+    Surveys: 'surveys',
+    FeatureFlags: 'feature_flags',
+    Experiments: 'experiments',
+    ErrorTracking: 'error_tracking',
+    DataWarehouse: 'data_warehouse',
+    Other: 'other',
+} as const
+
+/**
  * * `engineering` - Engineering
- * `data` - Data
- * `product` - Product Management
- * `founder` - Founder
- * `leadership` - Leadership
- * `marketing` - Marketing
- * `sales` - Sales / Success
- * `other` - Other
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
@@ -77,9 +102,9 @@ export interface UserBasicApi {
 
 /**
  * * `assistant` - Assistant
- * `tool_call` - Tool call
- * `deep_research` - Deep research
- * `slack` - Slack
+ * * `tool_call` - Tool call
+ * * `deep_research` - Deep research
+ * * `slack` - Slack
  */
 export type ConversationTypeApi = (typeof ConversationTypeApi)[keyof typeof ConversationTypeApi]
 
@@ -98,6 +123,18 @@ export interface ConversationMinimalApi {
      * @nullable
      */
     readonly title: string | null
+    /** Product domain the conversation is about, classified from the first question.
+     *
+     * * `web_analytics` - Web analytics
+     * * `product_analytics` - Product analytics
+     * * `session_replay` - Session replay
+     * * `surveys` - Surveys
+     * * `feature_flags` - Feature flags
+     * * `experiments` - Experiments
+     * * `error_tracking` - Error tracking
+     * * `data_warehouse` - Data warehouse
+     * * `other` - Other */
+    readonly topic: TopicEnumApi | null
     readonly user: UserBasicApi
     /** @nullable */
     readonly created_at: string | null
@@ -134,17 +171,18 @@ export type MessageApiContextualTools = { [key: string]: unknown }
 
 /**
  * * `product_analytics` - product_analytics
- * `sql` - sql
- * `session_replay` - session_replay
- * `error_tracking` - error_tracking
- * `plan` - plan
- * `execution` - execution
- * `survey` - survey
- * `research` - research
- * `flags` - flags
- * `llm_analytics` - llm_analytics
- * `sandbox` - sandbox
- * `user_interview` - user_interview
+ * * `sql` - sql
+ * * `session_replay` - session_replay
+ * * `error_tracking` - error_tracking
+ * * `plan` - plan
+ * * `execution` - execution
+ * * `survey` - survey
+ * * `research` - research
+ * * `flags` - flags
+ * * `llm_analytics` - llm_analytics
+ * * `sandbox` - sandbox
+ * * `user_interview` - user_interview
+ * * `customer_analytics` - customer_analytics
  */
 export type AgentModeEnumApi = (typeof AgentModeEnumApi)[keyof typeof AgentModeEnumApi]
 
@@ -161,6 +199,7 @@ export const AgentModeEnumApi = {
     LlmAnalytics: 'llm_analytics',
     Sandbox: 'sandbox',
     UserInterview: 'user_interview',
+    CustomerAnalytics: 'customer_analytics',
 } as const
 
 /**
@@ -195,6 +234,18 @@ export interface ConversationApi {
      * @nullable
      */
     readonly title: string | null
+    /** Product domain the conversation is about, classified from the first question.
+     *
+     * * `web_analytics` - Web analytics
+     * * `product_analytics` - Product analytics
+     * * `session_replay` - Session replay
+     * * `surveys` - Surveys
+     * * `feature_flags` - Feature flags
+     * * `experiments` - Experiments
+     * * `error_tracking` - Error tracking
+     * * `data_warehouse` - Data warehouse
+     * * `other` - Other */
+    readonly topic: TopicEnumApi | null
     readonly user: UserBasicApi
     /** @nullable */
     readonly created_at: string | null
@@ -222,9 +273,9 @@ export interface ConversationApi {
     readonly agent_mode: string | null
     readonly is_sandbox: boolean
     /** Return pending approval cards as structured data.
-
-  Combines metadata from conversation.approval_decisions with payload from checkpoint
-  interrupts (single source of truth for payload data). */
+     *
+     * Combines metadata from conversation.approval_decisions with payload from checkpoint
+     * interrupts (single source of truth for payload data). */
     readonly pending_approvals: readonly ConversationApiPendingApprovalsItem[]
 }
 
@@ -248,6 +299,18 @@ export interface PatchedConversationApi {
      * @nullable
      */
     readonly title?: string | null
+    /** Product domain the conversation is about, classified from the first question.
+     *
+     * * `web_analytics` - Web analytics
+     * * `product_analytics` - Product analytics
+     * * `session_replay` - Session replay
+     * * `surveys` - Surveys
+     * * `feature_flags` - Feature flags
+     * * `experiments` - Experiments
+     * * `error_tracking` - Error tracking
+     * * `data_warehouse` - Data warehouse
+     * * `other` - Other */
+    readonly topic?: TopicEnumApi | null
     readonly user?: UserBasicApi
     /** @nullable */
     readonly created_at?: string | null
@@ -275,43 +338,18 @@ export interface PatchedConversationApi {
     readonly agent_mode?: string | null
     readonly is_sandbox?: boolean
     /** Return pending approval cards as structured data.
-
-  Combines metadata from conversation.approval_decisions with payload from checkpoint
-  interrupts (single source of truth for payload data). */
+     *
+     * Combines metadata from conversation.approval_decisions with payload from checkpoint
+     * interrupts (single source of truth for payload data). */
     readonly pending_approvals?: readonly PatchedConversationApiPendingApprovalsItem[]
 }
 
 /**
- * Saved ticket filter criteria. May contain status, priority, channel, sla, assignee, tags, dateFrom, dateTo, and sorting keys.
- */
-export type TicketViewApiFilters = { [key: string]: unknown }
-
-export interface TicketViewApi {
-    readonly id: string
-    readonly short_id: string
-    /** @maxLength 400 */
-    name: string
-    /** Saved ticket filter criteria. May contain status, priority, channel, sla, assignee, tags, dateFrom, dateTo, and sorting keys. */
-    filters?: TicketViewApiFilters
-    readonly created_at: string
-    readonly created_by: UserBasicApi
-}
-
-export interface PaginatedTicketViewListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: TicketViewApi[]
-}
-
-/**
  * * `widget` - Widget
- * `email` - Email
- * `slack` - Slack
- * `teams` - Microsoft Teams
- * `github` - GitHub
+ * * `email` - Email
+ * * `slack` - Slack
+ * * `teams` - Microsoft Teams
+ * * `github` - GitHub
  */
 export type ChannelSourceEnumApi = (typeof ChannelSourceEnumApi)[keyof typeof ChannelSourceEnumApi]
 
@@ -325,13 +363,13 @@ export const ChannelSourceEnumApi = {
 
 /**
  * * `slack_channel_message` - Channel message
- * `slack_bot_mention` - Bot mention
- * `slack_emoji_reaction` - Emoji reaction
- * `teams_channel_message` - Teams channel message
- * `teams_bot_mention` - Teams bot mention
- * `widget_embedded` - Widget
- * `widget_api` - API
- * `github_issue` - GitHub issue
+ * * `slack_bot_mention` - Bot mention
+ * * `slack_emoji_reaction` - Emoji reaction
+ * * `teams_channel_message` - Teams channel message
+ * * `teams_bot_mention` - Teams bot mention
+ * * `widget_embedded` - Widget
+ * * `widget_api` - API
+ * * `github_issue` - GitHub issue
  */
 export type ChannelDetailEnumApi = (typeof ChannelDetailEnumApi)[keyof typeof ChannelDetailEnumApi]
 
@@ -348,10 +386,10 @@ export const ChannelDetailEnumApi = {
 
 /**
  * * `new` - New
- * `open` - Open
- * `pending` - Pending
- * `on_hold` - On hold
- * `resolved` - Resolved
+ * * `open` - Open
+ * * `pending` - Pending
+ * * `on_hold` - On hold
+ * * `resolved` - Resolved
  */
 export type TicketStatusEnumApi = (typeof TicketStatusEnumApi)[keyof typeof TicketStatusEnumApi]
 
@@ -365,8 +403,8 @@ export const TicketStatusEnumApi = {
 
 /**
  * * `low` - Low
- * `medium` - Medium
- * `high` - High
+ * * `medium` - Medium
+ * * `high` - High
  */
 export type PriorityEnumApi = (typeof PriorityEnumApi)[keyof typeof PriorityEnumApi]
 
@@ -423,18 +461,18 @@ export interface TicketApi {
     readonly channel_detail: ChannelDetailEnumApi | null
     readonly distinct_id: string
     /** Ticket status: new, open, pending, on_hold, or resolved
-
-  * `new` - New
-  * `open` - Open
-  * `pending` - Pending
-  * `on_hold` - On hold
-  * `resolved` - Resolved */
+     *
+     * * `new` - New
+     * * `open` - Open
+     * * `pending` - Pending
+     * * `on_hold` - On hold
+     * * `resolved` - Resolved */
     status?: TicketStatusEnumApi
     /** Ticket priority: low, medium, or high. Null if unset.
-
-  * `low` - Low
-  * `medium` - Medium
-  * `high` - High */
+     *
+     * * `low` - Low
+     * * `medium` - Medium
+     * * `high` - High */
     priority?: PriorityEnumApi | BlankEnumApi | null
     readonly assignee: TicketAssignmentApi
     /** Customer-provided traits such as name and email */
@@ -501,18 +539,18 @@ export interface PatchedTicketApi {
     readonly channel_detail?: ChannelDetailEnumApi | null
     readonly distinct_id?: string
     /** Ticket status: new, open, pending, on_hold, or resolved
-
-  * `new` - New
-  * `open` - Open
-  * `pending` - Pending
-  * `on_hold` - On hold
-  * `resolved` - Resolved */
+     *
+     * * `new` - New
+     * * `open` - Open
+     * * `pending` - Pending
+     * * `on_hold` - On hold
+     * * `resolved` - Resolved */
     status?: TicketStatusEnumApi
     /** Ticket priority: low, medium, or high. Null if unset.
-
-  * `low` - Low
-  * `medium` - Medium
-  * `high` - High */
+     *
+     * * `low` - Low
+     * * `medium` - Medium
+     * * `high` - High */
     priority?: PriorityEnumApi | BlankEnumApi | null
     readonly assignee?: TicketAssignmentApi
     /** Customer-provided traits such as name and email */
@@ -560,6 +598,49 @@ export interface PatchedTicketApi {
     tags?: unknown[]
 }
 
+/**
+ * A single message in a ticket thread (output-only).
+ */
+export interface TicketMessageApi {
+    /** Message (comment) UUID. */
+    readonly id: string
+    /** Plain-text message body. */
+    readonly content: string
+    /** TipTap rich content JSON, if any. */
+    readonly rich_content: unknown
+    /** One of: customer, support, AI. */
+    readonly author_type: string
+    /** Display name of the author. */
+    readonly author_name: string
+    /** True for internal notes not visible to the customer. */
+    readonly is_private: boolean
+    readonly created_at: string
+}
+
+export interface PaginatedTicketMessageListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: TicketMessageApi[]
+}
+
+/**
+ * Payload for posting a reply or internal note to a ticket.
+ */
+export interface TicketReplyRequestApi {
+    /**
+     * Reply content in markdown.
+     * @maxLength 5000
+     */
+    message: string
+    /** If true, store as an internal note (not sent to the customer). If false, the reply is delivered to the customer over the ticket's channel. */
+    is_private?: boolean
+    /** Optional TipTap rich content JSON for formatted messages. */
+    rich_content?: unknown
+}
+
 export interface SuggestReplyResponseApi {
     suggestion: string
 }
@@ -569,10 +650,33 @@ export interface SuggestReplyErrorApi {
     error_type?: string
 }
 
+export interface BulkUpdateStatusRequestApi {
+    /**
+     * List of ticket UUIDs to update.
+     * @maxItems 500
+     */
+    ids: string[]
+    /** New status to apply to all selected tickets: new, open, pending, on_hold, or resolved.
+     *
+     * * `new` - New
+     * * `open` - Open
+     * * `pending` - Pending
+     * * `on_hold` - On hold
+     * * `resolved` - Resolved */
+    status: TicketStatusEnumApi
+}
+
+export interface BulkUpdateStatusResponseApi {
+    /** Number of tickets whose status actually changed. */
+    updated: number
+    /** UUIDs of the tickets whose status changed. */
+    ids: string[]
+}
+
 /**
  * * `add` - add
- * `remove` - remove
- * `set` - set
+ * * `remove` - remove
+ * * `set` - set
  */
 export type ActionEnumApi = (typeof ActionEnumApi)[keyof typeof ActionEnumApi]
 
@@ -589,10 +693,10 @@ export interface BulkUpdateTagsRequestApi {
      */
     ids: number[]
     /** 'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.
-
-  * `add` - add
-  * `remove` - remove
-  * `set` - set */
+     *
+     * * `add` - add
+     * * `remove` - remove
+     * * `set` - set */
     action: ActionEnumApi
     /** Tag names to add, remove, or set. */
     tags: string[]
@@ -644,18 +748,32 @@ export interface ComposeTicketResponseApi {
     ticket_number: number
 }
 
-export type ConversationsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
+/**
+ * Saved ticket filter criteria. May contain status, priority, channel, sla, assignee, tags, dateFrom, dateTo, and sorting keys.
+ */
+export type TicketViewApiFilters = { [key: string]: unknown }
+
+export interface TicketViewApi {
+    readonly id: string
+    readonly short_id: string
+    /** @maxLength 400 */
+    name: string
+    /** Saved ticket filter criteria. May contain status, priority, channel, sla, assignee, tags, dateFrom, dateTo, and sorting keys. */
+    filters?: TicketViewApiFilters
+    readonly created_at: string
+    readonly created_by: UserBasicApi
 }
 
-export type ConversationsViewsListParams = {
+export interface PaginatedTicketViewListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: TicketViewApi[]
+}
+
+export type ConversationsListParams = {
     /**
      * Number of results to return per page.
      */
@@ -720,9 +838,17 @@ export type ConversationsTicketsListParams = {
      */
     status?: string
     /**
-     * JSON-encoded array of tag names to filter by, e.g. `["billing","urgent"]`.
+     * JSON-encoded array of tag names; returns tickets with ANY of them (OR), e.g. `["billing","urgent"]`.
      */
     tags?: string
+    /**
+     * JSON-encoded array of tag names; returns tickets that have ALL of them (AND), e.g. `["billing","urgent"]`.
+     */
+    tags_all?: string
+    /**
+     * JSON-encoded array of tag names; returns tickets that have NONE of them (NOT), e.g. `["escalated"]`.
+     */
+    tags_exclude?: string
 }
 
 export type ConversationsTicketsListChannelDetail =
@@ -757,3 +883,25 @@ export const ConversationsTicketsListSla = {
     Breached: 'breached',
     OnTrack: 'on-track',
 } as const
+
+export type ConversationsTicketsMessagesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type ConversationsViewsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
