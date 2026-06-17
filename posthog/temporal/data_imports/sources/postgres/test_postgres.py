@@ -23,6 +23,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     QueryTimeoutException,
     TemporaryFileSizeExceedsLimitException,
 )
+from posthog.temporal.data_imports.sources.common.sql.predicates import ColumnTypeCategory, ValidatedRowFilter
 from posthog.temporal.data_imports.sources.postgres.partitioned_tables import (
     WINDOW_MAX_QUERY_CANCELED_RETRIES,
     WINDOW_MAX_SERIALIZATION_RETRIES,
@@ -303,6 +304,27 @@ class TestPostgresSourceNonRetryableErrors:
         friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
         assert friendly, "TLS ALPN rejection error should surface an actionable message"
         assert "host and port" in friendly[0]
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Neon suspends compute when the plan's compute-time quota is exhausted; the handshake
+            # fails with this provider message. The host/IP and port are volatile and excluded.
+            'connection failed: connection to server at "44.198.216.75", port 5432 failed: ERROR:  Your account or project has exceeded the compute time quota. Upgrade your plan to increase limits.',
+            "OperationalError: Your account or project has exceeded the compute time quota. Upgrade your plan to increase limits.",
+        ],
+    )
+    def test_exceeded_compute_time_quota_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Exceeded compute-time quota error should be non-retryable: {error_msg}"
+
+    def test_exceeded_compute_time_quota_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = "Your account or project has exceeded the compute time quota. Upgrade your plan to increase limits."
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "Exceeded compute-time quota error should surface an actionable message"
+        assert "compute-time quota" in friendly[0]
 
     def test_supavisor_enotfound_tenant_user_uses_new_key(self, source):
         # The older tenant/user patterns don't cover the newer "(ENOTFOUND) tenant/user" wording,
@@ -866,6 +888,120 @@ class TestStatementTimeoutAsNonRetryable:
             )
             is None
         )
+
+
+class TestServerCursorStatementTimeout:
+    """The main server-cursor streaming path in `get_rows` must not leak a raw,
+    retryable QueryCanceled when a FETCH hits the statement_timeout — it must map
+    to a non-retryable QueryTimeoutException for incremental syncs (mirroring the
+    offset-chunking and windowed paths), and re-raise the raw error for full-table
+    syncs so a fresh re-sync can reorder rows safely.
+    """
+
+    class _Cursor:
+        def __init__(self, raise_on_fetch: bool):
+            self._raise_on_fetch = raise_on_fetch
+            col = mock.Mock()
+            col.name = "id"
+            self.description = [col]
+
+        def execute(self, *args, **kwargs):
+            return None
+
+        def fetchmany(self, _n: int):
+            if self._raise_on_fetch:
+                raise psycopg.errors.QueryCanceled("canceling statement due to statement timeout")
+            return []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    class _Connection:
+        def __init__(self):
+            self.autocommit = False
+            self.closed = False
+            self.adapters = mock.Mock()
+
+        def cursor(self, *args, **kwargs):
+            # A named cursor (`name=...`) is the streaming server cursor that must
+            # raise the timeout; the unnamed setup cursor stays benign.
+            return TestServerCursorStatementTimeout._Cursor(raise_on_fetch="name" in kwargs)
+
+        def commit(self):
+            return None
+
+        def close(self):
+            self.closed = True
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    def _run(self, *, should_use_incremental_field: bool):
+        from contextlib import contextmanager
+
+        @contextmanager
+        def fake_tunnel():
+            yield ("localhost", 5432)
+
+        fake_table = mock.Mock()
+        fake_table.to_arrow_schema.return_value = pa.schema([pa.field("id", pa.int64())])
+        fake_table.type = "table"
+        fake_table.columns = []
+        fake_table.__contains__ = mock.Mock(return_value=False)
+
+        module = "posthog.temporal.data_imports.sources.postgres.postgres"
+        with (
+            patch(f"{module}.psycopg.connect", return_value=self._Connection()),
+            patch(f"{module}.psycopg.Cursor", return_value=self._Cursor(raise_on_fetch=False)),
+            patch(f"{module}._get_table", return_value=fake_table),
+            patch(f"{module}._is_read_replica", return_value=False),
+            patch(f"{module}._get_primary_keys", return_value=["id"]),
+            patch(f"{module}._is_partitioned_table", return_value=False),
+            patch(f"{module}._get_table_chunk_size", return_value=100),
+            patch(f"{module}._get_rows_to_sync", return_value=10),
+            patch(f"{module}._role_subject_to_rls", return_value=False),
+            patch(f"{module}._get_partition_settings", return_value=None),
+        ):
+            response = postgres_source(
+                tunnel=lambda: fake_tunnel(),
+                user="u",
+                password="p",
+                database="db",
+                sslmode="prefer",
+                schema="public",
+                table_names=["companies"],
+                should_use_incremental_field=should_use_incremental_field,
+                logger=structlog.get_logger(),
+                db_incremental_field_last_value=datetime(2026, 6, 15, tzinfo=UTC)
+                if should_use_incremental_field
+                else None,
+                team_id=1,
+                incremental_field="updated_at" if should_use_incremental_field else None,
+                incremental_field_type=IncrementalFieldType.Timestamp if should_use_incremental_field else None,
+            )
+            list(cast(Iterable[Any], response.items()))
+
+    @pytest.mark.parametrize(
+        "should_use_incremental_field,expected_exception,expected_substr",
+        [
+            # Incremental syncs map the FETCH timeout to a non-retryable QueryTimeoutException.
+            (True, QueryTimeoutException, "updated_at"),
+            # Full-table syncs have no stable ORDER BY, so we re-raise the raw QueryCanceled
+            # to let a fresh re-sync reorder rows rather than giving up.
+            (False, psycopg.errors.QueryCanceled, None),
+        ],
+    )
+    def test_statement_timeout_handling(self, should_use_incremental_field, expected_exception, expected_substr):
+        with pytest.raises(expected_exception) as exc_info:
+            self._run(should_use_incremental_field=should_use_incremental_field)
+        if expected_substr is not None:
+            assert expected_substr in str(exc_info.value)
 
 
 class TestPostgresSourceForPipelineSchemaResolution:
@@ -1873,6 +2009,103 @@ class TestBuildQuery:
         assert '"cursor" > ' in rendered
         assert '"cursor" >= ' not in rendered
 
+    def test_row_filter_full_refresh(self):
+        query = _build_query(
+            "public",
+            "users",
+            False,
+            "table",
+            None,
+            None,
+            None,
+            row_filters=[ValidatedRowFilter(column="age", operator=">", value=21, category=ColumnTypeCategory.INTEGER)],
+        )
+        rendered = self._render(query)
+        assert 'WHERE "age" > 21' in rendered
+
+    def test_row_filter_composes_with_incremental(self):
+        query = _build_query(
+            "public",
+            "events",
+            True,
+            "table",
+            "created_at",
+            IncrementalFieldType.Timestamp,
+            "2024-01-01",
+            row_filters=[ValidatedRowFilter(column="age", operator=">", value=21, category=ColumnTypeCategory.INTEGER)],
+        )
+        rendered = self._render(query)
+        assert '"created_at"' in rendered
+        assert 'AND "age" > 21' in rendered
+        assert rendered.rstrip().endswith('ORDER BY "created_at" ASC')
+
+    def test_row_filter_in_list_renders_parenthesized(self):
+        query = _build_query(
+            "public",
+            "users",
+            False,
+            "table",
+            None,
+            None,
+            None,
+            row_filters=[
+                ValidatedRowFilter(column="age", operator="IN", value=[21, 30, 40], category=ColumnTypeCategory.INTEGER)
+            ],
+        )
+        rendered = self._render(query)
+        assert 'WHERE "age" IN (21, 30, 40)' in rendered
+
+    def test_row_filter_composes_with_windowed_upper_bound(self):
+        query = _build_query(
+            "public",
+            "events",
+            True,
+            "table",
+            "cursor",
+            IncrementalFieldType.Date,
+            date(2026, 5, 13),
+            upper_bound_inclusive=date(2026, 5, 14),
+            row_filters=[ValidatedRowFilter(column="age", operator=">", value=21, category=ColumnTypeCategory.INTEGER)],
+        )
+        rendered = self._render(query)
+        # Row filter is ANDed after the window's upper bound, before ORDER BY.
+        assert '"cursor" <= ' in rendered
+        assert 'AND "age" > 21' in rendered
+        assert rendered.index('"cursor" <= ') < rendered.index('"age" > 21')
+
+    def test_row_filter_not_applied_to_sampling(self):
+        query = _build_query(
+            "public",
+            "users",
+            False,
+            "table",
+            None,
+            None,
+            None,
+            add_sampling=True,
+            row_filters=[ValidatedRowFilter(column="age", operator=">", value=21, category=ColumnTypeCategory.INTEGER)],
+        )
+        rendered = self._render(query)
+        assert '"age"' not in rendered
+
+    def test_row_filter_string_value_is_escaped_literal(self):
+        query = _build_query(
+            "public",
+            "users",
+            False,
+            "table",
+            None,
+            None,
+            None,
+            row_filters=[
+                ValidatedRowFilter(
+                    column="name", operator="=", value="x'; DROP TABLE y; --", category=ColumnTypeCategory.STRING
+                )
+            ],
+        )
+        rendered = self._render(query)
+        assert "'x''; DROP TABLE y; --'" in rendered
+
 
 class TestBuildPartitionQuery:
     def _render(self, composed: sql.Composed) -> str:
@@ -1936,6 +2169,34 @@ class TestBuildPartitionQuery:
         )
         rendered = self._render(query)
         assert f'"cursor" {expected_operator} ' in rendered
+
+    def test_row_filter_full_refresh(self):
+        query = build_partition_query(
+            "public",
+            "events_2026_01",
+            should_use_incremental_field=False,
+            incremental_field=None,
+            incremental_field_type=None,
+            db_incremental_field_last_value=None,
+            row_filters=[ValidatedRowFilter(column="age", operator=">", value=21, category=ColumnTypeCategory.INTEGER)],
+        )
+        rendered = self._render(query)
+        assert 'WHERE "age" > 21' in rendered
+
+    def test_row_filter_composes_with_incremental(self):
+        query = build_partition_query(
+            "public",
+            "events_2026_01",
+            should_use_incremental_field=True,
+            incremental_field="created_at",
+            incremental_field_type=IncrementalFieldType.Timestamp,
+            db_incremental_field_last_value="2026-01-15",
+            row_filters=[ValidatedRowFilter(column="age", operator=">", value=21, category=ColumnTypeCategory.INTEGER)],
+        )
+        rendered = self._render(query)
+        assert '"created_at" > ' in rendered
+        assert 'AND "age" > 21' in rendered
+        assert rendered.rstrip().endswith('ORDER BY "created_at" ASC')
 
 
 class TestBuildCountQuery:
