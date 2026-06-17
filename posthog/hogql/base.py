@@ -1,7 +1,5 @@
 import re
 import copy
-import linecache
-from collections.abc import Callable
 from dataclasses import dataclass, field, fields
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Literal, Optional, TypeVar
@@ -74,13 +72,24 @@ class AST:
         raise NotImplementedError(f"{visitor.__class__.__name__} has no method {method_name}")
 
     def __deepcopy__(self, memo: dict[int, Any]) -> "AST":
-        # Faster than stdlib's pickle/__reduce_ex__ path: a cached per-class clone fn; it and _clone_value register each node in memo before recursing, so reference cycles and shared subtrees survive.
+        # Faster than stdlib's pickle/__reduce_ex__ path: clone via __new__ + a per-field copy over
+        # a cached plan. Registering `new` in memo before recursing (here and per container in
+        # _clone_value) keeps reference cycles (e.g. the resolved FieldType <-> SelectQueryType
+        # graph) and shared subtrees intact, matching stock deepcopy. start/end are Optional[int],
+        # copied by reference; every other field is deep-copied via _clone_value.
         cls = self.__class__
-        clone = _clone_fn_cache.get(cls)
-        if clone is None:
-            clone = _build_clone_fn(cls)
-            _clone_fn_cache[cls] = clone
-        return clone(self, memo)
+        plan = _clone_plan_cache.get(cls)
+        if plan is None:
+            plan = tuple((f.name, f.name not in ("start", "end")) for f in fields(cls))
+            _clone_plan_cache[cls] = plan
+        new = cls.__new__(cls)  # bare instance, no __init__/__post_init__
+        memo[id(self)] = new  # register BEFORE recursing so cycles terminate
+        for name, needs_clone in plan:
+            # Reading self.<name> directly requires every slot to be set; that holds for any node
+            # built through the dataclass __init__ (the only construction path in practice).
+            value = getattr(self, name)
+            setattr(new, name, _clone_value(value, memo) if needs_clone else value)
+        return new
 
     def to_hogql(self):
         from posthog.hogql.context import HogQLContext
@@ -106,7 +115,8 @@ class AST:
 # --- deep-copy fast path (see AST.__deepcopy__) ---------------------------------
 # Immutable scalars deepcopy returns as-is; everything else is rebuilt.
 _CLONE_ATOMIC_TYPES = frozenset({str, bytes, int, float, bool, complex, type(None)})
-_clone_fn_cache: dict[type, Callable[["AST", dict[int, Any]], "AST"]] = {}
+# Per-class clone plan: tuple of (field_name, needs_clone), built once from dataclasses.fields.
+_clone_plan_cache: dict[type, tuple[tuple[str, bool], ...]] = {}
 _NOT_CLONED = object()  # memo-miss sentinel; a real clone may itself be None/falsy
 
 
@@ -139,50 +149,6 @@ def _clone_value(value: Any, memo: dict[int, Any]) -> Any:
     # (a cycle re-entering the tuple must resolve to the in-progress copy) we let stdlib's
     # _deepcopy_tuple handle it exactly; AST elements inside still hit the fast path via the memo.
     return copy.deepcopy(value, memo)
-
-
-def _build_clone_fn(cls: type) -> Callable[["AST", dict[int, Any]], "AST"]:
-    # Generate a straight-line clone function specialized to this one class, then cache it
-    # (see AST.__deepcopy__). This is the same code-generation stdlib dataclasses uses to
-    # build __init__/__repr__/__eq__ (dataclasses._FuncBuilder exec's a def assembled from
-    # the field list): baking the field names into the body avoids a per-call fields() walk
-    # with reflective getattr/setattr.
-    #
-    # For e.g. ast.Alias (fields: start, end, type, alias, expr) this generates:
-    #
-    #     def _clone(self, memo):
-    #         new = _cls.__new__(_cls)      # bare instance, no __init__/__post_init__
-    #         memo[id(self)] = new          # register BEFORE recursing so cycles terminate
-    #         new.start = self.start        # start/end are Optional[int] -> copy by reference
-    #         new.end = self.end
-    #         new.type = _cv(self.type, memo)   # every other field deep-copied via _clone_value
-    #         new.alias = _cv(self.alias, memo)
-    #         new.expr = _cv(self.expr, memo)
-    #         return new
-    #
-    # Reading self.<field> directly requires every slot to be set; that holds for any node
-    # built through the dataclass __init__ (the only construction path in practice). Cloning a
-    # node made via __new__ with unset slots is unsupported and intentionally raises AttributeError.
-    body = ["def _clone(self, memo):", "    new = _cls.__new__(_cls)", "    memo[id(self)] = new"]
-    for f in fields(cls):
-        if f.name in ("start", "end"):
-            body.append(f"    new.{f.name} = self.{f.name}")
-        else:
-            body.append(f"    new.{f.name} = _cv(self.{f.name}, memo)")
-    body.append("    return new")
-    source = "\n".join(body)
-    # Register the generated source under a descriptive filename so tracebacks inside the clone
-    # show the real line and inspect.getsource(fn) works -- the codegen is fully inspectable.
-    filename = f"<hogql deepcopy {cls.__module__}.{cls.__qualname__}>"
-    linecache.cache[filename] = (len(source), None, [line + "\n" for line in body], filename)
-    # The source is assembled only from this class's own field identifiers (fixed at class
-    # definition; @dataclass already rejects any non-identifier name with SyntaxError) plus the
-    # two helper names below -- no runtime value is interpolated, so there is no injection point.
-    # Empty builtins so the generated function can reach nothing but the single `id` it needs.
-    namespace: dict[str, Any] = {"__builtins__": {"id": id}, "_cls": cls, "_cv": _clone_value}
-    # nosemgrep: python.lang.security.audit.exec-detected.exec-detected (dataclasses-style codegen; source is only validated field identifiers, no runtime input; runs with empty builtins)
-    exec(compile(source, filename, "exec"), namespace)  # noqa: S102
-    return namespace["_clone"]
 
 
 _T_AST = TypeVar("_T_AST", bound=AST)
