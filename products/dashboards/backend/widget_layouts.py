@@ -107,7 +107,9 @@ def collect_dashboard_sm_layouts_for_dashboard(dashboard: Any) -> list[dict[str,
     the height and drop new widgets into a mid-page gap (the "lands in the 2nd row" bug)."""
     sm_layouts: list[dict[str, Any]] = []
     layoutless_count = 0
-    for layouts in dashboard.tiles.filter(deleted=False).values_list("layouts", flat=True):
+    # `deleted` is nullable with no default, so live tiles carry NULL — `filter(deleted=False)`
+    # would miss them (NULL never equals False). Exclude only explicit deletes.
+    for layouts in dashboard.tiles.exclude(deleted=True).values_list("layouts", flat=True):
         if isinstance(layouts, str):
             try:
                 layouts = json.loads(layouts)
