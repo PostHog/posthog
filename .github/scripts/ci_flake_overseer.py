@@ -243,10 +243,6 @@ def classify_failed_jobs(repo: str, run_id: int, run_attempt: int) -> tuple[Deci
     )
 
 
-def inspect_failed_jobs(repo: str, workflow_run: WorkflowRun) -> tuple[Decision, ...]:
-    return classify_failed_jobs(repo, workflow_run.id, workflow_run.run_attempt)
-
-
 def base_event_properties(repo: str, workflow_run: WorkflowRun) -> JsonObject:
     return {
         "repo": repo,
@@ -434,7 +430,7 @@ def main(argv: list[str]) -> int:
     events = report_rerun_outcomes(args.repo, workflow_run)
 
     if workflow_run.conclusion in {"failure", "timed_out"}:
-        decisions = inspect_failed_jobs(args.repo, workflow_run)
+        decisions = classify_failed_jobs(args.repo, workflow_run.id, workflow_run.run_attempt)
         for decision in decisions:
             print(format_annotation(decision))
         write_summary(summary_path, workflow_run, decisions)
