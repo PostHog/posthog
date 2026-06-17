@@ -1,7 +1,8 @@
 import { HogFunctionTemplate } from '~/cdp/types'
 
+// NOTE: This is a deprecated destination and should never be shown to new users
 export const template: HogFunctionTemplate = {
-    status: 'alpha',
+    status: 'deprecated',
     free: false,
     type: 'destination',
     id: 'template-klime',
