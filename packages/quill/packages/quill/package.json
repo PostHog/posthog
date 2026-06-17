@@ -56,8 +56,6 @@
         "@posthog/quill-components": "workspace:*",
         "@posthog/quill-primitives": "workspace:*",
         "@posthog/quill-tokens": "workspace:*",
-        "@types/react": "^19.2.14",
-        "@types/react-dom": "^19.2.3",
         "tsx": "^4.19.0",
         "vite": "^6.3.5",
         "vite-plugin-dts": "^4.5.4"

@@ -16,7 +16,6 @@ const buttonVariants = cva(
                 primary: 'quill-button--variant-primary',
                 outline: 'quill-button--variant-outline',
                 destructive: 'quill-button--variant-destructive',
-                ghost: 'quill-button--variant-ghost',
                 link: 'quill-button--variant-link',
                 'link-muted': 'quill-button--variant-link-muted',
             },

@@ -199,28 +199,6 @@
     }
 
     /* =========================================================================
-       Variant: ghost (transparent, no border — subtle hover fill)
-       ========================================================================= */
-    .quill-button--variant-ghost {
-        background-color: transparent;
-        border: none;
-    }
-
-    .quill-button--variant-ghost:not(:disabled):hover {
-        color: var(--foreground);
-        background-color: var(--fill-hover);
-    }
-
-    .quill-button--variant-ghost[aria-expanded='true'] {
-        color: var(--foreground);
-        background-color: var(--fill-expanded);
-    }
-
-    .quill-button--variant-ghost[data-popup-open] {
-        background-color: var(--fill-selected);
-    }
-
-    /* =========================================================================
        Variant: link / link-muted
        ========================================================================= */
     .quill-button--variant-link {
