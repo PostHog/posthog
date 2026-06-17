@@ -131,7 +131,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
     def test_existing_alert_hidden_when_insight_viewer_access_is_lost(self) -> None:
         # An existing alert must not outlive viewer access to its linked insight: otherwise its
         # check history (breaching rows / values) leaks on read, and a PATCH that omits `insight`
-        # bypasses the create-time check. The queryset gate hides it from list, retrieve, and update.
+        # bypasses the create-time check. The queryset gate hides it from list, retrieve, update, and delete.
         creation_request = {
             "insight": self.insight["id"],
             "subscribed_users": [self.user.id],
@@ -151,9 +151,11 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             retrieve = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert_id}")
             listed = self.client.get(f"/api/projects/{self.team.id}/alerts")
             update = self.client.patch(f"/api/projects/{self.team.id}/alerts/{alert_id}", {"name": "renamed"})
+            delete = self.client.delete(f"/api/projects/{self.team.id}/alerts/{alert_id}")
 
         assert retrieve.status_code == status.HTTP_404_NOT_FOUND, retrieve.content
         assert update.status_code == status.HTTP_404_NOT_FOUND, update.content
+        assert delete.status_code == status.HTTP_404_NOT_FOUND, delete.content
         assert [a["id"] for a in listed.json()["results"]] == []
 
     def test_create_alert_on_funnel_insight_is_flag_gated(self) -> None:
