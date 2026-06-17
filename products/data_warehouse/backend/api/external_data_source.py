@@ -3403,25 +3403,29 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             # Only run a schema's Temporal side effects once its own row is committed.
             post_commit_actions.extend((schema, action) for action in schema_post_commit_actions)
 
+        post_commit_error: Exception | None = None
         for action_schema, post_commit_action in post_commit_actions:
             try:
                 post_commit_action()
             except Exception as e:
-                # The row is already committed, so a failed schedule update is recoverable drift
-                # (DB holds the new settings, Temporal still runs the old cadence), not a lost write.
-                # Keep the save and let a later backfill reconcile the schedule rather than failing
-                # the whole request — but capture + log so the drift is visible and can be fixed.
+                # The row is already committed but its schedule still runs the old cadence. Capture +
+                # log every failure (with the schema id) so the drift is visible, and remember it so
+                # the request fails below — the caller must know the batch did not fully apply.
+                post_commit_error = e
                 capture_exception(e)
                 logger.warning(
-                    "bulk_update_schemas saved the schema but its Temporal schedule update failed; "
-                    "the schedule will need backfilling to match the saved settings",
+                    "bulk_update_schemas saved the schema but its Temporal schedule update failed",
                     source_id=str(source.id),
                     schema_id=str(action_schema.id),
                     exc_info=e,
                 )
 
+        # Report save failures first so a schedule-update failure can't mask which schemas didn't
+        # save, then fail the request on the schedule-update failure.
         if failed_schemas:
             raise BulkSchemaSaveError(failed_schemas, only_validation_errors=only_validation_errors)
+        if post_commit_error is not None:
+            raise post_commit_error
 
         return Response(
             ExternalDataSchemaSerializer(updated_schemas, many=True, context=serializer_context).data,

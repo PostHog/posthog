@@ -578,10 +578,10 @@ class TestExternalDataSource(APIBaseTest):
         "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
         return_value=False,
     )
-    def test_bulk_update_schemas_keeps_save_when_schedule_update_fails_after_save(self, _mock_workflow_exists):
+    def test_bulk_update_schemas_fails_when_schedule_update_fails_after_save(self, _mock_workflow_exists):
         # When a schema's row commits but its Temporal schedule update fails in the post-commit step,
-        # the save is kept and the request still succeeds — the stale schedule is recoverable drift
-        # to be backfilled, not a lost write. The drift is logged so it can be reconciled.
+        # the request fails — the batch did not fully apply. The committed row stands (it can't be
+        # un-committed), and the failure is logged with the schema id.
         source = self._create_external_data_source()
         schema = ExternalDataSchema.objects.create(
             name="Table0",
@@ -598,18 +598,21 @@ class TestExternalDataSource(APIBaseTest):
             ),
             patch("products.data_warehouse.backend.api.external_data_source.logger") as mock_logger,
         ):
-            response = self.client.patch(
-                f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/bulk_update_schemas",
-                data={"schemas": [{"id": str(schema.id), "sync_frequency": "7day"}]},
-                format="json",
-            )
+            try:
+                response = self.client.patch(
+                    f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/bulk_update_schemas",
+                    data={"schemas": [{"id": str(schema.id), "sync_frequency": "7day"}]},
+                    format="json",
+                )
+            except Exception:
+                response = None
 
-        # The request succeeds despite the schedule update failing...
-        assert response.status_code == status.HTTP_200_OK
-        # ...the row is committed with the new frequency...
+        # The request did not succeed — it either raised or returned a server error.
+        assert response is None or response.status_code >= status.HTTP_500_INTERNAL_SERVER_ERROR
+        # The per-schema commit happened before the schedule update, so the row is still persisted...
         schema.refresh_from_db()
         assert sync_frequency_interval_to_sync_frequency(schema.sync_frequency_interval) == "7day"
-        # ...and the drift is logged (with the schema id) so it can be backfilled.
+        # ...and the failure was logged with the schema id.
         assert any(call.kwargs.get("schema_id") == str(schema.id) for call in mock_logger.warning.call_args_list)
 
     @patch(
