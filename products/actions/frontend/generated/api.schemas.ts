@@ -12,6 +12,7 @@
  * * `event_metadata` - event_metadata
  * * `feature` - feature
  * * `person` - person
+ * * `person_metadata` - person_metadata
  * * `cohort` - cohort
  * * `element` - element
  * * `static-cohort` - static-cohort
@@ -43,6 +44,7 @@ export const PropertyFilterTypeEnumApi = {
     EventMetadata: 'event_metadata',
     Feature: 'feature',
     Person: 'person',
+    PersonMetadata: 'person_metadata',
     Cohort: 'cohort',
     Element: 'element',
     StaticCohort: 'static-cohort',
@@ -99,6 +101,7 @@ export interface StringPropertyFilterApi {
      * * `event_metadata` - event_metadata
      * * `feature` - feature
      * * `person` - person
+     * * `person_metadata` - person_metadata
      * * `cohort` - cohort
      * * `element` - element
      * * `static-cohort` - static-cohort
@@ -168,6 +171,7 @@ export interface NumericPropertyFilterApi {
      * * `event_metadata` - event_metadata
      * * `feature` - feature
      * * `person` - person
+     * * `person_metadata` - person_metadata
      * * `cohort` - cohort
      * * `element` - element
      * * `static-cohort` - static-cohort
@@ -233,6 +237,7 @@ export interface ArrayPropertyFilterApi {
      * * `event_metadata` - event_metadata
      * * `feature` - feature
      * * `person` - person
+     * * `person_metadata` - person_metadata
      * * `cohort` - cohort
      * * `element` - element
      * * `static-cohort` - static-cohort
@@ -293,6 +298,7 @@ export interface DatePropertyFilterApi {
      * * `event_metadata` - event_metadata
      * * `feature` - feature
      * * `person` - person
+     * * `person_metadata` - person_metadata
      * * `cohort` - cohort
      * * `element` - element
      * * `static-cohort` - static-cohort
@@ -350,6 +356,7 @@ export interface ExistencePropertyFilterApi {
      * * `event_metadata` - event_metadata
      * * `feature` - feature
      * * `person` - person
+     * * `person_metadata` - person_metadata
      * * `cohort` - cohort
      * * `element` - element
      * * `static-cohort` - static-cohort

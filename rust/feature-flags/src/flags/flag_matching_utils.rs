@@ -523,8 +523,10 @@ fn apply_person_cohort_to_state(state: &mut FlagEvaluationState, result: PersonC
                 "created_at" => Value::String(person.created_at.to_rfc3339()),
                 _ => continue,
             };
-            person_properties
-                .insert(crate::properties::property_matching::person_metadata_key(field), value);
+            person_properties.insert(
+                crate::properties::property_matching::person_metadata_key(field),
+                value,
+            );
         }
     }
 
@@ -633,9 +635,8 @@ fn are_overrides_useful_for_flag(
     // Use `lookup_key_for` so PersonMetadata filters match on the sentinel-prefixed key rather
     // than the raw key — see the note on `requires_db_property`.
     property_filters.iter().any(|filter| {
-        overrides.contains_key(
-            crate::properties::property_matching::lookup_key_for(filter).as_ref(),
-        )
+        overrides
+            .contains_key(crate::properties::property_matching::lookup_key_for(filter).as_ref())
     })
 }
 

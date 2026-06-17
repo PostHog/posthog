@@ -1,7 +1,9 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
 
-use crate::properties::property_models::{CompiledRegex, OperatorType, PropertyFilter, PropertyType};
+use crate::properties::property_models::{
+    CompiledRegex, OperatorType, PropertyFilter, PropertyType,
+};
 use crate::properties::relative_date;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use chrono_tz::Tz;
@@ -3825,16 +3827,12 @@ mod test_match_properties {
             json!("2099-01-01"), // Far-future user-set value
         )]);
         assert!(match_property(&filter, &user_set_only, false).is_ok());
-        assert!(!match_property(&filter, &user_set_only, false)
-            .expect("filter evaluated"));
+        assert!(!match_property(&filter, &user_set_only, false).expect("filter evaluated"));
 
         // The sentinel-prefixed key (which the matcher injects from Person.created_at)
         // is what actually resolves the filter.
-        let metadata_only = HashMap::from([(
-            person_metadata_key("created_at"),
-            json!("2025-06-01"),
-        )]);
-        assert!(match_property(&filter, &metadata_only, false)
-            .expect("filter evaluated"));
+        let metadata_only =
+            HashMap::from([(person_metadata_key("created_at"), json!("2025-06-01"))]);
+        assert!(match_property(&filter, &metadata_only, false).expect("filter evaluated"));
     }
 }

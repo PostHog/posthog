@@ -558,6 +558,14 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             () => [(_, props) => props.endpointFilters],
             (endpointFilters: Record<string, any>) => endpointFilters,
         ],
+        // Combined selector so taxonomicGroups stays under kea's 16-dep tuple type limit.
+        metadataPropertyDefinitionsByType: [
+            (s) => [s.eventMetadataPropertyDefinitions, s.personMetadataPropertyDefinitions],
+            (
+                event: PropertyDefinition[],
+                person: PropertyDefinition[]
+            ): { event: PropertyDefinition[]; person: PropertyDefinition[] } => ({ event, person }),
+        ],
         taxonomicGroups: [
             (s) => [
                 s.currentTeam,
@@ -570,8 +578,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.metadataSource,
                 s.suggestedFiltersLabel,
                 s.propertyFilters,
-                s.eventMetadataPropertyDefinitions,
-                s.personMetadataPropertyDefinitions,
+                s.metadataPropertyDefinitionsByType,
                 s.maxContextOptions,
                 s.hideBehavioralCohorts,
                 s.endpointFilters,
@@ -592,8 +599,13 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 metadataSource: AnyDataNode,
                 suggestedFiltersLabel: string | undefined,
                 propertyFilters,
-                eventMetadataPropertyDefinitions: PropertyDefinition[],
-                personMetadataPropertyDefinitions: PropertyDefinition[],
+                {
+                    event: eventMetadataPropertyDefinitions,
+                    person: personMetadataPropertyDefinitions,
+                }: {
+                    event: PropertyDefinition[]
+                    person: PropertyDefinition[]
+                },
                 maxContextOptions: MaxContextTaxonomicFilterOption[],
                 hideBehavioralCohorts: boolean,
                 endpointFilters: Record<string, any> | undefined,

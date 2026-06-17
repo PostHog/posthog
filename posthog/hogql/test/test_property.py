@@ -1298,7 +1298,7 @@ class TestProperty(BaseTest):
         repo_root = Path(__file__).resolve().parents[3]
         rust_src = (repo_root / "rust/feature-flags/src/properties/property_matching.rs").read_text()
         match = re.search(r"PERSON_METADATA_FIELDS:\s*&\[&str\]\s*=\s*&\[(.*?)\]", rust_src, re.S)
-        self.assertIsNotNone(match, "could not find PERSON_METADATA_FIELDS in property_matching.rs")
+        assert match is not None, "could not find PERSON_METADATA_FIELDS in property_matching.rs"
         rust_fields = set(re.findall(r'"([^"]+)"', match.group(1)))
         self.assertEqual(
             PERSON_METADATA_FIELDS,
