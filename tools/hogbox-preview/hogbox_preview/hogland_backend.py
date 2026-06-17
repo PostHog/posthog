@@ -28,6 +28,7 @@ from __future__ import annotations
 import os
 import json
 import time
+import shlex
 import pathlib
 import tempfile
 import subprocess
@@ -44,6 +45,13 @@ from hogland import (
 )
 
 from .backend import ExecResult, PreviewBackend
+
+
+# hogplane caps a single write_file body at 64 MiB (octet-stream PUT). Blobs over
+# that (the PR frontend dist tar) are shipped as sub-cap parts and `cat`'d back
+# together in-box; _WRITE_CHUNK keeps headroom under the hard cap.
+_WRITE_FILE_CAP = 64 * 1024 * 1024
+_WRITE_CHUNK = 48 * 1024 * 1024
 
 
 def _ephemeral_ssh_pubkey() -> str:
@@ -183,12 +191,37 @@ class HoglandBackend(PreviewBackend):
 
     def write_file(self, remote_path: str, content: bytes | str) -> None:
         data = content.encode() if isinstance(content, str) else content
+        # The frontend dist tar blows past hogplane's 64 MiB per-PUT cap, so big
+        # blobs go up as sub-cap parts and get reassembled in-box. Small writes
+        # (every other caller) stay a single PUT.
+        if len(data) > _WRITE_FILE_CAP:
+            self._write_chunked(remote_path, data)
+        else:
+            self._put_file(remote_path, data)
+
+    def _put_file(self, remote_path: str, data: bytes) -> None:
+        # One PUT, re-minting the OIDC bearer once on a 401 — the bring-up
+        # outlives a single short-lived CI token.
         try:
             self._require_box().write_file(remote_path, data, mkdir=True)
         except AuthenticationError:
             if not self._refresh_auth():
                 raise
             self._require_box().write_file(remote_path, data, mkdir=True)
+
+    def _write_chunked(self, remote_path: str, data: bytes) -> None:
+        # Ship the blob as <=_WRITE_CHUNK parts, then `cat` them back in order
+        # (listed explicitly, not globbed). The box is fresh each run, so there
+        # are no stale parts to collide with.
+        parts = []
+        for i in range(0, len(data), _WRITE_CHUNK):
+            part = f"{remote_path}.part{i // _WRITE_CHUNK:03d}"
+            self._put_file(part, data[i : i + _WRITE_CHUNK])
+            parts.append(part)
+        quoted = " ".join(shlex.quote(p) for p in parts)
+        r = self.exec(f"cat {quoted} > {shlex.quote(remote_path)} && rm -f {quoted}", timeout=300)
+        if r.returncode != 0:
+            raise RuntimeError(f"reassembling {remote_path} from {len(parts)} parts failed: {r.stderr.strip()}")
 
     @property
     def web_url(self) -> str:

@@ -311,10 +311,13 @@ class PostHogPreviewStack:
         tar = pathlib.Path(self.frontend_dist_tar).read_bytes()
         self.backend.write_file(f"{self.repo_dir}/frontend/dist.tgz", tar)
         compose = f"docker compose -f {self.COMPOSE} -f {self.OVERRIDE}"
+        # CI tars the dist with `-C frontend dist`, so its members are rooted at
+        # `dist/`; strip that leading level on extract or the SPA double-nests to
+        # frontend/dist/dist/ and collectstatic finds nothing.
         script = (
             f"cd {self.repo_dir} && "
             "rm -rf frontend/dist && mkdir -p frontend/dist staticfiles && "
-            "tar xzf frontend/dist.tgz -C frontend/dist && "
+            "tar xzf frontend/dist.tgz -C frontend/dist --strip-components=1 && "
             f"{compose} run --rm -T -e STATIC_COLLECTION=1 -e SKIP_SERVICE_VERSION_REQUIREMENTS=1 "
             "web python manage.py collectstatic --noinput"
         )
