@@ -157,7 +157,7 @@ export const API_SCOPES: APIScope[] = [
 ]
 API_SCOPES.sort((a, b) => a.objectName.localeCompare(b.objectName))
 
-export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = ['endpoint:read', 'llm_gateway:read'] as const
+export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = ['endpoint:read'] as const
 
 export type ProjectSecretAPIKeyAllowedScope = (typeof PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION)[number]
 
@@ -186,7 +186,6 @@ export const API_KEY_SCOPE_PRESETS: {
     },
     { value: 'analytics', label: 'Performing analytics queries', scopes: ['query:read'] },
     { value: 'endpoints', label: 'Endpoint execution', scopes: ['endpoint:read'] },
-    { value: 'llm_gateway', label: 'LLM gateway access', scopes: ['llm_gateway:read'] },
     {
         value: 'project_management',
         label: 'Project & user management',
@@ -222,7 +221,8 @@ export type ProjectSecretAPIKeyScopePreset = {
 
 export const PROJECT_SECRET_API_KEY_SCOPE_PRESETS: ProjectSecretAPIKeyScopePreset[] = [
     { value: 'endpoint_execution', label: 'Endpoint execution', scopes: ['endpoint:read'] },
-    { value: 'llm_gateway', label: 'AI gateway access', scopes: ['llm_gateway:read'] },]
+    { value: 'llm_gateway', label: 'AI gateway access', scopes: ['llm_gateway:read'] },
+]
 
 export const DEFAULT_OAUTH_SCOPES = ['openid', 'email', 'profile']
 
