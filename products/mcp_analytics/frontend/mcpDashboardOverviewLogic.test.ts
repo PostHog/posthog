@@ -134,15 +134,19 @@ describe('mcpDashboardOverviewLogic', () => {
 
     describe('buildKpiWindow', () => {
         it.each([
-            ['2024-01-08', '2024-01-15', '2024-01-08', '2024-01-01', 14],
-            ['2024-01-01', '2024-01-31', '2024-01-01', '2023-12-02', 60],
+            ['2024-01-08', '2024-01-15', '2024-01-08', '2023-12-31'],
+            ['2024-01-01', '2024-01-31', '2024-01-01', '2023-12-01'],
         ])(
-            'doubles the [%s, %s] window back to %s with cutoff at the selected start',
-            (dateFrom, dateTo, expectedCutoff, expectedPriorStart, expectedSpanDays) => {
+            'extends [%s, %s] back to an equal-length prior window with cutoff at the selected start',
+            (dateFrom, dateTo, expectedCutoff, expectedPriorStart) => {
                 const window = buildKpiWindow({ dateFrom, dateTo }, 'UTC')
                 expect(window.currentStartDay).toBe(expectedCutoff)
                 expect(dayjs(window.dateFrom).format('YYYY-MM-DD')).toBe(expectedPriorStart)
-                expect(dayjs(window.dateTo).diff(dayjs(window.dateFrom), 'day')).toBe(expectedSpanDays)
+                // The two halves of the comparison must span an equal number of daily buckets,
+                // otherwise every delta is biased toward whichever side has the extra day.
+                const priorBuckets = dayjs(window.currentStartDay).diff(dayjs(window.dateFrom), 'day')
+                const currentBuckets = dayjs(window.dateTo).diff(dayjs(window.currentStartDay), 'day') + 1
+                expect(priorBuckets).toBe(currentBuckets)
             }
         )
     })

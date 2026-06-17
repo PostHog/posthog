@@ -345,15 +345,18 @@ export interface KpiWindow {
     currentStartDay: string
 }
 
-// Resolve the selected window to absolute bounds, then extend back by an equal
-// length so a single query returns both the selected and prior periods. The day
-// the selected window starts is the cutoff `buildKPIs` uses to split them.
+// Resolve the selected window to absolute bounds, then extend the query range back
+// so a single query returns both the selected period and an equal-length prior
+// period. `currentStartDay` is the cutoff `buildKPIs` uses to split them.
 export function buildKpiWindow(dateFilter: DateFilter, timezone: string): KpiWindow {
     const now = dayjs().tz(timezone)
     const start = dateStringToDayJs(dateFilter.dateFrom, timezone) ?? now.subtract(7, 'day')
     const end = (dateFilter.dateTo ? dateStringToDayJs(dateFilter.dateTo, timezone) : now) ?? now
-    const windowDays = Math.max(1, end.diff(start, 'day'))
-    const priorStart = start.subtract(windowDays, 'day')
+    // The selected period covers the inclusive day-buckets [start, end] — one more
+    // than end.diff(start). Step the prior window back by that same count so the
+    // two halves of the comparison span an equal number of daily buckets.
+    const selectedDays = Math.max(1, end.diff(start, 'day') + 1)
+    const priorStart = start.subtract(selectedDays, 'day')
     return {
         dateFrom: priorStart.toISOString(),
         dateTo: end.toISOString(),
@@ -443,7 +446,7 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
         kpis: [
             EMPTY_KPIS,
             {
-                loadKPIs: async () => {
+                loadKPIs: async (_: void, breakpoint) => {
                     const kpiWindow = buildKpiWindow(values.dateFilter, values.timezone)
                     const response = (await api.query({
                         kind: NodeKind.HogQLQuery,
@@ -453,6 +456,7 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
                             dateRange: { date_from: kpiWindow.dateFrom, date_to: kpiWindow.dateTo },
                         },
                     })) as HogQLQueryResponse
+                    breakpoint()
                     const rows = parseRows((response?.results as unknown[][]) ?? [])
                     return buildKPIs(rows, kpiWindow.currentStartDay)
                 },
@@ -461,12 +465,13 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
         toolRows: [
             [] as ToolRow[],
             {
-                loadToolRows: async () => {
+                loadToolRows: async (_: void, breakpoint) => {
                     const response = (await api.query({
                         kind: NodeKind.HogQLQuery,
                         query: TOOL_ROWS_QUERY,
                         filters: values.queryFilters,
                     })) as HogQLQueryResponse
+                    breakpoint()
                     const raw = (response?.results as unknown[][]) ?? []
                     return raw.map((r) => ({
                         tool: String(r[0] ?? ''),
@@ -481,12 +486,13 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
         sessionRows: [
             [] as SessionRow[],
             {
-                loadSessionRows: async () => {
+                loadSessionRows: async (_: void, breakpoint) => {
                     const response = (await api.query({
                         kind: NodeKind.HogQLQuery,
                         query: SESSION_ROWS_QUERY,
                         filters: values.queryFilters,
                     })) as HogQLQueryResponse
+                    breakpoint()
                     const raw = (response?.results as unknown[][]) ?? []
                     return raw.map((r) => ({
                         session_id: String(r[0] ?? ''),
@@ -503,12 +509,13 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
         harnessRawRows: [
             [] as HarnessRawRow[],
             {
-                loadHarnessRows: async () => {
+                loadHarnessRows: async (_: void, breakpoint) => {
                     const response = (await api.query({
                         kind: NodeKind.HogQLQuery,
                         query: HARNESS_ROWS_QUERY,
                         filters: values.queryFilters,
                     })) as HogQLQueryResponse
+                    breakpoint()
                     const raw = (response?.results as unknown[][]) ?? []
                     return raw.map((r) => ({
                         client: String(r[0] ?? ''),
@@ -522,12 +529,13 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
         activityRows: [
             [] as ActivityRow[],
             {
-                loadActivityRows: async (): Promise<ActivityRow[]> => {
+                loadActivityRows: async (_: void, breakpoint): Promise<ActivityRow[]> => {
                     const response = (await api.query({
                         kind: NodeKind.HogQLQuery,
                         query: ACTIVITY_QUERY,
                         filters: values.queryFilters,
                     })) as HogQLQueryResponse
+                    breakpoint()
                     const raw = (response?.results as unknown[][]) ?? []
                     return raw.map((r) => ({
                         day: String(r[0] ?? ''),
@@ -540,12 +548,13 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
         toolDailyRows: [
             [] as ToolDailyRow[],
             {
-                loadToolDailyRows: async (): Promise<ToolDailyRow[]> => {
+                loadToolDailyRows: async (_: void, breakpoint): Promise<ToolDailyRow[]> => {
                     const response = (await api.query({
                         kind: NodeKind.HogQLQuery,
                         query: TOOL_DAILY_QUERY,
                         filters: values.queryFilters,
                     })) as HogQLQueryResponse
+                    breakpoint()
                     const raw = (response?.results as unknown[][]) ?? []
                     return raw.map((r) => ({
                         day: String(r[0] ?? ''),

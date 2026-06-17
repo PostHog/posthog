@@ -60,15 +60,10 @@ interface McpDateFilterProps {
     dateFrom: string | null
     dateTo: string | null
     onChange: (dateFrom: string | null, dateTo: string | null) => void
-    dataAttr?: string
+    dataAttr: string
 }
 
-export function McpDateFilter({
-    dateFrom,
-    dateTo,
-    onChange,
-    dataAttr = 'mcp-date-filter',
-}: McpDateFilterProps): JSX.Element {
+export function McpDateFilter({ dateFrom, dateTo, onChange, dataAttr }: McpDateFilterProps): JSX.Element {
     const [open, setOpen] = useState(false)
     const value = toPickerValue(dateFrom, dateTo)
 
