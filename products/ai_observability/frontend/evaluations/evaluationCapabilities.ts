@@ -1,7 +1,7 @@
 import { FEATURE_FLAGS } from 'lib/constants'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 
-import type { EvaluationConfig, EvaluationOutputType, EvaluationType } from './types'
+import type { EvaluationConfig, EvaluationOutputType, EvaluationType, LLMJudgeEvaluation } from './types'
 
 export function isBooleanEvaluationOutput(outputType: EvaluationOutputType | null | undefined): boolean {
     return outputType === 'boolean'
@@ -15,6 +15,12 @@ export function evaluationSupportsReports(
 
 export function evaluationTypeUsesModelConfiguration(evaluationType: EvaluationType | null | undefined): boolean {
     return evaluationType === 'llm_judge'
+}
+
+export function isLLMJudgeEvaluation(
+    evaluation: EvaluationConfig | null | undefined
+): evaluation is LLMJudgeEvaluation {
+    return evaluation?.evaluation_type === 'llm_judge'
 }
 
 export function evaluationTypeUsesProviderKey(evaluationType: EvaluationType | null | undefined): boolean {

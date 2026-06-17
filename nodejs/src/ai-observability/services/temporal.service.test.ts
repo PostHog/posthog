@@ -38,7 +38,7 @@ describe('TemporalService', () => {
             TEMPORAL_HOST: 'localhost',
             TEMPORAL_NAMESPACE: 'test-namespace',
             TEMPORAL_SECRET_KEY: undefined,
-            TEMPORAL_FALLBACK_SECRET_KEYS: undefined,
+            TEMPORAL_FALLBACK_SECRET_KEYS: '',
         }
 
         mockWorkflowHandle = {

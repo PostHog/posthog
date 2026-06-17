@@ -174,9 +174,14 @@ const config: Config = {
         '^common/(.*)$': '<rootDir>/../common/$1',
         '^@posthog/replay-shared$': '<rootDir>/../common/replay-shared/src/index.ts',
         '^@posthog/replay-shared/(.*)$': '<rootDir>/../common/replay-shared/src/$1',
+        '^@posthog/quill$': '<rootDir>/../packages/quill/packages/quill/src/index.ts',
+        '^@posthog/quill-blocks$': '<rootDir>/../packages/quill/packages/blocks/src/index.ts',
         '^@posthog/quill-charts$': '<rootDir>/../packages/quill/packages/charts/src/index.ts',
         '^@posthog/quill-charts/testing$': '<rootDir>/../packages/quill/packages/charts/src/testing/index.ts',
         '^@posthog/quill-charts/story-helpers$': '<rootDir>/../packages/quill/packages/charts/src/story-helpers.tsx',
+        '^@posthog/quill-components$': '<rootDir>/../packages/quill/packages/components/src/index.ts',
+        '^@posthog/quill-primitives$': '<rootDir>/../packages/quill/packages/primitives/src/index.ts',
+        '^@posthog/quill-tokens$': '<rootDir>/../packages/quill/packages/tokens/src/index.ts',
         '^@posthog/shared-onboarding/(.*)$': '<rootDir>/../docs/onboarding/$1',
         d3: '<rootDir>/node_modules/d3/dist/d3.min.js',
         '^d3-(.*)$': `d3-$1/dist/d3-$1`,
@@ -250,7 +255,12 @@ const config: Config = {
     // ],
 
     // An array of regexp pattern strings that are matched against all test paths, matched tests are skipped
-    testPathIgnorePatterns: ['/node_modules/', '/services/mcp/', '/products/[^/]+/frontend/e2e/', '/products/visual_review/cli/'],
+    testPathIgnorePatterns: [
+        '/node_modules/',
+        '/services/mcp/',
+        '/products/[^/]+/frontend/e2e/',
+        '/products/visual_review/cli/',
+    ],
 
     // The regexp pattern or array of patterns that Jest uses to detect test files
     // testRegex: [],
