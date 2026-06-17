@@ -103,10 +103,11 @@ class DockerSandbox(SandboxBase):
     Local dev requirements (set in .env.local, then restart ./bin/start so the
     supervisor re-reads them — a per-process restart inherits the old env):
       - SANDBOX_PROVIDER=docker   — route sandboxes here instead of Modal.
-      - POSTHOG_DEV_SANDBOX=0      — REQUIRED. The dev Seatbelt sandbox
-        (bin/dev-sandbox.sb) deliberately denies the Docker socket as an escape
-        vector, so with it enabled the worker can't reach the daemon and every
-        create() fails with a generic "Failed to create Docker sandbox".
+
+    The dev Seatbelt sandbox (bin/dev-sandbox.sb, on by default) deliberately
+    denies the Docker socket as an escape vector, so the temporal-worker — which
+    needs that socket to create() containers — runs unsandboxed by default (see
+    _SANDBOX_DEFAULT_EXCLUDES in the devenv generator). No extra config needed.
     """
 
     id: str
