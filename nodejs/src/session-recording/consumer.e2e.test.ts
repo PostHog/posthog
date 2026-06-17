@@ -11,7 +11,7 @@ import { v4 as uuidv4 } from 'uuid'
 
 import { Clickhouse } from '../../tests/helpers/clickhouse'
 import { waitForExpect } from '../../tests/helpers/expectations'
-import { resetKafka } from '../../tests/helpers/kafka'
+import { TEST_KAFKA_TOPICS, createKafkaTestTopicName, ensureKafkaTopics } from '../../tests/helpers/kafka'
 import { forSnapshot } from '../../tests/helpers/snapshots'
 import { createOrganization, createTeam, getFirstTeam, resetTestDatabase } from '../../tests/helpers/sql'
 import { defaultConfig, overrideWithEnv } from '../config/config'
@@ -183,6 +183,12 @@ async function produceToKafka(
         headers: payload.headers,
     })
     await producer.flush()
+}
+
+async function waitForIngesterAssignment(ingester: SessionRecordingIngester): Promise<void> {
+    await waitForExpect(() => {
+        expect(ingester.kafkaConsumer.assignments().length).toBeGreaterThan(0)
+    }, 10000)
 }
 
 /**
@@ -843,6 +849,8 @@ describe('Session Recording Consumer Integration', () => {
     let team: Team
     let s3Client: S3Client
     let clickhouse: Clickhouse
+    let recordingInputTopic: string
+    let recordingConsumerGroupId: string
 
     interface IngesterWithProducers {
         ingester: SessionRecordingIngester
@@ -949,10 +957,14 @@ describe('Session Recording Consumer Integration', () => {
             )
         }
 
-        await resetKafka()
+        recordingInputTopic = createKafkaTestTopicName(KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS)
+        recordingConsumerGroupId = `session-recordings-blob-v2-e2e-${uuidv4()}`
+        await ensureKafkaTopics([...TEST_KAFKA_TOPICS, recordingInputTopic])
         await resetTestDatabase()
 
         hub = await createHub({
+            INGESTION_SESSION_REPLAY_CONSUMER_CONSUME_TOPIC: recordingInputTopic,
+            INGESTION_SESSION_REPLAY_CONSUMER_GROUP_ID: recordingConsumerGroupId,
             SESSION_RECORDING_V2_S3_BUCKET: TEST_CONFIG.S3_BUCKET,
             SESSION_RECORDING_V2_S3_PREFIX: TEST_CONFIG.S3_PREFIX,
             SESSION_RECORDING_V2_S3_ENDPOINT: TEST_CONFIG.S3_ENDPOINT,
@@ -1035,12 +1047,12 @@ describe('Session Recording Consumer Integration', () => {
             // Create and start ingester
             const { ingester, kafkaMetadataProducer } = await createIngester()
             await ingester.start()
-            await new Promise((resolve) => setTimeout(resolve, PARTITION_ASSIGNMENT_WAIT_MS))
+            await waitForIngesterAssignment(ingester)
 
             // Produce all payloads to Kafka
             for (const config of payloadConfigs) {
                 const payload = createKafkaPayload(config)
-                await produceToKafka(testProducer, KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS, payload)
+                await produceToKafka(testProducer, recordingInputTopic, payload)
             }
 
             // Wait for processing based on expected outcome

@@ -101,8 +101,9 @@ export const TEST_KAFKA_TOPICS = [
 ]
 
 export async function resetKafka(extraServerConfig?: Partial<PluginsServerConfig>): Promise<void> {
-    const kafkaConfig = buildKafkaConfig(extraServerConfig)
-    await createTopics(kafkaConfig, TEST_KAFKA_TOPICS)
+    // ClickHouse Kafka engine tables keep long-lived assignments to these topics.
+    // Recreate missing topics idempotently without deleting existing ones.
+    await ensureKafkaTopics(TEST_KAFKA_TOPICS, extraServerConfig)
 }
 
 // Builds a unique topic name for a test so each test can produce to and consume from an
