@@ -719,8 +719,6 @@ mod tests {
 
     #[test]
     fn manifest_commit_tpl_round_trips_a_multi_topic_live_capture() {
-        // The full restore round-trip: drive the real `OffsetManifest::capture` from seeded trackers
-        // across all three followers (not the hand-built `manifest_with`), then commit each topic.
         // Distinct offsets per tracker/partition so a cross-wired capture would surface in the TPL.
         let owned = [3, 7];
         let merge = OffsetTracker::new();
@@ -762,8 +760,6 @@ mod tests {
             );
         }
 
-        // A topic never captured (the events topic was not among the trackers) is absent from the
-        // manifest, so the same live context yields `None` — pinning the negative arm alongside.
         assert!(
             manifest_commit_tpl("cohort_stream_events", &manifest).is_none(),
             "a topic absent from the live capture must produce no commit",

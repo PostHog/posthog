@@ -191,9 +191,8 @@ mod tests {
 
     #[test]
     fn capture_records_present_follower_offsets() {
-        // Inverse of `capture_omits_an_absent_follower`: once the merge/transfer/cascade followers
-        // actually commit (Slice 3a), capture must record their offsets with content. Distinct offsets
-        // per tracker/partition so a cross-wired bug (e.g. reading the wrong tracker) would surface.
+        // Distinct offsets per tracker/partition so a cross-wired capture (reading the wrong tracker)
+        // would surface.
         let owned = [3, 7];
         let merge = OffsetTracker::new();
         let transfer = OffsetTracker::new();
