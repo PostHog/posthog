@@ -20,6 +20,7 @@ import { AssigneeSelect } from './Assignee/AssigneeSelect'
 import { IssueActions } from './IssueActions/IssueActions'
 import { issueActionsLogic } from './IssueActions/issueActionsLogic'
 import { issueFiltersLogic, updateFilterSearchParams } from './IssueFilters/issueFiltersLogic'
+import { useErrorTrackingSearchBarRedesign } from './IssueFilters/SearchBarVariantToggle'
 import { issueQueryOptionsLogic } from './IssueQueryOptions/issueQueryOptionsLogic'
 import { IssueStatusSelect } from './IssueStatusSelect'
 import { RuntimeIcon } from './RuntimeIcon'
@@ -32,6 +33,8 @@ export const IssueListTitleHeader = ({
     const { selectedIssueIds } = useValues(bulkSelectLogic)
     const { setSelectedIssueIds } = useActions(bulkSelectLogic)
     const allSelected = results.length == selectedIssueIds.length && selectedIssueIds.length > 0
+    // In the legacy layout bulk actions live in the list options bar, not the header.
+    const newSearchBar = useErrorTrackingSearchBarRedesign()
 
     return (
         <div className="flex gap-3 items-center -ml-1">
@@ -39,7 +42,7 @@ export const IssueListTitleHeader = ({
                 checked={allSelected}
                 onChange={() => (allSelected ? setSelectedIssueIds([]) : setSelectedIssueIds(results.map((r) => r.id)))}
             />
-            {selectedIssueIds.length > 0 ? (
+            {newSearchBar && selectedIssueIds.length > 0 ? (
                 <IssueActions issues={results as ErrorTrackingIssue[]} selectedIds={selectedIssueIds} />
             ) : (
                 <span>Issue</span>

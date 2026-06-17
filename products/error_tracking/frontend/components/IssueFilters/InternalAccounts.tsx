@@ -10,6 +10,7 @@ import {
     quickFiltersModalLogic,
     quickFiltersSectionLogic,
 } from 'lib/components/QuickFilters'
+import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -22,6 +23,22 @@ import { assigneeSelectLogic } from '../Assignee/assigneeSelectLogic'
 import { issueQueryOptionsLogic } from '../IssueQueryOptions/issueQueryOptionsLogic'
 import { issueFiltersLogic } from './issueFiltersLogic'
 import { STATUS_OPTIONS, statusOptionLabel } from './Status'
+
+/** Legacy standalone "filter out internal users" toggle, used by the pre-redesign filter layout. */
+export const InternalAccountsFilter = (): JSX.Element => {
+    const { filterTestAccounts } = useValues(issueFiltersLogic)
+    const { setFilterTestAccounts } = useActions(issueFiltersLogic)
+
+    return (
+        <div>
+            <TestAccountFilter
+                size="small"
+                filters={{ filter_test_accounts: filterTestAccounts }}
+                onChange={({ filter_test_accounts }) => setFilterTestAccounts(filter_test_accounts || false)}
+            />
+        </div>
+    )
+}
 
 interface FilterSettingsMenuProps {
     quickFilterContext?: QuickFilterContext

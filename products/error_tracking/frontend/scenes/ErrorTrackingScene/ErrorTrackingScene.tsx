@@ -23,6 +23,10 @@ import { IntegrationsMovedBanner } from '../../components/IntegrationsMovedBanne
 import { ErrorTrackingIssueFilteringTool } from '../../components/IssueFilteringTool'
 import { FilterBar } from '../../components/IssueFilters/FilterBar'
 import { issueFiltersLogic } from '../../components/IssueFilters/issueFiltersLogic'
+import {
+    SearchBarVariantToggle,
+    useErrorTrackingSearchBarRedesign,
+} from '../../components/IssueFilters/SearchBarVariantToggle'
 import { issueQueryOptionsLogic } from '../../components/IssueQueryOptions/issueQueryOptionsLogic'
 import { exceptionIngestionLogic } from '../../components/SetupPrompt/exceptionIngestionLogic'
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
@@ -35,6 +39,7 @@ import {
     errorTrackingSceneLogic,
 } from './errorTrackingSceneLogic'
 import { ErrorTrackingInsights } from './tabs/insights/ErrorTrackingInsights'
+import { IssuesFilters } from './tabs/issues/IssuesFilters'
 import { IssuesList, ListReloadButton, insightProps } from './tabs/issues/IssuesList'
 import { SourceMapsBanner } from './tabs/issues/SourceMapsBanner'
 import { RecommendationsTab } from './tabs/recommendations/RecommendationsTab'
@@ -55,6 +60,28 @@ const IssuesTab = (): JSX.Element => {
     const { hasSentExceptionEvent, hasSentExceptionEventLoading } = useValues(exceptionIngestionLogic)
     const { query } = useValues(errorTrackingSceneLogic)
     const hasSourceMapsBanner = useFeatureFlag('ERROR_TRACKING_SOURCE_MAPS_BANNER')
+    const newSearchBar = useErrorTrackingSearchBarRedesign()
+
+    const banners = (
+        <>
+            <ErrorTrackingIssueFilteringTool />
+            {hasSentExceptionEventLoading || hasSentExceptionEvent ? null : <IngestionStatusCheck />}
+            {hasSourceMapsBanner ? <SourceMapsBanner /> : null}
+        </>
+    )
+
+    if (!newSearchBar) {
+        return (
+            <ErrorTrackingSetupPrompt>
+                {banners}
+                <div className="relative border rounded bg-surface-primary p-2">
+                    <SearchBarVariantToggle />
+                    <IssuesFilters />
+                </div>
+                <IssuesList />
+            </ErrorTrackingSetupPrompt>
+        )
+    }
 
     return (
         <ErrorTrackingSetupPrompt>
@@ -62,18 +89,19 @@ const IssuesTab = (): JSX.Element => {
                 logic={issuesDataNodeLogic}
                 props={{ key: insightVizDataNodeKey(insightProps), query: query.source }}
             >
-                <ErrorTrackingIssueFilteringTool />
-                {hasSentExceptionEventLoading || hasSentExceptionEvent ? null : <IngestionStatusCheck />}
-                {hasSourceMapsBanner ? <SourceMapsBanner /> : null}
+                {banners}
                 {/* The sceneInset tab content already pads 16px all around. Keep py-2 so the
                     stuck bar has background buffer, and offset it with margins so the resting
                     gaps stay at 16px (top: 16 - 8 + 8, bottom: 8 + 8). */}
                 <SceneStickyBar showBorderBottom={false} className="py-2 -mt-2 mb-2">
-                    <FilterBar
-                        reload={<ListReloadButton />}
-                        logicKey={ERROR_TRACKING_SCENE_LOGIC_KEY}
-                        quickFilterContext={QuickFilterContext.ErrorTrackingIssueFilters}
-                    />
+                    <div className="relative">
+                        <SearchBarVariantToggle />
+                        <FilterBar
+                            reload={<ListReloadButton />}
+                            logicKey={ERROR_TRACKING_SCENE_LOGIC_KEY}
+                            quickFilterContext={QuickFilterContext.ErrorTrackingIssueFilters}
+                        />
+                    </div>
                 </SceneStickyBar>
                 <IssuesList />
             </BindLogic>

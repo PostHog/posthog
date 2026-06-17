@@ -41,9 +41,14 @@ import { EventsTable } from '../../components/EventsTable/EventsTable'
 import { ExceptionCard } from '../../components/ExceptionCard'
 import { StackTraceActions } from '../../components/ExceptionCard/Tabs/StackTraceTab/StackTraceActions'
 import { StatusIndicator } from '../../components/Indicators'
+import { ErrorFilters } from '../../components/IssueFilters'
 import { NON_ISSUE_TAXONOMIC_GROUP_TYPES } from '../../components/IssueFilters/consts'
 import { FilterBar } from '../../components/IssueFilters/FilterBar'
 import { issueFiltersLogic } from '../../components/IssueFilters/issueFiltersLogic'
+import {
+    SearchBarVariantToggle,
+    useErrorTrackingSearchBarRedesign,
+} from '../../components/IssueFilters/SearchBarVariantToggle'
 import { Metadata } from '../../components/IssueMetadata'
 import { IssueStatusButton } from '../../components/IssueStatusButton'
 import { IssueTasks } from '../../components/IssueTasks'
@@ -379,29 +384,46 @@ const ExceptionsTab = (): JSX.Element => {
     const { eventsQuery, eventsQueryKey, selectedEvent, issueFingerprints, issueFingerprintsLoading, summaryLoading } =
         useValues(errorTrackingIssueSceneLogic)
     const { selectEvent, reloadEvents, loadSummary } = useActions(errorTrackingIssueSceneLogic)
+    const newSearchBar = useErrorTrackingSearchBarRedesign()
 
     return (
         <div className="flex flex-col h-full min-h-0">
-            <FilterBar
-                className="shrink-0 border-0 rounded-none shadow-none bg-transparent"
-                reload={
-                    <LemonButton
-                        type="tertiary"
-                        size="small"
-                        onClick={() => {
-                            reloadEvents()
-                            loadSummary()
-                        }}
-                        icon={summaryLoading ? <Spinner textColored /> : <IconRefresh />}
-                        tooltip={summaryLoading ? 'Loading...' : 'Reload'}
+            {newSearchBar ? (
+                <div className="relative shrink-0">
+                    <SearchBarVariantToggle />
+                    <FilterBar
+                        className="shrink-0 border-0 rounded-none shadow-none bg-transparent"
+                        reload={
+                            <LemonButton
+                                type="tertiary"
+                                size="small"
+                                onClick={() => {
+                                    reloadEvents()
+                                    loadSummary()
+                                }}
+                                icon={summaryLoading ? <Spinner textColored /> : <IconRefresh />}
+                                tooltip={summaryLoading ? 'Loading...' : 'Reload'}
+                            />
+                        }
+                        logicKey={ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY}
+                        quickFilterContext={QuickFilterContext.ErrorTrackingIssueFilters}
+                        taxonomicGroupTypes={NON_ISSUE_TAXONOMIC_GROUP_TYPES}
+                        showIssueControls={false}
+                        searchSubject="events"
                     />
-                }
-                logicKey={ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY}
-                quickFilterContext={QuickFilterContext.ErrorTrackingIssueFilters}
-                taxonomicGroupTypes={NON_ISSUE_TAXONOMIC_GROUP_TYPES}
-                showIssueControls={false}
-                searchSubject="events"
-            />
+                </div>
+            ) : (
+                <div className="relative px-2 py-3 shrink-0">
+                    <SearchBarVariantToggle />
+                    <ErrorFilters.Root>
+                        <div className="flex gap-2 justify-between flex-wrap">
+                            <ErrorFilters.DateRange />
+                            <ErrorFilters.InternalAccounts />
+                        </div>
+                        <ErrorFilters.FilterGroup />
+                    </ErrorFilters.Root>
+                </div>
+            )}
             <LemonDivider className="my-0 shrink-0" />
             <Metadata className="flex flex-col flex-1 min-h-0">
                 {issueFingerprintsLoading ? (

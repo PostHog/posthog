@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { BindLogic, useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { Tooltip } from '@posthog/lemon-ui'
@@ -6,6 +6,8 @@ import { Tooltip } from '@posthog/lemon-ui'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 
+import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { Query } from '~/queries/Query/Query'
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 import {
@@ -16,7 +18,12 @@ import {
 } from '~/queries/types'
 import { InsightLogicProps } from '~/types'
 
-import { IssueReloadButton } from 'products/error_tracking/frontend/components/IssueQueryOptions/IssueQueryOptions'
+import { IssueActions } from 'products/error_tracking/frontend/components/IssueActions/IssueActions'
+import { useErrorTrackingSearchBarRedesign } from 'products/error_tracking/frontend/components/IssueFilters/SearchBarVariantToggle'
+import {
+    IssueQueryOptions,
+    IssueReloadButton,
+} from 'products/error_tracking/frontend/components/IssueQueryOptions/IssueQueryOptions'
 import { IssueListTitleColumn, IssueListTitleHeader } from 'products/error_tracking/frontend/components/TableColumns'
 import { errorTrackingVolumeSparklineLogic } from 'products/error_tracking/frontend/components/VolumeSparkline/errorTrackingVolumeSparklineLogic'
 import {
@@ -26,6 +33,7 @@ import {
 import { VolumeSparkline } from 'products/error_tracking/frontend/components/VolumeSparkline/VolumeSparkline'
 import { applyVolumeSpikeHighlights, useSparklineData } from 'products/error_tracking/frontend/hooks/use-sparkline-data'
 import { batchSpikeEventsLogic } from 'products/error_tracking/frontend/logics/batchSpikeEventsLogic'
+import { bulkSelectLogic } from 'products/error_tracking/frontend/logics/bulkSelectLogic'
 import { issuesDataNodeLogic } from 'products/error_tracking/frontend/logics/issuesDataNodeLogic'
 import { errorTrackingSceneLogic } from 'products/error_tracking/frontend/scenes/ErrorTrackingScene/errorTrackingSceneLogic'
 import { ERROR_TRACKING_LISTING_RESOLUTION } from 'products/error_tracking/frontend/utils'
@@ -146,12 +154,43 @@ export const insightProps: InsightLogicProps = {
 export function IssuesList(): JSX.Element {
     const { query } = useValues(errorTrackingSceneLogic)
     const context = useIssueQueryContext()
+    const newSearchBar = useErrorTrackingSearchBarRedesign()
+
+    // The redesigned layout binds issuesDataNodeLogic and renders the filter bar in the
+    // scene, so the list is just the table. The legacy layout owns both itself.
+    if (newSearchBar) {
+        return (
+            <div data-attr="error-tracking-issue-row">
+                <Query query={query} context={context} />
+            </div>
+        )
+    }
 
     return (
-        <div data-attr="error-tracking-issue-row">
-            <Query query={query} context={context} />
-        </div>
+        <BindLogic
+            logic={issuesDataNodeLogic}
+            props={{ key: insightVizDataNodeKey(insightProps), query: query.source }}
+        >
+            <SceneStickyBar showBorderBottom={false}>
+                <ListOptions />
+            </SceneStickyBar>
+
+            <div data-attr="error-tracking-issue-row">
+                <Query query={query} context={context} />
+            </div>
+        </BindLogic>
     )
+}
+
+const ListOptions = (): JSX.Element => {
+    const { selectedIssueIds } = useValues(bulkSelectLogic)
+    const { results } = useValues(issuesDataNodeLogic)
+
+    if (selectedIssueIds.length > 0) {
+        return <IssueActions issues={results} selectedIds={selectedIssueIds} />
+    }
+
+    return <IssueQueryOptions />
 }
 
 export const ListReloadButton = (): JSX.Element => {

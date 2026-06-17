@@ -33,15 +33,9 @@ import { issueFiltersLogic } from './issueFiltersLogic'
 export const FilterGroup = ({
     taxonomicGroupTypes = TAXONOMIC_GROUP_TYPES,
     excludeFilterTypes,
-    quickFilterContext,
-    logicKey,
-    showIssueFilters = true,
 }: {
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
     excludeFilterTypes?: PropertyFilterType[]
-    quickFilterContext?: QuickFilterContext
-    logicKey?: string
-    showIssueFilters?: boolean
 } = {}): JSX.Element => {
     const { filterGroup } = useValues(issueFiltersLogic)
     const { setFilterGroup } = useActions(issueFiltersLogic)
@@ -59,26 +53,15 @@ export const FilterGroup = ({
             taxonomicGroupTypes={taxonomicGroupTypes}
             onChange={(group) => setFilterGroup({ type: FilterLogicalOperator.And, values: [group] })}
         >
-            <UniversalSearch
-                taxonomicGroupTypes={taxonomicGroupTypes}
-                quickFilterContext={quickFilterContext}
-                logicKey={logicKey}
-                showIssueFilters={showIssueFilters}
-            />
+            <UniversalSearch taxonomicGroupTypes={taxonomicGroupTypes} />
         </UniversalFilters>
     )
 }
 
 const UniversalSearch = ({
     taxonomicGroupTypes = TAXONOMIC_GROUP_TYPES,
-    quickFilterContext,
-    logicKey,
-    showIssueFilters = true,
 }: {
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
-    quickFilterContext?: QuickFilterContext
-    logicKey?: string
-    showIssueFilters?: boolean
 }): JSX.Element => {
     const [visible, setVisible] = useState<boolean>(false)
     const { searchQuery } = useValues(issueFiltersLogic)
@@ -114,7 +97,7 @@ const UniversalSearch = ({
         <BindLogic logic={taxonomicFilterLogic} props={taxonomicFilterLogicProps}>
             <div className="flex w-full min-w-0 items-center gap-1">
                 <FilterOperatorToggle />
-                <div className="min-w-0 flex-1 [&_.LemonInput>input]:pl-2">
+                <div className="min-w-0 flex-1">
                     <LemonDropdown
                         overlay={
                             <div className="w-[400px] md:w-[600px]">
@@ -131,16 +114,7 @@ const UniversalSearch = ({
                         onClickOutside={() => onClose()}
                     >
                         <TaxonomicFilterSearchInput
-                            prefix={
-                                <>
-                                    {showIssueFilters && <IssueFilterChips />}
-                                    <InternalUsersChip />
-                                    {quickFilterContext && (
-                                        <QuickFilterChips context={quickFilterContext} logicKey={logicKey} />
-                                    )}
-                                    <UniversalFilterGroup taxonomicGroupTypes={taxonomicGroupTypes} />
-                                </>
-                            }
+                            prefix={<UniversalFilterGroup taxonomicGroupTypes={taxonomicGroupTypes} />}
                             onClick={() => setVisible(true)}
                             searchInputRef={searchInputRef}
                             onClose={() => onClose()}
