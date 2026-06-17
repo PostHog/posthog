@@ -166,7 +166,15 @@ class Resolver {
     }
 
     allMatches(file) {
-        return this.rules.filter((rule) => pathMatchesPattern(rule.pattern, file))
+        // Degrade on a malformed pattern (e.g. a `***` typo) instead of throwing,
+        // matching how resolve() handles rules via the safe CodeOwners matchers.
+        return this.rules.filter((rule) => {
+            try {
+                return pathMatchesPattern(rule.pattern, file)
+            } catch {
+                return false
+            }
+        })
     }
 }
 
