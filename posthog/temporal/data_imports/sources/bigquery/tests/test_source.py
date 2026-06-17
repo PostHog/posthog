@@ -503,6 +503,15 @@ def test_bigquery_build_pipeline_trims_whitespace_in_destination_table():
         ),
         # Permission to list tables in a dataset is also denied with the same prefix
         str(Forbidden("Access Denied: Permission bigquery.tables.list denied on dataset prj:ds.")),
+        # Storage Read API `create_read_session` denial — `str(PermissionDenied)` is "403 request
+        # failed: the user does not have 'bigquery.readsessions.create' permission for 'projects/...'",
+        # which the "Access Denied:" / "PermissionDenied: 403 request failed" keys don't cover.
+        str(
+            PermissionDenied(
+                "request failed: the user does not have 'bigquery.readsessions.create' "
+                "permission for 'projects/some-project'"
+            )
+        ),
     ],
 )
 def test_non_retryable_errors_match_permission_denied(observed_error):
