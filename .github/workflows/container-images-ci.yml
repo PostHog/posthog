@@ -89,8 +89,8 @@ jobs:
         name: Guard against dropped image files
         runs-on: ubuntu-24.04
         timeout-minutes: 10
-        # PR-time only: a fast source-level check, no image build needed. Skipped on merge_group
-        # (review already happened) and forks (changes job doesn't run there).
+        # PR-time only (event == pull_request), so it's skipped on merge_group. Needs no secrets or
+        # docker login — unlike the image build below, it runs on fork PRs too.
         if: github.event_name == 'pull_request' && needs.changes.outputs.dockerignore_changed == 'true'
         permissions:
             contents: read

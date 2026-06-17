@@ -62,6 +62,20 @@ build_manifest() {
     docker run --rm "$img" > "$out"
 }
 
+# Filter stdin through grep, keeping lines that do NOT match (-v). grep exit 1 ("no matches") means
+# everything got filtered out — a valid result, not a failure. But grep exit >=2 is a real error
+# (e.g. a malformed regex in the allowlist); fail loud instead of letting a blanket `|| true` swallow
+# it and wave dropped runtime files through as a false "OK".
+filter_drops() {
+    local status=0
+    grep "$@" || status=$?
+    if [ "$status" -ge 2 ]; then
+        echo "error: grep exited $status while filtering dropped files (check $allowlist_file for an invalid regex)" >&2
+        return "$status"
+    fi
+    return 0
+}
+
 # Base .dockerignore from the ref we compare against. If the ref never had one, there's nothing to
 # regress against — every file was already included, so any current exclusion is intentional.
 if ! git show "$base_ref:.dockerignore" > "$base_ignore" 2>/dev/null; then
@@ -86,9 +100,9 @@ if [ -z "$dropped" ]; then
 fi
 
 # Filter out files that are never needed at runtime (tests, stories, fixtures, plus team allowlist).
-anomalies="$(printf '%s\n' "$dropped" | grep -vE "$SAFE_PATTERN" || true)"
+anomalies="$(printf '%s\n' "$dropped" | filter_drops -vE "$SAFE_PATTERN")"
 if [ -f "$allowlist_file" ]; then
-    anomalies="$(printf '%s\n' "$anomalies" | grep -vEf <(grep -vE '^\s*(#|$)' "$allowlist_file") || true)"
+    anomalies="$(printf '%s\n' "$anomalies" | filter_drops -vEf <(grep -vE '^\s*(#|$)' "$allowlist_file"))"
 fi
 
 if [ -z "$anomalies" ]; then
