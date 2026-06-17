@@ -805,11 +805,12 @@ export function JSSnippet({
     instantlyAvailableProperties,
     samplePropertyName,
 }: FeatureFlagSnippet): JSX.Element {
+    const clientSuffix = 'posthog.'
     if (payload) {
         return (
             <>
                 <CodeSnippet language={Language.JavaScript} wrap>
-                    {`posthog.getFeatureFlagResult('${flagKey ?? ''}')?.payload`}
+                    {`${clientSuffix}getFeatureFlagResult('${flagKey ?? ''}')?.payload`}
                 </CodeSnippet>
             </>
         )
@@ -828,7 +829,6 @@ posthog.${
 
 `
 
-    const clientSuffix = 'posthog.'
     const flagFunction = multivariant ? 'getFeatureFlag' : 'isFeatureEnabled'
 
     const variantSuffix = multivariant ? ` == 'example-variant'` : ''
