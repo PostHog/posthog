@@ -49115,6 +49115,11 @@ export namespace Schemas {
       dateRange?: _TracingDateRange;
       /** Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false. */
       excludeAttributes?: boolean;
+      /**
+         * Pagination offset into the trace's spans (ordered by start time ascending). Each page returns up to 2000 spans; pass the response's `nextOffset` to load the next page. Defaults to 0.
+         * @minimum 0
+         */
+      offset?: number;
     }
 
     export interface _TracingTreeQueryBody {
