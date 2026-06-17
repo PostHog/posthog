@@ -66,15 +66,18 @@ export const visualReviewRunsSceneLogic = kea<visualReviewRunsSceneLogicType>([
         runsResponse: [
             { count: 0, results: [] } as PaginatedRunListApi,
             {
-                loadRuns: async () => {
+                loadRuns: async (_, breakpoint) => {
                     const offset = (values.page - 1) * RUNS_PAGE_SIZE
                     const search = values.searchQuery.trim()
-                    return await visualReviewReposRunsList(String(values.currentProjectId), props.repoId, {
+                    const response = await visualReviewReposRunsList(String(values.currentProjectId), props.repoId, {
                         review_state: values.activeTab,
                         limit: RUNS_PAGE_SIZE,
                         offset,
                         ...(search ? { search } : {}),
                     })
+                    // Discard this response if a newer loadRuns started while it was in flight.
+                    breakpoint()
+                    return response
                 },
             },
         ],
