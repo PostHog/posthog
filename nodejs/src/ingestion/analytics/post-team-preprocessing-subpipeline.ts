@@ -1,9 +1,9 @@
 import { Message } from 'node-rdkafka'
 
+import { HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
 import { PluginEvent } from '~/plugin-scaffold'
 import { processPersonlessDistinctIdsBatchStep } from '~/worker/ingestion/event-pipeline/processPersonlessDistinctIdsBatchStep'
 
-import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
 import { EventHeaders, Team } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
 import { EventSchemaEnforcementManager } from '../../utils/event-schema-enforcement-manager'
@@ -46,7 +46,7 @@ export interface PostTeamPreprocessingSubpipelineConfig {
     overflowRedirectService?: OverflowRedirectService
     overflowLaneTTLRefreshService?: OverflowRedirectService
     personsPrefetchEnabled: boolean
-    hogTransformer: HogTransformerService
+    hogTransformer: HogTransformer
     cdpHogWatcherSampleRate: number
 }
 

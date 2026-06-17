@@ -135,7 +135,11 @@ on every iteration.
 - [x] Inventory every CDP->ingestion and ingestion->CDP import.
 - [x] Group 1: move the outputs framework (`ingestion/outputs` + `ingestion/common/outputs`)
       -> `common/outputs`; fix imports (219 across 131 files).
-- [ ] Group 2: move `cdp/hog-transformations` -> `common/hog-transformations` (breaks the cycle).
+- [x] Group 2: break the hog-transformer cycle via dependency inversion. hog-transformer is
+      deeply cdp-coupled (measured: a move would drag 189/256 cdp files into common), so instead a
+      `HogTransformer` interface + `HogTransformationResult` live in `common/hog-transformations`;
+      ingestion imports the interface; cdp's `HogTransformerService implements HogTransformer`;
+      servers construct the impl. Production ingestion->cdp imports are now zero.
 - [ ] Group 3: move person/group repositories + `personhog` -> `common/persons`, `common/groups`,
       `common/personhog`.
 - [ ] Group 4: invert `event-processing` / `event-preprocessing` shared->lane edges.
@@ -171,3 +175,9 @@ on every iteration.
   `ingestion/common/outputs`), 219 imports rewritten across 131 files via `bin/rewrite-imports.mjs`.
   tsc shows no new errors vs baseline; guard green; this also resolved the pre-existing
   `common -> ingestion/outputs` edge. Added `bin/rewrite-imports.mjs` (reusable codemod).
+- Phase 1 Group 2 complete: hog-transformer seam broken by dependency inversion (not a move —
+  measured that a move pulls 189/256 cdp files into common). New `HogTransformer` contract in
+  `common/hog-transformations`; 9 ingestion files now import the interface; the prefetch step's
+  reach into `hogFunctionManager` is encapsulated as `prefetchTransformationStatesForTeams`.
+  Production ingestion no longer imports cdp; tsc no new errors; guard green. Test-only
+  ingestion->cdp edges remain (deferred to Phase 3).

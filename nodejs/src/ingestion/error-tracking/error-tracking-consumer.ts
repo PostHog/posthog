@@ -3,6 +3,7 @@ import { Redis } from 'ioredis'
 import { Message } from 'node-rdkafka'
 import { Counter, Gauge } from 'prom-client'
 
+import { HogTransformationResult } from '~/common/hog-transformations/hog-transformer.interface'
 import { OverflowOutput } from '~/common/outputs'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { AppMetricsAggregator } from '~/common/services/app-metrics-aggregator'
@@ -11,7 +12,6 @@ import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { PluginEvent } from '~/plugin-scaffold'
 import { ErrorTrackingSettingsManager } from '~/utils/error-tracking-settings-manager'
 
-import { TransformationResult } from '../../cdp/hog-transformations/hog-transformer.service'
 import { KafkaConsumerInterface, createKafkaConsumer } from '../../kafka/consumer'
 import { HealthCheckResult, IngestionLane, PluginServerService } from '../../types'
 import {
@@ -82,13 +82,13 @@ export interface ErrorTrackingConsumerOptions {
 }
 
 /**
- * Interface for the HogTransformerService methods used by the error tracking consumer.
+ * Interface for the HogTransformer methods used by the error tracking consumer.
  * This allows for easier mocking in tests without needing the full service implementation.
  */
 export interface ErrorTrackingHogTransformer {
     start(): Promise<void>
     stop(): Promise<void>
-    transformEventAndProduceMessages(event: PluginEvent): Promise<TransformationResult>
+    transformEventAndProduceMessages(event: PluginEvent): Promise<HogTransformationResult>
     processInvocationResults(): Promise<void>
 }
 

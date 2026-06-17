@@ -1,11 +1,11 @@
 import { Message } from 'node-rdkafka'
 
+import { HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
 import { IngestionWarningsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { createProcessGroupsStep } from '~/ingestion/event-processing/process-groups-step'
 import { PluginEvent } from '~/plugin-scaffold'
 
-import { HogTransformerService } from '../../../cdp/hog-transformations/hog-transformer.service'
 import { EventHeaders, Team } from '../../../types'
 import { TeamManager } from '../../../utils/team-manager'
 import { GroupTypeManager } from '../../../worker/ingestion/group-type-manager'
@@ -44,7 +44,7 @@ export interface AiEventSubpipelineConfig {
     >
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
-    hogTransformer: HogTransformerService
+    hogTransformer: HogTransformer
     splitAiEventsConfig: SplitAiEventsStepConfig
     groupId: string
     topHog: TopHogWrapper

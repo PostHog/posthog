@@ -1,6 +1,6 @@
+import { HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
 import { PluginEvent } from '~/plugin-scaffold'
 
-import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
 import { Team } from '../../types'
 import { drop, ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
@@ -23,7 +23,7 @@ export interface HogTransformEventOutput {
  * If a transformation drops the event (returns null), this step returns a `drop` result.
  */
 export function createHogTransformEventStep<T extends HogTransformEventInput>(
-    hogTransformer: Pick<HogTransformerService, 'transformEventAndProduceMessages'> | null
+    hogTransformer: Pick<HogTransformer, 'transformEventAndProduceMessages'> | null
 ): ProcessingStep<T, T & HogTransformEventOutput> {
     return async function hogTransformEventStep(input) {
         const { event } = input

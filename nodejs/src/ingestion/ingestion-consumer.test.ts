@@ -15,7 +15,7 @@ import { createTeam, fetchPostgresPersons, getFirstTeam, getTeam, resetTestDatab
 import { CookielessServerHashMode, Hub, PipelineEvent, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { createTestIngestionOutputs, createTestMonitoringOutputs } from '../../tests/helpers/ingestion-outputs'
-import { createHogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
+import { HogTransformerService, createHogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
 import { HogFunctionType } from '../cdp/types'
 import { PostgresUse } from '../utils/db/postgres'
 import { parseJSON } from '../utils/json-parse'
@@ -1284,10 +1284,12 @@ describe('IngestionConsumer', () => {
                 hub.CDP_HOG_WATCHER_SAMPLE_RATE = 1
                 const localIngester = await createIngestionConsumer(hub)
 
-                // Create spies for methods after the service is configured
-                const fetchAndCacheSpy = jest.spyOn(localIngester.hogTransformer, 'fetchAndCacheHogFunctionStates')
-                const clearStatesSpy = jest.spyOn(localIngester.hogTransformer, 'clearHogFunctionStates')
-                const observeResultsSpy = jest.spyOn(localIngester.hogTransformer['hogWatcher'], 'observeResults')
+                // Create spies for methods after the service is configured. The consumer exposes the
+                // transformer via its interface, so cast to the concrete service for these internal spies.
+                const concreteTransformer = localIngester.hogTransformer as HogTransformerService
+                const fetchAndCacheSpy = jest.spyOn(concreteTransformer, 'fetchAndCacheHogFunctionStates')
+                const clearStatesSpy = jest.spyOn(concreteTransformer, 'clearHogFunctionStates')
+                const observeResultsSpy = jest.spyOn(concreteTransformer['hogWatcher'], 'observeResults')
 
                 // Process batch with hogwatcher enabled
                 // in this stage we do not have the teamId on the event but the token is in kafka headers
@@ -1328,9 +1330,10 @@ describe('IngestionConsumer', () => {
                 hub.CDP_HOG_WATCHER_SAMPLE_RATE = 0
                 const localIngester = await createIngestionConsumer(hub)
 
-                // Create spies for methods after the service is configured
-                const fetchAndCacheSpy = jest.spyOn(localIngester.hogTransformer, 'fetchAndCacheHogFunctionStates')
-                const clearStatesSpy = jest.spyOn(localIngester.hogTransformer, 'clearHogFunctionStates')
+                // Create spies for methods after the service is configured (cast to the concrete service)
+                const concreteTransformer = localIngester.hogTransformer as HogTransformerService
+                const fetchAndCacheSpy = jest.spyOn(concreteTransformer, 'fetchAndCacheHogFunctionStates')
+                const clearStatesSpy = jest.spyOn(concreteTransformer, 'clearHogFunctionStates')
 
                 // Process batch with hogwatcher disabled
                 const event = createEvent({

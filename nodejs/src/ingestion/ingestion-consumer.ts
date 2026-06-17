@@ -1,6 +1,7 @@
 import { Message } from 'node-rdkafka'
 import { Gauge, Histogram } from 'prom-client'
 
+import { HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
 import {
     AppMetricsOutput,
     DlqOutput,
@@ -12,7 +13,6 @@ import {
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
-import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
 import { CommonConfig } from '../common/config'
 import { KafkaConsumerInterface, createKafkaConsumer } from '../kafka/consumer'
 import {
@@ -82,7 +82,7 @@ export interface IngestionConsumerDeps {
     clickhouseGroupRepository: ClickhouseGroupRepository
     personRepository: PersonRepository
     cookielessManager: CookielessManager
-    hogTransformer: HogTransformerService
+    hogTransformer: HogTransformer
 }
 
 export const latestOffsetTimestampGauge = new Gauge({
@@ -112,7 +112,7 @@ export class IngestionConsumer {
     protected topic: string
     protected kafkaConsumer: KafkaConsumerInterface
     isStopping = false
-    public hogTransformer: HogTransformerService
+    public hogTransformer: HogTransformer
     private overflowRedirectService?: OverflowRedirectService
     private overflowLaneTTLRefreshService?: OverflowRedirectService
     private tokenDistinctIdsToDrop: string[] = []
