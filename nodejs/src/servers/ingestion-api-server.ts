@@ -1,5 +1,5 @@
 import { Message } from 'node-rdkafka'
-import { Counter, Histogram } from 'prom-client'
+import { Counter, Gauge, Histogram } from 'prom-client'
 
 import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
 
@@ -123,6 +123,11 @@ const batchErrors = new Counter({
 const batchCapacityRejections = new Counter({
     name: 'ingestion_api_batch_capacity_rejections_total',
     help: 'Total number of batches rejected because the pipeline was at concurrent batch capacity',
+})
+
+const batchesInFlight = new Gauge({
+    name: 'ingestion_api_batches_in_flight',
+    help: 'Number of accepted batches currently being processed by the ingestion API (concurrent batches)',
 })
 
 /**
@@ -403,6 +408,10 @@ export class IngestionApiServer implements NodeServer {
 
         const startTime = Date.now()
 
+        // Tracks whether this batch was accepted, so the `finally` only
+        // decrements the in-flight gauge for batches that incremented it.
+        let inFlight = false
+
         try {
             const messages: Message[] = serializedMessages.map(deserializeKafkaMessage)
 
@@ -435,6 +444,11 @@ export class IngestionApiServer implements NodeServer {
                 throw new Error(`Pipeline rejected batch: ${feedResult.reason}`)
             }
 
+            // Batch accepted into the pipeline — it now occupies a concurrent
+            // slot until processing completes below.
+            batchesInFlight.inc()
+            inFlight = true
+
             let result = await this.joinedPipeline.next()
             while (result !== null) {
                 for (const sideEffect of result.sideEffects ?? []) {
@@ -457,6 +471,10 @@ export class IngestionApiServer implements NodeServer {
             const message = err instanceof Error ? err.message : String(err)
             logger.error('💥', 'Ingestion API batch processing failed', { batch_id, error: message })
             res.status(500).json({ batch_id, status: 'error', accepted: 0, error: message })
+        } finally {
+            if (inFlight) {
+                batchesInFlight.dec()
+            }
         }
     }
 

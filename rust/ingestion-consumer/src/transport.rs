@@ -2,11 +2,36 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use metrics::{counter, histogram};
+use metrics::{counter, gauge, histogram};
 use tokio::sync::Semaphore;
 use tracing::{error, info, warn};
 
 use crate::types::{IngestBatchRequest, IngestBatchResponse, SerializedKafkaMessage};
+
+/// RAII guard that tracks the number of batches currently in flight to a
+/// worker. Increments the gauge on creation and decrements on drop, so every
+/// `send_batch` return path (success, error, retries exhausted, panic unwind)
+/// is covered — mirroring the lifetime of the worker's `Semaphore` permit.
+struct InFlightGuard {
+    worker_url: String,
+}
+
+impl InFlightGuard {
+    fn new(worker_url: &str) -> Self {
+        gauge!("ingestion_consumer_transport_concurrent_batches", "worker" => worker_url.to_string())
+            .increment(1.0);
+        Self {
+            worker_url: worker_url.to_string(),
+        }
+    }
+}
+
+impl Drop for InFlightGuard {
+    fn drop(&mut self) {
+        gauge!("ingestion_consumer_transport_concurrent_batches", "worker" => self.worker_url.clone())
+            .decrement(1.0);
+    }
+}
 
 /// Sends batches to Node.js worker processes over HTTP.
 ///
@@ -151,6 +176,10 @@ impl HttpTransport {
                     .expect("worker semaphore must not be closed")
             }
         };
+
+        // Now that the permit is held, this batch is genuinely in flight to the
+        // worker. The guard decrements the gauge on every return path.
+        let _in_flight = InFlightGuard::new(worker_url);
 
         let mut last_err = None;
         for attempt in 0..=self.max_retries {
