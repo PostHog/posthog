@@ -798,7 +798,7 @@ class SnowflakeClient:
             SnowflakeTableNotFoundError: If the table we are trying to get doesn't exist.
             SnowflakeIncompatibleSchemaError: If the table does exist, but it is a
                 mutable table and one or more fields from the primary key are missing
-                from the table.
+                from the table, or the fields we require have types we do not support.
         """
         try:
             result = await self.execute_async_query(f"""
@@ -845,14 +845,22 @@ class SnowflakeClient:
             if field_metadata.name.lower() in record_batch_field_names
         )
 
-        return SnowflakeTable.from_snowflake_table(
-            table.name,
-            fields=fields,
-            parents=table.parents,
-            primary_key=table.primary_key,
-            version_key=table.version_key,
-            stage_prefix=table.stage_prefix,
-        )
+        try:
+            table = SnowflakeTable.from_snowflake_table(
+                table.name,
+                fields=fields,
+                parents=table.parents,
+                primary_key=table.primary_key,
+                version_key=table.version_key,
+                stage_prefix=table.stage_prefix,
+            )
+        except ValueError as exc:
+            raise SnowflakeIncompatibleSchemaError(
+                f"A Snowflake table '{table.name}' was found, but one or more "
+                f"fields are defined with incompatible types: '{exc}'. Have "
+                "you created the table following the PostHog documentation? "
+            ) from exc
+        return table
 
     async def create_table(self, table: SnowflakeTable, exists_ok: bool = True) -> None:
         """Asynchronously create the table if it doesn't exist.
