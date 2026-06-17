@@ -20,9 +20,29 @@ These helpers implement the same recovery pattern GitLab uses in
    build, and emitting a structured log line so the recovery is visible
    in the deploy log (otherwise the auto-recovery would silently mask
    repeated cancellations).
-3. Run the CREATE/DROP statement with IF [NOT] EXISTS so retries are safe.
+3. Run the CREATE/DROP statement so retries are safe.
 
-Wrap in SeparateDatabaseAndState so Django state still tracks the index:
+There are two flavors:
+
+`SafeAddIndexConcurrently` / `SafeRemoveIndexConcurrently` (preferred) take a
+`model_name` + Django `Index`, exactly like Django's own
+`AddIndexConcurrently` / `RemoveIndexConcurrently`. They track Django state
+themselves, so there is no `SeparateDatabaseAndState` wrapper and no
+re-specifying the index as raw SQL:
+
+    operations = [
+        SafeAddIndexConcurrently(
+            model_name="mymodel",
+            index=models.Index(fields=["team", "-created_at"], name="my_idx"),
+        ),
+    ]
+
+`CreateIndexConcurrently` / `DropIndexConcurrently` take the raw index SQL
+(`index_name`, `table_name`, `columns`). They subclass `RunSQL`, which does
+not touch Django state, so they must be wrapped in `SeparateDatabaseAndState`
+with a matching `AddIndex` / `RemoveIndex`. Reach for these only when the
+index doesn't map cleanly to a Django `Index` (e.g. an expression the ORM
+can't model):
 
     migrations.SeparateDatabaseAndState(
         state_operations=[migrations.AddIndex(...)],
@@ -36,11 +56,81 @@ Wrap in SeparateDatabaseAndState so Django state still tracks the index:
 The Migration class still needs `atomic = False`.
 """
 
+from django.contrib.postgres.operations import AddIndexConcurrently, RemoveIndexConcurrently
 from django.db import migrations
 
 import structlog
 
 logger = structlog.get_logger(__name__)
+
+
+def _disable_timeouts(schema_editor) -> None:
+    schema_editor.execute("SET lock_timeout = 0")
+    schema_editor.execute("SET statement_timeout = 0")
+
+
+def _index_is_valid(schema_editor, index_name: str) -> bool:
+    """True only if an index of this name exists AND indisvalid = true."""
+    with schema_editor.connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT i.indisvalid
+            FROM pg_class c
+            JOIN pg_index i ON c.oid = i.indexrelid
+            WHERE c.relname = %s
+            """,
+            [index_name],
+        )
+        row = cursor.fetchone()
+        return bool(row and row[0])
+
+
+def _index_exists(schema_editor, index_name: str) -> bool:
+    with schema_editor.connection.cursor() as cursor:
+        cursor.execute("SELECT 1 FROM pg_class WHERE relname = %s", [index_name])
+        return cursor.fetchone() is not None
+
+
+def _drop_invalid_leftover(schema_editor, index_name: str, op_name: str) -> None:
+    """If `index_name` exists but is invalid, drop it.
+
+    Recovers from a prior CONCURRENTLY build that was cancelled mid-flight
+    (OOM, pod kill, lock_timeout, statement_timeout, etc.). Postgres leaves
+    the row in pg_class with indisvalid = false; a plain
+    `CREATE INDEX CONCURRENTLY IF NOT EXISTS` would silently skip and leave
+    the invalid index in place.
+
+    The recovery is intentionally noisy: a log line plus a migration stdout
+    message, both tagged with the index name. Without this, the auto-recovery
+    would mask repeated cancellations of the same index and we would never
+    know a table has chronic lock contention or memory pressure during builds.
+    """
+    with schema_editor.connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT 1
+            FROM pg_class c
+            JOIN pg_index i ON c.oid = i.indexrelid
+            WHERE c.relname = %s AND NOT i.indisvalid
+            """,
+            [index_name],
+        )
+        if cursor.fetchone() is None:
+            return
+    logger.warning(
+        "concurrent_index_recovering_from_invalid_leftover",
+        index_name=index_name,
+        operation=op_name,
+    )
+    # Mirror to migration stdout so it shows up in bin/migrate log,
+    # not just the application log stream.
+    print(  # noqa: T201
+        f"[{op_name}] index {index_name!r} was left in an "
+        "invalid state by a prior interrupted build; dropping and "
+        "rebuilding it. If this fires repeatedly for the same index, "
+        "investigate why the prior build was cancelled."
+    )
+    schema_editor.execute(_build_drop_sql(index_name))
 
 
 def _build_create_sql(
@@ -103,50 +193,10 @@ class _ConcurrentIndexOp(migrations.RunSQL):
 
     @staticmethod
     def _disable_timeouts(schema_editor) -> None:
-        schema_editor.execute("SET lock_timeout = 0")
-        schema_editor.execute("SET statement_timeout = 0")
+        _disable_timeouts(schema_editor)
 
     def _drop_if_invalid(self, schema_editor, index_name: str) -> None:
-        """If `index_name` exists but is invalid, drop it.
-
-        Recovers from a prior CONCURRENTLY build that was cancelled
-        mid-flight (OOM, pod kill, lock_timeout, statement_timeout, etc.).
-        Postgres leaves the row in pg_class with indisvalid = false; a
-        plain `CREATE INDEX CONCURRENTLY IF NOT EXISTS` would silently
-        skip and leave the invalid index in place.
-
-        The recovery is intentionally noisy: a log line plus a migration
-        stdout message, both tagged with the index name. Without this,
-        the auto-recovery would mask repeated cancellations of the same
-        index and we would never know a table has chronic lock contention
-        or memory pressure during builds.
-        """
-        with schema_editor.connection.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT 1
-                FROM pg_class c
-                JOIN pg_index i ON c.oid = i.indexrelid
-                WHERE c.relname = %s AND NOT i.indisvalid
-                """,
-                [index_name],
-            )
-            if cursor.fetchone() is None:
-                return
-        logger.warning(
-            "concurrent_index_recovering_from_invalid_leftover",
-            index_name=index_name,
-            operation=type(self).__name__,
-        )
-        # Mirror to migration stdout so it shows up in bin/migrate log,
-        # not just the application log stream.
-        print(  # noqa: T201
-            f"[{type(self).__name__}] index {index_name!r} was left in an "
-            "invalid state by a prior interrupted build; dropping and "
-            "rebuilding it. If this fires repeatedly for the same index, "
-            "investigate why the prior build was cancelled."
-        )
-        schema_editor.execute(_build_drop_sql(index_name))
+        _drop_invalid_leftover(schema_editor, index_name, type(self).__name__)
 
 
 class CreateIndexConcurrently(_ConcurrentIndexOp):
@@ -269,3 +319,88 @@ class DropIndexConcurrently(_ConcurrentIndexOp):
 
     def describe(self) -> str:
         return f"Concurrently drop index {self.index_name} on {self.table_name}"
+
+
+class SafeAddIndexConcurrently(AddIndexConcurrently):
+    """State-aware CREATE INDEX CONCURRENTLY with invalid-index recovery.
+
+    The model-aware counterpart to `CreateIndexConcurrently`: pass the same
+    `model_name` + `Index` you would give Django's `AddIndexConcurrently`, and
+    this op tracks Django state itself (no `SeparateDatabaseAndState` wrapper,
+    no re-specifying the columns as raw SQL) while adding the safety the bare
+    Django op lacks:
+
+    - disables lock_timeout / statement_timeout so a deploy-time timeout can't
+      cancel the build,
+    - skips when a valid index of that name already exists (idempotent retry),
+    - drops and rebuilds an indisvalid = false leftover from a prior
+      interrupted build, logging a breadcrumb so the recovery is visible.
+
+    Prefer this for the common case. Drop down to `CreateIndexConcurrently`
+    only when the index doesn't map to a Django `Index`.
+
+        operations = [
+            SafeAddIndexConcurrently(
+                model_name="mymodel",
+                index=models.Index(fields=["team", "-created_at"], name="my_idx"),
+            ),
+        ]
+
+    The Migration class still needs `atomic = False`.
+    """
+
+    def database_forwards(self, app_label, schema_editor, from_state, to_state) -> None:
+        self._ensure_not_in_transaction(schema_editor)
+        model = to_state.apps.get_model(app_label, self.model_name)
+        if not self.allow_migrate_model(schema_editor.connection.alias, model):
+            return
+        _disable_timeouts(schema_editor)
+        if _index_is_valid(schema_editor, self.index.name):
+            return  # already built; a bin/migrate retry is a no-op
+        _drop_invalid_leftover(schema_editor, self.index.name, type(self).__name__)
+        schema_editor.add_index(model, self.index, concurrently=True)
+
+    def database_backwards(self, app_label, schema_editor, from_state, to_state) -> None:
+        self._ensure_not_in_transaction(schema_editor)
+        model = from_state.apps.get_model(app_label, self.model_name)
+        if not self.allow_migrate_model(schema_editor.connection.alias, model):
+            return
+        _disable_timeouts(schema_editor)
+        if not _index_exists(schema_editor, self.index.name):
+            return  # already dropped; a bin/migrate retry is a no-op
+        schema_editor.remove_index(model, self.index, concurrently=True)
+
+
+class SafeRemoveIndexConcurrently(RemoveIndexConcurrently):
+    """State-aware DROP INDEX CONCURRENTLY, the reverse of `SafeAddIndexConcurrently`.
+
+    Pass `model_name` + the index name, like Django's `RemoveIndexConcurrently`.
+    Forward drops the index (skipping if already gone); reverse rebuilds it with
+    the same timeout-disabling + invalid-leftover recovery as
+    `SafeAddIndexConcurrently`. The Migration class still needs `atomic = False`.
+    """
+
+    def database_forwards(self, app_label, schema_editor, from_state, to_state) -> None:
+        self._ensure_not_in_transaction(schema_editor)
+        model = from_state.apps.get_model(app_label, self.model_name)
+        if not self.allow_migrate_model(schema_editor.connection.alias, model):
+            return
+        _disable_timeouts(schema_editor)
+        if not _index_exists(schema_editor, self.name):
+            return  # already dropped; a bin/migrate retry is a no-op
+        from_model_state = from_state.models[app_label, self.model_name_lower]
+        index = from_model_state.get_index_by_name(self.name)
+        schema_editor.remove_index(model, index, concurrently=True)
+
+    def database_backwards(self, app_label, schema_editor, from_state, to_state) -> None:
+        self._ensure_not_in_transaction(schema_editor)
+        model = to_state.apps.get_model(app_label, self.model_name)
+        if not self.allow_migrate_model(schema_editor.connection.alias, model):
+            return
+        _disable_timeouts(schema_editor)
+        to_model_state = to_state.models[app_label, self.model_name_lower]
+        index = to_model_state.get_index_by_name(self.name)
+        if _index_is_valid(schema_editor, self.name):
+            return  # already rebuilt; a bin/migrate retry is a no-op
+        _drop_invalid_leftover(schema_editor, self.name, type(self).__name__)
+        schema_editor.add_index(model, index, concurrently=True)

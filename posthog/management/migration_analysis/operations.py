@@ -901,6 +901,51 @@ Use RunSQL wrapped in SeparateDatabaseAndState:
         )
 
 
+class _SafeConcurrentIndexAnalyzer(OperationAnalyzer):
+    """Base for the PostHog concurrent-index helpers.
+
+    All four (the raw-SQL CreateIndexConcurrently / DropIndexConcurrently and
+    the state-aware SafeAddIndexConcurrently / SafeRemoveIndexConcurrently)
+    encode the guarantees ConcurrentIndexIdempotencyPolicy enforces - timeout
+    disabling, invalid-leftover recovery, and skip-if-already-applied - so they
+    are safe by construction. Scoring them SAFE (vs the default "unknown
+    operation" needs-review fallback) keeps the per-operation report honest
+    about the recommended path.
+    """
+
+    default_score = 1
+    safe_reason = "PostHog concurrent-index helper: idempotent (timeout disabling + invalid-leftover recovery)"
+
+    @staticmethod
+    def _index_name(op) -> str | None:
+        index = getattr(op, "index", None)
+        return getattr(index, "name", None) or getattr(op, "index_name", None) or getattr(op, "name", None)
+
+    def analyze(self, op) -> OperationRisk:
+        return OperationRisk(
+            type=self.operation_type,
+            score=1,
+            reason=self.safe_reason,
+            details={"model": getattr(op, "model_name", None), "index": self._index_name(op)},
+        )
+
+
+class CreateIndexConcurrentlyAnalyzer(_SafeConcurrentIndexAnalyzer):
+    operation_type = "CreateIndexConcurrently"
+
+
+class DropIndexConcurrentlyAnalyzer(_SafeConcurrentIndexAnalyzer):
+    operation_type = "DropIndexConcurrently"
+
+
+class SafeAddIndexConcurrentlyAnalyzer(_SafeConcurrentIndexAnalyzer):
+    operation_type = "SafeAddIndexConcurrently"
+
+
+class SafeRemoveIndexConcurrentlyAnalyzer(_SafeConcurrentIndexAnalyzer):
+    operation_type = "SafeRemoveIndexConcurrently"
+
+
 class SeparateDatabaseAndStateAnalyzer(OperationAnalyzer):
     operation_type = "SeparateDatabaseAndState"
     default_score = 0

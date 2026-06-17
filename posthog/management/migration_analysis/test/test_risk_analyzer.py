@@ -7,6 +7,7 @@ from parameterized import parameterized
 from posthog.management.migration_analysis.analyzer import RiskAnalyzer
 from posthog.management.migration_analysis.models import RiskLevel
 from posthog.management.migration_analysis.policies import ConcurrentIndexIdempotencyPolicy, HotTableAlterPolicy
+from posthog.migration_helpers import SafeAddIndexConcurrently, SafeRemoveIndexConcurrently
 
 
 def create_mock_operation(op_class, **kwargs):
@@ -1832,7 +1833,14 @@ class TestAtomicFalsePolicy:
         # Product app should trigger policy checks - atomic=False without CONCURRENTLY warns
         assert any("atomic=False" in v for v in migration_risk.policy_violations)
 
-    @parameterized.expand(["CreateIndexConcurrently", "DropIndexConcurrently"])
+    @parameterized.expand(
+        [
+            "CreateIndexConcurrently",
+            "DropIndexConcurrently",
+            "SafeAddIndexConcurrently",
+            "SafeRemoveIndexConcurrently",
+        ]
+    )
     def test_posthog_helpers_recognized_as_concurrent(self, op_name):
         """The PostHog helpers must register as concurrent ops in
         CONCURRENT_OP_TYPES, otherwise atomic=False migrations using them
@@ -2064,6 +2072,22 @@ class TestConcurrentIndexIdempotencyPolicy:
         risk = self._analyze([op])
         assert not any("non-idempotent" in v for v in risk.policy_violations)
         assert risk.level != RiskLevel.BLOCKED
+
+    @parameterized.expand(
+        [
+            (SafeAddIndexConcurrently(model_name="dashboard", index=models.Index(fields=["name"], name="idx")),),
+            (SafeRemoveIndexConcurrently(model_name="dashboard", name="idx"),),
+        ]
+    )
+    def test_safe_state_aware_helpers_score_safe(self, op):
+        """The state-aware helpers track state themselves and are idempotent by
+        construction, so they score SAFE and are never flagged — no
+        SeparateDatabaseAndState or raw display SQL required.
+        """
+        risk = self._analyze([op])
+        assert risk.level == RiskLevel.SAFE
+        assert not any("non-idempotent" in v for v in risk.policy_violations)
+        assert not any("atomic=False" in v for v in risk.policy_violations)
 
 
 class TestHotTableAlterPolicy:

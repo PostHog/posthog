@@ -114,6 +114,8 @@ class AtomicFalsePolicy(MigrationPolicy):
         # PostHog helpers (see posthog/migration_helpers/concurrent_index.py)
         "CreateIndexConcurrently",
         "DropIndexConcurrently",
+        "SafeAddIndexConcurrently",
+        "SafeRemoveIndexConcurrently",
     }
 
     def check_operation(self, op) -> list[str]:
@@ -278,28 +280,31 @@ class ConcurrentIndexIdempotencyPolicy(MigrationPolicy):
     # encode the idempotency guarantees this policy enforces (indisvalid
     # recovery + IF [NOT] EXISTS + timeout disabling) at the operation
     # level, so they are explicitly exempt from the static SQL check.
-    POSTHOG_SAFE_HELPER_OPS = {"CreateIndexConcurrently", "DropIndexConcurrently"}
+    POSTHOG_SAFE_HELPER_OPS = {
+        "CreateIndexConcurrently",
+        "DropIndexConcurrently",
+        "SafeAddIndexConcurrently",
+        "SafeRemoveIndexConcurrently",
+    }
 
     GUIDANCE = (
-        "Use posthog.migration_helpers.CreateIndexConcurrently (or DropIndexConcurrently),\n"
-        "wrapped in SeparateDatabaseAndState so Django model state still tracks the index:\n"
+        "Use posthog.migration_helpers.SafeAddIndexConcurrently (or\n"
+        "SafeRemoveIndexConcurrently). It takes a model_name + Index like Django's\n"
+        "AddIndexConcurrently, tracks Django state itself (no SeparateDatabaseAndState),\n"
+        "disables lock_timeout/statement_timeout, skips if a valid index already exists,\n"
+        "and rebuilds an invalid leftover from a prior interrupted build:\n"
         "\n"
-        "    from posthog.migration_helpers import CreateIndexConcurrently\n"
+        "    from posthog.migration_helpers import SafeAddIndexConcurrently\n"
         "\n"
-        "    migrations.SeparateDatabaseAndState(\n"
-        "        state_operations=[migrations.AddIndex(...)],\n"
-        "        database_operations=[CreateIndexConcurrently(\n"
-        '            index_name="my_idx",\n'
-        '            table_name="my_table",\n'
-        '            columns="(col)",\n'
-        "        )],\n"
+        "    SafeAddIndexConcurrently(\n"
+        '        model_name="mymodel",\n'
+        '        index=models.Index(fields=["field_name"], name="my_idx"),\n'
         "    )\n"
         "\n"
-        "The helper disables lock_timeout and statement_timeout, drops any invalid leftover\n"
-        "index (recovering from a prior interrupted build), then runs CREATE INDEX\n"
-        "CONCURRENTLY IF NOT EXISTS. Raw RunSQL with `SET lock_timeout = 0;\n"
-        "CREATE INDEX CONCURRENTLY IF NOT EXISTS ...` is still accepted as a fallback for\n"
-        "exotic cases, but the helper is the recommended form.\n"
+        "If the index doesn't map to a Django Index, use CreateIndexConcurrently\n"
+        "(raw SQL) wrapped in SeparateDatabaseAndState with a matching AddIndex. Raw\n"
+        "RunSQL with `SET lock_timeout = 0; CREATE INDEX CONCURRENTLY IF NOT EXISTS ...`\n"
+        "is still accepted as a last-resort fallback.\n"
         "\n"
         "See https://github.com/PostHog/posthog/blob/master/docs/published/handbook/engineering/safe-django-migrations.md#adding-indexes"
     )

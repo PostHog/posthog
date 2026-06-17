@@ -34,7 +34,7 @@ This is not theoretical: a plain nullable `AddField` on `Team` — exactly what 
 
 For `Team`, most new fields shouldn't be on the table at all. Domain-specific fields belong on a **Team extension model** (see `posthog/models/team/README.md`) — that's a `CREATE TABLE`, which takes no lock on `posthog_team` whatsoever.
 
-`CREATE INDEX CONCURRENTLY` (via `CreateIndexConcurrently`, see [Adding Indexes](#adding-indexes)) is also fine: it only takes `SHARE UPDATE EXCLUSIVE`, which doesn't block reads or writes.
+`CREATE INDEX CONCURRENTLY` (via `SafeAddIndexConcurrently`, see [Adding Indexes](#adding-indexes)) is also fine: it only takes `SHARE UPDATE EXCLUSIVE`, which doesn't block reads or writes.
 
 ### If You Genuinely Must Alter a Hot Table
 
@@ -343,16 +343,43 @@ analyzer blocks any migration that uses `AddIndexConcurrently`,
 `RemoveIndexConcurrently`, or a raw `RunSQL` concurrent index without
 `IF [NOT] EXISTS`.
 
-### Safe Approach: `CreateIndexConcurrently` Helper (Recommended)
+### Safe Approach: `SafeAddIndexConcurrently` Helper (Recommended)
 
-The `posthog.migration_helpers.CreateIndexConcurrently` helper handles the
-full safe pattern: disables `lock_timeout` and `statement_timeout` on the
-migration connection, looks the target index up in `pg_index`, drops it if
-it was left in an invalid state by a prior interrupted build, then runs
-`CREATE INDEX CONCURRENTLY IF NOT EXISTS`.
+`posthog.migration_helpers.SafeAddIndexConcurrently` takes a `model_name` +
+Django `Index`, exactly like Django's own `AddIndexConcurrently`. It tracks
+Django state itself — so there's **no `SeparateDatabaseAndState` wrapper and
+no re-specifying the index as raw SQL** — while adding the safety the bare
+Django op lacks: it disables `lock_timeout` / `statement_timeout`, skips when
+a valid index of that name already exists, and drops + rebuilds an
+`indisvalid = false` leftover from a prior interrupted build (logging a
+breadcrumb so the recovery is visible).
 
-Wrap it in `SeparateDatabaseAndState` so Django model state still tracks the
-index (keeps `makemigrations --check` and the ORM correct):
+```python
+from django.db import migrations, models
+
+from posthog.migration_helpers import SafeAddIndexConcurrently
+
+
+class Migration(migrations.Migration):
+    atomic = False  # Required for CONCURRENTLY
+
+    operations = [
+        SafeAddIndexConcurrently(
+            model_name="mymodel",
+            index=models.Index(fields=["field_name"], name="mymodel_field_idx"),
+        ),
+    ]
+```
+
+Dropping an index uses the mirror helper, `SafeRemoveIndexConcurrently`
+(`model_name` + index `name`).
+
+### Raw-SQL variant: `CreateIndexConcurrently` / `DropIndexConcurrently`
+
+When the index doesn't map cleanly to a Django `Index` (e.g. an expression
+the ORM can't model), use the raw-SQL helpers. They subclass `RunSQL`, which
+doesn't touch Django state, so they must be wrapped in
+`SeparateDatabaseAndState` with a matching `AddIndex` / `RemoveIndex`:
 
 ```python
 from django.db import migrations, models
@@ -382,9 +409,6 @@ class Migration(migrations.Migration):
     ]
 ```
 
-Dropping an index uses the mirror helper, `DropIndexConcurrently`, with
-`RemoveIndex` in `state_operations`.
-
 ### Fallback: Raw `RunSQL` + `lock_timeout = 0` + `IF NOT EXISTS`
 
 For exotic cases the helper doesn't cover (partitioned tables, custom
@@ -412,9 +436,9 @@ helper.
 ### Key Points
 
 - **Never use `AddIndexConcurrently` / `RemoveIndexConcurrently` directly** — they are non-idempotent and the CI policy blocks them
-- **Prefer `CreateIndexConcurrently` / `DropIndexConcurrently` from `posthog.migration_helpers`** — it disables both timeouts and recovers from invalid leftover indexes
-- Raw `RunSQL` with `SET lock_timeout = 0; SET statement_timeout = 0; CREATE INDEX CONCURRENTLY IF NOT EXISTS ...` is acceptable as a fallback but does not recover from invalid leftovers
-- Wrap in `SeparateDatabaseAndState` so Django model state still tracks the index
+- **Prefer `SafeAddIndexConcurrently` / `SafeRemoveIndexConcurrently` from `posthog.migration_helpers`** — they take a `model_name` + Index, track Django state themselves (no `SeparateDatabaseAndState`), disable both timeouts, and recover from invalid leftover indexes
+- Use the raw-SQL `CreateIndexConcurrently` / `DropIndexConcurrently` (wrapped in `SeparateDatabaseAndState`) only when the index doesn't map to a Django `Index`
+- Raw `RunSQL` with `SET lock_timeout = 0; SET statement_timeout = 0; CREATE INDEX CONCURRENTLY IF NOT EXISTS ...` is acceptable as a last-resort fallback but does not recover from invalid leftovers
 - Set `atomic = False` (required for all `CONCURRENTLY` operations)
 - If a prior deploy already left an invalid index (the helper would catch this on next run, but the fallback won't), clean it up with `REINDEX INDEX CONCURRENTLY` or `DROP INDEX CONCURRENTLY IF EXISTS` before re-running
 

@@ -10,8 +10,10 @@ from posthog.management.migration_analysis.operations import (
     AlterIndexTogetherAnalyzer,
     AlterModelTableAnalyzer,
     AlterUniqueTogetherAnalyzer,
+    CreateIndexConcurrentlyAnalyzer,
     CreateModelAnalyzer,
     DeleteModelAnalyzer,
+    DropIndexConcurrentlyAnalyzer,
     RemoveFieldAnalyzer,
     RemoveIndexAnalyzer,
     RemoveIndexConcurrentlyAnalyzer,
@@ -19,6 +21,8 @@ from posthog.management.migration_analysis.operations import (
     RenameModelAnalyzer,
     RunPythonAnalyzer,
     RunSQLAnalyzer,
+    SafeAddIndexConcurrentlyAnalyzer,
+    SafeRemoveIndexConcurrentlyAnalyzer,
     SeparateDatabaseAndStateAnalyzer,
     is_unmanaged_model,
 )
@@ -55,6 +59,11 @@ class RiskAnalyzer:
         "AlterIndexTogether": AlterIndexTogetherAnalyzer(),
         "RemoveIndex": RemoveIndexAnalyzer(),
         "RemoveIndexConcurrently": RemoveIndexConcurrentlyAnalyzer(),
+        # PostHog migration helpers (posthog/migration_helpers/concurrent_index.py)
+        "CreateIndexConcurrently": CreateIndexConcurrentlyAnalyzer(),
+        "DropIndexConcurrently": DropIndexConcurrentlyAnalyzer(),
+        "SafeAddIndexConcurrently": SafeAddIndexConcurrentlyAnalyzer(),
+        "SafeRemoveIndexConcurrently": SafeRemoveIndexConcurrentlyAnalyzer(),
         "SeparateDatabaseAndState": SeparateDatabaseAndStateAnalyzer(),
     }
 
