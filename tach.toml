@@ -198,6 +198,7 @@ depends_on = [
     "products.ai_observability",
     "products.error_tracking",
     "products.experiments",
+    "products.feature_flags",
     "products.mcp_analytics",
     "products.product_analytics",
 ]
