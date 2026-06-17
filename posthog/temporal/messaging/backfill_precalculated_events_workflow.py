@@ -235,6 +235,11 @@ async def backfill_precalculated_events_activity(
             logger.warning("Invalid BACKFILL_EVENTS_KAFKA_FLUSH_BATCH_SIZE, using default 1000")
             KAFKA_FLUSH_BATCH_SIZE = 1000
 
+        # No ORDER BY: each event is evaluated independently and there is no cursor, so ordering is
+        # not needed. Events within a day are not physically timestamp-ordered (the events sort key
+        # is (team_id, toDate(timestamp), event, ...)), so ORDER BY timestamp would force a full sort
+        # of every matched event and block streaming. Without it, ClickHouse streams rows as it reads
+        # them in primary-key order — lower memory and faster time-to-first-row.
         events_query = """
             SELECT
                 uuid,
@@ -249,7 +254,6 @@ async def backfill_precalculated_events_activity(
               AND timestamp >= %(start_time)s
               AND timestamp < %(end_time)s
               AND person_id IS NOT NULL
-            ORDER BY timestamp
             FORMAT JSONEachRow
         """
 
