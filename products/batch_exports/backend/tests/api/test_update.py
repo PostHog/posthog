@@ -952,8 +952,8 @@ def test_updating_legacy_postgres_batch_export_keeps_inline_credentials(
             "config": {"table_name": "my_new_events"},
         },
     }
-    response = patch_batch_export(client, team.pk, str(batch_export.id), new_batch_export_data)
+    response = patch_batch_export(client, team.pk, batch_export.id, new_batch_export_data)
 
     assert response.status_code == status.HTTP_200_OK, response.json()
-    updated = get_batch_export_ok(client, team.pk, str(batch_export.id))
+    updated = get_batch_export_ok(client, team.pk, batch_export.id)
     assert updated["destination"]["config"]["table_name"] == "my_new_events"
