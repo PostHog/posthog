@@ -69,6 +69,7 @@ import {
     tableQueryV1,
     tableTruncateV1,
 } from './tools/table'
+import { webSearchV1 } from './tools/web-search/web-search.v1'
 
 /**
  * Lists every native (`@posthog/*`) tool the runner knows — the authoring
@@ -153,6 +154,7 @@ export const ALL_TOOLS: NativeTool[] = [
     slackReadThreadV1,
     slackReactV1,
     httpRequestV1,
+    webSearchV1,
     endTurnTool,
     endSessionTool,
     emitEventTool,

@@ -76,6 +76,7 @@ import {
     slackTextFromContent,
     TabularStore,
     toolSpanId,
+    WebSearchProvider,
 } from '@posthog/agent-shared'
 
 import { approvalMarkerRequestId, ApprovalPolicy, dispatchApprovedResult, queueApprovalResult } from './approval'
@@ -166,6 +167,8 @@ export interface RunSessionDeps {
     memoryStore?: MemoryStore
     /** Deterministic tabular store for @posthog/table-* tools. */
     tabularStore?: TabularStore
+    /** Web-search provider chain for @posthog/web-search; empty → tool gated out. */
+    webSearchProviders?: readonly WebSearchProvider[]
     /**
      * Per-session static HTTP headers stamped on every outbound model call.
      * On the ai-gateway path this carries `X-PostHog-Distinct-Id` +
@@ -403,6 +406,7 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
             log,
             memoryStore: deps.memoryStore,
             tabularStore: deps.tabularStore,
+            webSearchProviders: deps.webSearchProviders,
             dispatchClientTool,
             emitClientToolCall: async (callId, toolId, args) => {
                 await emit('client_tool_call', { call_id: callId, tool_id: toolId, args })

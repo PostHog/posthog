@@ -21,6 +21,7 @@ import type { MemoryStore } from '../memory/store'
 import type { TabularStore } from '../memory/tabular-store'
 import type { Credential } from '../runtime/credential-broker'
 import type { HttpFetcher } from '../runtime/http-client'
+import type { WebSearchProvider } from '../runtime/web-search'
 
 export type { Static, TSchema }
 
@@ -125,6 +126,14 @@ export interface ToolContext {
      * reads inside tool code.
      */
     posthogApiBaseUrl: string
+    /**
+     * Ordered web-search provider chain for `@posthog/web-search` (primary
+     * first, configured fallbacks next). Built from `AGENT_WEB_SEARCH_*`
+     * config at runner boot and injected here. Empty / absent → the tool is
+     * gated out of the session surface in `buildAgentTools`, so a session
+     * never sees a tool that just throws `web_search_not_configured`.
+     */
+    webSearchProviders?: readonly WebSearchProvider[]
 }
 
 export interface IntegrationCredentials {

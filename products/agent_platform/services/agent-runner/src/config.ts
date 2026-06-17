@@ -226,6 +226,24 @@ export const AgentRunnerConfigSchema = PlatformConfigSchema.extend({
         .describe(
             'Comma-separated CIDRs the Modal custom-tool sandbox may reach outbound. Empty (default) → the sandbox has NO outbound internet (Modal `block_network`). Custom tools compute and return; the runner makes any egress through smokescreen. Set only if a custom tool genuinely needs direct egress to a known range.'
         ),
+    webSearchProvider: z
+        .string()
+        .optional()
+        .describe(
+            'Primary `@posthog/web-search` provider id (`exa` | `tavily` | `brave`), tried first. Unset → the highest-priority keyed provider acts as primary. With no provider key set at all the tool is gated out of every session.'
+        ),
+    webSearchFallbacks: z
+        .string()
+        .optional()
+        .describe(
+            'Comma-separated ordered fallback provider ids tried after the primary on error. Empty → every other keyed provider is a last-resort fallback in natural order (exa, tavily, brave).'
+        ),
+    exaApiKey: z.string().optional().describe('Exa search API key. Enables the `exa` web-search provider.'),
+    tavilyApiKey: z.string().optional().describe('Tavily search API key. Enables the `tavily` web-search provider.'),
+    braveApiKey: z
+        .string()
+        .optional()
+        .describe('Brave Search API subscription token. Enables the `brave` web-search provider.'),
 })
 
 export type AgentRunnerConfig = z.infer<typeof AgentRunnerConfigSchema>
@@ -265,6 +283,11 @@ const ENV_KEY_MAP = extendEnvKeyMap<AgentRunnerConfig>(PLATFORM_ENV_KEY_MAP, {
     SANDBOX_OUTBOUND_CIDR_ALLOWLIST: 'sandboxOutboundCidrAllowlist',
     MODAL_APP_NAME: 'modalAppName',
     MODAL_REGION: 'modalRegion',
+    AGENT_WEB_SEARCH_PROVIDER: 'webSearchProvider',
+    AGENT_WEB_SEARCH_FALLBACKS: 'webSearchFallbacks',
+    EXA_API_KEY: 'exaApiKey',
+    TAVILY_API_KEY: 'tavilyApiKey',
+    BRAVE_API_KEY: 'braveApiKey',
 })
 
 export function loadAgentRunnerConfig(env: NodeJS.ProcessEnv = process.env): AgentRunnerConfig {

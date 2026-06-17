@@ -36,6 +36,7 @@ import {
     LogSink,
     MemoryStore,
     TabularStore,
+    WebSearchProvider,
     RevisionStore,
     SandboxInstanceStore,
     SandboxPool,
@@ -158,6 +159,12 @@ export interface WorkerDeps {
     memoryStore?: MemoryStore
     /** Deterministic tabular store for `@posthog/table-*` tools; same S3 config as memory. */
     tabularStore?: TabularStore
+    /**
+     * Web-search provider chain for `@posthog/web-search`, built from
+     * AGENT_WEB_SEARCH_* config at boot. Threaded onto each session's
+     * ToolContext. Empty / absent → the tool is gated out of the session.
+     */
+    webSearchProviders?: readonly WebSearchProvider[]
     /**
      * Per-session credential broker, populated by ingress at /run + /send.
      * The runner passes this through to `runSession` → tool deps →
@@ -517,6 +524,7 @@ export class Worker {
                 buildApprovalUrl: this.deps.buildApprovalUrl,
                 memoryStore: this.deps.memoryStore,
                 tabularStore: this.deps.tabularStore,
+                webSearchProviders: this.deps.webSearchProviders,
                 credentialBroker: this.deps.credentialBroker,
                 isAskerInApproverScope: this.deps.isAskerInApproverScope,
                 mcpClients: openedMcpClients,
