@@ -4,7 +4,6 @@ import { makeReport, pullRequestReports, reportTabReports, runReportsMany } from
 import { SignalReportStatus } from '../../types'
 import { AgentRunCard } from './AgentRunCard'
 import { CardSkeleton } from './CardSkeleton'
-import { PullRequestCard } from './PullRequestCard'
 import { ReportCard } from './ReportCard'
 
 // Individual card stories across every state, so card design / badges / right-rail
@@ -36,7 +35,7 @@ export const PullRequestCards: Story = {
     render: () => (
         <Stack>
             {pullRequestReports.map((r) => (
-                <PullRequestCard key={r.id} report={r} />
+                <ReportCard key={r.id} report={r} />
             ))}
         </Stack>
     ),

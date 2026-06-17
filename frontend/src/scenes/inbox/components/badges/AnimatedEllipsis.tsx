@@ -5,7 +5,7 @@
  * global CSS class (`packages/ui/src/styles/globals.css`); cloud has no such class,
  * so we inline the same keyframe in a scoped <style> and stagger the three dots
  * (0 / 160 / 320ms) exactly as desktop does. The motion is a subtle 1px lift with
- * an opacity dip — intentionally gentler than Tailwind's `animate-bounce`.
+ * an opacity dip – intentionally gentler than Tailwind's `animate-bounce`.
  */
 export function AnimatedEllipsis(): JSX.Element {
     return (

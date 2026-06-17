@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconX } from '@posthog/icons'
+import { IconArchive, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
@@ -31,8 +31,9 @@ export function InboxBulkSelectionBar(): JSX.Element | null {
                 <LemonButton
                     type="secondary"
                     size="small"
+                    icon={<IconArchive />}
                     loading={isDismissing}
-                    disabledReason={isDismissing ? 'Dismissing…' : undefined}
+                    disabledReason={isDismissing ? 'Archiving…' : undefined}
                     onClick={() =>
                         openDismissReportDialog({
                             selectedCount,
@@ -40,7 +41,7 @@ export function InboxBulkSelectionBar(): JSX.Element | null {
                         })
                     }
                 >
-                    Dismiss
+                    Archive
                 </LemonButton>
                 <LemonButton
                     type="tertiary"

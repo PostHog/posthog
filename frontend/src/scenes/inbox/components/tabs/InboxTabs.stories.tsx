@@ -5,7 +5,7 @@ import { PullRequestsTab } from './PullRequestsTab'
 import { ReportsTab } from './ReportsTab'
 import { RunsTab } from './RunsTab'
 
-// Prop-driven stories for the three inbox tab bodies. No API — the central scene
+// Prop-driven stories for the three inbox tab bodies. No API – the central scene
 // filters reports per tab and passes them in, so these render the full card list
 // (or empty state) directly. Use these to polish list density, card design, and
 // the Runs-tab queued / live / finished sections.

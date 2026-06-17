@@ -14,11 +14,6 @@ import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/S
 import { SessionAnalysisSetup } from '../../SessionAnalysisSetup'
 import { signalSourcesLogic } from '../../signalSourcesLogic'
 import { AgentsRoster } from './AgentsRoster'
-import { AutoStartThresholdSection } from './AutoStartThresholdSection'
-import { ConnectionsSection } from './ConnectionsSection'
-import { McpServersSection } from './McpServersSection'
-import { ScoutsFleetSection } from './scouts/ScoutsFleetSection'
-import { SlackNotificationsSection } from './SlackNotificationsSection'
 
 // Each signal source reads from specific tables – pre-select them and make them required
 const SIGNAL_SOURCE_REQUIRED_TABLES: Partial<Record<ExternalDataSourceType, string[]>> = {
@@ -26,28 +21,6 @@ const SIGNAL_SOURCE_REQUIRED_TABLES: Partial<Record<ExternalDataSourceType, stri
     Linear: ['issues'],
     Zendesk: ['tickets'],
     PgAnalyze: ['issues', 'servers'],
-}
-
-function Subsection({
-    title,
-    description,
-    children,
-}: {
-    title: string
-    description?: string
-    children: React.ReactNode
-}): JSX.Element {
-    return (
-        <div className="flex flex-col gap-4 border-t border-primary pt-6 first:border-t-0 first:pt-0">
-            <div className="flex flex-col gap-1">
-                <h4 className="font-semibold text-sm text-default mb-0">{title}</h4>
-                {description && (
-                    <p className="text-xs text-secondary mt-0 mb-0 max-w-2xl leading-snug">{description}</p>
-                )}
-            </div>
-            {children}
-        </div>
-    )
 }
 
 function BackLink({ onClick }: { onClick: () => void }): JSX.Element {
@@ -59,12 +32,12 @@ function BackLink({ onClick }: { onClick: () => void }): JSX.Element {
 }
 
 /**
- * Full-page Agents tab body for cloud Inbox – a high-fidelity port of the
- * PostHog Code desktop Agents view. Composes Connections, the agent roster,
- * Slack, auto-start, and MCP servers. Session-analysis and data-source setup
- * render inline (replacing the roster) when their sub-flow is open.
+ * Signal sources management: the per-source roster (each source watches for signals and
+ * spins up work when something matters), plus the session-analysis and data-source setup
+ * sub-flows that render inline (replacing the roster) when their flow is open. Hosted in
+ * the Signal sources setup modal.
  */
-export function AgentsTab(): JSX.Element {
+export function SignalSourcesPanel(): JSX.Element {
     const { sessionAnalysisSetupOpen, dataSourceSetupProduct } = useValues(signalSourcesLogic)
     const {
         loadSources,
@@ -79,11 +52,8 @@ export function AgentsTab(): JSX.Element {
         loadSourceConfigs()
     }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-    const isDataSourceSetupOpen = dataSourceSetupProduct !== null
-
-    let agentsBody: JSX.Element
-    if (isDataSourceSetupOpen) {
-        agentsBody = (
+    if (dataSourceSetupProduct !== null) {
+        return (
             <div className="flex flex-col gap-3">
                 <BackLink onClick={closeDataSourceSetup} />
                 <DataSourceSetup
@@ -92,64 +62,18 @@ export function AgentsTab(): JSX.Element {
                 />
             </div>
         )
-    } else if (sessionAnalysisSetupOpen) {
-        agentsBody = (
+    }
+
+    if (sessionAnalysisSetupOpen) {
+        return (
             <div className="flex flex-col gap-3">
                 <BackLink onClick={closeSessionAnalysisSetup} />
                 <SessionAnalysisSetup />
             </div>
         )
-    } else {
-        agentsBody = <AgentsRoster />
     }
 
-    return (
-        <div className="flex flex-col">
-            <div className="mx-auto max-w-4xl w-full px-6 py-6 flex flex-col gap-8">
-                <Subsection
-                    title="Connections"
-                    description="Foundational integrations responders read from and write to."
-                >
-                    <ConnectionsSection />
-                </Subsection>
-
-                <Subsection
-                    title="Scouts"
-                    description="Scheduled agents that sweep this project on a cadence and emit findings to your inbox."
-                >
-                    <ScoutsFleetSection />
-                </Subsection>
-
-                <Subsection
-                    title="Responders"
-                    description="Each source: 1. watches for signals, 2. spins up a Responder when something matters, 3. hands you solutions."
-                >
-                    {agentsBody}
-                </Subsection>
-
-                <Subsection
-                    title="Slack"
-                    description="Post reports to channels and ping suggested reviewers. Invite PostHog with /invite @PostHog in each channel you use."
-                >
-                    <SlackNotificationsSection />
-                </Subsection>
-
-                <Subsection
-                    title="Auto-start"
-                    description="Self-driving can start coding tasks automatically when a report is immediately actionable and assigned to you."
-                >
-                    <AutoStartThresholdSection />
-                </Subsection>
-
-                <Subsection
-                    title="MCP servers"
-                    description="External tools agents can read from. PostHog data is always available; this is everything else."
-                >
-                    <McpServersSection />
-                </Subsection>
-            </div>
-        </div>
-    )
+    return <AgentsRoster />
 }
 
 function DataSourceSetup({
@@ -216,5 +140,3 @@ function DataSourceSetupForm({ sourceConfig }: { sourceConfig: SourceConfig }): 
         </div>
     )
 }
-
-export default AgentsTab

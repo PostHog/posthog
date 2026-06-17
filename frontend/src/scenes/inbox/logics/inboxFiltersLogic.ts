@@ -1,7 +1,17 @@
-import { actions, kea, path, reducers } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers } from 'kea'
+import { loaders } from 'kea-loaders'
+
+import api from 'lib/api'
 
 import { INBOX_SCOPE_FOR_YOU, InboxScope, SignalReportPriority, SignalReportStatus } from '../types'
 import type { inboxFiltersLogicType } from './inboxFiltersLogicType'
+
+/** A teammate who can be scoped to / suggested as a reviewer. Matches the `available_reviewers` API row. */
+export interface InboxReviewerOption {
+    user_uuid: string
+    name: string
+    email: string
+}
 
 /**
  * Status set always sent to the list API: every in-flight pipeline status.
@@ -18,13 +28,26 @@ export const INBOX_PIPELINE_STATUS_FILTERS: SignalReportStatus[] = [
     SignalReportStatus.FAILED,
 ]
 
-export type InboxSortField = 'priority' | 'created_at' | 'total_weight'
+export type InboxSortField = 'priority' | 'created_at' | 'updated_at'
 export type InboxSortDirection = 'asc' | 'desc'
 
-/** Build the `ordering` query param. Mirrors desktop `buildSignalReportListOrdering`. */
+/**
+ * Build the `ordering` query param. Mirrors desktop `buildSignalReportListOrdering`:
+ * 1. Status rank (semantic server-side rank, always applied)
+ * 2. Toolbar-selected field (priority, updated_at, created_at)
+ * 3. `-updated_at` as a recency tiebreak, so reports tied on status + field
+ *    surface most-recently-updated first instead of in arbitrary order.
+ *    (Skipped when the selected field is already `updated_at`.)
+ *
+ * Reviewer scope is NOT an ordering tiebreak. A `-is_suggested_reviewer` sort
+ * floats the current user's own reports to the top of the single loaded page,
+ * which starves the "Entire project" scope of genuinely project-wide reports
+ * once the list exceeds one page. Scope is applied separately (client-side here),
+ * matching desktop fix #2699.
+ */
 export function buildSignalReportListOrdering(field: InboxSortField, direction: InboxSortDirection): string {
     const fieldKey = direction === 'desc' ? `-${field}` : field
-    return `status,-is_suggested_reviewer,${fieldKey}`
+    return field === 'updated_at' ? `status,${fieldKey}` : `status,${fieldKey},-updated_at`
 }
 
 /**
@@ -47,7 +70,30 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
         toggleSourceProduct: (source: string) => ({ source }),
         togglePriority: (priority: SignalReportPriority) => ({ priority }),
         clearFilters: true,
+        // Debounced server-side org-member search for the scope (teammate) picker.
+        searchAvailableReviewers: (query: string) => ({ query }),
     }),
+
+    loaders({
+        // Shared, project-wide reviewer roster used by the scope picker. Filtered server-side via
+        // `query` (backend ranks + caps at 100) so the picker isn't limited to the alphabetical first page.
+        availableReviewers: [
+            [] as InboxReviewerOption[],
+            {
+                loadAvailableReviewers: async ({ query }: { query?: string } = {}) => {
+                    // The api wrapper already returns the typed `{ user_uuid, name, email }[]` array.
+                    return await api.signalReports.availableReviewers(query)
+                },
+            },
+        ],
+    }),
+
+    listeners(({ actions }) => ({
+        searchAvailableReviewers: async ({ query }, breakpoint) => {
+            await breakpoint(300)
+            actions.loadAvailableReviewers({ query: query.trim() || undefined })
+        },
+    })),
 
     reducers({
         scope: [
@@ -57,7 +103,7 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
                 setScope: (_, { scope }) => scope,
             },
         ],
-        // Not persisted — matches desktop (searchQuery is excluded from `partialize`).
+        // Not persisted – matches desktop (searchQuery is excluded from `partialize`).
         searchQuery: [
             '',
             {
@@ -97,5 +143,9 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
                 clearFilters: () => [],
             },
         ],
+    }),
+
+    afterMount(({ actions }) => {
+        actions.loadAvailableReviewers()
     }),
 ])

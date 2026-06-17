@@ -6,11 +6,15 @@ import { DataWarehouseSource } from '../../signalSourcesLogic'
  * Stable string keys for the agent roster, aligned with the source-product
  * strings the backend uses. These drive icon lookup via `getSourceProductMeta`
  * and the per-source wiring in `AgentsRoster`.
- *
- * `conversations`/Support is intentionally omitted — cloud `signalSourcesLogic`
- * has no toggle for it, so a card would be non-functional.
  */
-export type AgentRosterSource = 'error_tracking' | 'session_replay' | 'github' | 'linear' | 'zendesk' | 'pganalyze'
+export type AgentRosterSource =
+    | 'error_tracking'
+    | 'conversations'
+    | 'session_replay'
+    | 'github'
+    | 'linear'
+    | 'zendesk'
+    | 'pganalyze'
 
 export interface AgentRosterDefinition {
     source: AgentRosterSource
@@ -45,6 +49,14 @@ export const AGENT_ROSTER_GROUPS: AgentRosterGroup[] = [
                 description: 'Bugs surfaced as new errors, regressions, and spikes.',
                 docsUrl: 'https://posthog.com/docs/error-tracking',
                 docsLabel: 'Error tracking',
+            },
+            {
+                source: 'conversations',
+                sourceProduct: SignalSourceProduct.CONVERSATIONS,
+                label: 'Support',
+                description: 'Problems customers raise in support.',
+                docsUrl: 'https://posthog.com/docs/support',
+                docsLabel: 'Support',
             },
             {
                 source: 'session_replay',

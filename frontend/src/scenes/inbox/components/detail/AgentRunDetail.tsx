@@ -9,7 +9,7 @@ import {
     IconSearch,
     IconWarning,
 } from '@posthog/icons'
-import { Link, Spinner } from '@posthog/lemon-ui'
+import { Link, Spinner, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -19,21 +19,11 @@ import { urls } from 'scenes/urls'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalCard } from '../../SignalCard'
 import { SignalReport, SignalReportStatus } from '../../types'
-import { deriveHeadline, parsePrRepoSlug } from '../../utils/reportPresentation'
+import { deriveHeadline, parsePrRepoSlug, parsePrUrlParts } from '../../utils/reportPresentation'
 import { getSourceProductMeta } from '../badges/sourceProductIcons'
 import { DetailSection, RightColumnSection } from './DetailSection'
 import { ReportDetailBadges } from './ReportDetail'
 import { ReportTasksSection } from './ReportTasksSection'
-
-/** Pull the `#1234` PR number out of a GitHub PR URL. */
-function parsePrNumber(prUrl: string): string | null {
-    try {
-        const match = new URL(prUrl).pathname.match(/\/pull\/(\d+)(?:$|[/?#])/)
-        return match ? match[1] : null
-    } catch {
-        return null
-    }
-}
 
 /**
  * Ready-state run output: a polished outcome card that links to the produced PR or report,
@@ -44,7 +34,7 @@ function RunOutputReadyCard({ report }: { report: SignalReport }): JSX.Element {
     const prUrl = report.implementation_pr_url ?? null
     const isPr = !!prUrl
     const prSlug = prUrl ? parsePrRepoSlug(prUrl) : null
-    const prNumber = prUrl ? parsePrNumber(prUrl) : null
+    const prNumber = prUrl ? (parsePrUrlParts(prUrl)?.number ?? null) : null
     const sourceMeta = getSourceProductMeta(report.source_products?.[0])
     const headline = report.title || deriveHeadline(report.summary)
 
@@ -130,7 +120,7 @@ function RunOutputWidget({ report }: { report: SignalReport }): JSX.Element {
 /**
  * Compact run-state strip: live/finished status, the produced branch (when a PR exists), and run
  * timing. Mirrors desktop's run-state header line (status · branch · timing) without rebuilding the
- * run log — the actual log lives behind the linked runs (see `ReportTasksSection`).
+ * run log – the actual log lives behind the linked runs (see `ReportTasksSection`).
  */
 function RunStateStrip({ report }: { report: SignalReport }): JSX.Element {
     const isLive =
@@ -168,11 +158,13 @@ function RunStateStrip({ report }: { report: SignalReport }): JSX.Element {
 
 /**
  * Agent run detail body. Shows the run state strip + output state, the linked run(s) (which link out
- * to the task detail page — we do NOT rebuild the run-log viewer here), and contributing evidence.
+ * to the task detail page – we do NOT rebuild the run-log viewer here), and contributing evidence.
  * Mirrors desktop `AgentRunDetail`'s intent with cloud's existing task-detail run log.
  */
 export function AgentRunDetail({ report }: { report: SignalReport }): JSX.Element {
-    const { reportSignals, reportSignalsLoading } = useValues(inboxReportDetailLogic({ reportId: report.id }))
+    const { reportSignals, reportSignalsLoading, isReResearch } = useValues(
+        inboxReportDetailLogic({ reportId: report.id, report })
+    )
     const signals = reportSignals ?? []
     const evidenceCount = reportSignals !== null ? signals.length : report.signal_count
 
@@ -180,6 +172,13 @@ export function AgentRunDetail({ report }: { report: SignalReport }): JSX.Elemen
         <div className="@container w-full max-w-[calc(160ch+5rem)] mx-auto px-6 py-5 text-sm">
             <div className="flex items-center gap-2 flex-wrap mb-4">
                 <ReportDetailBadges report={report} />
+                {isReResearch && (
+                    <Tooltip title="A prior research run on this report already completed – this is a re-attempt.">
+                        <LemonTag size="small" type="warning" className="cursor-help select-none">
+                            Re-research
+                        </LemonTag>
+                    </Tooltip>
+                )}
             </div>
 
             <div className="grid grid-cols-1 @4xl:grid-cols-[minmax(0,80ch)_minmax(0,1fr)] gap-5">

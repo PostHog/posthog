@@ -27,7 +27,7 @@ interface SourceProductMeta {
  * silently returning undefined at runtime.
  *
  * `Partial` because the backend may ship a new source product before the
- * renderer learns about it — callers must handle the `undefined` case via
+ * renderer learns about it – callers must handle the `undefined` case via
  * `getSourceProductMeta`, which returns `null` for unknown keys.
  */
 export const SOURCE_PRODUCT_META: Partial<Record<SignalSourceProduct, SourceProductMeta>> = {

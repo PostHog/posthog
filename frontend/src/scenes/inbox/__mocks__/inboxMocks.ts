@@ -81,7 +81,7 @@ export const reportTabReports: SignalReport[] = [
     makeReport({
         title: 'feat(onboarding): Users drop off at the SDK install step',
         summary:
-            'A large share of new projects never send a first event — most stall on the SDK install step of onboarding.',
+            'A large share of new projects never send a first event – most stall on the SDK install step of onboarding.',
         status: SignalReportStatus.READY,
         priority: 'P3',
         actionability: 'requires_human_input',

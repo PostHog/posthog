@@ -30083,6 +30083,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly implementation_pr_url: string | null;
+      /**
+         * Repository the report's research selected, from the latest repo_selection artefact (e.g. 'organization/repository'). Present on reports of every kind, not just those with a PR.
+         * @nullable
+         */
+      readonly repository: string | null;
     }
 
     export interface PaginatedSignalReportList {

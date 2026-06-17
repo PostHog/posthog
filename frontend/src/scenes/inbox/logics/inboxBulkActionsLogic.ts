@@ -100,12 +100,19 @@ export const inboxBulkActionsLogic = kea<inboxBulkActionsLogicType>([
 
             actions.clearSelection()
 
-            if (result.failureCount > 0) {
+            // Total failure: nothing was suppressed, so there's nothing for the list to drop.
+            if (result.successCount === 0) {
                 lemonToast.error(formatDismissSummary(result))
                 actions.bulkDismissFailure()
                 return
             }
-            lemonToast.success(formatDismissSummary(result))
+            // Any success (partial or full) must reload so the suppressed reports leave the list.
+            // A partial failure still surfaces as an error toast ("N dismissed, M failed").
+            if (result.failureCount > 0) {
+                lemonToast.error(formatDismissSummary(result))
+            } else {
+                lemonToast.success(formatDismissSummary(result))
+            }
             actions.bulkDismissSuccess()
         },
     })),

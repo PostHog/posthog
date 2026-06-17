@@ -1,5 +1,6 @@
 import clsx from 'clsx'
 import { useValues } from 'kea'
+import { combineUrl } from 'kea-router'
 
 import { IconChevronRight, IconTerminal } from '@posthog/icons'
 import { Link, Spinner } from '@posthog/lemon-ui'
@@ -42,7 +43,7 @@ function TaskRunStatusDot({ status }: { status: TaskRunStatus }): JSX.Element {
  * Only `implementation` and `research` relationships are shown, implementation-first.
  */
 export function ReportTasksSection({ report }: { report: SignalReport }): JSX.Element | null {
-    const { reportTasks, reportTasksLoading } = useValues(inboxReportDetailLogic({ reportId: report.id }))
+    const { reportTasks, reportTasksLoading } = useValues(inboxReportDetailLogic({ reportId: report.id, report }))
 
     if (reportTasksLoading && !reportTasks) {
         return (
@@ -63,21 +64,23 @@ export function ReportTasksSection({ report }: { report: SignalReport }): JSX.El
         <RightColumnSection icon={<IconTerminal />} title="Runs">
             <div className="flex flex-col gap-0.5">
                 {reportTasks.map((entry: ReportTaskEntry) => (
-                    <TaskRow key={entry.task.id} entry={entry} reportId={report.id} />
+                    <TaskRow key={entry.task.id} entry={entry} />
                 ))}
             </div>
         </RightColumnSection>
     )
 }
 
-function TaskRow({ entry, reportId }: { entry: ReportTaskEntry; reportId: string }): JSX.Element {
+function TaskRow({ entry }: { entry: ReportTaskEntry }): JSX.Element {
     const { task, relationship } = entry
     const status = task.latest_run?.status ?? TaskRunStatus.NOT_STARTED
+    const runId = task.latest_run?.id
+    // Deep-link straight to the task's run logs in cloud's Tasks UI (selecting the latest run),
+    // rather than the in-inbox Runs route.
+    const taskLogUrl = runId ? combineUrl(urls.taskDetail(task.id), { runId }).url : urls.taskDetail(task.id)
     return (
         <Link
-            // Opens the in-inbox Runs detail (where the run lives), mirroring desktop's
-            // `/code/inbox/runs/$reportId` navigation — not the standalone task page.
-            to={urls.inboxReport('runs', reportId)}
+            to={taskLogUrl}
             className="group flex items-center gap-2 rounded px-1.5 py-1 text-left text-xs no-underline transition-colors hover:bg-fill-highlight-50"
         >
             <TaskRunStatusDot status={status} />

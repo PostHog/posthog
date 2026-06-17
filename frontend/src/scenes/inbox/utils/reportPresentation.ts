@@ -66,16 +66,48 @@ export function displayConventionalCommitTitle(title: string | null | undefined,
     return trimmed ? trimmed : fallback
 }
 
-/** Parse a GitHub PR URL into its repo slug, e.g. `posthog/posthog`. */
-export function parsePrRepoSlug(prUrl: string): string | null {
+/**
+ * Return the URL only if it's a safe `http(s)` link, otherwise `null`. Guards external `href`s
+ * against `javascript:` / `data:` and other script-bearing schemes – `implementation_pr_url`
+ * originates from an agent's raw task-run output and is not scheme-validated server-side.
+ */
+export function safeHttpUrl(url: string | null | undefined): string | null {
+    if (!url) {
+        return null
+    }
     try {
-        const url = new URL(prUrl)
-        const match = url.pathname.match(/^\/([^/]+)\/([^/]+)\/pull\/(\d+)(?:$|[/?#])/)
-        if (!match) {
-            return null
-        }
-        return `${match[1]}/${match[2]}`
+        const { protocol } = new URL(url)
+        return protocol === 'http:' || protocol === 'https:' ? url : null
     } catch {
         return null
     }
+}
+
+/** Canonical GitHub PR URL path matcher: `/<owner>/<repo>/pull/<number>`. */
+const PR_URL_PATH = /^\/([^/]+)\/([^/]+)\/pull\/(\d+)(?:$|[/?#])/
+
+export interface ParsedPrUrlParts {
+    owner: string
+    repo: string
+    number: string
+    repoSlug: string
+}
+
+/** Parse a canonical GitHub PR URL into its owner / repo / number / repoSlug parts. */
+export function parsePrUrlParts(prUrl: string): ParsedPrUrlParts | null {
+    try {
+        const match = new URL(prUrl).pathname.match(PR_URL_PATH)
+        if (!match) {
+            return null
+        }
+        const [, owner, repo, number] = match
+        return { owner, repo, number, repoSlug: `${owner}/${repo}` }
+    } catch {
+        return null
+    }
+}
+
+/** Parse a GitHub PR URL into its repo slug, e.g. `posthog/posthog`. */
+export function parsePrRepoSlug(prUrl: string): string | null {
+    return parsePrUrlParts(prUrl)?.repoSlug ?? null
 }

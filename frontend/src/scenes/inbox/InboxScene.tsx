@@ -1,145 +1,144 @@
 import { useActions, useValues } from 'kea'
 
-import { IconArrowLeft, IconBug } from '@posthog/icons'
-import { LemonButton, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { IconBug } from '@posthog/icons'
+import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
+import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import { ConventionalCommitScopeTag } from './components/cards/ReportCard'
-import { AgentsTab } from './components/config/AgentsTab'
 import { AgentRunDetail } from './components/detail/AgentRunDetail'
-import { PullRequestDetail } from './components/detail/PullRequestDetail'
-import { ReportDetail } from './components/detail/ReportDetail'
-import { InboxBulkSelectionBar } from './components/shell/InboxBulkSelectionBar'
+import { InboxDetailHeader } from './components/detail/InboxDetailHeader'
+import { ReportDetail, ReportDetailSkeleton } from './components/detail/ReportDetail'
+import { AgentSetupColumn } from './components/shell/AgentSetupColumn'
 import { InboxScopeSelect } from './components/shell/InboxScopeSelect'
-import { InboxSearchFilterBar } from './components/shell/InboxSearchFilterBar'
 import { InboxTabBar } from './components/shell/InboxTabBar'
+import { NotActionableTab } from './components/tabs/NotActionableTab'
 import { PullRequestsTab } from './components/tabs/PullRequestsTab'
 import { ReportsTab } from './components/tabs/ReportsTab'
 import { RunsTab } from './components/tabs/RunsTab'
 import { inboxSceneLogic } from './inboxSceneLogic'
-import { INBOX_TAB_LABEL, InboxTabKey, SignalReport } from './types'
-import { displayConventionalCommitTitle, parseConventionalCommitTitle } from './utils/reportPresentation'
+import { InboxTabKey, SignalReport } from './types'
 
 export const scene: SceneExport = {
     component: InboxScene,
     logic: inboxSceneLogic,
 }
 
-/** Tabs that show the centered report list (search + scope chrome). Runs and Agents are special. */
+/** Min scene-container width at which the setup rail fits beside the list. */
+const SETUP_RAIL_MIN_PX = 1024
+
+/** Tabs that show the centered report list (scope chrome in the header). Runs/Configuration are special. */
 function isReportListTab(tab: InboxTabKey): boolean {
-    return tab === 'pulls' || tab === 'reports'
+    return tab === 'pulls' || tab === 'reports' || tab === 'not-actionable'
 }
 
-function ActiveTabBody({ tab, reports }: { tab: InboxTabKey; reports: SignalReport[] }): JSX.Element {
-    if (tab === 'agents') {
-        return <AgentsTab />
+function ActiveTabBody({ tab, runsReports }: { tab: InboxTabKey; runsReports: SignalReport[] }): JSX.Element {
+    switch (tab) {
+        case 'pulls':
+            return <PullRequestsTab />
+        case 'reports':
+            return <ReportsTab />
+        case 'not-actionable':
+            return <NotActionableTab />
+        case 'runs':
+            return <RunsTab reports={runsReports} />
+        case 'config':
+            return <AgentSetupColumn layout="stacked" />
     }
-    if (tab === 'pulls') {
-        return <PullRequestsTab reports={reports} />
-    }
-    if (tab === 'runs') {
-        return <RunsTab reports={reports} />
-    }
-    return <ReportsTab reports={reports} />
-}
-
-function SelectedReportDetail({ tab, report }: { tab: InboxTabKey; report: SignalReport }): JSX.Element {
-    if (tab === 'pulls') {
-        return <PullRequestDetail report={report} />
-    }
-    if (tab === 'runs') {
-        return <AgentRunDetail report={report} />
-    }
-    return <ReportDetail report={report} />
 }
 
 /**
- * List view: full-width tab bar + scope select, then a centered max-w-4xl column
- * with the search/filter bar, bulk-selection bar, and the active tab's card list.
- * Mirrors desktop `InboxView` (header) + `InboxReportListTab` (centered body).
- * The Runs tab is intentionally chrome-less (no search / scope).
+ * List view: a tab bar + scope select over the active tab's body, with the agent-setup
+ * widgets to the right as a rail when the scene is wide enough (≥ ~72rem). Below that width
+ * the rail is dropped and the widgets live in a Configuration tab instead. Each flat report
+ * tab (Pull requests / Reports / Not actionable) owns its own filtered request, count,
+ * search/filter chrome, and pagination via the keyed `reportListLogic`. Runs is project-wide
+ * and chrome-less.
  */
 function InboxListView(): JSX.Element {
-    const { activeTab, visibleReports, reportsLoading, tabCounts } = useValues(inboxSceneLogic)
-    const { loadReports } = useActions(inboxSceneLogic)
+    const { activeTab, runsTabReports } = useValues(inboxSceneLogic)
+    const { ref: widthRef, size } = useResizeBreakpoints(
+        { 0: 'narrow', [SETUP_RAIL_MIN_PX]: 'wide' },
+        { initialSize: 'wide' }
+    )
+    const showRail = size === 'wide'
+    // The rail and the Configuration tab are mutually exclusive – never leave 'config' active
+    // (e.g. via a deep link) while the rail shows, or the rail and a config body would both appear.
+    const effectiveTab = showRail && activeTab === 'config' ? 'pulls' : activeTab
 
     return (
-        <div className="flex flex-col min-h-0 flex-1">
-            <div className="flex items-end justify-between gap-2 border-b border-primary px-2 shrink-0">
-                <InboxTabBar counts={tabCounts} />
-                {isReportListTab(activeTab) && (
-                    <div className="pb-1.5">
-                        <InboxScopeSelect />
-                    </div>
-                )}
+        <div ref={widthRef} className="flex min-h-0 flex-1">
+            <div className="flex flex-col min-h-0 flex-1 min-w-0">
+                {/* pl-5 (20px) aligns the first tab label with the SceneTitleSection description above. */}
+                <div className="flex items-end justify-between gap-2 border-b border-primary pl-5 pr-2 shrink-0">
+                    <InboxTabBar showConfigTab={!showRail} />
+                    {isReportListTab(effectiveTab) && (
+                        <div className="pb-1.5">
+                            <InboxScopeSelect />
+                        </div>
+                    )}
+                </div>
+                <div className="flex-1 overflow-auto min-h-0">
+                    <ActiveTabBody tab={effectiveTab} runsReports={runsTabReports} />
+                </div>
             </div>
-            <div className="flex-1 overflow-auto min-h-0">
-                {isReportListTab(activeTab) && (
-                    <div className="mx-auto max-w-4xl px-6 pt-4 flex flex-col gap-4">
-                        <InboxSearchFilterBar onRefresh={() => loadReports()} refreshing={reportsLoading} />
-                        <InboxBulkSelectionBar />
-                    </div>
-                )}
-                <ActiveTabBody tab={activeTab} reports={visibleReports} />
-            </div>
+            {showRail && (
+                <aside className="shrink-0 w-80 overflow-auto min-h-0 border-l border-primary">
+                    <AgentSetupColumn layout="rail" />
+                </aside>
+            )}
         </div>
     )
 }
 
 /**
- * Detail view: replaces the list full-width (no tab bar / search). A back link
- * returns to the active tab's list; the title row mirrors desktop
- * `InboxDetailPageHeader`. The detail body owns its badges / actions / sections.
+ * Detail view: replaces the list full-width. Report / PR / Not actionable render the unified
+ * `ReportDetail`, which owns its own merged header (back link, title, copy link). The Runs view
+ * keeps `AgentRunDetail` under the shared `InboxDetailHeader`.
  */
 function InboxDetailView({ report }: { report: SignalReport }): JSX.Element {
     const { activeTab } = useValues(inboxSceneLogic)
-    const conventionalTitle = parseConventionalCommitTitle(report.title)
-    const displayTitle = displayConventionalCommitTitle(report.title, 'Untitled report')
+
+    if (activeTab === 'runs') {
+        return (
+            <div className="flex flex-col min-h-0 flex-1 overflow-auto">
+                <InboxDetailHeader report={report} tab={activeTab} />
+                <AgentRunDetail report={report} />
+            </div>
+        )
+    }
 
     return (
         <div className="flex flex-col min-h-0 flex-1 overflow-auto">
-            <div className="shrink-0 border-b border-primary px-6 pt-5 pb-4 flex flex-col gap-3">
-                <Link
-                    to={urls.inbox(activeTab)}
-                    className="inline-flex w-fit items-center gap-1.5 text-[12.5px] text-secondary hover:text-default no-underline"
-                >
-                    <IconArrowLeft className="text-sm" />
-                    {INBOX_TAB_LABEL[activeTab]}
-                </Link>
-                <div className="flex items-center gap-2 flex-wrap min-w-0">
-                    {conventionalTitle && (
-                        <ConventionalCommitScopeTag type={conventionalTitle.type} scope={conventionalTitle.scope} />
-                    )}
-                    <h1 className="min-w-0 m-0 text-2xl font-bold leading-tight tracking-tight">{displayTitle}</h1>
-                </div>
-            </div>
-            <SelectedReportDetail tab={activeTab} report={report} />
+            <ReportDetail report={report} tab={activeTab} />
         </div>
     )
 }
 
 export function InboxScene(): JSX.Element {
-    const { isRunningSessionAnalysis, selectedReportId, selectedReport, reportsLoading } = useValues(inboxSceneLogic)
+    const { isRunningSessionAnalysis, selectedReportId, selectedReport, selectedReportLoading } =
+        useValues(inboxSceneLogic)
     const { runSessionAnalysis } = useActions(inboxSceneLogic)
     const { isDev } = useValues(preflightLogic)
 
     // Detail route: render the report full-width, replacing the list (desktop parity).
     if (selectedReportId) {
         return (
-            <SceneContent className="gap-y-0 border-b-0">
-                <div className="flex flex-col -mx-4 h-[calc(100vh-3.5rem)]">
+            <SceneContent className="gap-y-0 border-b-0 flex-1 min-h-0">
+                <div className="flex flex-col -mx-4 flex-1 min-h-0">
                     {selectedReport ? (
                         <InboxDetailView report={selectedReport} />
+                    ) : selectedReportLoading ? (
+                        <div className="flex flex-col min-h-0 flex-1 overflow-auto">
+                            <ReportDetailSkeleton />
+                        </div>
                     ) : (
-                        <div className="flex flex-1 items-center justify-center gap-2 text-sm text-tertiary">
-                            <Spinner className="size-4" />
-                            {reportsLoading ? 'Loading report…' : 'Report not found.'}
+                        <div className="flex flex-1 items-center justify-center text-sm text-tertiary">
+                            Report not found.
                         </div>
                     )}
                 </div>
@@ -148,7 +147,7 @@ export function InboxScene(): JSX.Element {
     }
 
     return (
-        <SceneContent className="gap-y-2 border-b-0">
+        <SceneContent className="gap-y-2 border-b-0 flex-1 min-h-0">
             <SceneTitleSection
                 name="Inbox"
                 description="Work done by your agents – pull requests, reports, and live runs."
@@ -172,7 +171,7 @@ export function InboxScene(): JSX.Element {
                 }
             />
 
-            <div className="flex flex-col -mx-4 h-[calc(100vh-9.5rem)]">
+            <div className="flex flex-col -mx-4 flex-1 min-h-0">
                 <InboxListView />
             </div>
         </SceneContent>

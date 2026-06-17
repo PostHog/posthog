@@ -177,13 +177,13 @@ export function InboxSearchFilterBar({
             {onRefresh && (
                 <LemonButton
                     type="secondary"
-                    size="small"
+                    size="xsmall"
                     icon={<IconRefresh />}
                     loading={refreshing}
                     tooltip="Refresh"
                     aria-label="Refresh"
                     onClick={onRefresh}
-                    className="bg-surface-primary"
+                    className="bg-surface-primary ml-auto"
                 />
             )}
         </div>

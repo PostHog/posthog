@@ -1,4 +1,4 @@
-import { actions, kea, listeners, path, reducers } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -17,6 +17,13 @@ export const userAutonomyLogic = kea<userAutonomyLogicType>([
     path(['scenes', 'inbox', 'logics', 'userAutonomyLogic']),
     actions({
         setAutostartPriority: (priority: SignalReportPriority | null) => ({ priority }),
+        // Slack notification preferences (suggested-reviewer pings for new inbox items).
+        // integration + channel together enable notifications; either null disables them.
+        updateSlackNotifications: (updates: {
+            integrationId?: number | null
+            channel?: string | null
+            minPriority?: SignalReportPriority | null
+        }) => ({ updates }),
     }),
     loaders({
         autonomyConfig: [
@@ -36,6 +43,14 @@ export const userAutonomyLogic = kea<userAutonomyLogicType>([
                 ...(state ?? { autostart_priority: null }),
                 autostart_priority: priority,
             }),
+            updateSlackNotifications: (state, { updates }) => ({
+                ...(state ?? { autostart_priority: null }),
+                ...('integrationId' in updates
+                    ? { slack_notification_integration_id: updates.integrationId ?? null }
+                    : {}),
+                ...('channel' in updates ? { slack_notification_channel: updates.channel ?? null } : {}),
+                ...('minPriority' in updates ? { slack_notification_min_priority: updates.minPriority ?? null } : {}),
+            }),
         },
     }),
     listeners(({ actions }) => ({
@@ -48,5 +63,28 @@ export const userAutonomyLogic = kea<userAutonomyLogicType>([
                 actions.loadAutonomyConfig()
             }
         },
+        updateSlackNotifications: async ({ updates }) => {
+            // Send only the keys the caller passed so unrelated fields (e.g. autostart_priority) aren't wiped.
+            const body: Partial<SignalUserAutonomyConfig> = {}
+            if ('integrationId' in updates) {
+                body.slack_notification_integration_id = updates.integrationId ?? null
+            }
+            if ('channel' in updates) {
+                body.slack_notification_channel = updates.channel ?? null
+            }
+            if ('minPriority' in updates) {
+                body.slack_notification_min_priority = updates.minPriority ?? null
+            }
+            try {
+                await api.signalUserAutonomy.update(body)
+            } catch (error: any) {
+                lemonToast.error(error?.detail ?? error?.message ?? 'Failed to update Slack notification setting')
+            } finally {
+                actions.loadAutonomyConfig()
+            }
+        },
     })),
+    afterMount(({ actions }) => {
+        actions.loadAutonomyConfig()
+    }),
 ])

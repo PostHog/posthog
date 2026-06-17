@@ -16,10 +16,16 @@ import { SchemaPropertyGroup } from 'scenes/data-management/schema/schemaManagem
 import { SignalNode } from 'scenes/debug/signals/types'
 import {
     SignalReport,
+    SignalReportArtefact,
     SignalReportArtefactResponse,
     SignalReportStateRequest,
     SignalReportTask,
+    SignalScoutConfig,
+    SignalScoutConfigUpdate,
+    SignalScoutEmission,
+    SignalScoutRunSummary,
     SignalSourceConfig,
+    SignalTeamConfig,
     SignalUserAutonomyConfig,
 } from 'scenes/inbox/types'
 import { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
@@ -1200,6 +1206,39 @@ export class ApiRequest {
 
     public signalSourceConfig(id: string, teamId?: TeamType['id']): ApiRequest {
         return this.signalSourceConfigs(teamId).addPathComponent(id)
+    }
+
+    // # Signal Team Config (singleton per team)
+    public signalTeamConfig(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('signals').addPathComponent('config')
+    }
+
+    // # Signal Report Artefacts (suggested_reviewers is the only writable type)
+    public signalReportArtefact(reportId: SignalReport['id'], artefactId: string, teamId?: TeamType['id']): ApiRequest {
+        return this.signalReport(reportId, teamId).addPathComponent('artefacts').addPathComponent(artefactId)
+    }
+
+    // # Signal Scouts
+    public signalScoutRuns(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId)
+            .addPathComponent('signals')
+            .addPathComponent('scout')
+            .addPathComponent('runs')
+    }
+
+    public signalScoutRun(id: string, teamId?: TeamType['id']): ApiRequest {
+        return this.signalScoutRuns(teamId).addPathComponent(id)
+    }
+
+    public signalScoutConfigs(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId)
+            .addPathComponent('signals')
+            .addPathComponent('scout')
+            .addPathComponent('configs')
+    }
+
+    public signalScoutConfig(id: string, teamId?: TeamType['id']): ApiRequest {
+        return this.signalScoutConfigs(teamId).addPathComponent(id)
     }
 
     // # Tasks
@@ -5062,6 +5101,16 @@ const api = {
             status?: string
             search?: string
             ordering?: string
+            /** Comma-separated source products. */
+            source_product?: string
+            /** Comma-separated P0–P4. */
+            priority?: string
+            /** Comma-separated actionability values (immediately_actionable|requires_human_input|not_actionable). */
+            actionability?: string
+            /** Filter by whether a shipped implementation PR exists. */
+            has_implementation_pr?: 'true' | 'false'
+            /** Comma-separated reviewer user UUIDs (For-you / teammate scope). */
+            suggested_reviewers?: string
         }): Promise<CountedPaginatedResponse<SignalReport>> {
             return await new ApiRequest().signalReports().withQueryString(params).get()
         },
@@ -5091,14 +5140,66 @@ const api = {
         async setState(id: SignalReport['id'], data: SignalReportStateRequest): Promise<SignalReport> {
             return await new ApiRequest().signalReport(id).withAction('state').create({ data })
         },
-        async availableReviewers(
-            query?: string
-        ): Promise<{ results: { user_uuid: string; name: string; email: string }[]; count: number }> {
-            return await new ApiRequest()
+        // Backend returns a flat `{ [user_uuid]: { name, email } }` map (not paginated).
+        async availableReviewers(query?: string): Promise<{ user_uuid: string; name: string; email: string }[]> {
+            const response: Record<string, { name: string; email: string }> = await new ApiRequest()
                 .signalReports()
                 .withAction('available_reviewers')
                 .withQueryString(query ? { query } : undefined)
                 .get()
+            return Object.entries(response).map(([user_uuid, { name, email }]) => ({ user_uuid, name, email }))
+        },
+        // PUT replaces the content of a `suggested_reviewers` artefact (only writable type).
+        // Backend: SignalReportArtefactViewSet.update.
+        async updateArtefact(
+            reportId: SignalReport['id'],
+            artefactId: string,
+            content: Record<string, any>[]
+        ): Promise<SignalReportArtefact> {
+            return await new ApiRequest().signalReportArtefact(reportId, artefactId).put({ data: { content } })
+        },
+    },
+
+    // Team-level signal autonomy config (singleton). Backend: SignalTeamConfigViewSet.
+    signalTeamConfig: {
+        async get(): Promise<SignalTeamConfig> {
+            return await new ApiRequest().signalTeamConfig().get()
+        },
+        // Backend exposes update via POST to the collection (singleton create-or-update, partial).
+        async update(data: Partial<SignalTeamConfig>): Promise<SignalTeamConfig> {
+            return await new ApiRequest().signalTeamConfig().create({ data })
+        },
+    },
+
+    // Scouts: scheduled agents that sweep the project and emit findings. Backend:
+    // SignalScoutRunViewSet (runs) + SignalScoutConfigViewSet (configs).
+    signalScout: {
+        runs: {
+            // Newest-first raw array (not paginated), capped at 100 server-side.
+            async list(params?: {
+                limit?: number
+                text?: string
+                emitted?: boolean
+                date_from?: string
+                date_to?: string
+            }): Promise<SignalScoutRunSummary[]> {
+                return await new ApiRequest().signalScoutRuns().withQueryString(params).get()
+            },
+            async get(runId: string): Promise<SignalScoutRunSummary> {
+                return await new ApiRequest().signalScoutRun(runId).get()
+            },
+            async emissions(runId: string): Promise<SignalScoutEmission[]> {
+                return await new ApiRequest().signalScoutRun(runId).withAction('emissions').get()
+            },
+        },
+        configs: {
+            // Newest-first raw array, ordered by skill_name.
+            async list(): Promise<SignalScoutConfig[]> {
+                return await new ApiRequest().signalScoutConfigs().get()
+            },
+            async update(id: string, data: SignalScoutConfigUpdate): Promise<SignalScoutConfig> {
+                return await new ApiRequest().signalScoutConfig(id).update({ data })
+            },
         },
     },
 

@@ -1,15 +1,29 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
-import { IconChat, IconChevronDown, IconPullRequest } from '@posthog/icons'
-import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
+import { IconArchive, IconPullRequest } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 
-import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
+import { urls } from 'scenes/urls'
 
+import { inboxSceneLogic } from '../../inboxSceneLogic'
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
 import { SignalReport } from '../../types'
+import { useReportArchive } from '../cards/useReportArchive'
 
-const isMac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform)
+/** Mirror desktop's `Inbox report action` analytics for detail-pane actions. */
+function fireReportAction(report: SignalReport, action: 'create_pr', extras: Record<string, unknown> = {}): void {
+    posthog.capture('Inbox report action', {
+        report_id: report.id,
+        report_title: report.title ?? null,
+        priority: report.priority ?? null,
+        actionability: report.actionability ?? null,
+        action_type: action,
+        surface: 'detail_pane',
+        ...extras,
+    })
+}
 
 /**
  * Should the Create PR action be offered? Mirrors desktop `canCreateImplementationPr` /
@@ -32,93 +46,36 @@ function canCreateImplementationPr(report: SignalReport): boolean {
 }
 
 /**
- * Detail-pane actions: Discuss (opens a task with an optional question) and Create PR
- * (opens an implementation task). Both create a cloud task and navigate to it — this is NOT
- * an in-app chat thread, so both are ported (not stubbed). Task creation/navigation is owned
- * by `inboxTaskKickoffLogic`.
+ * Detail-pane actions: Archive (suppress the report out of the inbox, then return to the list)
+ * and Create PR (opens an implementation task and navigates to it). Task creation/navigation is
+ * owned by `inboxTaskKickoffLogic`; archiving reuses the shared `useReportArchive` dialog flow.
  */
 export function ReportDetailActions({ report }: { report: SignalReport }): JSX.Element {
-    const { isDiscussing, isCreatingPr } = useValues(inboxTaskKickoffLogic)
-    const { discussReport, createPrFromReport } = useActions(inboxTaskKickoffLogic)
+    const { isCreatingPr } = useValues(inboxTaskKickoffLogic)
+    const { createPrFromReport } = useActions(inboxTaskKickoffLogic)
+    const { activeTab } = useValues(inboxSceneLogic)
 
     const showCreatePr = canCreateImplementationPr(report)
-    const [discussOpen, setDiscussOpen] = useState(false)
-    const [question, setQuestion] = useState('')
 
-    const submitDiscuss = (): void => {
-        const trimmed = question.trim()
-        if (!trimmed) {
-            return
-        }
-        setQuestion('')
-        setDiscussOpen(false)
-        discussReport(report, trimmed)
-    }
+    const { isArchiving, onArchiveClick } = useReportArchive({
+        reportId: report.id,
+        cardTitle: report.title ?? 'Untitled report',
+        // Back to the list once archived – the suppressed report drops out on the list's refetch.
+        onArchived: () => router.actions.push(urls.inbox(activeTab)),
+    })
 
     return (
         <>
-            <LemonDropdown
-                visible={discussOpen}
-                onClickOutside={() => {
-                    setDiscussOpen(false)
-                    setQuestion('')
-                }}
-                placement="bottom-end"
-                overlay={
-                    <form
-                        className="flex flex-col gap-2 w-100 p-1"
-                        onSubmit={(event) => {
-                            event.preventDefault()
-                            submitDiscuss()
-                        }}
-                    >
-                        <LemonTextArea
-                            autoFocus
-                            placeholder="Ask about this report…"
-                            minRows={5}
-                            value={question}
-                            onChange={setQuestion}
-                            onPressCmdEnter={submitDiscuss}
-                        />
-                        <div className="flex items-center justify-between gap-2">
-                            <span className="text-xs text-muted select-none">{isMac ? '⌘↵' : 'Ctrl+↵'} to send</span>
-                            <div className="flex gap-2">
-                                <LemonButton
-                                    type="tertiary"
-                                    size="small"
-                                    onClick={() => {
-                                        setDiscussOpen(false)
-                                        setQuestion('')
-                                    }}
-                                >
-                                    Cancel
-                                </LemonButton>
-                                <LemonButton
-                                    htmlType="submit"
-                                    type="primary"
-                                    size="small"
-                                    loading={isDiscussing}
-                                    disabledReason={question.trim().length === 0 ? 'Enter a question first' : undefined}
-                                >
-                                    Discuss
-                                </LemonButton>
-                            </div>
-                        </div>
-                    </form>
-                }
+            <LemonButton
+                type="secondary"
+                size="small"
+                icon={<IconArchive />}
+                loading={isArchiving}
+                tooltip="Archive this report out of your inbox"
+                onClick={onArchiveClick}
             >
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    icon={<IconChat />}
-                    sideIcon={<IconChevronDown />}
-                    loading={isDiscussing}
-                    tooltip="Discuss this report with your agent"
-                    onClick={() => setDiscussOpen((open) => !open)}
-                >
-                    Discuss
-                </LemonButton>
-            </LemonDropdown>
+                Archive
+            </LemonButton>
 
             {showCreatePr && (
                 <LemonButton
@@ -127,7 +84,10 @@ export function ReportDetailActions({ report }: { report: SignalReport }): JSX.E
                     icon={<IconPullRequest />}
                     loading={isCreatingPr}
                     tooltip="Have Self-driving open a pull request for this report"
-                    onClick={() => createPrFromReport(report)}
+                    onClick={() => {
+                        fireReportAction(report, 'create_pr')
+                        createPrFromReport(report)
+                    }}
                 >
                     Create PR
                 </LemonButton>

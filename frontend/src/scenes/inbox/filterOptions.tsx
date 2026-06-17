@@ -1,7 +1,6 @@
 import { JSX } from 'react'
 
 import {
-    IconBolt,
     IconBrain,
     IconBug,
     IconCalendar,
@@ -11,13 +10,37 @@ import {
     IconGithub,
     IconList,
     IconReceipt,
+    IconRefresh,
     IconRewindPlay,
     IconStack,
     IconSupport,
 } from '@posthog/icons'
+import { LemonTagType } from '@posthog/lemon-ui'
 
 import { InboxSortDirection, InboxSortField } from './logics/inboxFiltersLogic'
 import { SignalReportPriority } from './types'
+
+/**
+ * Single source of truth for per-priority color. P0–P4 each get a DISTINCT hue so
+ * users can tell them apart at a glance (red → orange → amber → blue → gray).
+ * Consumed by the priority badge, the priority monogram, and the filter dots.
+ */
+export const PRIORITY_TAG_TYPE: Record<SignalReportPriority, LemonTagType> = {
+    P0: 'danger', // red
+    P1: 'warning', // orange
+    P2: 'caution', // amber
+    P3: 'highlight', // blue
+    P4: 'muted', // gray
+}
+
+/** Matching CSS accent per priority, for non-LemonTag surfaces (filter dots, monograms). */
+export const PRIORITY_ACCENT: Record<SignalReportPriority, string> = {
+    P0: 'var(--red-9, #e5484d)',
+    P1: 'var(--orange-9, #f76b15)',
+    P2: 'var(--amber-9, #ffc53d)',
+    P3: 'var(--blue-9, #3b9eff)',
+    P4: 'var(--muted, #8f8f8f)',
+}
 
 // Port of desktop `@posthog/ui/features/inbox/filterOptions`. Drives the Source /
 // Sort / Priority filter popovers. Source-product values match the backend
@@ -32,18 +55,14 @@ export interface InboxSortOption {
 
 export const INBOX_SORT_OPTIONS: InboxSortOption[] = [
     { label: 'Priority first', field: 'priority', direction: 'asc', icon: <IconList /> },
-    { label: 'Strongest evidence', field: 'total_weight', direction: 'desc', icon: <IconBolt /> },
+    { label: 'Last updated first', field: 'updated_at', direction: 'desc', icon: <IconRefresh /> },
     { label: 'Newest first', field: 'created_at', direction: 'desc', icon: <IconCalendar /> },
     { label: 'Oldest first', field: 'created_at', direction: 'asc', icon: <IconClock /> },
 ]
 
-export const INBOX_PRIORITY_OPTIONS: { value: SignalReportPriority; accent: string }[] = [
-    { value: 'P0', accent: 'var(--red-9, #e5484d)' },
-    { value: 'P1', accent: 'var(--orange-9, #f76b15)' },
-    { value: 'P2', accent: 'var(--amber-9, #ffc53d)' },
-    { value: 'P3', accent: 'var(--muted, #8f8f8f)' },
-    { value: 'P4', accent: 'var(--muted, #8f8f8f)' },
-]
+export const INBOX_PRIORITY_OPTIONS: { value: SignalReportPriority; accent: string }[] = (
+    ['P0', 'P1', 'P2', 'P3', 'P4'] as SignalReportPriority[]
+).map((value) => ({ value, accent: PRIORITY_ACCENT[value] }))
 
 export const INBOX_SOURCE_OPTIONS: { value: string; label: string; icon: JSX.Element }[] = [
     { value: 'session_replay', label: 'Session replay', icon: <IconRewindPlay /> },

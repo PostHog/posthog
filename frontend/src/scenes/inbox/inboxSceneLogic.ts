@@ -8,21 +8,18 @@ import api, { CountedPaginatedResponse } from 'lib/api'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { Breadcrumb } from '~/types'
 
-import { computeInboxTabCounts, reportsForTab } from './inboxMembership'
+import { isAgentRunReport, isFinishedRunReport } from './inboxMembership'
 import type { inboxSceneLogicType } from './inboxSceneLogicType'
-import { inboxBulkActionsLogic } from './logics/inboxBulkActionsLogic'
-import {
-    buildSignalReportListOrdering,
-    INBOX_PIPELINE_STATUS_FILTERS,
-    inboxFiltersLogic,
-} from './logics/inboxFiltersLogic'
+import { INBOX_PIPELINE_STATUS_FILTERS } from './logics/inboxFiltersLogic'
+import { INBOX_FLAT_TAB_LIST_PARAMS, reportListLogic } from './logics/reportListLogic'
 import { signalSourcesLogic } from './signalSourcesLogic'
-import { InboxTabCounts, InboxTabKey, INBOX_TAB_KEYS, SignalReport } from './types'
+import { InboxFlatListTabKey, INBOX_STAFF_ONLY_TAB_KEYS, INBOX_TAB_KEYS, InboxTabKey, SignalReport } from './types'
 
-const REPORTS_PAGE_SIZE = 200
+const RUNS_PAGE_SIZE = 200
 
 const SESSION_ANALYSIS_POLL_INTERVAL_MS = 5000
 
@@ -30,64 +27,88 @@ function isInboxTabKey(value: string | undefined): value is InboxTabKey {
     return value !== undefined && (INBOX_TAB_KEYS as string[]).includes(value)
 }
 
+function isStaffOnlyTab(tab: string | undefined): boolean {
+    return tab !== undefined && (INBOX_STAFF_ONLY_TAB_KEYS as string[]).includes(tab)
+}
+
+/**
+ * Find a report already loaded in one of the mounted per-tab lists (or the staff Runs list),
+ * so opening it can render the detail instantly from the list row instead of waiting on a fresh
+ * `GET`. The background fetch still runs to converge on the authoritative record.
+ */
+function findLoadedReport(id: string, runsReports: SignalReport[]): SignalReport | null {
+    const fromRuns = runsReports.find((r) => r.id === id)
+    if (fromRuns) {
+        return fromRuns
+    }
+    for (const tabKey of Object.keys(INBOX_FLAT_TAB_LIST_PARAMS) as InboxFlatListTabKey[]) {
+        const mounted = reportListLogic.findMounted({ tabKey, listParams: INBOX_FLAT_TAB_LIST_PARAMS[tabKey] })
+        const found = mounted?.values.reports.find((r) => r.id === id)
+        if (found) {
+            return found
+        }
+    }
+    return null
+}
+
+/**
+ * Inbox scene orchestrator. Owns the active tab, the selected report (loaded by id),
+ * the staff-only project-wide Runs list, and session-analysis. The per-tab report
+ * lists + their counts live in the keyed `reportListLogic` (one instance per flat tab),
+ * so this logic no longer holds a shared report list.
+ */
 export const inboxSceneLogic = kea<inboxSceneLogicType>([
     path(['scenes', 'inbox', 'inboxSceneLogic']),
 
     connect(() => ({
-        values: [
-            signalSourcesLogic,
-            ['hasNoSources', 'isSessionAnalysisRunning'],
-            inboxFiltersLogic,
-            ['scope', 'searchQuery', 'sortField', 'sortDirection', 'sourceProductFilter', 'priorityFilter'],
-        ],
-        actions: [
-            signalSourcesLogic,
-            ['loadSourceConfigs'],
-            inboxFiltersLogic,
-            ['setSearchQuery', 'setSort', 'toggleSourceProduct', 'togglePriority', 'setScope', 'clearFilters'],
-            inboxBulkActionsLogic,
-            ['clearSelection'],
-        ],
+        values: [signalSourcesLogic, ['isSessionAnalysisRunning'], userLogic, ['user']],
+        actions: [signalSourcesLogic, ['loadSourceConfigs']],
     })),
 
     actions({
         setSelectedReportId: (id: string | null) => ({ id }),
+        // Seed (or clear) the selected report synchronously from an already-loaded list row, so the
+        // detail renders without a spinner while the authoritative fetch runs in the background.
+        seedSelectedReport: (report: SignalReport | null) => ({ report }),
         setActiveTab: (tab: InboxTabKey) => ({ tab }),
-        deleteReport: (reportId: string) => ({ reportId }),
-        reingestReport: (reportId: string) => ({ reportId }),
         runSessionAnalysis: true,
         runSessionAnalysisSuccess: true,
         runSessionAnalysisFailure: (error: string) => ({ error }),
     }),
 
-    loaders(({ values }) => ({
-        reportsResponse: [
+    loaders(() => ({
+        // Staff-only Runs tab: project-wide, UNFILTERED (no reviewer scope / source / priority / search) –
+        // every report whose run is in progress or has concluded.
+        runsResponse: [
             null as CountedPaginatedResponse<SignalReport> | null,
             {
-                loadReports: async () => {
-                    return await api.signalReports.list({ ...values.reportsListParams, offset: 0 })
-                },
-                loadMoreReports: async () => {
-                    const currentResults = values.reportsResponse?.results ?? []
-                    const response = await api.signalReports.list({
-                        ...values.reportsListParams,
-                        offset: currentResults.length,
+                loadRuns: async () => {
+                    return await api.signalReports.list({
+                        status: INBOX_PIPELINE_STATUS_FILTERS.join(','),
+                        ordering: 'status,-updated_at',
+                        limit: RUNS_PAGE_SIZE,
                     })
-                    return {
-                        ...response,
-                        results: [...currentResults, ...response.results],
-                    }
+                },
+            },
+        ],
+        // The selected report's base record, loaded by id so detail works regardless of which
+        // tab/list it came from (and on direct deep-link).
+        selectedReportResponse: [
+            null as SignalReport | null,
+            {
+                loadSelectedReport: async ({ id }: { id: string }) => {
+                    return await api.signalReports.get(id)
                 },
             },
         ],
     })),
 
     reducers({
-        reportsResponse: {
-            deleteReport: (state: CountedPaginatedResponse<SignalReport> | null, { reportId }: { reportId: string }) =>
-                state
-                    ? { ...state, results: state.results.filter((r) => r.id !== reportId), count: state.count - 1 }
-                    : state,
+        selectedReportResponse: {
+            // Navigation seeds this directly: the listener resolves the list row (or null) and
+            // dispatches `seedSelectedReport` in the same tick, so we never flash through a stale
+            // report or a spinner when the row is already loaded. The loader repopulates it on fetch.
+            seedSelectedReport: (_, { report }) => report,
         },
         selectedReportId: [
             null as string | null,
@@ -122,97 +143,44 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 },
             ],
         ],
-        // List-API params derived from the persisted filters. Status is the fixed pipeline
-        // set; source_product / priority / ordering mirror desktop's `useInboxAllReports`.
-        reportsListParams: [
-            (s) => [s.searchQuery, s.sortField, s.sortDirection, s.sourceProductFilter, s.priorityFilter],
-            (searchQuery, sortField, sortDirection, sourceProductFilter, priorityFilter) => ({
-                limit: REPORTS_PAGE_SIZE,
-                status: INBOX_PIPELINE_STATUS_FILTERS.join(','),
-                search: searchQuery.trim() || undefined,
-                ordering: buildSignalReportListOrdering(sortField, sortDirection),
-                source_product: sourceProductFilter.length > 0 ? sourceProductFilter.join(',') : undefined,
-                priority: priorityFilter.length > 0 ? priorityFilter.join(',') : undefined,
-            }),
+        isStaff: [() => [userLogic.selectors.user], (user): boolean => user?.is_staff ?? false],
+        runsTabReports: [
+            (s) => [s.runsResponse],
+            (runsResponse: CountedPaginatedResponse<SignalReport> | null): SignalReport[] =>
+                (runsResponse?.results ?? []).filter((r) => isAgentRunReport(r) || isFinishedRunReport(r)),
         ],
-        reports: [
-            (s) => [s.reportsResponse],
-            (reportsResponse: CountedPaginatedResponse<SignalReport> | null): SignalReport[] =>
-                reportsResponse?.results ?? [],
-        ],
-        reportsLoading: [
-            (s) => [s.reportsResponseLoading],
-            (reportsResponseLoading: boolean): boolean => reportsResponseLoading,
-        ],
-        reportsHasMore: [
-            (s) => [s.reportsResponse],
-            (reportsResponse: CountedPaginatedResponse<SignalReport> | null): boolean =>
-                reportsResponse?.next !== null && reportsResponse?.next !== undefined,
-        ],
-        tabCounts: [
-            (s) => [s.reports, s.scope],
-            (reports: SignalReport[], scope): InboxTabCounts => computeInboxTabCounts(reports, scope),
-        ],
-        visibleReports: [
-            (s) => [s.reports, s.activeTab, s.scope],
-            (reports: SignalReport[], activeTab: InboxTabKey, scope): SignalReport[] =>
-                reportsForTab(reports, activeTab, scope),
-        ],
+        runsCount: [(s) => [s.runsTabReports], (runsTabReports: SignalReport[]): number => runsTabReports.length],
         selectedReport: [
-            (s) => [s.reports, s.selectedReportId],
-            (reports: SignalReport[], selectedReportId: string | null): SignalReport | null =>
-                reports.find((r) => r.id === selectedReportId) ?? null,
+            (s) => [s.selectedReportResponse],
+            (selectedReportResponse: SignalReport | null): SignalReport | null => selectedReportResponse,
+        ],
+        selectedReportLoading: [
+            (s) => [s.selectedReportResponseLoading],
+            (selectedReportResponseLoading: boolean): boolean => selectedReportResponseLoading,
         ],
     }),
 
     listeners(({ actions, values, cache }) => ({
-        setSearchQuery: async (_, breakpoint) => {
-            await breakpoint(300)
-            actions.loadReports()
-        },
-        setSort: () => {
-            actions.loadReports()
-        },
-        toggleSourceProduct: () => {
-            actions.loadReports()
-        },
-        togglePriority: () => {
-            actions.loadReports()
-        },
-        clearFilters: () => {
-            actions.loadReports()
-        },
-        deleteReport: async ({ reportId }) => {
-            // Reducer handles optimistic removal from list
-            if (values.selectedReportId === reportId) {
-                actions.setSelectedReportId(null)
-            }
-            try {
-                await api.signalReports.delete(reportId)
-                lemonToast.success('Report deleted')
-            } catch (error: any) {
-                lemonToast.error(error?.detail || error?.message || 'Failed to delete report')
-                actions.loadReports()
+        setActiveTab: ({ tab }) => {
+            // Refresh the project-wide runs list each time the (staff-only) Runs tab opens.
+            if (tab === 'runs' && values.isStaff) {
+                actions.loadRuns()
             }
         },
-        reingestReport: async ({ reportId }) => {
-            try {
-                await api.signalReports.reingest(reportId)
-                lemonToast.success('Reingestion started — signals will be re-grouped')
-                if (values.selectedReportId === reportId) {
-                    actions.setSelectedReportId(null)
-                }
-                actions.loadReports()
-            } catch (error: any) {
-                lemonToast.error(error?.detail || error?.message || 'Failed to start reingestion')
+        setSelectedReportId: ({ id }) => {
+            if (!id) {
+                actions.seedSelectedReport(null)
+                return
             }
+            // Reuse the list row if we already have it (instant render), then refresh from the server.
+            actions.seedSelectedReport(findLoadedReport(id, values.runsTabReports))
+            actions.loadSelectedReport({ id })
         },
         loadSourceConfigsSuccess: () => {
             clearInterval(cache.sessionAnalysisPollInterval)
             if (values.isSessionAnalysisRunning) {
                 cache.sessionAnalysisPollInterval = setInterval(() => {
                     actions.loadSourceConfigs()
-                    actions.loadReports()
                 }, SESSION_ANALYSIS_POLL_INTERVAL_MS)
             }
         },
@@ -226,18 +194,14 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 actions.runSessionAnalysisFailure(error?.detail || error?.message || 'Failed to run session analysis')
             }
         },
-        runSessionAnalysisSuccess: () => {
-            actions.loadReports()
-        },
-        // Bulk dismiss happens in inboxBulkActionsLogic; refresh the list once it lands.
-        [inboxBulkActionsLogic.actionTypes.bulkDismissSuccess]: () => {
-            actions.loadReports()
-        },
     })),
 
-    events(({ actions, cache }) => ({
+    events(({ actions, values, cache }) => ({
         afterMount: () => {
-            actions.loadReports()
+            // Runs is a staff-only (internal) tab; only fetch its list for staff users.
+            if (values.isStaff) {
+                actions.loadRuns()
+            }
         },
         beforeUnmount: () => {
             clearInterval(cache.sessionAnalysisPollInterval)
@@ -270,6 +234,11 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             }
         },
         [urls.inbox(':tab')]: ({ tab }: { tab?: string }) => {
+            // Staff-only tabs (Runs, Not actionable): bounce non-staff to the default tab.
+            if (isStaffOnlyTab(tab) && userLogic.values.user != null && !values.isStaff) {
+                actions.setActiveTab('pulls')
+                return
+            }
             if (isInboxTabKey(tab) && values.activeTab !== tab) {
                 actions.setActiveTab(tab)
             }
@@ -278,6 +247,10 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             }
         },
         [urls.inboxReport(':tab', ':reportId')]: ({ tab, reportId }: { tab?: string; reportId?: string }) => {
+            if (isStaffOnlyTab(tab) && userLogic.values.user != null && !values.isStaff) {
+                actions.setActiveTab('pulls')
+                return
+            }
             if (isInboxTabKey(tab) && values.activeTab !== tab) {
                 actions.setActiveTab(tab)
             }

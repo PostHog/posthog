@@ -12,7 +12,7 @@ import type { inboxTaskKickoffLogicType } from './inboxTaskKickoffLogicType'
 import { SIGNAL_REPORT_TASK_IMPLEMENTATION_RELATIONSHIP, SignalReport, SignalReportTaskRelationship } from './types'
 
 // Cloud-adapted port of desktop `useDiscussReport` / `useCreatePrReport`. These are
-// task-kickoff actions (create a cloud Task linked to the report, then navigate to it) —
+// task-kickoff actions (create a cloud Task linked to the report, then navigate to it) –
 // NOT a live chat surface. The created task carries the SignalReport linkage so the
 // backend's agent pipeline can pick it up.
 

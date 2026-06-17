@@ -40,7 +40,7 @@ function resolveAgentStatus(
 interface AgentSourceState {
     armed: boolean
     loading: boolean
-    /** True for data-warehouse sources that haven't been connected yet — shows a Connect button. */
+    /** True for data-warehouse sources that haven't been connected yet – shows a Connect button. */
     requiresSetup: boolean
     syncStatus: SignalSourceConfigStatus | null | undefined
 }
@@ -150,19 +150,21 @@ const AgentCard = memo(function AgentCard({ agent, state, onToggle }: AgentCardP
 export function AgentsRoster(): JSX.Element {
     const {
         sessionAnalysisConfig,
+        conversationsConfig,
         githubIssuesConfig,
         linearIssuesConfig,
         zendeskTicketsConfig,
         pgAnalyzeIssuesConfig,
         errorTrackingIsFullyEnabled,
         isSessionAnalysisToggling,
+        isConversationsToggling,
         isErrorTrackingToggling,
         isGithubIssuesToggling,
         isLinearIssuesToggling,
         isZendeskTicketsToggling,
         isPgAnalyzeIssuesToggling,
     } = useValues(signalSourcesLogic)
-    const { toggleSessionAnalysis, toggleErrorTracking, initiateDataWarehouseSourceToggle } =
+    const { toggleSessionAnalysis, toggleConversations, toggleErrorTracking, initiateDataWarehouseSourceToggle } =
         useActions(signalSourcesLogic)
 
     const stateFor = useCallback(
@@ -181,6 +183,13 @@ export function AgentsRoster(): JSX.Element {
                         loading: isErrorTrackingToggling,
                         requiresSetup: false,
                         syncStatus: null,
+                    }
+                case 'conversations':
+                    return {
+                        armed: !!conversationsConfig?.enabled,
+                        loading: isConversationsToggling,
+                        requiresSetup: false,
+                        syncStatus: conversationsConfig?.status,
                     }
                 case 'session_replay':
                     return {
@@ -202,6 +211,8 @@ export function AgentsRoster(): JSX.Element {
         [
             errorTrackingIsFullyEnabled,
             isErrorTrackingToggling,
+            conversationsConfig,
+            isConversationsToggling,
             sessionAnalysisConfig,
             isSessionAnalysisToggling,
             githubIssuesConfig,
@@ -221,6 +232,9 @@ export function AgentsRoster(): JSX.Element {
                 case 'error_tracking':
                     toggleErrorTracking()
                     return
+                case 'conversations':
+                    toggleConversations()
+                    return
                 case 'session_replay':
                     toggleSessionAnalysis()
                     return
@@ -238,7 +252,7 @@ export function AgentsRoster(): JSX.Element {
                     return
             }
         },
-        [toggleErrorTracking, toggleSessionAnalysis, initiateDataWarehouseSourceToggle]
+        [toggleErrorTracking, toggleConversations, toggleSessionAnalysis, initiateDataWarehouseSourceToggle]
     )
 
     return (

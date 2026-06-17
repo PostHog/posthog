@@ -1,6 +1,6 @@
 // Port of desktop `packages/shared/src/dismissal-reasons.ts`. Canonical dismiss /
 // suppress reasons shown in the inbox. Values are persisted on dismissal artefacts
-// by the backend `state` action — add or reorder options here only, and keep the
+// by the backend `state` action – add or reorder options here only, and keep the
 // values in sync with desktop.
 
 export const DISMISSAL_REASON_OPTIONS = [

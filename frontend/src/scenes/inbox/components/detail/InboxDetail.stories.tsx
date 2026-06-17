@@ -19,7 +19,7 @@ import { PullRequestDetail } from './PullRequestDetail'
 import { ReportDetail } from './ReportDetail'
 
 // Detail-body stories. Each detail component mounts the keyed `inboxReportDetailLogic`,
-// which fetches artefacts / signals / tasks — mocked here. Polish the two-column detail
+// which fetches artefacts / signals / tasks – mocked here. Polish the two-column detail
 // layout (summary, evidence, runs, reviewers) against the desktop detail views.
 
 const detailMocks = mswDecorator({
@@ -57,7 +57,7 @@ function Frame({ children }: { children: React.ReactNode }): JSX.Element {
 export const Report: Story = {
     render: () => (
         <Frame>
-            <ReportDetail report={reportTabReports[0]} />
+            <ReportDetail report={reportTabReports[0]} tab="reports" />
         </Frame>
     ),
 }
@@ -72,6 +72,7 @@ export const ReportMinimal: Story = {
                     status: SignalReportStatus.CANDIDATE,
                     signal_count: 1,
                 })}
+                tab="reports"
             />
         </Frame>
     ),

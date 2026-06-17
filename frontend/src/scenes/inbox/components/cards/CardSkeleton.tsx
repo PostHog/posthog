@@ -12,7 +12,7 @@ interface CardSkeletonProps {
 export function CardSkeleton({ count = 4, variant = 'rows' }: CardSkeletonProps): JSX.Element {
     if (variant === 'cards') {
         return (
-            <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-1.5">
                 {Array.from({ length: count }).map((_, i) => (
                     <SkeletonRow key={i} rounded />
                 ))}
