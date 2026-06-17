@@ -23,4 +23,7 @@ class PostHogAIRunState(RunState):
     attached_context: list[AttachedContext] | None = None
     # Set on a pre-warmed Run created with no pending user message: it tells the agent-server to
     # open the ACP session and idle awaiting the first ``user_message`` rather than starting a turn.
+    # Keep this field alias-free: the warm-pool cap filters on the JSON key directly
+    # (``state__await_user_message=True`` in products/tasks/backend/services/warm.py), so an alias
+    # here would change the stored key and silently stop the filter from matching — opening the cap.
     await_user_message: bool = False

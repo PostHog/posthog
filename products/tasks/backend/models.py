@@ -315,20 +315,16 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         raise Exception("Cannot hard delete Task. Use soft_delete() instead.")
 
     @staticmethod
-    def create_and_run(
+    def _build_task(
         *,
         team: Team,
         title: str,
         description: str,
         origin_product: "Task.OriginProduct",
-        user_id: int,  # Will be used to validate the tasks feature flag and create a personal api key for interacting with PostHog.
-        repository: str | None = None,  # Format: "organization/repository", e.g. "posthog/posthog-js"
-        create_pr: bool = True,
-        mode: str = "background",
+        user_id: int,
+        repository: str | None = None,
         slack_thread_context: Optional["SlackThreadContext"] = None,
         slack_thread_url: str | None = None,
-        start_workflow: bool = True,
-        posthog_mcp_scopes: PosthogMcpScopes = "full",
         branch: str | None = None,
         signal_report_id: str | None = None,
         sandbox_environment_id: str | None = None,
@@ -337,9 +333,13 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         interaction_origin: str | None = None,
         model: str | None = None,
         initial_permission_mode: str | None = None,
-    ) -> "Task":
-        from products.tasks.backend.temporal.client import execute_task_processing_workflow
+    ) -> tuple["Task", dict[str, str]]:
+        """Create the Task row and assemble the initial run's `extra_state`.
 
+        Shared by `create_and_run` (which then creates and dispatches the run) and
+        `create_without_run` (which discards the run state). One path keeps the
+        GitHub-integration resolution and authorship logic from drifting between them.
+        """
         created_by = User.objects.get(id=user_id)
 
         from products.tasks.backend.services.sandbox import is_public_sandbox_repo
@@ -439,6 +439,99 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
 
         if initial_permission_mode:
             extra_state["initial_permission_mode"] = initial_permission_mode
+
+        return task, extra_state
+
+    @staticmethod
+    def create_without_run(
+        *,
+        team: Team,
+        title: str,
+        description: str,
+        origin_product: "Task.OriginProduct",
+        user_id: int,
+        repository: str | None = None,
+        slack_thread_context: Optional["SlackThreadContext"] = None,
+        slack_thread_url: str | None = None,
+        branch: str | None = None,
+        signal_report_id: str | None = None,
+        sandbox_environment_id: str | None = None,
+        internal: bool = False,
+        output_schema: type[BaseModel] | dict | None = None,
+        interaction_origin: str | None = None,
+        model: str | None = None,
+        initial_permission_mode: str | None = None,
+    ) -> "Task":
+        """Create the Task row without an initial run or workflow.
+
+        For callers that own run creation themselves — e.g. the sandbox warm path
+        (`products/tasks/backend/services/warm.py`), which creates the first run with its
+        own state. The run `extra_state` assembled by `_build_task` is discarded here.
+        """
+        task, _ = Task._build_task(
+            team=team,
+            title=title,
+            description=description,
+            origin_product=origin_product,
+            user_id=user_id,
+            repository=repository,
+            slack_thread_context=slack_thread_context,
+            slack_thread_url=slack_thread_url,
+            branch=branch,
+            signal_report_id=signal_report_id,
+            sandbox_environment_id=sandbox_environment_id,
+            internal=internal,
+            output_schema=output_schema,
+            interaction_origin=interaction_origin,
+            model=model,
+            initial_permission_mode=initial_permission_mode,
+        )
+        return task
+
+    @staticmethod
+    def create_and_run(
+        *,
+        team: Team,
+        title: str,
+        description: str,
+        origin_product: "Task.OriginProduct",
+        user_id: int,  # Will be used to validate the tasks feature flag and create a personal api key for interacting with PostHog.
+        repository: str | None = None,  # Format: "organization/repository", e.g. "posthog/posthog-js"
+        create_pr: bool = True,
+        mode: str = "background",
+        slack_thread_context: Optional["SlackThreadContext"] = None,
+        slack_thread_url: str | None = None,
+        start_workflow: bool = True,
+        posthog_mcp_scopes: PosthogMcpScopes = "full",
+        branch: str | None = None,
+        signal_report_id: str | None = None,
+        sandbox_environment_id: str | None = None,
+        internal: bool = False,
+        output_schema: type[BaseModel] | dict | None = None,
+        interaction_origin: str | None = None,
+        model: str | None = None,
+        initial_permission_mode: str | None = None,
+    ) -> "Task":
+        from products.tasks.backend.temporal.client import execute_task_processing_workflow
+
+        task, extra_state = Task._build_task(
+            team=team,
+            title=title,
+            description=description,
+            origin_product=origin_product,
+            user_id=user_id,
+            repository=repository,
+            slack_thread_context=slack_thread_context,
+            slack_thread_url=slack_thread_url,
+            branch=branch,
+            signal_report_id=signal_report_id,
+            sandbox_environment_id=sandbox_environment_id,
+            internal=internal,
+            output_schema=output_schema,
+            interaction_origin=interaction_origin,
+            model=model,
+            initial_permission_mode=initial_permission_mode,
+        )
 
         task_run = task.create_run(mode=mode, extra_state=extra_state or None, branch=branch)
 

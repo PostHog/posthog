@@ -37,6 +37,7 @@ from products.posthog_ai.backend.wire_types import UnknownFrame, is_user_message
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.services.agent_command import send_cancel
 from products.tasks.backend.services.connection_token import create_sandbox_connection_token
+from products.tasks.backend.services.warm import SandboxWarmer
 from products.tasks.backend.temporal.client import execute_task_processing_workflow, signal_task_followup_message
 
 logger = structlog.get_logger(__name__)
@@ -113,11 +114,6 @@ class MessageRoutingService(BaseSandboxService):
 
     # Run statuses that accept a follow-up signal without creating a successor Run.
     _IN_PROGRESS_STATUSES: frozenset[str] = frozenset({TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS})
-
-    # Caps on concurrent non-terminal sandbox Runs reachable via prewarm, bounding resource use
-    # from repeated warm / re-warm calls. Message-sending paths are separately quota-gated.
-    _PREWARM_MAX_PER_USER: int = 2
-    _PREWARM_MAX_PER_ORG: int = 10
 
     def __init__(self, conversation: "Conversation", user: User) -> None:
         super().__init__(team=conversation.team, user=user)
@@ -215,13 +211,17 @@ class MessageRoutingService(BaseSandboxService):
         command. When the user submits, `handle` finds the Run in-progress and
         routes through the follow-up branch.
 
-        Serialized per conversation under the same row lock as a terminal resume, so
-        two tabs warming the same conversation cannot create two Runs. Idempotent: a
-        non-terminal current Run is a no-op. Capped per user and per org.
+        Ensures the conversation's Task exists under the row lock (so two tabs can't
+        create two Tasks), then hands provisioning to the shared `SandboxWarmer`,
+        which enforces the AI-credit quota and the warm-pool cap, serializes on the
+        Task row, and dispatches the workflow after commit. Idempotent: a non-terminal
+        current Run is a no-op.
         """
-        # Best-effort capacity guard. Counts cross-conversation runs that this conversation's row
-        # lock can't serialize anyway, so check it before taking the lock to keep the lock narrow.
-        if self._prewarm_at_capacity():
+        # Gate before creating the Task: an over-quota or over-cap warm must not leave the conversation
+        # with a runless Task that the next message can't continue. `SandboxWarmer.warm` re-checks both
+        # (a cheap cached read + a state query) so it stays self-contained for any future caller.
+        SandboxWarmer.enforce_quota(Task.OriginProduct.POSTHOG_AI, self.team, self.user)
+        if SandboxWarmer.at_capacity(Task.OriginProduct.POSTHOG_AI, self.team, self.user):
             logger.info(
                 "sandbox_prewarm_capacity_reached",
                 conversation_id=str(self.conversation.id),
@@ -231,49 +231,38 @@ class MessageRoutingService(BaseSandboxService):
 
         system_prompt = PromptService(self.team, self.user).build()
 
-        # Decide + write the warm Run under the conversation lock; start the workflow only
-        # after it commits so a rollback can't leave an orphaned sandbox.
-        dispatch: tuple[str, str] | None = None
         with lock_conversation_for_followup(str(self.conversation.id), self.team.pk) as locked:
             current_run = locked.current_run
             if current_run is not None and current_run.status in self._IN_PROGRESS_STATUSES:
+                # A non-terminal Run already exists (warm or active) — nothing to warm.
                 return
-            if locked.task_id is None:
-                dispatch = self._prewarm_first(locked, system_prompt)
-            else:
-                dispatch = self._prewarm_rewarm(locked, current_run, system_prompt)
+            task = locked.task
+            if task is None:
+                task = Task.create_without_run(
+                    team=self.team,
+                    title="",
+                    description="",
+                    origin_product=Task.OriginProduct.POSTHOG_AI,
+                    user_id=self.user.pk,
+                    repository=None,
+                )
+                locked.task = task
+                locked.save(update_fields=["task", "updated_at"])
 
-        if dispatch is None:
-            return
-        task_id, run_id = dispatch
-        execute_task_processing_workflow(
-            task_id=task_id,
-            run_id=run_id,
-            team_id=self.team.id,
-            user_id=self.user.pk,
-            create_pr=False,
-            posthog_mcp_scopes="full",
-        )
-
-    def _prewarm_at_capacity(self) -> bool:
-        """True if the user or org already holds the max concurrent warm sandboxes.
-
-        Counts non-terminal PostHog AI Runs (queued / in-progress) across the user and the
-        org so a POST/DELETE re-warm loop can't spin up unbounded sandboxes. The cross-
-        conversation count isn't serialized, so it may overshoot slightly under heavy
-        concurrency — acceptable for a best-effort resource guard.
-        """
-        non_terminal = TaskRun.objects.filter(
-            task__origin_product=Task.OriginProduct.POSTHOG_AI,
-            status__in=self._IN_PROGRESS_STATUSES,
-        ).exclude(task__deleted=True)
-
-        if non_terminal.filter(task__created_by_id=self.user.pk).count() >= self._PREWARM_MAX_PER_USER:
-            return True
-        return (
-            non_terminal.filter(task__team__organization_id=self.team.organization_id).count()
-            >= self._PREWARM_MAX_PER_ORG
-        )
+        # Conversation lock released. `SandboxWarmer` provisions under its own Task-row lock and
+        # dispatches the workflow on commit; `systemPrompt` is the one PostHog AI-specific Run-state key
+        # the generic warmer can't know.
+        try:
+            SandboxWarmer(task, user=self.user).warm(extra_state={"systemPrompt": system_prompt})
+        except exceptions.Throttled:
+            # Warm-pool cap reached. Prewarm is best-effort (fire-and-forget from the composer), so a
+            # full pool is a silent no-op rather than a surfaced 429. The AI-credit quota (402) still
+            # propagates — it is enforced above, before the Task is created.
+            logger.info(
+                "sandbox_prewarm_capacity_reached",
+                conversation_id=str(self.conversation.id),
+                user_id=self.user.pk,
+            )
 
     def prewarm_release(self) -> None:
         """Release a warm Run if the user abandons the input.
@@ -306,73 +295,6 @@ class MessageRoutingService(BaseSandboxService):
             return None
         distinct_id = self.user.distinct_id or f"user_{self.user.id}"
         return create_sandbox_connection_token(run, user_id=self.user.id, distinct_id=distinct_id)
-
-    def _prewarm_first(self, conversation: "Conversation", system_prompt: str) -> tuple[str, str]:
-        """First warm — create the Task + Run, mirroring `_handle_first_message`
-        but without a pending user message or attached context.
-
-        DB writes only; runs inside the caller's conversation lock. Returns the
-        `(task_id, run_id)` the caller starts the workflow against after commit.
-        """
-        task = Task.create_and_run(
-            team=self.team,
-            title="",
-            description="",
-            origin_product=Task.OriginProduct.POSTHOG_AI,
-            user_id=self.user.pk,
-            repository=None,
-            create_pr=False,
-            mode="interactive",
-            # Defer the workflow so the initial run state can carry the PostHog AI keys.
-            start_workflow=False,
-        )
-
-        task_run = task.latest_run
-        if task_run is None:
-            raise exceptions.ValidationError("Failed to create sandbox prewarm run.")
-
-        # No pending_user_message / attached_context: the session idles awaiting input.
-        # `exclude_unset` keeps the merge to exactly these keys so model defaults don't leak.
-        ph_state = PostHogAIRunState(
-            system_prompt=system_prompt,
-            initial_permission_mode="default",
-            await_user_message=True,
-        )
-        run_state: dict[str, Any] = dict(task_run.state or {})
-        run_state.update(ph_state.model_dump(mode="json", by_alias=True, exclude_unset=True))
-        task_run.state = run_state
-        task_run.save(update_fields=["state"])
-        conversation.task = task
-        conversation.save(update_fields=["task", "updated_at"])
-        return str(task.id), str(task_run.id)
-
-    def _prewarm_rewarm(
-        self, conversation: "Conversation", current_run: "TaskRun | None", system_prompt: str
-    ) -> tuple[str, str] | None:
-        """Re-warm on an existing Task whose current Run is terminal.
-
-        Creates a fresh successor Run carrying the prior Run's snapshot so the warm
-        session reuses the filesystem. DB writes only; runs inside the caller's
-        conversation lock. Returns the `(task_id, run_id)` to start after commit.
-        """
-        task = conversation.task
-        if task is None:
-            return None
-
-        ph_state = PostHogAIRunState(
-            system_prompt=system_prompt,
-            initial_permission_mode="default",
-            await_user_message=True,
-        )
-        extra_state: dict[str, Any] = ph_state.model_dump(mode="json", by_alias=True, exclude_unset=True)
-        if current_run is not None:
-            extra_state["resume_from_run_id"] = str(current_run.id)
-            snapshot_external_id = (current_run.state or {}).get("snapshot_external_id")
-            if snapshot_external_id:
-                extra_state["snapshot_external_id"] = snapshot_external_id
-
-        new_run = task.create_run(mode="interactive", extra_state=extra_state)
-        return str(task.id), str(new_run.id)
 
     def _handle_first_message(
         self,
@@ -506,6 +428,15 @@ class MessageRoutingService(BaseSandboxService):
                 error=str(e),
             )
             raise Conflict("The sandbox run is no longer accepting messages. Please try again.") from e
+
+        # The Run has received its first human message, so it is no longer speculative — drop the
+        # warm flag so the warm-pool cap stops counting it (it's now an active Run governed by AI
+        # credits). Best-effort: a failure only over-counts the warm pool until the Run terminates,
+        # and the key is simply absent on Runs that were never warm (the remove is then a no-op).
+        try:
+            TaskRun.update_state_atomic(run.id, remove_keys=["await_user_message"])
+        except Exception as e:
+            logger.warning("sandbox_followup_activation_flip_failed", run_id=str(run.id), error=str(e))
 
         try:
             # Persist only after the signal was accepted, so the log never records a message the

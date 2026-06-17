@@ -29,6 +29,7 @@ from posthog.schema import (
     SpendHistoryItem,
 )
 
+from posthog.exceptions import QuotaLimitExceeded
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.rate_limit import AIBurstRateThrottle
@@ -1431,17 +1432,17 @@ class TestConversationSandboxRoute(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         m_service.assert_not_called()
 
-    def test_prewarm_post_blocked_when_quota_limited(self):
+    def test_prewarm_post_surfaces_quota_error_from_service(self):
+        # The AI-credit gate now lives inside warm_run (which prewarm() delegates to); the action just
+        # surfaces the resulting QuotaLimitExceeded as a 402.
         conversation = self._sandbox_conversation()
-        with (
-            patch("ee.api.conversation.is_team_limited", return_value=True),
-            patch("ee.api.conversation.MessageRoutingService") as m_service,
-        ):
+        with patch("ee.api.conversation.MessageRoutingService") as m_service:
+            m_service.return_value.prewarm.side_effect = QuotaLimitExceeded("over limit")
             response = self.client.post(
                 f"/api/environments/{self.team.id}/conversations/{conversation.id}/prewarm/",
             )
         self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
-        m_service.return_value.prewarm.assert_not_called()
+        m_service.return_value.prewarm.assert_called_once()
 
     def test_prewarm_release_is_not_quota_gated(self):
         # Releasing frees a sandbox — a quota-limited team must still be able to do it.

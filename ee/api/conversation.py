@@ -795,14 +795,8 @@ class ConversationViewSet(
         if request.method == "DELETE":
             service.prewarm_release()
         else:
-            # Same billing gate as message-sending — warming launches a Run, so a quota-limited
-            # team must not be able to keep provisioning sandboxes via prewarm.
-            if is_team_limited(
-                self.team.api_token, QuotaResource.AI_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
-            ):
-                raise QuotaLimitExceeded(
-                    "Your organization reached its AI credit usage limit. Increase the limits in Billing settings, or ask an org admin to do so."
-                )
+            # The AI-credit quota gate and the warm-pool cap now live inside `warm_run`, which
+            # `prewarm()` delegates to; the HTTP-layer AI rate throttle stays in `check_throttles`.
             service.prewarm()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
