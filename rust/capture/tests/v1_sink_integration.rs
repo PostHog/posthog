@@ -24,9 +24,25 @@ use capture::v1::sinks::event::Event;
 use capture::v1::sinks::kafka::producer::KafkaProducer;
 use capture::v1::sinks::kafka::KafkaSink;
 use capture::v1::sinks::sink::Sink;
-use capture::v1::sinks::types::Outcome;
+use capture::v1::sinks::types::{Outcome, PreparedEvent};
 use capture::v1::sinks::{Config, SinkName};
 use capture::v1::test_utils::{self, WrappedEventMut};
+
+/// Serialize events into `PreparedEvent`s the way `serialize_batch` does, but
+/// borrowing so the original events stay available for post-publish assertions.
+fn prepared(events: &[&(dyn Event + Send + Sync)], ctx: &RequestContext) -> Vec<PreparedEvent> {
+    events
+        .iter()
+        .filter(|e| e.should_publish())
+        .map(|e| PreparedEvent {
+            uuid: e.uuid(),
+            destination: e.destination().clone(),
+            payload: e.serialize(ctx).expect("test payload must serialize"),
+            headers: e.headers(ctx),
+            partition_key: e.partition_key(ctx),
+        })
+        .collect()
+}
 
 fn v1_kafka_config(topic: &str) -> capture::v1::sinks::kafka::config::Config {
     let env: std::collections::HashMap<String, String> = [
@@ -103,7 +119,7 @@ async fn v1_single_pageview_round_trip() -> Result<()> {
     let wrapped = test_utils::realistic_pageview("integ-user-1");
     let events: Vec<&(dyn Event + Send + Sync)> = vec![&wrapped];
 
-    let results = sink.publish_batch(&ctx, &events).await;
+    let results = sink.publish_batch(&ctx, &prepared(&events, &ctx)).await;
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].key(), wrapped.uuid);
@@ -144,7 +160,7 @@ async fn v1_batch_round_trip() -> Result<()> {
     let batch = test_utils::realistic_batch();
     let events: Vec<&(dyn Event + Send + Sync)> = vec![&batch[0], &batch[1], &batch[2]];
 
-    let results = sink.publish_batch(&ctx, &events).await;
+    let results = sink.publish_batch(&ctx, &prepared(&events, &ctx)).await;
 
     assert_eq!(results.len(), 3);
     for r in &results {
@@ -185,7 +201,7 @@ async fn v1_kafka_headers_round_trip() -> Result<()> {
     let wrapped = test_utils::realistic_pageview("integ-user-headers");
     let events: Vec<&(dyn Event + Send + Sync)> = vec![&wrapped];
 
-    let results = sink.publish_batch(&ctx, &events).await;
+    let results = sink.publish_batch(&ctx, &prepared(&events, &ctx)).await;
     assert_eq!(results[0].outcome(), Outcome::Success);
 
     let (_event_json, headers) = topic.next_message_with_headers()?;
@@ -219,7 +235,7 @@ async fn v1_partition_key_round_trip() -> Result<()> {
     let wrapped = test_utils::realistic_pageview("integ-user-pkey");
     let events: Vec<&(dyn Event + Send + Sync)> = vec![&wrapped];
 
-    let results = sink.publish_batch(&ctx, &events).await;
+    let results = sink.publish_batch(&ctx, &prepared(&events, &ctx)).await;
     assert_eq!(results[0].outcome(), Outcome::Success);
 
     let key = topic.next_message_key()?;
@@ -248,7 +264,7 @@ async fn v1_dropped_event_not_published() -> Result<()> {
     );
     let events: Vec<&(dyn Event + Send + Sync)> = vec![&wrapped];
 
-    let results = sink.publish_batch(&ctx, &events).await;
+    let results = sink.publish_batch(&ctx, &prepared(&events, &ctx)).await;
     assert!(results.is_empty());
 
     topic.assert_empty();
@@ -274,7 +290,7 @@ async fn v1_exception_event_round_trip() -> Result<()> {
     wrapped.destination = capture::v1::sinks::Destination::ExceptionErrorTracking;
 
     let events: Vec<&(dyn Event + Send + Sync)> = vec![&wrapped];
-    let results = sink.publish_batch(&ctx, &events).await;
+    let results = sink.publish_batch(&ctx, &prepared(&events, &ctx)).await;
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].outcome(), Outcome::Success);
 
@@ -307,7 +323,7 @@ async fn v1_cookieless_mode_partition_key() -> Result<()> {
     wrapped.event.options.cookieless_mode = Some(true);
 
     let events: Vec<&(dyn Event + Send + Sync)> = vec![&wrapped];
-    let results = sink.publish_batch(&ctx, &events).await;
+    let results = sink.publish_batch(&ctx, &prepared(&events, &ctx)).await;
     assert_eq!(results[0].outcome(), Outcome::Success);
 
     let key = topic.next_message_key()?;
@@ -345,7 +361,7 @@ async fn v1_all_options_property_injection() -> Result<()> {
     wrapped.event.window_id = Some("win-opt-test".to_string());
 
     let events: Vec<&(dyn Event + Send + Sync)> = vec![&wrapped];
-    let results = sink.publish_batch(&ctx, &events).await;
+    let results = sink.publish_batch(&ctx, &prepared(&events, &ctx)).await;
     assert_eq!(results[0].outcome(), Outcome::Success);
 
     let event_json = topic.next_event()?;
@@ -388,7 +404,7 @@ async fn v1_empty_options_no_injection() -> Result<()> {
     wrapped.event.window_id = None;
 
     let events: Vec<&(dyn Event + Send + Sync)> = vec![&wrapped];
-    let results = sink.publish_batch(&ctx, &events).await;
+    let results = sink.publish_batch(&ctx, &prepared(&events, &ctx)).await;
     assert_eq!(results[0].outcome(), Outcome::Success);
 
     let event_json = topic.next_event()?;
@@ -424,7 +440,7 @@ async fn v1_multi_destination_batch() -> Result<()> {
         .with_destination(capture::v1::sinks::Destination::Overflow);
 
     let events: Vec<&(dyn Event + Send + Sync)> = vec![&main_ev, &hist_ev, &overflow_ev];
-    let results = sink.publish_batch(&ctx, &events).await;
+    let results = sink.publish_batch(&ctx, &prepared(&events, &ctx)).await;
     assert_eq!(results.len(), 3);
     for r in &results {
         assert_eq!(r.outcome(), Outcome::Success);
