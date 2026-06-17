@@ -82,6 +82,7 @@ const preview: Preview = {
 
             useEffect(() => {
                 document.body.classList.toggle('is-desktop', isDesktop)
+                return () => document.body.classList.remove('is-desktop')
             }, [isDesktop])
 
             return <Story />
