@@ -93,6 +93,41 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         alerts = self.client.get(f"/api/projects/{self.team.id}/alerts")
         assert len(alerts.json()["results"]) == 0
 
+    def test_alert_rejects_insight_without_viewer_access(self) -> None:
+        # Alert write access must not let a user reference an insight they can't view — otherwise
+        # they could exfiltrate a restricted insight's results via notifications / check history.
+        def deny_insight(obj=None, *args, **kwargs) -> bool:
+            return type(obj).__name__ != "Insight"
+
+        creation_request = {
+            "insight": self.insight["id"],
+            "subscribed_users": [self.user.id],
+            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+            "config": {"type": "TrendsAlertConfig", "series_index": 0},
+            "name": "alert name",
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
+            "calculation_interval": "daily",
+        }
+        # An alert created while access is allowed, so we can test the insight-swap update vector.
+        alert_id = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()["id"]
+
+        with mock.patch(
+            "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_object",
+            side_effect=deny_insight,
+        ):
+            create = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request)
+            update = self.client.patch(
+                f"/api/projects/{self.team.id}/alerts/{alert_id}", {"insight": self.insight["id"]}
+            )
+            simulate = self.client.post(
+                f"/api/projects/{self.team.id}/alerts/simulate/",
+                {"insight": self.insight["id"], "detector_config": {"type": "zscore", "threshold": 0.9}},
+            )
+
+        for response in (create, update, simulate):
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+            assert "access to this insight" in str(response.json())
+
     def test_create_threshold_alert_rejects_empty_bounds(self) -> None:
         creation_request = {
             "insight": self.insight["id"],

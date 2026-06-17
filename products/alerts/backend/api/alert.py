@@ -1,5 +1,5 @@
 import uuid
-from typing import Annotated
+from typing import Annotated, Any
 from zoneinfo import ZoneInfo
 
 from django.db.models import OuterRef, QuerySet, Subquery
@@ -59,6 +59,13 @@ def _validate_every_15_minutes_interval(
         organization=organization,
     ):
         raise ValidationError({"calculation_interval": [error]})
+
+
+def _require_insight_viewer_access(context: dict[str, Any], insight: Insight) -> None:
+    # Team scoping alone doesn't gate per-object insight access controls, so require viewer access
+    # explicitly — alert write/simulate access must not expose a restricted insight's results.
+    if not context["view"].user_access_control.check_access_level_for_object(insight, "viewer"):
+        raise ValidationError("Viewer access to this insight is required.")
 
 
 @extend_schema_field(InsightThreshold)  # type: ignore[arg-type]
@@ -522,6 +529,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
     def validate_insight(self, value):
         if not value:
             return value
+        _require_insight_viewer_access(self.context, value)
         # The SQL feature flag is enforced here, at the boundary that creates the alert — the model
         # stays flag-agnostic so existing alerts keep working when the flag is off.
         kind = value.alertable_query_kind
@@ -681,6 +689,10 @@ class AlertSimulateSerializer(serializers.Serializer):
         help_text="Relative date string for how far back to simulate (e.g. '-24h', '-30d', '-4w'). "
         "If not provided, uses the detector's minimum required samples.",
     )
+
+    def validate_insight(self, value):
+        _require_insight_viewer_access(self.context, value)
+        return value
 
     def validate_detector_config(self, value):
         if value is None:
