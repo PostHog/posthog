@@ -85,7 +85,9 @@ const COALESCED_TEAMS: &str = "flags_cache_builder_coalesced_teams";
 const E2E_LATENCY_BUCKETS: &[f64] = &[0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0];
 /// Seconds buckets for the build-duration histogram. Our histograms are
 /// seconds-shaped, so both are overridden off `common_metrics`' ms-shaped default.
-const BUILD_DURATION_BUCKETS: &[f64] = &[0.005, 0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0];
+const BUILD_DURATION_BUCKETS: &[f64] = &[
+    0.005, 0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0,
+];
 
 /// `product` global label for per-product metric cost attribution.
 const METRICS_PRODUCT: &str = "feature_flags";
@@ -146,13 +148,35 @@ struct BuilderConfig {
     dlq_topic: String,
 }
 
-/// All offsets and timing for a single team's coalesced invalidations.
-struct TeamBatch {
-    offsets: Vec<Offset>,
+/// All offsets and timing for a single team's coalesced invalidations. Generic
+/// over the offset type so the coalescing logic stays testable without
+/// constructing `Offset` values (which have no public constructor).
+struct TeamBatch<O = Offset> {
+    offsets: Vec<O>,
     /// Oldest `emitted_at` across the coalesced messages — the worst-case
     /// staleness the build resolves, which is what end-to-end latency measures.
     /// Also stamps the DLQ message if the build ultimately fails.
     oldest_emitted_at: DateTime<Utc>,
+}
+
+impl<O> TeamBatch<O> {
+    /// Fold one coalesced message into the per-team map: append its offset and
+    /// keep the oldest `emitted_at` seen for the team, regardless of arrival order.
+    fn fold_into(
+        by_team: &mut HashMap<TeamId, TeamBatch<O>>,
+        team_id: TeamId,
+        emitted_at: DateTime<Utc>,
+        offset: O,
+    ) {
+        let entry = by_team.entry(team_id).or_insert_with(|| TeamBatch {
+            offsets: Vec::new(),
+            oldest_emitted_at: emitted_at,
+        });
+        if emitted_at < entry.oldest_emitted_at {
+            entry.oldest_emitted_at = emitted_at;
+        }
+        entry.offsets.push(offset);
+    }
 }
 
 #[tokio::main]
@@ -382,14 +406,7 @@ fn coalesce_batch(
         match result {
             Ok((msg, offset)) => {
                 received += 1;
-                let entry = by_team.entry(msg.team_id).or_insert_with(|| TeamBatch {
-                    offsets: Vec::new(),
-                    oldest_emitted_at: msg.emitted_at,
-                });
-                if msg.emitted_at < entry.oldest_emitted_at {
-                    entry.oldest_emitted_at = msg.emitted_at;
-                }
-                entry.offsets.push(offset);
+                TeamBatch::fold_into(&mut by_team, msg.team_id, msg.emitted_at, offset);
             }
             // A receive error is a broker/transport problem, not a bad message:
             // nothing was consumed and no offset was stored. Track it apart from
@@ -472,9 +489,7 @@ async fn build_with_retry(
                     return Err(e.to_string());
                 }
                 metrics::counter!(BUILD_RETRIES).increment(1);
-                let backoff = Duration::from_millis(
-                    RETRY_BASE_MS.saturating_mul(RETRY_BACKOFF_MULTIPLIER.pow(attempt - 1)),
-                );
+                let backoff = retry_backoff(attempt);
                 tracing::warn!(
                     team_id,
                     attempt,
@@ -486,6 +501,15 @@ async fn build_with_retry(
             }
         }
     }
+}
+
+/// Backoff before the `attempt`-th retry (1-indexed): `base · multiplier^(attempt-1)`,
+/// i.e. 200ms, 800ms, … `saturating_pow`/`saturating_mul` keep an unusually high
+/// `build_max_attempts` from overflowing rather than panicking in debug.
+fn retry_backoff(attempt: u32) -> Duration {
+    Duration::from_millis(
+        RETRY_BASE_MS.saturating_mul(RETRY_BACKOFF_MULTIPLIER.saturating_pow(attempt - 1)),
+    )
 }
 
 async fn build_once(
@@ -678,13 +702,93 @@ fn spawn_metrics_server(
 
 #[cfg(test)]
 mod tests {
-    use super::max_per_partition;
+    use std::collections::HashMap;
+
+    use chrono::{DateTime, TimeZone, Utc};
+
+    use super::{
+        max_per_partition, retry_backoff, truncate_for_header, TeamBatch, DLQ_ERROR_HEADER_MAX,
+    };
 
     // (partition, offset) pairs; keyed and valued by the two fields.
     fn reduce(items: Vec<(i32, i64)>) -> Vec<(i32, i64)> {
         let mut out = max_per_partition(items, |&(p, _)| p, |&(_, o)| o);
         out.sort_unstable();
         out
+    }
+
+    fn ts(secs: i64) -> DateTime<Utc> {
+        Utc.timestamp_opt(secs, 0)
+            .single()
+            .expect("valid timestamp")
+    }
+
+    /// Fold a list of (team_id, emitted_at, offset) into per-team batches via the
+    /// same `TeamBatch::fold_into` the consumer uses. Offset type is `u64` here —
+    /// the production `Offset` has no public constructor, which is why the helper
+    /// is generic.
+    fn coalesce(items: Vec<(i32, DateTime<Utc>, u64)>) -> HashMap<i32, (DateTime<Utc>, Vec<u64>)> {
+        let mut by_team: HashMap<i32, TeamBatch<u64>> = HashMap::new();
+        for (team_id, emitted_at, offset) in items {
+            TeamBatch::fold_into(&mut by_team, team_id, emitted_at, offset);
+        }
+        by_team
+            .into_iter()
+            .map(|(team, batch)| (team, (batch.oldest_emitted_at, batch.offsets)))
+            .collect()
+    }
+
+    #[test]
+    fn coalesce_keeps_oldest_emitted_at_regardless_of_arrival_order() {
+        // Same team, timestamps arriving newest-first: the oldest must still win,
+        // since that worst-case staleness is what the e2e-latency metric measures.
+        let got = coalesce(vec![(7, ts(300), 0), (7, ts(100), 1), (7, ts(200), 2)]);
+        let (oldest, offsets) = &got[&7];
+        assert_eq!(*oldest, ts(100));
+        assert_eq!(offsets, &vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn coalesce_groups_offsets_per_team() {
+        let got = coalesce(vec![(1, ts(50), 10), (2, ts(60), 20), (1, ts(40), 11)]);
+        assert_eq!(got.len(), 2);
+        assert_eq!(got[&1].0, ts(40));
+        assert_eq!(got[&1].1, vec![10, 11]);
+        assert_eq!(got[&2].0, ts(60));
+        assert_eq!(got[&2].1, vec![20]);
+    }
+
+    #[test]
+    fn retry_backoff_follows_documented_schedule() {
+        // 200ms · 4^(n-1): the first two retries are the 200ms / 800ms the module
+        // doc and PR describe.
+        assert_eq!(retry_backoff(1).as_millis(), 200);
+        assert_eq!(retry_backoff(2).as_millis(), 800);
+        assert_eq!(retry_backoff(3).as_millis(), 3200);
+    }
+
+    #[test]
+    fn retry_backoff_saturates_instead_of_overflowing() {
+        // A large `build_max_attempts` must not panic on the exponent — the
+        // multiplier saturates to u64::MAX, capping the sleep rather than wrapping.
+        assert_eq!(retry_backoff(u32::MAX).as_millis(), u64::MAX as u128);
+    }
+
+    #[test]
+    fn truncate_for_header_passes_short_errors_through() {
+        assert_eq!(truncate_for_header("boom"), "boom");
+    }
+
+    #[test]
+    fn truncate_for_header_stays_within_cap_on_char_boundary() {
+        // Multibyte chars (3 bytes each) so the cap lands mid-character: the
+        // truncation must back up to a char boundary and stay valid UTF-8.
+        let long = "✓".repeat(DLQ_ERROR_HEADER_MAX); // 3 · 1024 bytes, well over the cap
+        let got = truncate_for_header(&long);
+        assert!(got.len() <= DLQ_ERROR_HEADER_MAX, "exceeded byte cap");
+        assert!(got.ends_with('…'), "missing truncation marker");
+        // `String` is UTF-8 by construction; reaching here without a slice panic is
+        // the real assertion.
     }
 
     #[test]
