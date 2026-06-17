@@ -509,15 +509,9 @@ export namespace Schemas {
     }
 
     export interface AccountsQuery {
-      /** Match accounts whose account executive is any of these user ids (OR semantics). */
-      accountExecutive?: number[] | null;
-      /** Match accounts whose account owner is any of these user ids (OR semantics). */
-      accountOwner?: number[] | null;
       allRolesUnassigned?: boolean | null;
       /** Match accounts where any of these user ids is the CSM or the account executive (OR over both roles). Drives the "My accounts" shortcut (the current user's id) and the shareable "Assigned to" filter — the ids are explicit so a shared URL resolves identically for every viewer. */
       assignedToUserIds?: number[] | null;
-      /** Match accounts whose CSM is any of these user ids (OR semantics). */
-      csm?: number[] | null;
       /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
       filterExpression?: string | null;
       kind?: 'AccountsQuery';
@@ -8225,6 +8219,7 @@ export namespace Schemas {
      * * `p95` - p95
      * * `rate` - rate
      * * `increase` - increase
+     * * `histogram_quantile` - histogram_quantile
      */
     export type AggregationEnum = typeof AggregationEnum[keyof typeof AggregationEnum];
 
@@ -8236,6 +8231,7 @@ export namespace Schemas {
       P95: 'p95',
       Rate: 'rate',
       Increase: 'increase',
+      HistogramQuantile: 'histogram_quantile',
     } as const;
 
     export interface InsightsThresholdBounds {
@@ -12556,12 +12552,15 @@ export namespace Schemas {
       columns?: string[];
       /** @maxLength 255 */
       name?: string;
+      /** Column filter state persisted with this view configuration. */
       filters?: unknown;
       /**
          * Ordered list of HogQL expressions describing the table sort. Null preserves the current sort on apply (legacy rows); an empty list explicitly means no sort.
          * @nullable
          */
       order_by?: string[] | null;
+      /** Product-specific view state that does not fit the columnar fields (e.g. Customer analytics overview tiles and column display). */
+      properties?: unknown;
       visibility?: VisibilityEnum;
       /** @nullable */
       readonly created_by: number | null;
@@ -15120,6 +15119,7 @@ export namespace Schemas {
      * * `WikipediaPageviews` - WikipediaPageviews
      * * `YahooFinance` - YahooFinance
      * * `Clarifai` - Clarifai
+     * * `Adapty` - Adapty
      * * `Custom` - Custom
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
@@ -15745,6 +15745,7 @@ export namespace Schemas {
       WikipediaPageviews: 'WikipediaPageviews',
       YahooFinance: 'YahooFinance',
       Clarifai: 'Clarifai',
+      Adapty: 'Adapty',
       Custom: 'Custom',
     } as const;
 
@@ -16377,6 +16378,7 @@ export namespace Schemas {
        * * `WikipediaPageviews` - WikipediaPageviews
        * * `YahooFinance` - YahooFinance
        * * `Clarifai` - Clarifai
+       * * `Adapty` - Adapty
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
     }
@@ -16516,8 +16518,10 @@ export namespace Schemas {
     }
 
     export interface DeprovisionWarehouseResponse {
+      /** Deprovisioning lifecycle message, e.g. 'deprovisioning started' */
       status: string;
-      team: string;
+      /** duckgres org identifier (the PostHog organization id) */
+      org: string;
     }
 
     /**
@@ -16531,6 +16535,59 @@ export namespace Schemas {
       Html: 'html',
       Text: 'text',
     } as const;
+
+    /**
+     * * `update_content` - update_content
+     * * `update_column` - update_column
+     * * `update_row` - update_row
+     * * `update_body` - update_body
+     * * `add_content` - add_content
+     * * `remove_content` - remove_content
+     * * `move_content` - move_content
+     * * `add_row` - add_row
+     * * `remove_row` - remove_row
+     */
+    export type EmailTemplateDesignOperationEnum = typeof EmailTemplateDesignOperationEnum[keyof typeof EmailTemplateDesignOperationEnum];
+
+
+    export const EmailTemplateDesignOperationEnum = {
+      UpdateContent: 'update_content',
+      UpdateColumn: 'update_column',
+      UpdateRow: 'update_row',
+      UpdateBody: 'update_body',
+      AddContent: 'add_content',
+      RemoveContent: 'remove_content',
+      MoveContent: 'move_content',
+      AddRow: 'add_row',
+      RemoveRow: 'remove_row',
+    } as const;
+
+    export interface DesignOperation {
+      /** Design edit. update_content {id, patch}: deep-merge patch into the content block's fields (a null leaf deletes that key) — the surgical path, e.g. change just values.text. update_row / update_column {id, patch} and update_body {patch}: same deep-merge for row/column/body-level settings. add_content {column_id, content, index?}: insert a content block into a column (id and Unlayer numbering are filled in for you). remove_content {id} / move_content {id, column_id, index?}: delete or relocate a block. add_row {row, index?} / remove_row {id}: add or delete a row.
+       *
+       * * `update_content` - update_content
+       * * `update_column` - update_column
+       * * `update_row` - update_row
+       * * `update_body` - update_body
+       * * `add_content` - add_content
+       * * `remove_content` - remove_content
+       * * `move_content` - move_content
+       * * `add_row` - add_row
+       * * `remove_row` - remove_row */
+      op: EmailTemplateDesignOperationEnum;
+      /** Target node id. Required for update_content/column/row, remove_content, remove_row, move_content. */
+      id?: string;
+      /** Target column id. Required for add_content and move_content. */
+      column_id?: string;
+      /** update_* only. Partial fields deep-merged into the existing node; a null leaf deletes that key. e.g. {values: {text: '<p>Hi</p>'}} changes only the block's text. */
+      patch?: unknown;
+      /** add_content only. A content block {type, values: {...}}; omit id and values._meta — they're assigned server-side. type is one of text, heading, button, image, divider, html, etc. */
+      content?: unknown;
+      /** add_row only. A full row {cells, columns: [{contents: [...], values}], values}; ids and Unlayer numbering are assigned server-side for the row and everything nested in it. */
+      row?: unknown;
+      /** add_*\/move_content only. 0-based insert position; omit to append to the end. */
+      index?: number;
+    }
 
     export interface DesktopRecording {
       readonly id: string;
@@ -16722,18 +16779,6 @@ export namespace Schemas {
       checks: DiagnosticCheckResult[];
     }
 
-    /**
-     * * `Up` - Up
-     * * `Down` - Down
-     */
-    export type DirectionEnum = typeof DirectionEnum[keyof typeof DirectionEnum];
-
-
-    export const DirectionEnum = {
-      Up: 'Up',
-      Down: 'Down',
-    } as const;
-
     export type DistanceFunc = typeof DistanceFunc[keyof typeof DistanceFunc];
 
 
@@ -16849,6 +16894,18 @@ export namespace Schemas {
       has_draft: boolean;
     }
 
+    /**
+     * * `Up` - Up
+     * * `Down` - Down
+     */
+    export type WoWChangeDirectionEnum = typeof WoWChangeDirectionEnum[keyof typeof WoWChangeDirectionEnum];
+
+
+    export const WoWChangeDirectionEnum = {
+      Up: 'Up',
+      Down: 'Down',
+    } as const;
+
     export interface WoWChange {
       /** Absolute percentage change, rounded to nearest integer. */
       percent: number;
@@ -16856,7 +16913,7 @@ export namespace Schemas {
        *
        * * `Up` - Up
        * * `Down` - Down */
-      direction: DirectionEnum;
+      direction: WoWChangeDirectionEnum;
       /** Hex color indicating whether the change is a positive or negative signal. */
       color: string;
       /** Short label, e.g. 'Up 12%'. */
@@ -21095,6 +21152,7 @@ export namespace Schemas {
        * * `WikipediaPageviews` - WikipediaPageviews
        * * `YahooFinance` - YahooFinance
        * * `Clarifai` - Clarifai
+       * * `Adapty` - Adapty
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
@@ -21775,6 +21833,22 @@ export namespace Schemas {
          * @nullable
          */
       is_remote_configuration?: boolean | null;
+      /**
+         * Whether to persist a user's flag value across the anonymous-to-identified transition (the 'persist across authentication steps' option). Incompatible with device_id bucketing.
+         * @nullable
+         */
+      ensure_experience_continuity?: boolean | null;
+      /** Where this flag is allowed to evaluate: 'server' (server-side SDKs only), 'client' (client-side SDKs only), or 'all' (both). Defaults to 'all'.
+       *
+       * * `server` - Server
+       * * `client` - Client
+       * * `all` - All */
+      evaluation_runtime?: EvaluationRuntimeEnum | null;
+      /** Identifier used to bucket users into rollout percentages and variants: 'distinct_id' (user ID, the default) or 'device_id'. Using 'device_id' is incompatible with ensure_experience_continuity=True.
+       *
+       * * `distinct_id` - User ID (default)
+       * * `device_id` - Device ID */
+      bucketing_identifier?: BucketingIdentifierEnum | null;
     }
 
     export interface FeatureFlagStatusResponse {
@@ -22467,6 +22541,18 @@ export namespace Schemas {
       notes: string[];
     }
 
+    /**
+     * * `line` - line
+     * * `symbol` - symbol
+     */
+    export type GranularityEnum = typeof GranularityEnum[keyof typeof GranularityEnum];
+
+
+    export const GranularityEnum = {
+      Line: 'line',
+      Symbol: 'symbol',
+    } as const;
+
     export interface Group {
       /**
          * @minimum -2147483648
@@ -23149,6 +23235,48 @@ export namespace Schemas {
     }
 
     /**
+     * * `update_action` - update_action
+     * * `add_action` - add_action
+     * * `remove_action` - remove_action
+     * * `add_edge` - add_edge
+     * * `remove_edge` - remove_edge
+     * * `replace_action_edges` - replace_action_edges
+     */
+    export type HogFlowGraphOperationOpEnum = typeof HogFlowGraphOperationOpEnum[keyof typeof HogFlowGraphOperationOpEnum];
+
+
+    export const HogFlowGraphOperationOpEnum = {
+      UpdateAction: 'update_action',
+      AddAction: 'add_action',
+      RemoveAction: 'remove_action',
+      AddEdge: 'add_edge',
+      RemoveEdge: 'remove_edge',
+      ReplaceActionEdges: 'replace_action_edges',
+    } as const;
+
+    export interface HogFlowGraphOperation {
+      /** Graph edit. update_action {id, patch}: deep-merge patch into the action's fields (a null leaf deletes that key) — the surgical path for tweaking one config value. add_action {action}: append a full action node. remove_action {id}: delete a node and reconnect its incoming edges to its first outgoer. add_edge {edge} / remove_edge {edge}: add or delete one edge. replace_action_edges {id, edges}: replace this action's outgoing edges with the given set (use when adding/removing branch conditions); incoming edges are left intact.
+       *
+       * * `update_action` - update_action
+       * * `add_action` - add_action
+       * * `remove_action` - remove_action
+       * * `add_edge` - add_edge
+       * * `remove_edge` - remove_edge
+       * * `replace_action_edges` - replace_action_edges */
+      op: HogFlowGraphOperationOpEnum;
+      /** Action id. Required for update_action, remove_action, replace_action_edges. */
+      id?: string;
+      /** update_action only. Partial action fields, deep-merged into the existing action; a null leaf deletes that key. e.g. {config: {inputs: {subject: {value: 'Hi'}}}} changes only that input. */
+      patch?: unknown;
+      /** add_action only. A full action node {id, name, type, config, ...}; same shape as in actions. */
+      action?: unknown;
+      /** add_edge / remove_edge only. The edge {from, to, type, index?}. */
+      edge?: HogFlowEdge;
+      /** replace_action_edges only. The complete set of the action's outgoing edges; incoming edges are preserved. */
+      edges?: HogFlowEdge[];
+    }
+
+    /**
      * Test trigger payload, typically {event, person, groups}.
      */
     export type HogFlowInvocationGlobals = { [key: string]: unknown };
@@ -23160,7 +23288,7 @@ export namespace Schemas {
       globals?: HogFlowInvocationGlobals;
       /** True (default) mocks HTTP/email/SMS. False fires real side effects. */
       mock_async_functions?: boolean;
-      /** Start from this action ID instead of the trigger. */
+      /** Start execution from this action ID instead of the trigger. Each test run executes a single node and returns the next action id. */
       current_action_id?: string;
     }
 
@@ -27826,6 +27954,7 @@ export namespace Schemas {
      * * `session_summaries` - Session Summaries
      * * `signal_report` - Signal Report
      * * `signals_scout` - Signals Scout
+     * * `support_reply` - Support Reply
      */
     export type OriginProductEnum = typeof OriginProductEnum[keyof typeof OriginProductEnum];
 
@@ -27840,6 +27969,7 @@ export namespace Schemas {
       SessionSummaries: 'session_summaries',
       SignalReport: 'signal_report',
       SignalsScout: 'signals_scout',
+      SupportReply: 'support_reply',
     } as const;
 
     /**
@@ -30058,6 +30188,16 @@ export namespace Schemas {
          * @nullable
          */
       readonly already_addressed: boolean | null;
+      /**
+         * Reason code from the latest dismissal artefact, set when the report was suppressed (when present).
+         * @nullable
+         */
+      readonly dismissal_reason: string | null;
+      /**
+         * Free-form note captured alongside the dismissal reason (when present).
+         * @nullable
+         */
+      readonly dismissal_note: string | null;
       readonly is_suggested_reviewer: boolean;
       /** Distinct source products contributing signals to this report (from ClickHouse). */
       readonly source_products: readonly string[];
@@ -30088,6 +30228,7 @@ export namespace Schemas {
      * * `pganalyze` - pganalyze
      * * `signals_scout` - Signals scout
      * * `logs` - Logs
+     * * `health_checks` - Health checks
      */
     export type SourceProductEnum = typeof SourceProductEnum[keyof typeof SourceProductEnum];
 
@@ -30103,6 +30244,7 @@ export namespace Schemas {
       Pganalyze: 'pganalyze',
       SignalsScout: 'signals_scout',
       Logs: 'logs',
+      HealthChecks: 'health_checks',
     } as const;
 
     /**
@@ -30115,6 +30257,7 @@ export namespace Schemas {
      * * `issue_spiking` - Issue spiking
      * * `cross_source_issue` - Cross source issue
      * * `alert_state_change` - Alert state change
+     * * `health_issue` - Health issue
      */
     export type SignalSourceConfigSourceTypeEnum = typeof SignalSourceConfigSourceTypeEnum[keyof typeof SignalSourceConfigSourceTypeEnum];
 
@@ -30129,6 +30272,7 @@ export namespace Schemas {
       IssueSpiking: 'issue_spiking',
       CrossSourceIssue: 'cross_source_issue',
       AlertStateChange: 'alert_state_change',
+      HealthIssue: 'health_issue',
     } as const;
 
     export interface SignalSourceConfig {
@@ -31067,7 +31211,8 @@ export namespace Schemas {
        * * `support_queue` - Support Queue
        * * `session_summaries` - Session Summaries
        * * `signal_report` - Signal Report
-       * * `signals_scout` - Signals Scout */
+       * * `signals_scout` - Signals Scout
+       * * `support_reply` - Support Reply */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -32887,12 +33032,15 @@ export namespace Schemas {
       columns?: string[];
       /** @maxLength 255 */
       name?: string;
+      /** Column filter state persisted with this view configuration. */
       filters?: unknown;
       /**
          * Ordered list of HogQL expressions describing the table sort. Null preserves the current sort on apply (legacy rows); an empty list explicitly means no sort.
          * @nullable
          */
       order_by?: string[] | null;
+      /** Product-specific view state that does not fit the columnar fields (e.g. Customer analytics overview tiles and column display). */
+      properties?: unknown;
       visibility?: VisibilityEnum;
       /** @nullable */
       readonly created_by?: number | null;
@@ -33294,6 +33442,11 @@ export namespace Schemas {
       readonly updated_at?: string | null;
       readonly created_by?: UserBasic;
       readonly team?: number;
+    }
+
+    export interface PatchedDesignPatch {
+      /** Ordered edits applied atomically to a template's Unlayer design: the stored design is read, the ops are applied in order, the result is validated and re-rendered to HTML, and it's saved only if valid — otherwise the template is unchanged. Reference blocks by id so you never resend the whole design. */
+      operations?: DesignOperation[];
     }
 
     export interface PatchedDesktopRecording {
@@ -34226,6 +34379,22 @@ export namespace Schemas {
          * @nullable
          */
       is_remote_configuration?: boolean | null;
+      /**
+         * Whether to persist a user's flag value across the anonymous-to-identified transition (the 'persist across authentication steps' option). Incompatible with device_id bucketing.
+         * @nullable
+         */
+      ensure_experience_continuity?: boolean | null;
+      /** Where this flag is allowed to evaluate: 'server' (server-side SDKs only), 'client' (client-side SDKs only), or 'all' (both). Defaults to 'all'.
+       *
+       * * `server` - Server
+       * * `client` - Client
+       * * `all` - All */
+      evaluation_runtime?: EvaluationRuntimeEnum | null;
+      /** Identifier used to bucket users into rollout percentages and variants: 'distinct_id' (user ID, the default) or 'device_id'. Using 'device_id' is incompatible with ensure_experience_continuity=True.
+       *
+       * * `distinct_id` - User ID (default)
+       * * `device_id` - Device ID */
+      bucketing_identifier?: BucketingIdentifierEnum | null;
     }
 
     /**
@@ -34528,6 +34697,11 @@ export namespace Schemas {
       readonly billable_action_types?: unknown;
       /** Recurring schedules attached to this workflow (read-only here; manage via the schedules sub-resource). A batch/schedule workflow only fires when it's active AND has an active schedule. Empty for non-scheduled workflows. */
       readonly schedules?: readonly HogFlowSchedule[];
+    }
+
+    export interface PatchedHogFlowGraphUpdate {
+      /** Ordered graph edits applied atomically to a draft workflow: the stored graph is read, the ops are applied in order, the result is fully validated, and it's saved only if valid — otherwise the workflow is unchanged. Reference nodes/edges by id so you never resend the whole graph. The full updated workflow is returned. */
+      operations?: HogFlowGraphOperation[];
     }
 
     export interface PatchedHogFlowSchedule {
@@ -37914,7 +38088,8 @@ export namespace Schemas {
        * * `support_queue` - Support Queue
        * * `session_summaries` - Session Summaries
        * * `signal_report` - Signal Report
-       * * `signals_scout` - Signals Scout */
+       * * `signals_scout` - Signals Scout
+       * * `support_reply` - Support Reply */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -38736,7 +38911,7 @@ export namespace Schemas {
 
     export interface PersonSplitRequest {
       /**
-         * The distinct_id to **keep** on this person; every *other* distinct_id is moved to its own new single-id person. If omitted, the first distinct_id on the person is used and the person's properties are wiped. To surgically *remove* one or more distinct_ids while leaving the merge intact, use `distinct_ids_to_split` instead — these parameters are inverses of each other and cannot be combined.
+         * The distinct_id to **keep** on this person; every *other* distinct_id is moved to its own new single-id person. If omitted, the first distinct_id on the person is kept. The original person always retains its properties; to clear individual properties afterward, use the delete_property endpoint. To surgically *remove* one or more distinct_ids while leaving the merge intact, use `distinct_ids_to_split` instead — these parameters are inverses of each other and cannot be combined.
          * @nullable
          */
       main_distinct_id?: string | null;
@@ -40481,8 +40656,14 @@ export namespace Schemas {
     }
 
     export interface ProvisionWarehouseResponse {
+      /** Provisioning lifecycle message, e.g. 'provisioning started' */
       status: string;
-      team: string;
+      /** duckgres org identifier (the PostHog organization id) */
+      org: string;
+      /** Root database username */
+      username: string;
+      /** Root database password — returned only here at provision time and on reset-password */
+      password: string;
     }
 
     /**
@@ -44832,6 +45013,7 @@ export namespace Schemas {
        * * `WikipediaPageviews` - WikipediaPageviews
        * * `YahooFinance` - YahooFinance
        * * `Clarifai` - Clarifai
+       * * `Adapty` - Adapty
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
@@ -45490,6 +45672,7 @@ export namespace Schemas {
        * * `WikipediaPageviews` - WikipediaPageviews
        * * `YahooFinance` - YahooFinance
        * * `Clarifai` - Clarifai
+       * * `Adapty` - Adapty
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
@@ -47561,6 +47744,17 @@ export namespace Schemas {
       readonly projected_monthly_observations: number;
     }
 
+    export interface WarehouseConnection {
+      /** Connection host — the warehouse name is the SNI subdomain, e.g. my-warehouse.dw.us.postwh.com */
+      host: string;
+      /** Postgres wire-protocol port */
+      port: number;
+      /** Database to connect to — always 'ducklake' */
+      database: string;
+      /** Root database username */
+      username: string;
+    }
+
     /**
      * * `pending` - pending
      * * `provisioning` - provisioning
@@ -47582,13 +47776,38 @@ export namespace Schemas {
     } as const;
 
     export interface WarehouseStatusResponse {
-      team_name: string;
+      /** duckgres org identifier (the PostHog organization id) */
+      org_id: string;
+      /** Overall provisioning lifecycle state
+       *
+       * * `pending` - pending
+       * * `provisioning` - provisioning
+       * * `ready` - ready
+       * * `failed` - failed
+       * * `deleting` - deleting
+       * * `deleted` - deleted */
       state: WarehouseStatusResponseStateEnum;
+      /** Human-readable detail for the current state */
       status_message: string;
-      /** @nullable */
+      /** Object-store sub-resource provisioning state */
+      s3_state: string;
+      /** Metadata-store sub-resource provisioning state */
+      metadata_store_state: string;
+      /** Worker identity sub-resource provisioning state */
+      identity_state: string;
+      /** Credentials sub-resource provisioning state */
+      secrets_state: string;
+      /**
+         * When the warehouse became ready
+         * @nullable
+         */
       ready_at: string | null;
-      /** @nullable */
+      /**
+         * When provisioning failed
+         * @nullable
+         */
       failed_at: string | null;
+      connection?: WarehouseConnection | null;
     }
 
     export interface WeeklyDigestResponse {
@@ -48207,78 +48426,78 @@ export namespace Schemas {
       scope?: MetricAttributeScopeEnum;
     }
 
-    export interface _MetricGroupBy {
+    export interface _MetricAnomalyBody {
       /**
-         * Attribute name to split series by (e.g. 'k8s.pod.name', 'env').
-         * @maxLength 255
-         */
-      key: string;
-      /** Where the attribute lives; same semantics as filter scope. Use 'auto' unless you know the exact scope.
-       *
-       * * `resource` - resource
-       * * `attribute` - attribute
-       * * `auto` - auto */
-      scope?: MetricAttributeScopeEnum;
-    }
-
-    export interface _MetricName {
-      /** Metric name as it appears in the team's data. */
-      name: string;
-      /** OTel metric type (gauge, sum, histogram, summary, exponential_histogram). */
-      metric_type: string;
-    }
-
-    export interface _MetricNamesResponse {
-      /** Distinct metric names ordered by recent activity. */
-      results: _MetricName[];
-    }
-
-    export interface _MetricQueryBody {
-      /**
-         * Exact metric name to query (e.g. 'http.server.duration').
+         * Exact metric name to characterize (e.g. 'metrics_rate_limiter_message_lag_seconds').
          * @maxLength 255
          */
       metricName: string;
-      /** Aggregation applied per time bucket. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is).
+      /** Start of the suspicious window (inclusive). ISO 8601 — e.g. when the alert fired or the graph started looking wrong. */
+      anomalyFrom: string;
+      /** End of the suspicious window (exclusive). Defaults to now. */
+      anomalyTo?: string;
+      /** Start of the healthy comparison window. Defaults to one anomaly-window-length before baselineTo. */
+      baselineFrom?: string;
+      /** End of the healthy comparison window. Defaults to anomalyFrom. Must not extend past anomalyFrom. */
+      baselineTo?: string;
+      /** Aggregation to characterize. Omit to auto-pick from the metric's OTel type (counter -> rate, gauge -> avg, histogram -> histogram_quantile 0.95).
        *
        * * `sum` - sum
        * * `avg` - avg
        * * `count` - count
        * * `p95` - p95
        * * `rate` - rate
-       * * `increase` - increase */
-      aggregation?: AggregationEnum;
-      /** Label predicates ANDed together. Rows must satisfy every filter. */
+       * * `increase` - increase
+       * * `histogram_quantile` - histogram_quantile */
+      aggregation?: AggregationEnum | null;
+      /**
+         * Quantile for histogram_quantile. Defaults to 0.95.
+         * @minimum 0
+         * @maximum 1
+         * @nullable
+         */
+      quantile?: number | null;
+      /** Label predicates narrowing which series are characterized. */
       filters?: _MetricFilter[];
-      /** Labels to split the result into separate series by. Series share one time grid and are capped at the 100 largest. */
-      groupBy?: _MetricGroupBy[];
-      /** Bucket size for the shared time grid. Omit to auto-pick (~60 buckets across the range).
-       *
-       * * `second` - second
-       * * `minute` - minute
-       * * `minute_5` - minute_5
-       * * `minute_15` - minute_15
-       * * `hour` - hour
-       * * `hour_6` - hour_6
-       * * `day` - day
-       * * `week` - week */
-      interval?: MetricQueryIntervalEnum | null;
-      /** Lower bound (inclusive) for the query range. ISO 8601. */
-      dateFrom: string;
-      /** Upper bound (exclusive) for the query range. Defaults to now if omitted. */
-      dateTo?: string;
+      /**
+         * Label keys to drill into when finding which label values moved. Omit to auto-discover the most common keys on this metric (plus service_name). Max 4 are used.
+         * @items.maxLength 255
+         */
+      candidateKeys?: string[];
     }
+
+    export interface _MetricAnomalyDimension {
+      /** Label key that was drilled into. */
+      key: string;
+      /** Label value this row describes. */
+      label: string;
+      /** Mean value over the baseline window for this label value. */
+      baseline_value: number;
+      /** Mean value over the anomaly window for this label value. */
+      anomaly_value: number;
+      /** anomaly_value / baseline_value. A zero baseline yields the anomaly value itself (new traffic). */
+      change_ratio: number;
+    }
+
+    /**
+     * * `up` - up
+     * * `down` - down
+     * * `flat` - flat
+     */
+    export type _MetricAnomalyReportDirectionEnum = typeof _MetricAnomalyReportDirectionEnum[keyof typeof _MetricAnomalyReportDirectionEnum];
+
+
+    export const _MetricAnomalyReportDirectionEnum = {
+      Up: 'up',
+      Down: 'down',
+      Flat: 'flat',
+    } as const;
 
     export interface _MetricQueryPoint {
       /** Bucket start as ISO 8601 timestamp. */
       time: string;
       /** Aggregated value for the bucket. */
       value: number;
-    }
-
-    export interface _MetricQueryRequest {
-      /** The metric query to execute. */
-      query: _MetricQueryBody;
     }
 
     /**
@@ -48301,6 +48520,170 @@ export namespace Schemas {
          * @nullable
          */
       clause?: string | null;
+    }
+
+    export interface _MetricAnomalyReport {
+      /** Metric that was characterized. */
+      metric_name: string;
+      /** Aggregation used (auto-picked when not specified). */
+      aggregation: string;
+      /** Bucket size of the analysis grid. */
+      interval: string;
+      /** Baseline window start, ISO 8601. */
+      baseline_from: string;
+      /** Baseline window end, ISO 8601. */
+      baseline_to: string;
+      /** Anomaly window start, ISO 8601. */
+      anomaly_from: string;
+      /** Anomaly window end, ISO 8601. */
+      anomaly_to: string;
+      /** Mean over the baseline window. */
+      baseline_mean: number;
+      /** Population stddev over the baseline window. */
+      baseline_stddev: number;
+      /** Mean over the anomaly window. */
+      anomaly_mean: number;
+      /** Maximum bucket value in the anomaly window. */
+      anomaly_peak: number;
+      /** anomaly_mean / baseline_mean. A zero baseline yields anomaly_mean itself. */
+      change_ratio: number;
+      /** Which way the metric moved versus the baseline.
+       *
+       * * `up` - up
+       * * `down` - down
+       * * `flat` - flat */
+      direction: _MetricAnomalyReportDirectionEnum;
+      /**
+         * First bucket clearly outside the baseline range (3 stddevs or 50% relative change), or null if no clear onset.
+         * @nullable
+         */
+      onset_time: string | null;
+      /** Label values whose behavior changed the most between windows, largest change first. Empty when nothing moved or the metric has no labels. */
+      top_movers: _MetricAnomalyDimension[];
+      /** The metric across baseline + anomaly windows on one grid, for plotting or further inspection. */
+      series: _MetricSeries;
+    }
+
+    export interface _MetricAnomalyRequest {
+      /** The anomaly characterization to run. */
+      query: _MetricAnomalyBody;
+    }
+
+    export interface _MetricGroupBy {
+      /**
+         * Attribute name to split series by (e.g. 'k8s.pod.name', 'env').
+         * @maxLength 255
+         */
+      key: string;
+      /** Where the attribute lives; same semantics as filter scope. Use 'auto' unless you know the exact scope.
+       *
+       * * `resource` - resource
+       * * `attribute` - attribute
+       * * `auto` - auto */
+      scope?: MetricAttributeScopeEnum;
+    }
+
+    export interface _MetricClause {
+      /**
+         * Clause name a formula refers to (e.g. 'a').
+         * @maxLength 64
+         */
+      name: string;
+      /**
+         * Exact metric name this clause queries.
+         * @maxLength 255
+         */
+      metricName: string;
+      /** Aggregation applied per time bucket; same semantics as the top-level aggregation.
+       *
+       * * `sum` - sum
+       * * `avg` - avg
+       * * `count` - count
+       * * `p95` - p95
+       * * `rate` - rate
+       * * `increase` - increase
+       * * `histogram_quantile` - histogram_quantile */
+      aggregation?: AggregationEnum;
+      /**
+         * Quantile in (0, 1) for 'histogram_quantile'.
+         * @minimum 0
+         * @maximum 1
+         * @nullable
+         */
+      quantile?: number | null;
+      /** Label predicates ANDed together for this clause. */
+      filters?: _MetricFilter[];
+      /** Labels to split this clause into separate series by. */
+      groupBy?: _MetricGroupBy[];
+    }
+
+    export interface _MetricName {
+      /** Metric name as it appears in the team's data. */
+      name: string;
+      /** OTel metric type (gauge, sum, histogram, summary, exponential_histogram). */
+      metric_type: string;
+    }
+
+    export interface _MetricNamesResponse {
+      /** Distinct metric names ordered by recent activity. */
+      results: _MetricName[];
+    }
+
+    export interface _MetricQueryBody {
+      /**
+         * Exact metric name to query (e.g. 'http.server.duration'). Single-clause shorthand — mutually exclusive with 'clauses'.
+         * @maxLength 255
+         */
+      metricName?: string;
+      /** Aggregation applied per time bucket. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'.
+       *
+       * * `sum` - sum
+       * * `avg` - avg
+       * * `count` - count
+       * * `p95` - p95
+       * * `rate` - rate
+       * * `increase` - increase
+       * * `histogram_quantile` - histogram_quantile */
+      aggregation?: AggregationEnum;
+      /**
+         * Quantile in (0, 1) for 'histogram_quantile' (e.g. 0.95). Ignored for other aggregations.
+         * @minimum 0
+         * @maximum 1
+         * @nullable
+         */
+      quantile?: number | null;
+      /** Label predicates ANDed together. Rows must satisfy every filter. */
+      filters?: _MetricFilter[];
+      /** Labels to split the result into separate series by. Series share one time grid and are capped at the 100 largest. */
+      groupBy?: _MetricGroupBy[];
+      /** Bucket size for the shared time grid. Omit to auto-pick (~60 buckets across the range).
+       *
+       * * `second` - second
+       * * `minute` - minute
+       * * `minute_5` - minute_5
+       * * `minute_15` - minute_15
+       * * `hour` - hour
+       * * `hour_6` - hour_6
+       * * `day` - day
+       * * `week` - week */
+      interval?: MetricQueryIntervalEnum | null;
+      /** Full multi-clause form: each clause is an independent metric selection sharing the request's time grid. Mutually exclusive with 'metricName'. */
+      clauses?: _MetricClause[];
+      /**
+         * Arithmetic over clause names evaluated server-side per grid point, e.g. '(a - b) / a'. Supports + - * / and parentheses; division by zero yields 0. When set, only the formula result series are returned.
+         * @maxLength 512
+         * @nullable
+         */
+      formula?: string | null;
+      /** Lower bound (inclusive) for the query range. ISO 8601. */
+      dateFrom: string;
+      /** Upper bound (exclusive) for the query range. Defaults to now if omitted. */
+      dateTo?: string;
+    }
+
+    export interface _MetricQueryRequest {
+      /** The metric query to execute. */
+      query: _MetricQueryBody;
     }
 
     export interface _MetricQueryResponse {
@@ -48381,6 +48764,29 @@ export namespace Schemas {
       url: string;
     }
 
+    export interface _SymbolStatsPeriod {
+      /** Number of spans attributed to this symbol in the period. */
+      count: number;
+      /** Spans whose OTel status is Error (status_code = 2). */
+      error_count: number;
+      /** Total wall-clock span duration in the period, in nanoseconds (additive across spans). */
+      sum_duration_nano: number;
+      /** Median wall-clock span duration, in nanoseconds. */
+      p50_duration_nano: number;
+      /** 95th-percentile wall-clock span duration, in nanoseconds. */
+      p95_duration_nano: number;
+      /** 99th-percentile wall-clock span duration, in nanoseconds. */
+      p99_duration_nano: number;
+      /** Spans in the period carrying an active/busy time attribute. 0 means busy_* are not meaningful. */
+      busy_count: number;
+      /** Median active (busy) time, in nanoseconds. Excludes awaiting children. */
+      p50_busy_nano: number;
+      /** 95th-percentile active (busy) time, in nanoseconds. */
+      p95_busy_nano: number;
+      /** 99th-percentile active (busy) time, in nanoseconds. */
+      p99_busy_nano: number;
+    }
+
     export interface _TracingDateRange {
       /**
          * Start of the date range. Accepts ISO 8601 timestamps or relative formats: -1h, -6h, -1d, -7d, etc.
@@ -48392,6 +48798,95 @@ export namespace Schemas {
          * @nullable
          */
       date_to?: string | null;
+    }
+
+    export interface _SymbolStatsSymbol {
+      /**
+         * Opaque identifier (e.g. the function name) echoed back on the matching result row.
+         * @nullable
+         */
+      name?: string | null;
+      /**
+         * First line of the symbol's range, inclusive.
+         * @minimum 1
+         */
+      startLine: number;
+      /**
+         * Last line of the symbol's range, inclusive.
+         * @minimum 1
+         */
+      endLine: number;
+    }
+
+    export interface _SymbolStatsQueryBody {
+      /** Repo-relative path of the source file to aggregate (e.g. 'src/flags/flag_matching.rs'). Matched as a path suffix against the recorded OTel code.file.path / code.filepath, so a recorded path carrying an extra crate/workspace prefix still matches. Separators are normalized. */
+      filePath: string;
+      /** Current period to aggregate over; the prior equal-length window is the comparison. Defaults to last 24h. */
+      dateRange?: _TracingDateRange;
+      /** Optional symbol (function) line ranges, supplied by the client from its own AST/LSP. When given, each span is attributed to the smallest enclosing range (one row per symbol). When omitted (or an empty list), spans are aggregated per source line (one row per line); pass a single whole-file range for a file-level total. */
+      symbols?: _SymbolStatsSymbol[];
+    }
+
+    export interface _SymbolStatsRequest {
+      /** The symbol-stats per-symbol aggregation query to execute. */
+      query: _SymbolStatsQueryBody;
+    }
+
+    export interface _SymbolStatsRow {
+      /** Number of spans attributed to this symbol in the period. */
+      count: number;
+      /** Spans whose OTel status is Error (status_code = 2). */
+      error_count: number;
+      /** Total wall-clock span duration in the period, in nanoseconds (additive across spans). */
+      sum_duration_nano: number;
+      /** Median wall-clock span duration, in nanoseconds. */
+      p50_duration_nano: number;
+      /** 95th-percentile wall-clock span duration, in nanoseconds. */
+      p95_duration_nano: number;
+      /** 99th-percentile wall-clock span duration, in nanoseconds. */
+      p99_duration_nano: number;
+      /** Spans in the period carrying an active/busy time attribute. 0 means busy_* are not meaningful. */
+      busy_count: number;
+      /** Median active (busy) time, in nanoseconds. Excludes awaiting children. */
+      p50_busy_nano: number;
+      /** 95th-percentile active (busy) time, in nanoseconds. */
+      p95_busy_nano: number;
+      /** 99th-percentile active (busy) time, in nanoseconds. */
+      p99_busy_nano: number;
+      /** Bucket anchor: the source line (line mode) or the symbol's startLine (symbol mode). */
+      line: number;
+      /**
+         * Echoed name from the requested symbol (symbol mode only).
+         * @nullable
+         */
+      name?: string | null;
+      /**
+         * endLine of the matched symbol's range (symbol mode only).
+         * @nullable
+         */
+      end_line?: number | null;
+      /** The same metrics over the immediately-preceding equal-length period. */
+      previous: _SymbolStatsPeriod;
+      /**
+         * Percentage change in count vs the previous period (180 = +180%). Null when there is no baseline (previous count 0). Use `previous.count` — not a null here — to detect a new symbol.
+         * @nullable
+         */
+      count_pct_change: number | null;
+      /**
+         * Percentage change in p95 duration vs the previous period (180 = +180%). Null when the previous p95 is 0 (no comparable baseline), which can occur even when previous.count > 0 — do not read null as 'new symbol'.
+         * @nullable
+         */
+      p95_duration_pct_change: number | null;
+    }
+
+    export interface _SymbolStatsResponse {
+      /** One row per bucket, ordered by line ascending. */
+      results: _SymbolStatsRow[];
+      /** Bucketing applied: 'line' when no symbols were supplied, 'symbol' otherwise.
+       *
+       * * `line` - line
+       * * `symbol` - symbol */
+      granularity: GranularityEnum;
     }
 
     export interface _TracingAggregationQueryBody {
@@ -48448,6 +48943,30 @@ export namespace Schemas {
     export interface _TracingAttributeBreakdownRequest {
       /** The attribute breakdown query to execute. */
       query: _TracingAttributeBreakdownQueryBody;
+    }
+
+    export interface _TracingAttributeEntry {
+      /** Attribute key name. */
+      name: string;
+      /** Property filter type: "span_attribute" or "span_resource_attribute". Use this as the `type` field when filtering. */
+      propertyFilterType: string;
+      /** How the search query matched this row: "key" if the attribute key matched, "value" if a value matched.
+       *
+       * * `key` - key
+       * * `value` - value */
+      matchedOn: MatchedOnEnum;
+      /**
+         * Sample matching value — only set when matchedOn is "value".
+         * @nullable
+         */
+      matchedValue?: string | null;
+    }
+
+    export interface _TracingAttributesResponse {
+      /** Available attribute keys matching the filters. */
+      results: _TracingAttributeEntry[];
+      /** Total attribute keys matched (lower bound when searching values). */
+      count: number;
     }
 
     export interface _TracingCountBody {
@@ -48549,6 +49068,11 @@ export namespace Schemas {
       dateRange?: _TracingDateRange;
       /** Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false. */
       excludeAttributes?: boolean;
+      /**
+         * Pagination offset into the trace's spans (ordered by start time ascending). Each page returns up to 2000 spans; pass the response's `nextOffset` to load the next page. Defaults to 0.
+         * @minimum 0
+         */
+      offset?: number;
     }
 
     export interface _TracingTreeQueryBody {
@@ -52601,6 +53125,10 @@ export namespace Schemas {
      * @minLength 1
      */
     search?: string;
+    /**
+     * When true, the search query also matches attribute values (not just keys), so a value such as a trace_id finds the key holding it.
+     */
+    search_values?: boolean;
     };
 
     export type EnvironmentsTracingSpansAttributesRetrieveAttributeType = typeof EnvironmentsTracingSpansAttributesRetrieveAttributeType[keyof typeof EnvironmentsTracingSpansAttributesRetrieveAttributeType];
@@ -55143,6 +55671,13 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type EngineeringAnalyticsCiCardsParams = {
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    };
+
     export type EngineeringAnalyticsPrLifecycleParams = {
     /**
      * Pull request number to inspect.
@@ -55152,6 +55687,10 @@ export namespace Schemas {
      * Optional 'owner/name' repository to disambiguate when the PR number exists in more than one connected repo.
      */
     repo?: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
     };
 
     export type EngineeringAnalyticsPullRequestsParams = {
@@ -55159,6 +55698,10 @@ export namespace Schemas {
      * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
      */
     date_from?: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
     };
 
     export type EngineeringAnalyticsWorkflowHealthParams = {
@@ -55170,6 +55713,10 @@ export namespace Schemas {
      * Window end: relative or ISO8601. Defaults to now.
      */
     date_to?: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
     };
 
     export type EnvironmentsListParams = {
@@ -55586,9 +56133,9 @@ export namespace Schemas {
      */
     archived?: boolean;
     /**
-     * Filter to experiments created by the given user ID.
+     * Filter to experiments created by the given user(s). Accepts a single user ID, or a JSON-encoded / comma-separated list of user IDs to match any of them.
      */
-    created_by_id?: number;
+    created_by_id?: string;
     /**
      * Filter to experiments whose metrics reference this event name. Matches events used directly in metric queries as well as events behind any actions those metrics reference.
      */
@@ -55749,7 +56296,7 @@ export namespace Schemas {
     export type FeatureFlagsListParams = {
     active?: FeatureFlagsListActive;
     /**
-     * The User ID which initially created the feature flag.
+     * Filter by the user(s) who created the feature flag. Accepts a single user ID, or a JSON-encoded / comma-separated list of user IDs to match any of them.
      */
     created_by_id?: string;
     /**
@@ -55796,7 +56343,7 @@ export namespace Schemas {
 
 
     export const FeatureFlagsListEvaluationRuntime = {
-      Both: 'both',
+      All: 'all',
       Client: 'client',
       Server: 'server',
     } as const;
@@ -58912,6 +59459,10 @@ export namespace Schemas {
 
     export type SignalsReportsListParams = {
     /**
+     * Filter reports by whether a shipped implementation pull request exists. 'true' keeps only reports with a PR; 'false' keeps only those without. Pair with limit=1 to count PR reports cheaply.
+     */
+    has_implementation_pr?: boolean;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -59515,6 +60066,10 @@ export namespace Schemas {
      * @minLength 1
      */
     search?: string;
+    /**
+     * When true, the search query also matches attribute values (not just keys), so a value such as a trace_id finds the key holding it.
+     */
+    search_values?: boolean;
     };
 
     export type TracingSpansAttributesRetrieveAttributeType = typeof TracingSpansAttributesRetrieveAttributeType[keyof typeof TracingSpansAttributesRetrieveAttributeType];

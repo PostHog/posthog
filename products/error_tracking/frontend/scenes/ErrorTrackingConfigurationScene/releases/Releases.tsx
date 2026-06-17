@@ -5,7 +5,7 @@ import { IconExternal } from '@posthog/icons'
 import { LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
 
 import { ErrorTrackingRelease } from 'lib/components/Errors/types'
-import { humanFriendlyDetailedTime } from 'lib/utils'
+import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
 import { GitMetadataParser } from 'products/error_tracking/frontend/components/ReleasesPreview/gitMetadataParser'
 

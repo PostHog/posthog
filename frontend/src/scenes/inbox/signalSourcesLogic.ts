@@ -137,6 +137,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
         toggleSignalSourceFailure: (params: ToggleSignalSourceParams, error: string) => ({ params, error }),
         toggleErrorTracking: true,
         toggleErrorTrackingComplete: true,
+        toggleHealthChecks: true,
         saveSessionAnalysisFilters: (filters: RecordingUniversalFilters) => ({ filters }),
         clearSessionAnalysisFilters: true,
     }),
@@ -188,6 +189,8 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 const { sourceProduct, sourceType } = DATA_WAREHOUSE_SOURCE_CONFIG[dwSource]
                 return toggleSourceConfigState(state, sourceProduct, sourceType)
             },
+            toggleHealthChecks: (state: SignalSourceConfig[] | null) =>
+                toggleSourceConfigState(state, SignalSourceProduct.HEALTH_CHECKS, SignalSourceType.HEALTH_ISSUE),
         },
         togglingSourceKeys: [
             new Set<string>(),
@@ -284,6 +287,20 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
         isErrorTrackingToggling: [
             (s) => [s.togglingSourceKeys],
             (keys: Set<string>): boolean => keys.has('error_tracking'),
+        ],
+        healthChecksConfig: [
+            (s) => [s.sourceConfigs],
+            (sourceConfigs: SignalSourceConfig[] | null): SignalSourceConfig | null =>
+                sourceConfigs?.find(
+                    (c) =>
+                        c.source_product === SignalSourceProduct.HEALTH_CHECKS &&
+                        c.source_type === SignalSourceType.HEALTH_ISSUE
+                ) ?? null,
+        ],
+        isHealthChecksToggling: [
+            (s) => [s.togglingSourceKeys],
+            (keys: Set<string>): boolean =>
+                keys.has(`${SignalSourceProduct.HEALTH_CHECKS}_${SignalSourceType.HEALTH_ISSUE}`),
         ],
         errorTrackingIsFullyEnabled: [
             (s) => [s.sourceConfigs],
@@ -443,6 +460,17 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 actions.toggleSignalSource({
                     sourceProduct: SignalSourceProduct.SESSION_REPLAY,
                     sourceType: SignalSourceType.SESSION_ANALYSIS_CLUSTER,
+                    enabled: desiredEnabled,
+                })
+            },
+            toggleHealthChecks: () => {
+                // The optimistic reducer flips the config before this listener runs,
+                // so config.enabled already reflects the desired state.
+                const config = values.healthChecksConfig
+                const desiredEnabled = config?.enabled ?? true
+                actions.toggleSignalSource({
+                    sourceProduct: SignalSourceProduct.HEALTH_CHECKS,
+                    sourceType: SignalSourceType.HEALTH_ISSUE,
                     enabled: desiredEnabled,
                 })
             },
