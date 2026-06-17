@@ -20,7 +20,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import { AppMetricsTotalsRequest, loadAppMetricsTotals } from 'lib/components/AppMetrics/appMetricsLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
-import { uuid } from 'lib/utils'
+import { uuid } from 'lib/utils/dom'
 import { urls } from 'scenes/urls'
 
 import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'

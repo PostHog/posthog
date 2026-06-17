@@ -169,6 +169,11 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                     scopes = scopes.filter((scope) => scope.key !== 'llm_gateway')
                 }
 
+                // Hide agents scope unless the agent platform flag is enabled (hidden until GA)
+                if (!featureFlags[FEATURE_FLAGS.AGENT_PLATFORM]) {
+                    scopes = scopes.filter((scope) => scope.key !== 'agents')
+                }
+
                 // Hide approvals scope unless the org has the APPROVALS feature
                 if (!hasAvailableFeature(AvailableFeature.APPROVALS)) {
                     scopes = scopes.filter((scope) => scope.key !== 'approvals')

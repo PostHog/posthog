@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -97,6 +98,7 @@ class CloseSource(ResumableSource[CloseSourceConfig, CloseResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.CLOSE,
+            category=DataWarehouseSourceCategory.CRM,
             label="Close",
             caption=(
                 "Import your CRM data from Close. Create an API key under "

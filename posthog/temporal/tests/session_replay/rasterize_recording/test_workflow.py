@@ -135,6 +135,103 @@ async def test_intermediate_failure_does_not_bump():
     assert bump_calls == []
 
 
+def _counter_value(product: str, task_queue: str) -> float:
+    from prometheus_client import REGISTRY
+
+    return (
+        REGISTRY.get_sample_value(
+            "posthog_rasterization_completed_total",
+            {"product": product, "task_queue": task_queue},
+        )
+        or 0.0
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("product", ["session_replay", "replay_vision"])
+async def test_success_increments_rasterization_counter(product: str):
+    @activity.defn(name="build_rasterization_input")
+    async def build_cached(_exported_asset_id: int) -> BuildRasterizationResult:
+        return BuildRasterizationResult(
+            cached_output=RasterizationActivityOutput(
+                s3_uri="s3://bucket/key",
+                video_duration_s=1.0,
+                playback_speed=1.0,
+            ),
+            render_fingerprint="abc",
+        )
+
+    @activity.defn(name="finalize_rasterization")
+    async def finalize_noop(_inputs: FinalizeRasterizationInput) -> None:
+        pass
+
+    @activity.defn(name="clear_stuck_counter_activity")
+    async def clear_noop(_inputs: BumpStuckCounterInput) -> None:
+        pass
+
+    task_queue = str(uuid.uuid4())
+    before = _counter_value(product, task_queue)
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        await _register_search_attributes(env)
+        async with Worker(
+            env.client,
+            task_queue=task_queue,
+            workflows=[RasterizeRecordingWorkflow],
+            activities=[build_cached, finalize_noop, clear_noop],
+            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        ):
+            await env.client.execute_workflow(
+                RasterizeRecordingWorkflow.run,
+                RasterizeRecordingInputs(exported_asset_id=42, product=product),
+                id=str(uuid.uuid4()),
+                task_queue=task_queue,
+                retry_policy=RetryPolicy(maximum_attempts=1),
+                search_attributes=_search_attributes(),
+            )
+
+    assert _counter_value(product, task_queue) == before + 1
+
+
+@pytest.mark.asyncio
+async def test_failure_does_not_increment_rasterization_counter():
+    @activity.defn(name="build_rasterization_input")
+    async def build_failing(_exported_asset_id: int) -> BuildRasterizationResult:
+        raise RuntimeError("synthetic prep failure")
+
+    @activity.defn(name="finalize_rasterization")
+    async def finalize_unused(_inputs: FinalizeRasterizationInput) -> None:
+        pass
+
+    @activity.defn(name="bump_stuck_counter_activity")
+    async def bump_noop(_inputs: BumpStuckCounterInput) -> None:
+        pass
+
+    task_queue = str(uuid.uuid4())
+    before = _counter_value("session_replay", task_queue)
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        await _register_search_attributes(env)
+        async with Worker(
+            env.client,
+            task_queue=task_queue,
+            workflows=[RasterizeRecordingWorkflow],
+            activities=[build_failing, finalize_unused, bump_noop],
+            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        ):
+            with pytest.raises(Exception):
+                await env.client.execute_workflow(
+                    RasterizeRecordingWorkflow.run,
+                    RasterizeRecordingInputs(exported_asset_id=42),
+                    id=str(uuid.uuid4()),
+                    task_queue=task_queue,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                    search_attributes=_search_attributes(),
+                )
+
+    assert _counter_value("session_replay", task_queue) == before
+
+
 @pytest.mark.asyncio
 async def test_bump_failure_does_not_break_workflow_failure():
     @activity.defn(name="build_rasterization_input")

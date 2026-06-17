@@ -6,7 +6,8 @@ import { IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonInput, LemonModal, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { detailedTime, humanFriendlyDetailedTime, isNotNil } from 'lib/utils'
+import { detailedTime, humanFriendlyDetailedTime } from 'lib/utils/datetime'
+import { isNotNil } from 'lib/utils/guards'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 

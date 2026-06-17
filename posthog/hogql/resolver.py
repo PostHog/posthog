@@ -256,6 +256,8 @@ class Resolver(CloningVisitor):
         self.cte_counter = 0
         self._scope_table_names: dict[int, dict[str, str]] = {}
         self._scope_table_column_aliases: dict[int, dict[str, list[str]]] = {}
+        # Re-entrancy guard for argument-duplicating bot-lookup macros (see _expand_duplicating_macro).
+        self._inside_posthog_macro_expansion: bool = False
 
     def _get_scope_table_names(self, scope: ast.SelectQueryType) -> dict[str, str]:
         return self._scope_table_names.setdefault(id(scope), {})
@@ -1508,6 +1510,27 @@ class Resolver(CloningVisitor):
         node.type.nullable = left_type.nullable or right_type.nullable
         return node
 
+    def _expand_duplicating_macro(self, node: ast.Call, builder: Callable[[], ast.Expr]) -> ast.Expr:
+        """Build and resolve a bot-lookup macro whose builder duplicates its argument.
+
+        The bot-lookup helpers reference the same multiMatchAnyIndex node in two positions
+        (`_build_bot_array_lookup`), so each level copies the unvisited argument subtree, and a
+        user-written duplicating macro nested inside another's argument would expand ~2^depth
+        during resolution. The flag is set across the visit so the inner macro is rejected before
+        the blowup compounds; it persists through any non-duplicating macro's plain visit in
+        between, so `getTrafficType(toString(getBotName(...)))` is still caught. Only the
+        duplicating bot-lookup macros set the flag — macros that embed their argument once or
+        expand bounded, user-authored content (matchesAction's action, the survey filters) must
+        not, or they would reject a legitimate macro reached during their expansion.
+        """
+        if self._inside_posthog_macro_expansion:
+            raise QueryError(f"Function '{node.name}' cannot be nested inside another expanded function call.")
+        self._inside_posthog_macro_expansion = True
+        try:
+            return self.visit(builder())
+        finally:
+            self._inside_posthog_macro_expansion = False
+
     def visit_call(self, node: ast.Call):
         """Visit function calls."""
 
@@ -1552,18 +1575,20 @@ class Resolver(CloningVisitor):
                 return self.visit(
                     unique_survey_submissions_filter(node=node, args=node.args, team_id=self.context.team_id)
                 )
-            if node.name == "__preview_getTrafficType":
-                return self.visit(get_traffic_type(node=node, args=node.args))
-            if node.name == "__preview_getTrafficCategory":
-                return self.visit(get_traffic_category(node=node, args=node.args))
-            if node.name == "__preview_isBot":
+            if node.name in ("isLikelyBot", "__preview_isBot"):
                 return self.visit(is_bot(node=node, args=node.args))
-            if node.name == "__preview_getBotType":
-                return self.visit(get_bot_type(node=node, args=node.args))
-            if node.name == "__preview_getBotName":
-                return self.visit(get_bot_name(node=node, args=node.args))
-            if node.name == "__preview_getBotOperator":
-                return self.visit(get_bot_operator(node=node, args=node.args))
+            # The bot-lookup builders below duplicate their argument, so they must expand under the
+            # re-entrancy guard to bound nested expansion (see _expand_duplicating_macro).
+            if node.name in ("getTrafficType", "__preview_getTrafficType"):
+                return self._expand_duplicating_macro(node, lambda: get_traffic_type(node=node, args=node.args))
+            if node.name in ("getTrafficCategory", "__preview_getTrafficCategory"):
+                return self._expand_duplicating_macro(node, lambda: get_traffic_category(node=node, args=node.args))
+            if node.name in ("getBotType", "__preview_getBotType"):
+                return self._expand_duplicating_macro(node, lambda: get_bot_type(node=node, args=node.args))
+            if node.name in ("getBotName", "__preview_getBotName"):
+                return self._expand_duplicating_macro(node, lambda: get_bot_name(node=node, args=node.args))
+            if node.name in ("getBotOperator", "__preview_getBotOperator"):
+                return self._expand_duplicating_macro(node, lambda: get_bot_operator(node=node, args=node.args))
 
         if self._is_higher_order_array_call(node):
             node = self._visit_higher_order_array_call(node)
