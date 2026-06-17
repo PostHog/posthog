@@ -86,6 +86,7 @@ Use when the product area already has a widget and you need another visualizatio
 Use when introducing a new **`groupId`**, not just another variant in an existing group.
 
 - [ ] Add **`groupId`** to `DASHBOARD_WIDGET_GROUP_LABELS` in `catalog.ts`; matching `group_id`/`group_label` on BE **`WidgetSpec`**
+- [ ] Add the product's icon to **`DASHBOARD_WIDGET_GROUP_ICONS`** in `catalog.ts` (use the canonical product icon from `defaultTree.tsx` `iconTypes`) — shown next to the group heading in the Add widget picker
 - [ ] Storybook title path: `'Dashboards/Dashboard Widgets/Widget types/<groupLabel>/<label>'`
 - [ ] **UI + query reuse** — pick one pattern (do not fork query paths):
 

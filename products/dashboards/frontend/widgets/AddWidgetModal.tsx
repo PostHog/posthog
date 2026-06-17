@@ -18,6 +18,7 @@ import {
     DASHBOARD_WIDGET_PREVIEWS,
     type DashboardWidgetCatalogEntry,
     type DashboardWidgetCatalogKey,
+    getDashboardWidgetGroupIcon,
     getDashboardWidgetGroupProductIntro,
 } from '../widget_types/catalog'
 import {
@@ -135,12 +136,16 @@ export function AddWidgetModal({ isOpen, onClose, loading, onAdd }: AddWidgetMod
                         const productIsNew = productIntro
                             ? !teamHasAdoptedProduct(currentTeam, productIntro.productKey)
                             : false
+                        const GroupIcon = getDashboardWidgetGroupIcon(group.groupId)
 
                         return (
                             <Fragment key={group.groupId}>
                                 {groupIndex > 0 ? <LemonDivider className="col-span-full my-0" /> : null}
                                 <div className="col-span-full flex flex-wrap items-center gap-x-3 gap-y-1">
-                                    <h5 className="mx-0 my-0">{group.groupLabel}</h5>
+                                    <h5 className="mx-0 my-0 flex items-center gap-1.5">
+                                        {GroupIcon ? <GroupIcon className="text-base text-secondary" /> : null}
+                                        {group.groupLabel}
+                                    </h5>
                                     {productIsNew && productIntro ? (
                                         <div className="ml-auto flex flex-wrap items-center gap-x-2 gap-y-1 rounded bg-accent-highlight-secondary px-2 py-1 text-xs">
                                             <IconLightBulb className="shrink-0 text-base text-accent" />

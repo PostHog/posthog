@@ -1,3 +1,7 @@
+import type { ComponentType } from 'react'
+
+import { IconFlask, IconLive, IconRewindPlay, IconWarning } from '@posthog/icons'
+
 import { urls } from 'scenes/urls'
 
 import { ProductKey, QuickFilterContext } from '~/queries/schema/schema-general'
@@ -79,6 +83,18 @@ export const DASHBOARD_WIDGET_GROUP_LABELS = {
 
 export function getDashboardWidgetGroupLabel(groupId: string): string {
     return DASHBOARD_WIDGET_GROUP_LABELS[groupId as keyof typeof DASHBOARD_WIDGET_GROUP_LABELS] ?? groupId
+}
+
+/** Product icons shown next to group headings in the Add widget picker, keyed by `groupId`. */
+export const DASHBOARD_WIDGET_GROUP_ICONS = {
+    activity: IconLive,
+    error_tracking: IconWarning,
+    session_replay: IconRewindPlay,
+    experiments: IconFlask,
+} as const satisfies Record<keyof typeof DASHBOARD_WIDGET_GROUP_LABELS, ComponentType<{ className?: string }>>
+
+export function getDashboardWidgetGroupIcon(groupId: string): ComponentType<{ className?: string }> | undefined {
+    return DASHBOARD_WIDGET_GROUP_ICONS[groupId as keyof typeof DASHBOARD_WIDGET_GROUP_ICONS]
 }
 
 type DashboardWidgetGroupProductIntroConfig = {
