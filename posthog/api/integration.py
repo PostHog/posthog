@@ -75,6 +75,7 @@ from posthog.permissions import (
 )
 from posthog.rate_limit import GitHubRepositoryRefreshThrottle
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+from posthog.tasks.email import send_integration_access_request
 
 from products.cdp.backend.services.integration_usage import get_enabled_hog_functions_using_integration
 from products.workflows.backend.services.integration_usage import get_active_hog_flows_using_integration
@@ -298,6 +299,25 @@ class SlackChannelsResponseSerializer(serializers.Serializer):
     has_more = serializers.BooleanField(
         required=False,
         help_text="Whether more channels match the current search beyond this page.",
+    )
+
+
+class IntegrationAccessRequestSerializer(serializers.Serializer):
+    kind = serializers.ChoiceField(
+        choices=Integration.IntegrationKind.choices,
+        help_text="The kind of integration the member is requesting be connected (e.g. 'slack', 'github').",
+    )
+    reason = serializers.CharField(
+        max_length=2000,
+        allow_blank=False,
+        trim_whitespace=True,
+        help_text="Explanation from the requester of why this integration is needed. Shown to admins in the notification email.",
+    )
+
+
+class IntegrationAccessRequestResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField(
+        help_text="Whether the access request was accepted and the project admins were notified."
     )
 
 
@@ -649,6 +669,7 @@ class IntegrationViewSet(
         "anthropic_managed_agents",
         "anthropic_managed_agent_environments",
         "anthropic_managed_agent_vaults",
+        "request_access",
     ]
     scope_object_write_actions = [
         "create",
@@ -674,6 +695,14 @@ class IntegrationViewSet(
                 AccessControlPermission(),
                 TeamMemberAccessPermission(),
                 TeamMemberLightManagementPermission(),
+            ]
+        # Any project member may ask an admin to connect an integration — connecting still requires admin.
+        if self.action == "request_access":
+            return [
+                IsAuthenticated(),
+                APIScopePermission(),
+                AccessControlPermission(),
+                TeamMemberAccessPermission(),
             ]
         raise NotImplementedError()
 
@@ -1197,6 +1226,23 @@ class IntegrationViewSet(
             else None,
         )
         return Response({"oauth_url": oauth_url})
+
+    @extend_schema(
+        request=IntegrationAccessRequestSerializer,
+        responses={200: IntegrationAccessRequestResponseSerializer},
+    )
+    @action(methods=["POST"], detail=False, url_path="request_access")
+    def request_access(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Notify project admins that a member is requesting an integration be connected."""
+        serializer = IntegrationAccessRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        send_integration_access_request.delay(
+            team_id=self.team_id,
+            requesting_user_id=cast(User, request.user).id,
+            kind=serializer.validated_data["kind"],
+            reason=serializer.validated_data["reason"],
+        )
+        return Response({"success": True})
 
     @extend_schema(request=None, responses={200: GitHubReposRefreshResponseSerializer})
     @action(methods=["POST"], detail=True, url_path="github_repos/refresh")

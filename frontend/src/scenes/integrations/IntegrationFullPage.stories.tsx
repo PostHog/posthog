@@ -1,4 +1,8 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { Meta, StoryObj } from '@storybook/react'
+
+import { OrganizationMembershipLevel } from 'lib/constants'
 
 import { mswDecorator } from '~/mocks/browser'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
@@ -37,4 +41,19 @@ export const NotConnected: Story = {
 
 export const Connected: Story = {
     decorators: [mswDecorator({ get: { '/api/environments/:id/integrations': { results: [mockIntegration] } } })],
+}
+
+// Below project-admin level: the connect button is replaced by the "request access" flow.
+export const NoPermission: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/environments/:id/integrations': { results: [] },
+                '/api/environments/@current/': {
+                    ...MOCK_DEFAULT_TEAM,
+                    effective_membership_level: OrganizationMembershipLevel.Member,
+                },
+            },
+        }),
+    ],
 }
