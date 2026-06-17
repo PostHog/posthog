@@ -107,8 +107,10 @@ fn stream_event_key(event: &CohortStreamEvent) -> Option<String> {
 
 const FAIL_ALWAYS: usize = usize::MAX;
 
+/// Shared produce recorder for the `Capture*Sink` test doubles: records items and can fail the next
+/// `n` (or all) produces.
 #[derive(Debug)]
-struct Capture<T> {
+pub(crate) struct Capture<T> {
     items: Arc<Mutex<Vec<T>>>,
     fail_remaining: Arc<AtomicUsize>,
 }
@@ -132,18 +134,18 @@ impl<T> Default for Capture<T> {
 }
 
 impl<T> Capture<T> {
-    fn failing_first(n: usize) -> Self {
+    pub(crate) fn failing_first(n: usize) -> Self {
         Self {
             items: Arc::default(),
             fail_remaining: Arc::new(AtomicUsize::new(n)),
         }
     }
 
-    fn failing_always() -> Self {
+    pub(crate) fn failing_always() -> Self {
         Self::failing_first(FAIL_ALWAYS)
     }
 
-    fn produce(&self, items: Vec<T>) -> Vec<Result<(), KafkaProduceError>> {
+    pub(crate) fn produce(&self, items: Vec<T>) -> Vec<Result<(), KafkaProduceError>> {
         let should_fail = self
             .fail_remaining
             .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| match n {
@@ -168,7 +170,7 @@ impl<T> Capture<T> {
 }
 
 impl<T: Clone> Capture<T> {
-    fn recorded(&self) -> Vec<T> {
+    pub(crate) fn recorded(&self) -> Vec<T> {
         self.items.lock().expect("Capture mutex poisoned").clone()
     }
 }

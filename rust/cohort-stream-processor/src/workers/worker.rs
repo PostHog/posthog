@@ -15,16 +15,18 @@ use tokio::task::JoinHandle;
 use tracing::{info, warn};
 use uuid::Uuid;
 
+use crate::cascade::{first_cascade, CascadeMessage};
 use crate::consumers::events::CohortStreamEvent;
 use crate::filters::manager::CatalogHandle;
 use crate::filters::reverse_index::TeamFilters;
 use crate::filters::TeamId;
 use crate::merge::tombstone_redirect::{self, Resolution};
 use crate::observability::metrics::{
-    COHORT_STREAM_OFFSET_AHEAD_OF_DISPATCH, MERGE_REDIRECT_HOP_CAPPED_TOTAL,
-    MERGE_REKEY_PRODUCE_FAILURE_TOTAL, OUTPUT_MEMBERSHIP_CHANGES_EMITTED, OUTPUT_PRODUCE_ERRORS,
-    STAGE1_EVENTS_PROCESSED, STAGE1_EVENTS_SKIPPED, STAGE1_EVENT_PROCESS_DURATION,
-    STAGE1_TRANSITIONS, SWEEP_KEYS_DROPPED_TOTAL, SWEEP_KEYS_EVICTED_TOTAL,
+    CASCADE_PRODUCE_ERRORS_TOTAL, COHORT_STREAM_OFFSET_AHEAD_OF_DISPATCH,
+    MERGE_REDIRECT_HOP_CAPPED_TOTAL, MERGE_REKEY_PRODUCE_FAILURE_TOTAL,
+    OUTPUT_MEMBERSHIP_CHANGES_EMITTED, OUTPUT_PRODUCE_ERRORS, STAGE1_EVENTS_PROCESSED,
+    STAGE1_EVENTS_SKIPPED, STAGE1_EVENT_PROCESS_DURATION, STAGE1_TRANSITIONS,
+    SWEEP_KEYS_DROPPED_TOTAL, SWEEP_KEYS_EVICTED_TOTAL,
 };
 use crate::partitions::offset_tracker::{MarkOutcome, OffsetTracker};
 use crate::partitions::shuffle_message::ShuffleMessage;
@@ -37,6 +39,7 @@ use crate::stage1::state::StateVariant;
 use crate::stage1::transition::{LeafTransition, TransitionKind};
 use crate::store::{CohortStore, IndexOp, PersonIndexKey};
 use crate::sweep::EvictionQueue;
+use crate::workers::cascade_path::handle_cascade;
 use crate::workers::event_path::{process_event, SkipReason};
 use crate::workers::merge_gc::{handle_merge_gc, MergeGcCursor};
 use crate::workers::merge_path::{handle_apply, handle_merge, handle_redrive, MergeWorkerDeps};
@@ -147,6 +150,7 @@ async fn run_worker(
                         &store,
                         &catalog,
                         &sink,
+                        &merge,
                         &mut queue,
                         &last_updated,
                         due_before_ms,
@@ -201,6 +205,29 @@ async fn run_worker(
                     )
                     .await;
                 }
+                ShuffleMessage::Cascade { message, offset } => {
+                    if flush_event_changes_before_inline(
+                        &sink,
+                        &mut buffer,
+                        partition_id,
+                        &mut held,
+                    )
+                    .await
+                    {
+                        break;
+                    }
+                    handle_cascade(
+                        partition_id,
+                        &store,
+                        &catalog,
+                        &sink,
+                        &merge,
+                        &last_updated,
+                        &message,
+                        offset,
+                    )
+                    .await;
+                }
                 ShuffleMessage::RedrivePendingTransfers => {
                     handle_redrive(partition_id, &store, &merge).await;
                 }
@@ -228,12 +255,24 @@ async fn run_worker(
 
         if !buffer.is_empty() {
             let changes = buffer.take();
+            // Build the cascades from a borrow before `changes` is moved into the membership produce
+            // (gate-off allocates nothing). A failure on either produce holds the whole batch for replay.
+            let cascades = first_cascades(&merge, &changes, max_offset.unwrap_or(0));
             let errors = produce_membership(&sink, changes).await;
             if errors > 0 {
                 warn!(
                     partition_id,
                     errors,
                     "produce to cohort_membership_changed_shadow failed; holding offset for replay",
+                );
+                continue;
+            }
+            let cascade_errors = produce_cascades(&merge, cascades).await;
+            if cascade_errors > 0 {
+                warn!(
+                    partition_id,
+                    errors = cascade_errors,
+                    "produce to cohort_cascade_events failed; holding offset for replay",
                 );
                 continue;
             }
@@ -340,6 +379,42 @@ pub(crate) async fn produce_membership(
             .increment(left);
     }
     0
+}
+
+/// Build the first-hop cascade for each just-flipped membership change. Gated on
+/// `cohort_cascade_enabled` and empty for an empty slice, so the off path allocates nothing — callers
+/// build from a borrow before the membership produce moves `changes`. `source_offset` is informational.
+pub(crate) fn first_cascades(
+    merge: &MergeWorkerDeps,
+    changes: &[CohortMembershipChange],
+    source_offset: i64,
+) -> Vec<CascadeMessage> {
+    if !merge.cascade.enabled || changes.is_empty() {
+        return Vec::new();
+    }
+    changes
+        .iter()
+        .map(|change| first_cascade(change.clone(), source_offset))
+        .collect()
+}
+
+/// Produce pre-built cascade messages to the cascade sink and await acks. Returns the failed-ack
+/// count (`0` when empty or fully acked); books [`CASCADE_PRODUCE_ERRORS_TOTAL`] on failure. The
+/// caller owns the recovery posture (the event path holds; the sweep/merge paths drop). Shared by the
+/// producer leg (first hop, via [`first_cascades`]) and the consumer leg (onward hops).
+pub(crate) async fn produce_cascades(
+    merge: &MergeWorkerDeps,
+    cascades: Vec<CascadeMessage>,
+) -> usize {
+    if cascades.is_empty() {
+        return 0;
+    }
+    let acks = merge.cascade_sink.produce(cascades).await;
+    let errors = acks.iter().filter(|result| result.is_err()).count();
+    if errors > 0 {
+        counter!(CASCADE_PRODUCE_ERRORS_TOTAL).increment(errors as u64);
+    }
+    errors
 }
 
 #[derive(Default)]
@@ -495,11 +570,13 @@ fn rewrite_to(event: &CohortStreamEvent, final_person: Uuid, origin: Uuid) -> Co
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn handle_sweep(
     partition_id: u16,
     store: &CohortStore,
     catalog: &CatalogHandle,
     sink: &Arc<dyn MembershipSink>,
+    merge: &MergeWorkerDeps,
     queue: &mut EvictionQueue<Stage1Key>,
     last_updated: &str,
     due_before_ms: i64,
@@ -647,12 +724,24 @@ async fn handle_sweep(
         return;
     }
 
+    // Only Stage 2 flips cascade; single-leaf sweep evictions self-heal on each referrer's next
+    // event/sweep.
+    let cascades = first_cascades(merge, &stage2_changes, 0);
     let errors = produce_membership(sink, stage2_changes).await;
     if errors > 0 {
         warn!(
             partition_id,
             errors,
             "sweep stage 2 produce to cohort_membership_changed_shadow failed; dropping (cf_stage2 already committed, at-most-once)",
+        );
+        return;
+    }
+    let cascade_errors = produce_cascades(merge, cascades).await;
+    if cascade_errors > 0 {
+        warn!(
+            partition_id,
+            errors = cascade_errors,
+            "sweep cascade produce failed; dropping (at-most-once, self-heals on next event/sweep)",
         );
     }
 }
@@ -710,11 +799,14 @@ mod tombstone_redirect_tests {
     use crate::filters::{CohortId, FilterCatalog, TeamFiltersBuilder};
     use crate::merge::transfer::Tombstone;
     use crate::partitions::partitioner::{partition_of, COHORT_PARTITION_COUNT};
-    use crate::producer::{CaptureSink, CaptureStreamEventSink, CaptureTransferSink};
+    use crate::producer::{
+        CaptureCascadeSink, CaptureSink, CaptureStreamEventSink, CaptureTransferSink,
+    };
     use crate::stage1::key::LeafStateKey;
     use crate::stage1::state::{AppliedOffsets, Stage1State, StatefulRecord};
     use crate::store::{StoreConfig, TombstoneKey};
     use crate::workers::merge_path::TransferRetryPolicy;
+    use crate::workers::CascadeConfig;
 
     const TEAM: i32 = 7;
     const PERSON_HASH: [u8; 16] = *b"fedcba9876543210";
@@ -795,7 +887,136 @@ mod tombstone_redirect_tests {
             transfer_tracker: Arc::new(OffsetTracker::new()),
             retry: TransferRetryPolicy::default(),
             gc_scan_limit: crate::workers::DEFAULT_MERGE_GC_SCAN_LIMIT,
+            cascade_sink: Arc::new(crate::producer::CaptureCascadeSink::new()),
+            cascade_tracker: Arc::new(OffsetTracker::new()),
+            cascade: crate::workers::CascadeConfig::default(),
         })
+    }
+
+    /// Deps capturing the cascade sink, with the gate set, for the event-path producer-leg tests.
+    fn merge_deps_cascade(cascade_sink: CaptureCascadeSink, enabled: bool) -> Arc<MergeWorkerDeps> {
+        Arc::new(MergeWorkerDeps {
+            transfer_sink: Arc::new(CaptureTransferSink::new()),
+            stream_event_sink: Arc::new(CaptureStreamEventSink::new()),
+            merge_tracker: Arc::new(OffsetTracker::new()),
+            transfer_tracker: Arc::new(OffsetTracker::new()),
+            retry: TransferRetryPolicy::default(),
+            gc_scan_limit: crate::workers::DEFAULT_MERGE_GC_SCAN_LIMIT,
+            cascade_sink: Arc::new(cascade_sink),
+            cascade_tracker: Arc::new(OffsetTracker::new()),
+            cascade: CascadeConfig {
+                enabled,
+                depth_cap: 8,
+                fanout_cap: 1000,
+            },
+        })
+    }
+
+    /// One event flipping the single-leaf cohort 1, run through a worker with the given cascade deps.
+    async fn run_flip(
+        store: &CohortStore,
+        merge: Arc<MergeWorkerDeps>,
+        membership: &CaptureSink,
+        person: Uuid,
+    ) -> (u16, Arc<OffsetTracker>) {
+        let partition_id = partition_of(TeamId(TEAM), &person, COHORT_PARTITION_COUNT) as u16;
+        let tracker = Arc::new(OffsetTracker::new());
+        run_batch(
+            partition_id,
+            store,
+            person_catalog(),
+            membership,
+            &tracker,
+            merge,
+            1,
+            vec![ShuffleMessage::Event {
+                event: person_event(person, "u@p.com", 5, 0),
+                cse_offset: 0,
+            }],
+        )
+        .await;
+        (partition_id, tracker)
+    }
+
+    #[tokio::test]
+    async fn event_flip_with_cascade_on_produces_a_depth_one_first_cascade() {
+        let (_dir, store) = temp_store();
+        let membership = CaptureSink::new();
+        let cascade = CaptureCascadeSink::new();
+        let (partition_id, tracker) = run_flip(
+            &store,
+            merge_deps_cascade(cascade.clone(), true),
+            &membership,
+            Uuid::from_u128(0x5A1CE),
+        )
+        .await;
+
+        assert_eq!(membership.changes().len(), 1, "alice entered cohort 1");
+        let cascades = cascade.messages();
+        assert_eq!(cascades.len(), 1, "one first-hop cascade for the flip");
+        assert_eq!(cascades[0].change.cohort_id, 1);
+        assert_eq!(cascades[0].depth, 1);
+        assert_eq!(cascades[0].cascade_chain, vec![1]);
+        assert_eq!(cascades[0].originating_cohort_id, 1);
+        assert_eq!(
+            tracker.committable_offsets().get(&(partition_id as i32)),
+            Some(&1),
+            "the acked two-topic produce releases the events offset",
+        );
+    }
+
+    #[tokio::test]
+    async fn event_flip_with_cascade_off_produces_no_cascade() {
+        let (_dir, store) = temp_store();
+        let membership = CaptureSink::new();
+        let cascade = CaptureCascadeSink::new();
+        let (partition_id, tracker) = run_flip(
+            &store,
+            merge_deps_cascade(cascade.clone(), false),
+            &membership,
+            Uuid::from_u128(0x5A1CF),
+        )
+        .await;
+
+        assert_eq!(
+            membership.changes().len(),
+            1,
+            "the flip still emits membership"
+        );
+        assert!(
+            cascade.messages().is_empty(),
+            "gate off: no cascade produced"
+        );
+        assert_eq!(
+            tracker.committable_offsets().get(&(partition_id as i32)),
+            Some(&1),
+        );
+    }
+
+    #[tokio::test]
+    async fn cascade_produce_failure_holds_the_events_batch() {
+        let (_dir, store) = temp_store();
+        let membership = CaptureSink::new();
+        let cascade = CaptureCascadeSink::failing_always();
+        let (partition_id, tracker) = run_flip(
+            &store,
+            merge_deps_cascade(cascade.clone(), true),
+            &membership,
+            Uuid::from_u128(0x5A1D0),
+        )
+        .await;
+
+        assert_eq!(
+            membership.changes().len(),
+            1,
+            "membership is the first leg and acked before the cascade leg",
+        );
+        assert!(cascade.messages().is_empty(), "the cascade produce failed");
+        assert_eq!(
+            tracker.committable_offsets().get(&(partition_id as i32)),
+            None,
+            "a failed cascade produce holds the events offset for replay",
+        );
     }
 
     #[allow(clippy::too_many_arguments)]

@@ -1,11 +1,11 @@
-//! Assignment mirroring for the merge-protocol follower consumers.
+//! Assignment mirroring for the internal follower consumers.
 //!
-//! The two follower consumers (`person_merge_events`, `cohort_merge_state_transfer`) never
-//! `subscribe()`: the `cohort_stream_events` group's rebalance is the single source of partition
-//! ownership, and the rebalance worker mirrors every Assign/Revoke onto them through
-//! [`PartitionMirror`] — `incremental_assign` at [`Offset::Stored`] and `incremental_unassign`,
-//! both unconditional. The topics are co-partitioned, so the events topic's partition numbers
-//! index all three.
+//! The follower consumers (`person_merge_events`, `cohort_merge_state_transfer`, and — when the
+//! cascade gate is on — `cohort_cascade_events`) never `subscribe()`: the `cohort_stream_events`
+//! group's rebalance is the single source of partition ownership, and the rebalance worker mirrors
+//! every Assign/Revoke onto them through [`PartitionMirror`] — `incremental_assign` at
+//! [`Offset::Stored`] and `incremental_unassign`, both unconditional. The topics are co-partitioned,
+//! so the events topic's partition numbers index every follower.
 //!
 //! Why unconditional, including the rapid revoke→assign path: between the sync revoke and the async
 //! unassign the followers keep fetching, and the dispatcher's owned-gate drops those messages while
@@ -21,7 +21,7 @@ use rdkafka::{Offset, TopicPartitionList};
 use tracing::warn;
 
 /// Mirror an events-group (un)assignment onto the follower consumers.
-/// Trait-based so the rebalance worker is unit-testable; production impl is [`MergeFollowers`].
+/// Trait-based so the rebalance worker is unit-testable; production impl is [`FollowerSet`].
 pub trait PartitionMirror: Send + Sync {
     /// Mirror newly-assigned partitions onto every follower.
     fn assign(&self, partitions: &[i32]);
@@ -30,47 +30,38 @@ pub trait PartitionMirror: Send + Sync {
 }
 
 /// One follower consumer and the topic its assignments are built against.
-struct Follower {
+pub struct Follower {
     consumer: Arc<StreamConsumer>,
     topic: String,
 }
 
-/// Production [`PartitionMirror`]: drives `incremental_assign`/`incremental_unassign` on both
-/// follower consumers. Errors are warned and skipped — the rebalance worker must keep draining.
-/// A missed assign degrades to visible group lag; a missed unassign is practically unreachable
-/// (either "partition wasn't assigned" or a fatally-dead consumer).
-pub struct MergeFollowers {
-    merges: Follower,
-    transfers: Follower,
+impl Follower {
+    pub fn new(consumer: Arc<StreamConsumer>, topic: String) -> Self {
+        Self { consumer, topic }
+    }
 }
 
-impl MergeFollowers {
-    pub fn new(
-        merges_consumer: Arc<StreamConsumer>,
-        merges_topic: String,
-        transfers_consumer: Arc<StreamConsumer>,
-        transfers_topic: String,
-    ) -> Self {
+/// Production [`PartitionMirror`]: drives `incremental_assign`/`incremental_unassign` on a set of
+/// follower consumers (`person_merge_events`, `cohort_merge_state_transfer`, and — when the gate is
+/// on — `cohort_cascade_events`). Errors are warned and skipped: the rebalance worker must keep
+/// draining. A missed assign degrades to visible group lag; a missed unassign is practically
+/// unreachable (either "partition wasn't assigned" or a fatally-dead consumer).
+pub struct FollowerSet {
+    followers: Vec<Follower>,
+}
+
+impl FollowerSet {
+    /// The followers' topics must all be co-partitioned with `cohort_stream_events`.
+    pub fn new(followers: impl IntoIterator<Item = Follower>) -> Self {
         Self {
-            merges: Follower {
-                consumer: merges_consumer,
-                topic: merges_topic,
-            },
-            transfers: Follower {
-                consumer: transfers_consumer,
-                topic: transfers_topic,
-            },
+            followers: followers.into_iter().collect(),
         }
     }
-
-    fn followers(&self) -> [&Follower; 2] {
-        [&self.merges, &self.transfers]
-    }
 }
 
-impl PartitionMirror for MergeFollowers {
+impl PartitionMirror for FollowerSet {
     fn assign(&self, partitions: &[i32]) {
-        for follower in self.followers() {
+        for follower in &self.followers {
             let tpl = stored_tpl(&follower.topic, partitions);
             if let Err(err) = follower.consumer.incremental_assign(&tpl) {
                 warn!(
@@ -84,7 +75,7 @@ impl PartitionMirror for MergeFollowers {
     }
 
     fn unassign(&self, partitions: &[i32]) {
-        for follower in self.followers() {
+        for follower in &self.followers {
             let tpl = bare_tpl(&follower.topic, partitions);
             if let Err(err) = follower.consumer.incremental_unassign(&tpl) {
                 warn!(

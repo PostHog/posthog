@@ -4,6 +4,7 @@
 //! emitted by Stage 2.
 
 pub mod batcher;
+pub mod cascade;
 pub mod kafka;
 pub mod merge;
 
@@ -22,6 +23,7 @@ use crate::observability::metrics::OUTPUT_TRANSITIONS_UNMAPPED;
 use crate::stage1::transition::{LeafTransition, TransitionKind};
 
 pub use batcher::OutputBuffer;
+pub use cascade::{CaptureCascadeSink, CascadeSink, KafkaCascadeSink, NoopCascadeSink};
 pub use kafka::KafkaMembershipSink;
 pub use merge::{
     CaptureStreamEventSink, CaptureTransferSink, KafkaStreamEventSink, KafkaTransferSink,

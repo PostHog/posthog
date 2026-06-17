@@ -31,6 +31,13 @@ pub const CASCADE_CYCLE_DETECTED_RUNTIME_TOTAL: &str = "cascade_cycle_detected_r
 /// Referrer re-evaluations dropped past `cohort_cascade_fanout_cap`, labelled by `upstream_cohort_id`
 /// (counter).
 pub const CASCADE_FANOUT_CAPPED_TOTAL: &str = "cascade_fanout_capped_total";
+/// First-hop or onward cascade produces to `cohort_cascade_events` that failed (counter). On the
+/// event path a failure holds the batch; on the sweep/merge paths it drops (at-most-once).
+pub const CASCADE_PRODUCE_ERRORS_TOTAL: &str = "cascade_produce_errors_total";
+/// The cascade-consumer commit floor pinned by a sticky offset hold, labelled by `partition` (gauge).
+/// Non-zero means a held cascade re-evaluation is stalling the commit. **Alert on a sustained
+/// non-zero level.**
+pub const CASCADE_HELD_OFFSET_GAUGE: &str = "cascade_held_offset";
 
 /// `(cohort, person)` pairs re-evaluated by Stage 2 composition (counter).
 pub const STAGE2_COHORTS_EVALUATED: &str = "stage2_cohorts_evaluated_total";
@@ -129,6 +136,15 @@ pub const COHORT_STREAM_TRANSFER_DESERIALIZE_ERRORS: &str =
 /// (counter).
 pub const COHORT_STREAM_TRANSFERS_SKIPPED_NOT_OWNED: &str =
     "cohort_stream_transfers_skipped_not_owned_total";
+/// `cohort_cascade_events` envelopes consumed and successfully decoded (counter).
+pub const COHORT_STREAM_CASCADES_CONSUMED: &str = "cohort_stream_cascades_consumed_total";
+/// `cohort_cascade_events` payloads that were empty or failed to decode (counter).
+pub const COHORT_STREAM_CASCADE_DESERIALIZE_ERRORS: &str =
+    "cohort_stream_cascade_deserialize_errors_total";
+/// Cascade messages dropped because the partition is no longer owned or shutdown is draining
+/// (counter).
+pub const COHORT_STREAM_CASCADES_SKIPPED_NOT_OWNED: &str =
+    "cohort_stream_cascades_skipped_not_owned_total";
 /// Decoded `KAFKA_PERSON_MERGE_EVENTS` envelopes accumulated per consume → dispatch cycle
 /// (histogram). A separate constant per topic, not a label.
 pub const COHORT_STREAM_MERGES_CONSUME_BATCH_SIZE: &str = "cohort_stream_merges_consume_batch_size";
@@ -136,6 +152,9 @@ pub const COHORT_STREAM_MERGES_CONSUME_BATCH_SIZE: &str = "cohort_stream_merges_
 /// (histogram).
 pub const COHORT_STREAM_TRANSFERS_CONSUME_BATCH_SIZE: &str =
     "cohort_stream_transfers_consume_batch_size";
+/// Decoded `cohort_cascade_events` envelopes accumulated per consume → dispatch cycle (histogram).
+pub const COHORT_STREAM_CASCADES_CONSUME_BATCH_SIZE: &str =
+    "cohort_stream_cascades_consume_batch_size";
 /// A worker tried to mark an offset past what the dispatcher routed (counter).
 pub const COHORT_STREAM_OFFSET_AHEAD_OF_DISPATCH: &str =
     "cohort_stream_offset_ahead_of_dispatch_total";

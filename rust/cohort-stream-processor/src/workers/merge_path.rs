@@ -26,15 +26,17 @@ use crate::observability::metrics::{
 };
 use crate::partitions::offset_tracker::{MarkOutcome, OffsetTracker};
 use crate::producer::{
-    map_transition, CaptureStreamEventSink, CaptureTransferSink, CohortMembershipChange,
-    MembershipSink, StreamEventSink, TransferSink,
+    map_transition, CaptureCascadeSink, CaptureStreamEventSink, CaptureTransferSink, CascadeSink,
+    CohortMembershipChange, MembershipSink, StreamEventSink, TransferSink,
 };
 use crate::stage1::key::Stage1Key;
 use crate::stage1::transition::LeafTransition;
 use crate::store::{CohortStore, PendingTransferKey};
 use crate::sweep::EvictionQueue;
 use crate::workers::stage2_path::compose_stage2;
-use crate::workers::worker::{produce_membership, transition_metric_label};
+use crate::workers::worker::{
+    first_cascades, produce_cascades, produce_membership, transition_metric_label,
+};
 
 /// Inline bounded backoff for the transfer produce.
 ///
@@ -75,6 +77,28 @@ impl TransferRetryPolicy {
 /// (tests). Mirrors `Config::merge_gc_scan_limit`'s default.
 pub const DEFAULT_MERGE_GC_SCAN_LIMIT: usize = 10_000;
 
+/// Cascade depth/fan-out caps and the master gate. With `enabled` false the cascade transport is
+/// inert (the producer builds nothing, the consumer drains without re-evaluating).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CascadeConfig {
+    pub enabled: bool,
+    /// An incoming cascade at `depth >= this` drops its outgoing hop.
+    pub depth_cap: u8,
+    /// Max referrer re-evaluations per upstream flip; the remainder self-heals.
+    pub fanout_cap: usize,
+}
+
+impl Default for CascadeConfig {
+    /// Gate off, production caps.
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            depth_cap: 8,
+            fanout_cap: 1000,
+        }
+    }
+}
+
 /// Merge-protocol dependencies shared across all workers and the dispatcher.
 pub struct MergeWorkerDeps {
     pub transfer_sink: Arc<dyn TransferSink>,
@@ -84,6 +108,11 @@ pub struct MergeWorkerDeps {
     pub retry: TransferRetryPolicy,
     /// Max keys scanned (and at most deleted) per merge CF, per partition, per GC tick.
     pub gc_scan_limit: usize,
+    /// Sink for the internal `cohort_cascade_events` topic (a no-op when the gate is off).
+    pub cascade_sink: Arc<dyn CascadeSink>,
+    /// Isolated from the merge/transfer trackers so cascade-path lag is observable separately.
+    pub cascade_tracker: Arc<OffsetTracker>,
+    pub cascade: CascadeConfig,
 }
 
 impl MergeWorkerDeps {
@@ -96,6 +125,9 @@ impl MergeWorkerDeps {
             transfer_tracker: Arc::new(OffsetTracker::new()),
             retry: TransferRetryPolicy::default(),
             gc_scan_limit: DEFAULT_MERGE_GC_SCAN_LIMIT,
+            cascade_sink: Arc::new(CaptureCascadeSink::new()),
+            cascade_tracker: Arc::new(OffsetTracker::new()),
+            cascade: CascadeConfig::default(),
         })
     }
 }
@@ -141,10 +173,12 @@ pub(crate) async fn handle_merge(
                 partition_id,
                 store,
                 sink,
+                merge,
                 filters,
                 &transitions,
                 event.merged_at_ms,
                 last_updated,
+                offset,
             )
             .await;
             mark_processed(&merge.merge_tracker, partition_id, offset);
@@ -257,10 +291,12 @@ pub(crate) async fn handle_apply(
                 partition_id,
                 store,
                 sink,
+                merge,
                 filters,
                 &transitions,
                 transfer.merged_at_ms,
                 last_updated,
+                offset,
             )
             .await;
             mark_processed(&merge.transfer_tracker, partition_id, offset);
@@ -471,14 +507,18 @@ async fn produce_transfer_with_retry(
 }
 
 /// Fan transitions into membership output (single-leaf + Stage 2), then produce (at-most-once).
+/// `source_offset` seeds each flip's first cascade; both produces drop on failure.
+#[allow(clippy::too_many_arguments)]
 async fn produce_merge_transitions(
     partition_id: u16,
     store: &CohortStore,
     sink: &Arc<dyn MembershipSink>,
+    merge: &MergeWorkerDeps,
     filters: &TeamFilters,
     transitions: &[LeafTransition],
     merged_at_ms: i64,
     last_updated: &str,
+    source_offset: i64,
 ) {
     if transitions.is_empty() {
         return;
@@ -509,12 +549,22 @@ async fn produce_merge_transitions(
         return;
     }
 
+    let cascades = first_cascades(merge, &changes, source_offset);
     let errors = produce_membership(sink, changes).await;
     if errors > 0 {
         warn!(
             partition_id,
             errors,
             "merge membership produce failed; dropping (state already committed, at-most-once)",
+        );
+        return;
+    }
+    let cascade_errors = produce_cascades(merge, cascades).await;
+    if cascade_errors > 0 {
+        warn!(
+            partition_id,
+            errors = cascade_errors,
+            "merge cascade produce failed; dropping (at-most-once, self-heals on next event/sweep)",
         );
     }
 }
@@ -691,6 +741,9 @@ mod tests {
             transfer_tracker: Arc::new(OffsetTracker::new()),
             retry: TransferRetryPolicy::default(),
             gc_scan_limit: DEFAULT_MERGE_GC_SCAN_LIMIT,
+            cascade_sink: Arc::new(CaptureCascadeSink::new()),
+            cascade_tracker: Arc::new(OffsetTracker::new()),
+            cascade: CascadeConfig::default(),
         }
     }
 

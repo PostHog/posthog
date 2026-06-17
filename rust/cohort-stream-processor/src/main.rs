@@ -15,19 +15,20 @@ use tracing_subscriber::{fmt, EnvFilter, Layer};
 
 use cohort_stream_processor::config::Config;
 use cohort_stream_processor::consumers::{
-    CohortStreamEventsConsumer, EventDispatcher, FollowerConsumer, FollowerRoute, MergeRoute,
-    TransferRoute,
+    CascadeRoute, CohortStreamEventsConsumer, EventDispatcher, FollowerConsumer, FollowerRoute,
+    MergeRoute, TransferRoute,
 };
 use cohort_stream_processor::filters::{run_refresh_loop, CatalogHandle};
 use cohort_stream_processor::merge::gc::MergeGcSweeper;
 use cohort_stream_processor::merge::redrive::RedriveSweeper;
 use cohort_stream_processor::observability;
 use cohort_stream_processor::partitions::{
-    run_rebalance_worker, CohortConsumerContext, MergeFollowers, OffsetTracker, PartitionRouter,
+    run_rebalance_worker, CohortConsumerContext, Follower, FollowerSet, OffsetTracker,
+    PartitionRouter,
 };
 use cohort_stream_processor::producer::{
-    KafkaMembershipSink, KafkaStreamEventSink, KafkaTransferSink, MembershipSink, StreamEventSink,
-    TransferSink,
+    CascadeSink, KafkaCascadeSink, KafkaMembershipSink, KafkaStreamEventSink, KafkaTransferSink,
+    MembershipSink, NoopCascadeSink, StreamEventSink, TransferSink,
 };
 use cohort_stream_processor::store::CohortStore;
 use cohort_stream_processor::sweep::{run_sweep_loop, DispatchSweeper};
@@ -78,6 +79,14 @@ async fn async_main(config: Config) -> Result<()> {
         "transfer-follower",
         ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(30)),
     );
+    // Registered only when the gate is on — a dormant deploy must not wait on a component that never
+    // starts.
+    let cascade_follower_handle = config.cohort_cascade_enabled.then(|| {
+        manager.register(
+            "cascade-follower",
+            ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(30)),
+        )
+    });
 
     let readiness = manager.readiness_handler();
     let liveness = manager.liveness_handler();
@@ -140,6 +149,17 @@ async fn async_main(config: Config) -> Result<()> {
             .await
             .context("creating straggler re-key producer")?,
     );
+
+    // Gate off: a no-op sink needs no producer or topic. Gate on: a real keyed producer.
+    let cascade_sink: Arc<dyn CascadeSink> = if config.cohort_cascade_enabled {
+        Arc::new(
+            KafkaCascadeSink::new(&kafka_config, config.cohort_cascade_events_topic.clone())
+                .await
+                .context("creating cohort_cascade_events producer")?,
+        )
+    } else {
+        Arc::new(NoopCascadeSink)
+    };
     let merge_deps = Arc::new(MergeWorkerDeps {
         transfer_sink,
         stream_event_sink,
@@ -147,6 +167,9 @@ async fn async_main(config: Config) -> Result<()> {
         transfer_tracker: Arc::new(OffsetTracker::new()),
         retry: config.transfer_retry_policy(),
         gc_scan_limit: config.merge_gc_scan_limit,
+        cascade_sink,
+        cascade_tracker: Arc::new(OffsetTracker::new()),
+        cascade: config.cascade_config(),
     });
 
     let dispatcher = Arc::new(EventDispatcher::new(
@@ -179,6 +202,17 @@ async fn async_main(config: Config) -> Result<()> {
             .create()
             .context("creating cohort_merge_state_transfer follower consumer")?,
     );
+    // Built only when the gate is on, so a dormant deploy needs no `cohort_cascade_events` topic.
+    let cascade_follower_consumer: Option<Arc<StreamConsumer>> = if config.cohort_cascade_enabled {
+        Some(Arc::new(
+            config
+                .follower_client_config(&config.kafka_cascade_consumer_group)
+                .create()
+                .context("creating cohort_cascade_events follower consumer")?,
+        ))
+    } else {
+        None
+    };
 
     let events_partitions =
         fetch_partition_count(&stream_consumer, &config.cohort_stream_events_topic)?;
@@ -198,13 +232,39 @@ async fn async_main(config: Config) -> Result<()> {
         config.cohort_merge_state_transfer_topic,
         transfer_partitions,
     );
+    // A cascade for (team, person) must land on the partition owning that person's `cf_stage2` — the
+    // same partition number as the events topic — so refuse to start co-partitioned at a different
+    // count. Skipped when the gate is off (no cascade topic required).
+    if let Some(cascade_consumer) = &cascade_follower_consumer {
+        let cascade_partitions =
+            fetch_partition_count(cascade_consumer, &config.cohort_cascade_events_topic)?;
+        anyhow::ensure!(
+            cascade_partitions == events_partitions,
+            "cohort_cascade_events must be co-partitioned with {} ({} partitions): {} has {}",
+            config.cohort_stream_events_topic,
+            events_partitions,
+            config.cohort_cascade_events_topic,
+            cascade_partitions,
+        );
+    }
 
-    let followers = Arc::new(MergeFollowers::new(
-        merges_follower_consumer.clone(),
-        config.person_merge_events_topic.clone(),
-        transfers_follower_consumer.clone(),
-        config.cohort_merge_state_transfer_topic.clone(),
-    ));
+    let mut follower_mirrors = vec![
+        Follower::new(
+            merges_follower_consumer.clone(),
+            config.person_merge_events_topic.clone(),
+        ),
+        Follower::new(
+            transfers_follower_consumer.clone(),
+            config.cohort_merge_state_transfer_topic.clone(),
+        ),
+    ];
+    if let Some(cascade_consumer) = &cascade_follower_consumer {
+        follower_mirrors.push(Follower::new(
+            cascade_consumer.clone(),
+            config.cohort_cascade_events_topic.clone(),
+        ));
+    }
+    let followers = Arc::new(FollowerSet::new(follower_mirrors));
 
     let (consumer_command_tx, consumer_command_rx) = mpsc::unbounded_channel();
 
@@ -279,6 +339,22 @@ async fn async_main(config: Config) -> Result<()> {
         config.offset_commit_interval(),
     );
     spawn_follower_after_catalog_load(catalog.clone(), transfer_follower, transfer_follower_handle);
+
+    // Spawned only when the gate is on (consumer and handle are `Some` together).
+    if let (Some(cascade_consumer), Some(cascade_handle)) =
+        (cascade_follower_consumer, cascade_follower_handle)
+    {
+        let cascade_follower = FollowerConsumer::<CascadeRoute>::new(
+            cascade_consumer,
+            config.cohort_cascade_events_topic.clone(),
+            dispatcher.clone(),
+            cascade_handle.clone(),
+            config.recv_batch_size,
+            config.recv_batch_timeout(),
+            config.offset_commit_interval(),
+        );
+        spawn_follower_after_catalog_load(catalog.clone(), cascade_follower, cascade_handle);
+    }
 
     let events_consumer = CohortStreamEventsConsumer::new(
         stream_consumer,
@@ -378,6 +454,8 @@ fn log_startup(config: &Config) {
         filter_catalog_refresh_jitter_secs = config.filter_catalog_refresh_jitter_secs,
         team_allowlist = ?config.team_allowlist,
         cohort_cascade_enabled = config.cohort_cascade_enabled,
+        cascade_topic = %config.cohort_cascade_events_topic,
+        cascade_consumer_group = %config.kafka_cascade_consumer_group,
         "starting cohort-stream-processor",
     );
 }

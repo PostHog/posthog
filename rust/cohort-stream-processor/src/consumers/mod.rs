@@ -6,5 +6,6 @@ pub mod merges;
 
 pub use events::{CohortStreamEvent, CohortStreamEventsConsumer, ConsumedEvent, EventDispatcher};
 pub use merges::{
-    ConsumedMerge, ConsumedTransfer, FollowerConsumer, FollowerRoute, MergeRoute, TransferRoute,
+    CascadeRoute, ConsumedCascade, ConsumedMerge, ConsumedTransfer, FollowerConsumer,
+    FollowerRoute, MergeRoute, TransferRoute,
 };

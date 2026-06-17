@@ -22,9 +22,10 @@ use rdkafka::{Offset, TopicPartitionList};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, warn};
 
-use crate::consumers::merges::{ConsumedMerge, ConsumedTransfer};
+use crate::consumers::merges::{ConsumedCascade, ConsumedMerge, ConsumedTransfer};
 use crate::filters::manager::CatalogHandle;
 use crate::observability::metrics::{
+    CASCADE_HELD_OFFSET_GAUGE, COHORT_STREAM_CASCADES_SKIPPED_NOT_OWNED,
     COHORT_STREAM_CONSUME_BATCH_SIZE, COHORT_STREAM_DESERIALIZE_ERRORS,
     COHORT_STREAM_EMPTY_PAYLOAD, COHORT_STREAM_EVENTS_CONSUMED, COHORT_STREAM_EVENTS_DISPATCHED,
     COHORT_STREAM_EVENTS_SKIPPED_NOT_OWNED, COHORT_STREAM_KAFKA_RECV_ERRORS,
@@ -206,6 +207,32 @@ impl EventDispatcher {
             .dispatch_to_workers(items, &self.merge.transfer_tracker)
             .await;
         counter!(COHORT_STREAM_TRANSFERS_SKIPPED_NOT_OWNED).increment(stats.not_owned_skipped);
+    }
+
+    /// Route a consumed `cohort_cascade_events` batch to per-partition workers, ceiling marked on the
+    /// cascade tracker. Spawns workers (like merges/transfers) because a dropped cascade silently
+    /// fails to propagate a referrer flip.
+    pub async fn dispatch_cascade(&self, batch: Vec<ConsumedCascade>) {
+        if batch.is_empty() {
+            return;
+        }
+        let items = batch
+            .into_iter()
+            .map(|consumed| {
+                (
+                    consumed.partition,
+                    consumed.offset,
+                    ShuffleMessage::Cascade {
+                        message: Box::new(consumed.message),
+                        offset: consumed.offset,
+                    },
+                )
+            })
+            .collect();
+        let stats = self
+            .dispatch_to_workers(items, &self.merge.cascade_tracker)
+            .await;
+        counter!(COHORT_STREAM_CASCADES_SKIPPED_NOT_OWNED).increment(stats.not_owned_skipped);
     }
 
     /// Shared skeleton: draining gate → owned gate → ensure_worker → dispatch ceiling → route.
@@ -395,16 +422,18 @@ impl EventDispatcher {
             return;
         }
 
-        // Drop offset entries for all three co-partitioned trackers.
+        // Drop offset entries for all co-partitioned trackers.
         self.tracker.forget_partition(partition);
         self.merge.merge_tracker.forget_partition(partition);
         self.merge.transfer_tracker.forget_partition(partition);
+        self.merge.cascade_tracker.forget_partition(partition);
 
         // Reset the per-partition gauges so they don't linger after the partition is wiped. The
-        // held-offset gauge in particular is alerted on a sustained non-zero level — without this
+        // held-offset gauges in particular are alerted on a sustained non-zero level — without this
         // reset, a hold that cleared on revoke would keep the alert firing for the stale label.
         gauge!(MERGE_PENDING_TRANSFERS_GAUGE, "partition" => partition.to_string()).set(0.0);
         gauge!(MERGE_HELD_OFFSET_GAUGE, "partition" => partition.to_string()).set(0.0);
+        gauge!(CASCADE_HELD_OFFSET_GAUGE, "partition" => partition.to_string()).set(0.0);
 
         // Delete the on-disk state slice for this partition.
         let Some(partition_id) = partition_to_store_id(partition) else {
@@ -909,6 +938,9 @@ mod tests {
             transfer_tracker: Arc::new(OffsetTracker::new()),
             retry: TransferRetryPolicy::default(),
             gc_scan_limit: crate::workers::DEFAULT_MERGE_GC_SCAN_LIMIT,
+            cascade_sink: Arc::new(crate::producer::CaptureCascadeSink::new()),
+            cascade_tracker: Arc::new(OffsetTracker::new()),
+            cascade: crate::workers::CascadeConfig::default(),
         });
         let dispatcher = EventDispatcher::new(
             PartitionRouter::new(64),

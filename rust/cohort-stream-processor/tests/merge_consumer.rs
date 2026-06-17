@@ -38,19 +38,20 @@ use cohort_stream_processor::merge::transfer::{
     MergeStateTransfer, PersonMergeEvent, Tombstone, MERGE_EVENT_SCHEMA_VERSION,
 };
 use cohort_stream_processor::partitions::{
-    merge_partition_key, partition_of, run_rebalance_worker, CohortConsumerContext, MergeFollowers,
-    OffsetTracker, PartitionRouter, COHORT_PARTITION_COUNT,
+    merge_partition_key, partition_of, run_rebalance_worker, CohortConsumerContext, Follower,
+    FollowerSet, OffsetTracker, PartitionRouter, COHORT_PARTITION_COUNT,
 };
 use cohort_stream_processor::producer::{
-    CaptureSink, CohortMembershipChange, KafkaMembershipSink, KafkaStreamEventSink,
-    KafkaTransferSink, MembershipSink, MembershipStatus, StreamEventSink, TransferSink,
+    CaptureCascadeSink, CaptureSink, CohortMembershipChange, KafkaMembershipSink,
+    KafkaStreamEventSink, KafkaTransferSink, MembershipSink, MembershipStatus, StreamEventSink,
+    TransferSink,
 };
 use cohort_stream_processor::stage1::{Stage1State, StateVariant, StatefulRecord};
 use cohort_stream_processor::store::{
     CohortStore, LeafStateKey, Stage1Key, StoreConfig, TombstoneKey,
 };
 use cohort_stream_processor::workers::{
-    MergeWorkerDeps, TransferRetryPolicy, DEFAULT_MERGE_GC_SCAN_LIMIT,
+    CascadeConfig, MergeWorkerDeps, TransferRetryPolicy, DEFAULT_MERGE_GC_SCAN_LIMIT,
 };
 use common_kafka::config::KafkaConfig;
 use futures::FutureExt;
@@ -604,6 +605,9 @@ async fn spawn_instance(
         transfer_tracker: Arc::new(OffsetTracker::new()),
         retry: TransferRetryPolicy::default(),
         gc_scan_limit: DEFAULT_MERGE_GC_SCAN_LIMIT,
+        cascade_sink: Arc::new(CaptureCascadeSink::new()),
+        cascade_tracker: Arc::new(OffsetTracker::new()),
+        cascade: CascadeConfig::default(),
     });
 
     let dispatcher = Arc::new(EventDispatcher::new(
@@ -625,12 +629,10 @@ async fn spawn_instance(
             .create()
             .expect("create transfers follower consumer"),
     );
-    let followers = Arc::new(MergeFollowers::new(
-        merges_consumer.clone(),
-        topics.merges.clone(),
-        transfers_consumer.clone(),
-        topics.transfers.clone(),
-    ));
+    let followers = Arc::new(FollowerSet::new([
+        Follower::new(merges_consumer.clone(), topics.merges.clone()),
+        Follower::new(transfers_consumer.clone(), topics.transfers.clone()),
+    ]));
 
     let (context, rebalance_rx) = CohortConsumerContext::new(dispatcher.clone());
     let events_client: StreamConsumer<CohortConsumerContext> = events_client_config(&groups.events)

@@ -58,39 +58,25 @@ pub fn compose_stage2(
         let Some(tree) = filters.cohorts.get(&cohort_id) else {
             continue;
         };
-        let team_id = tree.team_id.0 as u64;
 
-        let new_bit = evaluate_cohort(partition_id, team_id, person_id, tree, filters, store)?;
+        let diff = recompute_and_diff(partition_id, person_id, tree, filters, store)?;
         evaluated += 1;
-
-        let stage2_key = Stage2Key {
-            partition_id,
-            team_id,
-            cohort_id: cohort_id.0 as u64,
-            person_id,
-        };
-        let prior_bit = read_stage2_bit(store, &stage2_key)?;
-        if new_bit == prior_bit {
+        if !diff.flipped() {
             continue;
         }
 
-        let status = if new_bit {
-            MembershipStatus::Entered
-        } else {
-            MembershipStatus::Left
-        };
         changes.push(CohortMembershipChange {
             team_id: tree.team_id.0,
             cohort_id: cohort_id.0,
             person_id: person_id.to_string(),
             last_updated: last_updated.to_string(),
-            status,
+            status: diff.status(),
         });
         // Write `false` rather than deleting so absence means "never evaluated".
         pending.push((
-            stage2_key,
+            diff.stage2_key,
             Stage2State {
-                in_cohort: new_bit,
+                in_cohort: diff.new_bit,
                 last_evaluated_at_ms: event_ms,
             },
         ));
@@ -110,6 +96,53 @@ pub fn compose_stage2(
     }
 
     Ok(changes)
+}
+
+/// One cohort's recomputed membership for one person, diffed against the stored `cf_stage2` bit.
+/// Shared by Stage 2 composition and the cascade handler so the two recompute paths cannot diverge.
+pub(crate) struct RecomputeDiff {
+    pub new_bit: bool,
+    pub prior_bit: bool,
+    pub stage2_key: Stage2Key,
+}
+
+impl RecomputeDiff {
+    pub fn flipped(&self) -> bool {
+        self.new_bit != self.prior_bit
+    }
+
+    pub fn status(&self) -> MembershipStatus {
+        if self.new_bit {
+            MembershipStatus::Entered
+        } else {
+            MembershipStatus::Left
+        }
+    }
+}
+
+/// Recompute one cohort's membership and diff against the stored `cf_stage2` bit. Reads only — the
+/// caller stages the write, so it owns the produce/commit ordering.
+pub(crate) fn recompute_and_diff(
+    partition_id: u16,
+    person_id: Uuid,
+    tree: &CohortTree,
+    filters: &TeamFilters,
+    store: &CohortStore,
+) -> Result<RecomputeDiff, StoreError> {
+    let team_id = tree.team_id.0 as u64;
+    let new_bit = evaluate_cohort(partition_id, team_id, person_id, tree, filters, store)?;
+    let stage2_key = Stage2Key {
+        partition_id,
+        team_id,
+        cohort_id: tree.cohort_id.0 as u64,
+        person_id,
+    };
+    let prior_bit = read_stage2_bit(store, &stage2_key)?;
+    Ok(RecomputeDiff {
+        new_bit,
+        prior_bit,
+        stage2_key,
+    })
 }
 
 /// Compose one cohort for one person. A leaf with absent or undecodable state reads as non-member;

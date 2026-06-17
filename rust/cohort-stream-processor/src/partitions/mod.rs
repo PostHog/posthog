@@ -12,7 +12,7 @@ pub mod rebalance;
 pub mod router;
 pub mod shuffle_message;
 
-pub use follower::{MergeFollowers, PartitionMirror};
+pub use follower::{Follower, FollowerSet, PartitionMirror};
 pub use offset_tracker::{MarkOutcome, OffsetTracker};
 pub use partitioner::{
     merge_partition_key, murmur2, partition_for, partition_of, COHORT_PARTITION_COUNT,

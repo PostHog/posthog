@@ -1,5 +1,6 @@
 //! The typed unit of work the partition router dispatches to a partition worker.
 
+use crate::cascade::CascadeMessage;
 use crate::consumers::events::CohortStreamEvent;
 use crate::merge::transfer::{MergeStateTransfer, PersonMergeEvent};
 
@@ -29,6 +30,13 @@ pub enum ShuffleMessage {
         transfer: Box<MergeStateTransfer>,
         offset: i64,
     },
+    /// A cohort flip from `cohort_cascade_events` (keyed by `hash(team_id, person_id)`), paired with
+    /// its topic offset. Marked on the cascade tracker, not the events tracker. Boxed because it's
+    /// rare.
+    Cascade {
+        message: Box<CascadeMessage>,
+        offset: i64,
+    },
     /// Periodic tick to re-produce any `cf_pending_transfers` entries left by a failed produce.
     RedrivePendingTransfers,
     /// Periodic tick to garbage-collect expired merge idempotence markers and tombstones. Both
@@ -46,6 +54,24 @@ pub enum ShuffleMessage {
 mod tests {
     use super::*;
     use uuid::Uuid;
+
+    use crate::producer::{CohortMembershipChange, MembershipStatus};
+
+    fn sample_cascade() -> CascadeMessage {
+        CascadeMessage {
+            change: CohortMembershipChange {
+                team_id: 1,
+                cohort_id: 42,
+                person_id: "01928aaa-bbbb-cccc-dddd-eeeeeeeeeeee".to_string(),
+                last_updated: "2026-05-26 12:34:56.789000".to_string(),
+                status: MembershipStatus::Entered,
+            },
+            source_offset: 9,
+            depth: 1,
+            originating_cohort_id: 42,
+            cascade_chain: vec![42],
+        }
+    }
 
     fn sample_event(source_offset: i64) -> CohortStreamEvent {
         CohortStreamEvent {
@@ -106,7 +132,8 @@ mod tests {
             | ShuffleMessage::Merge { .. }
             | ShuffleMessage::Transfer { .. }
             | ShuffleMessage::RedrivePendingTransfers
-            | ShuffleMessage::MergeCfGc { .. } => unreachable!("constructed an Event"),
+            | ShuffleMessage::MergeCfGc { .. }
+            | ShuffleMessage::Cascade { .. } => unreachable!("constructed an Event"),
         }
     }
 
@@ -121,7 +148,8 @@ mod tests {
             | ShuffleMessage::Merge { .. }
             | ShuffleMessage::Transfer { .. }
             | ShuffleMessage::RedrivePendingTransfers
-            | ShuffleMessage::MergeCfGc { .. } => unreachable!("constructed a Sweep"),
+            | ShuffleMessage::MergeCfGc { .. }
+            | ShuffleMessage::Cascade { .. } => unreachable!("constructed a Sweep"),
         }
     }
 
@@ -143,7 +171,8 @@ mod tests {
             | ShuffleMessage::Sweep { .. }
             | ShuffleMessage::Merge { .. }
             | ShuffleMessage::Transfer { .. }
-            | ShuffleMessage::RedrivePendingTransfers => unreachable!("constructed a MergeCfGc"),
+            | ShuffleMessage::RedrivePendingTransfers
+            | ShuffleMessage::Cascade { .. } => unreachable!("constructed a MergeCfGc"),
         }
     }
 
@@ -162,7 +191,8 @@ mod tests {
             | ShuffleMessage::Sweep { .. }
             | ShuffleMessage::Transfer { .. }
             | ShuffleMessage::RedrivePendingTransfers
-            | ShuffleMessage::MergeCfGc { .. } => unreachable!("constructed a Merge"),
+            | ShuffleMessage::MergeCfGc { .. }
+            | ShuffleMessage::Cascade { .. } => unreachable!("constructed a Merge"),
         }
 
         let transfer = ShuffleMessage::Transfer {
@@ -178,7 +208,30 @@ mod tests {
             | ShuffleMessage::Sweep { .. }
             | ShuffleMessage::Merge { .. }
             | ShuffleMessage::RedrivePendingTransfers
-            | ShuffleMessage::MergeCfGc { .. } => unreachable!("constructed a Transfer"),
+            | ShuffleMessage::MergeCfGc { .. }
+            | ShuffleMessage::Cascade { .. } => unreachable!("constructed a Transfer"),
+        }
+    }
+
+    #[test]
+    fn cascade_variant_carries_the_boxed_message_and_offset() {
+        let message = ShuffleMessage::Cascade {
+            message: Box::new(sample_cascade()),
+            offset: 31,
+        };
+        match message {
+            ShuffleMessage::Cascade { message, offset } => {
+                assert_eq!(message.change.cohort_id, 42);
+                assert_eq!(message.depth, 1);
+                assert_eq!(message.cascade_chain, vec![42]);
+                assert_eq!(offset, 31);
+            }
+            ShuffleMessage::Event { .. }
+            | ShuffleMessage::Sweep { .. }
+            | ShuffleMessage::Merge { .. }
+            | ShuffleMessage::Transfer { .. }
+            | ShuffleMessage::RedrivePendingTransfers
+            | ShuffleMessage::MergeCfGc { .. } => unreachable!("constructed a Cascade"),
         }
     }
 }

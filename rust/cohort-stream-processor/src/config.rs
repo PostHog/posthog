@@ -10,7 +10,7 @@ use envconfig::Envconfig;
 use rdkafka::ClientConfig;
 
 use crate::store::StoreConfig;
-use crate::workers::TransferRetryPolicy;
+use crate::workers::{CascadeConfig, TransferRetryPolicy};
 
 const POOL_NAME: &str = "posthog_cohort";
 
@@ -184,6 +184,15 @@ pub struct Config {
     #[envconfig(from = "COHORT_CASCADE_ENABLED", default = "false")]
     pub cohort_cascade_enabled: bool,
 
+    /// The internal cascade topic, keyed by `hash(team_id, person_id)` so a flip lands on the worker
+    /// owning that person's `cf_stage2`. Must be co-partitioned with `cohort_stream_events`.
+    #[envconfig(default = "cohort_cascade_events")]
+    pub cohort_cascade_events_topic: String,
+
+    /// Group for the `cohort_cascade_events` follower — separate so cascade-path lag is observable.
+    #[envconfig(default = "cohort-stream-cascade")]
+    pub kafka_cascade_consumer_group: String,
+
     /// Stable per-pod identity for `group.instance.id` + `client.id`, enabling static membership.
     /// Read from `POD_NAME`, else `HOSTNAME`. Absent means no static membership.
     #[envconfig(from = "POD_NAME")]
@@ -294,6 +303,15 @@ impl Config {
     /// How often the pending-transfer redrive fires.
     pub fn merge_redrive_interval(&self) -> Duration {
         Duration::from_millis(self.merge_redrive_interval_ms)
+    }
+
+    /// Cascade depth/fan-out caps and the master gate, threaded into the worker deps.
+    pub fn cascade_config(&self) -> CascadeConfig {
+        CascadeConfig {
+            enabled: self.cohort_cascade_enabled,
+            depth_cap: self.cohort_cascade_depth_cap,
+            fanout_cap: self.cohort_cascade_fanout_cap,
+        }
     }
 
     /// How often the merge-CF GC sweep fires.
@@ -471,6 +489,8 @@ mod tests {
             cohort_cascade_depth_cap: 8,
             cohort_cascade_fanout_cap: 1000,
             cohort_cascade_enabled: false,
+            cohort_cascade_events_topic: "cohort_cascade_events".to_string(),
+            kafka_cascade_consumer_group: "cohort-stream-cascade".to_string(),
             kafka_session_timeout_ms: 60000,
             pod_name: None,
             pod_hostname: None,
@@ -698,11 +718,21 @@ mod tests {
             !defaults.cohort_cascade_enabled,
             "the cascade gate defaults off",
         );
+        assert_eq!(
+            defaults.cohort_cascade_events_topic,
+            "cohort_cascade_events"
+        );
+        assert_eq!(
+            defaults.kafka_cascade_consumer_group,
+            "cohort-stream-cascade"
+        );
 
         let env: std::collections::HashMap<String, String> = [
             ("COHORT_CASCADE_DEPTH_CAP", "3"),
             ("COHORT_CASCADE_FANOUT_CAP", "50"),
             ("COHORT_CASCADE_ENABLED", "true"),
+            ("COHORT_CASCADE_EVENTS_TOPIC", "cascade_test"),
+            ("KAFKA_CASCADE_CONSUMER_GROUP", "cascade-group-test"),
         ]
         .into_iter()
         .map(|(key, value)| (key.to_string(), value.to_string()))
@@ -712,6 +742,16 @@ mod tests {
         assert_eq!(config.cohort_cascade_depth_cap, 3);
         assert_eq!(config.cohort_cascade_fanout_cap, 50);
         assert!(config.cohort_cascade_enabled);
+        assert_eq!(config.cohort_cascade_events_topic, "cascade_test");
+        assert_eq!(config.kafka_cascade_consumer_group, "cascade-group-test");
+        assert_eq!(
+            config.cascade_config(),
+            CascadeConfig {
+                enabled: true,
+                depth_cap: 3,
+                fanout_cap: 50,
+            },
+        );
     }
 
     #[test]

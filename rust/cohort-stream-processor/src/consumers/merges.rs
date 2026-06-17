@@ -16,13 +16,15 @@ use rdkafka::consumer::{CommitMode, StreamConsumer};
 use rdkafka::message::Message;
 use tracing::{debug, info, warn};
 
+use crate::cascade::CascadeMessage;
 use crate::consumers::events::{commit_offsets, EventDispatcher, RECV_ERROR_BACKOFF};
 use crate::merge::transfer::{MergeStateTransfer, PersonMergeEvent};
 use crate::observability::metrics::{
-    COHORT_STREAM_KAFKA_RECV_ERRORS, COHORT_STREAM_MERGES_CONSUMED,
-    COHORT_STREAM_MERGES_CONSUME_BATCH_SIZE, COHORT_STREAM_MERGE_DESERIALIZE_ERRORS,
-    COHORT_STREAM_TRANSFERS_CONSUMED, COHORT_STREAM_TRANSFERS_CONSUME_BATCH_SIZE,
-    COHORT_STREAM_TRANSFER_DESERIALIZE_ERRORS,
+    COHORT_STREAM_CASCADES_CONSUMED, COHORT_STREAM_CASCADES_CONSUME_BATCH_SIZE,
+    COHORT_STREAM_CASCADE_DESERIALIZE_ERRORS, COHORT_STREAM_KAFKA_RECV_ERRORS,
+    COHORT_STREAM_MERGES_CONSUMED, COHORT_STREAM_MERGES_CONSUME_BATCH_SIZE,
+    COHORT_STREAM_MERGE_DESERIALIZE_ERRORS, COHORT_STREAM_TRANSFERS_CONSUMED,
+    COHORT_STREAM_TRANSFERS_CONSUME_BATCH_SIZE, COHORT_STREAM_TRANSFER_DESERIALIZE_ERRORS,
 };
 use crate::partitions::offset_tracker::OffsetTracker;
 use crate::workers::MergeWorkerDeps;
@@ -40,6 +42,15 @@ pub struct ConsumedMerge {
 #[derive(Debug)]
 pub struct ConsumedTransfer {
     pub transfer: MergeStateTransfer,
+    pub partition: i32,
+    pub offset: i64,
+}
+
+/// One cohort flip consumed from `cohort_cascade_events`, paired with its commit coordinates. Replay
+/// idempotence is the handler's own bit-flip check (no `cf_stage2` offset field).
+#[derive(Debug)]
+pub struct ConsumedCascade {
+    pub message: CascadeMessage,
     pub partition: i32,
     pub offset: i64,
 }
@@ -131,6 +142,39 @@ impl FollowerRoute for TransferRoute {
 
     async fn dispatch(dispatcher: &EventDispatcher, batch: Vec<Self::Consumed>) {
         dispatcher.dispatch_transfers(batch).await;
+    }
+}
+
+/// The `cohort_cascade_events` route: `(team, person)`-keyed cohort flips into
+/// [`EventDispatcher::dispatch_cascade`].
+pub struct CascadeRoute;
+
+#[async_trait]
+impl FollowerRoute for CascadeRoute {
+    type Consumed = ConsumedCascade;
+    const KIND: &'static str = "cohort_cascade_events";
+    const CONSUMED_TOTAL: &'static str = COHORT_STREAM_CASCADES_CONSUMED;
+    const DESERIALIZE_ERRORS_TOTAL: &'static str = COHORT_STREAM_CASCADE_DESERIALIZE_ERRORS;
+    const CONSUME_BATCH_SIZE: &'static str = COHORT_STREAM_CASCADES_CONSUME_BATCH_SIZE;
+
+    fn tracker(deps: &MergeWorkerDeps) -> &Arc<OffsetTracker> {
+        &deps.cascade_tracker
+    }
+
+    fn decode(
+        payload: &[u8],
+        partition: i32,
+        offset: i64,
+    ) -> Result<Self::Consumed, serde_json::Error> {
+        serde_json::from_slice::<CascadeMessage>(payload).map(|message| ConsumedCascade {
+            message,
+            partition,
+            offset,
+        })
+    }
+
+    async fn dispatch(dispatcher: &EventDispatcher, batch: Vec<Self::Consumed>) {
+        dispatcher.dispatch_cascade(batch).await;
     }
 }
 
@@ -373,10 +417,35 @@ mod tests {
         assert_eq!(consumed.offset, 77);
     }
 
+    fn cascade_message() -> CascadeMessage {
+        crate::cascade::first_cascade(
+            crate::producer::CohortMembershipChange {
+                team_id: 42,
+                cohort_id: 91204,
+                person_id: Uuid::from_u128(0xCAFE).to_string(),
+                last_updated: "2026-05-26 12:34:56.789000".to_string(),
+                status: crate::producer::MembershipStatus::Entered,
+            },
+            123,
+        )
+    }
+
     #[test]
-    fn garbage_payloads_decode_to_err_for_both_routes() {
+    fn cascade_route_decodes_an_envelope_with_its_commit_coords() {
+        let wire = cascade_message();
+
+        let consumed = CascadeRoute::decode(&serde_json::to_vec(&wire).unwrap(), 5, 88).unwrap();
+
+        assert_eq!(consumed.message, wire);
+        assert_eq!(consumed.partition, 5);
+        assert_eq!(consumed.offset, 88);
+    }
+
+    #[test]
+    fn garbage_payloads_decode_to_err_for_every_route() {
         assert!(MergeRoute::decode(b"not json", 0, 0).is_err());
         assert!(TransferRoute::decode(&[], 0, 0).is_err());
+        assert!(CascadeRoute::decode(b"not json", 0, 0).is_err());
     }
 
     #[test]
@@ -390,6 +459,10 @@ mod tests {
         assert!(
             Arc::ptr_eq(TransferRoute::tracker(&deps), &deps.transfer_tracker),
             "transfer route must commit via the transfer tracker"
+        );
+        assert!(
+            Arc::ptr_eq(CascadeRoute::tracker(&deps), &deps.cascade_tracker),
+            "cascade route must commit via the cascade tracker"
         );
     }
 
