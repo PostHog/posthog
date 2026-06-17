@@ -48,6 +48,24 @@ pub const STAGE2_STATE_DECODE_ERROR: &str = "stage2_state_decode_error_total";
 /// Cohort-reference leaves reached during composable evaluation (counter). Non-zero signals a bug.
 pub const STAGE2_UNEXPECTED_COHORT_REF: &str = "stage2_unexpected_cohort_ref_total";
 
+/// Latency of one synchronous WAL fsync before an offset commit (histogram, seconds). Amortized over
+/// a batch of writes — it runs on the commit deadline, not per-message.
+pub const WAL_FSYNC_DURATION_SECONDS: &str = "wal_fsync_duration_seconds";
+/// WAL fsyncs that returned an error (counter). The commit is then skipped, so a persistent failure
+/// surfaces as growing consumer lag. **Alert on a sustained non-zero level.**
+pub const WAL_FSYNC_ERRORS_TOTAL: &str = "wal_fsync_errors_total";
+
+/// On-disk partition slices kept (reopen-live) across a durable restart, because still assigned to
+/// this pod (counter).
+pub const DURABLE_RESTORE_PARTITIONS_KEPT_TOTAL: &str = "durable_restore_partitions_kept_total";
+/// On-disk partition slices wiped because no longer assigned to this pod — stale state to cold-rebuild
+/// from the committed offset (counter).
+pub const DURABLE_RESTORE_PARTITIONS_WIPED_STALE_TOTAL: &str =
+    "durable_restore_partitions_wiped_stale_total";
+/// `cf_stage1` keys re-seeded into a worker's `EvictionQueue` on spawn during a durable restart,
+/// labelled by `partition` (counter). Re-fires a dormant person's `Left`.
+pub const EVICTION_QUEUE_REBUILT_KEYS_TOTAL: &str = "eviction_queue_rebuilt_keys_total";
+
 /// RocksDB batch commits, labelled by `op` (counter).
 pub const STORE_WRITE_BATCH_TOTAL: &str = "store_write_batch_total";
 /// Latency of a committed RocksDB write, labelled by `op` (histogram, seconds).

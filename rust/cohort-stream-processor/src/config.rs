@@ -241,6 +241,13 @@ pub struct Config {
     /// serves stale state left by a previous owner.
     #[envconfig(default = "true")]
     pub wipe_store_on_start: bool,
+
+    /// When on, reopen the existing store on restart instead of wiping it: recent Stage 1 state is
+    /// restored and only the gap since the last committed offset is replayed (idempotent via per-key
+    /// `AppliedOffsets`). Refused alongside `cohort_cascade_enabled` — merge column families are not
+    /// restored yet. See [`Self::effective_wipe_on_start`].
+    #[envconfig(from = "DURABLE_RESTORE_ENABLED", default = "false")]
+    pub durable_restore_enabled: bool,
 }
 
 impl Config {
@@ -319,11 +326,19 @@ impl Config {
         Duration::from_millis(self.merge_gc_interval_ms)
     }
 
+    /// Whether to wipe the store on start, folding in the durable-restore gate: keep the live store
+    /// only when restore is on and one already exists on disk. Touches the filesystem (`.exists()`) —
+    /// a one-shot decision evaluated once at store open.
+    pub fn effective_wipe_on_start(&self) -> bool {
+        let db_dir_exists = PathBuf::from(&self.store_path).exists();
+        self.wipe_store_on_start && !(self.durable_restore_enabled && db_dir_exists)
+    }
+
     /// RocksDB settings for the state store.
     pub fn store_config(&self) -> StoreConfig {
         StoreConfig {
             path: PathBuf::from(&self.store_path),
-            wipe_on_start: self.wipe_store_on_start,
+            wipe_on_start: self.effective_wipe_on_start(),
             ..StoreConfig::default()
         }
     }
@@ -504,6 +519,7 @@ mod tests {
             sweep_safety_margin_ms: 300000,
             store_path: "cohort-store".to_string(),
             wipe_store_on_start: true,
+            durable_restore_enabled: false,
         }
     }
 
@@ -627,6 +643,74 @@ mod tests {
             config.consumer_client_config().get("security.protocol"),
             Some("ssl"),
         );
+    }
+
+    #[test]
+    fn durable_restore_defaults_off_and_overrides_from_env() {
+        let defaults = Config::init_from_hashmap(&std::collections::HashMap::new()).unwrap();
+        assert!(
+            !defaults.durable_restore_enabled,
+            "durable restore defaults off"
+        );
+
+        let env: std::collections::HashMap<String, String> = [("DURABLE_RESTORE_ENABLED", "true")]
+            .into_iter()
+            .map(|(key, value)| (key.to_string(), value.to_string()))
+            .collect();
+        let config = Config::init_from_hashmap(&env).unwrap();
+        assert!(config.durable_restore_enabled);
+    }
+
+    #[test]
+    fn effective_wipe_on_start_truth_table() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let existing = dir.path().join("db");
+        std::fs::create_dir_all(&existing).unwrap();
+        let missing = dir.path().join("does-not-exist");
+
+        // (wipe_store_on_start, durable_restore_enabled, store exists) -> effective wipe.
+        let cases = [
+            (true, false, true, true, "wipe-on + restore-off + present"),
+            (true, false, false, true, "wipe-on + restore-off + absent"),
+            (
+                false,
+                false,
+                true,
+                false,
+                "wipe-off + restore-off + present",
+            ),
+            (
+                true,
+                true,
+                true,
+                false,
+                "wipe-on + restore-on + present → reopen-live",
+            ),
+            (
+                true,
+                true,
+                false,
+                true,
+                "wipe-on + restore-on + absent → fresh wipe (no-op)",
+            ),
+            (false, true, true, false, "wipe-off + restore-on + present"),
+        ];
+        for (wipe, durable, exists, expected, why) in cases {
+            let mut config = test_config();
+            config.wipe_store_on_start = wipe;
+            config.durable_restore_enabled = durable;
+            config.store_path = if exists {
+                existing.to_string_lossy().into_owned()
+            } else {
+                missing.to_string_lossy().into_owned()
+            };
+            assert_eq!(config.effective_wipe_on_start(), expected, "{why}");
+            assert_eq!(
+                config.store_config().wipe_on_start,
+                expected,
+                "store_config must thread the effective wipe: {why}",
+            );
+        }
     }
 
     #[test]

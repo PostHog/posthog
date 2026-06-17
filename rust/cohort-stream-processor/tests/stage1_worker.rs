@@ -958,6 +958,7 @@ async fn spawned_worker_drains_a_batch_and_commits_state() {
         Arc::new(sink.clone()),
         tracker.clone(),
         MergeWorkerDeps::capture(),
+        false,
     );
 
     dispatch_to_worker(&tracker, &tx, event(alice, 1, 0), 0).await;
@@ -1013,6 +1014,7 @@ async fn spawned_worker_composes_two_leaf_cohort_and_emits_single_leaf_independe
         Arc::new(sink.clone()),
         tracker.clone(),
         MergeWorkerDeps::capture(),
+        false,
     );
 
     // Event A flips only the behavioral leaf (non-matching email): the single-leaf cohort 2 enters,
@@ -1079,6 +1081,7 @@ async fn spawned_worker_skips_events_for_unknown_teams() {
         Arc::new(sink.clone()),
         tracker.clone(),
         MergeWorkerDeps::capture(),
+        false,
     );
 
     // Skipped before touching the store, but the offset must still advance (no partition wedge).
@@ -1129,6 +1132,7 @@ async fn worker_produces_changes_and_advances_offset() {
         Arc::new(sink.clone()),
         tracker.clone(),
         MergeWorkerDeps::capture(),
+        false,
     );
 
     dispatch_to_worker(&tracker, &tx, event(person(1), 1, 0), 5).await;
@@ -1162,6 +1166,7 @@ async fn worker_advances_offset_on_empty_transition_subbatch() {
         Arc::new(sink.clone()),
         tracker.clone(),
         MergeWorkerDeps::capture(),
+        false,
     );
 
     let non_match = CohortStreamEvent {
@@ -1195,6 +1200,7 @@ async fn worker_holds_offset_when_the_only_flush_fails() {
         Arc::new(sink.clone()),
         tracker.clone(),
         MergeWorkerDeps::capture(),
+        false,
     );
 
     dispatch_to_worker(&tracker, &tx, event(person(1), 1, 0), 10).await;
@@ -1224,6 +1230,7 @@ async fn worker_keeps_processing_after_a_produce_failure() {
         Arc::new(sink.clone()),
         tracker.clone(),
         MergeWorkerDeps::capture(),
+        false,
     );
 
     dispatch_to_worker(&tracker, &tx, event(person(1), 1, 0), 10).await;
@@ -1661,6 +1668,7 @@ async fn daily_multiple_single_leaf_cohort_emits_entered_then_left_to_the_sink()
         Arc::new(sink.clone()),
         tracker.clone(),
         MergeWorkerDeps::capture(),
+        false,
     );
 
     let alice = person(1);
@@ -1991,6 +1999,7 @@ async fn compressed_sweep_deletes_then_a_late_event_recreates_the_state() {
         Arc::new(sink.clone()),
         tracker.clone(),
         MergeWorkerDeps::capture(),
+        false,
     );
 
     let alice = person(1);

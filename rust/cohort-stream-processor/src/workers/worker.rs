@@ -23,10 +23,11 @@ use crate::filters::TeamId;
 use crate::merge::tombstone_redirect::{self, Resolution};
 use crate::observability::metrics::{
     CASCADE_PRODUCE_ERRORS_TOTAL, COHORT_STREAM_OFFSET_AHEAD_OF_DISPATCH,
-    MERGE_REDIRECT_HOP_CAPPED_TOTAL, MERGE_REKEY_PRODUCE_FAILURE_TOTAL,
-    OUTPUT_MEMBERSHIP_CHANGES_EMITTED, OUTPUT_PRODUCE_ERRORS, STAGE1_EVENTS_PROCESSED,
-    STAGE1_EVENTS_SKIPPED, STAGE1_EVENT_PROCESS_DURATION, STAGE1_TRANSITIONS,
-    SWEEP_KEYS_DROPPED_TOTAL, SWEEP_KEYS_EVICTED_TOTAL,
+    EVICTION_QUEUE_REBUILT_KEYS_TOTAL, MERGE_REDIRECT_HOP_CAPPED_TOTAL,
+    MERGE_REKEY_PRODUCE_FAILURE_TOTAL, OUTPUT_MEMBERSHIP_CHANGES_EMITTED, OUTPUT_PRODUCE_ERRORS,
+    STAGE1_EVENTS_PROCESSED, STAGE1_EVENTS_SKIPPED, STAGE1_EVENT_PROCESS_DURATION,
+    STAGE1_STATE_DECODE_ERROR, STAGE1_TRANSITIONS, SWEEP_KEYS_DROPPED_TOTAL,
+    SWEEP_KEYS_EVICTED_TOTAL,
 };
 use crate::partitions::offset_tracker::{MarkOutcome, OffsetTracker};
 use crate::partitions::shuffle_message::ShuffleMessage;
@@ -35,7 +36,7 @@ use crate::producer::{
     OutputBuffer,
 };
 use crate::stage1::key::Stage1Key;
-use crate::stage1::state::StateVariant;
+use crate::stage1::state::{StateVariant, StatefulRecord};
 use crate::stage1::transition::{LeafTransition, TransitionKind};
 use crate::store::{CohortStore, IndexOp, PersonIndexKey};
 use crate::sweep::EvictionQueue;
@@ -53,6 +54,10 @@ use crate::workers::sweep_callback::{sweep_evict, EvictionAction, SweepDropReaso
 /// `DEFAULT_MERGE_GC_SCAN_LIMIT` / redrive caps in `workers/merge_path.rs`.
 const MAX_SWEEP_KEYS_PER_PASS: usize = 10_000;
 
+/// Keys read per `cf_stage1` page when rebuilding the `EvictionQueue` on a durable restart; the scan
+/// resumes from the last key until the partition is exhausted.
+const REBUILD_SCAN_PAGE: usize = 10_000;
+
 /// A long-lived worker owning one partition's Stage 1 state.
 pub struct Stage1Worker {
     partition_id: u16,
@@ -60,7 +65,9 @@ pub struct Stage1Worker {
 }
 
 impl Stage1Worker {
-    /// Spawn a worker draining `receiver` for `partition_id`.
+    /// Spawn a worker draining `receiver` for `partition_id`. When `durable_restore` is on, the worker
+    /// re-seeds its `EvictionQueue` from the partition's restored `cf_stage1` on spawn so a dormant
+    /// person's `Left` still fires after a crash-restart.
     #[allow(clippy::too_many_arguments)]
     pub fn spawn(
         partition_id: u16,
@@ -70,6 +77,7 @@ impl Stage1Worker {
         sink: Arc<dyn MembershipSink>,
         tracker: Arc<OffsetTracker>,
         merge: Arc<MergeWorkerDeps>,
+        durable_restore: bool,
     ) -> Self {
         let handle = tokio::spawn(run_worker(
             partition_id,
@@ -79,6 +87,7 @@ impl Stage1Worker {
             sink,
             tracker,
             merge,
+            durable_restore,
         ));
         Self {
             partition_id,
@@ -97,6 +106,7 @@ impl Stage1Worker {
 }
 
 /// The drain loop. Messages are processed in arrival order.
+#[allow(clippy::too_many_arguments)]
 async fn run_worker(
     partition_id: u16,
     mut receiver: mpsc::Receiver<Vec<ShuffleMessage>>,
@@ -105,10 +115,15 @@ async fn run_worker(
     sink: Arc<dyn MembershipSink>,
     tracker: Arc<OffsetTracker>,
     merge: Arc<MergeWorkerDeps>,
+    durable_restore: bool,
 ) {
     info!(partition_id, "stage 1 worker started");
 
     let mut queue = EvictionQueue::<Stage1Key>::new();
+    // Re-seed from restored state (a bloom-filtered no-op for a cold partition).
+    if durable_restore {
+        rebuild_eviction_queue(partition_id, &store, &mut queue);
+    }
     // Per-worker merge-CF GC resume cursors (in-memory; loss on rebalance is benign — see MergeGcCursor).
     let mut gc_cursor = MergeGcCursor::default();
 
@@ -746,6 +761,59 @@ async fn handle_sweep(
     }
 }
 
+/// Re-seed the per-worker [`EvictionQueue`] from the partition's restored `cf_stage1`, paging through
+/// the slice and scheduling every behavioral key on its stored deadline. Skips `PersonProperty` (no
+/// time eviction) and a permanent `i64::MAX` deadline. A corrupt record is counted
+/// ([`STAGE1_STATE_DECODE_ERROR`]) and skipped — the event path re-derives it; a scan error stops
+/// early, leaving the queue incomplete until new events reschedule.
+fn rebuild_eviction_queue(
+    partition_id: u16,
+    store: &CohortStore,
+    queue: &mut EvictionQueue<Stage1Key>,
+) {
+    let mut cursor: Option<Vec<u8>> = None;
+    let mut rebuilt: u64 = 0;
+    loop {
+        let page = match store.scan_stage1(partition_id, cursor.as_deref(), REBUILD_SCAN_PAGE) {
+            Ok(page) => page,
+            Err(err) => {
+                warn!(
+                    partition_id,
+                    error = %err,
+                    "durable restore: cf_stage1 scan failed; eviction queue may be incomplete",
+                );
+                break;
+            }
+        };
+        let page_len = page.len();
+        for (key, value) in page {
+            cursor = Some(key.encode().to_vec());
+            match StatefulRecord::decode(&value) {
+                Ok(record) => match record.state.eviction_deadline() {
+                    Some(deadline) if deadline != i64::MAX => {
+                        queue.schedule(key, deadline);
+                        rebuilt += 1;
+                    }
+                    // PersonProperty (None) and permanent membership (i64::MAX) never time-evict.
+                    _ => {}
+                },
+                Err(_) => counter!(STAGE1_STATE_DECODE_ERROR).increment(1),
+            }
+        }
+        if page_len < REBUILD_SCAN_PAGE {
+            break;
+        }
+    }
+    if rebuilt > 0 {
+        counter!(EVICTION_QUEUE_REBUILT_KEYS_TOTAL, "partition" => partition_id.to_string())
+            .increment(rebuilt);
+        info!(
+            partition_id,
+            rebuilt, "durable restore: re-seeded eviction queue from cf_stage1",
+        );
+    }
+}
+
 fn reschedule_all(queue: &mut EvictionQueue<Stage1Key>, popped: &[(Stage1Key, i64)]) {
     for &(key, deadline) in popped {
         queue.schedule(key, deadline);
@@ -1039,6 +1107,7 @@ mod tombstone_redirect_tests {
             Arc::new(membership.clone()),
             tracker.clone(),
             merge,
+            false,
         );
         tracker.mark_dispatched(partition_id as i32, dispatched);
         tx.send(batch).await.unwrap();

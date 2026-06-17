@@ -19,6 +19,7 @@ use super::keys::{
 use super::secondary_index::{decode_person_index, IndexOp};
 use crate::observability::metrics::{
     STORE_ERRORS_TOTAL, STORE_WRITE_BATCH_TOTAL, STORE_WRITE_DURATION_SECONDS,
+    WAL_FSYNC_DURATION_SECONDS, WAL_FSYNC_ERRORS_TOTAL,
 };
 use crate::stage1::key::{LeafStateKey, Stage1Key};
 
@@ -29,6 +30,7 @@ const OP_MULTI_GET: &str = "multi_get";
 const OP_WRITE_BATCH: &str = "write_batch";
 const OP_DELETE_PARTITION: &str = "delete_partition";
 const OP_FLUSH: &str = "flush";
+const OP_FLUSH_WAL: &str = "flush_wal";
 const OP_SCAN: &str = "scan";
 
 const DEFAULT_BLOCK_CACHE_BYTES: usize = 128 * 1024 * 1024;
@@ -361,6 +363,69 @@ impl CohortStore {
                     source,
                 }
             })
+    }
+
+    /// Synchronously fsync the WAL, making every write so far durable. The hot path writes with an
+    /// async WAL (`set_sync(false)`), so without this a committed Kafka offset could outrun the durable
+    /// state on a hard crash; callers fsync before every offset commit to keep `committed <= durable`.
+    /// On error the caller skips the commit (fail-stop).
+    pub fn flush_wal_sync(&self) -> Result<(), StoreError> {
+        let started = Instant::now();
+        let result = self.db.flush_wal(true);
+        histogram!(WAL_FSYNC_DURATION_SECONDS).record(started.elapsed().as_secs_f64());
+        result.map_err(|source| {
+            counter!(WAL_FSYNC_ERRORS_TOTAL).increment(1);
+            StoreError::Backend {
+                op: OP_FLUSH_WAL,
+                source,
+            }
+        })
+    }
+
+    /// Scan up to `limit` of one partition's `cf_stage1` slice as `(Stage1Key, raw_value)` in key
+    /// order, resuming strictly after `start_after` when given. The value stays raw so the caller
+    /// decodes the [`StatefulRecord`](crate::stage1::StatefulRecord) (and owns the decode-error metric)
+    /// and the resume cursor is the last scanned key.
+    pub fn scan_stage1(
+        &self,
+        partition_id: u16,
+        start_after: Option<&[u8]>,
+        limit: usize,
+    ) -> Result<Vec<(Stage1Key, Vec<u8>)>, StoreError> {
+        let (prefix_start, prefix_end) = keys::partition_range(partition_id);
+        let handle = self.cf(Cf::Stage1)?;
+
+        // Resume after the cursor when it falls inside this partition, else at the prefix start.
+        let begin: Vec<u8> = match start_after {
+            Some(cursor) if cursor >= prefix_start.as_slice() && cursor < prefix_end.as_slice() => {
+                successor(cursor)
+            }
+            _ => prefix_start.clone(),
+        };
+
+        let mut read_opts = ReadOptions::default();
+        read_opts.set_iterate_upper_bound(prefix_end);
+        let iter = self.db.iterator_cf_opt(
+            handle,
+            read_opts,
+            IteratorMode::From(&begin, Direction::Forward),
+        );
+
+        let mut out = Vec::with_capacity(limit.min(1024));
+        for item in iter {
+            if out.len() == limit {
+                break;
+            }
+            let (key_bytes, value) = item.map_err(|source| {
+                counter!(STORE_ERRORS_TOTAL, "op" => OP_SCAN).increment(1);
+                StoreError::Backend {
+                    op: OP_SCAN,
+                    source,
+                }
+            })?;
+            out.push((Stage1Key::decode(&key_bytes)?, value.to_vec()));
+        }
+        Ok(out)
     }
 
     fn cf(&self, cf: Cf) -> Result<&ColumnFamily, StoreError> {
@@ -727,6 +792,85 @@ mod tests {
             fresh.len(),
             4,
             "out-of-partition cursor rescans from the start"
+        );
+    }
+
+    #[test]
+    fn flush_wal_sync_succeeds_and_persists_writes_across_a_reopen() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("db");
+        let key = stage1_key();
+        {
+            let store = CohortStore::open(&StoreConfig {
+                path: path.clone(),
+                ..StoreConfig::default()
+            })
+            .unwrap();
+            store
+                .write_batch(|b| b.put_stage1(&key, b"durable"))
+                .unwrap();
+            store.flush_wal_sync().unwrap();
+            // A second fsync with nothing new pending is a no-op, not an error.
+            store.flush_wal_sync().unwrap();
+        }
+        let reopened = CohortStore::open(&StoreConfig {
+            path,
+            wipe_on_start: false,
+            ..StoreConfig::default()
+        })
+        .unwrap();
+        assert_eq!(
+            reopened.get_stage1(&key).unwrap().as_deref(),
+            Some(b"durable".as_slice()),
+        );
+    }
+
+    #[test]
+    fn scan_stage1_resumes_after_the_cursor_and_honors_the_limit_and_partition_bounds() {
+        let dir = TempDir::new().unwrap();
+        let store = CohortStore::open(&StoreConfig {
+            path: dir.path().join("db"),
+            ..StoreConfig::default()
+        })
+        .unwrap();
+
+        let key = |partition_id: u16, person: u128| Stage1Key {
+            partition_id,
+            team_id: 7,
+            leaf_state_key: LeafStateKey([0xAB; 16]),
+            person_id: Uuid::from_u128(person),
+        };
+
+        // Three keys in partition 5, one in partition 6 (must never surface for a p=5 scan).
+        store
+            .write_batch(|batch| {
+                for person in 1..=3u128 {
+                    batch.put_stage1(&key(5, person), format!("v{person}").as_bytes());
+                }
+                batch.put_stage1(&key(6, 9), b"other-partition");
+            })
+            .unwrap();
+
+        // No cursor: the two smallest keys in partition 5, value returned raw.
+        let page1 = store.scan_stage1(5, None, 2).unwrap();
+        assert_eq!(page1.len(), 2);
+        assert_eq!(page1[0].0, key(5, 1));
+        assert_eq!(page1[0].1, b"v1");
+        assert_eq!(page1[1].0, key(5, 2));
+
+        // Resume strictly after page 1's last key.
+        let cursor = page1.last().unwrap().0.encode();
+        let page2 = store.scan_stage1(5, Some(&cursor), 10).unwrap();
+        assert_eq!(page2.len(), 1, "only the remaining partition-5 key");
+        assert_eq!(page2[0].0, key(5, 3));
+
+        // A cursor at the partition's last key is exhausted.
+        let last = page2.last().unwrap().0.encode();
+        assert!(store.scan_stage1(5, Some(&last), 10).unwrap().is_empty());
+
+        assert!(
+            store.scan_stage1(9, None, 10).unwrap().is_empty(),
+            "empty partition"
         );
     }
 

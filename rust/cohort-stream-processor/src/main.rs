@@ -54,6 +54,15 @@ async fn async_main(config: Config) -> Result<()> {
     init_tracing();
     log_startup(&config);
 
+    // Durable restore does not yet restore the merge CFs (`cf_merge_*`), so reopening a live store
+    // while merges flow would lose a committed tombstone and resurrect tombstoned P_old state. The
+    // cascade gate is the proxy for "merges are live" (they roll out together) — refuse the combo.
+    anyhow::ensure!(
+        !(config.durable_restore_enabled && config.cohort_cascade_enabled),
+        "DURABLE_RESTORE_ENABLED=true is unsafe with COHORT_CASCADE_ENABLED=true: merge column \
+         families are not restored yet. Disable one of them.",
+    );
+
     let mut manager = Manager::builder(SERVICE_NAME)
         .with_global_shutdown_timeout(Duration::from_secs(90))
         .build();
@@ -116,7 +125,18 @@ async fn async_main(config: Config) -> Result<()> {
         ),
     }
 
-    let store = CohortStore::open(&config.store_config()).context("opening RocksDB state store")?;
+    let store_config = config.store_config();
+    // Whether this boot wipes or reopens the store; the per-partition breakdown follows from the boot
+    // staleness sweep once the assignment settles.
+    info!(
+        durable_restore_enabled = config.durable_restore_enabled,
+        wipe_store_on_start = config.wipe_store_on_start,
+        effective_wipe = store_config.wipe_on_start,
+        store_path = %config.store_path,
+        mode = if store_config.wipe_on_start { "wipe+replay" } else { "reopen-live" },
+        "opening RocksDB state store",
+    );
+    let store = CohortStore::open(&store_config).context("opening RocksDB state store")?;
     let router = PartitionRouter::new(config.partition_channel_buffer);
     let offset_tracker = Arc::new(OffsetTracker::new());
 
@@ -180,6 +200,11 @@ async fn async_main(config: Config) -> Result<()> {
         sink,
         merge_deps,
     ));
+    // Set once, before the consume loop and any worker spawn. The fsync-before-commit invariant is
+    // always on regardless — the gate only governs restore, not durability.
+    if config.durable_restore_enabled {
+        dispatcher.enable_durable_restore();
+    }
 
     let (context, rebalance_rx) = CohortConsumerContext::new(dispatcher.clone());
     let stream_consumer: StreamConsumer<CohortConsumerContext> = config
@@ -364,6 +389,7 @@ async fn async_main(config: Config) -> Result<()> {
         config.recv_batch_size,
         config.recv_batch_timeout(),
         config.offset_commit_interval(),
+        events_partitions,
         consumer_command_rx,
     );
     tokio::spawn(events_consumer.process());
@@ -450,6 +476,7 @@ fn log_startup(config: &Config) {
         partition_channel_buffer = config.partition_channel_buffer,
         store_path = %config.store_path,
         wipe_store_on_start = config.wipe_store_on_start,
+        durable_restore_enabled = config.durable_restore_enabled,
         filter_catalog_refresh_secs = config.filter_catalog_refresh_secs,
         filter_catalog_refresh_jitter_secs = config.filter_catalog_refresh_jitter_secs,
         team_allowlist = ?config.team_allowlist,

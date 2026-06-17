@@ -7,7 +7,7 @@
 //! The Kafka-free routing core lives in [`EventDispatcher`] so it can be unit-tested with an
 //! in-process router/store/catalog and no broker.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -32,6 +32,7 @@ use crate::observability::metrics::{
     COHORT_STREAM_MERGES_SKIPPED_NOT_OWNED, COHORT_STREAM_OFFSET_COMMITS,
     COHORT_STREAM_OFFSET_COMMIT_ERRORS, COHORT_STREAM_ROUTE_ERRORS,
     COHORT_STREAM_TRANSFERS_SKIPPED_NOT_OWNED, COHORT_STREAM_WORKERS_SPAWNED,
+    DURABLE_RESTORE_PARTITIONS_KEPT_TOTAL, DURABLE_RESTORE_PARTITIONS_WIPED_STALE_TOTAL,
     MERGE_HELD_OFFSET_GAUGE, MERGE_PENDING_TRANSFERS_GAUGE, PARTITIONS_ASSIGNED_TOTAL,
     PARTITIONS_REVOKED_TOTAL, PARTITION_STATE_DELETED_TOTAL, REBALANCE_CLEANUP_SKIPPED_TOTAL,
     REVOKE_DRAIN_DURATION_SECONDS,
@@ -107,6 +108,10 @@ pub struct EventDispatcher {
     /// hang the join. The structural guarantee is the router's terminal closed state, which refuses
     /// registration after `clear()`.
     draining: AtomicBool,
+    /// Crash-restart durability gate. Set once at startup before any worker spawns. When on, workers
+    /// rebuild their `EvictionQueue` on spawn and the boot / rebalance-assign paths reclaim stale
+    /// on-disk slices.
+    durable_restore: AtomicBool,
 }
 
 impl EventDispatcher {
@@ -128,7 +133,23 @@ impl EventDispatcher {
             sink,
             merge,
             draining: AtomicBool::new(false),
+            durable_restore: AtomicBool::new(false),
         }
+    }
+
+    /// Turn on crash-restart durability. Called once at startup before the consumer begins, so the
+    /// `tokio::spawn` of the consume loop establishes the happens-before for every worker's read.
+    pub fn enable_durable_restore(&self) {
+        self.durable_restore.store(true, Ordering::SeqCst);
+    }
+
+    pub fn durable_restore_enabled(&self) -> bool {
+        self.durable_restore.load(Ordering::SeqCst)
+    }
+
+    /// The shared state store, so the consume loops can fsync its WAL before each commit.
+    pub(crate) fn store(&self) -> &CohortStore {
+        &self.store
     }
 
     /// Route a consumed batch to its per-partition workers, lazily spawning a worker per
@@ -295,6 +316,7 @@ impl EventDispatcher {
                             self.sink.clone(),
                             self.tracker.clone(),
                             self.merge.clone(),
+                            self.durable_restore_enabled(),
                         );
                         slot.insert(worker);
                         counter!(COHORT_STREAM_WORKERS_SPAWNED).increment(1);
@@ -451,6 +473,64 @@ impl EventDispatcher {
         }
     }
 
+    /// A partition moving in via a rebalance assign has a stale on-disk slice (another pod may have
+    /// advanced it while unowned here), so delete it and let the worker cold-rebuild from the committed
+    /// offset. Skipped when a live worker already owns the partition — continuous ownership across a
+    /// rapid revoke→re-acquire kept its slice current.
+    pub(crate) fn reclaim_stale_partition_on_assign(&self, partition: i32) {
+        if self.workers.contains_key(&partition) {
+            return;
+        }
+        let Some(partition_id) = partition_to_store_id(partition) else {
+            warn!(
+                partition,
+                "assigned partition out of u16 range; skipping stale-slice reclaim"
+            );
+            return;
+        };
+        match self.store.delete_partition(partition_id) {
+            Ok(()) => counter!(DURABLE_RESTORE_PARTITIONS_WIPED_STALE_TOTAL).increment(1),
+            Err(err) => warn!(
+                partition,
+                error = %err, "failed to reclaim stale assigned-partition state"
+            ),
+        }
+    }
+
+    /// Delete on-disk slices for partitions in `0..partition_count` this pod is not assigned: they
+    /// moved away while down (a static reclaim returns the same set, so those are kept and reopened).
+    /// `assignment` must be the settled assignment — an empty set means the caller must wait, never
+    /// sweep, or this would delete everything.
+    pub(crate) fn reclaim_unassigned_partitions_on_boot(
+        &self,
+        assignment: &std::collections::HashSet<i32>,
+        partition_count: usize,
+    ) {
+        let mut kept = 0u64;
+        let mut wiped = 0u64;
+        for partition in 0..partition_count as i32 {
+            if assignment.contains(&partition) {
+                kept += 1;
+                continue;
+            }
+            if let Some(partition_id) = partition_to_store_id(partition) {
+                match self.store.delete_partition(partition_id) {
+                    Ok(()) => wiped += 1,
+                    Err(err) => warn!(
+                        partition,
+                        error = %err, "failed to reclaim unassigned-partition state at boot"
+                    ),
+                }
+            }
+        }
+        counter!(DURABLE_RESTORE_PARTITIONS_KEPT_TOTAL).increment(kept);
+        counter!(DURABLE_RESTORE_PARTITIONS_WIPED_STALE_TOTAL).increment(wiped);
+        info!(
+            kept,
+            wiped, partition_count, "durable restore: boot staleness sweep complete"
+        );
+    }
+
     fn tracker(&self) -> &OffsetTracker {
         self.tracker.as_ref()
     }
@@ -505,6 +585,8 @@ pub struct CohortStreamEventsConsumer {
     recv_batch_size: usize,
     recv_batch_timeout: Duration,
     offset_commit_interval: Duration,
+    /// Partition count of `cohort_stream_events`, used by the durable-restart boot staleness sweep.
+    events_partitions: usize,
     #[allow(dead_code)]
     consumer_command_rx: ConsumerCommandReceiver,
 }
@@ -519,6 +601,7 @@ impl CohortStreamEventsConsumer {
         recv_batch_size: usize,
         recv_batch_timeout: Duration,
         offset_commit_interval: Duration,
+        events_partitions: usize,
         consumer_command_rx: ConsumerCommandReceiver,
     ) -> Self {
         Self {
@@ -529,6 +612,7 @@ impl CohortStreamEventsConsumer {
             recv_batch_size,
             recv_batch_timeout,
             offset_commit_interval,
+            events_partitions,
             consumer_command_rx,
         }
     }
@@ -540,6 +624,8 @@ impl CohortStreamEventsConsumer {
         info!(topic = %self.topic, "cohort_stream_events consume loop starting");
 
         let mut commit_deadline = tokio::time::Instant::now() + self.offset_commit_interval;
+        // One-shot boot staleness sweep; pre-marked done when the gate is off so that path is unchanged.
+        let mut boot_sweep_done = !self.dispatcher.durable_restore_enabled();
 
         loop {
             tokio::select! {
@@ -549,10 +635,16 @@ impl CohortStreamEventsConsumer {
                     break;
                 }
                 outcome = self.consume_batch() => {
+                    // The first poll establishes the assignment; sweep before dispatching, so the
+                    // reclaim never races a worker spawn.
+                    if !boot_sweep_done {
+                        boot_sweep_done = self.run_boot_staleness_sweep();
+                    }
                     self.handle_outcome(outcome).await;
                     let now = tokio::time::Instant::now();
                     if now >= commit_deadline {
-                        commit_offsets(
+                        fsync_then_commit(
+                            self.dispatcher.store(),
                             &self.consumer,
                             self.dispatcher.tracker(),
                             self.dispatcher.owned_committable_offsets(),
@@ -567,7 +659,8 @@ impl CohortStreamEventsConsumer {
 
         let tracker = self.dispatcher.shutdown().await;
         let offsets = self.dispatcher.owned_committable_offsets();
-        commit_offsets(
+        fsync_then_commit(
+            self.dispatcher.store(),
             &self.consumer,
             &tracker,
             offsets,
@@ -575,6 +668,33 @@ impl CohortStreamEventsConsumer {
             CommitMode::Sync,
         );
         info!(topic = %self.topic, "cohort_stream_events consume loop stopped");
+    }
+
+    /// Run the boot staleness sweep once the assignment has settled. Returns `true` when it ran,
+    /// `false` while the assignment is still empty (join not settled), so the caller keeps retrying.
+    fn run_boot_staleness_sweep(&self) -> bool {
+        let assignment = self.assigned_partitions();
+        if assignment.is_empty() {
+            return false;
+        }
+        self.dispatcher
+            .reclaim_unassigned_partitions_on_boot(&assignment, self.events_partitions);
+        true
+    }
+
+    /// This consumer's currently-assigned partitions for the events topic, as a set.
+    fn assigned_partitions(&self) -> HashSet<i32> {
+        match self.consumer.assignment() {
+            Ok(tpl) => tpl
+                .elements_for_topic(&self.topic)
+                .iter()
+                .map(|elem| elem.partition())
+                .collect(),
+            Err(err) => {
+                warn!(error = %err, "failed to read consumer assignment for the boot staleness sweep");
+                HashSet::new()
+            }
+        }
     }
 
     /// Record metrics, dispatch the batch, and heartbeat. A transport error suppresses the
@@ -695,6 +815,27 @@ pub(crate) fn commit_offsets<C: ConsumerContext>(
             warn!(topic, error = %err, "failed to commit consumer offsets");
         }
     }
+}
+
+/// fsync the store's WAL, then commit the offsets — upholding `committed <= durable`. Unconditional
+/// (not gated by durable restore) so reopen-live is safe whenever the gate is flipped, with no window
+/// where a committed offset outruns the durable state. A fsync error skips the commit (fail-stop).
+pub(crate) fn fsync_then_commit<C: ConsumerContext>(
+    store: &CohortStore,
+    consumer: &StreamConsumer<C>,
+    tracker: &OffsetTracker,
+    offsets: HashMap<i32, i64>,
+    topic: &str,
+    mode: CommitMode,
+) {
+    if offsets.is_empty() {
+        return;
+    }
+    if store.flush_wal_sync().is_err() {
+        // Skip the commit so `committed` never outruns `durable` (the store counted the error).
+        return;
+    }
+    commit_offsets(consumer, tracker, offsets, topic, mode);
 }
 
 #[cfg(test)]
@@ -1010,6 +1151,89 @@ mod tests {
             .get_stage1(&key)
             .unwrap()
             .map(|bytes| StatefulRecord::decode(&bytes).unwrap().state)
+    }
+
+    /// Write a one-key `cf_stage1` slice for `partition`, so a reclaim can be observed deleting it.
+    fn seed_slice(store: &CohortStore, partition: u16, lsk: LeafStateKey) {
+        store
+            .write_batch(|b| {
+                b.put_stage1(
+                    &Stage1Key {
+                        partition_id: partition,
+                        team_id: TEAM as u64,
+                        leaf_state_key: lsk,
+                        person_id: person(1),
+                    },
+                    b"state",
+                )
+            })
+            .unwrap();
+    }
+
+    /// Raw presence of the seeded `cf_stage1` key (no decode — the value is opaque test bytes).
+    fn slice_present(store: &CohortStore, partition: u16, lsk: LeafStateKey) -> bool {
+        store
+            .get_stage1(&Stage1Key {
+                partition_id: partition,
+                team_id: TEAM as u64,
+                leaf_state_key: lsk,
+                person_id: person(1),
+            })
+            .unwrap()
+            .is_some()
+    }
+
+    #[tokio::test]
+    async fn reclaim_stale_partition_on_assign_deletes_when_no_worker_keeps_when_one_exists() {
+        let (_dir, store) = temp_store();
+        let catalog = behavioral_catalog();
+        let lsk = behavioral_lsk(&catalog);
+        let dispatcher = dispatcher_with(&store, catalog);
+        seed_slice(&store, 5, lsk);
+        seed_slice(&store, 6, lsk);
+
+        dispatcher.reclaim_stale_partition_on_assign(5);
+        assert!(
+            !slice_present(&store, 5, lsk),
+            "a moving-in partition with no worker has its stale slice deleted",
+        );
+
+        // Partition 6 has a live worker (continuous ownership), so its slice is kept.
+        dispatcher.assign_partition(6);
+        dispatcher.ensure_worker(6);
+        dispatcher.reclaim_stale_partition_on_assign(6);
+        assert!(
+            slice_present(&store, 6, lsk),
+            "a partition with a live worker keeps its (current, not stale) slice",
+        );
+    }
+
+    #[tokio::test]
+    async fn reclaim_unassigned_partitions_on_boot_wipes_only_unassigned_slices() {
+        let (_dir, store) = temp_store();
+        let catalog = behavioral_catalog();
+        let lsk = behavioral_lsk(&catalog);
+        let dispatcher = dispatcher_with(&store, catalog);
+        for partition in 0..3u16 {
+            seed_slice(&store, partition, lsk);
+        }
+
+        // Assigned {0, 2}; partition 1 moved away while down.
+        let assignment: HashSet<i32> = [0, 2].into_iter().collect();
+        dispatcher.reclaim_unassigned_partitions_on_boot(&assignment, 3);
+
+        assert!(
+            slice_present(&store, 0, lsk),
+            "assigned 0 is kept (reopen-live)",
+        );
+        assert!(
+            !slice_present(&store, 1, lsk),
+            "unassigned 1 is wiped (stale slice from a previous tenure)",
+        );
+        assert!(
+            slice_present(&store, 2, lsk),
+            "assigned 2 is kept (reopen-live)",
+        );
     }
 
     #[tokio::test]

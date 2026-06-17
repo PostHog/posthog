@@ -17,7 +17,7 @@ use rdkafka::message::Message;
 use tracing::{debug, info, warn};
 
 use crate::cascade::CascadeMessage;
-use crate::consumers::events::{commit_offsets, EventDispatcher, RECV_ERROR_BACKOFF};
+use crate::consumers::events::{fsync_then_commit, EventDispatcher, RECV_ERROR_BACKOFF};
 use crate::merge::transfer::{MergeStateTransfer, PersonMergeEvent};
 use crate::observability::metrics::{
     COHORT_STREAM_CASCADES_CONSUMED, COHORT_STREAM_CASCADES_CONSUME_BATCH_SIZE,
@@ -236,7 +236,8 @@ impl<R: FollowerRoute> FollowerConsumer<R> {
                     self.handle_outcome(outcome).await;
                     let now = tokio::time::Instant::now();
                     if now >= commit_deadline {
-                        commit_offsets(
+                        fsync_then_commit(
+                            self.dispatcher.store(),
                             &self.consumer,
                             self.tracker(),
                             self.owned_committable_offsets(),
@@ -251,7 +252,8 @@ impl<R: FollowerRoute> FollowerConsumer<R> {
 
         // Final sync commit. No worker drain precedes this — that belongs to the events consumer's
         // shutdown, which may still be marking offsets after this commit runs.
-        commit_offsets(
+        fsync_then_commit(
+            self.dispatcher.store(),
             &self.consumer,
             self.tracker(),
             self.owned_committable_offsets(),

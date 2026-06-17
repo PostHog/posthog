@@ -164,7 +164,16 @@ pub async fn run_rebalance_worker(
                             dispatcher.revoke_partition_drain(partition).await;
                         }
                     }
-                    RebalanceEvent::Assign(partitions) => mirror.assign(&partitions),
+                    RebalanceEvent::Assign(partitions) => {
+                        // Durable restart: reclaim a stale slice for a partition moving in via a real
+                        // rebalance (a static reclaim fires no assign callback, so its state is kept).
+                        if dispatcher.durable_restore_enabled() {
+                            for &partition in &partitions {
+                                dispatcher.reclaim_stale_partition_on_assign(partition);
+                            }
+                        }
+                        mirror.assign(&partitions);
+                    }
                 }
             }
         }
@@ -188,8 +197,9 @@ mod tests {
     use crate::filters::{CatalogHandle, FilterCatalog};
     use crate::partitions::{MarkOutcome, OffsetTracker, PartitionRouter};
     use crate::producer::{CaptureSink, MembershipSink};
-    use crate::store::{CohortStore, StoreConfig};
+    use crate::store::{CohortStore, LeafStateKey, Stage1Key, StoreConfig};
     use crate::workers::MergeWorkerDeps;
+    use uuid::Uuid;
 
     const TOPIC: &str = "cohort_stream_events";
 
@@ -391,6 +401,48 @@ mod tests {
             "the drain then forgot the revoked partition's entry",
         );
         assert!(!dispatcher.owns(3));
+    }
+
+    /// Seed a one-key `cf_stage1` slice for `partition` and return whether it is present.
+    fn seed_and_present(dispatcher: &EventDispatcher, partition: u16) -> impl Fn() -> bool + '_ {
+        let key = Stage1Key {
+            partition_id: partition,
+            team_id: 7,
+            leaf_state_key: LeafStateKey([0xAB; 16]),
+            person_id: Uuid::from_u128(1),
+        };
+        dispatcher
+            .store()
+            .write_batch(|b| b.put_stage1(&key, b"state"))
+            .unwrap();
+        move || dispatcher.store().get_stage1(&key).unwrap().is_some()
+    }
+
+    #[tokio::test]
+    async fn assign_reclaims_a_stale_slice_only_when_durable_restore_is_on() {
+        // Gate off: the assign arm leaves the slice untouched.
+        let (_dir, dispatcher, tracker) = test_dispatcher();
+        let present = seed_and_present(&dispatcher, 3);
+        let (ctx, rx) = CohortConsumerContext::new(dispatcher.clone());
+        let mirror = RecordingMirror::new(tracker);
+        ctx.on_assign(&tpl(&[3]));
+        drop(ctx);
+        run_worker_to_completion(rx, dispatcher.clone(), mirror).await;
+        assert!(present(), "gate off: the assign arm never reclaims a slice");
+
+        // Gate on: the moving-in partition's stale slice is reclaimed.
+        let (_dir, dispatcher, tracker) = test_dispatcher();
+        dispatcher.enable_durable_restore();
+        let present = seed_and_present(&dispatcher, 3);
+        let (ctx, rx) = CohortConsumerContext::new(dispatcher.clone());
+        let mirror = RecordingMirror::new(tracker);
+        ctx.on_assign(&tpl(&[3]));
+        drop(ctx);
+        run_worker_to_completion(rx, dispatcher.clone(), mirror).await;
+        assert!(
+            !present(),
+            "gate on: the moving-in partition's stale slice is reclaimed",
+        );
     }
 
     #[tokio::test]

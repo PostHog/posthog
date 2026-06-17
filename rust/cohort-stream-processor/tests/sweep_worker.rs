@@ -265,6 +265,27 @@ fn spawn_worker(
     sink: Arc<dyn MembershipSink>,
     tracker: Arc<OffsetTracker>,
 ) -> (mpsc::Sender<Vec<ShuffleMessage>>, Stage1Worker) {
+    spawn_worker_with_restore(store, catalog, sink, tracker, false)
+}
+
+/// Like [`spawn_worker`] but with the durable-restart `EvictionQueue` rebuild on: the worker re-seeds
+/// its queue from the partition's existing `cf_stage1` on spawn.
+fn spawn_worker_durable(
+    store: &CohortStore,
+    catalog: Arc<CatalogHandle>,
+    sink: Arc<dyn MembershipSink>,
+    tracker: Arc<OffsetTracker>,
+) -> (mpsc::Sender<Vec<ShuffleMessage>>, Stage1Worker) {
+    spawn_worker_with_restore(store, catalog, sink, tracker, true)
+}
+
+fn spawn_worker_with_restore(
+    store: &CohortStore,
+    catalog: Arc<CatalogHandle>,
+    sink: Arc<dyn MembershipSink>,
+    tracker: Arc<OffsetTracker>,
+    durable_restore: bool,
+) -> (mpsc::Sender<Vec<ShuffleMessage>>, Stage1Worker) {
     let (tx, rx) = mpsc::channel(16);
     let worker = Stage1Worker::spawn(
         PARTITION_ID,
@@ -274,6 +295,7 @@ fn spawn_worker(
         sink,
         tracker,
         MergeWorkerDeps::capture(),
+        durable_restore,
     );
     (tx, worker)
 }
@@ -313,6 +335,101 @@ async fn sweep_evicts_a_single_leaf_member_emits_left_and_deletes() {
     assert!(
         state_at(&store, lsk, alice).is_none(),
         "a fully-expired single is deleted",
+    );
+}
+
+#[tokio::test]
+async fn durable_restart_rebuilds_the_eviction_queue_so_a_dormant_left_still_fires() {
+    // A member whose window expires during downtime — with no new event to reschedule her — must still
+    // emit `Left`. The first worker enters alice and schedules her eviction in its in-memory queue,
+    // then "crashes" (drop loses the queue, but cf_stage1 persists); a durable-restart worker re-seeds
+    // its queue from cf_stage1, so a later sweep still evicts her.
+    let (_dir, store) = temp_store();
+    let filters = build_team_filters(vec![behavioral_leaf(7)]);
+    let lsk = behavioral_lsk(&filters);
+    let catalog = catalog_of(filters);
+    let alice = person(1);
+    let ts = "2026-05-20 10:00:00.000000";
+
+    // First tenure: alice enters; her state + deadline persist to cf_stage1.
+    let sink1 = CaptureSink::new();
+    let tracker = Arc::new(OffsetTracker::new());
+    let (tx1, worker1) = spawn_worker(
+        &store,
+        catalog.clone(),
+        Arc::new(sink1.clone()),
+        tracker.clone(),
+    );
+    send_event(&tracker, &tx1, event_at(alice, ts, 0), 0).await;
+    drop(tx1);
+    worker1.join().await.unwrap();
+    assert_eq!(sink1.changes().len(), 1, "first tenure: just the Entered");
+    let deadline = state_at(&store, lsk, alice)
+        .expect("alice's state persisted across the crash")
+        .eviction_deadline()
+        .expect("a behavioral single has a finite eviction deadline");
+
+    // Second tenure: the durable-restart worker rebuilds its queue; alice sends no new event, yet the
+    // sweep past her deadline still evicts her.
+    let sink2 = CaptureSink::new();
+    let (tx2, worker2) =
+        spawn_worker_durable(&store, catalog, Arc::new(sink2.clone()), tracker.clone());
+    send_sweep(&tx2, deadline + DAY_MS).await;
+    drop(tx2);
+    worker2.join().await.unwrap();
+
+    let changes = sink2.changes();
+    assert_eq!(changes.len(), 1, "the rebuilt queue fires exactly one Left");
+    assert_eq!(changes[0].status, MembershipStatus::Left);
+    assert_eq!(changes[0].cohort_id, 1);
+    assert_eq!(changes[0].person_id, alice.to_string());
+    assert!(
+        state_at(&store, lsk, alice).is_none(),
+        "the fully-expired single is deleted by the sweep",
+    );
+}
+
+#[tokio::test]
+async fn without_durable_restart_a_dormant_member_is_not_re_evicted() {
+    // The contrast: without the rebuild the worker's queue starts empty, so the dormant member is never
+    // re-evaluated and no `Left` fires (the over-count the rebuild closes).
+    let (_dir, store) = temp_store();
+    let filters = build_team_filters(vec![behavioral_leaf(7)]);
+    let lsk = behavioral_lsk(&filters);
+    let catalog = catalog_of(filters);
+    let alice = person(1);
+    let ts = "2026-05-20 10:00:00.000000";
+
+    let sink1 = CaptureSink::new();
+    let tracker = Arc::new(OffsetTracker::new());
+    let (tx1, worker1) = spawn_worker(
+        &store,
+        catalog.clone(),
+        Arc::new(sink1.clone()),
+        tracker.clone(),
+    );
+    send_event(&tracker, &tx1, event_at(alice, ts, 0), 0).await;
+    drop(tx1);
+    worker1.join().await.unwrap();
+    let deadline = state_at(&store, lsk, alice)
+        .unwrap()
+        .eviction_deadline()
+        .unwrap();
+
+    // A plain (non-durable) restart worker: queue starts empty, so the sweep pops nothing.
+    let sink2 = CaptureSink::new();
+    let (tx2, worker2) = spawn_worker(&store, catalog, Arc::new(sink2.clone()), tracker.clone());
+    send_sweep(&tx2, deadline + DAY_MS).await;
+    drop(tx2);
+    worker2.join().await.unwrap();
+
+    assert!(
+        sink2.changes().is_empty(),
+        "without the rebuild the dormant member's Left never fires",
+    );
+    assert!(
+        state_at(&store, lsk, alice).is_some(),
+        "and her now-stale state lingers (the over-count)",
     );
 }
 

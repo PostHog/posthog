@@ -20,13 +20,14 @@ use cohort_stream_processor::filters::{
 };
 use cohort_stream_processor::partitions::{
     run_rebalance_worker, CohortConsumerContext, OffsetTracker, PartitionMirror, PartitionRouter,
+    ShuffleMessage,
 };
 use cohort_stream_processor::producer::{
     CaptureSink, CohortMembershipChange, KafkaMembershipSink, MembershipSink, MembershipStatus,
 };
 use cohort_stream_processor::stage1::{Stage1State, StatefulRecord};
 use cohort_stream_processor::store::{CohortStore, LeafStateKey, Stage1Key, StoreConfig};
-use cohort_stream_processor::workers::MergeWorkerDeps;
+use cohort_stream_processor::workers::{MergeWorkerDeps, Stage1Worker};
 use common_kafka::config::KafkaConfig;
 use common_kafka::kafka_producer::KafkaProduceError;
 use lifecycle::{ComponentOptions, Manager};
@@ -169,6 +170,29 @@ fn build_consumer(
     sink: Arc<dyn MembershipSink>,
     offset_commit_interval: Duration,
 ) -> CohortStreamEventsConsumer {
+    build_consumer_with_restore(
+        topic,
+        group,
+        store,
+        catalog,
+        handle,
+        sink,
+        offset_commit_interval,
+        false,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build_consumer_with_restore(
+    topic: &str,
+    group: &str,
+    store: CohortStore,
+    catalog: CatalogHandle,
+    handle: lifecycle::Handle,
+    sink: Arc<dyn MembershipSink>,
+    offset_commit_interval: Duration,
+    durable_restore: bool,
+) -> CohortStreamEventsConsumer {
     let dispatcher = Arc::new(EventDispatcher::new(
         PartitionRouter::new(64),
         Arc::new(OffsetTracker::new()),
@@ -177,6 +201,9 @@ fn build_consumer(
         sink,
         MergeWorkerDeps::capture(),
     ));
+    if durable_restore {
+        dispatcher.enable_durable_restore();
+    }
 
     let (context, rebalance_rx) = CohortConsumerContext::new(dispatcher.clone());
     let consumer: StreamConsumer<CohortConsumerContext> = ClientConfig::new()
@@ -208,6 +235,7 @@ fn build_consumer(
         100,
         Duration::from_millis(200),
         offset_commit_interval,
+        NUM_PARTITIONS as usize,
         consumer_command_rx,
     )
 }
@@ -917,5 +945,149 @@ async fn cooperative_sticky_migration_preserves_offsets_and_partition_colocation
         distinct_entered(&changes),
         PERSONS as usize,
         "every person entered exactly once (idempotent re-produce aside)",
+    );
+}
+
+/// Reopen the store at `path` without wiping (durable restore), retrying briefly while the previous
+/// tenure's rebalance-worker task finishes dropping its store handle and releases the RocksDB lock.
+async fn reopen_store_live(path: std::path::PathBuf) -> CohortStore {
+    let config = StoreConfig {
+        path,
+        wipe_on_start: false,
+        ..StoreConfig::default()
+    };
+    let start = Instant::now();
+    loop {
+        match CohortStore::open(&config) {
+            Ok(store) => return store,
+            Err(_) if start.elapsed() < Duration::from_secs(10) => {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+            Err(err) => panic!("failed to reopen store live: {err}"),
+        }
+    }
+}
+
+/// End-to-end through a real broker: a durable-restore consumer folds every person in and
+/// fsync-commits; the store is reopened live (no wipe) and must (i) lose no Kafka offsets, (ii)
+/// preserve every member's state — a wipe+replay would be empty, since the committed offset already
+/// covers every event — and (iii) fire each now-dormant member's `Left` from the rebuilt queue.
+///
+/// This is the graceful-restart shape. The hard-crash hazard (a committed offset ahead of un-fsync'd
+/// state) needs a separately killed process to observe `committed > durable`; a graceful in-process
+/// drop always flushes RocksDB on close.
+#[tokio::test]
+#[ignore = "requires a running Kafka broker (KAFKA_HOSTS); run with --ignored against a local stack"]
+async fn durable_restart_reopens_live_state_and_fires_a_dormant_left() {
+    let suffix = Uuid::new_v4();
+    let topic = format!("cohort_stream_events_durable_{suffix}");
+    let group = format!("cohort-stream-processor-durable-{suffix}");
+
+    create_topic(&topic).await;
+    let total = produce_events(&topic).await;
+
+    let dir = TempDir::new().unwrap();
+    let store_path = dir.path().join("db");
+    let lsk = behavioral_lsk(&behavioral_catalog());
+
+    // Reads committed offsets without joining the group.
+    let verifier: StreamConsumer = ClientConfig::new()
+        .set("bootstrap.servers", bootstrap_servers())
+        .set("group.id", &group)
+        .set("enable.auto.commit", "false")
+        .create()
+        .expect("create verifier consumer");
+
+    // --- Tenure 1: a durable-restore consumer folds every person in and fsync-commits. ---
+    {
+        let store = CohortStore::open(&StoreConfig {
+            path: store_path.clone(),
+            ..StoreConfig::default()
+        })
+        .expect("open store");
+        let mut manager = Manager::builder("durable-itest-1")
+            .with_trap_signals(false)
+            .build();
+        let handle = manager.register(
+            "consumer",
+            ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(15)),
+        );
+        let shutdown_handle = handle.clone();
+        let _monitor = manager.monitor_background();
+        let consumer = build_consumer_with_restore(
+            &topic,
+            &group,
+            store.clone(),
+            behavioral_catalog(),
+            handle,
+            Arc::new(CaptureSink::new()),
+            Duration::from_millis(250),
+            true,
+        );
+        let task = tokio::spawn(consumer.process());
+
+        let start = Instant::now();
+        while committed_sum(&verifier, &topic) != total as i64 {
+            assert!(
+                start.elapsed() < Duration::from_secs(60),
+                "tenure 1: timed out waiting for committed offsets to reach {total}",
+            );
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+        shutdown_handle.request_shutdown();
+        task.await.expect("tenure-1 consumer panicked");
+        assert_eq!(
+            entered_persons(&store, lsk),
+            PERSONS as usize,
+            "tenure 1 folded every produced person into the behavioral leaf",
+        );
+    } // store drops here, releasing the RocksDB lock
+
+    // --- Restart: reopen the same store live. ---
+    let store2 = reopen_store_live(store_path).await;
+    assert_eq!(
+        entered_persons(&store2, lsk),
+        PERSONS as usize,
+        "reopen-live preserved every member across the restart (a wipe would read 0)",
+    );
+    assert_eq!(
+        committed_sum(&verifier, &topic),
+        total as i64,
+        "no Kafka loss: committed offsets are unchanged across the restart",
+    );
+
+    // --- Dormant Left: durable workers re-seed queues from cf_stage1; a sweep past the window
+    // evicts each member with no new events. ---
+    let catalog = Arc::new(behavioral_catalog());
+    let sink = Arc::new(CaptureSink::new());
+    let far_future = 4_000_000_000_000i64; // ~year 2096, well past every BASE_TS + 7d deadline
+    for partition in 0..NUM_PARTITIONS {
+        let (tx, rx) = mpsc::channel(4);
+        let worker = Stage1Worker::spawn(
+            partition as u16,
+            rx,
+            store2.clone(),
+            catalog.clone(),
+            sink.clone(),
+            Arc::new(OffsetTracker::new()),
+            MergeWorkerDeps::capture(),
+            true,
+        );
+        tx.send(vec![ShuffleMessage::Sweep {
+            due_before_ms: far_future,
+        }])
+        .await
+        .unwrap();
+        drop(tx);
+        worker.join().await.unwrap();
+    }
+    let lefts = sink
+        .changes()
+        .iter()
+        .filter(|change| change.status == MembershipStatus::Left)
+        .count();
+    assert_eq!(
+        lefts, PERSONS as usize,
+        "every restored-then-dormant member emits a Left from the rebuilt eviction queue",
     );
 }

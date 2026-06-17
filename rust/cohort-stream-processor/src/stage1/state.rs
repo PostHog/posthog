@@ -99,6 +99,27 @@ impl Stage1State {
             Self::PersonProperty { .. } => StateVariant::PersonProperty,
         }
     }
+
+    /// The eviction deadline (epoch ms) for this state, or [`None`] for `PersonProperty`, which is
+    /// last-write-wins and never time-evicts. A behavioral deadline may be [`i64::MAX`] (permanent
+    /// membership).
+    pub fn eviction_deadline(&self) -> Option<i64> {
+        match self {
+            Self::BehavioralSingle {
+                earliest_eviction_at_ms,
+                ..
+            }
+            | Self::BehavioralDailyBuckets {
+                earliest_eviction_at_ms,
+                ..
+            }
+            | Self::BehavioralCompressedHistory {
+                earliest_eviction_at_ms,
+                ..
+            } => Some(*earliest_eviction_at_ms),
+            Self::PersonProperty { .. } => None,
+        }
+    }
 }
 
 /// Per-source-partition last-applied offsets for replay dedup. `BTreeMap` for deterministic
@@ -613,6 +634,31 @@ mod tests {
             compressed().state.variant(),
             StateVariant::BehavioralCompressedHistory
         );
+    }
+
+    #[test]
+    fn eviction_deadline_is_some_for_behavioral_and_none_for_person_property() {
+        assert_eq!(
+            behavioral().state.eviction_deadline(),
+            Some(1_700_000_000_000 + 7 * 86_400 * 1000),
+        );
+        assert_eq!(
+            daily().state.eviction_deadline(),
+            Some(1_700_000_000_000 + 7 * 86_400 * 1000),
+        );
+        assert_eq!(
+            compressed().state.eviction_deadline(),
+            Some(1_700_000_000_000 + 365 * 86_400 * 1000),
+        );
+        assert_eq!(person().state.eviction_deadline(), None);
+
+        // A permanent membership reports the i64::MAX sentinel.
+        let permanent = Stage1State::BehavioralSingle {
+            has_match: true,
+            last_event_at_ms: 1,
+            earliest_eviction_at_ms: i64::MAX,
+        };
+        assert_eq!(permanent.eviction_deadline(), Some(i64::MAX));
     }
 
     #[test]
