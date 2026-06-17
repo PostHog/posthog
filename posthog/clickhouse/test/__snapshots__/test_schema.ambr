@@ -4023,7 +4023,7 @@
       lc_dagster__owner String ALIAS log_comment.`dagster.tags.owner`::String,
   
       lc_modifiers String ALIAS if(is_initial_query, JSONExtractRaw(toString(log_comment), 'modifiers'), '')
-  ) ENGINE = Distributed('ops', 'posthog_test', 'sharded_query_log_archive')
+  ) ENGINE = Distributed('ops', 'posthog_test', 'sharded_query_log_archive') 
   '''
 # ---
 # name: test_create_table_query[raw_error_tracking_fingerprint_issue_state]
@@ -5998,7 +5998,7 @@
   ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.sharded_query_log_archive', '{replica}-{shard}')
   PARTITION BY toYYYYMM(event_date)
   ORDER BY (team_id, event_date, event_time, query_id)
-  PRIMARY KEY (team_id, event_date, event_time, query_id)
+  PRIMARY KEY (team_id, event_date, event_time, query_id) SETTINGS object_shared_data_serialization_version='map_with_buckets',object_serialization_version='v3'
   '''
 # ---
 # name: test_create_table_query[sharded_raw_sessions]
@@ -7821,7 +7821,7 @@
           SKIP cache_key
       ),
       ProfileEvents                         Map(String, UInt64)
-  ) ENGINE = Distributed('ops', 'posthog_test', 'sharded_query_log_archive')
+  ) ENGINE = Distributed('ops', 'posthog_test', 'sharded_query_log_archive') 
   '''
 # ---
 # name: test_create_table_query[writable_raw_sessions]
@@ -10034,7 +10034,7 @@
   ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.sharded_query_log_archive', '{replica}-{shard}')
   PARTITION BY toYYYYMM(event_date)
   ORDER BY (team_id, event_date, event_time, query_id)
-  PRIMARY KEY (team_id, event_date, event_time, query_id)
+  PRIMARY KEY (team_id, event_date, event_time, query_id) SETTINGS object_shared_data_serialization_version='map_with_buckets',object_serialization_version='v3'
   '''
 # ---
 # name: test_create_table_query_replicated_and_storage[sharded_raw_sessions]

@@ -11,7 +11,7 @@ import { PieChart as InsightPieChart } from 'scenes/insights/views/LineGraph/Pie
 import { ChartSettings } from '~/queries/schema/schema-general'
 import { InsightLogicProps, GraphType } from '~/types'
 
-import { AxisSeries, formatDataWithSettings } from '../../dataVisualizationLogic'
+import { AxisSeries, AxisSeriesSettings, formatDataWithSettings } from '../../dataVisualizationLogic'
 import { AxisBreakdownSeries } from '../seriesBreakdownLogic'
 
 export interface PieChartProps {
@@ -103,6 +103,16 @@ export const buildPieSlices = (
         .filter((slice) => slice.value > 0)
 }
 
+export const formatPieSliceCount = (value: number, total: number, settings?: AxisSeriesSettings): string => {
+    const formatted = String(formatDataWithSettings(value, settings) ?? value)
+    // Percent-styled values are already a share, so a share-of-total suffix would be confusing
+    if (!total || settings?.formatting?.style === 'percent') {
+        return formatted
+    }
+    const shareOfTotal = parseFloat(((value / total) * 100).toFixed(1))
+    return `${formatted} (${shareOfTotal}%)`
+}
+
 export function PieChart({
     xData,
     yData,
@@ -145,6 +155,7 @@ export function PieChart({
                 tooltip={{
                     showHeader: false,
                     hideColorCol: true,
+                    renderCount: (value: number) => formatPieSliceCount(value, total, formattingSettings),
                 }}
                 datasets={[
                     {

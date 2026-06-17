@@ -2,8 +2,6 @@ import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { TagSelect } from 'lib/components/TagSelect'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 
 import { FeatureFlagEvaluationRuntime } from '~/types'
 
@@ -169,37 +167,36 @@ export function FeatureFlagFiltersSection({
                             />
                         </>
                     )}
-                    {config.runtime &&
-                        enabledFeaturesLogic.values.featureFlags?.[FEATURE_FLAGS.FLAG_EVALUATION_RUNTIMES] && (
-                            <>
-                                <span className="ml-1">
-                                    <b>Runtime</b>
-                                </span>
-                                <LemonSelect
-                                    dropdownMatchSelectWidth={false}
-                                    size="small"
-                                    onChange={(runtime) => {
-                                        const { evaluation_runtime, ...restFilters } = filters || {}
-                                        if (runtime === 'any') {
-                                            setFeatureFlagsFilters({ ...restFilters, page: 1 }, true)
-                                        } else {
-                                            setFeatureFlagsFilters(
-                                                { ...restFilters, evaluation_runtime: runtime, page: 1 },
-                                                true
-                                            )
-                                        }
-                                    }}
-                                    options={[
-                                        { label: 'Any', value: 'any', 'data-attr': 'feature-flag-select-runtime-any' },
-                                        { label: 'All', value: FeatureFlagEvaluationRuntime.ALL },
-                                        { label: 'Client', value: FeatureFlagEvaluationRuntime.CLIENT },
-                                        { label: 'Server', value: FeatureFlagEvaluationRuntime.SERVER },
-                                    ]}
-                                    value={filters.evaluation_runtime ?? 'any'}
-                                    data-attr="feature-flag-select-runtime"
-                                />
-                            </>
-                        )}
+                    {config.runtime && (
+                        <>
+                            <span className="ml-1">
+                                <b>Runtime</b>
+                            </span>
+                            <LemonSelect
+                                dropdownMatchSelectWidth={false}
+                                size="small"
+                                onChange={(runtime) => {
+                                    const { evaluation_runtime, ...restFilters } = filters || {}
+                                    setFeatureFlagsFilters(
+                                        {
+                                            ...restFilters,
+                                            ...(runtime !== 'any' ? { evaluation_runtime: runtime } : {}),
+                                            page: 1,
+                                        },
+                                        true
+                                    )
+                                }}
+                                options={[
+                                    { label: 'Any', value: 'any', 'data-attr': 'feature-flag-select-runtime-any' },
+                                    { label: 'All', value: FeatureFlagEvaluationRuntime.ALL },
+                                    { label: 'Client', value: FeatureFlagEvaluationRuntime.CLIENT },
+                                    { label: 'Server', value: FeatureFlagEvaluationRuntime.SERVER },
+                                ]}
+                                value={filters.evaluation_runtime ?? 'any'}
+                                data-attr="feature-flag-select-runtime"
+                            />
+                        </>
+                    )}
                 </div>
             )}
         </div>

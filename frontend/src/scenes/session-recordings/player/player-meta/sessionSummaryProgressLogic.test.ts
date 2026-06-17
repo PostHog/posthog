@@ -26,6 +26,7 @@ describe('sessionSummaryProgressLogic', () => {
     let logic: ReturnType<typeof sessionSummaryProgressLogic.build>
 
     beforeEach(() => {
+        localStorage.clear() // the persisted autoExpandSummary reducer must not leak between tests
         initKeaTests()
         logic = sessionSummaryProgressLogic()
         logic.mount()
@@ -68,22 +69,38 @@ describe('sessionSummaryProgressLogic', () => {
             })
         })
 
-        it('re-opens via setSummary after user closed, only if summary is non-null', async () => {
+        it('does not re-open via setSummary after the user closed', async () => {
             logic.actions.startSummarization(SESSION_ID)
             logic.actions.setSummaryOpen(SESSION_ID, false)
 
-            // Null summary should not reopen
-            await expectLogic(logic, () => {
-                logic.actions.setSummary(SESSION_ID, null)
-            }).toMatchValues({
-                openBySessionId: expect.objectContaining({ [SESSION_ID]: false }),
-            })
-
-            // Non-null summary should reopen
             await expectLogic(logic, () => {
                 logic.actions.setSummary(SESSION_ID, { segments: [] } as any)
             }).toMatchValues({
-                openBySessionId: expect.objectContaining({ [SESSION_ID]: true }),
+                openBySessionId: expect.objectContaining({ [SESSION_ID]: false }),
+            })
+        })
+
+        it('does not auto-open when the user collapsed the dock for another session', async () => {
+            logic.actions.setSummaryOpen('session-a', false)
+
+            await expectLogic(logic, () => {
+                logic.actions.startSummarization('session-b')
+                logic.actions.setSummary('session-c', { segments: [] } as any)
+            }).toMatchValues({
+                autoExpandSummary: false,
+                openBySessionId: { 'session-a': false },
+            })
+        })
+
+        it('expanding the dock re-enables auto-open for future sessions', async () => {
+            logic.actions.setSummaryOpen('session-a', false)
+            logic.actions.setSummaryOpen('session-a', true)
+
+            await expectLogic(logic, () => {
+                logic.actions.startSummarization('session-b')
+            }).toMatchValues({
+                autoExpandSummary: true,
+                openBySessionId: expect.objectContaining({ 'session-b': true }),
             })
         })
 

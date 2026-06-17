@@ -85,6 +85,10 @@ def login_required(view):
 
     @wraps(view)
     def handler(request, *args, **kwargs):
+        # Dev-only: in cloud-OAuth mode the session is client-side, so serve without a local login
+        # (the SPA uses its bearer token). DEBUG-gated, so prod gating is unchanged.
+        if settings.DEBUG and request.COOKIES.get("ph_oauth_mode"):
+            return view(request, *args, **kwargs)
         if not User.objects.exists():
             return redirect("/preflight")
         elif not request.user.is_authenticated and settings.AUTO_LOGIN:
@@ -242,6 +246,9 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
             if not in_cloud
             else None,
             "openai_available": bool(os.environ.get("OPENAI_API_KEY")),
+            # Max runs on Anthropic, so it needs its own signal — otherwise self-hosted instances
+            # render the assistant but fail at call time with no key configured.
+            "anthropic_available": bool(os.environ.get("ANTHROPIC_API_KEY")),
             "site_url": settings.SITE_URL,
             "instance_preferences": settings.INSTANCE_PREFERENCES,
             "buffer_conversion_seconds": settings.BUFFER_CONVERSION_SECONDS,

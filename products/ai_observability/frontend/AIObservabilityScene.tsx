@@ -17,7 +17,7 @@ import { dayjs } from 'lib/dayjs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
-import { objectsEqual } from 'lib/utils'
+import { objectsEqual } from 'lib/utils/objects'
 import { EventDetails } from 'scenes/activity/explore/EventDetails'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -37,7 +37,6 @@ import { AccessControlLevel, AccessControlResourceType, DashboardPlacement, Even
 import { aiObservabilityColumnRenderers } from './aiObservabilityColumnRenderers'
 import { AIObservabilityErrors } from './AIObservabilityErrors'
 import { AIObservabilityReloadAction } from './AIObservabilityReloadAction'
-import { AIObservabilityRenameBanner } from './AIObservabilityRenameBanner'
 import { AIObservabilitySessionsScene } from './AIObservabilitySessionsScene'
 import { AIObservabilitySetupPrompt } from './AIObservabilitySetupPrompt'
 import {
@@ -485,38 +484,25 @@ function AIObservabilitySceneContent(): JSX.Element {
     useAppShortcut({
         name: 'AIObservabilityTab3',
         keybind: [keyBinds.tab3],
-        intent: isTraceReviewEnabled ? 'Go to Reviews' : 'Go to Generations',
+        intent: 'Go to Generations',
         interaction: 'function',
-        callback: () =>
-            push(
-                combineUrl(
-                    isTraceReviewEnabled ? urls.aiObservabilityReviews() : urls.aiObservabilityGenerations(),
-                    searchParams
-                ).url
-            ),
+        callback: () => push(combineUrl(urls.aiObservabilityGenerations(), searchParams).url),
         scope: Scene.AIObservability,
     })
     useAppShortcut({
         name: 'AIObservabilityTab4',
         keybind: [keyBinds.tab4],
-        intent: isTraceReviewEnabled ? 'Go to Generations' : 'Go to Users',
+        intent: 'Go to Users',
         interaction: 'function',
-        callback: () =>
-            push(
-                combineUrl(
-                    isTraceReviewEnabled ? urls.aiObservabilityGenerations() : urls.aiObservabilityUsers(),
-                    searchParams
-                ).url
-            ),
+        callback: () => push(combineUrl(urls.aiObservabilityUsers(), searchParams).url),
         scope: Scene.AIObservability,
     })
     useAppShortcut({
         name: 'AIObservabilityTab5',
         keybind: [keyBinds.tab5],
-        intent: 'Go to Users',
+        intent: 'Go to Errors',
         interaction: 'function',
-        callback: () => push(combineUrl(urls.aiObservabilityUsers(), searchParams).url),
-        disabled: !isTraceReviewEnabled,
+        callback: () => push(combineUrl(urls.aiObservabilityErrors(), searchParams).url),
         scope: Scene.AIObservability,
     })
 
@@ -539,21 +525,6 @@ function AIObservabilitySceneContent(): JSX.Element {
             link: combineUrl(urls.aiObservabilityTraces(), searchParams).url,
             'data-attr': 'traces-tab',
         },
-        ...(isTraceReviewEnabled
-            ? [
-                  {
-                      key: 'reviews',
-                      label: 'Reviews',
-                      content: (
-                          <AIObservabilitySetupPrompt thing="trace">
-                              <AIObservabilityHumanReviews />
-                          </AIObservabilitySetupPrompt>
-                      ),
-                      link: combineUrl(urls.aiObservabilityReviews(), searchParams).url,
-                      'data-attr': 'llma-reviews-tab',
-                  } as LemonTab<string>,
-              ]
-            : []),
         {
             key: 'generations',
             label: 'Generations',
@@ -636,6 +607,20 @@ function AIObservabilitySceneContent(): JSX.Element {
         })
     }
 
+    if (isTraceReviewEnabled) {
+        tabs.push({
+            key: 'reviews',
+            label: 'Reviews',
+            content: (
+                <AIObservabilitySetupPrompt thing="trace">
+                    <AIObservabilityHumanReviews />
+                </AIObservabilitySetupPrompt>
+            ),
+            link: combineUrl(urls.aiObservabilityReviews(), searchParams).url,
+            'data-attr': 'llma-reviews-tab',
+        })
+    }
+
     if (activeTab === 'reviews' && !isTraceReviewEnabled) {
         return <NotFound object="page" />
     }
@@ -661,8 +646,6 @@ function AIObservabilitySceneContent(): JSX.Element {
                     </>
                 }
             />
-
-            <AIObservabilityRenameBanner />
 
             <LemonTabs activeKey={activeTab} data-attr="llm-analytics-tabs" tabs={tabs} sceneInset />
         </SceneContent>

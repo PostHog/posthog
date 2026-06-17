@@ -1,4 +1,6 @@
 import datetime
+from collections.abc import Generator
+from typing import cast
 
 import pytest
 from unittest.mock import MagicMock
@@ -13,7 +15,8 @@ from posthog.temporal.data_imports.sources.mysql.mysql import (
     MySQLColumn,
     MySQLImplementation,
     _build_query,
-    _is_bad_plan_timeout,
+    _is_bad_plan_error,
+    _release_streaming_cursor,
     _safe_convert_date,
     _safe_convert_datetime,
     _sanitize_identifier,
@@ -288,6 +291,26 @@ class TestGetRowsToSync:
         # Swallows the error rather than propagating — matches pre-refactor behavior.
         assert impl.get_rows_to_sync(cursor, "SELECT * FROM t", {}, logger) == 0
 
+    @pytest.mark.parametrize(
+        "error",
+        [
+            pymysql.err.OperationalError(1054, "Unknown column 'favoritor_id' in 'where clause'"),
+            pymysql.err.OperationalError(
+                3024, "Query execution was interrupted, maximum statement execution time exceeded"
+            ),
+            RuntimeError("boom"),
+        ],
+    )
+    def test_does_not_capture_handled_probe_failures(self, impl, cursor, logger, error, mocker):
+        # The COUNT(*) probe is best-effort: it falls back to 0 and must not flood error
+        # tracking with handled failures (e.g. a bad incremental field or the MAX_EXECUTION_TIME
+        # timeout). Genuine problems resurface in the real streaming query and are classified there.
+        cursor.execute.side_effect = error
+        capture = mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql.capture_exception")
+
+        assert impl.get_rows_to_sync(cursor, "SELECT * FROM t", {}, logger) == 0
+        capture.assert_not_called()
+
     def test_wraps_inner_query_as_subselect(self, impl, cursor, logger):
         cursor.fetchone.return_value = (5,)
         impl.get_rows_to_sync(cursor, "SELECT x FROM y WHERE a = %(a)s", {"a": 1}, logger)
@@ -357,14 +380,30 @@ class TestFetchAverageRowSize:
         assert "`email`" in sql
         assert "LENGTH(COALESCE(`id`" in sql
 
-    def test_rejects_malformed_column_names(self, impl, cursor, logger):
-        # If INFORMATION_SCHEMA somehow returns a weird column name, we must
-        # reject it rather than splice it into SQL. The quoter raises; the
-        # method catches and returns None.
+    def test_returns_none_when_no_columns_are_quotable(self, impl, cursor, logger):
+        # A column name we can't safely quote is never spliced into SQL. When
+        # it's the only column there's nothing left to estimate from, so we
+        # return None rather than raising.
         cursor.fetchall.return_value = [("bad;col",)]
         cursor.fetchone.return_value = (1,)
         result = impl.fetch_average_row_size(cursor, "db", "t", "SELECT 1", {}, logger)
         assert result is None
+
+    def test_skips_unquotable_columns_and_estimates_from_rest(self, impl, cursor, logger):
+        # Real MySQL columns can contain characters the identifier allowlist
+        # rejects (e.g. `:` in `Ach:CompanyId`). Row-size estimation is
+        # best-effort: skip the columns we can't quote and estimate from the
+        # rest instead of abandoning the whole query.
+        cursor.fetchall.return_value = [("id",), ("Ach:CompanyId",), ("email",)]
+        cursor.fetchone.return_value = (100,)
+        result = impl.fetch_average_row_size(cursor, "db", "t", "SELECT * FROM x", {}, logger)
+        assert result == 100
+        second_call = cursor.execute.call_args_list[1]
+        sql = second_call.args[0]
+        assert "`id`" in sql
+        assert "`email`" in sql
+        # The unquotable column is neither quoted nor spliced in raw.
+        assert "Ach:CompanyId" not in sql
 
     def test_returns_none_on_exception(self, impl, cursor, logger):
         cursor.execute.side_effect = RuntimeError("boom")
@@ -478,6 +517,17 @@ class TestExplainQuery:
         # Must not raise — diagnostic-only.
         impl.explain_query(cursor, "SELECT 1", {}, logger)
 
+    def test_does_not_capture_exceptions(self, impl, cursor, logger, mocker):
+        # EXPLAIN is best-effort diagnostics — a failure (e.g. MySQL 1345 when
+        # EXPLAINing a view whose underlying tables the user can't SHOW VIEW on)
+        # never affects the sync, so it must not be reported to error tracking.
+        capture = mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql.capture_exception")
+        cursor.execute.side_effect = pymysql.err.OperationalError(
+            1345, "EXPLAIN/SHOW can not be issued; lacking privileges for underlying table"
+        )
+        impl.explain_query(cursor, "SELECT 1", {}, logger)
+        capture.assert_not_called()
+
 
 class TestSafetyContract:
     """Verifies that driver-specific metadata queries never splice untrusted identifiers into SQL."""
@@ -584,9 +634,64 @@ class TestStreamingConnectionTimeouts:
         assert ss_cursor.execute.called
 
 
-class TestIsBadPlanTimeout:
+class TestReleaseStreamingCursor:
+    def test_detaches_cursor_without_closing(self):
+        cursor = MagicMock()
+        _release_streaming_cursor(cursor)
+        assert cursor.connection is None
+        cursor.close.assert_not_called()
+
+
+class TestStreamingCursorTeardown:
+    """The streaming SSCursor must be torn down without draining its unbuffered
+    result set, so an early exit can't resurface a lost-connection error over
+    the real reason iteration stopped."""
+
+    def test_early_close_does_not_drain_or_raise(self, build_pipeline_mocks):
+        _, _, ss_cursor = build_pipeline_mocks
+        # Every fetch returns a row, so the generator stays suspended at a yield
+        # until we close it — mimicking a sync cancelled mid-stream.
+        ss_cursor.fetchmany.return_value = [(1,)]
+        ss_cursor.close.side_effect = pymysql.err.OperationalError(2013, "Lost connection to MySQL server during query")
+
+        source = MySQLImplementation().build_pipeline(_make_config(), _make_inputs())
+        # MySQL source is always sync, so items() yields a plain generator.
+        rows = cast(Generator, source.items())
+        next(rows)  # pull the first batch, suspend at the yield
+
+        # A cancelled activity closes the generator early — this must not raise.
+        rows.close()
+
+        ss_cursor.close.assert_not_called()
+        assert ss_cursor.connection is None
+
+    def test_midstream_error_propagates_without_draining(self, build_pipeline_mocks):
+        _, _, ss_cursor = build_pipeline_mocks
+        # First fetch yields a batch, the second loses the connection mid-stream.
+        ss_cursor.fetchmany.side_effect = [
+            [(1,)],
+            pymysql.err.OperationalError(2013, "Lost connection to MySQL server during query"),
+        ]
+        ss_cursor.close.side_effect = AssertionError("cursor must not be drained on teardown")
+
+        source = MySQLImplementation().build_pipeline(_make_config(), _make_inputs())
+        with pytest.raises(pymysql.err.OperationalError):
+            list(source.items())  # type: ignore[arg-type]  # MySQL source is always sync
+
+        ss_cursor.close.assert_not_called()
+        assert ss_cursor.connection is None
+
+
+class TestIsBadPlanError:
     def test_matches_error_2013(self):
-        assert _is_bad_plan_timeout(pymysql.err.OperationalError(2013, "Lost connection to MySQL server during query"))
+        assert _is_bad_plan_error(pymysql.err.OperationalError(2013, "Lost connection to MySQL server during query"))
+
+    def test_matches_error_1038_out_of_sort_memory(self):
+        # Out of sort memory is the same bad plan (filesort over the incremental
+        # field) seen from the other side — the FORCE INDEX fallback resolves it.
+        assert _is_bad_plan_error(
+            pymysql.err.OperationalError(1038, "Out of sort memory, consider increasing server sort buffer size")
+        )
 
     @pytest.mark.parametrize(
         "code,message",
@@ -596,10 +701,10 @@ class TestIsBadPlanTimeout:
         ],
     )
     def test_does_not_match_other_error_codes(self, code, message):
-        assert not _is_bad_plan_timeout(pymysql.err.OperationalError(code, message))
+        assert not _is_bad_plan_error(pymysql.err.OperationalError(code, message))
 
     def test_does_not_match_error_without_args(self):
-        assert not _is_bad_plan_timeout(pymysql.err.OperationalError())
+        assert not _is_bad_plan_error(pymysql.err.OperationalError())
 
 
 class TestBuildQueryForceIndex:
@@ -727,3 +832,125 @@ class TestMySQLSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Widened integer column error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "[SSL: WRONG_VERSION_NUMBER] wrong version number (_ssl.c:2657)",
+            # The signature also arrives wrapped in pymysql's OperationalError(2013) — we must
+            # still catch it without making the bare 2013/"Lost connection" text non-retryable.
+            "OperationalError: (2013, 'Lost connection to MySQL server during query "
+            "([SSL: WRONG_VERSION_NUMBER] wrong version number (_ssl.c:2657))')",
+        ],
+    )
+    def test_ssl_wrong_version_number_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"SSL version mismatch should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "is blocked because of many connection errors",
+            # MariaDB phrasing (suggests mariadb-admin) — what we actually observed in the wild.
+            "OperationalError: (1129, \"Host '172.31.4.130' is blocked because of many connection "
+            "errors; unblock with 'mariadb-admin flush-hosts'\")",
+            # MySQL phrasing (suggests mysqladmin) — same root cause, different unblock hint.
+            "OperationalError: (1129, \"Host '10.0.1.5' is blocked because of many connection "
+            "errors; unblock with 'mysqladmin flush-hosts'\")",
+        ],
+    )
+    def test_host_blocked_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Host-blocked error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Raw pymysql str(error) form (classified in `_handle_import_error`).
+            str(pymysql.err.OperationalError(1054, "Unknown column 'favoritor_id' in 'where clause'")),
+            # Temporal-wrapped str(e.cause) form (classified in external_data_job).
+            "OperationalError: (1054, \"Unknown column 'favoritor_id' in 'where clause'\")",
+            # Other clause variants share the same 1054 code and "Unknown column" prefix.
+            "OperationalError: (1054, \"Unknown column 'deleted_at' in 'order clause'\")",
+        ],
+    )
+    def test_unknown_column_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Unknown-column error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # A genuine transient connection drop (no SSL signature) must stay retryable.
+            "OperationalError: (2013, 'Lost connection to MySQL server during query')",
+            "Lost connection to MySQL server during query",
+        ],
+    )
+    def test_transient_lost_connection_stays_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert not is_non_retryable, f"Transient lost-connection error should remain retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # MySQL error 1135: the server reached the connection but couldn't spawn an OS thread
+            # to service it (errno 11 EAGAIN). This is a transient, server-side resource exhaustion
+            # — it clears as concurrent connections close — so it must keep retrying, just like
+            # Postgres's "too many connections" / "max clients reached" capacity errors.
+            "OperationalError: (1135, 'Can't create a new thread (errno 11 \"Resource temporarily "
+            'unavailable"); if you are not out of available memory, you can consult the manual for '
+            "a possible OS-dependent bug')",
+            'Can\'t create a new thread (errno 11 "Resource temporarily unavailable")',
+        ],
+    )
+    def test_cant_create_new_thread_stays_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert not is_non_retryable, f"Transient thread-exhaustion error should remain retryable: {error_msg}"
+
+
+class TestMySQLSourceValidateCredentials:
+    @pytest.fixture
+    def source(self, mocker):
+        source = MySQLSource()
+        mocker.patch.object(source, "ssh_tunnel_is_valid", return_value=(True, None))
+        mocker.patch.object(source, "is_database_host_valid", return_value=(True, None))
+        return source
+
+    @pytest.mark.parametrize(
+        "raised",
+        [
+            # The exact error that fired this triage: an unreachable host surfaces as a
+            # pymysql OperationalError(2003) wrapping an OSError — already non-retryable.
+            pymysql.err.OperationalError(
+                2003, "Can't connect to MySQL server on 'db.example.com' ([Errno 101] Network is unreachable)"
+            ),
+            pymysql.err.OperationalError(
+                2003, "Can't connect to MySQL server on 'db.example.com' ([Errno 111] Connection refused)"
+            ),
+            pymysql.err.OperationalError(1045, "Access denied for user 'u'@'1.2.3.4' (using password: YES)"),
+        ],
+    )
+    def test_known_connection_errors_are_not_captured(self, source, mocker, raised):
+        capture = mocker.patch("posthog.temporal.data_imports.sources.mysql.source.capture_exception")
+        mocker.patch.object(source, "get_schemas", side_effect=raised)
+
+        valid, error = source.validate_credentials(_make_config(), team_id=1)
+
+        assert valid is False
+        assert error is not None
+        capture.assert_not_called()
+
+    def test_unexpected_errors_are_still_captured(self, source, mocker):
+        capture = mocker.patch("posthog.temporal.data_imports.sources.mysql.source.capture_exception")
+        mocker.patch.object(source, "get_schemas", side_effect=RuntimeError("something genuinely unexpected"))
+
+        valid, error = source.validate_credentials(_make_config(), team_id=1)
+
+        assert valid is False
+        assert error is not None
+        capture.assert_called_once()
