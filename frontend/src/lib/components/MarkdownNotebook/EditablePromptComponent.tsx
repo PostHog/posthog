@@ -52,10 +52,10 @@ export function EditablePromptComponent({
     }, [isActive])
 
     useEffect(() => {
-        if (focusRequest !== undefined && handledFocusRequestRef.current !== focusRequest) {
+        if (focusRequest !== undefined && handledFocusRequestRef.current !== focusRequest && isCollapsed) {
             setIsCollapsed(false)
         }
-    }, [focusRequest])
+    }, [focusRequest, isCollapsed])
 
     useEffect(() => {
         const element = elementRef.current
