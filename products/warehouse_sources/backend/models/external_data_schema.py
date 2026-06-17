@@ -64,6 +64,11 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         default=dict,
         blank=True,
     )
+    # Normalized leaf subdir under the source's S3 folder that Delta data is written to (the actual
+    # folder name, e.g. `my_table`, not `My Table`). Pins legacy rows (renamed to qualified form
+    # during multi-schema migration) to their original path. Empty for rows written before this
+    # column existed — readers fall back to the legacy JSON key, then the normalized schema `name`.
+    s3_folder_name = models.CharField(max_length=400, null=True, blank=True)
     # Deprecated in favour of `sync_frequency_interval`
     sync_frequency = deprecate_field(
         models.CharField(max_length=128, choices=SyncFrequency, default=SyncFrequency.DAILY, blank=True)
@@ -237,9 +242,13 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         return None
 
     @property
-    def dwh_storage_key(self) -> str | None:
-        if self.sync_type_config:
-            return self.sync_type_config.get("dwh_storage_key")
+    def resolved_s3_folder_name(self) -> str | None:
+        # JSON fallback covers rows written by old workers before the column rollout.
+        if self.s3_folder_name:
+            return self.s3_folder_name
+        legacy_key = (self.sync_type_config or {}).get("dwh_storage_key")
+        if isinstance(legacy_key, str) and legacy_key:
+            return legacy_key
         return None
 
     @property

@@ -21,32 +21,11 @@
         "AccountsQuery": {
             "additionalProperties": false,
             "properties": {
-                "accountExecutive": {
-                    "description": "Match accounts whose account executive is any of these user ids (OR semantics).",
-                    "items": {
-                        "$ref": "#/definitions/integer"
-                    },
-                    "type": "array"
-                },
-                "accountOwner": {
-                    "description": "Match accounts whose account owner is any of these user ids (OR semantics).",
-                    "items": {
-                        "$ref": "#/definitions/integer"
-                    },
-                    "type": "array"
-                },
                 "allRolesUnassigned": {
                     "type": "boolean"
                 },
                 "assignedToUserIds": {
                     "description": "Match accounts where any of these user ids is the CSM or the account executive (OR over both roles). Drives the \"My accounts\" shortcut (the current user's id) and the shareable \"Assigned to\" filter — the ids are explicit so a shared URL resolves identically for every viewer.",
-                    "items": {
-                        "$ref": "#/definitions/integer"
-                    },
-                    "type": "array"
-                },
-                "csm": {
-                    "description": "Match accounts whose CSM is any of these user ids (OR semantics).",
                     "items": {
                         "$ref": "#/definitions/integer"
                     },
@@ -4211,6 +4190,10 @@
                     "type": "string"
                 },
                 {
+                    "const": "SlopeGraph",
+                    "type": "string"
+                },
+                {
                     "not": {}
                 }
             ]
@@ -4307,7 +4290,8 @@
                         "WorldMap",
                         "CalendarHeatmap",
                         "TwoDimensionalHeatmap",
-                        "BoxPlot"
+                        "BoxPlot",
+                        "SlopeGraph"
                     ],
                     "type": "string"
                 },
@@ -11619,7 +11603,8 @@
                 "WorldMap",
                 "CalendarHeatmap",
                 "TwoDimensionalHeatmap",
-                "BoxPlot"
+                "BoxPlot",
+                "SlopeGraph"
             ],
             "type": "string"
         },
@@ -22920,6 +22905,74 @@
                     "$ref": "#/definitions/PersonsNode"
                 }
             ]
+        },
+        "HealthCheckSeverity": {
+            "enum": ["critical", "warning", "info"],
+            "type": "string"
+        },
+        "HealthCheckSignalExtra": {
+            "additionalProperties": false,
+            "properties": {
+                "issue_id": {
+                    "type": "string"
+                },
+                "kind": {
+                    "type": "string"
+                },
+                "link": {
+                    "description": "Relative in-app path to the resource, e.g. '/web'.",
+                    "type": "string"
+                },
+                "payload": {
+                    "additionalProperties": {},
+                    "type": "object"
+                },
+                "severity": {
+                    "$ref": "#/definitions/HealthCheckSeverity"
+                },
+                "summary": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "url": {
+                    "description": "Absolute URL ({project.url} + link).",
+                    "type": "string"
+                }
+            },
+            "required": ["kind", "severity", "issue_id", "title", "summary", "link", "url", "payload"],
+            "type": "object"
+        },
+        "HealthCheckSignalInput": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "extra": {
+                    "$ref": "#/definitions/HealthCheckSignalExtra"
+                },
+                "remediation": {
+                    "$ref": "#/definitions/SignalRemediation"
+                },
+                "source_id": {
+                    "type": "string"
+                },
+                "source_product": {
+                    "const": "health_checks",
+                    "type": "string"
+                },
+                "source_type": {
+                    "const": "health_issue",
+                    "type": "string"
+                },
+                "weight": {
+                    "type": "number"
+                }
+            },
+            "required": ["description", "extra", "source_id", "source_product", "source_type", "weight"],
+            "type": "object"
         },
         "HeatMapQuerySource": {
             "$ref": "#/definitions/EventsNode"
@@ -40024,6 +40077,9 @@
                 },
                 {
                     "$ref": "#/definitions/LogsAlertStateChangeSignalInput"
+                },
+                {
+                    "$ref": "#/definitions/HealthCheckSignalInput"
                 }
             ]
         },
@@ -40109,7 +40165,8 @@
                 "endpoints",
                 "pganalyze",
                 "signals_scout",
-                "logs"
+                "logs",
+                "health_checks"
             ],
             "type": "string"
         },
@@ -40126,7 +40183,8 @@
                 "issue_spiking",
                 "endpoint_execution_failed",
                 "cross_source_issue",
-                "alert_state_change"
+                "alert_state_change",
+                "health_issue"
             ],
             "type": "string"
         },

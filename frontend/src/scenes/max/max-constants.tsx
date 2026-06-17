@@ -18,10 +18,10 @@ import {
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconQuestionAnswer, IconRobot } from 'lib/lemon-ui/icons'
+import { isObject } from 'lib/utils/guards'
 import { Scene } from 'scenes/sceneTypes'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
-import { isObject } from '~/lib/utils'
 import {
     AgentMode,
     AssistantTool,

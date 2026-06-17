@@ -61,6 +61,9 @@ class LinearSource(ResumableSource[LinearSourceConfig, LinearResumeConfig], OAut
             # Retrying can never resolve this — the integration won't reappear — so stop and
             # ask the user to reconnect. Matched as a substring; the trailing integration id varies.
             "Integration not found": "The linked Linear integration no longer exists. Please reconnect your Linear account.",
+            # The Linear OAuth app isn't configured on this PostHog instance (missing client id/secret),
+            # so the source can't refresh its access token. Deterministic — retrying never resolves it.
+            "Linear app not configured": "The Linear app is not configured on this PostHog instance. Please contact support.",
         }
 
     def _get_access_token(self, config: LinearSourceConfig, team_id: int) -> str:

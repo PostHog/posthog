@@ -183,19 +183,24 @@ def _is_connection_dropped_error(error: BaseException) -> bool:
     return False
 
 
-def _is_recovery_conflict_error(error: BaseException) -> bool:
-    """True if `error` is a Postgres standby recovery conflict.
+def _raise_if_setup_connection_broken(connection: psycopg.Connection) -> None:
+    """Surface a connection dropped during metadata discovery as a retryable error.
 
-    A read replica cancels an in-flight query when WAL replay needs to remove row
-    versions the query might still read ("canceling statement due to conflict with
-    recovery", SQLSTATE 40001 -> psycopg SerializationFailure). It's transient and
-    expected on replicas — the row-streaming reader already retries it in-process and
-    `get_non_retryable_errors` deliberately keeps the raw message retryable — so
-    best-effort probes should degrade quietly rather than alert on a handled condition.
+    The best-effort probes run during `postgres_source` setup (`_explain_query`,
+    `_get_table_chunk_size`, and the numeric-scale probe in `_get_table`) isolate their
+    queries in `connection.transaction(savepoint_name=...)`. When the upstream
+    connection drops mid-probe, psycopg's `Transaction.__exit__` skips its savepoint
+    teardown — it early-returns whenever the connection is no longer OK — leaving the
+    connection's transaction-nesting counter incremented. The surrounding helpers then
+    swallow the follow-up "connection closed" errors, so discovery finishes "successfully"
+    and the implicit commit in the enclosing `with connection:` raises a misleading
+    `ProgrammingError: Explicit commit() forbidden within a Transaction context`, burying
+    the real cause. Detect the broken connection first and raise the actual
+    dropped-connection error (transient, so it stays retryable) — the activity then retries
+    on a fresh connection instead of failing on a self-inflicted commit error.
     """
-    return isinstance(error, psycopg.errors.SerializationFailure) and "conflict with recovery" in " ".join(
-        str(arg) for arg in error.args
-    )
+    if connection.broken:
+        raise psycopg.OperationalError("connection to server was lost during table metadata discovery")
 
 
 def _connect_with_dropped_retry(
@@ -733,11 +738,20 @@ def _rls_active_from_conn(
                     result[display_name] = bool(rls_active)
             return result
     except Exception as e:
+        # This runs on a connection shared with earlier best-effort metadata lookups (PK + index
+        # discovery). When one of those fails on a non-Postgres engine — e.g. a Redshift-incompatible
+        # `pg_catalog` query — its exception is caught upstream but the connection's transaction is
+        # left in `INERROR`, so our first statement here fails with `InFailedSqlTransaction` purely as
+        # a downstream symptom. That's an already-handled condition, not a bug in this lookup, so
+        # don't re-capture it (mirrors `_get_partition_settings`).
+        #
         # Postgres-wire-compatible engines (DuckDB/Flight-SQL proxies, etc.) accept our connection
         # but don't implement `row_security_active`. RLS is a Postgres-only concept there, so a
         # missing-function error is an expected "no RLS" answer, not a bug — degrade quietly rather
         # than flooding error tracking. Still capture genuinely unexpected failures.
-        if not _is_unsupported_function_error(e, "row_security_active"):
+        if not isinstance(e, psycopg.errors.InFailedSqlTransaction) and not _is_unsupported_function_error(
+            e, "row_security_active"
+        ):
             capture_exception(e)
         return {}
 
@@ -1633,21 +1647,21 @@ def _get_partition_settings(
         logger.debug(f"_get_partition_settings: table does not exist, returning None: {e}")
         return None
     except Exception as e:
-        # Partition sizing is best-effort: on failure we return None and the sync proceeds
-        # unpartitioned. Two handled conditions must not flood error tracking:
-        #   - A read replica can cancel this sizing query with a recovery conflict
-        #     (`SerializationFailure` "conflict with recovery"); it's transient and expected on
-        #     replicas, and the row-streaming reader retries it in-process.
-        #   - An earlier best-effort query in this same transaction (chunk sizing, row count,
-        #     partition detection) can hit that transient condition and leave the transaction in
-        #     `INERROR`, so this query then fails with `InFailedSqlTransaction` purely as a
-        #     downstream symptom.
-        # Both resurface (and are classified through the normal retryable/non-retryable path) via
-        # the real extraction query, so degrade quietly. Genuinely unexpected failures are still
-        # captured.
-        if not _is_recovery_conflict_error(e) and not isinstance(e, psycopg.errors.InFailedSqlTransaction):
-            capture_exception(e)
-        logger.debug(f"_get_partition_settings: returning None due to error: {e}")
+        # Partition sizing is a best-effort optimization: returning None just falls back to
+        # default partition settings and the sync proceeds. This query shares its FROM with the
+        # real extraction query, so any genuine problem (missing table, permissions, upstream
+        # extension state, read-replica recovery conflict, or an earlier best-effort query in this
+        # same transaction having left it `InFailedSqlTransaction`) resurfaces there and is
+        # classified through the normal retryable/non-retryable path. Capturing it here too only
+        # floods error tracking with handled duplicates of user/upstream conditions we already
+        # tolerate, so log at debug and fall back — mirroring `_get_rows_to_sync`.
+        logger.debug(f"_get_partition_settings: returning None due to error: {e}", exc_info=e)
+
+        if "temporary file size exceeds temp_file_limit" in str(e):
+            raise TemporaryFileSizeExceedsLimitException(
+                f"Error: {e}. Please ensure your incremental field has an appropriate index created"
+            )
+
         return None
 
     result = cursor.fetchone()
@@ -2262,6 +2276,14 @@ def postgres_source(
                             raise
                         except Exception:
                             raise
+
+                    # If a transient drop killed the connection during one of the best-effort
+                    # savepoint probes above, the implicit commit on `with connection:` exit would
+                    # otherwise raise a misleading "Explicit commit() forbidden within a Transaction
+                    # context" (psycopg leaves the transaction-nesting counter incremented when it
+                    # tears a savepoint down on a no-longer-OK connection). Surface the real,
+                    # retryable dropped-connection error instead.
+                    _raise_if_setup_connection_broken(connection)
                 break
             except psycopg.errors.SerializationFailure as e:
                 if "conflict with recovery" not in "".join(e.args):

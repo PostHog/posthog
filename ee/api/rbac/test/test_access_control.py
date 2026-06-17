@@ -12,6 +12,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rbac.user_access_control import AccessSource
 from posthog.utils import render_template
 
+from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
@@ -2015,3 +2016,60 @@ class TestAccessControlMembersEndpoint(BaseAccessControlTest):
         res = self.client.get("/api/projects/@current/access_control_members")
         member_data = self._find_member(res.json()["results"], self.user2_membership.id)
         assert member_data["project"]["access_level"] == "member"
+
+
+class TestCohortUsedInAccessControl(BaseAccessControlTest):
+    def setUp(self):
+        super().setUp()
+        self.other_user = self._create_user("other_user")
+
+    def _cohort_flag_filters(self, cohort_id: int) -> dict:
+        return {"groups": [{"properties": [{"key": "id", "value": cohort_id, "type": "cohort"}]}]}
+
+    def _create_cohort_with_restricted_flag(self) -> Cohort:
+        # Two flags reference the cohort; "hidden-flag" gets object-level "none" access.
+        # Leaves the current user as an org ADMIN.
+        cohort = Cohort.objects.create(team=self.team, name="Target Cohort")
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="visible-flag",
+            name="Visible Flag",
+            filters=self._cohort_flag_filters(cohort.id),
+        )
+        hidden_flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.other_user,
+            key="hidden-flag",
+            name="Hidden Flag",
+            filters=self._cohort_flag_filters(cohort.id),
+        )
+
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        res = self.client.put(
+            f"/api/projects/@current/feature_flags/{hidden_flag.id}/access_controls",
+            {"access_level": "none"},
+        )
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        return cohort
+
+    def test_used_in_excludes_flags_without_access(self):
+        cohort = self._create_cohort_with_restricted_flag()
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+
+        res = self.client.get(f"/api/projects/@current/cohorts/{cohort.id}/used_in")
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        block = res.json()["feature_flags"]
+        assert [flag["key"] for flag in block["results"]] == ["visible-flag"]
+        assert block["total"] == 1
+        assert block["has_more"] is False
+
+    def test_used_in_includes_restricted_flags_for_org_admins(self):
+        cohort = self._create_cohort_with_restricted_flag()
+
+        res = self.client.get(f"/api/projects/@current/cohorts/{cohort.id}/used_in")
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        block = res.json()["feature_flags"]
+        assert [flag["key"] for flag in block["results"]] == ["visible-flag", "hidden-flag"]
+        assert block["total"] == 2
+        assert block["has_more"] is False

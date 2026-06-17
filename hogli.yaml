@@ -1040,6 +1040,10 @@ environment:
         bin_script: build-dashboard-widget-types.py
         description: Widget enum preflight, date options, and form-field manifest codegen
         hidden: true
+    dockerignore:drop:check:
+        bin_script: dockerignore-drop-check
+        description: List files an .dockerignore change drops from the image build context
+        hidden: true
     verify:metrics:pipe:
         bin_script: verify-metrics-pipe
         description: 'Verify the local metrics pipe reached ClickHouse metrics1'
