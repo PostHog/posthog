@@ -1297,7 +1297,8 @@ class TestCreateTaskAndTriggerForwardsContext:
         assert kwargs["posthog_mcp_scopes"] == expected_scopes
 
     @pytest.mark.asyncio
-    async def test_forwards_ai_stage(self):
+    @pytest.mark.parametrize("ai_stage, expected", [("research", "research"), (None, None)])
+    async def test_forwards_ai_stage(self, ai_stage, expected):
         team, user = await sync_to_async(self._setup_team_and_user)()
         context = CustomPromptSandboxContext(team_id=team.id, user_id=user.id, repository="posthog/posthog")
 
@@ -1307,6 +1308,6 @@ class TestCreateTaskAndTriggerForwardsContext:
             "products.tasks.backend.services.custom_prompt_internals.Task.create_and_run",
             return_value=mock_task,
         ) as mock_create:
-            await create_task_and_trigger("prompt", context, ai_stage="research")
+            await create_task_and_trigger("prompt", context, ai_stage=ai_stage)
 
-        assert mock_create.call_args.kwargs["ai_stage"] == "research"
+        assert mock_create.call_args.kwargs["ai_stage"] == expected
