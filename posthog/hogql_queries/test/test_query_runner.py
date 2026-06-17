@@ -1411,6 +1411,21 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
         restricted = set(runner.get_cache_payload().get("restricted_resources") or [])
         assert "account" in restricted  # denied via the inherited parent customer_analytics
 
+    def test_querying_access_controlled_tables_issues_one_preload(self):
+        # has_resource_access (incl. the inheritance recursion account -> customer_analytics) resolves
+        # against the in-memory preload, so reading several access-controlled tables still issues exactly
+        # one ee_accesscontrol query - no per-scope N+1.
+        self._ac(resource="customer_analytics", access_level="none")
+        self._ac(resource="notebook", access_level="none")
+        query = {"kind": "HogQLQuery", "query": "select * from system.accounts, system.notebooks, system.surveys"}
+        runner = HogQLQueryRunner(query=query, team=self.team, user=self.user)
+
+        with CaptureQueriesContext(connection) as ctx:
+            runner.get_cache_key()
+
+        ac_queries = [q["sql"] for q in ctx.captured_queries if "ee_accesscontrol" in q["sql"]]
+        assert len(ac_queries) == 1, ac_queries
+
     def test_object_level_deny_on_queried_resource_partitions_cache(self):
         from products.notebooks.backend.models import Notebook
 
