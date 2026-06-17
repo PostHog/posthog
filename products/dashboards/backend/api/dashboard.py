@@ -111,6 +111,8 @@ from products.dashboards.backend.widget_query_throttle import get_dashboard_widg
 from products.dashboards.backend.widget_registry import (
     EXPECTED_WIDGET_TYPES,
     SESSION_REPLAY_LIST_WIDGET_TYPE,
+    count_active_widget_filters,
+    extract_widget_filters,
     get_widget_registry_entry,
     validate_widget_config,
 )
@@ -1524,7 +1526,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
         if patch_widget_type is not None and str(patch_widget_type) != widget.widget_type:
             raise serializers.ValidationError({"widget": "widget_type cannot be changed."})
 
-        previous_widget_filters = (widget.config or {}).get("widgetFilters")
+        previous_widget_filters = extract_widget_filters(widget.widget_type, widget.config)
         if "config" in widget_data:
             widget.config = validate_widget_config(
                 widget.widget_type,
@@ -1538,7 +1540,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
         widget.last_modified_at = now()
         widget.save()
 
-        new_widget_filters = (widget.config or {}).get("widgetFilters")
+        new_widget_filters = extract_widget_filters(widget.widget_type, widget.config)
         if "config" in widget_data and new_widget_filters != previous_widget_filters:
             report_user_action(
                 user,
@@ -1547,7 +1549,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
                     "widget_type": widget.widget_type,
                     "dashboard_id": dashboard.id,
                     "widget_id": str(widget.id),
-                    "filters_count": len(new_widget_filters) if new_widget_filters else 0,
+                    "filters_count": count_active_widget_filters(widget.widget_type, widget.config),
                 },
                 team=dashboard.team,
                 request=request,

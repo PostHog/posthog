@@ -1769,6 +1769,7 @@ class ExternalDataSourceType(StrEnum):
     YAHOO_FINANCE = "YahooFinance"
     CLARIFAI = "Clarifai"
     ADAPTY = "Adapty"
+    BRAINTRUST = "Braintrust"
     CUSTOM = "Custom"
 
 
@@ -2958,6 +2959,7 @@ class SignalSourceType(StrEnum):
     ISSUE_REOPENED = "issue_reopened"
     ISSUE_SPIKING = "issue_spiking"
     ENDPOINT_EXECUTION_FAILED = "endpoint_execution_failed"
+    ENDPOINT_BREAKDOWN_LIMIT_EXCEEDED = "endpoint_breakdown_limit_exceeded"
     CROSS_SOURCE_ISSUE = "cross_source_issue"
     ALERT_STATE_CHANGE = "alert_state_change"
     HEALTH_ISSUE = "health_issue"
