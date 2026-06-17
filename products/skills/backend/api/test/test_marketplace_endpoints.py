@@ -445,6 +445,43 @@ class TestMarketplaceInstallCommand(APIBaseTest):
         assert rolled.last_rolled_at is not None
         assert hash_key_value(body["token"]) == rolled.secure_value
 
+    def test_reuse_re_narrows_a_drifted_key_without_minting_a_token(self, _mock_flag):
+        # A same-label key that somehow carries broader scopes must be pulled back to read-only,
+        # single-team before it's handed back — the UI/endpoint describe it as exactly that.
+        issue_marketplace_credential(self.team, self.user, rotate=False)
+        drifted = self._credential()
+        assert drifted is not None
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        drifted.scopes = ["llm_skill:read", "llm_skill:write"]
+        drifted.scoped_teams = [self.team.id, other_team.id]
+        drifted.scoped_organizations = [str(self.organization.id)]
+        drifted.save()
+
+        result = issue_marketplace_credential(self.team, self.user, rotate=False)
+
+        assert result.status == "exists"
+        assert result.token is None  # narrowing needs no new token
+        result.key.refresh_from_db()
+        assert result.key.scopes == ["llm_skill:read"]
+        assert result.key.scoped_teams == [self.team.id]
+        assert result.key.scoped_organizations == []
+
+    def test_rotate_re_narrows_scopes_alongside_the_fresh_token(self, _mock_flag):
+        issue_marketplace_credential(self.team, self.user, rotate=False)
+        drifted = self._credential()
+        assert drifted is not None
+        drifted.scopes = ["llm_skill:read", "llm_skill:write"]
+        drifted.save(update_fields=["scopes"])
+
+        result = issue_marketplace_credential(self.team, self.user, rotate=True)
+
+        assert result.status == "rotated"
+        assert result.token is not None
+        result.key.refresh_from_db()
+        # A freshly minted token must never inherit the broader scopes.
+        assert result.key.scopes == ["llm_skill:read"]
+        assert result.key.scoped_teams == [self.team.id]
+
     def test_one_user_connecting_does_not_roll_another_users_credential(self, _mock_flag):
         # Per-user keying: a teammate connecting must not touch mine.
         mine = issue_marketplace_credential(self.team, self.user, rotate=False)

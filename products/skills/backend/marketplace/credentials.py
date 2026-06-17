@@ -61,6 +61,12 @@ def issue_marketplace_credential(team: Team, user: User, *, rotate: bool) -> Iss
     with transaction.atomic():
         existing = PersonalAPIKey.objects.select_for_update().filter(user=user, label=label).first()
         if existing is not None and not rotate:
+            # Re-narrow before handing it back: a same-label key that drifted to broader scopes
+            # would otherwise be returned while the endpoint/UI describe it as read-only and
+            # team-scoped. Narrowing needs no new token, so this stays "exists".
+            narrowed_fields = _narrow_to_marketplace_scope(existing, team)
+            if narrowed_fields:
+                existing.save(update_fields=narrowed_fields)
             return IssuedMarketplaceCredential(key=existing, token=None, status="exists")
 
         raw_token = generate_random_token_personal()
@@ -72,6 +78,7 @@ def issue_marketplace_credential(team: Team, user: User, *, rotate: bool) -> Iss
                 mask_value=mask_key_value(raw_token),
                 scopes=list(MARKETPLACE_CREDENTIAL_SCOPES),
                 scoped_teams=[team.id],
+                scoped_organizations=[],
             )
             return IssuedMarketplaceCredential(key=key, token=raw_token, status="created")
 
@@ -79,8 +86,28 @@ def issue_marketplace_credential(team: Team, user: User, *, rotate: bool) -> Iss
         existing.mask_value = mask_key_value(raw_token)
         existing.last_used_at = None
         existing.last_rolled_at = timezone.now()
-        existing.save(update_fields=["secure_value", "mask_value", "last_used_at", "last_rolled_at"])
+        # Rotation re-mints the token, so re-assert the narrow scoping in the same write — a freshly
+        # minted token must never inherit scopes broader than what we advertise as read-only.
+        update_fields = ["secure_value", "mask_value", "last_used_at", "last_rolled_at"]
+        update_fields += _narrow_to_marketplace_scope(existing, team)
+        existing.save(update_fields=update_fields)
         return IssuedMarketplaceCredential(key=existing, token=raw_token, status="rotated")
+
+
+def _narrow_to_marketplace_scope(key: PersonalAPIKey, team: Team) -> list[str]:
+    """Force ``key`` onto the canonical read-only, single-team scoping. Returns the field names
+    that actually changed (so callers can pass them to ``save(update_fields=...)``)."""
+    canonical: dict[str, list[str] | list[int]] = {
+        "scopes": list(MARKETPLACE_CREDENTIAL_SCOPES),
+        "scoped_teams": [team.id],
+        "scoped_organizations": [],
+    }
+    changed: list[str] = []
+    for field, value in canonical.items():
+        if getattr(key, field) != value:
+            setattr(key, field, value)
+            changed.append(field)
+    return changed
 
 
 # Placeholder shown in the command template before a token is minted (and never sent to a server).

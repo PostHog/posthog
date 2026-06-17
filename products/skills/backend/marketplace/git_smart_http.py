@@ -53,9 +53,7 @@ class SynthesizedRepo:
 def _git_hash(obj_type: str, data: bytes) -> str:
     header = f"{obj_type} {len(data)}\0".encode()
     # SHA1 is the git object-ID hash mandated by the wire protocol, not a security primitive.
-    return hashlib.sha1(
-        header + data, usedforsecurity=False
-    ).hexdigest()  # nosemgrep: python.lang.security.insecure-hash-algorithms.insecure-hash-algorithm-sha1
+    return hashlib.sha1(header + data, usedforsecurity=False).hexdigest()  # nosemgrep
 
 
 def _create_blob(content: str) -> GitObject:
@@ -180,9 +178,7 @@ def build_packfile(objects: list[GitObject]) -> bytes:
         body += _encode_obj_header(obj.type, len(obj.data))
         body += zlib.compress(obj.data)
     # Packfile trailer is a SHA1 checksum over the pack contents, fixed by the git pack format.
-    body += hashlib.sha1(
-        bytes(body), usedforsecurity=False
-    ).digest()  # nosemgrep: python.lang.security.insecure-hash-algorithms.insecure-hash-algorithm-sha1
+    body += hashlib.sha1(bytes(body), usedforsecurity=False).digest()  # nosemgrep
     return bytes(body)
 
 
