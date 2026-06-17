@@ -29,9 +29,7 @@ export type EditingProjectKeyFormValues = ProjectSecretAPIKeyRequest & {
 
 export const MAX_PROJECT_API_KEYS_PER_PROJECT = 10
 
-// Display names for project-secret-key scope rows. llm_gateway:read powers the new
-// AI gateway here, so it reads as "AI gateway" rather than the personal-API-key-facing
-// "LLM gateway" (the older gateway, which keeps its own name).
+// llm_gateway powers the new AI gateway here, so label it "AI gateway" (PAKs keep "LLM gateway").
 const PROJECT_SECRET_SCOPE_OBJECT_NAMES: Record<string, string> = {
     llm_gateway: 'AI gateway',
 }

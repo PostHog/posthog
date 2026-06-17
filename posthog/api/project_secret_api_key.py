@@ -67,9 +67,8 @@ class ProjectSecretAPIKeySerializer(serializers.ModelSerializer):
 
     def validate_scopes(self, scopes):
         allowed = set(PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION)
-        # llm_gateway:read is privileged and kept out of the base allowlist. It's grantable when the
-        # ai-gateway flag is enabled, or when the key already carries it (so a flag rollback never
-        # makes an existing key unsaveable). The flag is only evaluated when the scope is requested.
+        # Allow llm_gateway:read only when the flag is on or the key already has it, so a flag
+        # rollback can't make an existing key unsaveable. Flag is evaluated only when requested.
         if any(s.startswith("llm_gateway:") for s in scopes) and self._llm_gateway_grantable():
             allowed.add(("llm_gateway", "read"))
 
