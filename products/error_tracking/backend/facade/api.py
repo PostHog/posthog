@@ -264,6 +264,61 @@ def delete_release(team_id: int, release_id: str) -> bool:
     return logic.delete_release(team_id, release_id)
 
 
+def has_filter_values(filters: dict) -> bool:
+    return logic.has_filter_values(filters)
+
+
+def _to_rule_assignee(rule) -> contracts.ErrorTrackingRuleAssignee | None:
+    if rule.user_id:
+        return contracts.ErrorTrackingRuleAssignee(type="user", id=rule.user_id)
+    if rule.role_id:
+        return contracts.ErrorTrackingRuleAssignee(type="role", id=rule.role_id)
+    return None
+
+
+def _to_assignment_rule(rule) -> contracts.ErrorTrackingAssignmentRule:
+    return contracts.ErrorTrackingAssignmentRule(
+        id=rule.id,
+        filters=rule.filters,
+        assignee=_to_rule_assignee(rule),
+        order_key=rule.order_key,
+        disabled_data=rule.disabled_data,
+        created_at=rule.created_at,
+        updated_at=rule.updated_at,
+    )
+
+
+def list_assignment_rules(team_id: int) -> list[contracts.ErrorTrackingAssignmentRule]:
+    return [_to_assignment_rule(rule) for rule in logic.list_assignment_rules(team_id)]
+
+
+def get_assignment_rule(team_id: int, rule_id: str) -> contracts.ErrorTrackingAssignmentRule | None:
+    rule = logic.get_assignment_rule(team_id, rule_id)
+    return _to_assignment_rule(rule) if rule is not None else None
+
+
+def create_assignment_rule(team_id: int, *, filters: dict, assignee: dict) -> contracts.ErrorTrackingAssignmentRule:
+    rule = logic.create_assignment_rule(
+        team_id, filters=filters, assignee_type=assignee["type"], assignee_id=assignee["id"]
+    )
+    return _to_assignment_rule(rule)
+
+
+def update_assignment_rule(
+    team_id: int, rule_id: str, *, filters: dict | None = None, assignee: dict | None = None
+) -> contracts.ErrorTrackingAssignmentRule | None:
+    rule = logic.update_assignment_rule(team_id, rule_id, filters=filters, assignee=assignee)
+    return _to_assignment_rule(rule) if rule is not None else None
+
+
+def delete_assignment_rule(team_id: int, rule_id: str) -> bool:
+    return logic.delete_assignment_rule(team_id, rule_id)
+
+
+def reorder_assignment_rules(team_id: int, orders: dict[str, int]) -> None:
+    logic.reorder_assignment_rules(team_id, orders)
+
+
 def get_issue_id_for_fingerprint(team_id: int, fingerprint: str) -> UUID | None:
     return logic.get_issue_id_for_fingerprint(team_id=team_id, fingerprint=fingerprint)
 

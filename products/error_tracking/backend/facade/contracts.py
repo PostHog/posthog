@@ -143,3 +143,20 @@ class ErrorTrackingStackFrame:
     context: dict | None
     symbol_set_ref: str | None
     release: ErrorTrackingRelease | None
+
+
+@dataclass(frozen=True)
+class ErrorTrackingRuleAssignee:
+    type: str
+    id: int | UUID
+
+
+@dataclass(frozen=True)
+class ErrorTrackingAssignmentRule:
+    id: UUID
+    filters: dict
+    assignee: ErrorTrackingRuleAssignee | None
+    order_key: int
+    disabled_data: dict | None
+    created_at: datetime
+    updated_at: datetime

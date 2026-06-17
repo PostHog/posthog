@@ -14,6 +14,7 @@ from posthog.models.integration import (
 from posthog.models.utils import UUIDT
 
 from products.error_tracking.backend.models import (
+    ErrorTrackingAssignmentRule,
     ErrorTrackingExternalReference,
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
@@ -397,3 +398,129 @@ def update_release(
 def delete_release(team_id: int, release_id: str) -> bool:
     deleted, _ = ErrorTrackingRelease.objects.filter(team_id=team_id, id=release_id).delete()
     return deleted > 0
+
+
+# --- Rule bytecode compilation ---------------------------------------------
+# The HogQL compiler is a heavy import, so it loads lazily inside these helpers
+# rather than at module import time (this module is reachable from facade.api,
+# which config-only consumers import).
+
+
+def _validate_rule_bytecode(bytecode: list[Any]) -> None:
+    from products.error_tracking.backend.hogvm_stl import RUST_HOGVM_STL  # noqa: PLC0415
+
+    from common.hogvm.python.operation import Operation  # noqa: PLC0415 — keeps the heavy dep off the import path
+
+    for i, op in enumerate(bytecode):
+        if not isinstance(op, Operation):
+            continue
+        if op == Operation.CALL_GLOBAL:
+            name = bytecode[i + 1]
+            if not isinstance(name, str):
+                raise ValueError(f"Expected string for global function name, got {type(name)}")
+            if name not in RUST_HOGVM_STL:
+                raise ValueError(f"Unknown global function: {name}")
+
+
+def compile_filter_bytecode(team_id: int, filters: dict) -> list[Any]:
+    from posthog.schema import PropertyGroupFilterValue  # noqa: PLC0415
+
+    from posthog.hogql import ast  # noqa: PLC0415
+    from posthog.hogql.compiler.bytecode import create_bytecode  # noqa: PLC0415
+    from posthog.hogql.property import property_to_expr  # noqa: PLC0415
+
+    from posthog.models.team.team import Team  # noqa: PLC0415
+
+    team = Team.objects.get(id=team_id)
+    expr = property_to_expr(PropertyGroupFilterValue(**filters), team, strict=True)
+    bytecode = create_bytecode(ast.ReturnStatement(expr=expr)).bytecode
+    _validate_rule_bytecode(bytecode)
+    return bytecode
+
+
+def match_all_bytecode() -> list[Any]:
+    from posthog.hogql import ast  # noqa: PLC0415
+    from posthog.hogql.compiler.bytecode import create_bytecode  # noqa: PLC0415
+
+    return create_bytecode(ast.ReturnStatement(expr=ast.Constant(value=True))).bytecode
+
+
+def _reorder_rules(model: type, team_id: int, orders: dict[str, int]) -> None:
+    rules = list(model.objects.filter(team_id=team_id, id__in=orders.keys()))
+    for rule in rules:
+        rule.order_key = orders[str(rule.id)]
+    model.objects.filter(team_id=team_id).bulk_update(rules, ["order_key"])
+
+
+def has_filter_values(json_filters: dict) -> bool:
+    """Whether a filter dict contains any actual filter values, recursively.
+
+    Non-dict entries count as "has values" so the request reaches pydantic
+    validation and is rejected with a 400 rather than raising AttributeError.
+    """
+    values = json_filters.get("values", [])
+    if not values:
+        return False
+    for value in values:
+        if not isinstance(value, dict):
+            return True
+        if "key" in value or has_filter_values(value):
+            return True
+    return False
+
+
+def _rule_bytecode(team_id: int, filters: dict) -> list[Any]:
+    if has_filter_values(filters):
+        return compile_filter_bytecode(team_id, filters)
+    return match_all_bytecode()
+
+
+def list_assignment_rules(team_id: int) -> QuerySet[ErrorTrackingAssignmentRule]:
+    return ErrorTrackingAssignmentRule.objects.filter(team_id=team_id).order_by("order_key")
+
+
+def get_assignment_rule(team_id: int, rule_id: str) -> ErrorTrackingAssignmentRule | None:
+    return ErrorTrackingAssignmentRule.objects.filter(team_id=team_id, id=rule_id).first()
+
+
+def create_assignment_rule(
+    team_id: int, *, filters: dict, assignee_type: str, assignee_id: int | UUID
+) -> ErrorTrackingAssignmentRule:
+    return ErrorTrackingAssignmentRule.objects.create(
+        team_id=team_id,
+        filters=filters,
+        bytecode=_rule_bytecode(team_id, filters),
+        order_key=0,
+        user_id=assignee_id if assignee_type == "user" else None,
+        role_id=assignee_id if assignee_type == "role" else None,
+    )
+
+
+def update_assignment_rule(
+    team_id: int,
+    rule_id: str,
+    *,
+    filters: dict | None = None,
+    assignee: dict | None = None,
+) -> ErrorTrackingAssignmentRule | None:
+    rule = get_assignment_rule(team_id, rule_id)
+    if rule is None:
+        return None
+    if filters:
+        rule.filters = filters
+        rule.bytecode = _rule_bytecode(team_id, filters)
+    if assignee:
+        rule.user_id = assignee["id"] if assignee["type"] == "user" else None
+        rule.role_id = assignee["id"] if assignee["type"] == "role" else None
+    rule.disabled_data = None
+    rule.save()
+    return rule
+
+
+def delete_assignment_rule(team_id: int, rule_id: str) -> bool:
+    deleted, _ = ErrorTrackingAssignmentRule.objects.filter(team_id=team_id, id=rule_id).delete()
+    return deleted > 0
+
+
+def reorder_assignment_rules(team_id: int, orders: dict[str, int]) -> None:
+    _reorder_rules(ErrorTrackingAssignmentRule, team_id, orders)
