@@ -644,13 +644,15 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                         pause_external_data_schedule(str(updated_instance.id))
                     elif should_sync is True:
                         unpause_external_data_schedule(str(updated_instance.id))
-                elif should_sync is True:
+                elif should_sync_value:
+                    # No schedule yet but the schema should be syncing — create (or recover) it. The
+                    # schedule is built from the current frequency, so a cadence-only edit on an
+                    # enabled-but-unscheduled schema still takes effect.
                     sync_external_data_job_workflow(updated_instance, create=True, should_sync=should_sync_value)
 
-                # Only re-issue the schedule when one already exists. A disabled / never-activated
-                # schema has no Temporal schedule, so updating it raises "workflow not found"; the new
-                # frequency is saved in the DB and applies if/when the schema is enabled (the create
-                # branch above builds the schedule from the current frequency).
+                # Re-issue an existing schedule when the cadence changed. A disabled schema with no
+                # schedule has nothing to update — updating a missing schedule raises "workflow not
+                # found" — so its new cadence is just saved and applies if/when it is enabled.
                 if (was_sync_frequency_updated or was_sync_time_of_day_updated) and schedule_exists:
                     sync_external_data_job_workflow(updated_instance, create=False, should_sync=should_sync_value)
 
