@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from '@storybook/react'
 import { useMountedLogic } from 'kea'
 
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
-import { humanFriendlyNumber } from 'lib/utils'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { InsightType } from '~/types'

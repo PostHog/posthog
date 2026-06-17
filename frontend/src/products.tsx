@@ -5,7 +5,7 @@ import { combineUrl } from 'kea-router'
 
 import { AlertType } from 'lib/components/Alerts/types'
 import { FEATURE_FLAGS, INSIGHT_VISUAL_ORDER } from 'lib/constants'
-import { toParams } from 'lib/utils'
+import { toParams } from 'lib/utils/url'
 import type { Params } from 'scenes/sceneTypes'
 import { SurveysTabs } from 'scenes/surveys/surveysLogic'
 import { urls } from 'scenes/urls'

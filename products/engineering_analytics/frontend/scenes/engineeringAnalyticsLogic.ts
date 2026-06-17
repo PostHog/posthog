@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 
 import { ApiConfig } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
-import { objectsEqual } from 'lib/utils'
+import { objectsEqual } from 'lib/utils/objects'
 
 import {
     engineeringAnalyticsCiCards,
