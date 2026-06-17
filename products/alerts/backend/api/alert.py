@@ -530,14 +530,19 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         if not value:
             return value
         _require_insight_viewer_access(self.context, value)
-        # The SQL feature flag is enforced here, at the boundary that creates the alert — the model
-        # stays flag-agnostic so existing alerts keep working when the flag is off.
-        kind = value.alertable_query_kind
+        self._enforce_alert_feature_flags(value)
+        return value
+
+    def _enforce_alert_feature_flags(self, insight) -> None:
+        # Enforced from the object-level validate() so it runs on every create and update — including
+        # a PATCH that omits `insight` (which skips this field-level validator), so an alert can't be
+        # repointed at a flag-gated insight kind in an account where the flag is off. The model stays
+        # flag-agnostic so existing alerts keep working when the flag is off.
+        kind = insight.alertable_query_kind
         if kind is None:
             raise ValidationError("Alerts are not supported for this insight.")
         if kind == NodeKind.HOG_QL_QUERY and not self._hogql_alerts_enabled():
             raise ValidationError("SQL insight alerts are not enabled for your account.")
-        return value
 
     def _hogql_alerts_enabled(self) -> bool:
         # Scope the flag to the alert's organization (via team scope), not the user's current
@@ -576,6 +581,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         insight = attrs.get("insight") or (self.instance.insight if self.instance else None)
         if insight is None:
             raise ValidationError({"insight": ["Insight is required."]})
+        self._enforce_alert_feature_flags(insight)
         with upgrade_query(insight):
             query = insight.query
             if query is None:
