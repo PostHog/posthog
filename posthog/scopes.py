@@ -146,9 +146,10 @@ INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
 # clients (the consent screen, MCP, third-party apps) to discover it.
 OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset({"wizard_session"})
 
+# llm_gateway:read is omitted on purpose: it's alpha/privileged and granted only behind the
+# ai-gateway flag in ProjectSecretAPIKeySerializer, not unconditionally like the entries here.
 PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIScopeActions]] = [
     ("endpoint", "read"),
-    ("llm_gateway", "read"),
 ]
 
 # Server-side scope assignment string-set constants (see RFC: server-side scope
