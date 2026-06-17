@@ -10,8 +10,6 @@ use std::time::Instant;
 
 use serde_json::Value;
 
-pub const EXCEPTION_CAPTURES_TOTAL: &str = "posthog_exception_captures_total";
-
 /// Hard cap on captured exceptions per process per minute. Bounds both outage
 /// storms (every request failing at once) and self-amplification: cymbal
 /// ingests the internal project's `$exception` events, i.e. its own captures.
@@ -82,8 +80,7 @@ pub async fn init(
 ///
 /// Events are stamped with the service identity from [`init`] plus
 /// `properties`. At most [`MAX_CAPTURES_PER_MINUTE`] captures per process are
-/// sent; beyond that they are dropped, visible as `outcome="suppressed"` in
-/// the `posthog_exception_captures_total` metric.
+/// sent; beyond that they are silently dropped.
 pub fn capture_exception<E>(
     error: Arc<E>,
     properties: impl IntoIterator<Item = (&'static str, Value)>,
@@ -95,7 +92,6 @@ pub fn capture_exception<E>(
     }
 
     if !CAPTURE_WINDOW.allows(clock_window_minutes(), MAX_CAPTURES_PER_MINUTE) {
-        metrics::counter!(EXCEPTION_CAPTURES_TOTAL, "outcome" => "suppressed").increment(1);
         return;
     }
 
@@ -116,14 +112,9 @@ pub fn capture_exception<E>(
     }
 
     let send = async move {
-        let outcome = match posthog_rs::capture_exception_with(&*error, options).await {
-            Ok(()) => "sent",
-            Err(e) => {
-                tracing::error!(error = ?e, "Failed to capture exception to PostHog");
-                "error"
-            }
-        };
-        metrics::counter!(EXCEPTION_CAPTURES_TOTAL, "outcome" => outcome).increment(1);
+        if let Err(e) = posthog_rs::capture_exception_with(&*error, options).await {
+            tracing::error!(error = ?e, "Failed to capture exception to PostHog");
+        }
     };
 
     // The SDK builds the event (including the capture-site backtrace) eagerly,
