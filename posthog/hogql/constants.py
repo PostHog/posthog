@@ -126,6 +126,7 @@ class HogQLQuerySettings(BaseModel):
     optimize_skip_unused_shards: Optional[bool] = None
     read_overflow_mode: Optional[str] = None
     max_bytes_to_read: Optional[int] = None
+    optimize_move_to_prewhere: Optional[int] = None
 
 
 # Settings applied on top of all HogQL queries.

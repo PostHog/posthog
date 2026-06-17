@@ -580,6 +580,14 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             table_def.top_level_settings = HogQLQuerySettings(
                 format_csv_allow_double_quotes=effective,
             )
+        elif self._is_parquet_backed_format():
+            # The v3 Parquet reader (default under ClickHouse 26.3 compatibility) throws
+            # NOT_FOUND_COLUMN_IN_BLOCK when the analyzer moves a computed predicate into the
+            # object-storage scan's PREWHERE. Disable PREWHERE for these reads only — scoped
+            # here so MergeTree (events/persons) queries keep it. See ClickHouse issue 80443.
+            table_def.top_level_settings = HogQLQuerySettings(
+                optimize_move_to_prewhere=0,
+            )
 
         return table_def
 
@@ -599,6 +607,13 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         return self.format in (
             DataWarehouseTable.TableFormat.CSV,
             DataWarehouseTable.TableFormat.CSVWithNames,
+        )
+
+    def _is_parquet_backed_format(self) -> bool:
+        return self.format in (
+            DataWarehouseTable.TableFormat.Parquet,
+            DataWarehouseTable.TableFormat.Delta,
+            DataWarehouseTable.TableFormat.DeltaS3Wrapper,
         )
 
     # ClickHouse error codes from CSV double-quote parse mismatches.

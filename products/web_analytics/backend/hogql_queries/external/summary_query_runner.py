@@ -137,6 +137,7 @@ class WebAnalyticsExternalSummaryQueryRunner(QueryRunner):
         WHERE team_id = {self.team.pk}
           AND period_bucket >= '{self.query_date_range.date_from_str}'
           AND period_bucket <= '{self.query_date_range.date_to_str}'
+        SETTINGS optimize_move_to_prewhere = 0
         """
 
         chdb_result = chdb.query(query, output_format="CSV")
@@ -156,6 +157,7 @@ class WebAnalyticsExternalSummaryQueryRunner(QueryRunner):
         WHERE team_id = {self.team.pk}
           AND period_bucket >= '{self.query_date_range.date_from_str}'
           AND period_bucket <= '{self.query_date_range.date_to_str}'
+        SETTINGS optimize_move_to_prewhere = 0
         """
 
         chdb_result = chdb.query(query, output_format="CSV")
