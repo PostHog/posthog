@@ -3474,6 +3474,7 @@
                     "items": {
                         "type": "number"
                     },
+                    "maxItems": 31,
                     "type": "array"
                 },
                 "retentionReference": {

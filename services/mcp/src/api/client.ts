@@ -1238,6 +1238,18 @@ export class ApiClient {
                 const period = typeof filter.period === 'string' ? filter.period.toLowerCase() : 'day'
                 const brackets = filter.retentionCustomBrackets as number[] | undefined
                 const count = brackets?.length ? brackets.length + 1 : (filter.totalIntervals as number) || 7
+                // The schema codegen doesn't propagate `@minimum`/`@maximum` on integer fields (only array
+                // `@maxItems`, which already bounds `retentionCustomBrackets`), so `totalIntervals` can't be
+                // capped in the generated zod — enforce it here instead. The limit matches the app's
+                // retention UI (period count capped at 31; totalIntervals adds the acquisition interval → 32).
+                // TODO: drop this guard once the schema generator supports integer min/max.
+                const MAX_RETENTION_INTERVALS = 32
+                if (count > MAX_RETENTION_INTERVALS) {
+                    throw new Error(
+                        `Retention query requests ${count} intervals; the maximum is ${MAX_RETENTION_INTERVALS}.`
+                    )
+                }
+
                 const select = ['person', ...Array.from({ length: count }, (_, i) => `${period}_${i}`)]
                 return runActorsQuery(query, select, ['length(appearances) DESC', 'actor_id'])
             },

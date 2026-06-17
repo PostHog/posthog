@@ -604,5 +604,18 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
             expect(result.query.select).toEqual(['person', 'day_0', 'day_1', 'day_2', 'day_3'])
             expect(result.results.columns).toEqual(['distinct_id', 'email', 'name', 'day_0', 'day_1', 'day_2', 'day_3'])
         })
+
+        it('rejects a totalIntervals above the supported maximum', async () => {
+            const tool = getToolByName(GENERATED_TOOLS, 'query-retention-actors')
+            await expect(
+                tool.handler(context, {
+                    source: {
+                        ...retentionSource,
+                        retentionFilter: { ...retentionSource.retentionFilter, totalIntervals: 50 },
+                    },
+                    interval: 0,
+                })
+            ).rejects.toThrow(/maximum is 32/)
+        })
     })
 })

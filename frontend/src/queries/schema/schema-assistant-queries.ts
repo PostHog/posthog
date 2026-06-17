@@ -876,7 +876,10 @@ export interface AssistantRetentionFilter {
      * The time window mode to use for retention calculations.
      */
     timeWindowMode?: 'strict_calendar_dates' | '24_hour_windows'
-    /** Custom brackets for retention calculations. */
+    /**
+     * Custom brackets for retention calculations.
+     * @maxItems 31
+     */
     retentionCustomBrackets?: number[]
     /**
      * The aggregation type to use for retention.

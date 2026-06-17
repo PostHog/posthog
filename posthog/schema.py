@@ -8909,7 +8909,9 @@ class AssistantRetentionFilter(BaseModel):
         description="Retention period, the interval to track cohorts by.",
     )
     retentionCustomBrackets: list[float] | None = Field(
-        default=None, description="Custom brackets for retention calculations."
+        default=None,
+        description="Custom brackets for retention calculations.",
+        max_length=31,
     )
     retentionReference: RetentionReference | None = Field(
         default=None,

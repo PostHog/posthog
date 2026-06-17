@@ -832,6 +832,7 @@ const AssistantRetentionFilter = z.object({
     period: RetentionPeriod.describe('Retention period, the interval to track cohorts by.').default('Day').optional(),
     retentionCustomBrackets: z
         .array(z.coerce.number())
+        .max(31)
         .describe('Custom brackets for retention calculations.')
         .optional(),
     retentionReference: z
