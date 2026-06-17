@@ -1,4 +1,10 @@
-from django.contrib import admin
+from django.contrib import admin, messages
+from django.http import Http404, HttpRequest, HttpResponse, HttpResponseRedirect
+from django.shortcuts import redirect
+from django.urls import path, reverse
+from django.utils.html import format_html
+
+from posthog.storage import object_storage
 
 from .models import CodeInvite, CodeInviteRedemption, SandboxSnapshot, Task, TaskRun
 
@@ -26,15 +32,55 @@ class TaskRunAdmin(admin.ModelAdmin):
     list_display = ("id", "task", "status", "environment", "stage", "created_at")
     list_filter = ("status", "environment", "created_at")
     search_fields = ("task__title", "branch", "stage")
-    readonly_fields = ("id", "created_at", "updated_at", "completed_at")
+    readonly_fields = ("id", "created_at", "updated_at", "completed_at", "download_logs_link")
     autocomplete_fields = ("task",)
 
     fieldsets = (
         (None, {"fields": ("id", "task", "status", "environment", "stage", "branch")}),
-        ("Storage", {"fields": ("error_message",)}),
+        ("Storage", {"fields": ("error_message", "download_logs_link")}),
         ("Data", {"fields": ("output", "state")}),
         ("Dates", {"fields": ("created_at", "updated_at", "completed_at")}),
     )
+
+    def get_urls(self) -> list:
+        # Prepended so it isn't shadowed by the default `<path:object_id>/` route.
+        return [
+            path(
+                "<uuid:run_id>/download-logs/",
+                self.admin_site.admin_view(self.download_logs),
+                name="tasks_taskrun_download_logs",
+            ),
+            *super().get_urls(),
+        ]
+
+    def download_logs(self, request: HttpRequest, run_id) -> HttpResponse:
+        run = self.get_object(request, run_id)
+        if run is None:
+            raise Http404("Task run not found")
+        if object_storage.head_object(run.log_url) is None:
+            self.message_user(request, "No log file found for this run.", level=messages.WARNING)
+            return redirect(reverse("admin:tasks_taskrun_change", args=[run_id]))
+        filename = f"run_{run.id}.jsonl"
+        url = object_storage.get_presigned_url(
+            run.log_url,
+            expiration=300,
+            content_disposition=f'attachment; filename="{filename}"',
+        )
+        if not url:
+            self.message_user(
+                request,
+                "Could not generate a download link for this run's logs (object storage unavailable).",
+                level=messages.WARNING,
+            )
+            return redirect(reverse("admin:tasks_taskrun_change", args=[run_id]))
+        return HttpResponseRedirect(url)
+
+    @admin.display(description="Logs")
+    def download_logs_link(self, obj: TaskRun) -> str:
+        if not obj or not obj.pk:
+            return "—"
+        url = reverse("admin:tasks_taskrun_download_logs", args=[obj.pk])
+        return format_html('<a class="button" href="{}">Download logs</a>', url)
 
 
 @admin.register(SandboxSnapshot)
