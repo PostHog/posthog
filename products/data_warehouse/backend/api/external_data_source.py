@@ -3407,16 +3407,18 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             try:
                 post_commit_action()
             except Exception as e:
-                # The row is already committed; surface the stranded schedule update instead of
-                # letting it fail silently — the DB now holds the new settings while the Temporal
-                # schedule still runs the old cadence.
+                # The row is already committed, so a failed schedule update is recoverable drift
+                # (DB holds the new settings, Temporal still runs the old cadence), not a lost write.
+                # Keep the save and let a later backfill reconcile the schedule rather than failing
+                # the whole request — but capture + log so the drift is visible and can be fixed.
+                capture_exception(e)
                 logger.warning(
-                    "bulk_update_schemas saved the schema but its Temporal schedule update failed",
+                    "bulk_update_schemas saved the schema but its Temporal schedule update failed; "
+                    "the schedule will need backfilling to match the saved settings",
                     source_id=str(source.id),
                     schema_id=str(action_schema.id),
                     exc_info=e,
                 )
-                raise
 
         if failed_schemas:
             raise BulkSchemaSaveError(failed_schemas, only_validation_errors=only_validation_errors)
