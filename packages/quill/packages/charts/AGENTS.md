@@ -14,6 +14,7 @@ Quick-reference for AI agents using `@posthog/quill-charts`. Canvas-rendered cha
 | BoxPlot             | Distribution summaries — `{ min, p25, median, mean, p75, max }` per label                                                       |
 | Sparkline           | Tiny inline trend from a flat `number[]` — no axes, no series structure                                                         |
 | MetricCard          | Headline number + sparkline + change pill (dashboard stat tiles)                                                                |
+| SlopeChart          | Change between two points (slopegraph) — one line per series, left "before" → right "after"; `data: [start, end]`               |
 
 ## Theme wiring
 
@@ -65,7 +66,8 @@ Charts fill their container and need a parent with real dimensions — a `0`-hei
 - Overlays (`ReferenceLine`/`ReferenceLines`, `ValueLabels`, `AxisTitles`) compose as children.
 - `ReferenceLine` variants: `goal` (dashed grey), `alert` (dashed red), `marker` (solid thin).
 - `ValueLabels` formatter gets `(value, seriesIndex, dataIndex, context)`; in percent layouts `value` is a 0–1 fraction — use `context.rawValue` for the original.
-- `Legend` is presentational: pass `items`, `onItemClick`, `hiddenKeys` — filtering series is the caller's state.
+- `Legend` is presentational: pass `items`, `onItemClick`, `hiddenKeys` — filtering series is the caller's state. `LegendItem.secondaryLabel` shows muted trailing text (e.g. a slope chart's per-series change).
+- `SlopeChart` config: `showSeriesLabels` (name beside each point; steepest line wins label collisions), `showStartLabels`/`showEndLabels` (defaults overridable per series via `meta.showStartLabel`/`showEndLabel`), `legend` (`{ show, position }`, rows carry the formatted change, ordered biggest-to-smallest by end value to match the lines' right-edge order), `valueFormatter`/`deltaFormatter`. The value axis is hidden by default — the start/end labels are the readout. The default tooltip orders its rows biggest-to-smallest by the hovered point's value (so many-breakdown tooltips match the lines' vertical order) and formats values with `valueFormatter` so they match the on-chart labels' units; pass your own `tooltip` to override. (`DefaultTooltip` itself takes an optional `valueFormatter` for the same reason — without it values fall back to `toLocaleString`.) Per-series `meta.incompleteEnd` dashes only the second half of that connector (the last point is the current incomplete period); the renderer splits the final segment at its midpoint via `stroke.partial.fromFraction`, so a two-point line needs no phantom interior point.
 - y-axis `format`: `numeric | short | percentage | percentage_scaled | currency | duration | duration-ms`, plus `prefix`/`suffix`.
 
 ## Maintenance

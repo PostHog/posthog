@@ -13,6 +13,7 @@ import {
 import { MarkdownNotebook } from './MarkdownNotebook'
 import { reconcileNotebookDocuments } from './reconcile'
 import { createMarkdownNotebookRegistry } from './registry'
+import type { NotebookComponentRenderProps } from './types'
 
 // Monaco cannot run in jsdom; stand in with a plain textarea that honors value/onChange.
 jest.mock('lib/monaco/CodeEditor', () => {
@@ -139,6 +140,40 @@ function createHistoryTestRegistry(): ReturnType<typeof createMarkdownNotebookRe
             ViewComponent: () => createElement('div', { 'data-testid': 'component-output' }, 'Embedded output'),
         },
     ])
+}
+
+function createDiscussionCommentTestRegistry(): ReturnType<typeof createMarkdownNotebookRegistry> {
+    return createMarkdownNotebookRegistry([
+        {
+            tagName: 'Comment',
+            label: 'Comment',
+            category: 'Text',
+            ViewComponent: TestDiscussionComment,
+            EditComponent: TestDiscussionComment,
+            hideModeActions: true,
+            exclusiveEditPanel: true,
+        },
+    ])
+}
+
+function TestDiscussionComment({ node, updateProps }: NotebookComponentRenderProps): JSX.Element {
+    const [draft, setDraft] = useState('')
+    const replies = Array.isArray(node.props.replies) ? node.props.replies : []
+    const submitReply = (): void => {
+        updateProps({ replies: [...replies, { id: `r${replies.length + 1}`, text: draft }] })
+        setDraft('')
+    }
+
+    return createElement(
+        'div',
+        { 'data-attr': 'notebook-discussion-comment' },
+        createElement('textarea', {
+            'data-attr': 'notebook-discussion-comment-input',
+            value: draft,
+            onChange: (event: ChangeEvent<HTMLTextAreaElement>) => setDraft(event.target.value),
+        }),
+        createElement('button', { type: 'button', 'aria-label': 'Send reply', onClick: submitReply }, 'Send')
+    )
 }
 
 function getEditableTextBlocks(container: HTMLElement): HTMLElement[] {
@@ -2320,6 +2355,23 @@ Tail paragraph`
         expect(flashedShell?.closest('.MarkdownNotebook__row--margin-comment')).toBeInstanceOf(HTMLElement)
     })
 
+    it('renders the source button inside the first text group when comments are present', () => {
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle(
+                    '<Comment replies={[{"id":"r1","text":"First comment"}]} />\n\n<Query query={{"kind":"DataTableNode"}} />'
+                ),
+                showDebug: true,
+            })
+        )
+        const firstTextGroup = container.querySelector('.MarkdownNotebook__text-group')
+        const debugToolbar = container.querySelector('.MarkdownNotebook__debug-toolbar')
+
+        expect(firstTextGroup).toBeInstanceOf(HTMLElement)
+        expect(debugToolbar).toBeInstanceOf(HTMLElement)
+        expect(firstTextGroup?.contains(debugToolbar)).toBe(true)
+    })
+
     it('opens a synced markdown source drawer from the source button', async () => {
         const { container } = render(createElement(MarkdownNotebook, { value: 'First paragraph', showDebug: true }))
         const debugButton = container.querySelector('button[aria-label="Edit markdown source"]')
@@ -3815,6 +3867,41 @@ Body text`)
 <Comment replies={[]} />
 
 <Query query={{"kind":"DataTableNode"}} />`)
+    })
+
+    it('reuses an existing block comment thread above a component from the gutter button', async () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle(
+                    '<Comment replies={[{"id":"r1","text":"First comment"}]} />\n\n<Query query={{"kind":"DataTableNode"}} />'
+                ),
+                registry: createDiscussionCommentTestRegistry(),
+                onChange,
+            })
+        )
+        const commentButtons = Array.from(
+            container.querySelectorAll('[data-attr="markdown-notebook-block-comment-button"]')
+        )
+
+        expect(commentButtons).toHaveLength(1)
+
+        fireEvent.click(commentButtons[0] as HTMLElement)
+
+        const commentInput = container.querySelector(
+            '[data-attr="notebook-discussion-comment-input"] textarea, textarea[data-attr="notebook-discussion-comment-input"]'
+        ) as HTMLTextAreaElement
+        expect(commentInput).toBeInstanceOf(HTMLTextAreaElement)
+        await waitFor(() => expect(document.activeElement).toEqual(commentInput))
+
+        fireEvent.change(commentInput, { target: { value: 'Second comment' } })
+        fireEvent.click(container.querySelector('button[aria-label="Send reply"]') as HTMLButtonElement)
+
+        const markdown = onChange.mock.calls[onChange.mock.calls.length - 1][0] as string
+        expect(markdown.match(/<Comment/g)).toHaveLength(1)
+        expect(markdown).toContain('"text":"First comment"')
+        expect(markdown).toContain('"text":"Second comment"')
+        expect(markdown).toContain('<Query query={{"kind":"DataTableNode"}} />')
     })
 
     it('does not offer the block comment button in view mode', () => {
@@ -5942,6 +6029,102 @@ Tail with **bold** text`)
         }
     )
 
+    it.each([
+        ['[] ', '- [ ]'],
+        ['[ ] ', '- [ ]'],
+        ['[x] ', '- [x]'],
+    ])('converts a task list shortcut "%s" at the start of a text row into a task list', (shortcut, markdown) => {
+        const onChange = jest.fn()
+        const { container } = render(createElement(MarkdownNotebook, { value: withNotebookTitle(' '), onChange }))
+        const textBlock = getBodyTextBlock(container)
+
+        textBlock.textContent = shortcut
+        fireEvent.input(textBlock)
+
+        const taskItem = container.querySelector('li.MarkdownNotebook__list-item--task')
+        const checkbox = taskItem?.querySelector('input[type="checkbox"]') as HTMLInputElement
+        const listItem = container.querySelector('.MarkdownNotebook__list-item-content')
+
+        expect(taskItem).toBeInstanceOf(HTMLElement)
+        expect(checkbox.checked).toEqual(markdown === '- [x]')
+        expect(document.activeElement).toEqual(listItem)
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n${markdown}`)
+    })
+
+    it('converts a typed task marker at the start of a bullet list item into a task item', () => {
+        const onChange = jest.fn()
+        const { container } = render(createElement(MarkdownNotebook, { value: withNotebookTitle('- alpha'), onChange }))
+        const listItems = getEditableListItems(container)
+
+        act(() => {
+            listItems[0].textContent = '[x] alpha'
+        })
+        selectTextInElement(listItems[0], '[x] '.length, '[x] '.length)
+        fireEvent.input(listItems[0])
+
+        const checkbox = container.querySelector(
+            'li.MarkdownNotebook__list-item--task input[type="checkbox"]'
+        ) as HTMLInputElement
+
+        expect(checkbox).toBeInstanceOf(HTMLInputElement)
+        expect(checkbox.checked).toEqual(true)
+        expect(getEditableListItems(container)[0].textContent).toEqual('alpha')
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n- [x] alpha`)
+    })
+
+    it('renders task checkboxes instead of bullets and toggles them through clicks', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle('- [ ] open\n- [x] done'),
+                onChange,
+            })
+        )
+        const taskItems = Array.from(container.querySelectorAll('li.MarkdownNotebook__list-item--task'))
+        const checkboxes = Array.from(
+            container.querySelectorAll('.MarkdownNotebook__task-checkbox input[type="checkbox"]')
+        ) as HTMLInputElement[]
+
+        expect(taskItems).toHaveLength(2)
+        expect(checkboxes.map((checkbox) => checkbox.checked)).toEqual([false, true])
+
+        fireEvent.click(checkboxes[0])
+
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n- [x] open\n- [x] done`)
+    })
+
+    it('keeps a task marker on an ordered list item as literal text without a checkbox', () => {
+        const { container } = render(createElement(MarkdownNotebook, { value: withNotebookTitle('1. [x] not a task') }))
+
+        expect(container.querySelector('li.MarkdownNotebook__list-item--task')).toBeNull()
+        expect(getEditableListItems(container)[0].textContent).toEqual('[x] not a task')
+    })
+
+    it('disables task checkboxes in view mode', () => {
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle('- [ ] open'), mode: 'view' })
+        )
+        const checkbox = container.querySelector(
+            '.MarkdownNotebook__task-checkbox input[type="checkbox"]'
+        ) as HTMLInputElement
+
+        expect(checkbox).toBeInstanceOf(HTMLInputElement)
+        expect(checkbox.disabled).toEqual(true)
+    })
+
+    it('creates a new unchecked task item when pressing Enter in a task item', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle('- [x] done'), onChange })
+        )
+        const listItems = getEditableListItems(container)
+
+        pressEnterInListItem(listItems[0], 'done'.length)
+        updateActiveContentEditableText('next')
+
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n- [x] done\n- [ ] next`)
+    })
+
     it('keeps ordered list items stable when creating several items from the keyboard', () => {
         expectNoDuplicateKeyWarnings(() => {
             const onChange = jest.fn()
@@ -7898,6 +8081,25 @@ After component`,
         expect(container.querySelector('[data-testid="static-answer"]')).toBeInstanceOf(HTMLElement)
         expect(container.querySelector('.MarkdownNotebook__component-mode-actions')).toBeNull()
         expect(container.querySelector('button[aria-label="Delete component"]')).toBeInstanceOf(HTMLButtonElement)
+    })
+
+    it('passes the outer notebook mode into component previews', () => {
+        const modes: Array<Pick<NotebookComponentRenderProps, 'mode' | 'notebookMode'>> = []
+        const registry = createMarkdownNotebookRegistry([
+            {
+                tagName: 'Embed',
+                label: 'Embed',
+                category: 'Media',
+                ViewComponent: ({ mode, notebookMode }) => {
+                    modes.push({ mode, notebookMode })
+                    return createElement('div', { 'data-testid': 'component-output' }, 'Embedded output')
+                },
+            },
+        ])
+
+        render(createElement(MarkdownNotebook, { value: '<Embed />', registry, mode: 'edit' }))
+
+        expect(modes).toContainEqual({ mode: 'view', notebookMode: 'edit' })
     })
 
     it('opens both panels for component blocks inserted through a value update', () => {

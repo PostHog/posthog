@@ -8,7 +8,7 @@ import {
     NotebookTableBlockNode,
     NotebookTextBlockNode,
 } from './types'
-import { getNodeText } from './utils'
+import { getInlineText, getNodeText } from './utils'
 
 function makeDocument(nodes: NotebookBlockNode[]): NotebookDocument {
     return { type: 'doc', nodes, errors: [] }
@@ -65,6 +65,8 @@ const TEXT_PIECES = [
     '#tag',
     '- not a list',
     '1. not ordered',
+    '[x] not a task',
+    '[ ] also not a task',
     '| not | a | table |',
     '<Important note',
     '```',
@@ -147,6 +149,7 @@ describe('markdown round trip', () => {
                         depth,
                         ordered,
                         start: ordered ? 1 : undefined,
+                        checked: !ordered && random() < 0.3 ? random() < 0.5 : undefined,
                     }
                 })
                 return { id: '', type: 'list', ordered, start: ordered ? 1 : undefined, items }
@@ -615,6 +618,71 @@ describe('markdown round trip', () => {
             const list = nodes[0] as NotebookListBlockNode
 
             expect(list.items.map((item) => item.depth)).toEqual([0, 1, 0])
+        })
+    })
+
+    describe('task lists', () => {
+        it('parses checked and unchecked task markers on bullet items', () => {
+            const nodes = parseMarkdownNotebook('- [ ] open\n- [x] done\n- [X] also done\n- plain').nodes
+            const list = nodes[0] as NotebookListBlockNode
+
+            expect(list.items.map((item) => item.checked)).toEqual([false, true, true, undefined])
+            expect(list.items.map((item) => getInlineText(item.children))).toEqual([
+                'open',
+                'done',
+                'also done',
+                'plain',
+            ])
+        })
+
+        it('serializes task state back to GFM markers and reaches a fixpoint', () => {
+            const markdown = '- [ ] open\n- [x] done\n  - [ ] nested open\n- plain'
+
+            expect(serializeMarkdownNotebook(parseMarkdownNotebook(markdown))).toEqual(markdown)
+        })
+
+        it('parses an empty task item without a trailing space', () => {
+            const list = parseMarkdownNotebook('- [ ]').nodes[0] as NotebookListBlockNode
+
+            expect(list.items[0].checked).toEqual(false)
+            expect(list.items[0].children).toEqual([])
+        })
+
+        it('keeps a task marker on an ordered item as literal text', () => {
+            const list = parseMarkdownNotebook('1. [x] not a task').nodes[0] as NotebookListBlockNode
+
+            expect(list.items[0].checked).toBeUndefined()
+            expect(getNodeText(list)).toEqual('[x] not a task')
+        })
+
+        it('does not parse a marker without following whitespace as a task', () => {
+            const list = parseMarkdownNotebook('- [x](https://posthog.com/docs) linked')
+                .nodes[0] as NotebookListBlockNode
+
+            expect(list.items[0].checked).toBeUndefined()
+        })
+
+        it('round-trips literal task-marker text in a bullet item without creating a task', () => {
+            const document = makeDocument([
+                {
+                    id: '',
+                    type: 'list',
+                    ordered: false,
+                    items: [{ children: [text('[x] literal marker')], depth: 0, ordered: false, start: undefined }],
+                },
+            ])
+            const result = roundTrip(document)
+            const list = result.nodes[0] as NotebookListBlockNode
+
+            expect(list.items[0].checked).toBeUndefined()
+            expect(getNodeText(list)).toEqual('[x] literal marker')
+            expect(stripIds(roundTrip(result))).toEqual(stripIds(result))
+        })
+
+        it('round-trips task items inside a blockquoted list', () => {
+            const markdown = '> - [x] quoted done\n> - [ ] quoted open'
+
+            expect(serializeMarkdownNotebook(parseMarkdownNotebook(markdown))).toEqual(markdown)
         })
     })
 })

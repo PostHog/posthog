@@ -32,6 +32,9 @@ mod lex;
 mod parse;
 mod pyobject;
 
+#[cfg(feature = "coverage")]
+mod cov;
+
 fn run<F>(f: F) -> String
 where
     F: FnOnce() -> Result<serde_json::Value, error::ParseError>,
@@ -173,6 +176,17 @@ fn hogql_parser_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(parse_select_py, m)?)?;
     m.add_function(wrap_pyfunction!(parse_program_py, m)?)?;
     m.add_function(wrap_pyfunction!(parse_full_template_string_py, m)?)?;
+
+    #[cfg(feature = "coverage")]
+    {
+        // Edge-coverage bitmap for the parser-parity grind. Only present in
+        // wheels built with `--features coverage`; the PBT detects via
+        // `hasattr(hogql_parser_rs, "cov_snapshot")` and gracefully skips the
+        // rust_edges steering signal on a production wheel. See `src/cov.rs`.
+        m.add_function(wrap_pyfunction!(cov::cov_snapshot, m)?)?;
+        m.add_function(wrap_pyfunction!(cov::cov_reset, m)?)?;
+    }
+
     Ok(())
 }
 

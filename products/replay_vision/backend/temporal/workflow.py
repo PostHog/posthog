@@ -20,7 +20,7 @@ from products.replay_vision.backend.temporal.activities import (
     call_scanner_provider_activity,
     cleanup_gemini_file_activity,
     create_observation_activity,
-    embed_summarizer_observation_activity,
+    embed_observation_activity,
     emit_classifier_tags_activity,
     emit_observation_event_activity,
     emit_observation_signal_activity,
@@ -49,7 +49,7 @@ from products.replay_vision.backend.temporal.types import (
     CleanupGeminiFileInputs,
     CreateObservationInputs,
     CreateObservationOutput,
-    EmbedSummarizerObservationInputs,
+    EmbedObservationInputs,
     EmitClassifierTagsInputs,
     EmitObservationEventInputs,
     EmitObservationSignalInputs,
@@ -113,6 +113,14 @@ _SIDE_EFFECT_RETRY = common.RetryPolicy(
     maximum_interval=dt.timedelta(seconds=10),
     maximum_attempts=3,
 )
+
+
+def _has_embeddable_text(model_output: object) -> bool:
+    """Whether an observation carries text worth embedding — summarizer facets, or a `reasoning` paragraph."""
+    if isinstance(model_output, SummarizerOutput):
+        return model_output.has_any_facet()
+    reasoning = getattr(model_output, "reasoning", "")
+    return bool(reasoning and reasoning.strip())
 
 
 def _extract_kind_for_type(e: BaseException, expected_type: str) -> str | None:
@@ -303,7 +311,7 @@ class ApplyScannerWorkflow(PostHogWorkflow):
         try:
             await wf.execute_child_workflow(
                 "rasterize-recording",
-                RasterizeRecordingInputs(exported_asset_id=asset_id),
+                RasterizeRecordingInputs(exported_asset_id=asset_id, product="replay_vision"),
                 id=_rasterizer_workflow_id(inputs),
                 task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
                 retry_policy=common.RetryPolicy(maximum_attempts=int(settings.TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
@@ -350,20 +358,32 @@ class ApplyScannerWorkflow(PostHogWorkflow):
         observation_id: UUID,
         model_output: object,
     ) -> None:
-        """Dispatch scanner-type-specific side-effects after the LLM call; failure aborts the workflow."""
-        if isinstance(model_output, SummarizerOutput) and model_output.has_any_facet():
+        """Dispatch scanner-type-specific side-effects after the LLM call; failure aborts the workflow.
+
+        DEPLOY NOTE (accepted in-flight breakage): this dispatch was changed — the summarizer embed activity was
+        renamed and an embed step was added for every scanner type. We deliberately do NOT gate it behind
+        `workflow.patched()` (a pattern this codebase doesn't otherwise use). ApplyScannerWorkflow runs are short
+        (≤1h timeout), so the only affected runs are the handful in flight *past this step* at the deploy instant:
+        they may hit a replay non-determinism error and stall until their timeout, costing at most a few
+        re-runnable observations. The `embed_summarizer_observation_activity` alias additionally lets any
+        already-scheduled old-name task resolve. This trade-off is accepted over carrying a permanent patch gate.
+        """
+        # Embed the observation's explanation text (reasoning, or summarizer facets) for natural-language search.
+        if _has_embeddable_text(model_output):
             await wf.execute_activity(
-                embed_summarizer_observation_activity,
-                EmbedSummarizerObservationInputs(
+                embed_observation_activity,
+                EmbedObservationInputs(
                     team_id=inputs.team_id,
                     session_id=inputs.session_id,
                     observation_id=observation_id,
-                    summarizer_output=model_output,
+                    scanner_id=inputs.scanner_id,
+                    model_output=model_output,
                 ),
                 start_to_close_timeout=dt.timedelta(seconds=30),
                 retry_policy=_SIDE_EFFECT_RETRY,
             )
-        elif isinstance(model_output, ClassifierOutput):
+        # Classifiers additionally fan their tags out onto the recording.
+        if isinstance(model_output, ClassifierOutput):
             await wf.execute_activity(
                 emit_classifier_tags_activity,
                 EmitClassifierTagsInputs(

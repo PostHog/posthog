@@ -32,7 +32,8 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { clearLogicReference, initModel } from 'lib/monaco/CodeEditor'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
-import { objectsEqual, slugify } from 'lib/utils'
+import { objectsEqual } from 'lib/utils/objects'
+import { slugify } from 'lib/utils/strings'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { parseQueryTablesAndColumns, queryUsesFiltersPlaceholder } from 'scenes/data-warehouse/editor/sql-utils'
@@ -1566,6 +1567,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     name,
                     query: sourceQueryToSave,
                     saved: true,
+                    ...(dashboardId ? { dashboards: [dashboardId] } : {}),
                 })
                 const logic = insightLogic({
                     dashboardItemId: insight.short_id,
@@ -1683,6 +1685,17 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     query: currentVisualizationQuery,
                 }
 
+                // When saving from a dashboard flow, attach the tile server-side without
+                // dropping the insight's existing dashboard links.
+                const dashboardId = values.dashboardId
+                if (dashboardId) {
+                    const existingDashboardIds = [
+                        ...(values.editingInsight.dashboard_tiles?.map((tile) => tile.dashboard_id) ?? []),
+                        ...(values.editingInsight.dashboards ?? []),
+                    ]
+                    insightRequest.dashboards = Array.from(new Set([...existingDashboardIds, dashboardId]))
+                }
+
                 let savedInsight: QueryBasedInsightModel
                 try {
                     savedInsight = await insightsApi.update(values.editingInsight.id, insightRequest)
@@ -1715,7 +1728,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     })
                 }
 
-                const dashboardId = values.dashboardId
                 if (dashboardId) {
                     dashboardsModel.findMounted()?.actions.updateDashboardInsight(savedInsight)
                     dashboardLogic.findMounted({ id: dashboardId })?.actions.loadDashboard({

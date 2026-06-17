@@ -2,6 +2,7 @@ import re
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
@@ -19,7 +20,11 @@ from posthog.temporal.data_imports.sources.zendesk.settings import (
     PARTITION_FIELDS,
     SUPPORT_ENDPOINTS,
 )
-from posthog.temporal.data_imports.sources.zendesk.zendesk import validate_credentials, zendesk_source
+from posthog.temporal.data_imports.sources.zendesk.zendesk import (
+    normalize_subdomain,
+    validate_credentials,
+    zendesk_source,
+)
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
@@ -63,11 +68,12 @@ class ZendeskSource(SimpleSource[ZendeskSourceConfig]):
     def validate_credentials(
         self, config: ZendeskSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
+        subdomain = normalize_subdomain(config.subdomain)
         subdomain_regex = re.compile("^[a-zA-Z0-9-]+$")
-        if not subdomain_regex.match(config.subdomain):
+        if not subdomain_regex.match(subdomain):
             return False, "Zendesk subdomain is incorrect"
 
-        if validate_credentials(config.subdomain, config.api_key, config.email_address):
+        if validate_credentials(subdomain, config.api_key, config.email_address):
             return True, None
 
         return False, "Invalid credentials"
@@ -76,6 +82,7 @@ class ZendeskSource(SimpleSource[ZendeskSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.ZENDESK,
+            category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             caption="Enter your Zendesk API key to automatically pull your Zendesk support data into the PostHog Data warehouse.",
             iconPath="/static/services/zendesk.png",
             iconClassName="rounded dark:bg-white p-[2px]",

@@ -364,6 +364,22 @@ class TestClassifierScanner:
         assert "tags_freeform" in on.build_prompt(team_name="Acme", events=events)
         assert "tags_freeform" not in off.build_prompt(team_name="Acme", events=events)
 
+    def test_freeform_prompt_block_discourages_paraphrasing_fixed_vocab(self) -> None:
+        scanner = scanner_from_db(
+            _build_replay_scanner(
+                scanner_type=ScannerType.CLASSIFIER,
+                scanner_config={"prompt": "x", "tags": ["create new scanner"], "allow_freeform_tags": True},
+            )
+        )
+        rendered = scanner.build_prompt(team_name="Acme", events=EventTable(columns=[], rows=[]))
+        # Fixed vocabulary is authoritative and the model is told not to paraphrase a fixed tag into freeform.
+        assert "authoritative" in rendered
+        assert "synonym" in rendered
+        assert "'create new scanner'" in rendered
+        # Examples and the skip instruction survive the rewrite.
+        assert "password_reset" in rendered
+        assert "Skip the field entirely" in rendered
+
     def test_finalize_strips_overlap_with_fixed_vocab_case_insensitive(self) -> None:
         scanner = scanner_from_db(
             _build_replay_scanner(
