@@ -9,6 +9,8 @@ from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from posthog.schema import (
     FilterLogicalOperator,
     PropertyOperator,
@@ -248,6 +250,40 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
         count_recordings_that_match_playlist_filters(playlist.id)
         mock_capture_exception.assert_not_called()
         mock_list_recordings_from_query.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("string", "some string"),
+            ("single_char_list", ["a"]),
+            ("list", ["events", "actions"]),
+        ]
+    )
+    @patch("posthoganalytics.capture_exception")
+    @patch("posthog.temporal.session_replay.count_playlist_items.counting_logic.list_recordings_from_query")
+    def test_non_dict_filters_do_not_crash(
+        self,
+        _name: str,
+        malformed_filters: object,
+        mock_list_recordings_from_query: MagicMock,
+        mock_capture_exception: MagicMock,
+    ):
+        """
+        Regression test: some playlist rows hold a non-dict value in the filters JSONField.
+        Copying such a value with dict() used to raise a ValueError and crash the counting activity.
+        """
+        mock_list_recordings_from_query.return_value = ([], False, None, None)
+
+        playlist = SessionRecordingPlaylist.objects.create(
+            team=self.team,
+            name="test",
+            filters=malformed_filters,
+        )
+
+        count_recordings_that_match_playlist_filters(playlist.id)
+
+        mock_capture_exception.assert_not_called()
+        # malformed filters fall through to empty handling and the count still refreshes
+        assert self._get_counts_from_redis(playlist)["version"] == 2
 
     @snapshot_postgres_queries
     @patch("posthoganalytics.capture_exception")

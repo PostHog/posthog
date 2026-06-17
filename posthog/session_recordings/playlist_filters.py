@@ -121,7 +121,9 @@ def convert_playlist_to_recordings_query(
     write to the shared playlist row as a side effect.
     """
     # Copy so the popping below never mutates the shared playlist.filters dict in-place.
-    filters = dict(playlist.filters)
+    # Some rows hold a non-dict value (string or list) in this JSONField, so guard the copy
+    # and let them fall through to the empty/legacy handling below instead of crashing.
+    filters = dict(playlist.filters) if isinstance(playlist.filters, dict) else {}
 
     # we used to send `version` and it's not part of query, so we pop to make sure
     filters.pop("version", None)
