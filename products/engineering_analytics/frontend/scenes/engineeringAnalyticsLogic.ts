@@ -2,7 +2,7 @@ import { LogicWrapper, actions, afterMount, kea, key, listeners, path, props, re
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
-import { ApiConfig } from 'lib/api'
+import { ApiConfig, ApiError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { objectsEqual } from 'lib/utils/objects'
 import { urls } from 'scenes/urls'
@@ -56,6 +56,12 @@ export interface PullRequestRow {
     passing: number
     failing: number
     pending: number
+    /** CI triggers in the PR's window: distinct head SHAs across its workflow runs. Fork PRs unattributed. */
+    pushes: number
+    /** Workflow runs attributed to this PR that were a 2nd+ attempt (a re-run). */
+    rerunCycles: number
+    /** Estimated Depot CI cost (USD). Null until the job-level warehouse source lands. */
+    estimatedCostUsd: number | null
 }
 
 export interface CardsData {
@@ -195,6 +201,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             setWorkflowDateRange: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
             applyCardFilter: (card: CardFilter) => ({ card }),
             setSourceId: (sourceId: string | null) => ({ sourceId }),
+            setCostLensEnabled: (enabled: boolean) => ({ enabled }),
             resetFilters: true,
             refresh: true,
         }),
@@ -242,6 +249,11 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                                 passing: it.ci.passing,
                                 failing: it.ci.failing,
                                 pending: it.ci.pending,
+                                // Defensive ?? 0: during a deploy the new frontend can briefly hit an
+                                // older backend whose response predates these fields — degrade, don't crash.
+                                pushes: it.pushes ?? 0,
+                                rerunCycles: it.rerun_cycles ?? 0,
+                                estimatedCostUsd: it.estimated_cost_usd ?? null,
                             })
                         )
                     },
@@ -321,16 +333,30 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             // Which connected GitHub source to read; null = the backend default (oldest connected).
             // URL-synced via `source` so it survives tab switches and deep-links into a PR's detail.
             sourceId: [null as string | null, { setSourceId: (_, { sourceId }) => sourceId }],
-            // The endpoints 400 when the team has no GitHub warehouse source connected.
-            // A failed cards load is the canary for "no source connected".
-            loadFailed: [
+            // The endpoints 400 (GitHubSourceNotConnectedError) when no GitHub source is connected.
+            // Distinguish that "connect a source" case from a real 500 so we don't tell a connected,
+            // synced team to connect a source when the query simply failed.
+            notConnected: [
                 false,
                 {
                     loadCards: () => false,
                     loadCardsSuccess: () => false,
-                    loadCardsFailure: () => true,
+                    loadCardsFailure: (_, { errorObject }) =>
+                        errorObject instanceof ApiError && errorObject.status === 400,
                 },
             ],
+            loadError: [
+                false,
+                {
+                    loadCards: () => false,
+                    loadCardsSuccess: () => false,
+                    loadCardsFailure: (_, { errorObject }) =>
+                        !(errorObject instanceof ApiError && errorObject.status === 400),
+                },
+            ],
+            // Cost & performance lens: surfaces per-PR pushes / re-runs / estimated cost. Transient
+            // (no persisted/stateful UI in this phase, per SPEC).
+            costLensEnabled: [false, { setCostLensEnabled: (_, { enabled }) => enabled }],
         }),
 
         selectors({

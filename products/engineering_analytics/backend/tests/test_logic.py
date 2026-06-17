@@ -233,6 +233,8 @@ class TestEndpointMapping(BaseTest):
             2,
             1,
             0,
+            5,
+            2,
         )
         with mock.patch(_RUN_QUERY, return_value=_resp([row])):
             result = api.list_pull_requests(team=self.team, date_from="-30d")
@@ -247,6 +249,8 @@ class TestEndpointMapping(BaseTest):
         assert item.labels == ["bug", "p1"]
         assert item.open_to_merge_seconds is None
         assert (item.ci.runs, item.ci.passing, item.ci.failing, item.ci.pending) == (3, 2, 1, 0)
+        assert (item.pushes, item.rerun_cycles) == (5, 2)
+        assert item.estimated_cost_usd is None
 
     def test_pull_request_list_flags_truncation(self) -> None:
         # Cap patched low; return more rows than the cap to exercise the N+1 overflow
@@ -265,6 +269,8 @@ class TestEndpointMapping(BaseTest):
             None,
             None,
             ["bug"],
+            0,
+            0,
             0,
             0,
             0,
@@ -545,8 +551,13 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
             "github_workflow_runs",
             _WORKFLOW_RUNS_COLUMNS,
             [
-                _run_row(2001, "CI", "sha10", "completed", "failure", _ago(1), _ago(1)),
-                _run_row(2002, "CI", "sha11", "completed", "success", _ago(2), _ago(2)),
+                _run_row(2001, "CI", "sha10", "completed", "failure", _ago(1), _ago(1), pr_number=10),
+                _run_row(2002, "CI", "sha11", "completed", "success", _ago(2), _ago(2), pr_number=11),
+                # A second push on PR 10 (new head SHA) that was re-run -> pushes=2, rerun_cycles=1.
+                # A non-CI workflow so the CI workflow-health assertions stay at 2 runs.
+                _run_row(
+                    2003, "Deploy", "sha10b", "completed", "success", _ago(1), _ago(1), pr_number=10, run_attempt=2
+                ),
             ],
         )
 
@@ -568,6 +579,11 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
         assert by_number[11].ci.passing == 1
         assert by_number[13].author.is_bot is True  # '[bot]' suffix branch
         assert by_number[16].author.is_bot is True  # KNOWN_BOT_HANDLES allowlist branch
+        # pushes = distinct head SHAs across runs attributed to the PR; rerun_cycles = 2nd+ attempts.
+        assert (by_number[10].pushes, by_number[10].rerun_cycles) == (2, 1)
+        assert (by_number[11].pushes, by_number[11].rerun_cycles) == (1, 0)
+        assert by_number[12].pushes == 0  # no runs attributed to this PR
+        assert by_number[10].estimated_cost_usd is None  # cost scaffold: populated once jobs land
 
     def test_workflow_health_aggregates(self) -> None:
         self._seed()

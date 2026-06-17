@@ -185,6 +185,15 @@ class PullRequestListItem:
     open_to_merge_seconds: int | None
     labels: list[str]
     ci: CIStatusRollup
+    # CI triggers attributed to this PR: distinct head SHAs across its workflow runs (a run
+    # carries the PR it ran for in ``pull_requests``). Fork-PR runs are unattributed.
+    pushes: int
+    # Workflow runs attributed to this PR that were a 2nd+ attempt (a re-run).
+    rerun_cycles: int
+    # Estimated Depot CI cost in USD. None until the job-level warehouse source
+    # (``github_workflow_jobs``) lands (SPEC §6): run-level data carries no runner tier, so
+    # no honest dollar figure exists yet. The cost model that will populate it is in logic/cost.py.
+    estimated_cost_usd: float | None = None
 
 
 @dataclass(frozen=True)

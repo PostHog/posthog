@@ -1,6 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
-import { ApiConfig } from 'lib/api'
+import { ApiConfig, ApiError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 
 import { initKeaTests } from '~/test/init'
@@ -64,6 +64,9 @@ function makePr(overrides: Partial<PullRequestRow> = {}): PullRequestRow {
         passing: 0,
         failing: 0,
         pending: 0,
+        pushes: 0,
+        rerunCycles: 0,
+        estimatedCostUsd: null,
         ...overrides,
     }
 }
@@ -81,13 +84,16 @@ function apiPr(overrides: Partial<PullRequestListItemApi> = {}): PullRequestList
         merged_at: null,
         open_to_merge_seconds: null,
         labels: [],
+        pushes: 0,
+        rerun_cycles: 0,
+        estimated_cost_usd: null,
         ...overrides,
     }
 }
 
 const CARDS: CICardSummaryApi = { open_prs: 18, repos: 10, stuck: 6, failing_ci: 4 }
 const PRS: PullRequestListItemApi[] = [
-    apiPr({ number: 101, ci: { runs: 3, passing: 2, failing: 1, pending: 0 } }),
+    apiPr({ number: 101, ci: { runs: 3, passing: 2, failing: 1, pending: 0 }, pushes: 7, rerun_cycles: 2 }),
     apiPr({
         number: 102,
         title: 'fix: y',
@@ -233,6 +239,9 @@ describe('engineeringAnalyticsLogic', () => {
         expect(logic.values.pullRequests).toHaveLength(2)
         expect(logic.values.pullRequests[0].authorHandle).toBe('alice')
         expect(ciStatusOf(logic.values.pullRequests[0])).toBe('failing')
+        expect(logic.values.pullRequests[0].pushes).toBe(7)
+        expect(logic.values.pullRequests[0].rerunCycles).toBe(2)
+        expect(logic.values.pullRequests[0].estimatedCostUsd).toBeNull()
         expect(logic.values.pullRequests[1].openToMergeSeconds).toBe(86400)
         expect(logic.values.workflowHealth).toHaveLength(1)
         expect(logic.values.workflowHealth[0].successRate).toBe(0.95)
@@ -241,7 +250,8 @@ describe('engineeringAnalyticsLogic', () => {
         ])
         // Default state filter is "open", so only the open PR survives.
         expect(logic.values.filteredPullRequests).toHaveLength(1)
-        expect(logic.values.loadFailed).toBe(false)
+        expect(logic.values.notConnected).toBe(false)
+        expect(logic.values.loadError).toBe(false)
     })
 
     it('reloads workflow health when the date range changes', async () => {
@@ -414,8 +424,10 @@ describe('engineeringAnalyticsLogic', () => {
         expect(sortRunsForTriage(runs).map((run) => run.conclusion)).toEqual(['failure', null, 'success', 'success'])
     })
 
-    it('flags loadFailed when no GitHub source is connected (cards endpoint 400s)', async () => {
-        mockCiCards.mockRejectedValue(new Error('Connect a GitHub data warehouse source to use engineering analytics.'))
+    it('flags notConnected when no GitHub source is connected (cards endpoint 400s)', async () => {
+        mockCiCards.mockRejectedValue(
+            new ApiError('Connect a GitHub data warehouse source to use engineering analytics.', 400)
+        )
         mockPullRequests.mockResolvedValue({ items: [], truncated: false, limit: 0 })
         mockWorkflowHealth.mockResolvedValue([])
 
@@ -423,6 +435,20 @@ describe('engineeringAnalyticsLogic', () => {
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadCardsFailure'])
 
-        expect(logic.values.loadFailed).toBe(true)
+        expect(logic.values.notConnected).toBe(true)
+        expect(logic.values.loadError).toBe(false)
+    })
+
+    it('flags loadError (not notConnected) when a data endpoint 500s', async () => {
+        mockCiCards.mockRejectedValue(new ApiError('Internal Server Error', 500))
+        mockPullRequests.mockResolvedValue({ items: [], truncated: false, limit: 0 })
+        mockWorkflowHealth.mockResolvedValue([])
+
+        logic = engineeringAnalyticsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadCardsFailure'])
+
+        expect(logic.values.loadError).toBe(true)
+        expect(logic.values.notConnected).toBe(false)
     })
 })

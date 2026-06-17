@@ -137,6 +137,8 @@ def _run_row(
     updated_at: str,
     *,
     full_name: str = "PostHog/posthog",
+    run_attempt: int = 1,
+    pr_number: int | None = None,
 ) -> dict[str, Any]:
     return {
         "id": run_id,
@@ -147,6 +149,8 @@ def _run_row(
         "created_at": run_started_at,
         "run_started_at": run_started_at,
         "updated_at": updated_at,
+        "run_attempt": run_attempt,
+        "pull_requests": f'[{{"number": {pr_number}}}]' if pr_number is not None else "[]",
         "repository": f'{{"full_name": "{full_name}"}}',
     }
 

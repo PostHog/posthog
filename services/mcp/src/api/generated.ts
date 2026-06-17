@@ -41305,6 +41305,15 @@ export namespace Schemas {
       open_to_merge_seconds: number | null;
       /** GitHub label names on the pull request. */
       labels: string[];
+      /** CI triggers attributed to this PR: distinct head SHAs across its workflow runs. Fork-PR runs are unattributed. */
+      pushes: number;
+      /** Workflow runs attributed to this PR that were a 2nd+ attempt (a re-run). */
+      rerun_cycles: number;
+      /**
+         * Estimated Depot CI cost in USD. Null until the job-level warehouse source (github_workflow_jobs) lands; run-level data carries no runner tier, so no honest figure exists yet.
+         * @nullable
+         */
+      estimated_cost_usd?: number | null;
     }
 
     export interface PullRequestList {

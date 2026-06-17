@@ -49,6 +49,9 @@ def _pr_list_item() -> contracts.PullRequestListItem:
         open_to_merge_seconds=None,
         labels=["bug"],
         ci=contracts.CIStatusRollup(runs=3, passing=2, failing=1, pending=0),
+        pushes=4,
+        rerun_cycles=1,
+        estimated_cost_usd=None,
     )
 
 
@@ -130,6 +133,9 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
         assert body["limit"] == 1000
         assert body["items"][0]["number"] == 10
         assert body["items"][0]["ci"]["failing"] == 1
+        assert body["items"][0]["pushes"] == 4
+        assert body["items"][0]["rerun_cycles"] == 1
+        assert body["items"][0]["estimated_cost_usd"] is None
         assert listing.call_args.kwargs["date_from"] == "-7d"
 
     def test_pull_requests_400_on_bad_date(self) -> None:

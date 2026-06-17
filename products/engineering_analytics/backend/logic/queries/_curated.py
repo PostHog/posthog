@@ -103,6 +103,33 @@ class CuratedGitHubSource:
         """
         return f"WITH {self.ci_rollup_cte()} {select}".replace("__PR_SOURCE__", self.pr_source())
 
+    def runs_by_pr_cte(self) -> str:
+        """CTE: per-PR activity from the workflow runs attributed to each PR.
+
+        A run records the PR(s) it ran for in ``pull_requests``; the curated run source surfaces
+        the first as ``pr_number``. ``pushes`` counts the distinct head SHAs that triggered CI
+        (CI triggers), ``rerun_cycles`` the runs that were a 2nd+ attempt. Fork-PR runs have no
+        association (``pr_number = 0``) and are excluded. Keyed on ``pr_number`` so the PR-list
+        join is a plain equality join — no fragile branch + time-window match.
+        """
+        return f"""
+            runs_by_pr AS (
+                SELECT
+                    pr_number,
+                    count(DISTINCT head_sha) AS pushes,
+                    countIf(run_attempt > 1) AS rerun_cycles
+                FROM {self.run_source()} AS r
+                WHERE pr_number > 0
+                GROUP BY pr_number
+            )
+        """
+
+    def pr_list_rollup_query(self, select: str) -> str:
+        """``pr_rollup_query`` plus the per-PR runs rollup (pushes / re-run cycles)."""
+        return f"WITH {self.ci_rollup_cte()}, {self.runs_by_pr_cte()} {select}".replace(
+            "__PR_SOURCE__", self.pr_source()
+        )
+
     def run(
         self,
         sql: str,
