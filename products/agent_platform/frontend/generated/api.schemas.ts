@@ -248,6 +248,7 @@ export type AgentRevisionApiSpecTriggersItem =
                   | {
                         type: 'posthog'
                         scopes?: string[]
+                        audience?: 'project' | 'organization'
                     }
                   | {
                         type: 'jwt'
@@ -303,6 +304,7 @@ export type AgentRevisionApiSpecTriggersItem =
                   | {
                         type: 'posthog'
                         scopes?: string[]
+                        audience?: 'project' | 'organization'
                     }
                   | {
                         type: 'jwt'
@@ -336,6 +338,7 @@ export type AgentRevisionApiSpecTriggersItem =
                   | {
                         type: 'posthog'
                         scopes?: string[]
+                        audience?: 'project' | 'organization'
                     }
                   | {
                         type: 'jwt'
@@ -604,6 +607,7 @@ export type PatchedAgentRevisionApiSpecTriggersItem =
                   | {
                         type: 'posthog'
                         scopes?: string[]
+                        audience?: 'project' | 'organization'
                     }
                   | {
                         type: 'jwt'
@@ -659,6 +663,7 @@ export type PatchedAgentRevisionApiSpecTriggersItem =
                   | {
                         type: 'posthog'
                         scopes?: string[]
+                        audience?: 'project' | 'organization'
                     }
                   | {
                         type: 'jwt'
@@ -692,6 +697,7 @@ export type PatchedAgentRevisionApiSpecTriggersItem =
                   | {
                         type: 'posthog'
                         scopes?: string[]
+                        audience?: 'project' | 'organization'
                     }
                   | {
                         type: 'jwt'

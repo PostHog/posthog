@@ -110,6 +110,7 @@ export const agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigAutoRe
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigAllowWorkspaceParticipantsDefault = false
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigAllowDirectMessagesDefault = false
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemTwoAuthModesItemTwoScopesDefault = []
+export const agentApplicationsRevisionsCreateBodySpecTriggersItemTwoAuthModesItemTwoAudienceDefault = `project`
 
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemThreeConfigTimezoneDefault = `UTC`
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemThreeConfigPromptMax = 4096
@@ -121,10 +122,12 @@ export const agentApplicationsRevisionsCreateBodySpecTriggersItemThreeConfigMaxC
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemFourConfigAllowRestartDefault = false
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemFourConfigDefault = { allow_restart: false }
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemFourAuthModesItemTwoScopesDefault = []
+export const agentApplicationsRevisionsCreateBodySpecTriggersItemFourAuthModesItemTwoAudienceDefault = `project`
 
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemFiveConfigAllowRestartDefault = false
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemFiveConfigDefault = { allow_restart: false }
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemFiveAuthModesItemTwoScopesDefault = []
+export const agentApplicationsRevisionsCreateBodySpecTriggersItemFiveAuthModesItemTwoAudienceDefault = `project`
 
 export const agentApplicationsRevisionsCreateBodySpecTriggersDefault = []
 export const agentApplicationsRevisionsCreateBodySpecToolsItemOneRequiresApprovalDefault = false
@@ -263,6 +266,11 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                                                     .default(
                                                         agentApplicationsRevisionsCreateBodySpecTriggersItemTwoAuthModesItemTwoScopesDefault
                                                     ),
+                                                audience: zod
+                                                    .enum(['project', 'organization'])
+                                                    .default(
+                                                        agentApplicationsRevisionsCreateBodySpecTriggersItemTwoAuthModesItemTwoAudienceDefault
+                                                    ),
                                             }),
                                             zod.object({
                                                 type: zod.literal('jwt'),
@@ -338,6 +346,11 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                                                     .default(
                                                         agentApplicationsRevisionsCreateBodySpecTriggersItemFourAuthModesItemTwoScopesDefault
                                                     ),
+                                                audience: zod
+                                                    .enum(['project', 'organization'])
+                                                    .default(
+                                                        agentApplicationsRevisionsCreateBodySpecTriggersItemFourAuthModesItemTwoAudienceDefault
+                                                    ),
                                             }),
                                             zod.object({
                                                 type: zod.literal('jwt'),
@@ -381,6 +394,11 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                                                     .array(zod.string())
                                                     .default(
                                                         agentApplicationsRevisionsCreateBodySpecTriggersItemFiveAuthModesItemTwoScopesDefault
+                                                    ),
+                                                audience: zod
+                                                    .enum(['project', 'organization'])
+                                                    .default(
+                                                        agentApplicationsRevisionsCreateBodySpecTriggersItemFiveAuthModesItemTwoAudienceDefault
                                                     ),
                                             }),
                                             zod.object({
@@ -670,6 +688,7 @@ export const agentApplicationsRevisionsUpdateBodySpecTriggersItemOneConfigAutoRe
 export const agentApplicationsRevisionsUpdateBodySpecTriggersItemOneConfigAllowWorkspaceParticipantsDefault = false
 export const agentApplicationsRevisionsUpdateBodySpecTriggersItemOneConfigAllowDirectMessagesDefault = false
 export const agentApplicationsRevisionsUpdateBodySpecTriggersItemTwoAuthModesItemTwoScopesDefault = []
+export const agentApplicationsRevisionsUpdateBodySpecTriggersItemTwoAuthModesItemTwoAudienceDefault = `project`
 
 export const agentApplicationsRevisionsUpdateBodySpecTriggersItemThreeConfigTimezoneDefault = `UTC`
 export const agentApplicationsRevisionsUpdateBodySpecTriggersItemThreeConfigPromptMax = 4096
@@ -681,10 +700,12 @@ export const agentApplicationsRevisionsUpdateBodySpecTriggersItemThreeConfigMaxC
 export const agentApplicationsRevisionsUpdateBodySpecTriggersItemFourConfigAllowRestartDefault = false
 export const agentApplicationsRevisionsUpdateBodySpecTriggersItemFourConfigDefault = { allow_restart: false }
 export const agentApplicationsRevisionsUpdateBodySpecTriggersItemFourAuthModesItemTwoScopesDefault = []
+export const agentApplicationsRevisionsUpdateBodySpecTriggersItemFourAuthModesItemTwoAudienceDefault = `project`
 
 export const agentApplicationsRevisionsUpdateBodySpecTriggersItemFiveConfigAllowRestartDefault = false
 export const agentApplicationsRevisionsUpdateBodySpecTriggersItemFiveConfigDefault = { allow_restart: false }
 export const agentApplicationsRevisionsUpdateBodySpecTriggersItemFiveAuthModesItemTwoScopesDefault = []
+export const agentApplicationsRevisionsUpdateBodySpecTriggersItemFiveAuthModesItemTwoAudienceDefault = `project`
 
 export const agentApplicationsRevisionsUpdateBodySpecTriggersDefault = []
 export const agentApplicationsRevisionsUpdateBodySpecToolsItemOneRequiresApprovalDefault = false
@@ -823,6 +844,11 @@ export const AgentApplicationsRevisionsUpdateBody = /* @__PURE__ */ zod.object({
                                                     .default(
                                                         agentApplicationsRevisionsUpdateBodySpecTriggersItemTwoAuthModesItemTwoScopesDefault
                                                     ),
+                                                audience: zod
+                                                    .enum(['project', 'organization'])
+                                                    .default(
+                                                        agentApplicationsRevisionsUpdateBodySpecTriggersItemTwoAuthModesItemTwoAudienceDefault
+                                                    ),
                                             }),
                                             zod.object({
                                                 type: zod.literal('jwt'),
@@ -898,6 +924,11 @@ export const AgentApplicationsRevisionsUpdateBody = /* @__PURE__ */ zod.object({
                                                     .default(
                                                         agentApplicationsRevisionsUpdateBodySpecTriggersItemFourAuthModesItemTwoScopesDefault
                                                     ),
+                                                audience: zod
+                                                    .enum(['project', 'organization'])
+                                                    .default(
+                                                        agentApplicationsRevisionsUpdateBodySpecTriggersItemFourAuthModesItemTwoAudienceDefault
+                                                    ),
                                             }),
                                             zod.object({
                                                 type: zod.literal('jwt'),
@@ -941,6 +972,11 @@ export const AgentApplicationsRevisionsUpdateBody = /* @__PURE__ */ zod.object({
                                                     .array(zod.string())
                                                     .default(
                                                         agentApplicationsRevisionsUpdateBodySpecTriggersItemFiveAuthModesItemTwoScopesDefault
+                                                    ),
+                                                audience: zod
+                                                    .enum(['project', 'organization'])
+                                                    .default(
+                                                        agentApplicationsRevisionsUpdateBodySpecTriggersItemFiveAuthModesItemTwoAudienceDefault
                                                     ),
                                             }),
                                             zod.object({
@@ -1253,6 +1289,7 @@ export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfi
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigAllowWorkspaceParticipantsDefault = false
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigAllowDirectMessagesDefault = false
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemTwoAuthModesItemTwoScopesDefault = []
+export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemTwoAuthModesItemTwoAudienceDefault = `project`
 
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemThreeConfigTimezoneDefault = `UTC`
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemThreeConfigPromptMax = 4096
@@ -1264,10 +1301,12 @@ export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemThreeCon
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemFourConfigAllowRestartDefault = false
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemFourConfigDefault = { allow_restart: false }
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemFourAuthModesItemTwoScopesDefault = []
+export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemFourAuthModesItemTwoAudienceDefault = `project`
 
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemFiveConfigAllowRestartDefault = false
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemFiveConfigDefault = { allow_restart: false }
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemFiveAuthModesItemTwoScopesDefault = []
+export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemFiveAuthModesItemTwoAudienceDefault = `project`
 
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersDefault = []
 export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemOneRequiresApprovalDefault = false
@@ -1406,6 +1445,11 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                                                     .default(
                                                         agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemTwoAuthModesItemTwoScopesDefault
                                                     ),
+                                                audience: zod
+                                                    .enum(['project', 'organization'])
+                                                    .default(
+                                                        agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemTwoAuthModesItemTwoAudienceDefault
+                                                    ),
                                             }),
                                             zod.object({
                                                 type: zod.literal('jwt'),
@@ -1483,6 +1527,11 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                                                     .default(
                                                         agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemFourAuthModesItemTwoScopesDefault
                                                     ),
+                                                audience: zod
+                                                    .enum(['project', 'organization'])
+                                                    .default(
+                                                        agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemFourAuthModesItemTwoAudienceDefault
+                                                    ),
                                             }),
                                             zod.object({
                                                 type: zod.literal('jwt'),
@@ -1526,6 +1575,11 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                                                     .array(zod.string())
                                                     .default(
                                                         agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemFiveAuthModesItemTwoScopesDefault
+                                                    ),
+                                                audience: zod
+                                                    .enum(['project', 'organization'])
+                                                    .default(
+                                                        agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemFiveAuthModesItemTwoAudienceDefault
                                                     ),
                                             }),
                                             zod.object({

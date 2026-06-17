@@ -7832,6 +7832,7 @@ export namespace Schemas {
     } | {
       type: 'posthog';
       scopes?: string[];
+      audience?: 'project' | 'organization';
     } | {
       type: 'jwt';
       /** @minLength 1 */
@@ -7879,6 +7880,7 @@ export namespace Schemas {
     } | {
       type: 'posthog';
       scopes?: string[];
+      audience?: 'project' | 'organization';
     } | {
       type: 'jwt';
       /** @minLength 1 */
@@ -7905,6 +7907,7 @@ export namespace Schemas {
     } | {
       type: 'posthog';
       scopes?: string[];
+      audience?: 'project' | 'organization';
     } | {
       type: 'jwt';
       /** @minLength 1 */
@@ -32486,6 +32489,7 @@ export namespace Schemas {
     } | {
       type: 'posthog';
       scopes?: string[];
+      audience?: 'project' | 'organization';
     } | {
       type: 'jwt';
       /** @minLength 1 */
@@ -32533,6 +32537,7 @@ export namespace Schemas {
     } | {
       type: 'posthog';
       scopes?: string[];
+      audience?: 'project' | 'organization';
     } | {
       type: 'jwt';
       /** @minLength 1 */
@@ -32559,6 +32564,7 @@ export namespace Schemas {
     } | {
       type: 'posthog';
       scopes?: string[];
+      audience?: 'project' | 'organization';
     } | {
       type: 'jwt';
       /** @minLength 1 */
