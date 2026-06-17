@@ -666,23 +666,12 @@ class TestSilentRemintRequiresTrustProof(ProvisioningTestBase):
         assert data["type"] == "oauth"
         assert "code" in data["oauth"]
 
-    def test_pkce_caller_with_live_credential_is_blocked_post_review(self):
-        # A public PKCE caller is unauthenticated, so an existing live credential
-        # for the claimed client_id is not proof the caller controls the partner.
-        # It must not unlock the silent path once the user has reviewed credentials.
-        user = self._make_user(credentials_reviewed=True)
-        self._make_live_access_token(user, self.partner)
-        res = self._post_as_partner(self._account_request_payload())
-        assert res.status_code == 200
-        data = res.json()
-        assert data["type"] == "requires_auth"
-        assert "oauth" not in data
-
-    def test_pkce_caller_with_live_credential_unreviewed_requires_consent(self):
-        # A live credential on the claimed client_id is not proof the public caller controls
-        # the partner, so it cannot unlock the silent path for an existing user — the
-        # unreviewed state does not relax this.
-        user = self._make_user(credentials_reviewed=False)
+    @parameterized.expand([("reviewed", True), ("unreviewed", False)])
+    def test_pkce_caller_with_live_credential_requires_consent(self, _name, reviewed):
+        # A public PKCE caller is unauthenticated, so an existing live credential for the
+        # claimed client_id is not proof the caller controls the partner. It must not unlock
+        # the silent path for an existing user, in either review state.
+        user = self._make_user(credentials_reviewed=reviewed)
         self._make_live_access_token(user, self.partner)
         res = self._post_as_partner(self._account_request_payload())
         assert res.status_code == 200
@@ -726,12 +715,13 @@ class TestSilentRemintRequiresTrustProof(ProvisioningTestBase):
             scope="query:read",
         )
 
-    def test_bearer_caller_cannot_remint_for_other_user_post_review(self):
-        # A bearer token only proves the caller holds *some* user's token under the
-        # partner's client, not that they control the partner. An attacker holding their
-        # own token must not ride a reviewed victim's existing credential to mint a code
-        # for the victim's account.
-        victim = self._make_user(credentials_reviewed=True)
+    @parameterized.expand([("reviewed", True), ("unreviewed", False)])
+    def test_bearer_caller_cannot_remint_for_other_user(self, _name, reviewed):
+        # A bearer token only proves the caller holds *some* user's token under the partner's
+        # client, not that they control the partner. An attacker holding their own token must
+        # not ride a victim's account to mint a code for it, whether or not the victim has
+        # reviewed credentials — an unreviewed account is still a pre-existing account.
+        victim = self._make_user(credentials_reviewed=reviewed)
         self._make_live_access_token(victim, self.bearer_partner)
 
         attacker = User.objects.create_and_join(
@@ -748,41 +738,11 @@ class TestSilentRemintRequiresTrustProof(ProvisioningTestBase):
         assert data["type"] == "requires_auth"
         assert "oauth" not in data
 
-    def test_bearer_caller_can_remint_for_own_user_post_review(self):
-        # The legitimate bearer re-link path: the caller presents the very user's own
-        # token, which is genuine proof of an existing trust relationship.
-        user = self._make_user(credentials_reviewed=True)
-        self._mint_bearer_token(user, self.bearer_partner, "owner_bearer_token")
-
-        res = self._post_as_bearer_partner(self._account_request_payload(), token="owner_bearer_token")
-        assert res.status_code == 200
-        data = res.json()
-        assert data["type"] == "oauth"
-        assert "code" in data["oauth"]
-
-    def test_bearer_caller_cannot_remint_for_other_user_unreviewed(self):
-        # An attacker holding their own bearer token must not silently mint a code
-        # for a victim's pre-existing account just because the victim has never reviewed
-        # credentials. The unreviewed state is not a license to link a stranger's account.
-        self._make_user(credentials_reviewed=False)
-
-        attacker = User.objects.create_and_join(
-            organization=self.organization,
-            email="attacker@example.com",
-            password="testpass",
-            first_name="Attacker",
-        )
-        self._mint_bearer_token(attacker, self.bearer_partner, "attacker_bearer_token")
-
-        res = self._post_as_bearer_partner(self._account_request_payload(), token="attacker_bearer_token")
-        assert res.status_code == 200
-        data = res.json()
-        assert data["type"] == "requires_auth"
-        assert "oauth" not in data
-
-    def test_bearer_caller_can_remint_for_own_user_unreviewed(self):
-        # The owner re-linking their own unreviewed account is genuine proof, so it stays silent.
-        user = self._make_user(credentials_reviewed=False)
+    @parameterized.expand([("reviewed", True), ("unreviewed", False)])
+    def test_bearer_caller_can_remint_for_own_user(self, _name, reviewed):
+        # The legitimate bearer re-link path: the caller presents the user's own token, which
+        # is genuine proof of an existing trust relationship, so it stays silent in either state.
+        user = self._make_user(credentials_reviewed=reviewed)
         self._mint_bearer_token(user, self.bearer_partner, "owner_bearer_token")
 
         res = self._post_as_bearer_partner(self._account_request_payload(), token="owner_bearer_token")
