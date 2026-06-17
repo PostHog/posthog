@@ -35,6 +35,7 @@ export const visualReviewRunsSceneLogic = kea<visualReviewRunsSceneLogicType>([
     actions({
         setActiveTab: (tab: ReviewState) => ({ tab }),
         setPage: (page: number) => ({ page }),
+        setSearchQuery: (searchQuery: string) => ({ searchQuery }),
     }),
 
     reducers({
@@ -49,21 +50,37 @@ export const visualReviewRunsSceneLogic = kea<visualReviewRunsSceneLogicType>([
             {
                 setPage: (_, { page }) => page,
                 setActiveTab: () => 1,
+                // Any new search starts from the first page of results.
+                setSearchQuery: () => 1,
+            },
+        ],
+        searchQuery: [
+            '',
+            {
+                setSearchQuery: (_, { searchQuery }) => searchQuery,
             },
         ],
     }),
 
-    loaders(({ props, values }) => ({
+    loaders(({ props, values, cache }) => ({
         runsResponse: [
             { count: 0, results: [] } as PaginatedRunListApi,
             {
                 loadRuns: async () => {
                     const offset = (values.page - 1) * RUNS_PAGE_SIZE
-                    return await visualReviewReposRunsList(String(values.currentProjectId), props.repoId, {
+                    const search = values.searchQuery.trim()
+                    // Tag each request; a slower, superseded one must not overwrite a newer one's results.
+                    const requestId = (cache.loadRunsSeq = (cache.loadRunsSeq ?? 0) + 1)
+                    const response = await visualReviewReposRunsList(String(values.currentProjectId), props.repoId, {
                         review_state: values.activeTab,
                         limit: RUNS_PAGE_SIZE,
                         offset,
+                        ...(search ? { search } : {}),
                     })
+                    if (requestId !== cache.loadRunsSeq) {
+                        return values.runsResponse
+                    }
+                    return response
                 },
             },
         ],
@@ -106,6 +123,11 @@ export const visualReviewRunsSceneLogic = kea<visualReviewRunsSceneLogicType>([
             actions.loadRuns()
         },
         setPage: () => {
+            actions.loadRuns()
+        },
+        setSearchQuery: async (_, breakpoint) => {
+            // Debounce so we hit the API once the user pauses typing, not on every keystroke.
+            await breakpoint(300)
             actions.loadRuns()
         },
     })),

@@ -1036,6 +1036,14 @@ class EmptyPropertyFilter(BaseModel):
     type: Literal["empty"] = "empty"
 
 
+class EndpointBreakdownLimitExceededSignalExtra(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdown_limit: float
+    endpoint_name: str
+
+
 class EndpointExecutionFailedSignalExtra(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4565,6 +4573,19 @@ class EmbeddingDistance(BaseModel):
     result: EmbeddingRecord
 
 
+class EndpointBreakdownLimitExceededSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: EndpointBreakdownLimitExceededSignalExtra
+    remediation: SignalRemediation | None = None
+    source_id: str
+    source_product: Literal["endpoints"] = "endpoints"
+    source_type: Literal["endpoint_breakdown_limit_exceeded"] = "endpoint_breakdown_limit_exceeded"
+    weight: float
+
+
 class EndpointExecutionFailedSignalInput(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6705,6 +6726,7 @@ class SignalInput(
         | ConversationsTicketSignalInput
         | ErrorTrackingSignalInput
         | EndpointExecutionFailedSignalInput
+        | EndpointBreakdownLimitExceededSignalInput
         | PgAnalyzeIssueSignalInput
         | SignalsScoutSignalInput
         | LogsAlertStateChangeSignalInput
@@ -6722,6 +6744,7 @@ class SignalInput(
         | ConversationsTicketSignalInput
         | ErrorTrackingSignalInput
         | EndpointExecutionFailedSignalInput
+        | EndpointBreakdownLimitExceededSignalInput
         | PgAnalyzeIssueSignalInput
         | SignalsScoutSignalInput
         | LogsAlertStateChangeSignalInput
@@ -8946,7 +8969,9 @@ class AssistantRetentionFilter(BaseModel):
         description="Retention period, the interval to track cohorts by.",
     )
     retentionCustomBrackets: list[float] | None = Field(
-        default=None, description="Custom brackets for retention calculations."
+        default=None,
+        description="Custom brackets for retention calculations.",
+        max_length=31,
     )
     retentionReference: RetentionReference | None = Field(
         default=None,
@@ -21139,6 +21164,25 @@ class AssistantPathsActorsQuery(BaseModel):
     )
     kind: Literal["InsightActorsQuery"] = "InsightActorsQuery"
     source: AssistantPathsQuery = Field(..., description="The source paths insight query whose actors we are listing.")
+
+
+class AssistantRetentionActorsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    interval: int | None = Field(
+        default=None,
+        description=(
+            "Which acquisition cohort to drill into, 0-based. `0` is the acquisition"
+            " interval itself (every actor who entered the cohort); `1` is the cohort"
+            " that entered one interval later, and so on. Defaults to `0` when omitted."
+        ),
+    )
+    kind: Literal["InsightActorsQuery"] = "InsightActorsQuery"
+    source: AssistantRetentionQuery = Field(
+        ...,
+        description=("The source retention insight query whose cohort we are drilling into."),
+    )
 
 
 class AssistantTrendsActorsQuery(BaseModel):

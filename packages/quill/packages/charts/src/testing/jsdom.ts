@@ -26,6 +26,15 @@ export function makeSeries(overrides: Partial<Series> & { key: string; data: num
     return { label: overrides.key, color: '#000', ...overrides }
 }
 
+/** Pixel position (client coords) of a given label index, vertically centered in the plot. */
+export function clientForIndex(index: number, totalLabels: number): { clientX: number; clientY: number } {
+    const step = dimensions.plotWidth / Math.max(1, totalLabels - 1)
+    return {
+        clientX: dimensions.plotLeft + step * index,
+        clientY: dimensions.plotTop + dimensions.plotHeight / 2,
+    }
+}
+
 /** Mock ResizeObserver and getBoundingClientRect so hog-charts components
  *  render with real dimensions in jsdom. Call in beforeEach, and call the
  *  returned cleanup function in afterEach. */

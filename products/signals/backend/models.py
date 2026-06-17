@@ -29,6 +29,7 @@ class SignalSourceConfig(UUIDModel):
         SIGNALS_SCOUT = "signals_scout", "Signals scout"
         LOGS = "logs", "Logs"
         HEALTH_CHECKS = "health_checks", "Health checks"
+        ENDPOINTS = "endpoints", "Endpoints"
         REPLAY_VISION = "replay_vision", "Replay Vision"
 
     class SourceType(models.TextChoices):
@@ -42,6 +43,8 @@ class SignalSourceConfig(UUIDModel):
         CROSS_SOURCE_ISSUE = "cross_source_issue", "Cross source issue"
         ALERT_STATE_CHANGE = "alert_state_change", "Alert state change"
         HEALTH_ISSUE = "health_issue", "Health issue"
+        ENDPOINT_EXECUTION_FAILED = "endpoint_execution_failed", "Endpoint execution failed"
+        ENDPOINT_BREAKDOWN_LIMIT_EXCEEDED = "endpoint_breakdown_limit_exceeded", "Endpoint breakdown limit exceeded"
         SCANNER_FINDING = "scanner_finding", "Scanner finding"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="signal_source_configs")
