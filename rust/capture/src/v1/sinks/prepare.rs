@@ -6,9 +6,9 @@
 //! replay, AI) share one CPU-bound step and enables serialize-once /
 //! fan-out-to-many-sinks for dual-write topologies.
 //!
-//! Small batches serialize sequentially; large batches scatter across
-//! `spawn_blocking` workers and gather back in input order. Per-event panics
-//! are isolated so one bad event never fails the whole request.
+//! Small batches serialize sequentially; large batches scatter across tokio
+//! tasks and gather back in input order. Per-event panics are isolated so one
+//! bad event never fails the whole request.
 
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
@@ -27,8 +27,8 @@ use crate::v1::sinks::event::Event;
 use crate::v1::sinks::types::{PreparedEvent, SerializationFailure, SinkResult};
 
 /// Batches at or above this size serialize in parallel; smaller batches stay
-/// sequential to avoid `JoinSet` + `spawn_blocking` scheduling overhead that
-/// would dominate the tiny serialization cost.
+/// sequential to avoid the `JoinSet` task scheduling overhead that would
+/// dominate the tiny serialization cost.
 const SCATTER_GATHER_MIN_BATCH: usize = 8;
 
 /// Outcome of the serialize step: events ready to publish (input order) plus
@@ -83,10 +83,10 @@ fn run_one<E: Event>(ev: &E, ctx: &RequestContext) -> Slot {
 /// Serialize a whole batch into `PreparedEvent`s, preserving input order for
 /// the prepared events so downstream per-partition ordering is unaffected.
 ///
-/// Consumes `events` so the parallel path can move them into `spawn_blocking`
-/// workers via `Arc`, then hands ownership back (alongside the results) so the
-/// caller can keep correlating results to events and build its response. `ctx`
-/// is cloned once and shared across workers.
+/// Consumes `events` so the parallel path can share them across tokio tasks
+/// via `Arc`, then hands ownership back (alongside the results) so the caller
+/// can keep correlating results to events and build its response. `ctx` is
+/// cloned once and shared across tasks.
 pub async fn serialize_batch<E>(events: Vec<E>, ctx: &RequestContext) -> (Vec<E>, SerializedBatch)
 where
     E: Event + 'static,
@@ -105,14 +105,19 @@ where
         for i in 0..n {
             let events = Arc::clone(&events);
             let ctx = Arc::clone(&ctx);
-            set.spawn_blocking(move || (i, run_one(&events[i], &ctx)));
+            // Spawn onto the async runtime workers (not spawn_blocking): the
+            // per-event work is short CPU, so concurrent execution is naturally
+            // bounded by worker_threads (~num_cpus) and excess events queue
+            // cheaply. This mirrors v0's send_batch and avoids saturating the
+            // shared spawn_blocking pool on huge batches.
+            set.spawn(async move { (i, run_one(&events[i], &ctx)) });
         }
 
         // Gather out-of-completion-order results back into input order.
         let mut indexed: Vec<Option<Slot>> = (0..n).map(|_| None).collect();
         while let Some(joined) = set.join_next().await {
-            // run_one never panics, so a JoinError is unexpected; leave that
-            // slot empty and let the fill below record it as a panic.
+            // run_one catches panics internally, so a JoinError is unexpected;
+            // leave that slot empty and let the fill below record it as a panic.
             if let Ok((i, slot)) = joined {
                 indexed[i] = Some(slot);
             }
