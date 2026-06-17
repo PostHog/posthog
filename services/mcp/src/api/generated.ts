@@ -16536,6 +16536,59 @@ export namespace Schemas {
       Text: 'text',
     } as const;
 
+    /**
+     * * `update_content` - update_content
+     * * `update_column` - update_column
+     * * `update_row` - update_row
+     * * `update_body` - update_body
+     * * `add_content` - add_content
+     * * `remove_content` - remove_content
+     * * `move_content` - move_content
+     * * `add_row` - add_row
+     * * `remove_row` - remove_row
+     */
+    export type EmailTemplateDesignOperationEnum = typeof EmailTemplateDesignOperationEnum[keyof typeof EmailTemplateDesignOperationEnum];
+
+
+    export const EmailTemplateDesignOperationEnum = {
+      UpdateContent: 'update_content',
+      UpdateColumn: 'update_column',
+      UpdateRow: 'update_row',
+      UpdateBody: 'update_body',
+      AddContent: 'add_content',
+      RemoveContent: 'remove_content',
+      MoveContent: 'move_content',
+      AddRow: 'add_row',
+      RemoveRow: 'remove_row',
+    } as const;
+
+    export interface DesignOperation {
+      /** Design edit. update_content {id, patch}: deep-merge patch into the content block's fields (a null leaf deletes that key) — the surgical path, e.g. change just values.text. update_row / update_column {id, patch} and update_body {patch}: same deep-merge for row/column/body-level settings. add_content {column_id, content, index?}: insert a content block into a column (id and Unlayer numbering are filled in for you). remove_content {id} / move_content {id, column_id, index?}: delete or relocate a block. add_row {row, index?} / remove_row {id}: add or delete a row.
+       *
+       * * `update_content` - update_content
+       * * `update_column` - update_column
+       * * `update_row` - update_row
+       * * `update_body` - update_body
+       * * `add_content` - add_content
+       * * `remove_content` - remove_content
+       * * `move_content` - move_content
+       * * `add_row` - add_row
+       * * `remove_row` - remove_row */
+      op: EmailTemplateDesignOperationEnum;
+      /** Target node id. Required for update_content/column/row, remove_content, remove_row, move_content. */
+      id?: string;
+      /** Target column id. Required for add_content and move_content. */
+      column_id?: string;
+      /** update_* only. Partial fields deep-merged into the existing node; a null leaf deletes that key. e.g. {values: {text: '<p>Hi</p>'}} changes only the block's text. */
+      patch?: unknown;
+      /** add_content only. A content block {type, values: {...}}; omit id and values._meta — they're assigned server-side. type is one of text, heading, button, image, divider, html, etc. */
+      content?: unknown;
+      /** add_row only. A full row {cells, columns: [{contents: [...], values}], values}; ids and Unlayer numbering are assigned server-side for the row and everything nested in it. */
+      row?: unknown;
+      /** add_*\/move_content only. 0-based insert position; omit to append to the end. */
+      index?: number;
+    }
+
     export interface DesktopRecording {
       readonly id: string;
       readonly team: number;
@@ -33336,6 +33389,11 @@ export namespace Schemas {
       readonly team?: number;
     }
 
+    export interface PatchedDesignPatch {
+      /** Ordered edits applied atomically to a template's Unlayer design: the stored design is read, the ops are applied in order, the result is validated and re-rendered to HTML, and it's saved only if valid — otherwise the template is unchanged. Reference blocks by id so you never resend the whole design. */
+      operations?: DesignOperation[];
+    }
+
     export interface PatchedDesktopRecording {
       readonly id?: string;
       readonly team?: number;
@@ -48949,6 +49007,11 @@ export namespace Schemas {
       dateRange?: _TracingDateRange;
       /** Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false. */
       excludeAttributes?: boolean;
+      /**
+         * Pagination offset into the trace's spans (ordered by start time ascending). Each page returns up to 2000 spans; pass the response's `nextOffset` to load the next page. Defaults to 0.
+         * @minimum 0
+         */
+      offset?: number;
     }
 
     export interface _TracingTreeQueryBody {
