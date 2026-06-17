@@ -32,6 +32,7 @@ import pathlib
 import tempfile
 import subprocess
 import urllib.request
+from urllib.parse import urlsplit
 
 from hogland import (
     AccessType,
@@ -108,6 +109,7 @@ class HoglandBackend(PreviewBackend):
         self.ttl_seconds = ttl_seconds
         self._box_id = box_id
         self._box = None  # hogland.Hogbox once provisioned
+        self._pen = None  # shared.Pen once ensured (carries the stable id for web_url)
 
     # --- layer methods -------------------------------------------------------
     def provision(self) -> None:
@@ -189,14 +191,22 @@ class HoglandBackend(PreviewBackend):
 
     @property
     def web_url(self) -> str:
-        # The box's own per-box hostname (box-front edge), surfaced by the server
-        # once the box is HTTP-exposed (web_port at create) and running — that's
-        # the clean URL we post to the PR. Fall back to the authenticated hogplane
-        # path proxy for an un-exposed box (e.g. a reused --box-id box).
+        # The STABLE pen URL: https://<pen-id>.<edge>/. The pen outlives the box,
+        # so this URL survives box recreation — hogland's box-http edge resolves
+        # <pen-id> to the pen's current box (hogland #319). We derive the edge
+        # base from the box's own per-box hostname (same edge, first label swapped
+        # to the pen id) so there's no env-specific base to hardcode here.
+        # Falls back to the box's own URL (no pen, or no gateway configured), then
+        # to the authenticated path-proxy for an un-exposed reused box.
         box = self._require_box()
-        url = box.web_url()
-        if url:
-            return url.rstrip("/")
+        box_url = box.web_url()
+        if box_url and self._pen is not None and self._pen.id:
+            host = urlsplit(box_url).hostname or ""
+            base = host.split(".", 1)[1] if "." in host else ""
+            if base:
+                return f"https://{self._pen.id}.{base}"
+        if box_url:
+            return box_url.rstrip("/")
         return box.proxy_url(self.web_port).rstrip("/")
 
     @property
@@ -227,12 +237,12 @@ class HoglandBackend(PreviewBackend):
         encode the intent so it lights up for free when that lands; ``wake`` also
         requires an exposed spec, which ``_pen_spec`` provides."""
         try:
-            self._client.get_pen(self.name)
+            self._pen = self._client.get_pen(self.name)
             return
         except NotFoundError:
             pass
         try:
-            self._client.create_pen(
+            self._pen = self._client.create_pen(
                 self.name,
                 source_alias=self._source_alias(),
                 spec=self._pen_spec(),
@@ -241,8 +251,8 @@ class HoglandBackend(PreviewBackend):
                 metadata=self._pen_metadata(),
             )
         except ConflictError:
-            # A racing run created it between our get and create — that's fine.
-            pass
+            # A racing run created it between our get and create — fetch the winner.
+            self._pen = self._client.get_pen(self.name)
 
     def _pen_spec(self) -> BoxSpec:
         """The BoxSpec the pen remembers — sizing, the golden it seeds from, and
