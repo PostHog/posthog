@@ -115,6 +115,7 @@ from posthog.models import Team, User
 from posthog.models.team import WeekStartDay
 from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlError
 from posthog.schema_helpers import to_dict
+from posthog.scopes import APIScopeObject
 from posthog.slo.context import JsonValue, SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation, SloOutcome
 from posthog.synthetic_user import SyntheticUser
@@ -2272,7 +2273,10 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
         # has_resource_access resolves RESOURCE_INHERITANCE_MAP (same predicate the schema filter uses),
         # so a deny on a parent (e.g. customer_analytics) still partitions a child-scoped table (account).
         # Intersecting the raw blocked_resources list would miss inherited denies and leak the cache.
-        return sorted(s for s in queried_resources if not user_access_control.has_resource_access(s)) or None
+        return (
+            sorted(s for s in queried_resources if not user_access_control.has_resource_access(cast(APIScopeObject, s)))
+            or None
+        )
 
 
 class QueryRunnerWithHogQLContext(AnalyticsQueryRunner[AR]):
