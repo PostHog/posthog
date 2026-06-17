@@ -26,6 +26,30 @@
                     "default": "agent.md",
                     "type": "string"
                 },
+                "framework_prompt": {
+                    "properties": {
+                        "omit": {
+                            "default": [],
+                            "items": {
+                                "enum": [
+                                    "meta_tool_guidance",
+                                    "state_contract",
+                                    "tool_failure_guidance",
+                                    "approval_guidance",
+                                    "reasoning_hint"
+                                ],
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        "version_pin": {
+                            "exclusiveMinimum": 0,
+                            "maximum": 2147483647,
+                            "type": "number"
+                        }
+                    },
+                    "type": "object"
+                },
                 "integrations": {
                     "default": [],
                     "items": {
@@ -35,11 +59,25 @@
                 },
                 "limits": {
                     "default": {
+                        "max_cpu_cores": 0.25,
+                        "max_memory_mb": 512,
                         "max_tool_calls": 200,
                         "max_turns": 50,
                         "max_wall_seconds": 900
                     },
                     "properties": {
+                        "max_cpu_cores": {
+                            "default": 0.25,
+                            "exclusiveMinimum": 0,
+                            "maximum": 8,
+                            "type": "number"
+                        },
+                        "max_memory_mb": {
+                            "default": 512,
+                            "exclusiveMinimum": 0,
+                            "maximum": 16384,
+                            "type": "number"
+                        },
                         "max_output_tokens": {
                             "exclusiveMinimum": 0,
                             "maximum": 200000,
@@ -169,10 +207,48 @@
                     "enum": ["minimal", "low", "medium", "high", "xhigh"],
                     "type": "string"
                 },
+                "resume": {
+                    "properties": {
+                        "enabled": {
+                            "default": false,
+                            "type": "boolean"
+                        },
+                        "max_completed_age_ms": {
+                            "default": 604800000,
+                            "exclusiveMinimum": 0,
+                            "maximum": 2147483647,
+                            "type": "number"
+                        }
+                    },
+                    "type": "object"
+                },
                 "secrets": {
                     "default": [],
                     "items": {
-                        "type": "string"
+                        "anyOf": [
+                            {
+                                "minLength": 1,
+                                "type": "string"
+                            },
+                            {
+                                "properties": {
+                                    "allowed_hosts": {
+                                        "items": {
+                                            "minLength": 1,
+                                            "type": "string"
+                                        },
+                                        "minItems": 1,
+                                        "type": "array"
+                                    },
+                                    "name": {
+                                        "minLength": 1,
+                                        "type": "string"
+                                    }
+                                },
+                                "required": ["name", "allowed_hosts"],
+                                "type": "object"
+                            }
+                        ]
                     },
                     "type": "array"
                 },
@@ -375,6 +451,10 @@
                                             "ack_reaction": {
                                                 "type": "string"
                                             },
+                                            "allow_direct_messages": {
+                                                "default": false,
+                                                "type": "boolean"
+                                            },
                                             "allow_workspace_participants": {
                                                 "default": false,
                                                 "type": "boolean"
@@ -439,6 +519,11 @@
                                                         },
                                                         {
                                                             "properties": {
+                                                                "audience": {
+                                                                    "default": "project",
+                                                                    "enum": ["project", "organization"],
+                                                                    "type": "string"
+                                                                },
                                                                 "scopes": {
                                                                     "default": [],
                                                                     "items": {
@@ -589,6 +674,11 @@
                                                         },
                                                         {
                                                             "properties": {
+                                                                "audience": {
+                                                                    "default": "project",
+                                                                    "enum": ["project", "organization"],
+                                                                    "type": "string"
+                                                                },
                                                                 "scopes": {
                                                                     "default": [],
                                                                     "items": {
@@ -695,6 +785,11 @@
                                                         },
                                                         {
                                                             "properties": {
+                                                                "audience": {
+                                                                    "default": "project",
+                                                                    "enum": ["project", "organization"],
+                                                                    "type": "string"
+                                                                },
                                                                 "scopes": {
                                                                     "default": [],
                                                                     "items": {
