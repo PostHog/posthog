@@ -42,7 +42,7 @@ export function DashboardsFiltersBar({ extraActions }: DashboardsFiltersBarProps
                 value={filters.search}
             />
             <div className="flex items-center gap-2 flex-wrap">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                     <span>Filter to:</span>
                     {currentTab !== DashboardsTab.Pinned && (
                         <div className="flex items-center gap-2">
@@ -149,12 +149,13 @@ export function DashboardsFiltersBar({ extraActions }: DashboardsFiltersBarProps
                             active
                             type="secondary"
                             size="small"
+                            className="max-w-full"
                             icon={<IconFolder />}
                             sideIcon={<IconX />}
                             onClick={() => setFilters({ folder: null })}
                             tooltip="Clear folder filter"
                         >
-                            {filters.folder || 'Project root'}
+                            <span className="truncate">{filters.folder || 'Project root'}</span>
                         </LemonButton>
                     )}
                 </div>
