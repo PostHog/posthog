@@ -1006,6 +1006,12 @@ class TestMySQLSourceValidateCredentials:
                 pymysql.err.OperationalError(1045, "Access denied for user 'u'@'1.2.3.4' (using password: YES)"),
                 "Invalid user or password",
             ),
+            # A blocked host (error 1129) is server-side state only a DB admin can clear, so it
+            # surfaces its own actionable message rather than the generic connection error.
+            (
+                pymysql.err.OperationalError(1129, "Host '1.2.3.4' is blocked because of many connection errors"),
+                "Your MySQL/MariaDB server has blocked PostHog's host after too many interrupted connections (error 1129). Ask your database admin to run 'FLUSH HOSTS' (or 'mysqladmin flush-hosts') and consider raising 'max_connect_errors', then retry the sync.",
+            ),
         ],
     )
     def test_known_connection_errors_are_not_captured(self, source, mocker, raised, expected_error):
