@@ -98,7 +98,11 @@ export const addTrackingToEmail = (
     invocation: CyclotronJobInvocationHogFunction,
     isTest = false
 ): string => {
-    const distinctId = resolveEmailEngagementDistinctId(invocation)
+    // Only carry distinct_id in the in-email pixel/redirect URLs in dev/test, where those handlers
+    // record metrics. In production they don't (SES webhooks own open/click attribution via the
+    // signed header), so embedding distinct_id in the public `ph_id` would be unused — and worse,
+    // a tracked-link click could leak the recipient identifier to the destination via the Referer.
+    const distinctId = isDevEnv() || isTestEnv() ? resolveEmailEngagementDistinctId(invocation) : undefined
     const trackingInvocation = { ...invocation, distinctId }
     const trackingUrl = generateEmailTrackingPixelUrl(trackingInvocation, isTest)
 

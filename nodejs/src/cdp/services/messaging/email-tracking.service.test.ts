@@ -16,6 +16,7 @@ import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { closeHub, createHub } from '~/utils/db/hub'
+import * as envUtils from '~/utils/env-utils'
 
 import { Hub, Team } from '../../../types'
 import {
@@ -25,7 +26,7 @@ import {
     decodeHtmlEntitiesInHref,
     resolveEmailEngagementDistinctId,
 } from './email-tracking.service'
-import { generateEmailTrackingCode } from './helpers/tracking-code'
+import { generateEmailTrackingCode, parseEmailTrackingCode } from './helpers/tracking-code'
 
 describe('EmailTrackingService', () => {
     let hub: Hub
@@ -96,6 +97,34 @@ describe('EmailTrackingService', () => {
             const out = addTrackingToEmail(html, invocation)
             expect(out).toContain('href="java&#x73;cript:alert(1)"')
             expect(out).not.toContain('target=')
+        })
+
+        const invocationWithDistinctId = {
+            functionId: 'fn-1',
+            id: 'inv-1',
+            teamId: 1,
+            state: { globals: { event: { distinct_id: 'leaky-id' } } },
+        } as any
+        const phIdOf = (html: string): string => html.match(/ph_id=([A-Za-z0-9._-]+)/)![1]
+
+        it('includes distinct_id in the public tracking URLs in dev/test', () => {
+            const out = addTrackingToEmail('<body><a href="https://example.com">x</a></body>', invocationWithDistinctId)
+            expect(parseEmailTrackingCode(phIdOf(out))?.distinctId).toBe('leaky-id')
+        })
+
+        it('omits distinct_id from the public tracking URLs in production (Referer-leak guard)', () => {
+            const devSpy = jest.spyOn(envUtils, 'isDevEnv').mockReturnValue(false)
+            const testSpy = jest.spyOn(envUtils, 'isTestEnv').mockReturnValue(false)
+            try {
+                const out = addTrackingToEmail(
+                    '<body><a href="https://example.com">x</a></body>',
+                    invocationWithDistinctId
+                )
+                expect(parseEmailTrackingCode(phIdOf(out))?.distinctId).toBeUndefined()
+            } finally {
+                devSpy.mockRestore()
+                testSpy.mockRestore()
+            }
         })
     })
 
@@ -222,25 +251,24 @@ describe('EmailTrackingService', () => {
                 state: { globals: globals as any },
             }) as CyclotronJobInvocationHogFunction
 
-        it('uses event.distinct_id when present (event-triggered flow)', () => {
-            const invocation = buildInvocation({
-                event: { distinct_id: 'user-from-event' } as any,
-                person: { id: 'person-uuid' } as any,
-            })
-            expect(resolveEmailEngagementDistinctId(invocation)).toBe('user-from-event')
-        })
-
-        it('falls back to person.id when event.distinct_id is empty (batch / scheduled flow)', () => {
-            const invocation = buildInvocation({
-                event: { distinct_id: '' } as any,
-                person: { id: 'person-uuid' } as any,
-            })
-            expect(resolveEmailEngagementDistinctId(invocation)).toBe('person-uuid')
-        })
-
-        it('returns undefined when neither event.distinct_id nor person.id is set', () => {
-            const invocation = buildInvocation({ event: { distinct_id: '' } as any })
-            expect(resolveEmailEngagementDistinctId(invocation)).toBeUndefined()
+        it.each([
+            {
+                name: 'uses event.distinct_id when present (event-triggered flow)',
+                globals: { event: { distinct_id: 'user-from-event' }, person: { id: 'person-uuid' } },
+                expected: 'user-from-event',
+            },
+            {
+                name: 'falls back to person.id when event.distinct_id is empty (batch / scheduled flow)',
+                globals: { event: { distinct_id: '' }, person: { id: 'person-uuid' } },
+                expected: 'person-uuid',
+            },
+            {
+                name: 'returns undefined when neither event.distinct_id nor person.id is set',
+                globals: { event: { distinct_id: '' } },
+                expected: undefined,
+            },
+        ])('$name', ({ globals, expected }) => {
+            expect(resolveEmailEngagementDistinctId(buildInvocation(globals as any))).toBe(expected)
         })
     })
 
