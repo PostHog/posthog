@@ -255,6 +255,14 @@ If automatic creation failed due to a permissions error and you're using a restr
             # A non-Connect key was sent with a `stripe_account` header (the source's "Account id"),
             # so Stripe rejects the whole request for the account rather than a specific scope.
             "Only Stripe Connect platforms can work with other accounts": "Stripe rejected the request because your API key isn't authorized for the configured Stripe account. The 'Account id' in your source settings only applies to Stripe Connect platform accounts — remove or correct it if your key belongs directly to the account, then reconnect.",
+            # Stripe's `account_invalid` rejection: the key can't reach the configured account (a
+            # `stripe_account` header it isn't authorized for) or the connected application's access
+            # was revoked. Surfaced mid-sync as `stripe.PermissionError` straight out of `get_rows`,
+            # so it never matches the URL-based 403 key. Retrying can't fix a key/account mismatch or
+            # a revoked grant — match Stripe's stable message (the account id and key are redacted out
+            # of the substring). `_is_stripe_account_access_error` classifies the same phrase for the
+            # webhook-creation path.
+            "does not have access to account": "Stripe rejected the request because your API key isn't authorized for the configured Stripe account. Remove or correct the 'Account id' in your source settings if your key belongs directly to the account. If you connected via OAuth, the application access may have been revoked — reconnect your Stripe account.",
             # Deterministic credential/config errors from _get_api_key and OAuthMixin
             "Missing Stripe API key": "Stripe API key is not configured. Please update the source configuration.",
             "Missing Stripe integration ID": "Stripe integration ID is not configured. Please reconnect your Stripe account.",

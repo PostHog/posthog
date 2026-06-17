@@ -21,6 +21,9 @@ class TestStripeSource:
             # IP allowlist rejection — matched on the stable phrase, ignoring the appended IP address.
             "The API key provided does not allow requests from your IP address.",
             "The API key provided does not allow requests from your IP address (1.2.3.4).",
+            # account_invalid: key not authorized for the configured account, or revoked app access.
+            # Raised mid-sync as stripe.PermissionError, matched on the stable phrase (key/account redacted).
+            "The provided key 'sk_test_***qPsl' does not have access to account 'stripe_s***less' (or that account does not exist). Application access may have been revoked.",
         ],
     )
     def test_non_retryable_errors_match_permission_failures(self, observed_error):
