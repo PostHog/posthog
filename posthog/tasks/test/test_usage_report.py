@@ -1342,7 +1342,7 @@ class TestHogQLUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTa
 
 class TestQueryUsageReportSQL:
     @patch("posthog.tasks.usage_report.sync_execute", return_value=[(1, 100)])
-    def test_get_teams_with_query_metric_uses_six_hour_event_time_window(self, mock_sync_execute: MagicMock) -> None:
+    def test_get_teams_with_query_metric_uses_event_time_pruning_window(self, mock_sync_execute: MagicMock) -> None:
         begin = datetime(2026, 6, 15, tzinfo=tzutc())
         end = begin + timedelta(days=1)
 
@@ -1357,11 +1357,10 @@ class TestQueryUsageReportSQL:
         assert result == [(1, 100)]
         query = mock_sync_execute.call_args.args[0]
         params = mock_sync_execute.call_args.args[1]
-        assert "AND event_time >= %(event_time_begin)s AND event_time < %(event_time_end)s" in query
+        assert "AND event_time >= %(begin)s AND event_time < %(event_time_end)s" in query
         assert "AND query_start_time >= %(begin)s AND query_start_time < %(end)s" in query
         assert params["begin"] == begin
         assert params["end"] == end
-        assert params["event_time_begin"] == begin - timedelta(hours=6)
         assert params["event_time_end"] == end + timedelta(hours=6)
 
 
