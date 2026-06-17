@@ -2,7 +2,7 @@ import { connect, kea, path, selectors } from 'kea'
 import { router } from 'kea-router'
 import { objectsEqual } from 'kea-test-utils'
 
-import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { SceneConfig } from 'scenes/sceneTypes'
 

@@ -63,6 +63,7 @@ from products.signals.backend.models import (
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
+from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.report_generation.resolve_reviewers import (
     get_org_member_github_login_to_user_map,
     get_org_member_github_logins_by_user_uuid,
@@ -395,8 +396,10 @@ class SignalReportViewSet(
         qs = self._apply_signal_report_status_filter(qs)
         qs = self._apply_signal_report_search_filter(qs)
         qs = self._apply_signal_report_source_product_filter(qs)
+        qs = self._apply_signal_report_implementation_pr_filter(qs)
         qs = self._apply_signal_report_suggested_reviewer_filter(qs)
         qs = self._annotate_latest_actionability_value(qs)
+        qs = self._apply_signal_report_actionability_filter(qs)
         qs = self._annotate_signal_report_status_rank(qs)
         qs = self._annotate_signal_report_priority(qs)
         qs = self._apply_signal_report_priority_filter(qs)
@@ -476,6 +479,40 @@ class SignalReportViewSet(
         report_ids_with_source = fetch_report_ids_for_source_products(self.team, source_products)
         return queryset.filter(id__in=report_ids_with_source)
 
+    def _implementation_pr_exists_subquery(self):
+        # EXISTS over the latest implementation TaskRun that carries a non-empty
+        # `pr_url`. Mirrors `_annotate_implementation_pr_url`, but as a boolean
+        # EXISTS so it can be used as a filter (and counted) without the
+        # per-row PR-url annotation, which the list action skips for performance.
+        return Exists(
+            TaskRun.objects.filter(
+                task__signal_report_tasks__report_id=OuterRef("id"),
+                task__signal_report_tasks__relationship=SignalReportTask.Relationship.IMPLEMENTATION,
+                output__pr_url__isnull=False,
+            ).exclude(output__pr_url="")
+        )
+
+    def _apply_signal_report_implementation_pr_filter(self, queryset):
+        # `has_implementation_pr=true|false` filters reports by whether a shipped
+        # implementation PR exists. Lets the inbox count PR reports (the "Pull
+        # requests" tab) with a cheap `limit=1` count query instead of paging the
+        # whole list and filtering client-side. Absent or empty param leaves the
+        # list unchanged; an unrecognized value is a 400.
+        raw = self.request.query_params.get("has_implementation_pr")
+        if raw is None or not raw.strip():
+            return queryset
+        value = raw.strip().lower()
+        if value in ("1", "true", "yes"):
+            wants_pr = True
+        elif value in ("0", "false", "no"):
+            wants_pr = False
+        else:
+            raise serializers.ValidationError(
+                {"has_implementation_pr": f"Invalid value: {raw!r}. Allowed: true, false."}
+            )
+        pr_exists = self._implementation_pr_exists_subquery()
+        return queryset.filter(pr_exists if wants_pr else ~pr_exists)
+
     def _apply_signal_report_suggested_reviewer_filter(self, queryset):
         suggested_reviewer_filter = self.request.query_params.get("suggested_reviewers")
         if not suggested_reviewer_filter:
@@ -531,6 +568,34 @@ class SignalReportViewSet(
             )
 
         return queryset.filter(priority_rank__in=values)
+
+    def _apply_signal_report_actionability_filter(self, queryset):
+        # Filters on the `latest_actionability_value` annotation (the actionability
+        # choice from the latest actionability_judgment artefact), which must be
+        # annotated first. Powers the inbox's actionability-keyed tabs: the Reports
+        # tab passes the two actionable values, the staff-only Not-actionable tab
+        # passes `not_actionable`. Reports without an actionability judgment
+        # (annotation is NULL) are excluded when this filter is set. Absent or empty
+        # param leaves the list unchanged; an unrecognized value is a 400.
+        actionability_filter = self.request.query_params.get("actionability")
+        if not actionability_filter:
+            return queryset
+
+        values = [a.strip() for a in actionability_filter.split(",") if a.strip()]
+        if not values:
+            return queryset
+
+        allowed = {choice.value for choice in ActionabilityChoice}
+        invalid = [v for v in values if v not in allowed]
+        if invalid:
+            raise serializers.ValidationError(
+                {
+                    "actionability": f"Invalid actionability value(s): {', '.join(sorted(set(invalid)))}. "
+                    f"Allowed: {', '.join(sorted(allowed))}."
+                }
+            )
+
+        return queryset.filter(latest_actionability_value__in=values)
 
     def _annotate_signal_report_status_rank(self, queryset):
         # `ordering=status` uses semantic stage rank (annotation), not lexicographic `status` column order.
@@ -616,6 +681,13 @@ class SignalReportViewSet(
                     type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT
                 ).order_by("-created_at"),
                 to_attr="prefetched_actionability_artefacts",
+            ),
+            Prefetch(
+                "artefacts",
+                queryset=SignalReportArtefact.objects.filter(type=SignalReportArtefact.ArtefactType.DISMISSAL).order_by(
+                    "-created_at"
+                ),
+                to_attr="prefetched_dismissal_artefacts",
             ),
         )
 
@@ -798,6 +870,17 @@ class SignalReportViewSet(
                     "priority, created_at, updated_at, id. Defaults to '-is_suggested_reviewer,status,-updated_at'."
                 ),
             ),
+            OpenApiParameter(
+                name="has_implementation_pr",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Filter reports by whether a shipped implementation pull request exists. "
+                    "'true' keeps only reports with a PR; 'false' keeps only those without. "
+                    "Pair with limit=1 to count PR reports cheaply."
+                ),
+            ),
         ],
     )
     def list(self, request, *args, **kwargs):
@@ -970,6 +1053,11 @@ class SignalReportViewSet(
                     type=SignalReportArtefact.ArtefactType.DISMISSAL,
                     content=json.dumps(artefact_content),
                 )
+                # get_object() evaluated the dismissal prefetch before this artefact
+                # existed; drop the stale cache so the response serializer re-reads the
+                # just-written reason/note instead of the previous (or empty) dismissal.
+                if hasattr(report, "prefetched_dismissal_artefacts"):
+                    del report.prefetched_dismissal_artefacts
 
         return Response(SignalReportSerializer(report, context=self._enriched_report_context(report)).data)
 

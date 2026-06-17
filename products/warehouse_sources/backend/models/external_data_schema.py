@@ -64,6 +64,11 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         default=dict,
         blank=True,
     )
+    # Normalized leaf subdir under the source's S3 folder that Delta data is written to (the actual
+    # folder name, e.g. `my_table`, not `My Table`). Pins legacy rows (renamed to qualified form
+    # during multi-schema migration) to their original path. Empty for rows written before this
+    # column existed — readers fall back to the legacy JSON key, then the normalized schema `name`.
+    s3_folder_name = models.CharField(max_length=400, null=True, blank=True)
     # Deprecated in favour of `sync_frequency_interval`
     sync_frequency = deprecate_field(
         models.CharField(max_length=128, choices=SyncFrequency, default=SyncFrequency.DAILY, blank=True)
@@ -75,11 +80,24 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     # null = sync all columns (default). Non-empty list = exact column projection.
     # PK + active incremental field are always retained server-side regardless of this list.
     enabled_columns = models.JSONField(null=True, blank=True, default=None)
+    # null (default) = sync all rows. List of {column, operator, value} predicates ANDed onto the WHERE clause.
+    row_filters = models.JSONField(null=True, blank=True, default=None)
 
     __repr__ = sane_repr("name")
 
     class Meta:
         db_table = "posthog_externaldataschema"
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        # Populate the S3 folder on first write so the column is always authoritative for new rows.
+        # Legacy/qualified rows set it explicitly before renaming (see `_qualify_legacy_row`); this
+        # only fills it when empty, so an existing folder is never overwritten by a later rename.
+        if not self.s3_folder_name and self.name and self.name.strip():
+            self.s3_folder_name = NamingConvention.normalize_identifier(self.resolved_s3_folder_name or self.name)
+            update_fields = kwargs.get("update_fields")
+            if update_fields is not None:
+                kwargs["update_fields"] = {*update_fields, "s3_folder_name"}
+        super().save(*args, **kwargs)
 
     def folder_path(self) -> str:
         return f"team_{self.team_id}_{self.source.source_type}_{str(self.id)}".lower().replace("-", "_")
@@ -237,9 +255,13 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         return None
 
     @property
-    def dwh_storage_key(self) -> str | None:
-        if self.sync_type_config:
-            return self.sync_type_config.get("dwh_storage_key")
+    def resolved_s3_folder_name(self) -> str | None:
+        # JSON fallback covers rows written by old workers before the column rollout.
+        if self.s3_folder_name:
+            return self.s3_folder_name
+        legacy_key = (self.sync_type_config or {}).get("dwh_storage_key")
+        if isinstance(legacy_key, str) and legacy_key:
+            return legacy_key
         return None
 
     @property

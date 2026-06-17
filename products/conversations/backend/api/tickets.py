@@ -1207,7 +1207,9 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
 
         person: Person | None = None
         if distinct_id != recipient_email:
-            person = get_person_by_distinct_id(team.id, distinct_id)
+            # Only person.properties is read for this lookup, so skip the distinct-id fetch.
+            with personhog_caller_tag("conversations/ticket-recipient-lookup"):
+                person = get_person_by_distinct_id(team.id, distinct_id, distinct_id_limit=0)
 
         if person is None:
             person = _get_persons_by_email(team, [recipient_email]).get(recipient_email.lower())

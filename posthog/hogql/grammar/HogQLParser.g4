@@ -278,6 +278,7 @@ columnExpr
     | columnExpr IGNORE NULLS                                                            # ColumnExprIgnoreNulls
     | columnExpr IS NOT? NULL_SQL                                                         # ColumnExprIsNull
     | columnExpr IS NOT? DISTINCT FROM columnExpr                                         # ColumnExprIsDistinctFrom
+    | columnExpr NULL_SAFE_EQ columnExpr                                                  # ColumnExprNullSafeEq  // MySQL `a <=> b` ≡ `a IS NOT DISTINCT FROM b`
     | columnExpr NULLISH columnExpr                                                       # ColumnExprNullish
     | NOT columnExpr                                                                      # ColumnExprNot
     | columnExpr AND columnExpr                                                           # ColumnExprAnd

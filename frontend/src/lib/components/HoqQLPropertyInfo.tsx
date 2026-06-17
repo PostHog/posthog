@@ -1,4 +1,4 @@
-import { midEllipsis } from 'lib/utils'
+import { midEllipsis } from 'lib/utils/strings'
 
 type HoqQLPropertyInfoProps = {
     value: string

@@ -3,6 +3,8 @@ import configPropertyMetadata from '../generated/widget-config-property-keys.jso
 import {
     activityEventsWidgetConfigSchema,
     errorTrackingWidgetConfigSchema,
+    experimentResultsWidgetConfigSchema,
+    experimentsWidgetConfigSchema,
     sessionReplayWidgetConfigSchema,
     widgetFilterEntrySchema,
 } from '../generated/widget-configs.zod'
@@ -11,6 +13,8 @@ const WIDGET_CONFIG_SCHEMAS = {
     activity_events_list: activityEventsWidgetConfigSchema,
     error_tracking_list: errorTrackingWidgetConfigSchema,
     session_replay_list: sessionReplayWidgetConfigSchema,
+    experiments_list: experimentsWidgetConfigSchema,
+    experiment_results: experimentResultsWidgetConfigSchema,
 } as const
 
 type SchemaNode = { _zod?: { def?: ZodDef } }

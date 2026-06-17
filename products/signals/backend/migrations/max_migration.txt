@@ -1,1 +1,1 @@
-0037_signalscoutemission_tags
+0041_alter_signalscoutconfig_run_interval_minutes

@@ -12,10 +12,13 @@ are compared.
 
 import os
 import math
+import importlib
+from types import ModuleType
 from typing import Any
 
 import pytest
 
+import numpy as np
 from hypothesis import (
     HealthCheck,
     assume,
@@ -38,6 +41,22 @@ pytestmark = pytest.mark.skipif(
     not os.environ.get("RUN_PBT"),
     reason="PBT tests are slow (~8 min); set RUN_PBT=1 to run",
 )
+
+# Optional `rust_edges` steering signal: only available when the loaded
+# `hogql_parser_rs` wheel was built with `--features coverage` (see
+# `rust/hogql/parser/README.md` → "Coverage-instrumented build"). Production
+# wheels do NOT expose `cov_snapshot` / `cov_reset`, so this gracefully
+# degrades to just the `ast_depth` target on a normal install. Detected at
+# import time so each test invocation is a single `hasattr` short-circuit
+# rather than a try/except.
+_hogql_parser_rs_module: ModuleType | None
+try:
+    _hogql_parser_rs_module = importlib.import_module("hogql_parser_rs")
+except ImportError:
+    _hogql_parser_rs_module = None
+_RUST_COV: bool = _hogql_parser_rs_module is not None and hasattr(_hogql_parser_rs_module, "cov_snapshot")
+# Must match `cov::BITMAP_SIZE` in rust/hogql/parser/src/cov.rs.
+_RUST_COV_BITMAP_BYTES: int = 1 << 16
 
 # ---------------------------------------------------------------------------
 # AST generation strategies
@@ -365,6 +384,28 @@ _BASE = settings(
 )
 
 
+# Cumulative edge bitmap for the `rust_edges` Pareto target — accumulates
+# across every example in this test session. Per-rule keying isn't needed
+# here (only one test method exercises the rust backend). Allocated lazily
+# to zero bytes when the rust wheel is the production (non-coverage) build,
+# so the import cost is paid only when the instrumented wheel is loaded.
+_seen_edges: np.ndarray = np.zeros(_RUST_COV_BITMAP_BYTES, dtype=np.uint8) if _RUST_COV else np.zeros(0, dtype=np.uint8)
+
+
+def _emit_rust_edges_target() -> None:
+    """Snapshot the rust edge bitmap, count edges this parse hit for the first
+    time, OR them into the cumulative `_seen_edges`, and feed the count to
+    Hypothesis `target("rust_edges", ...)`. No-op when the loaded `hogql_parser_rs`
+    wheel isn't the coverage-instrumented build (production wheels never expose
+    `cov_snapshot`). Call after each rust parse, never twice per test case."""
+    if not _RUST_COV or _hogql_parser_rs_module is None:
+        return
+    bitmap = np.frombuffer(_hogql_parser_rs_module.cov_snapshot(), dtype=np.uint8)
+    novel = int(np.count_nonzero(bitmap & ~_seen_edges))
+    np.bitwise_or(_seen_edges, bitmap, out=_seen_edges)
+    target(float(novel), label="rust_edges")
+
+
 class TestExprRoundTrip:
     """Print → parse → print yields the same HogQL string."""
 
@@ -392,7 +433,16 @@ class TestParserBackendEquivalence:
             assume(False)
             return  # type: ignore[unreachable]
 
+        # Clear the rust edge bitmap before the rust parse so the post-parse
+        # snapshot captures only edges hit by THIS example. The cpp parse
+        # doesn't touch the bitmap (cpp is a separate wheel without sancov),
+        # so it doesn't matter that it runs in the same `_parse_both_backends`
+        # call. No-op when the loaded wheel isn't the coverage build.
+        if _RUST_COV and _hogql_parser_rs_module is not None:
+            _hogql_parser_rs_module.cov_reset()
+
         rust_ast, cpp_ast = _parse_both_backends(hogql_string)
+        _emit_rust_edges_target()
 
         if rust_ast is None and cpp_ast is None:
             event("outcome", "both_reject")

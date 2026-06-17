@@ -11,11 +11,43 @@ from datetime import timedelta
 
 from django.conf import settings
 
-# Default 2 hours in production. Override via TASKS_INACTIVITY_TIMEOUT_SECONDS
-# for local testing (e.g. `TASKS_INACTIVITY_TIMEOUT_SECONDS=30` to force a fast
-# shutdown for resume-flow testing). The CI follow-up timing lives in
-# `task_management`, which now owns the loop.
-INACTIVITY_TIMEOUT = timedelta(seconds=settings.TASKS_INACTIVITY_TIMEOUT_SECONDS or 2 * 60 * 60)
+# Per-task inactivity timeout defaults (production). User-driven runs — explicitly
+# user-created, or with no origin product — get a longer idle grace window since a
+# human may still be in the loop; automated/background runs reclaim the sandbox
+# worker sooner. Under test we drop to 2 minutes so orphaned runs don't pin a
+# worker for long.
+INACTIVITY_TIMEOUT_USER_SECONDS = 60 * 60  # 1 hour
+INACTIVITY_TIMEOUT_DEFAULT_SECONDS = 30 * 60  # 30 minutes
+INACTIVITY_TIMEOUT_TEST_SECONDS = 2 * 60  # 2 minutes
+# Upper bound for a per-task inactivity override, so a bad or hostile value can't
+# keep a sandbox alive far past the intended idle window.
+MAX_INACTIVITY_TIMEOUT_SECONDS = 2 * 60 * 60  # 2 hours
+
+
+def resolve_inactivity_timeout(*, is_user_origin: bool = False, state: dict | None = None) -> timedelta:
+    """Effective inactivity timeout for a task run, in priority order.
+
+    1. A per-task override stored at creation time (`inactivity_timeout_seconds`),
+       clamped to `MAX_INACTIVITY_TIMEOUT_SECONDS`. An explicit per-task value is the
+       most specific signal, so it wins even over the global env override.
+    2. The `TASKS_INACTIVITY_TIMEOUT_SECONDS` env var (global fallback, e.g.
+       `=30` to force a fast shutdown for local resume-flow testing).
+    3. The test default (short, so orphaned runs don't pin a worker).
+    4. The origin-aware production default (longer for user-driven runs).
+    """
+    per_task = (state or {}).get("inactivity_timeout_seconds")
+    if isinstance(per_task, int | float) and not isinstance(per_task, bool) and per_task > 0:
+        return timedelta(seconds=int(min(per_task, MAX_INACTIVITY_TIMEOUT_SECONDS)))
+    if settings.TASKS_INACTIVITY_TIMEOUT_SECONDS:
+        return timedelta(seconds=settings.TASKS_INACTIVITY_TIMEOUT_SECONDS)
+    if settings.TEST:
+        return timedelta(seconds=INACTIVITY_TIMEOUT_TEST_SECONDS)
+    return timedelta(seconds=INACTIVITY_TIMEOUT_USER_SECONDS if is_user_origin else INACTIVITY_TIMEOUT_DEFAULT_SECONDS)
+
+
+# Module-level default (non-user origin, no per-task override) for callers that
+# don't have task context. The CI follow-up timing lives in `task_management`.
+INACTIVITY_TIMEOUT = resolve_inactivity_timeout()
 
 # CI follow-up cadence after the agent has been idle.
 CI_FOLLOW_UP_DELAY = timedelta(minutes=15)
