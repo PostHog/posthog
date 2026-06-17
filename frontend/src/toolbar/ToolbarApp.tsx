@@ -12,13 +12,13 @@ import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { ToolbarProps } from '~/types'
 
-import { TOOLBAR_ID } from './utils'
+import { TOOLBAR_ID, toolbarAssetBaseUrl } from './utils'
 import { webVitalsToolbarLogic } from './web-vitals/webVitalsToolbarLogic'
 
 type HTMLElementWithShadowRoot = HTMLElement & { shadowRoot: ShadowRoot }
 
 export function ToolbarApp(props: ToolbarProps = {}): JSX.Element {
-    const { apiHost } = useValues(toolbarConfigLogic(props))
+    const { apiHost, apiHostResolution } = useValues(toolbarConfigLogic(props))
 
     const shadowRef = useRef<HTMLElementWithShadowRoot | null>(null)
     const [didLoadStyles, setDidLoadStyles] = useState(false)
@@ -53,7 +53,18 @@ export function ToolbarApp(props: ToolbarProps = {}): JSX.Element {
                       const fiveMinutesInMillis = 5 * 60 * 1000
                       const timestampToNearestFiveMinutes =
                           Math.floor(Date.now() / fiveMinutesInMillis) * fiveMinutesInMillis
-                      styleLink.href = `${apiHost}/static/toolbar.css?t=${timestampToNearestFiveMinutes}`
+
+                      // apiHost falls back to the page origin when api_host / apiURL
+                      // are absent or rejected (see apiHostResolution). The customer's
+                      // own origin doesn't serve /static/toolbar.css, so in that case
+                      // load it from wherever toolbar.js itself was served — that host
+                      // is known-good because the bundle running this code came from it.
+                      const fallbackBase = apiHostResolution.source.startsWith('fallback_')
+                          ? toolbarAssetBaseUrl((window as any).__posthog_toolbar_script_src)
+                          : null
+                      styleLink.href = fallbackBase
+                          ? `${fallbackBase}toolbar.css?t=${timestampToNearestFiveMinutes}`
+                          : `${apiHost}/static/toolbar.css?t=${timestampToNearestFiveMinutes}`
                   }
 
                   styleLink.onload = () => setDidLoadStyles(true)
@@ -63,12 +74,19 @@ export function ToolbarApp(props: ToolbarProps = {}): JSX.Element {
                   // via logger + telemetry and render the toolbar anyway —
                   // missing styles is a worse UX than nothing.
                   styleLink.onerror = () => {
-                      toolbarLogger.error('config', 'Failed to load toolbar.css', { href: styleLink.href })
+                      const href = styleLink.href
+                      // Drop the `?t=` cache-buster from the thrown message: error
+                      // tracking fingerprints on message text, so keeping the rotating
+                      // timestamp spawned a brand-new issue every 5-minute bucket. The
+                      // full href is preserved as an exception property for debugging.
+                      const hrefWithoutCacheBuster = href.split('?')[0]
+                      toolbarLogger.error('config', 'Failed to load toolbar.css', { href })
                       captureToolbarException(
-                          new Error(`Failed to load toolbar.css from ${styleLink.href}`),
-                          'toolbar_css_load'
+                          new Error(`Failed to load toolbar.css from ${hrefWithoutCacheBuster}`),
+                          'toolbar_css_load',
+                          { href }
                       )
-                      toolbarPosthogJS.capture('toolbar css load failed', { href: styleLink.href })
+                      toolbarPosthogJS.capture('toolbar css load failed', { href })
                       setDidLoadStyles(true)
                   }
                   const shadowRoot =

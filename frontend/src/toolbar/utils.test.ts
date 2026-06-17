@@ -1,4 +1,4 @@
-import { asNonEmptyString, joinWithUiHost, slashDotDataAttrUnescape } from './utils'
+import { asNonEmptyString, joinWithUiHost, slashDotDataAttrUnescape, toolbarAssetBaseUrl } from './utils'
 
 describe('utils', () => {
     describe('asNonEmptyString', () => {
@@ -63,6 +63,32 @@ describe('utils', () => {
             it(`joins "${uiHost}" + "${path}"`, () => {
                 expect(joinWithUiHost(uiHost, path)).toBe(expected)
             })
+        })
+    })
+
+    describe('toolbarAssetBaseUrl', () => {
+        const testCases: Array<{ input: string | null | undefined; expected: string | null }> = [
+            {
+                input: 'https://us-assets.i.posthog.com/static/toolbar.js?t=123',
+                expected: 'https://us-assets.i.posthog.com/static/',
+            },
+            {
+                input: 'https://eu-assets.i.posthog.com/static/toolbar.js',
+                expected: 'https://eu-assets.i.posthog.com/static/',
+            },
+            {
+                input: 'https://app.example.com/static/1.358.0/toolbar.js?t=456#frag',
+                expected: 'https://app.example.com/static/1.358.0/',
+            },
+            { input: 'https://us.posthog.com/toolbar.js', expected: 'https://us.posthog.com/' },
+            { input: null, expected: null },
+            { input: undefined, expected: null },
+            { input: '', expected: null },
+            { input: 'not a url', expected: null },
+            { input: 'javascript:alert(1)//toolbar.js', expected: null },
+        ]
+        it.each(testCases)('$input -> $expected', ({ input, expected }) => {
+            expect(toolbarAssetBaseUrl(input)).toBe(expected)
         })
     })
 

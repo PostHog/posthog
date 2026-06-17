@@ -80,6 +80,14 @@ const initKeaInToolbar = ({ routerHistory, routerLocation, beforePlugins }: Init
 }
 
 const win = window as any
+
+// Capture the URL toolbar.js was served from while document.currentScript is
+// still valid (only during the synchronous execution of this script). ToolbarApp
+// uses it as a fallback host for loading toolbar.css when apiHost resolution
+// falls back to the page origin — the page's own origin won't serve PostHog's
+// static assets, but the host that served toolbar.js does.
+win['__posthog_toolbar_script_src'] = (document.currentScript as HTMLScriptElement | null)?.src ?? null
+
 win['posthogToolbarController'] = posthogToolbarController
 
 win['ph_load_toolbar'] = async function (toolbarParams: ToolbarParams, posthog?: PostHog) {

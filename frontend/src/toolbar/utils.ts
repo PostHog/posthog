@@ -701,6 +701,35 @@ export function makeNavigateWrapper(onNavigate: () => void, patchKey: string): (
     }
 }
 
+/**
+ * Derive the directory the toolbar bundle was served from (e.g.
+ * `https://us-assets.i.posthog.com/static/`) given the `<script src>` that
+ * loaded toolbar.js — i.e. the same path with the filename stripped, trailing
+ * slash kept. Returns null when the src is absent or not an http(s) URL.
+ *
+ * Used as a fallback host for loading sibling static assets (toolbar.css) when
+ * apiHost resolution falls back to the page origin: the customer's own origin
+ * doesn't serve PostHog's static assets, but the host that served toolbar.js
+ * does.
+ */
+export function toolbarAssetBaseUrl(scriptSrc: string | null | undefined): string | null {
+    if (!scriptSrc) {
+        return null
+    }
+    try {
+        const url = new URL(scriptSrc)
+        if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+            return null
+        }
+        url.search = ''
+        url.hash = ''
+        url.pathname = url.pathname.replace(/[^/]*$/, '')
+        return url.toString()
+    } catch {
+        return null
+    }
+}
+
 export function joinWithUiHost(uiHost: string, path: string): string {
     const trimmedHost = (uiHost || '').replace(/\/+$/, '')
     const trimmedPath = (path || '').trim()
