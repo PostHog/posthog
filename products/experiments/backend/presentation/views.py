@@ -253,8 +253,12 @@ class EnterpriseExperimentsViewSet(
                 queryset=FeatureFlagEvaluationContext.objects.select_related("evaluation_context"),
             ),
             Prefetch(
+                # order_by("id") keeps saved metrics in insertion order — select_related below adds
+                # joins that would otherwise leave the row order unspecified.
                 "experimenttosavedmetric_set",
-                queryset=ExperimentToSavedMetric.objects.select_related("saved_metric", "experiment__team"),
+                queryset=ExperimentToSavedMetric.objects.select_related("saved_metric", "experiment__team").order_by(
+                    "id"
+                ),
             ),
         )
         .all()
