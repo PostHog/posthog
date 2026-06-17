@@ -31,14 +31,11 @@ export const buildAlertFilterConfig = (alertId: string): CyclotronJobFiltersType
     ],
 })
 
-const INSIGHT_ALERT_SLACK_INPUTS =
-    HOG_FUNCTION_SUB_TEMPLATES[INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID].find((t) => t.template_id === 'template-slack')
+// Default inputs the alert wizard pre-fills for a destination, sourced from the shared sub-template
+// (single source of truth with the full destination picker).
+const subTemplateInputs = (templateId: string) =>
+    HOG_FUNCTION_SUB_TEMPLATES[INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID].find((t) => t.template_id === templateId)
         ?.inputs ?? {}
-
-const INSIGHT_ALERT_MICROSOFT_TEAMS_INPUTS =
-    HOG_FUNCTION_SUB_TEMPLATES[INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID].find(
-        (t) => t.template_id === 'template-microsoft-teams'
-    )?.inputs ?? {}
 
 export type PendingAlertNotification =
     | {
@@ -62,54 +59,58 @@ export function buildHogFunctionPayload(
     notification: PendingAlertNotification
 ): Partial<HogFunctionType> {
     const commonProps = HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES[INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID]
-    const base = {
+    return {
         type: commonProps.type,
         enabled: true,
         masking: null,
         filters: buildAlertFilterConfig(alertId),
+        ...buildAlertDestination(alertName ?? 'Alert', notification),
     }
+}
 
-    if (notification.type === ALERT_NOTIFICATION_TYPE_SLACK) {
-        return {
-            ...base,
-            name: `${alertName ?? 'Alert'}: Slack #${notification.slackChannelName ?? 'channel'}`,
-            template_id: 'template-slack',
-            inputs: {
-                ...INSIGHT_ALERT_SLACK_INPUTS,
-                slack_workspace: { value: notification.slackWorkspaceId },
-                channel: { value: notification.slackChannelId },
-            },
-        }
-    }
-
-    if (notification.type === ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS) {
-        return {
-            ...base,
-            name: `${alertName ?? 'Alert'}: Microsoft Teams`,
-            template_id: 'template-microsoft-teams',
-            inputs: {
-                ...INSIGHT_ALERT_MICROSOFT_TEAMS_INPUTS,
-                webhookUrl: { value: notification.webhookUrl },
-            },
-        }
-    }
-
-    return {
-        ...base,
-        name: `${alertName ?? 'Alert'}: Webhook ${notification.webhookUrl}`,
-        template_id: 'template-webhook',
-        inputs: {
-            url: { value: notification.webhookUrl },
-            body: {
-                value: {
-                    alert_name: '{event.properties.alert_name}',
-                    insight_name: '{event.properties.insight_name}',
-                    breaches: '{event.properties.breaches}',
-                    insight_url: '{project.url}/insights/{event.properties.insight_id}',
-                    alert_url:
-                        '{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}',
+// Per-destination name, template, and inputs. One exhaustive case per notification type — adding a
+// destination is a single case here plus an entry in PendingAlertNotification and the dropdown options.
+function buildAlertDestination(
+    alertName: string,
+    notification: PendingAlertNotification
+): Pick<HogFunctionType, 'name' | 'template_id' | 'inputs'> {
+    switch (notification.type) {
+        case ALERT_NOTIFICATION_TYPE_SLACK:
+            return {
+                name: `${alertName}: Slack #${notification.slackChannelName ?? 'channel'}`,
+                template_id: 'template-slack',
+                inputs: {
+                    ...subTemplateInputs('template-slack'),
+                    slack_workspace: { value: notification.slackWorkspaceId },
+                    channel: { value: notification.slackChannelId },
                 },
-            },
-        },
+            }
+        case ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS:
+            return {
+                name: `${alertName}: Microsoft Teams`,
+                template_id: 'template-microsoft-teams',
+                inputs: {
+                    ...subTemplateInputs('template-microsoft-teams'),
+                    webhookUrl: { value: notification.webhookUrl },
+                },
+            }
+        case ALERT_NOTIFICATION_TYPE_WEBHOOK:
+            return {
+                name: `${alertName}: Webhook ${notification.webhookUrl}`,
+                template_id: 'template-webhook',
+                inputs: {
+                    url: { value: notification.webhookUrl },
+                    body: {
+                        value: {
+                            alert_name: '{event.properties.alert_name}',
+                            insight_name: '{event.properties.insight_name}',
+                            breaches: '{event.properties.breaches}',
+                            insight_url: '{project.url}/insights/{event.properties.insight_id}',
+                            alert_url:
+                                '{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}',
+                        },
+                    },
+                },
+            }
     }
 }

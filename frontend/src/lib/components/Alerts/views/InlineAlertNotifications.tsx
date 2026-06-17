@@ -80,35 +80,41 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
         }
     }, [firstSlackIntegration?.id, loadAllSlackChannels, firstSlackIntegration])
 
-    const handleAdd = (): void => {
+    // Build the pending notification for the selected destination, or null if its inputs aren't ready.
+    // One branch per destination — Slack needs a channel + integration, the rest just a webhook URL.
+    const buildPendingNotification = (): PendingAlertNotification | null => {
         if (selectedType === ALERT_NOTIFICATION_TYPE_SLACK) {
             if (!slackChannelValue || !firstSlackIntegration) {
-                return
+                return null
             }
-            const parts = slackChannelValue.split('|')
-            const channelId = parts[0]
-            const channelName = parts[1]?.replace('#', '') ?? channelId
-
-            addPendingNotification({
+            const [channelId, channelLabel] = slackChannelValue.split('|')
+            return {
                 type: ALERT_NOTIFICATION_TYPE_SLACK,
                 slackWorkspaceId: firstSlackIntegration.id,
                 slackChannelId: channelId,
-                slackChannelName: channelName,
-            })
-            setSlackChannelValue(null)
-            return
+                slackChannelName: channelLabel?.replace('#', '') ?? channelId,
+            }
         }
-
         // Microsoft Teams and generic webhook are both just a single webhook URL
         if (!webhookUrl) {
+            return null
+        }
+        return selectedType === ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS
+            ? { type: ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS, webhookUrl }
+            : { type: ALERT_NOTIFICATION_TYPE_WEBHOOK, webhookUrl }
+    }
+
+    const handleAdd = (): void => {
+        const notification = buildPendingNotification()
+        if (!notification) {
             return
         }
-        addPendingNotification(
-            selectedType === ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS
-                ? { type: ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS, webhookUrl }
-                : { type: ALERT_NOTIFICATION_TYPE_WEBHOOK, webhookUrl }
-        )
-        setWebhookUrl('')
+        addPendingNotification(notification)
+        if (notification.type === ALERT_NOTIFICATION_TYPE_SLACK) {
+            setSlackChannelValue(null)
+        } else {
+            setWebhookUrl('')
+        }
     }
 
     const getNotificationLabel = (notification: PendingAlertNotification): string => {
