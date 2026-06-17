@@ -178,12 +178,14 @@ export const projectSecretAPIKeysLogic = kea<projectSecretAPIKeysLogicType>([
             (s) => [s.searchTerm, s.featureFlags],
             (searchTerm: string, featureFlags): { key: string; label: string; disabledActions: APIScopeAction[] }[] => {
                 const allActions: APIScopeAction[] = ['read', 'write']
+                // llm_gateway:read is added only when the ai-gateway flag is on, mirroring the backend.
+                const allowedScopeActions: string[] = [...PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION]
+                if (featureFlags[FEATURE_FLAGS.AI_GATEWAY]) {
+                    allowedScopeActions.push('llm_gateway:read')
+                }
                 const allowedByKey = new Map<string, Set<APIScopeAction>>()
-                for (const scopeAction of PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION) {
+                for (const scopeAction of allowedScopeActions) {
                     const [key, action] = scopeAction.split(':') as [string, APIScopeAction]
-                    if (key === 'llm_gateway' && !featureFlags[FEATURE_FLAGS.AI_GATEWAY]) {
-                        continue
-                    }
                     if (!allowedByKey.has(key)) {
                         allowedByKey.set(key, new Set())
                     }

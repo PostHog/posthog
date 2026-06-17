@@ -66,6 +66,13 @@ class ProjectSecretAPIKeySerializer(serializers.ModelSerializer):
         return getattr(obj, "_value", None)  # type: ignore
 
     def validate_scopes(self, scopes):
+        allowed = set(PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION)
+        # llm_gateway:read is privileged and kept out of the base allowlist. It's grantable when the
+        # ai-gateway flag is enabled, or when the key already carries it (so a flag rollback never
+        # makes an existing key unsaveable). The flag is only evaluated when the scope is requested.
+        if any(s.startswith("llm_gateway:") for s in scopes) and self._llm_gateway_grantable():
+            allowed.add(("llm_gateway", "read"))
+
         for scope in scopes:
             if scope == "*":
                 raise serializers.ValidationError(
@@ -80,28 +87,22 @@ class ProjectSecretAPIKeySerializer(serializers.ModelSerializer):
             ):
                 raise serializers.ValidationError(f"Invalid scope: {scope}")
 
-            if (scope_parts[0], scope_parts[1]) not in PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION:
-                allowed_scopes = ", ".join(
-                    [
-                        f"{scope_object_action[0]}:{scope_object_action[1]}"
-                        for scope_object_action in PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION
-                    ]
-                )
-                raise serializers.ValidationError(
-                    f"Scope '{scope}' can not be assigned to a project secret API key. Allowed scopes: {allowed_scopes}"
-                )
-
-            # llm_gateway scope is gated behind the ai-gateway flag, checked only when newly adding it
-            # so a flag rollback never makes existing keys unsaveable.
-            if scope_parts[0] == "llm_gateway":
-                existing_has_llm_gateway = self.instance is not None and any(
-                    s.startswith("llm_gateway:") for s in (self.instance.scopes or [])
-                )
-                if not existing_has_llm_gateway and not self._ai_gateway_enabled():
+            if (scope_parts[0], scope_parts[1]) not in allowed:
+                if (scope_parts[0], scope_parts[1]) == ("llm_gateway", "read"):
                     raise serializers.ValidationError(
                         "LLM gateway scope is not available for this project. Contact support to enable this feature."
                     )
+                allowed_scopes = ", ".join(f"{obj}:{action}" for obj, action in sorted(allowed))
+                raise serializers.ValidationError(
+                    f"Scope '{scope}' can not be assigned to a project secret API key. Allowed scopes: {allowed_scopes}"
+                )
         return scopes
+
+    def _llm_gateway_grantable(self) -> bool:
+        existing_has_llm_gateway = self.instance is not None and any(
+            s.startswith("llm_gateway:") for s in (self.instance.scopes or [])
+        )
+        return existing_has_llm_gateway or self._ai_gateway_enabled()
 
     def _ai_gateway_enabled(self) -> bool:
         team = self.context["view"].team
