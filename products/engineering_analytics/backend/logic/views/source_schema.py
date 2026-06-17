@@ -4,7 +4,7 @@ These mirror what the GitHub warehouse source actually lands: scalar columns plu
 the nested API objects (``user``, ``head``, ``base``, ``labels``, ``repository``,
 ``pull_requests``) stored verbatim as JSON strings. Timestamps land as **strings**
 and the nested objects are **Nullable**, exactly as the source produces them — the
-curated builders parse the strings (``parseDateTime64BestEffortOrNull``) and
+curated builders parse the strings (``parseDateTimeBestEffort``) and
 ``ifNull``-unwrap the Nullable JSON before any array function. The seed/test fixtures
 must use these same types, or they would pass against an idealized table while
 production 500s on the real one. Shared by the seed command and the warehouse tests

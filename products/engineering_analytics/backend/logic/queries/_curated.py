@@ -101,7 +101,7 @@ class CuratedGitHubSource:
         with the curated pull-requests source — the two steps the cards and PR-list queries always
         do together.
         """
-        return f"WITH {self.ci_rollup_cte()} {select}".replace("__PR_SOURCE__", self.pr_source())
+        return self._compose_pr_query([self.ci_rollup_cte()], select)
 
     def runs_by_pr_cte(self) -> str:
         """CTE: per-PR activity from the workflow runs attributed to each PR.
@@ -126,9 +126,11 @@ class CuratedGitHubSource:
 
     def pr_list_rollup_query(self, select: str) -> str:
         """``pr_rollup_query`` plus the per-PR runs rollup (pushes / re-run cycles)."""
-        return f"WITH {self.ci_rollup_cte()}, {self.runs_by_pr_cte()} {select}".replace(
-            "__PR_SOURCE__", self.pr_source()
-        )
+        return self._compose_pr_query([self.ci_rollup_cte(), self.runs_by_pr_cte()], select)
+
+    def _compose_pr_query(self, ctes: list[str], select: str) -> str:
+        """Prefix ``select`` with the given CTEs and fill its ``__PR_SOURCE__`` placeholder with the PR source."""
+        return f"WITH {', '.join(ctes)} {select}".replace("__PR_SOURCE__", self.pr_source())
 
     def run(
         self,

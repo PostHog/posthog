@@ -37,8 +37,8 @@ def build_query(table_name: str) -> str:
             run_attempt,
             pr_number,
             if(status = 'completed', dateDiff('second', run_started_at, updated_at), NULL) AS duration_seconds,
-            arrayElement(splitByChar('/', repo_full_name), 1) AS repo_owner,
-            arrayElement(splitByChar('/', repo_full_name), 2) AS repo_name
+            arrayElement(repo_parts, 1) AS repo_owner,
+            arrayElement(repo_parts, 2) AS repo_name
         FROM (
             SELECT
                 id,
@@ -48,7 +48,7 @@ def build_query(table_name: str) -> str:
                 conclusion,
                 run_attempt,
                 JSONExtractInt(arrayElement(JSONExtractArrayRaw(ifNull(pull_requests, '[]')), 1), 'number') AS pr_number,
-                ifNull(JSONExtractString(repository, 'full_name'), '') AS repo_full_name,
+                splitByChar('/', ifNull(JSONExtractString(repository, 'full_name'), '')) AS repo_parts,
                 parseDateTimeBestEffort(run_started_at) AS run_started_at,
                 parseDateTimeBestEffort(updated_at) AS updated_at,
                 parseDateTimeBestEffort(created_at) AS created_at
