@@ -195,6 +195,21 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "and the connection details are correct, then re-enable the sync."
             ),
             "error received from server in SCRAM exchange: Wrong password": None,
+            # The server (commonly Supabase's Supavisor transaction pooler on port 6543) rejects the
+            # SASL/SCRAM credential exchange with "FATAL: SASL authentication failed" instead of
+            # PostgreSQL's "password authentication failed for user" — so none of the password keys
+            # above substring-match it and Temporal keeps retrying a credential mismatch that only the
+            # customer can fix. It surfaces alone via `str(e)`: when `options` is rejected first, the
+            # no-`options` reconnect raises this and the "unsupported startup parameter: options"
+            # error is only its chained context (which `str(e)` drops). Auth rejection is
+            # deterministic, never a transient blip, so stop retrying.
+            "SASL authentication failed": (
+                "Your database rejected the credentials during authentication "
+                '("SASL authentication failed"). This usually means the username or password is '
+                "wrong. Some connection poolers (for example Supabase's transaction pooler) also "
+                "require a pooler-specific username such as postgres.<project-ref>. Check your "
+                "credentials, then re-enable the sync."
+            ),
             "could not translate host name": None,
             "timeout expired connection to server at": None,
             "password authentication failed for user": None,

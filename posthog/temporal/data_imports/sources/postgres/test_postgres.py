@@ -346,6 +346,35 @@ class TestPostgresSourceNonRetryableErrors:
         assert "password authentication failed for user" not in error_msg
         assert any(pattern in error_msg for pattern in non_retryable.keys())
 
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Supabase's Supavisor transaction pooler (port 6543) rejects bad credentials with
+            # "FATAL: SASL authentication failed" rather than PostgreSQL's "password authentication
+            # failed for user". When `options` is rejected first, this is the message that propagates
+            # via str(e) (the options error is only the chained context). Host/port are volatile.
+            'connection failed: connection to server at "52.57.91.216", port 6543 failed: FATAL:  SASL authentication failed connection to server at "52.57.91.216", port 6543 failed: FATAL:  SASL authentication failed',
+            'OperationalError: connection failed: connection to server at "10.0.0.1", port 6543 failed: FATAL:  SASL authentication failed',
+        ],
+    )
+    def test_sasl_authentication_failed_is_non_retryable(self, source, error_msg):
+        # The PostgreSQL "password authentication failed for user" key doesn't substring-match the
+        # pooler's SASL wording, so confirm the dedicated key recognises it independent of host/port.
+        non_retryable = source.get_non_retryable_errors()
+        assert "SASL authentication failed" in non_retryable
+        assert "password authentication failed for user" not in error_msg
+        assert any(pattern in error_msg for pattern in non_retryable.keys())
+
+    def test_sasl_authentication_failed_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = (
+            'connection failed: connection to server at "52.57.91.216", port 6543 failed: '
+            "FATAL:  SASL authentication failed"
+        )
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "SASL authentication failure should surface an actionable message"
+        assert "credentials" in friendly[0]
+
     def test_supavisor_enotfound_tenant_user_uses_new_key(self, source):
         # The older tenant/user patterns don't cover the newer "(ENOTFOUND) tenant/user" wording,
         # so confirm it's specifically the new key that recognises this message.
