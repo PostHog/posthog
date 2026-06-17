@@ -62,6 +62,7 @@ PERSON_PROPERTIES_ADAPTED_FROM_EVENT: set[str] = {
     "$current_url",
     "$pathname",
     "$os",
+    "$os_name",
     "$os_version",
     "$referring_domain",
     "$referrer",
@@ -1259,7 +1260,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$os_name": {
             "label": "OS name",
-            "description": "The Operating System name",
+            "description": "The Operating System name.",
             "examples": ["iOS", "Android"],
         },
         "$os_version": {

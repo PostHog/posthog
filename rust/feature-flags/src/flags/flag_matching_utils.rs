@@ -148,6 +148,33 @@ pub fn populate_missing_initial_properties(properties: &mut HashMap<String, Valu
     }
 }
 
+/// Mirrors `$os` and `$os_name` so a flag condition keyed on either property
+/// matches when the person row carries only one of them.
+///
+/// Web SDKs (posthog-js) report the OS as `$os`; mobile SDKs report it as
+/// `$os_name`. Ingestion normalizes `$os_name` -> `$os` at write time
+/// (`personInitialAndUTMProperties` in nodejs/src/utils/db/utils.ts), but that
+/// only covers newly-written rows — historical and un-normalized person rows can
+/// carry only one of the two keys. Flag matching does exact-key lookups, so
+/// without this a mobile person whose row has only `$os_name` never matches an
+/// `$os` filter (and vice versa). The mirror is bidirectional so either filter
+/// key works regardless of which key the person row happens to carry.
+///
+/// Only the missing key is filled — an already-present value is never
+/// overwritten, so request overrides keep precedence over their own key.
+pub fn populate_os_aliases(properties: &mut HashMap<String, Value>) {
+    match (properties.get("$os"), properties.get("$os_name")) {
+        (Some(os), None) => {
+            properties.insert("$os_name".to_string(), os.clone());
+        }
+        (None, Some(os_name)) => {
+            properties.insert("$os".to_string(), os_name.clone());
+        }
+        // Both present or both absent: nothing to mirror.
+        _ => {}
+    }
+}
+
 /// Result from the person + static cohort query branch.
 struct PersonCohortResult {
     person: Option<Person>,
@@ -2456,6 +2483,64 @@ mod tests {
         // Existing $initial_ should NOT be overwritten
         assert_eq!(properties.get("$initial_browser"), Some(&json!("Chrome")));
         assert_eq!(properties.get("$browser"), Some(&json!("Firefox")));
+    }
+
+    #[test]
+    fn test_populate_os_aliases_fills_os_from_os_name() {
+        let mut properties = HashMap::from([("$os_name".to_string(), json!("Android"))]);
+
+        populate_os_aliases(&mut properties);
+
+        assert_eq!(properties.get("$os"), Some(&json!("Android")));
+        assert_eq!(properties.get("$os_name"), Some(&json!("Android")));
+    }
+
+    #[test]
+    fn test_populate_os_aliases_fills_os_name_from_os() {
+        let mut properties = HashMap::from([("$os".to_string(), json!("iOS"))]);
+
+        populate_os_aliases(&mut properties);
+
+        assert_eq!(properties.get("$os_name"), Some(&json!("iOS")));
+        assert_eq!(properties.get("$os"), Some(&json!("iOS")));
+    }
+
+    #[test]
+    fn test_populate_os_aliases_preserves_both_when_present() {
+        let mut properties = HashMap::from([
+            ("$os".to_string(), json!("iOS")),
+            ("$os_name".to_string(), json!("iPadOS")),
+        ]);
+
+        populate_os_aliases(&mut properties);
+
+        // Neither value is overwritten when both keys already exist.
+        assert_eq!(properties.get("$os"), Some(&json!("iOS")));
+        assert_eq!(properties.get("$os_name"), Some(&json!("iPadOS")));
+    }
+
+    #[test]
+    fn test_populate_os_aliases_noop_when_neither_present() {
+        let mut properties = HashMap::from([("$browser".to_string(), json!("Chrome"))]);
+
+        populate_os_aliases(&mut properties);
+
+        assert!(!properties.contains_key("$os"));
+        assert!(!properties.contains_key("$os_name"));
+        assert_eq!(properties.len(), 1);
+    }
+
+    #[test]
+    fn test_populate_os_aliases_then_initial_backfills_initial_os() {
+        // Mobile person row carries only $os_name; the alias should let $initial_os
+        // get backfilled by populate_missing_initial_properties.
+        let mut properties = HashMap::from([("$os_name".to_string(), json!("Android"))]);
+
+        populate_os_aliases(&mut properties);
+        populate_missing_initial_properties(&mut properties);
+
+        assert_eq!(properties.get("$os"), Some(&json!("Android")));
+        assert_eq!(properties.get("$initial_os"), Some(&json!("Android")));
     }
 
     #[test]

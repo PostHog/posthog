@@ -2070,7 +2070,7 @@
             "label": "OS distro"
         },
         "$os_name": {
-            "description": "The Operating System name",
+            "description": "The Operating System name.",
             "examples": [
                 "iOS",
                 "Android"
@@ -5494,6 +5494,14 @@
             ],
             "label": "Initial OS"
         },
+        "$initial_os_name": {
+            "description": "The Operating System name. Data from the first time this user was seen.",
+            "examples": [
+                "iOS",
+                "Android"
+            ],
+            "label": "Initial OS name"
+        },
         "$initial_os_version": {
             "description": "The Operating System version. Data from the first time this user was seen.",
             "examples": [
@@ -6015,12 +6023,12 @@
             "label": "OS distro"
         },
         "$os_name": {
-            "description": "The Operating System name",
+            "description": "The Operating System name. Data from the last time this user was seen.",
             "examples": [
                 "iOS",
                 "Android"
             ],
-            "label": "OS name"
+            "label": "Latest OS name"
         },
         "$os_version": {
             "description": "The Operating System version. Data from the last time this user was seen.",

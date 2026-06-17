@@ -12,7 +12,7 @@ use crate::flags::flag_match_reason::FeatureFlagMatchReason;
 use crate::flags::flag_matching_utils::{
     calculate_hash, fetch_and_locally_cache_all_relevant_properties,
     get_feature_flag_hash_key_overrides, match_flag_value_to_flag_filter,
-    populate_missing_initial_properties, set_feature_flag_hash_key_overrides,
+    populate_missing_initial_properties, populate_os_aliases, set_feature_flag_hash_key_overrides,
     should_write_hash_key_override,
 };
 use crate::flags::flag_models::{
@@ -1695,6 +1695,11 @@ impl FeatureFlagMatcher {
         if let Some(overrides) = property_overrides {
             merged_properties.extend(overrides.iter_owned());
         }
+
+        // Mirror $os <-> $os_name so a condition keyed on either matches when the
+        // person row carries only one of them (web reports $os, mobile $os_name).
+        // Runs before initial-property population so an aliased $os can backfill $initial_os.
+        populate_os_aliases(&mut merged_properties);
 
         // Populate missing $initial_ properties from their non-initial counterparts.
         // DB $initial_ values are preserved; this only fills in missing ones from
