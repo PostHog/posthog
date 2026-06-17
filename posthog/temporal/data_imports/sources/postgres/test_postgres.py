@@ -23,6 +23,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     QueryTimeoutException,
     TemporaryFileSizeExceedsLimitException,
 )
+from posthog.temporal.data_imports.sources.common.sql.predicates import ColumnTypeCategory, ValidatedRowFilter
 from posthog.temporal.data_imports.sources.postgres.partitioned_tables import (
     WINDOW_MAX_QUERY_CANCELED_RETRIES,
     WINDOW_MAX_SERIALIZATION_RETRIES,
@@ -2008,6 +2009,103 @@ class TestBuildQuery:
         assert '"cursor" > ' in rendered
         assert '"cursor" >= ' not in rendered
 
+    def test_row_filter_full_refresh(self):
+        query = _build_query(
+            "public",
+            "users",
+            False,
+            "table",
+            None,
+            None,
+            None,
+            row_filters=[ValidatedRowFilter(column="age", operator=">", value=21, category=ColumnTypeCategory.INTEGER)],
+        )
+        rendered = self._render(query)
+        assert 'WHERE "age" > 21' in rendered
+
+    def test_row_filter_composes_with_incremental(self):
+        query = _build_query(
+            "public",
+            "events",
+            True,
+            "table",
+            "created_at",
+            IncrementalFieldType.Timestamp,
+            "2024-01-01",
+            row_filters=[ValidatedRowFilter(column="age", operator=">", value=21, category=ColumnTypeCategory.INTEGER)],
+        )
+        rendered = self._render(query)
+        assert '"created_at"' in rendered
+        assert 'AND "age" > 21' in rendered
+        assert rendered.rstrip().endswith('ORDER BY "created_at" ASC')
+
+    def test_row_filter_in_list_renders_parenthesized(self):
+        query = _build_query(
+            "public",
+            "users",
+            False,
+            "table",
+            None,
+            None,
+            None,
+            row_filters=[
+                ValidatedRowFilter(column="age", operator="IN", value=[21, 30, 40], category=ColumnTypeCategory.INTEGER)
+            ],
+        )
+        rendered = self._render(query)
+        assert 'WHERE "age" IN (21, 30, 40)' in rendered
+
+    def test_row_filter_composes_with_windowed_upper_bound(self):
+        query = _build_query(
+            "public",
+            "events",
+            True,
+            "table",
+            "cursor",
+            IncrementalFieldType.Date,
+            date(2026, 5, 13),
+            upper_bound_inclusive=date(2026, 5, 14),
+            row_filters=[ValidatedRowFilter(column="age", operator=">", value=21, category=ColumnTypeCategory.INTEGER)],
+        )
+        rendered = self._render(query)
+        # Row filter is ANDed after the window's upper bound, before ORDER BY.
+        assert '"cursor" <= ' in rendered
+        assert 'AND "age" > 21' in rendered
+        assert rendered.index('"cursor" <= ') < rendered.index('"age" > 21')
+
+    def test_row_filter_not_applied_to_sampling(self):
+        query = _build_query(
+            "public",
+            "users",
+            False,
+            "table",
+            None,
+            None,
+            None,
+            add_sampling=True,
+            row_filters=[ValidatedRowFilter(column="age", operator=">", value=21, category=ColumnTypeCategory.INTEGER)],
+        )
+        rendered = self._render(query)
+        assert '"age"' not in rendered
+
+    def test_row_filter_string_value_is_escaped_literal(self):
+        query = _build_query(
+            "public",
+            "users",
+            False,
+            "table",
+            None,
+            None,
+            None,
+            row_filters=[
+                ValidatedRowFilter(
+                    column="name", operator="=", value="x'; DROP TABLE y; --", category=ColumnTypeCategory.STRING
+                )
+            ],
+        )
+        rendered = self._render(query)
+        assert "'x''; DROP TABLE y; --'" in rendered
+
 
 class TestBuildPartitionQuery:
     def _render(self, composed: sql.Composed) -> str:
@@ -2071,6 +2169,34 @@ class TestBuildPartitionQuery:
         )
         rendered = self._render(query)
         assert f'"cursor" {expected_operator} ' in rendered
+
+    def test_row_filter_full_refresh(self):
+        query = build_partition_query(
+            "public",
+            "events_2026_01",
+            should_use_incremental_field=False,
+            incremental_field=None,
+            incremental_field_type=None,
+            db_incremental_field_last_value=None,
+            row_filters=[ValidatedRowFilter(column="age", operator=">", value=21, category=ColumnTypeCategory.INTEGER)],
+        )
+        rendered = self._render(query)
+        assert 'WHERE "age" > 21' in rendered
+
+    def test_row_filter_composes_with_incremental(self):
+        query = build_partition_query(
+            "public",
+            "events_2026_01",
+            should_use_incremental_field=True,
+            incremental_field="created_at",
+            incremental_field_type=IncrementalFieldType.Timestamp,
+            db_incremental_field_last_value="2026-01-15",
+            row_filters=[ValidatedRowFilter(column="age", operator=">", value=21, category=ColumnTypeCategory.INTEGER)],
+        )
+        rendered = self._render(query)
+        assert '"created_at" > ' in rendered
+        assert 'AND "age" > 21' in rendered
+        assert rendered.rstrip().endswith('ORDER BY "created_at" ASC')
 
 
 class TestBuildCountQuery:

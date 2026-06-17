@@ -80,6 +80,8 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     # null = sync all columns (default). Non-empty list = exact column projection.
     # PK + active incremental field are always retained server-side regardless of this list.
     enabled_columns = models.JSONField(null=True, blank=True, default=None)
+    # null (default) = sync all rows. List of {column, operator, value} predicates ANDed onto the WHERE clause.
+    row_filters = models.JSONField(null=True, blank=True, default=None)
 
     __repr__ = sane_repr("name")
 

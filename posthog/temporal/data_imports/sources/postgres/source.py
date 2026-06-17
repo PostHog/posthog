@@ -732,6 +732,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             require_ssl=require_ssl,
             is_initial_sync=not schema.initial_sync_complete,
             enabled_columns=inputs.enabled_columns,
+            row_filters=inputs.row_filters,
         )
         # `SourceResponse.name` must match `DataWarehouseTable.url_pattern` (both derived from the
         # storage key when present, otherwise the row name) so HogQL reads from where we wrote.
