@@ -331,11 +331,16 @@ export class PostgresGroupRepository
         projectId: ProjectId,
         groupType: string,
         index: number,
+        createdAt?: DateTime,
         tx?: TransactionClient
     ): Promise<[GroupTypeIndex | null, boolean]> {
         if (index < 0 || index >= MAX_GROUP_TYPES_PER_TEAM) {
             return [null, false]
         }
+
+        // Stamp created_at from the triggering event's timestamp so historical imports don't get a
+        // wall-clock date that postdates their events — HogQL masks $group_N for events older than this.
+        const createdAt_ = createdAt ?? DateTime.now()
 
         const insertGroupTypeResult = await this.postgres.query(
             tx ?? PostgresUse.PERSONS_WRITE,
@@ -350,12 +355,12 @@ export class PostgresGroupRepository
             UNION
             SELECT group_type_index, 0 AS is_insert FROM posthog_grouptypemapping WHERE project_id = $2 AND group_type = $3;
             `,
-            [teamId, projectId, groupType, index, new Date()],
+            [teamId, projectId, groupType, index, createdAt_.toISO()],
             'insertGroupType'
         )
 
         if (insertGroupTypeResult.rows.length == 0) {
-            return await this.insertGroupType(teamId, projectId, groupType, index + 1, tx)
+            return await this.insertGroupType(teamId, projectId, groupType, index + 1, createdAt_, tx)
         }
 
         const { group_type_index, is_insert } = insertGroupTypeResult.rows[0]

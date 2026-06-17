@@ -1,3 +1,5 @@
+import { DateTime } from 'luxon'
+
 import { createTeam, getTeam, resetTestDatabase } from '../../../tests/helpers/sql'
 import { Hub, ProjectId, TeamId } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
@@ -198,6 +200,38 @@ describe('GroupTypeManager()', () => {
                 g3: 3,
                 g4: 4,
             })
+        })
+
+        it('stamps created_at from the provided event timestamp', async () => {
+            const eventTimestamp = DateTime.fromISO('2020-01-01T00:00:00.000Z', { zone: 'utc' })
+
+            expect(
+                await groupTypeManager.fetchGroupTypeIndex(2 as TeamId, 2 as ProjectId, 'foo', eventTimestamp)
+            ).toEqual(0)
+
+            const { rows } = await hub.postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                "SELECT created_at FROM posthog_grouptypemapping WHERE project_id = 2 AND group_type = 'foo'",
+                undefined,
+                'fetchCreatedAt'
+            )
+            expect(DateTime.fromISO(rows[0].created_at).toMillis()).toEqual(eventTimestamp.toMillis())
+        })
+
+        it('falls back to now when no event timestamp is provided', async () => {
+            const before = Date.now()
+            expect(await groupTypeManager.fetchGroupTypeIndex(2 as TeamId, 2 as ProjectId, 'foo')).toEqual(0)
+            const after = Date.now()
+
+            const { rows } = await hub.postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                "SELECT created_at FROM posthog_grouptypemapping WHERE project_id = 2 AND group_type = 'foo'",
+                undefined,
+                'fetchCreatedAt'
+            )
+            const storedMs = DateTime.fromISO(rows[0].created_at).toMillis()
+            expect(storedMs).toBeGreaterThanOrEqual(before - 1000)
+            expect(storedMs).toBeLessThanOrEqual(after + 1000)
         })
 
         it('uses next available index after a group type is deleted', async () => {

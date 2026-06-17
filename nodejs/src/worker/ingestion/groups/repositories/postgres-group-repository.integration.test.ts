@@ -1476,7 +1476,7 @@ describe('PostgresGroupRepository Integration', () => {
             await insertTestTeam(teamId)
 
             const result = await repository.inRawTransaction('test insertGroupType raw transaction', async (tx) => {
-                return await repository.insertGroupType(teamId, teamId as ProjectId, 'company', 0, tx)
+                return await repository.insertGroupType(teamId, teamId as ProjectId, 'company', 0, undefined, tx)
             })
 
             expect(result).toEqual([0, true])

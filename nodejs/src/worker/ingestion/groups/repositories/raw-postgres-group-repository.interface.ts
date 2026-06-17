@@ -89,6 +89,7 @@ export interface RawPostgresGroupRepository {
         projectId: ProjectId,
         groupType: string,
         index: number,
+        createdAt?: DateTime,
         tx?: TransactionClient
     ): Promise<[GroupTypeIndex | null, boolean]>
 

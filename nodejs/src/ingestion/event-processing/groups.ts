@@ -1,3 +1,5 @@
+import { DateTime } from 'luxon'
+
 import { Properties } from '~/plugin-scaffold'
 
 import { GroupTypeToColumnIndex, ProjectId, TeamId } from '../../types'
@@ -25,7 +27,8 @@ export async function addGroupProperties(
     teamId: TeamId,
     projectId: ProjectId,
     properties: Properties,
-    groupTypeManager: GroupTypeManager
+    groupTypeManager: GroupTypeManager,
+    eventTimestamp?: DateTime
 ): Promise<Properties> {
     const groups = properties.$groups
     if (typeof groups !== 'object' || groups === null || Array.isArray(groups)) {
@@ -33,7 +36,7 @@ export async function addGroupProperties(
     }
     const resolvedTypes: GroupTypeToColumnIndex = {}
     for (const [groupType] of Object.entries(groups)) {
-        const columnIndex = await groupTypeManager.fetchGroupTypeIndex(teamId, projectId, groupType)
+        const columnIndex = await groupTypeManager.fetchGroupTypeIndex(teamId, projectId, groupType, eventTimestamp)
         if (columnIndex !== null) {
             resolvedTypes[groupType] = columnIndex
         }

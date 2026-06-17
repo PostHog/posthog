@@ -1,3 +1,5 @@
+import { DateTime } from 'luxon'
+
 import { GroupTypeIndex, GroupTypeToColumnIndex, GroupTypesByProjectId, ProjectId, Team, TeamId } from '../../types'
 import { timeoutGuard } from '../../utils/db/utils'
 import { LazyLoader } from '../../utils/lazy-loader'
@@ -56,7 +58,8 @@ export class GroupTypeManager {
     public async fetchGroupTypeIndex(
         teamId: TeamId,
         projectId: ProjectId,
-        groupType: string
+        groupType: string,
+        eventTimestamp?: DateTime
     ): Promise<GroupTypeIndex | null> {
         const groupTypes = await this.fetchGroupTypes(projectId)
         if (groupType in groupTypes) {
@@ -73,11 +76,14 @@ export class GroupTypeManager {
             nextAvailableIndex++
         }
 
+        // Use the triggering event's timestamp as the mapping's created_at, so historical imports
+        // register the group type as of the event rather than wall-clock now (which would mask them).
         const [groupTypeIndex, isInsert] = await this.groupRepository.insertGroupType(
             teamId,
             projectId,
             groupType,
-            nextAvailableIndex
+            nextAvailableIndex,
+            eventTimestamp
         )
         if (groupTypeIndex !== null) {
             this.loader.markForRefresh(projectId.toString())
