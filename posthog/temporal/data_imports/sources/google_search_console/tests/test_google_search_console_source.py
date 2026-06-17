@@ -79,6 +79,19 @@ def test_get_resumable_source_manager_uses_resume_config():
 
 
 @pytest.mark.parametrize(
+    "error_message",
+    [
+        "invalid_grant",
+        # The real RefreshError raised when AuthorizedSession refreshes a revoked/expired token.
+        "RefreshError: ('invalid_grant: Bad Request', {'error': 'invalid_grant', 'error_description': 'Bad Request'})",
+    ],
+)
+def test_invalid_grant_is_non_retryable(error_message):
+    non_retryable_errors = GoogleSearchConsoleSource().get_non_retryable_errors()
+    assert any(key in error_message for key in non_retryable_errors)
+
+
+@pytest.mark.parametrize(
     "status_code,expected_substring",
     [
         (401, "rejected the credentials"),
@@ -106,6 +119,51 @@ def test_validate_credentials_handles_auth_failures(status_code, expected_substr
 
     assert ok is False
     assert expected_substring in (message or "")
+
+
+def test_validate_credentials_missing_integration_returns_reconnect_message():
+    from posthog.models.integration import Integration
+
+    with mock.patch(
+        "posthog.temporal.data_imports.sources.google_search_console.source.google_search_console_session",
+        side_effect=Integration.DoesNotExist(),
+    ):
+        ok, message = GoogleSearchConsoleSource().validate_credentials(_config(), team_id=1)
+
+    assert ok is False
+    assert "no longer exists" in (message or "")
+    assert "Integration matching query" not in (message or "")
+
+
+@pytest.mark.parametrize(
+    "error_args,banned_substring",
+    [
+        (
+            ("invalid_scope: Bad Request", {"error": "invalid_scope", "error_description": "Bad Request"}),
+            "invalid_scope",
+        ),
+        (
+            ("invalid_grant: Token has been expired or revoked.", {"error": "invalid_grant"}),
+            "invalid_grant",
+        ),
+    ],
+)
+def test_validate_credentials_refresh_error_returns_reconnect_message(error_args, banned_substring):
+    from google.auth.exceptions import RefreshError
+
+    err = RefreshError(*error_args)
+    with (
+        mock.patch("posthog.temporal.data_imports.sources.google_search_console.source.google_search_console_session"),
+        mock.patch(
+            "posthog.temporal.data_imports.sources.google_search_console.source.list_sites",
+            side_effect=err,
+        ),
+    ):
+        ok, message = GoogleSearchConsoleSource().validate_credentials(_config(), team_id=1)
+
+    assert ok is False
+    assert "reconnect your Google account" in (message or "")
+    assert banned_substring not in (message or "")
 
 
 def test_validate_credentials_rejects_unknown_site():
@@ -140,6 +198,36 @@ def test_validate_credentials_rejects_unverified_user():
     assert "verified access" in (message or "")
 
 
+@pytest.mark.parametrize(
+    "entered,site_url",
+    [
+        # Percent-encoded domain property copied from a URL bar.
+        ("sc-domain%3Aexample.com", "sc-domain:example.com"),
+        # URL-prefix property missing its trailing slash.
+        ("https://example.com", "https://example.com/"),
+        # Full Search Console UI URL pasted in.
+        (
+            "https://search.google.com/search-console/performance/search-analytics"
+            "?resource_id=https%3A%2F%2Fexample.com%2F",
+            "https://example.com/",
+        ),
+    ],
+)
+def test_validate_credentials_normalizes_site_url_before_lookup(entered, site_url):
+    config = GoogleSearchConsoleSourceConfig(site_url=entered, google_search_console_integration_id=1)
+    with (
+        mock.patch("posthog.temporal.data_imports.sources.google_search_console.source.google_search_console_session"),
+        mock.patch(
+            "posthog.temporal.data_imports.sources.google_search_console.source.list_sites",
+            return_value=[{"siteUrl": site_url, "permissionLevel": "siteOwner"}],
+        ),
+    ):
+        ok, message = GoogleSearchConsoleSource().validate_credentials(config, team_id=1)
+
+    assert ok is True
+    assert message is None
+
+
 def test_validate_credentials_succeeds_for_verified_site():
     with (
         mock.patch("posthog.temporal.data_imports.sources.google_search_console.source.google_search_console_session"),
@@ -154,3 +242,17 @@ def test_validate_credentials_succeeds_for_verified_site():
 
     assert ok is True
     assert message is None
+
+
+def test_validate_credentials_handles_missing_integration():
+    # A disconnected/deleted OAuth integration makes the credentials lookup raise
+    # `Integration.DoesNotExist` ("... matching query does not exist"). Surface an
+    # actionable reconnect message instead of the raw ORM error.
+    with mock.patch(
+        "posthog.temporal.data_imports.sources.google_search_console.source.google_search_console_session",
+        side_effect=Exception("Integration matching query does not exist"),
+    ):
+        ok, message = GoogleSearchConsoleSource().validate_credentials(_config(), team_id=1)
+
+    assert ok is False
+    assert "reconnect your Google Search Console account" in (message or "")

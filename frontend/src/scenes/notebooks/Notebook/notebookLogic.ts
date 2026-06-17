@@ -33,16 +33,20 @@ import type { TextChange } from 'lib/components/MarkdownNotebook/collaboration'
 import {
     normalizeNotebookAIAgentArtifactMarkdown,
     preserveNotebookAIAgentNode,
+    stripNotebookAgentsFromMarkdown,
 } from 'lib/components/MarkdownNotebook/notebookAgents'
 import type { MarkdownNotebookCaretPosition, RemoteNotebookCaret } from 'lib/components/MarkdownNotebook/remoteCarets'
 import type { NotebookCollaborationConflict } from 'lib/components/MarkdownNotebook/types'
 import { EditorRange, JSONContent } from 'lib/components/RichContentEditor/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { base64Decode, base64Encode, downloadFile, objectsEqual, slugify } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
+import { base64Decode, base64Encode } from 'lib/utils/base64'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { downloadFile } from 'lib/utils/dom'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import { objectsEqual } from 'lib/utils/objects'
+import { slugify } from 'lib/utils/strings'
 import { commentsLogic } from 'scenes/comments/commentsLogic'
 import { urls } from 'scenes/urls'
 
@@ -129,6 +133,18 @@ const NOTEBOOK_REFRESH_MS = window.location.origin === 'http://localhost:8000' ?
 
 function getNotebookTextContent(content: JSONContent | null | undefined, editorText: string): string {
     return getMarkdownNotebookTextContent(content) ?? editorText
+}
+
+function stripNotebookAgentsFromContent(content: JSONContent | null | undefined): JSONContent | null | undefined {
+    if (!isMarkdownNotebookContent(content)) {
+        return content
+    }
+
+    const markdown = getMarkdownNotebookMarkdown(content)
+    const strippedMarkdown = stripNotebookAgentsFromMarkdown(markdown)
+    return strippedMarkdown === markdown
+        ? content
+        : buildMarkdownNotebookContent(strippedMarkdown, getMarkdownNotebookNodeId(content))
 }
 
 export type NotebookLogicMode = 'notebook' | 'canvas'
@@ -613,6 +629,8 @@ export const notebookLogic = kea<notebookLogicType>([
                         return values.notebook
                     }
 
+                    const notebookContent = stripNotebookAgentsFromContent(notebook.content) ?? notebook.content
+
                     if (values.collabEnabled && values.ttEditor) {
                         const sendable = sendableSteps(values.ttEditor.state)
                         if (!sendable) {
@@ -675,10 +693,10 @@ export const notebookLogic = kea<notebookLogicType>([
                         }
                     }
 
-                    if (values.markdownRealtimeEnabled && isMarkdownNotebookContent(notebook.content)) {
+                    if (values.markdownRealtimeEnabled && isMarkdownNotebookContent(notebookContent)) {
                         const baselineVersion = values.notebook.version
                         const baseMarkdown = getMarkdownNotebookMarkdown(values.notebook.content)
-                        const nextMarkdown = getMarkdownNotebookMarkdown(notebook.content)
+                        const nextMarkdown = getMarkdownNotebookMarkdown(notebookContent)
                         const nodeId = getMarkdownNotebookNodeId(values.notebook.content)
 
                         if (nextMarkdown === baseMarkdown) {
@@ -697,8 +715,8 @@ export const notebookLogic = kea<notebookLogicType>([
                             const response = await api.notebooks.markdownSave(values.notebook.short_id, {
                                 client_id: cache.markdownClientId,
                                 version: baselineVersion,
-                                content: notebook.content,
-                                text_content: getNotebookTextContent(notebook.content, ''),
+                                content: notebookContent,
+                                text_content: getNotebookTextContent(notebookContent, ''),
                                 title: notebook.title,
                                 cursor: cache.lastMarkdownCaret
                                     ? caretPositionToApiCursor(cache.lastMarkdownCaret)
@@ -768,8 +786,8 @@ export const notebookLogic = kea<notebookLogicType>([
                     try {
                         const response = await api.notebooks.update(values.notebook.short_id, {
                             version: values.notebook.version,
-                            content: notebook.content,
-                            text_content: getNotebookTextContent(notebook.content, values.editor?.getText() || ''),
+                            content: notebookContent,
+                            text_content: getNotebookTextContent(notebookContent, values.editor?.getText() || ''),
                             title: notebook.title,
                         })
 
@@ -777,7 +795,7 @@ export const notebookLogic = kea<notebookLogicType>([
                             response.content &&
                             values.editor &&
                             values.localContent &&
-                            notebook.content === values.localContent
+                            notebookContent === values.localContent
                         ) {
                             const currentEditorContent = values.editor.getJSON()
                             if (JSON.stringify(response.content) !== JSON.stringify(currentEditorContent)) {
@@ -1794,16 +1812,16 @@ export const notebookLogic = kea<notebookLogicType>([
             downloadFile(file)
         },
         downloadMarkdown: () => {
-            const file = new File(
-                [getMarkdownNotebookMarkdown(values.content)],
-                `${slugify(values.title ?? 'untitled')}.md`,
-                { type: 'text/markdown' }
-            )
+            const markdown = stripNotebookAgentsFromMarkdown(getMarkdownNotebookMarkdown(values.content))
+            const file = new File([markdown], `${slugify(values.title ?? 'untitled')}.md`, { type: 'text/markdown' })
 
             downloadFile(file)
         },
         copyMarkdown: async () => {
-            await copyToClipboard(getMarkdownNotebookMarkdown(values.content), 'markdown')
+            await copyToClipboard(
+                stripNotebookAgentsFromMarkdown(getMarkdownNotebookMarkdown(values.content)),
+                'markdown'
+            )
         },
 
         discardLocalChanges: () => {

@@ -219,14 +219,14 @@ export function RemoteCaretOverlay({
     blockRefs,
     listItemRefs,
     containerRef,
-    onCaretClick,
+    onAgentCaretDismiss,
 }: {
     carets: RemoteNotebookCaret[]
     nodes: NotebookBlockNode[]
     blockRefs: MutableRefObject<Record<string, HTMLElement | null>>
     listItemRefs: MutableRefObject<Record<string, HTMLElement | null>>
     containerRef: RefObject<HTMLElement | null>
-    onCaretClick?: (caret: RemoteNotebookCaret) => void
+    onAgentCaretDismiss?: (caret: RemoteNotebookCaret) => void
 }): JSX.Element | null {
     const [layouts, setLayouts] = useState<Record<string, RemoteCaretLayout>>({})
 
@@ -269,13 +269,13 @@ export function RemoteCaretOverlay({
     }
 
     return (
-        <div className="MarkdownNotebook__remote-carets" aria-hidden={onCaretClick ? undefined : true}>
+        <div className="MarkdownNotebook__remote-carets" aria-hidden={onAgentCaretDismiss ? undefined : true}>
             {carets.map((caret) => {
                 const layout = layouts[caret.clientId]
                 if (!layout) {
                     return null
                 }
-                const isClickable = caret.kind === 'agent' && !!onCaretClick
+                const isClickable = caret.kind === 'agent' && !!onAgentCaretDismiss
                 const handleMouseDown = (event: React.MouseEvent): void => {
                     event.preventDefault()
                     event.stopPropagation()
@@ -283,7 +283,7 @@ export function RemoteCaretOverlay({
                 const handleClick = (event: React.MouseEvent): void => {
                     event.preventDefault()
                     event.stopPropagation()
-                    onCaretClick?.(caret)
+                    onAgentCaretDismiss?.(caret)
                 }
                 if (layout.width !== undefined) {
                     // Block-level presence: the user is on a component/table, not at a text offset.
@@ -304,8 +304,8 @@ export function RemoteCaretOverlay({
                                 type="button"
                                 className={className}
                                 style={style}
-                                title={`Remove ${caret.userName}`}
-                                aria-label={`Remove ${caret.userName}`}
+                                title={`Dismiss ${caret.userName}`}
+                                aria-label={`Dismiss ${caret.userName}`}
                                 onMouseDown={handleMouseDown}
                                 onClick={handleClick}
                             >
@@ -335,8 +335,8 @@ export function RemoteCaretOverlay({
                             type="button"
                             className={className}
                             style={style}
-                            title={`Remove ${caret.userName}`}
-                            aria-label={`Remove ${caret.userName}`}
+                            title={`Dismiss ${caret.userName}`}
+                            aria-label={`Dismiss ${caret.userName}`}
                             onMouseDown={handleMouseDown}
                             onClick={handleClick}
                         >

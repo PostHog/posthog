@@ -18,11 +18,12 @@ import {
     preserveNotebookAIAgentNode,
     replaceNotebookAIAgentCursorMarkdown,
     removeNotebookAgentFromMarkdown,
+    stripNotebookAgentsFromMarkdown,
 } from './notebookAgents'
 
 describe('notebookAgents', () => {
     it('creates the singleton AI agent and round-trips agent tags', () => {
-        const agent = createNotebookAgent([])
+        const agent = createNotebookAgent()
         const markdown = serializeMarkdownNotebook({
             type: 'doc',
             nodes: [
@@ -56,6 +57,12 @@ describe('notebookAgents', () => {
         expect(removeNotebookAgentFromMarkdown(markdown, NOTEBOOK_AI_AGENT_ID)).toEqual('# Notebook\n\nBody')
         expect(getNotebookAgentIdFromClientId(getNotebookAgentClientId({ id: NOTEBOOK_AI_AGENT_ID }))).toEqual(
             NOTEBOOK_AI_AGENT_ID
+        )
+    })
+
+    it('strips persisted agents from markdown', () => {
+        expect(stripNotebookAgentsFromMarkdown('# Notebook\n\n<Agent id="ai" name="AI" />\n\nBody')).toEqual(
+            '# Notebook\n\nBody'
         )
     })
 
@@ -205,6 +212,22 @@ describe('notebookAgents', () => {
         expect(insertNotebookAIFollowUpPromptAfterCursor(markdown, '<Prompt question="" />')).toEqual(
             '# Notebook\n\nAnswer text\n\n<Prompt question="" />\n\n<Agent id="ai" name="AI" cursor={{"nodeIndex":1,"offset":11}} />'
         )
+    })
+
+    it('does not treat a prompt inside a code block as an existing follow-up prompt', () => {
+        const markdown =
+            '# Notebook\n\n```md\n<Prompt question="" />\n```\n\nAnswer text\n\n<Agent id="ai" name="AI" cursor={{"nodeIndex":2,"offset":11}} />'
+
+        expect(insertNotebookAIFollowUpPromptAfterCursor(markdown, '<Prompt question="" />')).toEqual(
+            '# Notebook\n\n```md\n<Prompt question="" />\n```\n\nAnswer text\n\n<Prompt question="" />\n\n<Agent id="ai" name="AI" cursor={{"nodeIndex":2,"offset":11}} />'
+        )
+    })
+
+    it('does not insert duplicate empty follow-up prompts', () => {
+        const markdown =
+            '# Notebook\n\n<Prompt question="" />\n\nAnswer text\n\n<Agent id="ai" name="AI" cursor={{"nodeIndex":2,"offset":11}} />'
+
+        expect(insertNotebookAIFollowUpPromptAfterCursor(markdown, '<Prompt question="" />')).toEqual(markdown)
     })
 
     it('keeps the AI cursor on the final list item before a follow-up prompt', () => {

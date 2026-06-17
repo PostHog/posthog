@@ -171,6 +171,7 @@ import {
     getNotebookAgentFromNode,
     isNotebookAgentNode,
     makeNotebookAgentNode,
+    stripNotebookAgentsFromMarkdown,
 } from './notebookAgents'
 import {
     NotebookOperation,
@@ -237,8 +238,8 @@ export type MarkdownNotebookProps = {
     onInteractionStateChange?: (isInteractionActive: boolean) => void
     /** Carets of other clients editing this notebook, rendered as a positioned overlay. */
     remoteCarets?: RemoteNotebookCaret[]
-    /** Called when a clickable remote caret, such as a persisted notebook agent, is selected. */
-    onRemoteCaretClick?: (caret: RemoteNotebookCaret) => void
+    /** Called when a persisted notebook agent caret is dismissed. */
+    onAgentCaretDismiss?: (caret: RemoteNotebookCaret) => void
     /** Reports the local caret whenever it moves; null when the selection leaves the notebook. */
     onCaretChange?: (position: MarkdownNotebookCaretPosition | null) => void
     initialInsertMenu?: { nodeIndex?: number; query?: string }
@@ -452,7 +453,7 @@ export function MarkdownNotebook({
     onConflict,
     onInteractionStateChange,
     remoteCarets,
-    onRemoteCaretClick,
+    onAgentCaretDismiss,
     onCaretChange,
     initialInsertMenu,
     focusAIPromptRequest,
@@ -4750,7 +4751,7 @@ export function MarkdownNotebook({
         }
         commitDocument(nextDocument)
         clearInsertMenu()
-        const markdown = serializeMarkdownNotebook(nextDocument)
+        const markdownWithResponse = stripNotebookAgentsFromMarkdown(serializeMarkdownNotebook(nextDocument))
         const responseMarker = NOTEBOOK_AI_WRITING_PLACEHOLDER
         const source = activeAIPromptMenu?.source ?? getPromptSource(currentPromptNode?.props.source)
         const selectedMarkdown =
@@ -4760,13 +4761,19 @@ export function MarkdownNotebook({
             chatId,
             query:
                 source === 'selection' && selectedMarkdown
-                    ? getAskAISelectionQuery(selectedMarkdown, query, responseMarker, selectedRefId, markdown)
-                    : getAskAIInlineNotebookQuery(query, responseMarker, markdown),
+                    ? getAskAISelectionQuery(
+                          selectedMarkdown,
+                          query,
+                          responseMarker,
+                          selectedRefId,
+                          markdownWithResponse
+                      )
+                    : getAskAIInlineNotebookQuery(query, responseMarker, markdownWithResponse),
             source,
             responseNodeId: nodeId,
             responseMarker,
-            markdown,
-            markdownWithResponse: markdown,
+            markdown: markdownWithResponse,
+            markdownWithResponse,
             selectedMarkdown,
             selectedRefId,
         })
@@ -5370,7 +5377,7 @@ export function MarkdownNotebook({
                             blockRefs={blockRefs}
                             listItemRefs={listItemRefs}
                             containerRef={mainRef}
-                            onCaretClick={onRemoteCaretClick}
+                            onAgentCaretDismiss={onAgentCaretDismiss}
                         />
                     ) : null}
                     {floatingToolbar && mode === 'edit' ? (

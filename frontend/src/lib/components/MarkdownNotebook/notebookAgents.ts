@@ -15,6 +15,7 @@ export const NOTEBOOK_AGENT_CLIENT_ID_PREFIX = 'notebook-agent:'
 export const NOTEBOOK_AI_AGENT_ID = 'ai'
 export const NOTEBOOK_AI_AGENT_NAME = 'AI'
 export const NOTEBOOK_AI_WRITING_PLACEHOLDER = 'Thinking...'
+const NOTEBOOK_PROMPT_COMPONENT_TAG = 'Prompt'
 
 export type NotebookAgent = {
     id: string
@@ -61,7 +62,7 @@ export function getNotebookAgentsFromMarkdown(markdown: string): NotebookAgent[]
     return getNotebookAgentsFromNodes(parseMarkdownNotebook(markdown).nodes)
 }
 
-export function createNotebookAgent(_existingAgents: NotebookAgent[] = []): NotebookAgent {
+export function createNotebookAgent(): NotebookAgent {
     return {
         id: NOTEBOOK_AI_AGENT_ID,
         name: NOTEBOOK_AI_AGENT_NAME,
@@ -94,10 +95,26 @@ export function removeNotebookAgentFromMarkdown(markdown: string, agentId: strin
     return serializeMarkdownNotebook(removeNotebookAgentFromDocument(document, agentId))
 }
 
+export function stripNotebookAgentsFromMarkdown(markdown: string): string {
+    const document = parseMarkdownNotebook(markdown)
+    if (!document.nodes.some(isNotebookAgentNode)) {
+        return markdown
+    }
+
+    return serializeMarkdownNotebook(stripNotebookAgentsFromDocument(document))
+}
+
 export function removeNotebookAgentFromDocument(document: NotebookDocument, agentId: string): NotebookDocument {
     return {
         ...document,
         nodes: document.nodes.filter((node) => getNotebookAgentFromNode(node)?.id !== agentId),
+    }
+}
+
+export function stripNotebookAgentsFromDocument(document: NotebookDocument): NotebookDocument {
+    return {
+        ...document,
+        nodes: document.nodes.filter((node) => !isNotebookAgentNode(node)),
     }
 }
 
@@ -174,7 +191,7 @@ export function insertMarkdownAfterNotebookAIAgentCursor(markdown: string, inser
 
 export function insertNotebookAIFollowUpPromptAfterCursor(markdown: string, promptMarkdown: string): string {
     const trimmedPromptMarkdown = promptMarkdown.trim()
-    if (!trimmedPromptMarkdown || markdown.includes(trimmedPromptMarkdown)) {
+    if (!trimmedPromptMarkdown) {
         return markdown
     }
 
@@ -188,6 +205,9 @@ export function insertNotebookAIFollowUpPromptAfterCursor(markdown: string, prom
         (node) => getNotebookAgentFromNode(node)?.id !== NOTEBOOK_AI_AGENT_ID
     )
     if (!promptNodes.length) {
+        return markdown
+    }
+    if (promptNodes.some(isEmptyNotebookPromptNode) && document.nodes.some(isEmptyNotebookPromptNode)) {
         return markdown
     }
 
@@ -204,6 +224,24 @@ export function insertNotebookAIFollowUpPromptAfterCursor(markdown: string, prom
         ...document,
         nodes: updateNotebookAIAgentCursor(nextNodes, getNotebookNodeEndCursor(nextNodes[cursorIndex], cursorIndex)),
     })
+}
+
+function isEmptyNotebookPromptNode(node: NotebookBlockNode): node is NotebookComponentBlockNode {
+    return (
+        node.type === 'component' &&
+        node.tagName === NOTEBOOK_PROMPT_COMPONENT_TAG &&
+        isEmptyNotebookStringProp(node.props.question) &&
+        isEmptyNotebookStringProp(node.props.selectedMarkdown) &&
+        isEmptyNotebookStringProp(node.props.ref)
+    )
+}
+
+function isEmptyNotebookStringProp(value: NotebookPropValue | undefined): boolean {
+    if (typeof value === 'string') {
+        return !value.trim()
+    }
+
+    return value === undefined
 }
 
 export function getNotebookAgentClientId(agent: Pick<NotebookAgent, 'id'>): string {

@@ -33,6 +33,7 @@ export {
     preserveNotebookAIAgentNode,
     replaceNotebookAIAgentCursorMarkdown,
     removeNotebookAgentFromMarkdown,
+    stripNotebookAgentsFromMarkdown,
 } from './notebookAgents'
 export type { NotebookAgent } from './notebookAgents'
 export type { MarkdownNotebookCaretPosition, RemoteNotebookCaret } from './remoteCarets'
