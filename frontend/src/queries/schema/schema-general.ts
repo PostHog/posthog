@@ -6785,6 +6785,7 @@ export const externalDataSources = [
     'YahooFinance',
     'Clarifai',
     'Adapty',
+    'Braintrust',
     'Custom',
 ] as const
 

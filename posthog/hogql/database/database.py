@@ -20,6 +20,7 @@ from pydantic import BaseModel, ConfigDict
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.direct_mysql_table import DirectMySQLTable
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.lazy_join_tags import (
     DATA_WAREHOUSE,
@@ -197,7 +198,6 @@ class HogQLDatabaseSources:
     connection_id: str | None
     modifiers: "HogQLQueryModifiers"
     is_managed_viewset_enabled: bool
-    is_hogql_access_control_enabled: bool
     direct_connection_metadata: dict[str, Any] | None
     # Access-control decision, computed from a warmed UserAccessControl so build does no AC queries.
     user_access_control: Optional["UserAccessControl"]
@@ -636,7 +636,7 @@ class Database(BaseModel):
     @staticmethod
     def _is_helper_function_table(table: object) -> bool:
         return isinstance(table, FunctionCallTable) and not isinstance(
-            table, (DirectPostgresTable, PostgresTable, S3Table)
+            table, (DirectPostgresTable, DirectMySQLTable, PostgresTable, S3Table)
         )
 
     def _remove_lazy_joins_to_disallowed_tables(self, allowed_table_names: set[str]) -> None:
@@ -993,7 +993,7 @@ class Database(BaseModel):
             team_id,
             team=team,
             user=user,
-            preloaded_user_access_control=user_access_control,
+            user_access_control=user_access_control,
             modifiers=modifiers,
             timings=timings,
             connection_id=connection_id,
@@ -1006,7 +1006,7 @@ class Database(BaseModel):
         *,
         team: Optional["Team"] = None,
         user: Optional["User | SyntheticUser"] = None,
-        preloaded_user_access_control: Optional["UserAccessControl"] = None,
+        user_access_control: Optional["UserAccessControl"] = None,
         modifiers: "HogQLQueryModifiers | None" = None,
         timings: HogQLTimings | None = None,
         connection_id: str | None = None,
@@ -1076,24 +1076,11 @@ class Database(BaseModel):
                     direct_connection_metadata = direct_source.connection_metadata
 
         with timings.measure("filter_system_tables_for_user", emit_span=True):
-            is_hogql_access_control_enabled = posthoganalytics.feature_enabled(
-                "hogql-access-control",
-                str(team.uuid),
-                groups={"organization": str(team.organization_id), "project": str(team.id)},
-                group_properties={
-                    "organization": {"id": str(team.organization_id)},
-                    "project": {"id": str(team.id)},
-                },
-                send_feature_flag_events=False,
+            # Pass the caller's user_access_control through: when already preloaded it's reused, so the
+            # bulk access-control fetch happens once per run instead of once per database build.
+            user_access_control, denied_system_table_names = _compute_system_table_access_decision(
+                team, user, user_access_control
             )
-            user_access_control: Optional[UserAccessControl] = None
-            denied_system_table_names: set[str] = set()
-            if is_hogql_access_control_enabled:
-                # Reuse the caller's preloaded user_access_control when given,
-                # so the bulk access-control fetch happens once per run
-                user_access_control, denied_system_table_names = _compute_system_table_access_decision(
-                    team, user, preloaded_user_access_control
-                )
 
         with timings.measure("modifiers", emit_span=True):
             modifiers = create_default_modifiers_for_team(team, modifiers)
@@ -1219,7 +1206,6 @@ class Database(BaseModel):
             connection_id=connection_id,
             modifiers=modifiers,
             is_managed_viewset_enabled=is_managed_viewset_enabled,
-            is_hogql_access_control_enabled=is_hogql_access_control_enabled,
             direct_connection_metadata=direct_connection_metadata,
             user_access_control=user_access_control,
             denied_system_table_names=denied_system_table_names,

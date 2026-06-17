@@ -433,6 +433,11 @@ class BraintreeSourceConfig(config.Config):
 
 
 @config.config
+class BraintrustSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class BranchSourceConfig(config.Config):
     pass
 
@@ -1909,8 +1914,8 @@ class MySQLSourceConfig(config.Config):
     database: str
     user: str
     password: str
-    schema: str
     port: int = config.value(converter=int)
+    schema: str | None = None
     using_ssl: bool = config.value(default=config.str_to_bool("true"), converter=config.str_to_bool)
     ssh_tunnel: SSHTunnelConfig | None = None
 
@@ -3473,6 +3478,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.BOLDSIGN: BoldSignSourceConfig,
         ExternalDataSourceType.BOX: BoxSourceConfig,
         ExternalDataSourceType.BRAINTREE: BraintreeSourceConfig,
+        ExternalDataSourceType.BRAINTRUST: BraintrustSourceConfig,
         ExternalDataSourceType.BRANCH: BranchSourceConfig,
         ExternalDataSourceType.BRAZE: BrazeSourceConfig,
         ExternalDataSourceType.BREEZOMETER: BreezometerSourceConfig,
