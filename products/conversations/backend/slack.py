@@ -940,9 +940,21 @@ def handle_support_reaction(event: dict, team: Team, slack_team_id: str) -> None
     if not thread_messages:
         return
 
-    root_ts = thread_messages[0].get("ts") or message_ts
     # The reacted message itself seeds the ticket ("create from here").
-    reacted_msg = next((m for m in thread_messages if m.get("ts") == message_ts), thread_messages[0])
+    reacted_msg = next((m for m in thread_messages if m.get("ts") == message_ts), None)
+    if reacted_msg is None:
+        # Reacted message wasn't in the fetched window (e.g. a thread with >200 replies that
+        # paginated it out). Seed from the thread root instead of silently picking the wrong one.
+        logger.warning(
+            "slack_support_reaction_message_not_found",
+            channel=channel,
+            message_ts=message_ts,
+            fetched_count=len(thread_messages),
+        )
+        reacted_msg = thread_messages[0]
+    # Slack stamps every threaded message with thread_ts = the true thread root, so derive the
+    # root from the reacted message rather than assuming conversations.replies returns it first.
+    root_ts = reacted_msg.get("thread_ts") or reacted_msg.get("ts") or message_ts
 
     # When the reaction lands on a reply, the ticket key (the root) differs from message_ts —
     # re-check so we don't create a duplicate for an already-tracked thread.
