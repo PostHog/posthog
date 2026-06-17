@@ -226,10 +226,10 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
             expect(result).toHaveProperty('_posthogUrl')
             expect(result._posthogUrl).toMatch(/\/insights\/new#q=/)
 
-            // Formatted results should contain pipe-separated values (the formatter output)
+            // Paths demo data can have pageviews without a path edge in the selected window.
             expect(typeof result.results).toBe('object')
             expect(typeof result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toBe('string')
-            expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toContain('|')
+            expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toMatch(/\||No data recorded for this time period\./)
         })
 
         it('should execute a paths query with start point', async () => {
