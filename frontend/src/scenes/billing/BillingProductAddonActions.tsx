@@ -115,7 +115,7 @@ export const BillingProductAddonActions = ({
             <>
                 {hasFlatRate ? (
                     showLabel ? (
-                        <h4 className="leading-5 font-bold mb-0 flex gap-x-0.5">
+                        <h4 className="leading-5 font-bold mb-0 flex gap-x-0.5 whitespace-nowrap">
                             {isTrialEligible ? (
                                 <span>{addon.trial?.length} day free trial</span>
                             ) : hidePricingNote && isProrated ? (
@@ -238,7 +238,7 @@ export const BillingProductAddonActions = ({
         return (
             <>
                 {showLabel && (
-                    <h4 className="leading-5 font-bold mb-0 flex gap-x-0.5">
+                    <h4 className="leading-5 font-bold mb-0 flex gap-x-0.5 whitespace-nowrap">
                         {hidePricingNote && isProrated ? (
                             <span>${amountDue.toFixed(2)} today (prorated)</span>
                         ) : (
@@ -301,7 +301,7 @@ export const BillingProductAddonActions = ({
         <div className={clsx(align === 'right' && 'min-w-64')}>
             <div
                 className={clsx(
-                    'mt-2 self-center flex items-center gap-x-3 whitespace-nowrap justify-end',
+                    'mt-2 self-center flex flex-wrap items-center gap-x-3 gap-y-1 justify-end',
                     align === 'left' ? 'flex-row-reverse' : 'ml-4'
                 )}
             >

@@ -152,11 +152,20 @@ const PlanCard = ({
                     </Link>
                 </div>
             )}
-            {pricedPlan?.flat_rate && addon.type !== BillingPlan.Enterprise && (
-                <PlanPrice addon={addon} unit_amount_usd={pricedPlan.unit_amount_usd} unit_label={pricedPlan.unit} />
-            )}
-            <div className="mt-auto">
-                <BillingProductAddonActions addon={addon} buttonSize="small" align="left" hidePricingNote />
+            {/* Pin price + actions to the bottom. The action area reserves a fixed height with the
+                button bottom-aligned so prices line up across cards regardless of trial state (the
+                "Start trial" label/button stack is taller than a lone "Cancel trial" button). */}
+            <div className="mt-auto flex flex-col gap-3">
+                {pricedPlan?.flat_rate && addon.type !== BillingPlan.Enterprise && (
+                    <PlanPrice
+                        addon={addon}
+                        unit_amount_usd={pricedPlan.unit_amount_usd}
+                        unit_label={pricedPlan.unit}
+                    />
+                )}
+                <div className="flex min-h-16 flex-col justify-end">
+                    <BillingProductAddonActions addon={addon} buttonSize="small" align="left" hidePricingNote />
+                </div>
             </div>
         </div>
     )
@@ -220,7 +229,7 @@ const ComparisonTable = ({
     }
 
     return (
-        <div>
+        <div className="overflow-x-auto">
             <div className="grid" style={gridStyle}>
                 <div className="px-4 py-4 text-sm font-semibold text-secondary">Feature</div>
                 {addons.map((addon) => (
@@ -309,7 +318,7 @@ export const PlatformAddonComparison = ({ product }: { product: BillingProductV2
         <div className="flex flex-col gap-4">
             {legacyAddon && <LegacyPlanHero addon={legacyAddon} />}
 
-            <div className="grid gap-3 grid-cols-3">
+            <div className="grid gap-3 grid-cols-1 md:grid-cols-3">
                 {comparableAddons.map((addon) => (
                     <PlanCard key={addon.type} addon={addon} onExpandCompare={() => setIsCompareOpen(true)} />
                 ))}

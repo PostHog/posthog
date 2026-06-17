@@ -5,8 +5,12 @@ import { Spinner } from '@posthog/lemon-ui'
 
 import { SupermanHog } from 'lib/components/hedgehogs'
 import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { PlatformAddonComparison } from 'scenes/billing/PlatformAddonComparison'
 
+import { ProductKey } from '~/queries/schema/schema-general'
 import { type BillingProductV2Type, OnboardingStepKey } from '~/types'
 
 import { OnboardingStepComponentType } from '../onboardingLogic'
@@ -38,6 +42,22 @@ export const OnboardingUpgradeStep: OnboardingStepComponentType<OnboardingUpgrad
 OnboardingUpgradeStep.stepKey = OnboardingStepKey.PLANS
 
 const ProductSubscribed = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
+    const { billing } = useValues(billingLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const platformProduct = billing?.products?.find((p) => p.type === ProductKey.PLATFORM_AND_SUPPORT)
+    const showPlatformPackages = featureFlags[FEATURE_FLAGS.ONBOARDING_PLATFORM_PACKAGES] === 'test' && platformProduct
+
+    // Split into two components so the hogfetti hook (and its window resize listener) only mounts on
+    // the celebration screen — the packages variant reloads the page on every billing action and
+    // would re-fire confetti each time, so it doesn't use it.
+    if (!showPlatformPackages) {
+        return <SubscribedCelebration product={product} />
+    }
+    return <PlatformPackagesUpsell platformProduct={platformProduct} />
+}
+
+const SubscribedCelebration = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
     const { trigger, HogfettiComponent } = useHogfetti({ count: 100, duration: 3000 })
 
     useEffect(() => {
@@ -61,11 +81,35 @@ const ProductSubscribed = ({ product }: { product: BillingProductV2Type }): JSX.
                 <SupermanHog className="w-full h-full object-contain" />
             </div>
 
-            {/* Text Below */}
             <h3 className="text-2xl font-bold mt-6">Go forth and build amazing products!</h3>
             <p className="text-gray-700 dark:text-gray-400">
                 You've unlocked all features for <strong>{product.name}</strong>.
             </p>
+        </div>
+    )
+}
+
+const PlatformPackagesUpsell = ({ platformProduct }: { platformProduct: BillingProductV2Type }): JSX.Element => {
+    // Trial length comes from the billing service; keep copy in sync with whichever package is trialable.
+    const trialLength = platformProduct.addons?.find((addon) => addon.trial)?.trial?.length ?? 14
+
+    return (
+        <div className="relative flex flex-col items-center">
+            {/* Superman Hog floating animation */}
+            <div className="w-24 h-24 animate-float">
+                <SupermanHog className="w-full h-full object-contain" />
+            </div>
+
+            <div className="w-full max-w-4xl mt-2">
+                <div className="text-center mb-6">
+                    <h3 className="text-xl font-bold mb-1">You're signed up! Now level up with a platform package</h3>
+                    <p className="text-gray-700 dark:text-gray-400 mb-0">
+                        Start a free {trialLength}-day trial of any package — cancel anytime, with no charge until it
+                        ends.
+                    </p>
+                </div>
+                <PlatformAddonComparison product={platformProduct} />
+            </div>
         </div>
     )
 }
