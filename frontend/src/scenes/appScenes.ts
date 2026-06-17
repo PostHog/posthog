@@ -58,6 +58,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Insight]: () => import('./insights/InsightScene'),
     [Scene.InsightQuickStart]: () => import('./insights/InsightQuickStart/InsightQuickStart'),
     [Scene.IntegrationsRedirect]: () => import('./IntegrationsRedirect/IntegrationsRedirect'),
+    [Scene.IntegrationsLanding]: () => import('./integrations/IntegrationsLandingScene'),
     [Scene.StripeConfirmInstall]: () => import('./StripeConfirmInstall/StripeConfirmInstall'),
     [Scene.InviteSignup]: () => import('./authentication/invite-signup/InviteSignup'),
     [Scene.LegacyPlugin]: () => import('./data-pipelines/legacy-plugins/LegacyPluginScene'),
@@ -140,4 +141,5 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Wizard]: () => import('./wizard/Wizard'),
     [Scene.OrganizationDeactivated]: () => import('./organization/Deactivated'),
     [Scene.OrganizationPendingDeletion]: () => import('./organization/PendingDeletion'),
+    [Scene.ProjectPendingDeletion]: () => import('./project/PendingDeletion'),
 }

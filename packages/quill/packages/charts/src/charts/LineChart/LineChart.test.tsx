@@ -182,6 +182,20 @@ describe('LineChart', () => {
             expect(chart.yRightTicks().length).toBeGreaterThan(0)
         })
 
+        it('stacks a third axis on the left for a 3-axis chart (alternating sides)', () => {
+            const series: Series[] = [
+                { key: 'a', label: 'A', data: [10, 20, 30] },
+                { key: 'b', label: 'B', data: [100, 200, 300], yAxisId: 'y1' },
+                { key: 'c', label: 'C', data: [3000, 4000, 5000], yAxisId: 'y2' },
+            ]
+            const { chart } = renderHogChart(<LineChart series={series} labels={LABELS} theme={THEME} />)
+            expect(chart.hasRightAxis).toBe(true)
+            const leftValues = chart.yTicks().map((t) => parseFloat(t.replace(/[^0-9.]/g, '')))
+            // 30 is the default axis max, 5000 the third axis max — both gutters stack on the left.
+            expect(leftValues).toContain(30)
+            expect(leftValues).toContain(5000)
+        })
+
         it('renders without crashing in yScaleType log with positive data', () => {
             const series: Series[] = [{ key: 'a', label: 'A', data: [1, 10, 100] }]
             const { chart } = renderHogChart(

@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -40,6 +41,7 @@ class ConfluenceSource(ResumableSource[ConfluenceSourceConfig, ConfluenceResumeC
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.CONFLUENCE,
+            category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Confluence",
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your Atlassian Confluence Cloud credentials to pull your Confluence content into the PostHog Data warehouse.

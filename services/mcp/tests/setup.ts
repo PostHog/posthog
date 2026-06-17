@@ -5,11 +5,6 @@ import { vi } from 'vitest'
 // Load .env.test file
 config({ path: resolve(process.cwd(), '.env.test') })
 
-// Mock PostHog MCP analytics module to avoid networked analytics in tests
-vi.mock('@posthog/mcp-analytics', () => ({
-    track: vi.fn(),
-}))
-
 // Mock cloudflare:workers module for Node.js test environment
 vi.mock('cloudflare:workers', () => ({
     env: {

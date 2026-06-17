@@ -4,12 +4,8 @@ from datetime import timedelta
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 
-from django.conf import settings
-from django.test import override_settings
 from django.utils import timezone
 
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
 from rest_framework import status
 from rest_framework.test import APIClient
 
@@ -17,23 +13,7 @@ from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthGrant,
 from posthog.models.user import User
 
 
-def _generate_rsa_key() -> str:
-    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    pem = private_key.private_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PrivateFormat.TraditionalOpenSSL,
-        encryption_algorithm=serialization.NoEncryption(),
-    )
-    return pem.decode("utf-8")
-
-
 @freeze_time("2024-06-15T12:00:00Z")
-@override_settings(
-    OAUTH2_PROVIDER={
-        **settings.OAUTH2_PROVIDER,
-        "OIDC_RSA_PRIVATE_KEY": _generate_rsa_key(),
-    }
-)
 class TestConnectedAppsViewSet(APIBaseTest):
     def _create_app(self, name: str = "Test App", **kwargs) -> OAuthApplication:
         return OAuthApplication.objects.create(

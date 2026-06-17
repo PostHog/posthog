@@ -35,6 +35,12 @@ import { isNonFailureStatus } from '../utils/non-failure-status-codes'
 import { HogInputsService } from './hog-inputs.service'
 import { EmailService } from './messaging/email.service'
 import { RecipientTokensService } from './messaging/recipient-tokens.service'
+import {
+    SelfLoopGuardMode,
+    isPostHogIngestUrl,
+    isSelfReferentialIngestFetch,
+    selfLoopGuardCounter,
+} from './self-loop-guard'
 
 /** Narrowed config type for CDP fetch retry settings, used by native/segment destination executors */
 export type CdpFetchConfig = Pick<
@@ -48,6 +54,7 @@ export interface HogExecutorConfig {
     fetchRetries: number
     fetchBackoffBaseMs: number
     fetchBackoffMaxMs: number
+    selfLoopGuardMode: SelfLoopGuardMode
     emailQueueRouting: string
 }
 
@@ -184,6 +191,11 @@ export type HogExecutorExecuteOptions = {
 export type HogExecutorExecuteAsyncOptions = HogExecutorExecuteOptions & {
     maxAsyncFunctions?: number
     maxFetchRetries?: number
+    // When true, emails are sent inline via EmailService instead of being routed to
+    // the dedicated email queue. Used by the test panel — the test endpoint executes
+    // in-process and never enqueues to cyclotron, so routing would leave the job
+    // unworked.
+    sendEmailsInline?: boolean
 }
 
 export class HogExecutorService {
@@ -370,12 +382,22 @@ export class HogExecutorService {
                         result = await this.executeFetch(nextInvocation, options)
                     }
                 } else if (queueParamsType === 'email') {
-                    // Route to the email queue only if we're not already there
-                    // and the team is configured for it. Otherwise send inline.
-                    if (invocation.queue !== 'email' && this.emailQueueMatcher(nextInvocation.teamId)) {
+                    // Route to the email queue only if we're not already there,
+                    // the team is configured for it, and the caller hasn't asked
+                    // for inline-only execution (e.g. the test panel).
+                    const routeToEmailQueue =
+                        invocation.queue !== 'email' &&
+                        this.emailQueueMatcher(nextInvocation.teamId) &&
+                        !options?.sendEmailsInline
+                    if (routeToEmailQueue) {
                         result = this.routeEmailToQueue(nextInvocation)
                     } else {
-                        result = await this.emailService.executeSendEmail(nextInvocation)
+                        // `sendEmailsInline` is only set by the test panel, so it doubles as the
+                        // "this is a test send" signal — propagated into the email's tracking code.
+                        result = await this.emailService.executeSendEmail(
+                            nextInvocation,
+                            options?.sendEmailsInline ?? false
+                        )
                     }
                 } else {
                     throw new Error(`Unknown queue type: ${queueParamsType}`)
@@ -744,6 +766,30 @@ export class HogExecutorService {
                     )
                     params.url = replace(params.url)
                 }
+            }
+        }
+
+        // Observe-only detection of event-forwarding loops: a fetch back into this
+        // project's own ingestion endpoint re-enters the pipeline and can re-trigger this
+        // same function. We only measure for now (a follow-up will design enforcement from
+        // this signal). The ingest-URL check gates the team lookup so external fetches (the
+        // common case) pay nothing, and the whole block fails open - detection must never
+        // break a destination it was only meant to watch.
+        if (this.config.selfLoopGuardMode !== 'disabled' && isPostHogIngestUrl(params.url)) {
+            try {
+                const team = await this.asyncContext.teamManager.getTeam(invocation.teamId)
+                if (team && isSelfReferentialIngestFetch({ url: params.url, body: params.body, team })) {
+                    selfLoopGuardCounter.inc({ mode: this.config.selfLoopGuardMode, action: 'detected' })
+                    addLog(
+                        'warn',
+                        `This fetch targets a PostHog ingestion endpoint using this project's own API key, which can form an event-forwarding loop. To capture an event back into this project use the 'postHogCapture' helper, or to enrich incoming events use a transformation.`
+                    )
+                }
+            } catch (err) {
+                logger.warn('🦔', '[HogExecutor] Self-loop guard detection skipped due to an internal error', {
+                    error: err,
+                    teamId: invocation.teamId,
+                })
             }
         }
 

@@ -593,46 +593,55 @@ class FunnelQueryBuilder:
         """
         assert isinstance(self._b.metric, ExperimentFunnelMetric)
 
-        # Build step indicator expressions for the steps array.
-        # step_0 = exposure predicate, step_1..N = funnel step filters.
-        # These are the same expressions used in build_boolean_columns().
-        exposure_filter = self._b._build_exposure_predicate()
-        step_exprs: list[ast.Expr] = [exposure_filter]
-
         step_builder = FunnelStepBuilder(self._b.metric.series, self._b.team)
-        for _step_index, step_source in enumerate(self._b.metric.series, start=1):
-            step_filter = step_builder._build_step_filter(step_source)
-            step_exprs.append(step_filter)
 
-        # Pack into Array(UInt8): [_toUInt8(if(step_0, 1, 0)), _toUInt8(if(step_1, 1, 0)), ...]
-        steps_array = ast.Array(
-            exprs=[
-                ast.Call(
-                    name="_toUInt8",
-                    args=[ast.Call(name="if", args=[expr, ast.Constant(value=1), ast.Constant(value=0)])],
-                )
-                for expr in step_exprs
-            ]
-        )
+        exposure_filter_sql = """
+            timestamp >= {experiment_date_from}
+            AND timestamp <= {experiment_date_to}
+            AND {exposure_event_predicate}
+            AND {test_accounts_filter}
+            AND {variant_property} IN {variants}
+        """
+        step_filter_placeholders: dict[str, ast.Expr] = {}
+        step_exprs_sql = [f"_toUInt8(if({exposure_filter_sql}, 1, 0))"]
+        for step_index, step_source in enumerate(self._b.metric.series, start=1):
+            placeholder_name = f"step_filter_{step_index}"
+            step_filter_placeholders[placeholder_name] = step_builder._build_step_filter(step_source)
+            step_exprs_sql.append(f"_toUInt8(if({{{placeholder_name}}}, 1, 0))")
 
-        query_string = """
+        steps_array_sql = f"[{', '.join(step_exprs_sql)}]"
+        conversion_window_seconds = self._b._get_conversion_window_seconds()
+
+        funnel_steps_filter_sql = """
+            timestamp >= {experiment_date_from}
+            AND timestamp <= {experiment_date_to} + toIntervalSecond({conversion_window_seconds})
+            AND {funnel_steps_filter}
+            """
+
+        query_string = f"""
             SELECT
-                {entity_key} AS entity_id,
+                {{entity_key}} AS entity_id,
                 timestamp AS timestamp,
                 uuid AS event_uuid,
                 `$session_id` AS session_id,
-                {steps_array} AS steps
+                {steps_array_sql} AS steps
             FROM events
-            WHERE timestamp >= {time_window_min}
-                AND timestamp < {time_window_max}
-                AND ({exposure_predicate} OR {funnel_steps_filter})
+            WHERE timestamp >= {{time_window_min}}
+                AND timestamp < {{time_window_max}}
+                AND (({exposure_filter_sql}) OR ({funnel_steps_filter_sql}))
         """
 
         placeholders: dict[str, ast.Expr] = {
             "entity_key": parse_expr(self._b.entity_key),
-            "steps_array": steps_array,
-            "exposure_predicate": exposure_filter,
-            "funnel_steps_filter": self.build_funnel_steps_filter(),
+            **step_filter_placeholders,
+            "exposure_event_predicate": self._b._exposure_query_builder().build_exposure_event_predicate(),
+            "test_accounts_filter": self._b._exposure_query_builder().build_test_accounts_filter(),
+            "variant_property": self._b._build_variant_property(),
+            "variants": ast.Constant(value=list(self._b.variants)),
+            "experiment_date_from": self._b.date_range_query.date_from_as_hogql(),
+            "experiment_date_to": self._b.date_range_query.date_to_as_hogql(),
+            "conversion_window_seconds": ast.Constant(value=conversion_window_seconds),
+            "funnel_steps_filter": funnel_steps_to_filter(self._b.team, self._b.metric.series),
         }
 
         return query_string, placeholders

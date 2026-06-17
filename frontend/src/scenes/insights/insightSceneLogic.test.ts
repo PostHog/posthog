@@ -3,7 +3,7 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { combineUrl, router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
-import { addProjectIdIfMissing } from 'lib/utils/router-utils'
+import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -116,6 +116,29 @@ describe('insightSceneLogic', () => {
         logic = insightSceneLogic()
         logic.mount()
         await expectLogic(logic).toDispatchActions(['upgradeQuery']).toFinishAllListeners()
+    })
+
+    it('retains the #q= query hash after navigating to /insights/new (persons modal drill-down)', async () => {
+        // Mirrors PersonsModal's "View events" / "Open as new insight" navigation: a DataTableNode
+        // query encoded in the #q= hash must survive the post-load URL sync, otherwise both buttons
+        // collapse onto the same default insight page.
+        const dataTableQuery = {
+            kind: NodeKind.DataTableNode,
+            source: {
+                kind: NodeKind.EventsQuery,
+                select: ['*'],
+            },
+        }
+        router.actions.push(urls.insightNew({ query: dataTableQuery as any }))
+        logic = insightSceneLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        await expectLogic(router)
+            .delay(1)
+            .toMatchValues({
+                hashParams: partial({ q: JSON.stringify(dataTableQuery) }),
+            })
     })
 
     it('persists edit mode in the url', async () => {

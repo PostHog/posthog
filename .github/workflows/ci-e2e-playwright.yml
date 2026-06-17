@@ -6,6 +6,11 @@
 name: E2E CI Playwright
 on:
     pull_request:
+        # Draft PRs skip E2E entirely — the broad path filter below matches nearly
+        # every code PR, and a full ~25-minute stack boot per draft push is the
+        # remaining big per-PR cost. The ready-for-review full run is the merge
+        # gate; use workflow_dispatch to force a run on a draft.
+        types: [opened, synchronize, reopened, ready_for_review]
     workflow_dispatch:
         inputs:
             playwright_retries:
@@ -16,6 +21,11 @@ on:
     push:
         branches:
             - master
+    # Required so `Playwright tests pass` (a required status check) reports on
+    # merge queue entries — without it the queue would wait for the check until
+    # timeout. The jobs themselves skip on merge_group (the suite already runs
+    # in full on every PR) and the aggregator treats skipped as success.
+    merge_group:
 
 permissions:
     contents: read
@@ -62,6 +72,7 @@ env:
     INKEEP_API_KEY: ${{ secrets.INKEEP_API_KEY }}
     AZURE_INFERENCE_CREDENTIAL: ${{ secrets.AZURE_INFERENCE_CREDENTIAL }}
     AZURE_INFERENCE_ENDPOINT: ${{ secrets.AZURE_INFERENCE_ENDPOINT }}
+    PERSONHOG_ADDR: 'localhost:50052'
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -71,11 +82,15 @@ jobs:
     changes:
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        # Run on master push, manual dispatch, and on internal-repo PRs.
+        # Run on master push, manual dispatch, and on ready internal-repo PRs.
+        # Drafts skip E2E (see the trigger comment); the `Playwright tests pass`
+        # aggregator treats skipped as success, and drafts can't merge anyway.
         if: |
+            github.event_name != 'merge_group' && (
             github.event_name == 'push' ||
             github.event_name == 'workflow_dispatch' ||
-            github.event.pull_request.head.repo.full_name == github.repository
+            (github.event.pull_request.head.repo.full_name == github.repository &&
+             github.event.pull_request.draft != true))
         name: Determine need to run E2E checks
         outputs:
             shouldRun: ${{ steps.decide.outputs.shouldRun }}
@@ -116,6 +131,7 @@ jobs:
                       shouldRun:
                         # Any change that could affect E2E behavior triggers a run.
                         - playwright/**
+                        - 'products/*/frontend/e2e/**'
                         - .github/workflows/ci-e2e-playwright.yml
                         - 'ee/**'
                         - 'posthog/!(temporal/**)/**'
@@ -248,7 +264,7 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
-                  python-version: 3.12.12
+                  python-version: 3.13.13
                   token: ${{ github.token }}
 
             - name: Install uv
@@ -535,9 +551,18 @@ jobs:
             - name: Verify changed Playwright tests are stable
               if: success() && github.event_name == 'pull_request'
               shell: bash
+              env:
+                  BASE_SHA: ${{ github.event.pull_request.base.sha }}
+                  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
               run: |
-                  BASE_SHA="${{ github.event.pull_request.base.sha }}"
-                  git fetch --no-tags --prune --depth=50 origin "$BASE_SHA"
+                  # The script diffs from the merge-base of BASE_SHA and HEAD so a PR on an
+                  # older master doesn't inherit specs changed only on master. The merge-base
+                  # must be reachable from *both* tips: this job checks out HEAD at depth 1, so
+                  # deepen both histories (depth=1000 + blob:none mirrors the merge-base fetches
+                  # in the `changes` job). If the branch point is still out of reach, the script
+                  # warns and falls back to BASE_SHA — bounded by its own file-run budget guard.
+                  git fetch --no-tags --prune --depth=1000 --filter=blob:none origin "$BASE_SHA"
+                  git fetch --no-tags --depth=1000 --filter=blob:none origin "$HEAD_SHA"
                   .github/scripts/verify-playwright-new-tests-and-snapshots.sh "$BASE_SHA" 10
 
             # Visual Review: create run + upload snapshots directly from the test job.

@@ -38,6 +38,8 @@ export interface TimeSeriesBarChartConfig {
     barCornerRadius?: number
     /** Show a vertical crosshair line that follows the cursor. */
     showCrosshair?: boolean
+    /** Draw L-shaped axis baselines without grid lines (ignored when `yAxis.showGrid` is true). */
+    showAxisLines?: boolean
     /** Tooltip behaviour (pinning, placement). Tooltip *content* is the `tooltip` render prop. */
     tooltip?: TooltipConfig
     /** Stacked layout only — stack negatives below the zero baseline (d3.stackOffsetDiverging). */
@@ -82,6 +84,7 @@ export function TimeSeriesBarChart<Meta = unknown>({
         axisOrientation,
         barCornerRadius,
         showCrosshair,
+        showAxisLines,
         tooltip: tooltipConfig,
         divergingStack,
         fillStyle,
@@ -95,17 +98,11 @@ export function TimeSeriesBarChart<Meta = unknown>({
 
     const valueLabelFormatter = valueLabelsConfig ? (valueLabelsConfig.formatter ?? yTickFormatter) : undefined
 
+    // `axisOrientation` flows through `barChartConfig` into chart context, so `ReferenceLine`
+    // reads it automatically — no need to stamp each line here.
     const referenceLines = useMemo(
         () => buildGoalLineReferenceLines(goalLines, seriesAfterValueLabels),
         [goalLines, seriesAfterValueLabels]
-    )
-
-    const orientedReferenceLines = useMemo(
-        () =>
-            axisOrientation === 'horizontal'
-                ? referenceLines.map((line) => ({ ...line, axisOrientation: 'horizontal' as const }))
-                : referenceLines,
-        [referenceLines, axisOrientation]
     )
 
     // Extend the value axis to cover goal lines that sit above (or below) the data, so a goal
@@ -122,6 +119,7 @@ export function TimeSeriesBarChart<Meta = unknown>({
         xAxisLabel: xAxis?.label,
         yAxisLabel: yAxis?.label,
         showGrid: yAxis?.showGrid,
+        showAxisLines,
         barLayout,
         axisOrientation,
         showCrosshair,
@@ -147,7 +145,7 @@ export function TimeSeriesBarChart<Meta = unknown>({
             dataAttr={dataAttr}
             onError={onError}
         >
-            {orientedReferenceLines.length > 0 && <ReferenceLines lines={orientedReferenceLines} />}
+            {referenceLines.length > 0 && <ReferenceLines lines={referenceLines} />}
             {valueLabelsConfig && <ValueLabels valueFormatter={valueLabelFormatter} />}
             {children}
         </BarChart>

@@ -8,12 +8,12 @@ from rest_framework import status
 
 from posthog.models import Project, Team
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.models.cohort import Cohort
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.resource_transfer.resource_transfer import ResourceTransfer
 from posthog.models.scoping import team_scope
 
 from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget

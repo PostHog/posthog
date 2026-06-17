@@ -187,6 +187,9 @@ def build(handle: SourceHandle) -> BuiltQuery:
     if child_tables:
         query = _build_resolved_distinct_id_query(child_tables=child_tables, query=query)
 
+    query.order_by = [ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")]
+    query.limit_by = ast.LimitByExpr(n=ast.Constant(value=1), exprs=[ast.Field(chain=["id"])])
+
     return BuiltQuery(key=str(customer_table.id), prefix=prefix, query=query)
 
 

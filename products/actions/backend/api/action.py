@@ -28,17 +28,16 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.constants import TREND_FILTER_TYPE_EVENTS
 from posthog.event_usage import report_user_action
-from posthog.models import Cohort, Team
-from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
+from posthog.models import Team
 from posthog.models.event.event import Selector
 from posthog.models.property.util import build_selector_regex
-from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.resource_limits import LimitKey, check_count_limit
 
 from products.actions.backend.models.action import ACTION_STEP_MATCHING_OPTIONS, Action
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.models.experiment import Experiment
 from products.product_analytics.backend.models.insight import Insight
 
@@ -616,31 +615,3 @@ class ActionViewSet(
                 a["reference_count"] = ref_counts.get(a["id"], 0)
 
         return Response({"results": actions_list})
-
-
-@mutable_receiver(model_activity_signal, sender=Action)
-def handle_action_change(
-    sender, scope, before_update, after_update, activity, was_impersonated=False, **kwargs
-) -> None:
-    # Detect soft delete/restore by checking the deleted field
-    if before_update and after_update:
-        if not before_update.deleted and after_update.deleted:
-            # Soft deleted
-            activity = "deleted"
-        elif before_update.deleted and not after_update.deleted:
-            # Restored from soft delete
-            activity = "updated"
-
-    log_activity(
-        organization_id=after_update.team.organization_id,
-        team_id=after_update.team_id,
-        user=after_update.created_by,
-        was_impersonated=was_impersonated,
-        item_id=after_update.id,
-        scope=scope,
-        activity=activity,
-        detail=Detail(
-            changes=changes_between(scope, previous=before_update, current=after_update),
-            name=after_update.name,
-        ),
-    )

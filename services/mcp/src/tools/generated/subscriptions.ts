@@ -7,12 +7,14 @@ import {
     SubscriptionsDeliveriesListParams,
     SubscriptionsDeliveriesListQueryParams,
     SubscriptionsDeliveriesRetrieveParams,
+    SubscriptionsDestroyParams,
     SubscriptionsListQueryParams,
     SubscriptionsPartialUpdateBody,
     SubscriptionsPartialUpdateParams,
     SubscriptionsRetrieveParams,
     SubscriptionsTestDeliveryCreateParams,
 } from '@/generated/subscriptions/api'
+import { castStringToInt } from '@/tools/cast-helpers'
 import { withPostHogUrl, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -32,6 +34,9 @@ const subscriptionsCreate = (): ToolBase<typeof SubscriptionsCreateSchema, Schem
         }
         if (params.dashboard_export_insights !== undefined) {
             body['dashboard_export_insights'] = params.dashboard_export_insights
+        }
+        if (params.prompt !== undefined) {
+            body['prompt'] = params.prompt
         }
         if (params.target_type !== undefined) {
             body['target_type'] = params.target_type
@@ -60,9 +65,6 @@ const subscriptionsCreate = (): ToolBase<typeof SubscriptionsCreateSchema, Schem
         if (params.until_date !== undefined) {
             body['until_date'] = params.until_date
         }
-        if (params.deleted !== undefined) {
-            body['deleted'] = params.deleted
-        }
         if (params.enabled !== undefined) {
             body['enabled'] = params.enabled
         }
@@ -71,9 +73,6 @@ const subscriptionsCreate = (): ToolBase<typeof SubscriptionsCreateSchema, Schem
         }
         if (params.integration_id !== undefined) {
             body['integration_id'] = params.integration_id
-        }
-        if (params.invite_message !== undefined) {
-            body['invite_message'] = params.invite_message
         }
         if (params.summary_enabled !== undefined) {
             body['summary_enabled'] = params.summary_enabled
@@ -87,6 +86,25 @@ const subscriptionsCreate = (): ToolBase<typeof SubscriptionsCreateSchema, Schem
             body,
         })
         return result
+    },
+})
+
+const SubscriptionsDeleteSchema = SubscriptionsDestroyParams.omit({ project_id: true }).extend({
+    id: z.preprocess(castStringToInt, SubscriptionsDestroyParams.shape['id']),
+})
+
+const subscriptionsDelete = (): ToolBase<typeof SubscriptionsDeleteSchema, Schemas.Subscription> => ({
+    name: 'subscriptions-delete',
+    schema: SubscriptionsDeleteSchema,
+    handler: async (context: Context, params: z.infer<typeof SubscriptionsDeleteSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.Subscription>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/subscriptions/${encodeURIComponent(String(params.id))}/`,
+            body: { deleted: true },
+        })
+        const filtered = omitResponseFields(result, ['invite_message']) as typeof result
+        return filtered
     },
 })
 
@@ -104,7 +122,7 @@ const subscriptionsDeliveriesList = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedSubscriptionDeliveryList>({
             method: 'GET',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/subscriptions/${encodeURIComponent(String(params.subscription_id))}/deliveries/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/subscriptions/${encodeURIComponent(String(params.subscription_id))}/deliveries/`,
             query: {
                 cursor: params.cursor,
                 status: params.status,
@@ -132,7 +150,7 @@ const subscriptionsDeliveriesRetrieve = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.SubscriptionDelivery>({
             method: 'GET',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/subscriptions/${encodeURIComponent(String(params.subscription_id))}/deliveries/${encodeURIComponent(String(params.id))}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/subscriptions/${encodeURIComponent(String(params.subscription_id))}/deliveries/${encodeURIComponent(String(params.id))}/`,
         })
         const filtered = omitResponseFields(result, ['content_snapshot', 'recipient_results', 'error']) as typeof result
         return filtered
@@ -164,7 +182,11 @@ const subscriptionsList = (): ToolBase<
                 target_type: params.target_type,
             },
         })
-        return await withPostHogUrl(context, result, '/subscriptions')
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) => omitResponseFields(item, ['invite_message'])),
+        } as typeof result
+        return await withPostHogUrl(context, filtered, '/subscriptions')
     },
 })
 
@@ -186,6 +208,9 @@ const subscriptionsPartialUpdate = (): ToolBase<typeof SubscriptionsPartialUpdat
         }
         if (params.dashboard_export_insights !== undefined) {
             body['dashboard_export_insights'] = params.dashboard_export_insights
+        }
+        if (params.prompt !== undefined) {
+            body['prompt'] = params.prompt
         }
         if (params.target_type !== undefined) {
             body['target_type'] = params.target_type
@@ -214,9 +239,6 @@ const subscriptionsPartialUpdate = (): ToolBase<typeof SubscriptionsPartialUpdat
         if (params.until_date !== undefined) {
             body['until_date'] = params.until_date
         }
-        if (params.deleted !== undefined) {
-            body['deleted'] = params.deleted
-        }
         if (params.enabled !== undefined) {
             body['enabled'] = params.enabled
         }
@@ -225,9 +247,6 @@ const subscriptionsPartialUpdate = (): ToolBase<typeof SubscriptionsPartialUpdat
         }
         if (params.integration_id !== undefined) {
             body['integration_id'] = params.integration_id
-        }
-        if (params.invite_message !== undefined) {
-            body['invite_message'] = params.invite_message
         }
         if (params.summary_enabled !== undefined) {
             body['summary_enabled'] = params.summary_enabled
@@ -255,7 +274,8 @@ const subscriptionsRetrieve = (): ToolBase<typeof SubscriptionsRetrieveSchema, S
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/subscriptions/${encodeURIComponent(String(params.id))}/`,
         })
-        return result
+        const filtered = omitResponseFields(result, ['invite_message']) as typeof result
+        return filtered
     },
 })
 
@@ -276,6 +296,7 @@ const subscriptionsTestDeliveryCreate = (): ToolBase<typeof SubscriptionsTestDel
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'subscriptions-create': subscriptionsCreate,
+    'subscriptions-delete': subscriptionsDelete,
     'subscriptions-deliveries-list': subscriptionsDeliveriesList,
     'subscriptions-deliveries-retrieve': subscriptionsDeliveriesRetrieve,
     'subscriptions-list': subscriptionsList,

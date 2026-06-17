@@ -42,7 +42,7 @@ class FireworksAdapter(OpenAIAdapter):
         api_key: str | None,
         analytics: AnalyticsContext,
         base_url: str | None = None,
-    ) -> Generator[StreamChunk, None, None]:
+    ) -> Generator[StreamChunk]:
         yield from super().stream(request, api_key, analytics, base_url=FIREWORKS_BASE_URL)
 
     @staticmethod

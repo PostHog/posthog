@@ -9,6 +9,7 @@ if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
@@ -31,6 +32,7 @@ from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import cdc_
 from posthog.temporal.data_imports.sources.postgres.postgres import (
     PostgresImplementation,
     SSLRequiredError,
+    _rls_active_from_conn,
     filter_postgres_incremental_fields,
     get_connection_metadata as get_postgres_connection_metadata,
     get_foreign_keys as get_postgres_foreign_keys,
@@ -50,15 +52,35 @@ log = logging.getLogger(__name__)
 
 PostgresErrors = {
     "password authentication failed for user": "Invalid user or password",
+    # libpq reports a bad password via SCRAM with a different wording than the line above.
+    "error received from server in SCRAM exchange: Wrong password": "Invalid user or password",
     "could not translate host name": "Could not connect to the host",
     "Is the server running on that host and accepting TCP/IP connections": "Could not connect to the host on the port given",
     'database "': "Database does not exist",
     "timeout expired": "Connection timed out. Does your database have our IP addresses allowed?",
+    "the database system is starting up": "Your database is starting up or recovering. Wait a moment and try again.",
     "SSL/TLS connection is required": "SSL/TLS connection is required but your database does not support it. Please enable SSL/TLS on your PostgreSQL server.",
+    "server does not support SSL, but SSL was required": "SSL/TLS connection is required but your database does not support it. Please enable SSL/TLS on your PostgreSQL server.",
+    "SSL connection has been closed unexpectedly": "The SSL/TLS connection to your database was closed unexpectedly. Check your database's SSL configuration and that the port is correct.",
+    # libpq reports a server-side socket close during the startup handshake with this wording. During
+    # credential validation it almost always means the host/port points at something that isn't (or
+    # won't accept) a Postgres connection — a wrong port, a service that requires SSL/TLS, or a
+    # pooler/firewall/SSH tunnel that drops the connection. Map it to an actionable message so
+    # validation stops surfacing this expected user/upstream condition as captured error noise.
+    # NB: this is intentionally NOT added to `get_non_retryable_errors` — the same wording is a
+    # transient mid-stream drop in the streaming path (`_CONNECTION_DROPPED_ERROR_SUBSTRINGS`) and
+    # must stay retryable there.
+    "server closed the connection unexpectedly": "Your database closed the connection unexpectedly while connecting. This usually means the host or port is wrong, the server requires SSL/TLS, or a connection pooler, firewall, or SSH tunnel dropped the connection. Check your host, port, and SSL settings.",
 }
 
 
 _POSTGRES_IMPLEMENTATION = PostgresImplementation()
+
+RLS_WARNING_MESSAGE = (
+    "Row-level security is active on this table for the sync role, so PostHog can only read "
+    "rows the policy permits, and cannot detect how many rows are hidden. "
+    "Granting the sync role BYPASSRLS will silence the check."
+)
 
 
 @SourceRegistry.register
@@ -79,6 +101,8 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.POSTGRES,
+            category=DataWarehouseSourceCategory.DATABASES,
+            keywords=["postgresql"],
             caption="Enter your Postgres credentials to automatically pull your Postgres data into the PostHog Data warehouse",
             iconPath="/static/services/postgres.png",
             docsUrl="https://posthog.com/docs/cdp/sources/postgres",
@@ -98,7 +122,13 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                         label="Host",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
-                        placeholder="localhost",
+                        placeholder="db.example.com",
+                        caption=(
+                            "Must be reachable from the public internet. Add PostHog's egress IP addresses to your "
+                            "firewall allowlist (see the docs above) and use a public host — `localhost` and private "
+                            "IPs (10.x, 172.16–31.x, 192.168.x) can't be reached. For a database that can't be "
+                            "exposed publicly, enable the SSH tunnel below."
+                        ),
                         secret=False,
                     ),
                     SourceFieldInputConfig(
@@ -153,13 +183,31 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             "is not permitted to log in": None,
             "Tenant or user not found connection to server": None,
             "FATAL: Tenant or user not found": None,
+            # Newer Supabase/Supavisor poolers report a missing tenant/user with a different
+            # wording than the two lines above ("FATAL: (ENOTFOUND) tenant/user <user> not found").
+            # It means the pooler can't resolve the project ref or pooler username — the project is
+            # paused/deleted or the credentials are wrong — so it's permanent until the customer
+            # fixes their config. Match the stable fragment and exclude the volatile username/host.
+            "(ENOTFOUND) tenant/user": (
+                "Your database connection pooler couldn't find the tenant or user "
+                '("tenant/user not found"). This usually means the database project is paused or '
+                "deleted, or the pooler username/host is wrong. Check that your database is active "
+                "and the connection details are correct, then re-enable the sync."
+            ),
             "error received from server in SCRAM exchange: Wrong password": None,
             "could not translate host name": None,
             "timeout expired connection to server at": None,
             "password authentication failed for user": None,
             "No primary key defined for table": None,
             "failed: timeout expired": None,
-            "SSL connection has been closed unexpectedly": None,
+            # NOTE: "SSL connection has been closed unexpectedly" is intentionally NOT listed here.
+            # It denotes an established SSL connection being dropped mid-stream (idle cull by a
+            # pooler, failover, network blip) — a transient condition that recovers on a fresh
+            # attempt. It is the SSL-flavoured sibling of the "consuming input failed" drops handled
+            # by `_CONNECTION_DROPPED_ERROR_SUBSTRINGS` in postgres.py. Marking it non-retryable
+            # permanently disabled syncs on a transient blip during schema discovery, which has no
+            # in-process reconnect. A genuinely unsupported-SSL source fails at connect time with a
+            # different message and is caught via "SSLRequiredError" / "SSL/TLS connection is required".
             "Address not in tenant allow_list": None,
             "FATAL: no such database": None,
             "does not exist": None,
@@ -167,8 +215,25 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             "QueryTimeoutException": None,
             "TemporaryFileSizeExceedsLimitException": None,
             "Name or service not known": None,
+            # Sibling getaddrinfo failure to "Name or service not known" (EAI_NONAME): EAI_NODATA
+            # surfaces as "[Errno -5] No address associated with hostname". Both mean the customer's
+            # database host doesn't resolve to an address — a config/DNS issue on their side that
+            # retrying won't fix.
+            "No address associated with hostname": None,
             "Network is unreachable": None,
+            # `InsufficientPrivilege` is the psycopg exception class name. It only appears once
+            # Temporal wraps the activity failure (`ApplicationError` stringifies as
+            # "InsufficientPrivilege: ..."), so it matches at the workflow layer but NOT in the
+            # activity-level check, where `error_msg = str(e)` is the raw psycopg message —
+            # PostgreSQL's SQLSTATE 42501 text "permission denied for table/view/... <name>".
+            # Match that message substring so the role-lacks-SELECT case is caught at both layers
+            # and we stop retrying instead of re-reading into the same denial every attempt.
             "InsufficientPrivilege": None,
+            "permission denied for": (
+                "PostHog's database role isn't allowed to read one or more of the tables you selected to sync "
+                '(PostgreSQL reported "permission denied"). Grant the connecting role SELECT on those tables '
+                "(for example: GRANT SELECT ON <table> TO <role>), then re-enable the sync."
+            ),
             "Connection refused": None,
             "No route to host": None,
             "password authentication failed connection": None,
@@ -176,6 +241,38 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             "SSLRequiredError": None,
             "SSL/TLS connection is required": None,
             "Could not establish session to SSH gateway": None,
+            # Surfaced by a connection pooler (e.g. PgBouncer) as a psycopg ProtocolViolation when
+            # the pooler has *repeatedly* failed to log in to the backend database within its
+            # server_login_retry window (full message: "server login has been failing, cached
+            # error: <reason> (server_login_retry)"). By the time this is returned the backend is in
+            # a sustained failure state — unreachable, refusing connections, or rejecting the
+            # pooler's credentials — so it is not a one-off transient blip; retrying the whole sync
+            # just hits the same wall. Matches the stable pooler signature; the cached <reason>
+            # ("connect timeout", etc.) and the trailing "(server_login_retry)" suffix vary and are
+            # excluded.
+            "server login has been failing": (
+                "Your database's connection pooler (for example PgBouncer) reported that it has "
+                'repeatedly failed to connect to the backend database ("server login has been '
+                'failing"). This usually means the database is unreachable, refusing connections, or '
+                "the pooler's credentials for the database are wrong. Check that the database is "
+                "running and reachable from your pooler, then re-enable the sync."
+            ),
+            # `offset_chunking` retries a Postgres standby recovery conflict ("canceling statement
+            # due to conflict with recovery") 30 times in-process with backoff + chunk-size
+            # reduction before raising this. The conflict comes from the customer's read replica
+            # applying WAL that removes row versions our long-running read still needs
+            # (max_standby_streaming_delay exceeded). Once those in-process retries are exhausted the
+            # condition is sustained, not a transient blip — retrying the whole activity just
+            # re-reads from offset 0 into the same wall, so stop and surface an actionable message.
+            # Matched substring excludes the volatile retry count and is distinct from the
+            # connection-dropped abort ("successive connection-dropped errors"), which stays retryable.
+            "successive SerializationFailure errors. Aborting.": (
+                "PostHog repeatedly hit Postgres recovery conflicts while reading from your read replica "
+                '("canceling statement due to conflict with recovery"). This happens when the replica must '
+                "apply changes from the primary that remove rows the sync is still reading. Increase "
+                "max_standby_streaming_delay on the replica, enable hot_standby_feedback, or point the "
+                "connection at the primary database, then re-enable the sync."
+            ),
             "DiskFull": "Source database ran out of disk space. Free up disk space on your database server or add an index on your incremental field to reduce temp file usage.",
             "No space left on device": "Source database ran out of disk space. Free up disk space on your database server or add an index on your incremental field to reduce temp file usage.",
             # Raised when a Postgres numeric value cannot be represented in any Delta-compatible
@@ -189,6 +286,32 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             # an existing column in place, so retrying won't help — the table must be reset and
             # fully re-synced to adopt the new type.
             "Source column type changed": "A column's type changed in your source database (for example an integer column was widened to bigint) and no longer fits the type we stored. We can't widen an existing column in place — please reset and fully re-sync this table to adopt the new type.",
+            # Raised by the source Postgres when the incremental query compares an integer column
+            # against a non-integer cursor value, e.g. `WHERE "id" > '1.5'`. `_build_query` renders
+            # the stored `incremental_field_last_value` as a SQL literal, so a fractional/non-integer
+            # cursor produces `InvalidTextRepresentation: invalid input syntax for type integer`.
+            # This is deterministic — every retry re-runs the identical failing query — and signals a
+            # type mismatch between the incremental field and its data. The volatile offending value
+            # (`: "1.5"`) is excluded from the match. Coercing the cursor here would change sync
+            # semantics (risk of skipped/duplicated rows), so stop and ask the user to reset.
+            "invalid input syntax for type integer": "PostHog tried to resume this table's incremental sync from a non-integer cursor value against an integer incremental field, which your database rejects. This usually means the incremental field's type doesn't match its data. Please reset and fully re-sync this table, or pick a different incremental field.",
+            # Raised (ObjectNotInPrerequisiteState, SQLSTATE 55000) when a selected materialized view
+            # was created `WITH NO DATA` and never refreshed — every SELECT against it fails until the
+            # customer runs `REFRESH MATERIALIZED VIEW`. Deterministic and outside our control, so
+            # retrying just re-reads into the same error. Match the stable message fragment and exclude
+            # the volatile view name.
+            "has not been populated": (
+                "One of the materialized views you selected to sync hasn't been populated yet "
+                '(PostgreSQL reported "has not been populated"). Run REFRESH MATERIALIZED VIEW on it in '
+                "your database so it contains data, then re-enable the sync."
+            ),
+            # Raised by Postgres while reading a view/materialized view whose own definition calls
+            # `jsonb_each()` (or `jsonb_each_text()`) on a jsonb value that isn't an object for some
+            # rows (a JSON array, scalar, or `'null'`). We only ever run `SELECT ... FROM <relation>`;
+            # the function lives in the customer's view definition. The failure is deterministic
+            # against the source data, so retrying re-evaluates the same view and hits the same row.
+            "cannot call jsonb_each on a non-object": "A view you're syncing calls jsonb_each() on a JSON value that isn't an object for at least one row, so Postgres can't evaluate the view and we can't read it. Guard the call in your view definition (for example only call jsonb_each() when jsonb_typeof(col) = 'object'), or remove that view from the sync.",
+            "cannot call jsonb_each_text on a non-object": "A view you're syncing calls jsonb_each_text() on a JSON value that isn't an object for at least one row, so Postgres can't evaluate the view and we can't read it. Guard the call in your view definition (for example only call jsonb_each_text() when jsonb_typeof(col) = 'object'), or remove that view from the sync.",
         }
 
     def reconcile_schema_metadata(
@@ -253,15 +376,24 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 schema=config.schema,
                 names=names,
             )
-            db_foreign_keys = get_postgres_foreign_keys(
-                host=host,
-                port=port,
-                user=config.user,
-                password=config.password,
-                database=config.database,
-                schema=config.schema,
-                names=names,
-            )
+            # Foreign keys are advisory metadata (they pre-populate relationship hints in the
+            # table picker). The discovery query joins three `information_schema` views, which
+            # can be expensive enough to OOM the source database on schemas with many
+            # constraints. Degrade gracefully on any failure — like PK and index discovery
+            # below — so optional metadata never breaks schema listing or the import.
+            try:
+                db_foreign_keys = get_postgres_foreign_keys(
+                    host=host,
+                    port=port,
+                    user=config.user,
+                    password=config.password,
+                    database=config.database,
+                    schema=config.schema,
+                    names=names,
+                )
+            except Exception as e:
+                structlog.get_logger().warning("Failed to detect foreign keys for Postgres schemas", exc_info=e)
+                db_foreign_keys = {}
 
             if with_counts:
                 row_counts = get_postgres_row_count(
@@ -294,6 +426,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             # indexes — that's how we tell "no indexes" apart from "couldn't check".
             indexed_columns_by_table: dict[str, set[str]] | None = {}
             tables_with_pks: set[str] = set()
+            rls_active_by_table: dict[str, bool] = {}
 
             try:
                 with pg_connection(
@@ -320,7 +453,14 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                                     pk_columns_by_table[display_name] = pk_columns
                         tables_with_pks = set(pk_columns_by_table.keys())
                     except Exception as e:
-                        capture_exception(e)
+                        # Best-effort, like the foreign-key and index lookups: some
+                        # Postgres-wire-compatible engines reject our `pg_catalog` PK query
+                        # (e.g. a DuckDB/DuckLake backend can't bind `ANY(indkey)` →
+                        # "Binder Error: UNNEST not supported here"). Losing the `supports_cdc`
+                        # hint is harmless, so warn rather than capturing it as an exception.
+                        structlog.get_logger().warning(
+                            "Failed to detect primary key columns for Postgres schemas", exc_info=e
+                        )
                         pk_columns_by_table = {}
                         tables_with_pks = set()
 
@@ -353,12 +493,22 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                             "Failed to detect leading index columns for Postgres schemas", exc_info=e
                         )
                         indexed_columns_by_table = None
+
+                    # Row-level security check powers the advisory warning in the table picker.
+                    rls_active_by_table = _rls_active_from_conn(conn, config.schema, names)
             except Exception as e:
-                # Connection-level failure: neither lookup is usable.
-                capture_exception(e)
+                # Connection-level failure for the best-effort PK/index/RLS metadata lookup. The
+                # schema listing already succeeded above (`db_schemas`), so degrade quietly — log a
+                # warning and drop the optional metadata, consistent with the foreign-key and index
+                # lookups in this function. Don't `capture_exception` here: this connection is opened
+                # separately from schema discovery and is prone to transient drops (e.g. an SSH-tunnel
+                # hiccup raising "server closed the connection unexpectedly"), which would otherwise
+                # flood error tracking despite the listing still succeeding.
+                structlog.get_logger().warning("Failed to fetch PK/index/RLS metadata for Postgres schemas", exc_info=e)
                 pk_columns_by_table = {}
                 indexed_columns_by_table = None
                 tables_with_pks = set()
+                rls_active_by_table = {}
 
         for table_name, discovered_schema in db_schemas.items():
             incremental_field_tuples = filter_postgres_incremental_fields(discovered_schema.columns)
@@ -394,6 +544,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                         pk_columns_by_table.get(table_name),
                         discovered_schema.columns,
                     ),
+                    rls_warning=RLS_WARNING_MESSAGE if rls_active_by_table.get(table_name) else None,
                 )
             )
 
@@ -555,7 +706,6 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         )
         # `SourceResponse.name` must match `DataWarehouseTable.url_pattern` (both derived from the
         # storage key when present, otherwise the row name) so HogQL reads from where we wrote.
-        storage_key = (schema.sync_type_config or {}).get("dwh_storage_key")
-        storage_schema_name = storage_key if isinstance(storage_key, str) and storage_key else inputs.schema_name
+        storage_schema_name = schema.resolved_s3_folder_name or inputs.schema_name
         response.name = NamingConvention.normalize_identifier(storage_schema_name)
         return response

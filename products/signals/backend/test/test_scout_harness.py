@@ -16,7 +16,6 @@ from posthog.models import Organization, Team
 from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async
 
-from products.ai_observability.backend.models.skills import LLMSkill, LLMSkillFile
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.prompt import build_run_prompt
 from products.signals.backend.scout_harness.runner import RunResult, arun_signals_scout
@@ -27,6 +26,7 @@ from products.signals.backend.scout_harness.skill_loader import (
 )
 from products.signals.backend.scout_harness.tools.runs import _build_task_url, _to_detail, _to_summary
 from products.signals.backend.temporal.agentic.scout_scheduler import RunSignalsScoutInput, run_signals_scout_activity
+from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
 from products.tasks.backend.models import Task, TaskRun
 
 
@@ -148,8 +148,8 @@ class TestPromptBuilder(BaseTest):
         assert "First: read your skill" in prompt
         # Skill version is pinned explicitly — the run row + tool resolution + budget
         # were snapshotted against v1, so the bootstrap fetch must lock to v1 too.
-        assert 'llma-skill-get(skill_name="signals-scout-errors", version=1)' in prompt
-        assert "llma-skill-file-get" in prompt
+        assert 'skill-get(skill_name="signals-scout-errors", version=1)' in prompt
+        assert "skill-file-get" in prompt
         assert "watch for spikes" not in prompt
         assert "refs/playbook.md" not in prompt
         # Second bootstrap step orients the agent on the project via the
@@ -167,6 +167,14 @@ class TestPromptBuilder(BaseTest):
         # agent-feedback tool so the scout system improves over time.
         assert "Report operational friction" in prompt
         assert "agent-feedback" in prompt
+        # Tag guidance teaches the scratchpad-taxonomy convention — the scout owns and
+        # evolves its vocabulary in the scout loop; the harness only carries the nudge.
+        assert "Tagging your findings" in prompt
+        assert "tags:<domain>:taxonomy" in prompt
+        # The base prompt teaches scouts to format the description for the inbox
+        # surface (markdown, front-loaded into the ~300-char collapsed preview),
+        # while leaving a skill body free to impose its own structure.
+        assert "Writing the description (how it renders in the inbox)" in prompt
 
 
 # Orchestration tests run as plain pytest functions because the async runner uses
@@ -277,6 +285,93 @@ async def test_failed_run_returns_failed_outcome_and_skips_bridge_insert(ateam, 
     # No bridge row persisted on the failure path (TaskRun was never created).
     has_runs = await database_sync_to_async(SignalScoutRun.objects.filter(team=ateam).exists)()
     assert not has_runs
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_successful_run_captures_run_finished_event(ateam, aerrors_skill):
+    session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
+
+    with (
+        patch(
+            "products.signals.backend.scout_harness.runner.MultiTurnSession.start",
+            new=_fake_start_invoking_hook(session, result),
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env",
+            return_value="env-id",
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.resolve_user_id_for_team",
+            return_value=42,
+        ),
+        patch("products.signals.backend.scout_harness.runner.posthoganalytics.capture") as capture,
+    ):
+        run_result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+
+    capture.assert_called_once()
+    assert capture.call_args.kwargs["event"] == "signals_scout_run_finished"
+    assert capture.call_args.kwargs["distinct_id"] == str(ateam.uuid)
+    props = capture.call_args.kwargs["properties"]
+    assert props["skill_name"] == "signals-scout-errors"
+    assert props["skill_version"] == 1
+    assert props["status"] == TaskRun.Status.COMPLETED.value
+    assert props["emitted_count"] == 0
+    assert props["run_id"] == run_result.run_id
+    # task_run_id is the join key into LLM analytics for the richer per-run metrics.
+    assert props["task_run_id"] == str(session.task_run.id)
+    assert isinstance(props["runtime_seconds"], float)
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_failed_run_captures_run_finished_event(ateam, aerrors_skill):
+    with (
+        patch(
+            "products.signals.backend.scout_harness.runner.MultiTurnSession.start",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("sandbox refused to start"),
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env",
+            return_value="env-id",
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.resolve_user_id_for_team",
+            return_value=42,
+        ),
+        patch("products.signals.backend.scout_harness.runner.posthoganalytics.capture") as capture,
+    ):
+        await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+
+    capture.assert_called_once()
+    props = capture.call_args.kwargs["properties"]
+    assert capture.call_args.kwargs["event"] == "signals_scout_run_finished"
+    assert props["status"] == TaskRun.Status.FAILED.value
+    # No bridge row persisted (TaskRun never created), so no emit tally or join key.
+    assert props["emitted_count"] == 0
+    assert props["task_run_id"] is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_cancelled_run_captures_run_finished_event(ateam, aerrors_skill):
+    async def fake_spawn(**_kwargs):
+        raise asyncio.CancelledError("worker is shutting down")
+
+    with (
+        patch("products.signals.backend.scout_harness.runner._spawn_and_run", side_effect=fake_spawn),
+        patch("products.signals.backend.scout_harness.runner.posthoganalytics.capture") as capture,
+    ):
+        with pytest.raises(asyncio.CancelledError):
+            await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+
+    # The cancelled path still emits before re-raising, so the metric isn't lost on shutdown.
+    capture.assert_called_once()
+    props = capture.call_args.kwargs["properties"]
+    assert props["status"] == TaskRun.Status.CANCELLED.value
+    # Cancellation skips the DB read, so emit volume is left unknown rather than guessed.
+    assert props["emitted_count"] is None
 
 
 @pytest.mark.asyncio

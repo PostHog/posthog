@@ -3,45 +3,10 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 7 enabled ops
+ * PostHog API - MCP 8 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
-
-/**
- * Paginated delivery history for a subscription. Requires premium subscriptions.
- * @summary List subscription deliveries
- */
-export const SubscriptionsDeliveriesListParams = /* @__PURE__ */ zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-    subscription_id: zod.number(),
-})
-
-export const SubscriptionsDeliveriesListQueryParams = /* @__PURE__ */ zod.object({
-    cursor: zod.string().optional().describe('The pagination cursor value.'),
-    status: zod
-        .enum(['completed', 'failed', 'skipped', 'starting'])
-        .optional()
-        .describe('Return only deliveries in this run status (starting, completed, failed, or skipped).'),
-})
-
-/**
- * Fetch one delivery row by id.
- * @summary Retrieve subscription delivery
- */
-export const SubscriptionsDeliveriesRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this subscription delivery.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-    subscription_id: zod.number(),
-})
 
 export const SubscriptionsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -63,10 +28,7 @@ export const SubscriptionsListQueryParams = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Filter by subscription resource: insight, dashboard export, or AI report.'),
     search: zod.string().optional().describe('A search term.'),
-    target_type: zod
-        .enum(['email', 'slack', 'webhook'])
-        .optional()
-        .describe('Filter by delivery channel (email, Slack, or webhook).'),
+    target_type: zod.enum(['email', 'slack']).optional().describe('Filter by delivery channel (email or Slack).'),
 })
 
 export const SubscriptionsCreateParams = /* @__PURE__ */ zod.object({
@@ -105,17 +67,19 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             .describe(
                 'List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6.'
             ),
-        target_type: zod
-            .enum(['email', 'slack', 'webhook'])
-            .describe('* `email` - Email\n* `slack` - Slack\n* `webhook` - Webhook')
+        prompt: zod
+            .string()
+            .nullish()
             .describe(
-                'Delivery channel: email, slack, or webhook.\n\n* `email` - Email\n* `slack` - Slack\n* `webhook` - Webhook'
+                "Free-text prompt that drives the AI-generated report. Required when resource_type is 'ai_prompt'. Max 4000 characters."
             ),
+        target_type: zod
+            .enum(['email', 'slack'])
+            .describe('* `email` - Email\n* `slack` - Slack')
+            .describe('Delivery channel: email or slack.\n\n* `email` - Email\n* `slack` - Slack'),
         target_value: zod
             .string()
-            .describe(
-                'Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook.'
-            ),
+            .describe('Recipient(s): comma-separated email addresses for email, or Slack channel name/ID for slack.'),
         frequency: zod
             .enum(['daily', 'weekly', 'monthly', 'yearly'])
             .describe('* `daily` - Daily\n* `weekly` - Weekly\n* `monthly` - Monthly\n* `yearly` - Yearly')
@@ -158,7 +122,6 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             .datetime({ offset: true })
             .nullish()
             .describe('When to stop delivering (ISO 8601 datetime). Null for indefinite.'),
-        deleted: zod.boolean().optional().describe('Set to true to soft-delete. Subscriptions cannot be hard-deleted.'),
         enabled: zod
             .boolean()
             .optional()
@@ -174,12 +137,19 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             .number()
             .nullish()
             .describe('ID of a connected Slack integration. Required when target_type is slack.'),
-        invite_message: zod
+        summary_enabled: zod
+            .boolean()
+            .optional()
+            .describe(
+                "Whether to attach an AI-generated summary to each delivery (insight and dashboard subscriptions only). Requires the organization to have approved AI data processing, and is subject to the org's active-summary cap and AI credit budget; otherwise the write is rejected. Not applicable to prompt subscriptions, which are themselves AI-generated."
+            ),
+        summary_prompt_guide: zod
             .string()
-            .nullish()
-            .describe('Optional message included in the invitation email when adding new recipients.'),
-        summary_enabled: zod.boolean().optional(),
-        summary_prompt_guide: zod.string().max(subscriptionsCreateBodySummaryPromptGuideMax).optional(),
+            .max(subscriptionsCreateBodySummaryPromptGuideMax)
+            .optional()
+            .describe(
+                'Optional free-text guidance (max 500 chars) steering the AI summary, e.g. which metrics to emphasize. Only settable when AI summary context is enabled for the organization; clearing it (empty string) is always allowed.'
+            ),
     })
     .describe('Standard Subscription serializer.')
 
@@ -229,19 +199,21 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6.'
             ),
-        target_type: zod
-            .enum(['email', 'slack', 'webhook'])
-            .describe('* `email` - Email\n* `slack` - Slack\n* `webhook` - Webhook')
-            .optional()
+        prompt: zod
+            .string()
+            .nullish()
             .describe(
-                'Delivery channel: email, slack, or webhook.\n\n* `email` - Email\n* `slack` - Slack\n* `webhook` - Webhook'
+                "Free-text prompt that drives the AI-generated report. Required when resource_type is 'ai_prompt'. Max 4000 characters."
             ),
+        target_type: zod
+            .enum(['email', 'slack'])
+            .describe('* `email` - Email\n* `slack` - Slack')
+            .optional()
+            .describe('Delivery channel: email or slack.\n\n* `email` - Email\n* `slack` - Slack'),
         target_value: zod
             .string()
             .optional()
-            .describe(
-                'Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook.'
-            ),
+            .describe('Recipient(s): comma-separated email addresses for email, or Slack channel name/ID for slack.'),
         frequency: zod
             .enum(['daily', 'weekly', 'monthly', 'yearly'])
             .describe('* `daily` - Daily\n* `weekly` - Weekly\n* `monthly` - Monthly\n* `yearly` - Yearly')
@@ -289,7 +261,6 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             .datetime({ offset: true })
             .nullish()
             .describe('When to stop delivering (ISO 8601 datetime). Null for indefinite.'),
-        deleted: zod.boolean().optional().describe('Set to true to soft-delete. Subscriptions cannot be hard-deleted.'),
         enabled: zod
             .boolean()
             .optional()
@@ -305,14 +276,33 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             .number()
             .nullish()
             .describe('ID of a connected Slack integration. Required when target_type is slack.'),
-        invite_message: zod
+        summary_enabled: zod
+            .boolean()
+            .optional()
+            .describe(
+                "Whether to attach an AI-generated summary to each delivery (insight and dashboard subscriptions only). Requires the organization to have approved AI data processing, and is subject to the org's active-summary cap and AI credit budget; otherwise the write is rejected. Not applicable to prompt subscriptions, which are themselves AI-generated."
+            ),
+        summary_prompt_guide: zod
             .string()
-            .nullish()
-            .describe('Optional message included in the invitation email when adding new recipients.'),
-        summary_enabled: zod.boolean().optional(),
-        summary_prompt_guide: zod.string().max(subscriptionsPartialUpdateBodySummaryPromptGuideMax).optional(),
+            .max(subscriptionsPartialUpdateBodySummaryPromptGuideMax)
+            .optional()
+            .describe(
+                'Optional free-text guidance (max 500 chars) steering the AI summary, e.g. which metrics to emphasize. Only settable when AI summary context is enabled for the organization; clearing it (empty string) is always allowed.'
+            ),
     })
     .describe('Standard Subscription serializer.')
+
+/**
+ * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
+ */
+export const SubscriptionsDestroyParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this subscription.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
 
 export const SubscriptionsTestDeliveryCreateParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this subscription.'),
@@ -321,4 +311,39 @@ export const SubscriptionsTestDeliveryCreateParams = /* @__PURE__ */ zod.object(
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
+})
+
+/**
+ * Paginated delivery history for a subscription. Requires premium subscriptions.
+ * @summary List subscription deliveries
+ */
+export const SubscriptionsDeliveriesListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    subscription_id: zod.number(),
+})
+
+export const SubscriptionsDeliveriesListQueryParams = /* @__PURE__ */ zod.object({
+    cursor: zod.string().optional().describe('The pagination cursor value.'),
+    status: zod
+        .enum(['completed', 'failed', 'skipped', 'starting'])
+        .optional()
+        .describe('Return only deliveries in this run status (starting, completed, failed, or skipped).'),
+})
+
+/**
+ * Fetch one delivery row by id.
+ * @summary Retrieve subscription delivery
+ */
+export const SubscriptionsDeliveriesRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this subscription delivery.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    subscription_id: zod.number(),
 })

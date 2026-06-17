@@ -7,6 +7,7 @@ from unittest.mock import ANY, patch
 from django.test import override_settings
 
 from drf_spectacular.generators import SchemaGenerator
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.test.dashboards import DashboardAPI
@@ -16,6 +17,7 @@ from posthog.rbac.user_access_control import AccessControlLevel, UserAccessContr
 from posthog.scopes import APIScopeObject
 
 from products.dashboards.backend.api.dashboard import DashboardTileSerializer
+from products.dashboards.backend.constants import DEFAULT_WIDGET_LIST_LIMIT
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -569,7 +571,7 @@ class TestDashboardWidgets(APIBaseTest):
         results = response.json()["results"]
         assert any(entry["widget_type"] == "error_tracking_list" for entry in results)
         error_tracking_list = next(entry for entry in results if entry["widget_type"] == "error_tracking_list")
-        assert error_tracking_list["config_schema_hints"]["limit"]["max"] == 25
+        assert error_tracking_list["config_schema"]["properties"]["limit"]["default"] == DEFAULT_WIDGET_LIST_LIMIT
         assert error_tracking_list["availability_requirements"] == ["exception_autocapture"]
 
     @override_settings(IN_UNIT_TESTING=True)
@@ -661,6 +663,7 @@ class TestDashboardWidgets(APIBaseTest):
         assert len(widget_added_calls) == 1
         assert widget_added_calls[0][0][2]["widget_type"] == "error_tracking_list"
         assert widget_added_calls[0][0][2]["dashboard_id"] == dashboard_id
+        assert widget_added_calls[0][0][2]["dashboard_widget_count"] == 1
         assert "tile_id" in widget_added_calls[0][0][2]
         assert "widget_id" in widget_added_calls[0][0][2]
 
@@ -698,6 +701,7 @@ class TestDashboardWidgets(APIBaseTest):
         assert len(widget_added_calls) == 1
         assert widget_added_calls[0][0][2]["widget_type"] == "error_tracking_list"
         assert widget_added_calls[0][0][2]["dashboard_id"] == dashboard_id
+        assert widget_added_calls[0][0][2]["dashboard_widget_count"] == 1
         assert "tile_id" in widget_added_calls[0][0][2]
         assert "widget_id" in widget_added_calls[0][0][2]
 
@@ -723,6 +727,175 @@ class TestDashboardWidgets(APIBaseTest):
         assert len(widget_added_calls) == 1
         assert widget_added_calls[0][0][2]["widget_type"] == "session_replay_list"
 
+    @parameterized.expand(
+        [
+            ("session_replay_off", "session_replay_list", "session_recording_opt_in", False),
+            ("session_replay_on", "session_replay_list", "session_recording_opt_in", True),
+            ("error_tracking_off", "error_tracking_list", "autocapture_exceptions_opt_in", False),
+            ("error_tracking_on", "error_tracking_list", "autocapture_exceptions_opt_in", True),
+        ]
+    )
+    @override_settings(IN_UNIT_TESTING=True)
+    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    def test_dashboard_widget_added_records_feature_enabled(
+        self, _name: str, widget_type: str, team_field: str, expected: bool, mock_report_user_action
+    ) -> None:
+        setattr(self.team, team_field, expected)
+        self.team.save()
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        mock_report_user_action.reset_mock()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/widgets/batch/",
+            {"widgets": [{"widget_type": widget_type, "config": {"limit": 5}}]},
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+
+        widget_added_calls = [
+            call for call in mock_report_user_action.call_args_list if call[0][1] == "dashboard widget added"
+        ]
+        assert len(widget_added_calls) == 1
+        assert widget_added_calls[0][0][2]["widget_type"] == widget_type
+        assert widget_added_calls[0][0][2]["feature_enabled"] is expected
+
+    @override_settings(IN_UNIT_TESTING=True)
+    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    def test_delete_widget_tile_fires_tile_removed_and_widget_removed_events(self, mock_report_user_action) -> None:
+        dashboard_id, dashboard_json = self.dashboard_api.create_widget_tile(
+            dashboard_id=self.dashboard_api.create_dashboard({"name": "dashboard"})[0],
+            widget_type="error_tracking_list",
+            config={"limit": 10},
+        )
+        tile_id = dashboard_json["tiles"][0]["id"]
+        mock_report_user_action.reset_mock()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/delete_tile",
+            {"tile_id": tile_id},
+        )
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+
+        mock_report_user_action.assert_any_call(
+            self.user,
+            "dashboard tile removed",
+            {
+                "tile_type": "widget",
+                "insight_type": None,
+                "dashboard_id": dashboard_id,
+                "widget_type": "error_tracking_list",
+            },
+            team=ANY,
+            request=ANY,
+        )
+        widget_removed_calls = [
+            call for call in mock_report_user_action.call_args_list if call[0][1] == "dashboard widget removed"
+        ]
+        assert len(widget_removed_calls) == 1
+        assert widget_removed_calls[0][0][2]["widget_type"] == "error_tracking_list"
+        assert widget_removed_calls[0][0][2]["dashboard_id"] == dashboard_id
+        assert widget_removed_calls[0][0][2]["tile_id"] == tile_id
+        assert "widget_id" in widget_removed_calls[0][0][2]
+
+    @override_settings(IN_UNIT_TESTING=True)
+    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    def test_soft_delete_widget_tile_via_dashboard_patch_fires_removed_events(self, mock_report_user_action) -> None:
+        dashboard_id, dashboard_json = self.dashboard_api.create_widget_tile(
+            dashboard_id=self.dashboard_api.create_dashboard({"name": "dashboard"})[0],
+            widget_type="error_tracking_list",
+            config={"limit": 10},
+        )
+        tile_id = dashboard_json["tiles"][0]["id"]
+        mock_report_user_action.reset_mock()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
+            {"tiles": [{"id": tile_id, "deleted": True}]},
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        removed_events = [call[0][1] for call in mock_report_user_action.call_args_list]
+        assert "dashboard tile removed" in removed_events
+        widget_removed_calls = [
+            call for call in mock_report_user_action.call_args_list if call[0][1] == "dashboard widget removed"
+        ]
+        assert len(widget_removed_calls) == 1
+        assert widget_removed_calls[0][0][2]["widget_type"] == "error_tracking_list"
+        assert widget_removed_calls[0][0][2]["dashboard_id"] == dashboard_id
+        assert widget_removed_calls[0][0][2]["tile_id"] == tile_id
+
+        # Re-sending the same soft-delete payload must not double-report the removal
+        mock_report_user_action.reset_mock()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
+            {"tiles": [{"id": tile_id, "deleted": True}]},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        for call in mock_report_user_action.call_args_list:
+            assert call[0][1] not in ("dashboard tile removed", "dashboard widget removed")
+
+    @override_settings(IN_UNIT_TESTING=True)
+    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    def test_update_widget_filters_via_dashboard_patch_fires_filters_updated_event(
+        self, mock_report_user_action
+    ) -> None:
+        dashboard_id, dashboard_json = self.dashboard_api.create_widget_tile(
+            dashboard_id=self.dashboard_api.create_dashboard({"name": "dashboard"})[0],
+            widget_type="error_tracking_list",
+            config={"limit": 10},
+        )
+        tile = dashboard_json["tiles"][0]
+        tile["widget"]["config"] = {
+            "limit": 10,
+            "widgetFilters": {
+                "qf-1": {
+                    "filterId": "qf-1",
+                    "propertyName": "$environment",
+                    "optionId": "opt-1",
+                    "operator": "exact",
+                    "value": "production",
+                }
+            },
+        }
+        mock_report_user_action.reset_mock()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
+            {"tiles": [tile]},
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        filters_updated_calls = [
+            call for call in mock_report_user_action.call_args_list if call[0][1] == "dashboard widget filters updated"
+        ]
+        assert len(filters_updated_calls) == 1
+        assert filters_updated_calls[0][0][2]["widget_type"] == "error_tracking_list"
+        assert filters_updated_calls[0][0][2]["dashboard_id"] == dashboard_id
+        assert filters_updated_calls[0][0][2]["widget_id"] == tile["widget"]["id"]
+        assert filters_updated_calls[0][0][2]["filters_count"] == 1
+
+    @override_settings(IN_UNIT_TESTING=True)
+    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    def test_update_widget_config_without_filters_change_does_not_fire_filters_updated_event(
+        self, mock_report_user_action
+    ) -> None:
+        dashboard_id, dashboard_json = self.dashboard_api.create_widget_tile(
+            dashboard_id=self.dashboard_api.create_dashboard({"name": "dashboard"})[0],
+            widget_type="error_tracking_list",
+            config={"limit": 10},
+        )
+        tile = dashboard_json["tiles"][0]
+        tile["widget"]["config"] = {"limit": 15}
+        mock_report_user_action.reset_mock()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
+            {"tiles": [tile]},
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        for call in mock_report_user_action.call_args_list:
+            assert call[0][1] != "dashboard widget filters updated"
+
     @override_settings(IN_UNIT_TESTING=True)
     def test_can_batch_create_widget_tiles(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
@@ -742,10 +915,11 @@ class TestDashboardWidgets(APIBaseTest):
         assert len(tiles) == 2
         assert tiles[0]["widget"]["widget_type"] == "error_tracking_list"
         assert tiles[1]["widget"]["widget_type"] == "error_tracking_list"
+        # Batch adds stack downward so vertical compaction keeps each tile at the bottom.
         assert tiles[0]["layouts"]["sm"]["y"] == 0
         assert tiles[0]["layouts"]["sm"]["x"] == 0
-        assert tiles[1]["layouts"]["sm"]["y"] == 0
-        assert tiles[1]["layouts"]["sm"]["x"] == 6
+        assert tiles[1]["layouts"]["sm"]["y"] == 5
+        assert tiles[1]["layouts"]["sm"]["x"] == 0
 
     @override_settings(IN_UNIT_TESTING=True)
     def test_batch_create_widget_tiles_rejects_empty_list(self) -> None:
@@ -774,6 +948,28 @@ class TestDashboardWidgets(APIBaseTest):
 
         dashboard = Dashboard.objects.get(id=dashboard_id)
         assert dashboard.tiles.filter(widget__isnull=False).count() == 0
+
+    @override_settings(IN_UNIT_TESTING=True)
+    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    def test_dashboard_widget_count_increments_with_each_add(self, mock_report_user_action) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        mock_report_user_action.reset_mock()
+
+        # First widget
+        self.dashboard_api.create_widget_tile(dashboard_id, widget_type="error_tracking_list", config={"limit": 5})
+        first_add = next(
+            call for call in mock_report_user_action.call_args_list if call[0][1] == "dashboard widget added"
+        )
+        assert first_add[0][2]["dashboard_widget_count"] == 1
+
+        mock_report_user_action.reset_mock()
+
+        # Second widget on the same dashboard
+        self.dashboard_api.create_widget_tile(dashboard_id, widget_type="session_replay_list")
+        second_add = next(
+            call for call in mock_report_user_action.call_args_list if call[0][1] == "dashboard widget added"
+        )
+        assert second_add[0][2]["dashboard_widget_count"] == 2
 
     @override_settings(IN_UNIT_TESTING=True)
     @patch("products.dashboards.backend.api.dashboard.report_user_action")

@@ -4,7 +4,7 @@ import { IconLetter } from '@posthog/icons'
 import { LemonSelectOption, LemonSelectOptionLeaf, LemonSelectOptions } from '@posthog/lemon-ui'
 
 import { IconSlack } from 'lib/lemon-ui/icons'
-import { range } from 'lib/utils'
+import { range } from 'lib/utils/arrays'
 import { urls } from 'scenes/urls'
 
 import { SubscriptionAIPromptMaxLength } from '~/queries/schema/schema-general'
@@ -43,7 +43,6 @@ export const urlForSubscription = (
 export const targetTypeOptions: LemonSelectOptions<'email' | 'slack'> = [
     { value: 'email', label: 'Email', icon: <IconLetter /> },
     { value: 'slack', label: 'Slack', icon: <IconSlack /> },
-    // { value: 'webhook', label: 'Webhook', icon: <IconOpenInNew /> },
 ]
 
 export const intervalOptions: LemonSelectOptions<number> = range(1, 13).map((x) => ({ value: x, label: x.toString() }))
