@@ -3510,6 +3510,46 @@ ${queryMarkdown}`)
         expect(getBodyTextBlock(container).textContent).toEqual('Add a summary here')
     })
 
+    it('does not submit Ask AI when the active prompt target is no longer a prompt node', () => {
+        const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+        const onAskAI = jest.fn()
+        const onChange = jest.fn()
+
+        try {
+            const { container } = render(
+                createElement(MarkdownNotebook, {
+                    value: withNotebookTitle(' '),
+                    onAskAI,
+                    onChange,
+                    createAIChatId: () => TEST_AI_CHAT_ID,
+                })
+            )
+            const row = getBodyTextBlock(container).closest('.MarkdownNotebook__row')
+
+            fireEvent.mouseEnter(row as HTMLElement)
+            fireEvent.click(container.querySelector('.MarkdownNotebook__line-insert-menu-button') as HTMLButtonElement)
+            fireEvent.click(container.querySelector('.MarkdownNotebook__insert-item') as HTMLButtonElement)
+
+            const promptBlock = getAIPromptInput(container)
+            updateAIPromptInput(promptBlock, 'Add a summary here')
+            promptBlock.setSelectionRange(0, 0)
+            fireEvent.keyDown(promptBlock, { key: 'Backspace' })
+
+            const convertedTextBlock = getBodyTextBlock(container)
+            expect(convertedTextBlock.textContent).toEqual('Add a summary here')
+
+            const caretOffset = convertedTextBlock.textContent?.length ?? 0
+            selectTextInElement(convertedTextBlock, caretOffset, caretOffset)
+            fireEvent.keyDown(container.querySelector('.MarkdownNotebook__canvas') as HTMLElement, { key: 'Enter' })
+
+            expect(onAskAI).not.toHaveBeenCalled()
+            expect(consoleErrorSpy).toHaveBeenCalledWith('Prompt node not found for AI submission')
+            expect(onChange.mock.calls.some(([markdown]) => String(markdown).includes('<Agent'))).toBe(false)
+        } finally {
+            consoleErrorSpy.mockRestore()
+        }
+    })
+
     it('adds heading blocks from slash menu h aliases', () => {
         const onChange = jest.fn()
         const { container } = render(createElement(MarkdownNotebook, { value: withNotebookTitle(' '), onChange }))

@@ -4729,8 +4729,7 @@ export function MarkdownNotebook({
             return false
         }
 
-        const chatId = createAIChatId()
-        let responseNodeIndex = 0
+        let responseNodeIndex = -1
         const nodesWithResponse = nodes.map((currentNode, index): NotebookBlockNode => {
             if (currentNode.id !== nodeId || !isPromptComponentNode(currentNode)) {
                 return currentNode
@@ -4742,6 +4741,12 @@ export function MarkdownNotebook({
                 children: plainTextToInlineNodes(NOTEBOOK_AI_WRITING_PLACEHOLDER),
             }
         })
+        if (responseNodeIndex === -1) {
+            console.error('Prompt node not found for AI submission')
+            return false
+        }
+
+        const chatId = createAIChatId()
         const nextDocument: NotebookDocument = {
             ...currentDocument,
             nodes: upsertNotebookAIAgentNode(nodesWithResponse, {
