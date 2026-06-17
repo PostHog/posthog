@@ -21,8 +21,8 @@ import {
     getAddWidgetDisabledReason,
     submitAddWidgetPayloads,
 } from './addWidgetModalUtils'
-import { WidgetTypePickerCard } from './WidgetTypePickerCard'
 import { teamHasAdoptedProduct } from './widgetProductIntro'
+import { WidgetTypePickerCard } from './WidgetTypePickerCard'
 
 export type { AddWidgetPayload }
 
