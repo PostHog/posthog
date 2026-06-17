@@ -1,1 +1,1 @@
-1217_project_is_pending_deletion
+1224_columnconfiguration_properties

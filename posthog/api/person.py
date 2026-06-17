@@ -4,8 +4,6 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any, List, Optional, TypeVar, Union, cast  # noqa: UP035
 
-from django.db.models import Prefetch
-
 import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
@@ -59,8 +57,12 @@ from posthog.models.person.bulk_delete import (
 )
 from posthog.models.person.deletion import reset_deleted_person_distinct_ids
 from posthog.models.person.missing_person import MissingPerson
-from posthog.models.person.person import PersonDistinctId
-from posthog.models.person.util import get_person_by_pk_or_uuid, get_persons_by_distinct_ids, get_persons_by_uuids
+from posthog.models.person.util import (
+    get_distinct_ids_for_persons,
+    get_person_by_pk_or_uuid,
+    get_persons_by_uuids,
+    get_persons_mapped_by_distinct_id,
+)
 from posthog.queries.actor_base_query import ActorBaseQuery, get_serialized_people
 from posthog.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTrendsActors
 from posthog.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
@@ -237,7 +239,8 @@ class PersonSplitRequestSerializer(serializers.Serializer):
         help_text=(
             "The distinct_id to **keep** on this person; every *other* distinct_id is moved "
             "to its own new single-id person. If omitted, the first distinct_id on the person "
-            "is used and the person's properties are wiped. "
+            "is kept. The original person always retains its properties; to clear individual "
+            "properties afterward, use the delete_property endpoint. "
             "To surgically *remove* one or more distinct_ids while leaving the merge intact, "
             "use `distinct_ids_to_split` instead — these parameters are inverses of each other "
             "and cannot be combined."
@@ -437,7 +440,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         (*tuple(api_settings.DEFAULT_RENDERER_CLASSES), csvrenderers.PaginatedCSVRenderer),
     )
     parser_classes = [JSONParser]
-    queryset = Person.objects.all()  # nosemgrep: no-direct-persons-db-orm
+    queryset = Person.objects.none()
     serializer_class = PersonSerializer
     pagination_class = PersonLimitOffsetPagination
     lifecycle_class = Lifecycle
@@ -470,22 +473,6 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             property_type=PropertyDefinition.Type.PERSON,
         )
         return context
-
-    def safely_get_queryset(self, queryset):
-        queryset = queryset.prefetch_related(
-            Prefetch(
-                "persondistinctid_set",
-                # nosemgrep: no-direct-persons-db-orm
-                queryset=PersonDistinctId.objects.filter(
-                    team_id=self.team_id
-                ).order_by(  # nosemgrep: no-direct-persons-db-orm
-                    "id"
-                ),  # nosemgrep: no-direct-persons-db-orm
-                to_attr="distinct_ids_cache",
-            )
-        )
-        queryset = queryset.only("id", "created_at", "properties", "uuid", "is_identified")
-        return queryset
 
     def safely_get_object(self, queryset):
         person_id = self.kwargs[self.lookup_field]
@@ -840,10 +827,11 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "- **`distinct_ids_to_split`** (recommended for surgical edits): moves only the "
             "listed distinct_ids off this person onto new single-id persons. The original "
             "person keeps every other distinct_id and its properties.\n"
-            "- **`main_distinct_id`** (legacy semantics): keeps only the specified distinct_id "
+            "- **`main_distinct_id`**: keeps only the specified distinct_id "
             "on this person; moves every *other* distinct_id off onto its own new person. If "
-            "omitted, the person's properties are wiped and the first distinct_id is treated "
-            "as the one to keep.\n\n"
+            "omitted, the first distinct_id is kept.\n\n"
+            "The original person always retains its properties. To clear individual "
+            "properties afterward, use the `delete_property` endpoint.\n\n"
             "The split runs asynchronously: a 201 response means the task was enqueued. "
             "Newly-created split-off persons get a deterministic UUID derived from "
             "`(team_id, distinct_id)`, so they can be located client-side without polling. "
@@ -1350,17 +1338,29 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         MAX_BATCH_SIZE = 200
         distinct_ids = distinct_ids[:MAX_BATCH_SIZE]
 
-        persons = get_persons_by_distinct_ids(self.team_id, distinct_ids)
+        persons_by_distinct_id = get_persons_mapped_by_distinct_id(self.team_id, distinct_ids)
 
-        requested = set(distinct_ids)
-        results: dict[str, Any] = {}
-        for person in persons:
-            person_data = MinimalPersonSerializer(person, context={"get_team": lambda: self.team}).data
+        # The mapped lookup carries only the matched distinct_id; fetch up to 10
+        # per person with a bounded follow-up for display, rather than the
+        # unbounded fetch get_persons_by_distinct_ids would do. A person may appear
+        # under several requested ids, so update every copy.
+        persons_by_id: dict[int, list[Person]] = {}
+        for person in persons_by_distinct_id.values():
+            persons_by_id.setdefault(person.id, []).append(person)
+        if persons_by_id:
+            distinct_ids_by_person = get_distinct_ids_for_persons(
+                self.team_id, list(persons_by_id.keys()), limit_per_person=10
+            )
+            for person_id, persons in persons_by_id.items():
+                ids = distinct_ids_by_person.get(person_id)
+                if ids is not None:
+                    for person in persons:
+                        person._distinct_ids = ids
 
-            for distinct_id in person.distinct_ids:
-                if distinct_id in requested:
-                    results[distinct_id] = person_data
-
+        results: dict[str, Any] = {
+            distinct_id: MinimalPersonSerializer(person, context={"get_team": lambda: self.team}).data
+            for distinct_id, person in persons_by_distinct_id.items()
+        }
         return response.Response({"results": results})
 
     @action(methods=["POST"], detail=False, url_path="batch_by_uuids")
@@ -1378,7 +1378,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         except (ValueError, AttributeError):
             raise ValidationError("One or more UUIDs are invalid.")
 
-        persons = get_persons_by_uuids(self.team_id, uuids)
+        # MinimalPersonSerializer only renders 10 distinct_ids, so bound the fetch to match.
+        persons = get_persons_by_uuids(self.team_id, uuids, distinct_id_limit=10)
 
         results: dict[str, Any] = {}
         for person in persons:

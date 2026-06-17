@@ -159,15 +159,21 @@ devbox:
     devbox:ssh:
         click: hogli_commands.devbox.cli:devbox_ssh
         description: SSH into your devbox
+        # exec-replaces the process (os.execvp): completed events can't fire
+        untracked: true
     devbox:exec:
         click: hogli_commands.devbox.cli:devbox_remote_exec
         description: Run a command inside your devbox (non-interactive)
+        untracked: true
     devbox:open:
         click: hogli_commands.devbox.cli:devbox_open
         description: Open devbox in browser, VS Code, or Cursor
+        untracked: true
     devbox:logs:
         click: hogli_commands.devbox.cli:devbox_logs
         description: Tail devbox build and agent logs
+        # exec-replaces the process (os.execvp): completed events can't fire
+        untracked: true
     devbox:destroy:
         click: hogli_commands.devbox.cli:devbox_destroy
         description: Destroy your devbox and its data
@@ -177,6 +183,8 @@ devbox:
     devbox:forward:
         click: hogli_commands.devbox.cli:devbox_forward
         description: Forward PostHog UI to localhost
+        # exec-replaces the process (os.execvp): completed events can't fire
+        untracked: true
     devbox:users:
         click: hogli_commands.devbox.cli:devbox_users
         description: List Coder users (for devbox sharing)
@@ -195,6 +203,8 @@ devbox:
     devbox:task:
         click: hogli_commands.devbox.cli:devbox_task
         description: Run a background agent task on a fresh devbox
+        # exec-replaces the process (os.execvp): completed events can't fire
+        untracked: true
     devbox:secret:list:
         click: hogli_commands.devbox.cli:devbox_secret_list
         description: List your Coder user secrets
@@ -431,6 +441,15 @@ deploy:
             \ migrate # One-way migrate all (MinIO \u2192 SeaweedFS)\n  hogli deploy:migrate-storage-hobby\
             \ exports -n     # Dry run exports only"
         prompt: true
+    deploy:upgrade-objectstorage:
+        bin_script: upgrade-objectstorage
+        description: "Dev: salvage objectstorage data from the old MinIO volume into the\
+            \ running SeaweedFS (interactive)\n\nExamples:\n  hogli deploy:upgrade-objectstorage\
+            \              # Detect and copy the orphaned MinIO volume\n  hogli deploy:upgrade-objectstorage\
+            \ --list       # List all MinIO volumes"
+        services:
+            - docker
+        prompt: true
 build:
     build:
         click: hogli_commands.build:build
@@ -477,6 +496,12 @@ build:
         cmd: cd services/mcp && npx tsx scripts/generate-tool-schema.ts && pnpm exec oxfmt
             schema/tool-inputs.json
         description: Generate MCP tool-inputs.json schema from Zod definitions
+    build:widget-types:
+        steps:
+            - cmd: python bin/build-dashboard-widget-types.py
+            - cmd: pnpm --filter=@posthog/frontend exec node
+                  ../products/dashboards/frontend/bin/generate-widget-config-zod.mjs
+        description: Generate dashboard widget config codegen artifacts (enum preflight, Zod)
     build:openapi-types:
         cmd: pnpm --filter=@posthog/frontend run openapi:types
         description: Generate TypeScript API types from the backend OpenAPI schema
@@ -496,6 +521,7 @@ build:
     build:openapi:
         steps:
             - build:openapi-schema
+            - build:widget-types
             - build:openapi-types
             - build:openapi-mcp-types
             - build:openapi-mcp
@@ -717,6 +743,9 @@ tests:
     test:e2e:
         bin_script: e2e-test-runner
         description: Set up test databases and run Playwright E2E tests
+    test:quarantine:
+        click: hogli_commands.quarantine.cli:quarantine
+        description: Manage .test_quarantine.json — quarantine flaky tests so they stop blocking CI
 quality:
     lint:
         cmd: ./bin/ruff.sh check . && pnpm --filter=@posthog/frontend run lint
@@ -774,13 +803,13 @@ auth:
     metabase:cookie:
         click: hogli_commands.metabase:metabase_cookie
         description: Print the cached Metabase cookie header
+tools:
     metabase:databases:
         click: hogli_commands.metabase:metabase_databases
         description: List Metabase databases (id, name, engine) for a region
     metabase:query:
         click: hogli_commands.metabase:metabase_query
         description: Run a SQL query against Metabase /api/dataset; results to stdout
-tools:
     doctor:
         click: hogli_commands.doctor:doctor
         description: Quick health check for your dev environment
@@ -790,12 +819,21 @@ tools:
     doctor:zombies:
         click: hogli_commands.doctor:doctor_zombies
         description: Find and kill orphaned PostHog dev processes
+    doctor:report:
+        click: hogli_commands.doctor:doctor_report
+        description: Dump a paste-ready dev-environment diagnostics report for devex triage
     product:bootstrap:
         click: hogli_commands.product.cli:cmd_bootstrap
         description: Scaffold a new product with canonical structure
     product:lint:
         click: hogli_commands.product.cli:cmd_lint
         description: Check product structure for misplaced files
+    product:isolate:scan:
+        click: hogli_commands.product.cli:cmd_isolate_scan
+        description: Read-only isolation recon for the facade migration skill
+    product:isolate:move:
+        click: hogli_commands.product.cli:cmd_isolate_move
+        description: Mechanical isolation moves with repo-wide path rewrites
     product:lint:owners:
         click: hogli_commands.product.cli:cmd_lint_owners
         description: Validate product.yaml owners against PostHog/posthog GitHub teams
@@ -967,15 +1005,6 @@ environment:
     setup:python:
         cmd: uv sync --active
         description: Install Python dependencies to active virtual environment
-    telemetry:on:
-        click: hogli_commands.telemetry_commands:telemetry_on
-        description: Enable anonymous usage telemetry
-    telemetry:off:
-        click: hogli_commands.telemetry_commands:telemetry_off
-        description: Disable anonymous usage telemetry
-    telemetry:status:
-        click: hogli_commands.telemetry_commands:telemetry_status
-        description: Show current telemetry settings
     sandbox:
         bin_script: sandbox
         description: Manage isolated dev sandboxes
@@ -1006,4 +1035,24 @@ environment:
     dev:sandbox:selftest:
         bin_script: dev-sandbox-selftest
         description: 'Verify the dev sandbox profile: blocks credentials/escapes, allows the toolchain'
+        hidden: true
+    build:dashboard:widget:types:
+        bin_script: build-dashboard-widget-types.py
+        description: Widget enum preflight, date options, and form-field manifest codegen
+        hidden: true
+    dockerignore:drop:check:
+        bin_script: dockerignore-drop-check
+        description: List files an .dockerignore change drops from the image build context
+        hidden: true
+    verify:metrics:pipe:
+        bin_script: verify-metrics-pipe
+        description: 'Verify the local metrics pipe reached ClickHouse metrics1'
+        hidden: true
+    send:dev:metrics:
+        bin_script: send-dev-metrics.sh
+        description: 'Send a synthetic OTLP counter/gauge/histogram through the metrics ingest chain'
+        hidden: true
+    inject_mcp_intents:
+        bin_script: inject_mcp_intents.py
+        description: 'Used when developing MCP Analytics locally and trying to load some intents'
         hidden: true

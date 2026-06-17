@@ -88,16 +88,12 @@ async def classify_pending_documents_activity() -> dict[str, Any]:
     return {"classified": len(results), "unsafe": unsafe}
 
 
-def _emit_one_document(doc: logic.DocumentToEmbed) -> int:
-    """
-    Produce every chunk of one SAFE doc to the embedding pipeline, then stamp
-    the doc as emitted. Runs in a worker thread (sync Kafka produce + DB write).
-
-    If any chunk produce raises, the exception propagates BEFORE the stamp, so
-    the doc stays unstamped and the next pass retries the whole doc. Re-emitting
-    chunks that already landed is harmless — the shared table dedupes on
-    (chunk_id, stable timestamp) via ReplacingMergeTree.
-    """
+def _produce_document_chunks(doc: logic.DocumentToEmbed) -> None:
+    """Produce every chunk of one doc to the embedding pipeline (sync Kafka
+    produce). ``doc.timestamp`` is the embedding row timestamp — the stable
+    ``created_at`` for young first emissions, ``now()`` for old first emissions
+    (docs whose ``created_at`` is past the TTL refresh window), or ``now()``
+    for TTL refreshes."""
     for chunk in doc.chunks:
         emit_embedding_request(
             content=chunk.content,
@@ -107,13 +103,42 @@ def _emit_one_document(doc: logic.DocumentToEmbed) -> int:
             rendering=BK_EMBEDDING_RENDERING,
             document_id=str(chunk.chunk_id),
             models=[BK_EMBEDDING_MODEL],
-            # Stable timestamp so re-emits collapse onto one ClickHouse sort key.
             timestamp=doc.timestamp,
             # `document_id` lets the read path group a doc's chunk vectors and
             # re-join to Postgres; the chunk's own id is the embedding row's id.
             metadata={"document_id": str(doc.document_id)},
         )
+
+
+def _emit_one_document(doc: logic.DocumentToEmbed) -> int:
+    """
+    Produce every chunk of one SAFE doc to the embedding pipeline, then stamp
+    the doc as emitted. Runs in a worker thread (sync Kafka produce + DB write).
+
+    If any chunk produce raises, the exception propagates BEFORE the stamp, so
+    the doc stays unstamped and the next pass retries the whole doc. Re-emitting
+    chunks that already landed is harmless — the shared table dedupes on
+    (chunk_id, timestamp) via ReplacingMergeTree.
+    """
+    _produce_document_chunks(doc)
     logic.mark_document_embeddings_emitted(team_id=doc.team_id, document_id=doc.document_id)
+    return len(doc.chunks)
+
+
+def _reemit_one_document(doc: logic.DocumentToEmbed) -> int:
+    """
+    Re-produce every chunk of an aging SAFE doc with a FRESH timestamp, then
+    re-stamp ``embeddings_emitted_at``. Used by the TTL-refresh pass to keep
+    vectors alive past the 3-month ClickHouse TTL.
+
+    ``doc.timestamp`` is ``now()`` here (set by
+    ``logic.list_documents_for_embedding_refresh``) so the re-emit lands a fresh
+    row that resets the TTL clock; the prior row ages out under its own TTL. As
+    with first emission, a produce error propagates before the re-stamp, so the
+    doc keeps its old stamp and is retried on a later pass.
+    """
+    _produce_document_chunks(doc)
+    logic.restamp_document_embeddings_emitted(team_id=doc.team_id, document_id=doc.document_id)
     return len(doc.chunks)
 
 
@@ -142,6 +167,38 @@ async def emit_pending_embeddings_activity() -> dict[str, Any]:
         documents_embedded += 1
         chunks_emitted += written
     return {"documents_embedded": documents_embedded, "chunks_emitted": chunks_emitted}
+
+
+@activity.defn
+async def refresh_aging_embeddings_activity() -> dict[str, Any]:
+    """
+    Re-emit chunk embeddings for SAFE docs whose vectors are aging toward the
+    3-month ClickHouse TTL, so long-lived knowledge never silently loses its
+    vectors and falls back to FTS-only.
+
+    Bounded by ``REEMIT_EMBEDDING_SCAN_CAP`` (oldest-emitted docs first); a large
+    refresh wave drains over many hourly passes. The re-emit uses a fresh
+    timestamp=now() (the TTL is on the embedding row timestamp, so the stable
+    created_at would not reset it) and re-stamps ``embeddings_emitted_at`` so the
+    doc drops out of the refresh window for another cycle. Per-doc failures are
+    logged and skipped without re-stamping, so they retry on a later pass.
+    """
+    docs = await database_sync_to_async(logic.list_documents_for_embedding_refresh, thread_sensitive=False)()
+    documents_refreshed = 0
+    chunks_reemitted = 0
+    for doc in docs:
+        try:
+            written = await database_sync_to_async(_reemit_one_document, thread_sensitive=False)(doc)
+        except Exception:
+            logger.exception(
+                "business_knowledge.embedding.refresh_failed",
+                team_id=doc.team_id,
+                document_id=str(doc.document_id),
+            )
+            continue
+        documents_refreshed += 1
+        chunks_reemitted += written
+    return {"documents_refreshed": documents_refreshed, "chunks_reemitted": chunks_reemitted}
 
 
 def _present_chunk_ids_in_clickhouse(team_id: int, chunk_ids: list[UUID]) -> set[str]:
@@ -405,6 +462,15 @@ class BusinessKnowledgeRefreshCoordinatorWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=2),
         )
 
+        # Keep long-lived vectors alive past the 3-month CH TTL by re-emitting
+        # aging SAFE docs. Runs last (lowest urgency) and re-stamps with now()
+        # so a refreshed doc won't be touched again for a full window.
+        ttl_refreshed = await workflow.execute_activity(
+            refresh_aging_embeddings_activity,
+            start_to_close_timeout=timedelta(minutes=10),
+            retry_policy=RetryPolicy(maximum_attempts=2),
+        )
+
         return {
             "tombstoned_deleted": swept,
             "sources_due": len(due),
@@ -417,6 +483,8 @@ class BusinessKnowledgeRefreshCoordinatorWorkflow(PostHogWorkflow):
             "embeddings_re_nulled": reconciled.get("re_nulled", 0),
             "documents_embedded": embedded.get("documents_embedded", 0),
             "chunks_emitted": embedded.get("chunks_emitted", 0),
+            "embeddings_ttl_refreshed": ttl_refreshed.get("documents_refreshed", 0),
+            "chunks_reemitted": ttl_refreshed.get("chunks_reemitted", 0),
         }
 
     @staticmethod

@@ -1,9 +1,7 @@
-import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import type { cohortCalculationHistorySceneLogicType } from './cohortCalculationHistorySceneLogicType'
 
@@ -47,10 +45,6 @@ export const cohortCalculationHistorySceneLogic = kea<cohortCalculationHistorySc
     props({} as CohortCalculationHistorySceneLogicProps),
     key(({ cohortId }) => String(cohortId)),
     path((key) => ['scenes', 'cohorts', 'cohortCalculationHistorySceneLogic', key]),
-
-    connect(() => ({
-        values: [featureFlagLogic, ['featureFlags']],
-    })),
 
     actions({
         setPage: (page: number) => ({ page }),
@@ -139,10 +133,6 @@ export const cohortCalculationHistorySceneLogic = kea<cohortCalculationHistorySc
         totalRecords: [
             (s) => [s.calculationHistoryResponse],
             (response: CohortCalculationHistoryResponse): number => response.count,
-        ],
-        hasCalculationHistoryAccess: [
-            (s) => [s.featureFlags],
-            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.COHORT_CALCULATION_HISTORY],
         ],
     }),
 

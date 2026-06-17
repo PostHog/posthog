@@ -28,6 +28,7 @@ class SignalSourceConfig(UUIDModel):
         PGANALYZE = "pganalyze", "pganalyze"
         SIGNALS_SCOUT = "signals_scout", "Signals scout"
         LOGS = "logs", "Logs"
+        HEALTH_CHECKS = "health_checks", "Health checks"
 
     class SourceType(models.TextChoices):
         SESSION_ANALYSIS_CLUSTER = "session_analysis_cluster", "Session analysis cluster"
@@ -39,6 +40,7 @@ class SignalSourceConfig(UUIDModel):
         ISSUE_SPIKING = "issue_spiking", "Issue spiking"
         CROSS_SOURCE_ISSUE = "cross_source_issue", "Cross source issue"
         ALERT_STATE_CHANGE = "alert_state_change", "Alert state change"
+        HEALTH_ISSUE = "health_issue", "Health issue"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="signal_source_configs")
     source_product = models.CharField(max_length=100, choices=SourceProduct)
@@ -93,7 +95,7 @@ class SignalTeamConfig(UUIDModel):
         on_delete=models.CASCADE,
         related_name="signal_team_config",
     )
-    default_autostart_priority = models.CharField(max_length=2, choices=AutonomyPriority, default=AutonomyPriority.P0)
+    default_autostart_priority = models.CharField(max_length=2, choices=AutonomyPriority, default=AutonomyPriority.P2)
     default_slack_notification_channel = models.CharField(max_length=255, null=True, blank=True)
     autostart_base_branches = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -587,6 +589,10 @@ class SignalScoutEmission(TeamScopedRootMixin, UUIDModel):
     weight = models.FloatField()
     confidence = models.FloatField()
     severity = models.CharField(max_length=20, null=True, blank=True)
+    # Slug tags the scout attached to the finding (normalized lowercase kebab-case, capped at
+    # emit). This row is what feeds the per-scout tag-vocabulary feedback loop in the run prompt
+    # (`recent_tag_usage`), so the vocabulary derives from emitted behavior, not a maintained list.
+    tags = models.JSONField(default=list, blank=True)
     # Deterministic `run:<run_id>:finding:<finding_id>` — the join key back into the signal store
     # for the full embedding/grouping view of this finding.
     source_id = models.CharField(max_length=200)

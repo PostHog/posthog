@@ -53,6 +53,13 @@ from posthog.temporal.session_replay.delete_recordings.metrics import (
 )
 
 from products.batch_exports.backend.temporal.metrics import BatchExportsMetricsInterceptor
+from products.experiments.backend.temporal.recalculation_metrics import (
+    EXPERIMENT_METRICS_RECALCULATION_ATTEMPT_HISTOGRAM_BUCKETS,
+    EXPERIMENT_METRICS_RECALCULATION_ATTEMPT_HISTOGRAM_METRICS,
+    EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_BUCKETS,
+    EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_METRICS,
+    ExperimentsRecalculationMetricsInterceptor,
+)
 from products.logs.backend.temporal.metrics import (
     LOGS_ALERTING_COUNT_HISTOGRAM_BUCKETS,
     LOGS_ALERTING_COUNT_HISTOGRAM_METRICS,
@@ -134,6 +141,7 @@ ALL_INTERCEPTOR_CLASSES = [
     SentimentMetricsInterceptor,
     EvalReportsMetricsInterceptor,
     LogsAlertingMetricsInterceptor,
+    ExperimentsRecalculationMetricsInterceptor,
 ]
 
 
@@ -264,6 +272,18 @@ async def create_worker(
         )
         | dict(zip(LOGS_ALERTING_LATENCY_HISTOGRAM_METRICS, itertools.repeat(LOGS_ALERTING_LATENCY_HISTOGRAM_BUCKETS)))
         | dict(zip(LOGS_ALERTING_COUNT_HISTOGRAM_METRICS, itertools.repeat(LOGS_ALERTING_COUNT_HISTOGRAM_BUCKETS)))
+        | dict(
+            zip(
+                EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_METRICS,
+                itertools.repeat(EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_BUCKETS),
+            )
+        )
+        | dict(
+            zip(
+                EXPERIMENT_METRICS_RECALCULATION_ATTEMPT_HISTOGRAM_METRICS,
+                itertools.repeat(EXPERIMENT_METRICS_RECALCULATION_ATTEMPT_HISTOGRAM_BUCKETS),
+            )
+        )
         | {"batch_exports_activity_attempt": [1.0, 5.0, 10.0, 100.0]}
     )
     if task_queue == settings.DATA_MODELING_TASK_QUEUE:

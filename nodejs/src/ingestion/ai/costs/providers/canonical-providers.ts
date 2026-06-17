@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-06-09 20:36:32 UTC
+// Generated at: 2026-06-16 20:58:42 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -19,6 +19,7 @@ export type CanonicalProvider =
     | 'amazon-bedrock-us-west-2'
     | 'ambient'
     | 'ambient-fp8'
+    | 'ambient-int4'
     | 'anthropic'
     | 'anthropic-2'
     | 'anthropic-claude-on-aws'
@@ -40,7 +41,9 @@ export type CanonicalProvider =
     | 'cloudflare'
     | 'cloudflare-fp8'
     | 'cohere'
-    | 'crucible'
+    | 'darkbloom'
+    | 'decart-fp4'
+    | 'deepinfra'
     | 'deepinfra-base'
     | 'deepinfra-bf16'
     | 'deepinfra-fp16'
@@ -83,6 +86,7 @@ export type CanonicalProvider =
     | 'minimax-highspeed'
     | 'mistral'
     | 'modelrun-fp4'
+    | 'moonshotai-highspeed'
     | 'moonshotai-int4'
     | 'morph'
     | 'nebius-base'
@@ -141,11 +145,12 @@ export type CanonicalProvider =
     | 'venice-fp4'
     | 'venice-fp8'
     | 'venice-int4'
+    | 'wafer-fp4'
     | 'wandb-bf16'
     | 'wandb-fp16'
     | 'wandb-fp4'
     | 'wandb-fp8'
     | 'xai'
     | 'xiaomi-fp8'
-    | 'z-ai'
+    | 'z-ai-fp4'
     | 'z-ai-fp8'

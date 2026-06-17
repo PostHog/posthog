@@ -29,7 +29,8 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { capitalizeFirstLetter, isGroupType, isSessionType, midEllipsis, pluralize } from 'lib/utils'
+import { isGroupType, isSessionType } from 'lib/utils/guards'
+import { capitalizeFirstLetter, midEllipsis, pluralize } from 'lib/utils/strings'
 import { InsightErrorState, InsightValidationError } from 'scenes/insights/EmptyStates'
 import { isOtherBreakdown } from 'scenes/insights/utils'
 import { GroupActorDisplay, groupDisplayId } from 'scenes/persons/GroupActorDisplay'
@@ -220,10 +221,10 @@ export function PersonsModal({
                             ) : (
                                 <span>
                                     {actorsResponse?.next || actorsResponse?.offset ? 'More than ' : ''}
-                                    <b>
+                                    <span className="font-semibold text-default">
                                         {totalActorsCount || 'No'} unique{' '}
                                         {pluralize(totalActorsCount, actorLabel.singular, actorLabel.plural, false)}
-                                    </b>
+                                    </span>
                                 </span>
                             )}
                         </div>

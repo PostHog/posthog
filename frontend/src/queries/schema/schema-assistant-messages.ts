@@ -189,7 +189,15 @@ export interface FormDismissPayload {
     action: 'dismiss_form'
 }
 
-export type ResumePayload = ApprovalResumePayload | FormResumePayload | FormDismissPayload
+export interface ClientToolResultPayload {
+    action: 'client_tool_result'
+    /** Tool call id this result answers — echoed back so misdelivery fails loudly instead of silently */
+    tool_call_id?: string
+    /** Result produced by the tool's client-side handler, returned verbatim to the tool awaiting it */
+    result: Record<string, unknown>
+}
+
+export type ResumePayload = ApprovalResumePayload | FormResumePayload | FormDismissPayload | ClientToolResultPayload
 
 export interface AssistantMessageMetadata {
     form?: AssistantForm
@@ -494,6 +502,7 @@ export type AssistantTool =
     | 'manage_memories'
     | 'create_notebook'
     | 'list_data'
+    | 'list_feature_flags'
     | 'upsert_alert'
     | 'finalize_plan'
     | 'call_mcp_server'
@@ -517,6 +526,10 @@ export type AssistantTool =
     | 'marketing_suggest_utm_mappings'
     | 'summarize_replay_vision_summaries'
     | 'draft_replay_vision_scanner_prompt'
+    | 'search_replay_vision_observations'
+    | 'upsert_account'
+    | 'upsert_account_notebook'
+    | 'open_account'
 
 export enum AgentMode {
     ProductAnalytics = 'product_analytics',
@@ -531,6 +544,7 @@ export enum AgentMode {
     AIObservability = 'llm_analytics',
     Sandbox = 'sandbox',
     UserInterview = 'user_interview',
+    CustomerAnalytics = 'customer_analytics',
 }
 
 export enum SlashCommandName {

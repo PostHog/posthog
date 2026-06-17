@@ -22,6 +22,8 @@
  */
 import { useMemo, useState } from 'react'
 
+import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
+import { hasRecentContext } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
 import {
     isQuickFilterItem,
     ListStorage,
@@ -157,7 +159,11 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
         const haystack = filteredLocalItems.map((item) => {
             const name = group.getName?.(item) ?? ('name' in item ? (item as { name?: string }).name : '') ?? ''
             const posthogName = getCoreFilterDefinition(name, group.type)?.label
-            return { name, posthogName, recentLabel: undefined, item }
+            const recentLabel =
+                hasRecentContext(item) && item._recentContext.propertyFilter
+                    ? formatPropertyLabel(item._recentContext.propertyFilter, {})
+                    : undefined
+            return { name, posthogName, recentLabel, item }
         })
         return createFuse(haystack, { keys: ['name', 'posthogName', 'recentLabel'], ignoreLocation: true })
     }, [filteredLocalItems, group])
