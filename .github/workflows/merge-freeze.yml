@@ -20,8 +20,10 @@ jobs:
         timeout-minutes: 5
         steps:
             - name: Check freeze flag
+              env:
+                  MERGE_FREEZE: ${{ vars.MERGE_FREEZE }}
               run: |
-                  if [ "${{ vars.MERGE_FREEZE }}" = "true" ]; then
+                  if [ "$MERGE_FREEZE" = "true" ]; then
                     echo "::error::Merges are frozen (MERGE_FREEZE=true). Try again once the freeze is lifted."
                     exit 1
                   fi
