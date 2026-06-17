@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { LemonButton, LemonCheckbox, LemonInput, LemonModal, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonInput, LemonModal, LemonSelect, lemonToast } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput/LemonFileInput'
@@ -93,6 +93,10 @@ export const PostgreSQLSetupModal = (props: PostgreSQLSetupModalLogicProps): JSX
                                                         .then((text) =>
                                                             setPostgreSQLIntegrationValue('ssl_root_cert', text)
                                                         )
+                                                        .catch(() => {
+                                                            lemonToast.error('Failed to read the certificate file')
+                                                            setPostgreSQLIntegrationValue('ssl_root_cert', null)
+                                                        })
                                                 } else {
                                                     setPostgreSQLIntegrationValue('ssl_root_cert', null)
                                                 }
