@@ -20296,6 +20296,14 @@ export namespace Schemas {
      */
     export type ExternalDataSchemaTable = { [key: string]: unknown } | null;
 
+    export type ExternalDataSchemaRowFiltersItem = {
+      column: string;
+      /** One of: > >= < <= = != IN "NOT IN". */
+      operator: string;
+      /** Comparison value; must match the column's type. For `IN` / `NOT IN`, a comma-separated list (e.g. `1, 2, 3` or `'a','b'`). */
+      value: unknown;
+    };
+
     export type ExternalDataSchemaAvailableColumnsItem = {
       name: string;
       data_type?: string;
@@ -20459,6 +20467,11 @@ export namespace Schemas {
          * @nullable
          */
       enabled_columns?: string[] | null;
+      /**
+         * Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`/empty (default) syncs all rows. The operator must be one of `> >= < <= = != IN "NOT IN"` and the value must match the column's type (for `IN`/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). Applied on the next sync — not retroactive to already-synced rows.
+         * @nullable
+         */
+      row_filters?: ExternalDataSchemaRowFiltersItem[] | null;
       /** Source-side column metadata (name, data type, nullable) discovered for this schema. Empty until the source has been refreshed via `refresh_schemas`. */
       readonly available_columns: readonly ExternalDataSchemaAvailableColumnsItem[];
       /**
@@ -20467,6 +20480,14 @@ export namespace Schemas {
          */
       readonly source: ExternalDataSchemaSource;
     }
+
+    export type ExternalDataSourceBulkUpdateSchemaRowFiltersItem = {
+      column: string;
+      /** One of: > >= < <= = != IN "NOT IN". */
+      operator: string;
+      /** Comparison value; must match the column's type. For `IN` / `NOT IN`, a comma-separated list (e.g. `1, 2, 3` or `'a','b'`). */
+      value: unknown;
+    };
 
     export interface ExternalDataSourceBulkUpdateSchema {
       /** Schema identifier to update. */
@@ -20512,6 +20533,11 @@ export namespace Schemas {
          * @nullable
          */
       enabled_columns?: string[] | null;
+      /**
+         * Row-filter predicates ANDed onto the source query. Null/empty means sync all rows.
+         * @nullable
+         */
+      row_filters?: ExternalDataSourceBulkUpdateSchemaRowFiltersItem[] | null;
     }
 
     export interface ExternalDataSourceConnectionOption {
@@ -34199,6 +34225,14 @@ export namespace Schemas {
      */
     export type PatchedExternalDataSchemaTable = { [key: string]: unknown } | null;
 
+    export type PatchedExternalDataSchemaRowFiltersItem = {
+      column: string;
+      /** One of: > >= < <= = != IN "NOT IN". */
+      operator: string;
+      /** Comparison value; must match the column's type. For `IN` / `NOT IN`, a comma-separated list (e.g. `1, 2, 3` or `'a','b'`). */
+      value: unknown;
+    };
+
     export type PatchedExternalDataSchemaAvailableColumnsItem = {
       name: string;
       data_type?: string;
@@ -34294,6 +34328,11 @@ export namespace Schemas {
          * @nullable
          */
       enabled_columns?: string[] | null;
+      /**
+         * Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`/empty (default) syncs all rows. The operator must be one of `> >= < <= = != IN "NOT IN"` and the value must match the column's type (for `IN`/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). Applied on the next sync — not retroactive to already-synced rows.
+         * @nullable
+         */
+      row_filters?: PatchedExternalDataSchemaRowFiltersItem[] | null;
       /** Source-side column metadata (name, data type, nullable) discovered for this schema. Empty until the source has been refreshed via `refresh_schemas`. */
       readonly available_columns?: readonly PatchedExternalDataSchemaAvailableColumnsItem[];
       /**
