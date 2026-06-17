@@ -9,6 +9,8 @@ from urllib.parse import quote_plus
 import pytest
 from posthog.test.base import PostHogTestCase, run_clickhouse_statement_in_parallel
 
+from posthoganalytics.client import Client, normalize_flags_response
+
 try:
     from hogli_commands.quarantine.pytest_support import apply_quarantine_markers
 except ImportError:  # fail-open: runs without tools/hogli-commands on pythonpath (e.g. ee/pytest.ini)
@@ -528,6 +530,23 @@ class _JUnitTimingsPlugin:
             xml.add_global_property(self._PROPERTY_COLLECTION, f"{self._collection_finish - self._session_start:.6f}")
 
 
+_orig_get_flags_decision = Client.get_flags_decision
+
+
+def _seal_disabled_flag_fetch(self: Client, *args: Any, **kwargs: Any) -> Any:
+    """`apps.py` sets `posthoganalytics.disabled = True` under TEST, but the SDK's
+    `Client.get_flags_decision` — unlike every sibling flag method — has no `disabled`
+    guard, so the `send_feature_flags=True` / `feature_enabled` remote-eval path fires a
+    live `/flags` request to the analytics host even when disabled, and `capture()`
+    swallows the resulting error. That leaks a real outbound call from any test touching a
+    capture path. Honor `disabled` here so "disabled" means no network, matching the rest
+    of the SDK. (The fix belongs upstream in posthog-python; this seals it for our suite.)
+    """
+    if self.disabled:
+        return normalize_flags_response({})
+    return _orig_get_flags_decision(self, *args, **kwargs)
+
+
 def pytest_configure(config):
     """
     Configure pytest-django to allow access to persons databases by default.
@@ -540,6 +559,8 @@ def pytest_configure(config):
     # Set default databases for Django test classes
     TestCase.databases = {"default", "persons_db_writer", "persons_db_reader"}
     TransactionTestCase.databases = {"default", "persons_db_writer", "persons_db_reader"}
+
+    Client.get_flags_decision = _seal_disabled_flag_fetch  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
 
     if not config.pluginmanager.hasplugin("posthog-junit-timings"):
         config.pluginmanager.register(_JUnitTimingsPlugin(), "posthog-junit-timings")
