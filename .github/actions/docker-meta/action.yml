@@ -6,8 +6,9 @@ inputs:
         required: true
         description: 'Image name without registry prefix (e.g., posthog-node, capture, llm-gateway)'
     aws-role-to-assume:
-        required: true
-        description: 'AWS IAM role ARN for ECR access'
+        required: false
+        default: ''
+        description: 'AWS IAM role ARN for ECR access. Required when push-to-ecr=true (the default).'
     github-token:
         required: true
         description: 'GitHub token for GHCR login'
@@ -33,6 +34,10 @@ inputs:
         required: false
         default: 'true'
         description: 'Whether to push to ghcr.io. Set to false to skip GHCR publishing.'
+    push-to-ecr:
+        required: false
+        default: 'true'
+        description: 'Whether to push to AWS ECR (and assume the AWS role). Set to false for images consumed only via GHCR (e.g. sandbox-host images Modal pulls directly). When false, the AWS configure-credentials + ECR-login steps are skipped, the ECR tag is omitted from the images list, and ecr-registry output is empty.'
 
 outputs:
     tags:
@@ -49,12 +54,14 @@ runs:
     using: 'composite'
     steps:
         - name: Configure AWS credentials
+          if: inputs.push-to-ecr == 'true'
           uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
           with:
               role-to-assume: ${{ inputs.aws-role-to-assume }}
               aws-region: us-east-1
 
         - name: Login to Amazon ECR
+          if: inputs.push-to-ecr == 'true'
           id: aws-ecr
           uses: aws-actions/amazon-ecr-login@f2e9fc6c2b355c1890b65e6f6f0e2ac3e6e22f78 # v2.1.2
 
@@ -85,7 +92,9 @@ runs:
                 if [ "$PUSH_TO_DOCKERHUB" = "true" ]; then
                   echo "posthog/$IMAGE_NAME"
                 fi
-                echo "$ECR_REGISTRY/${ECR_IMAGE_NAME:-$IMAGE_NAME}"
+                if [ "$PUSH_TO_ECR" = "true" ]; then
+                  echo "$ECR_REGISTRY/${ECR_IMAGE_NAME:-$IMAGE_NAME}"
+                fi
                 if [ -n "$LEGACY_IMAGES" ]; then
                   echo "$LEGACY_IMAGES"
                 fi
@@ -98,6 +107,7 @@ runs:
               ECR_IMAGE_NAME: ${{ inputs.ecr-image-name }}
               PUSH_TO_DOCKERHUB: ${{ inputs.push-to-dockerhub }}
               PUSH_TO_GHCR: ${{ inputs.push-to-ghcr }}
+              PUSH_TO_ECR: ${{ inputs.push-to-ecr }}
 
         - name: Docker meta
           id: meta
