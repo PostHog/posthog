@@ -43,8 +43,8 @@ use cohort_stream_processor::producer::{
 };
 use cohort_stream_processor::stage1::{Stage1State, StatefulRecord};
 use cohort_stream_processor::store::durability::{
-    run_boot_restore, upload_cadence, CheckpointExporter, CheckpointSweeper, OffsetManifest,
-    RestoreSource, S3Uploader,
+    run_boot_restore, store_hash_prefix, upload_cadence, CheckpointExporter, CheckpointSweeper,
+    OffsetManifest, RestoreSource, S3Uploader,
 };
 use cohort_stream_processor::store::{
     CohortStore, LeafStateKey, Stage1Key, StoreConfig, TombstoneKey,
@@ -927,8 +927,9 @@ fn merge_durability_config(
     config
 }
 
-/// Delete every S3 object under the configured prefix on test exit. Best-effort: any error building,
-/// listing, or deleting is ignored so cleanup never fails a passing test.
+/// Delete every S3 object this run wrote on test exit — both the hash-prefixed checkpoint files and
+/// the bare-prefix metadata.json. Best-effort: any error building, listing, or deleting is ignored so
+/// cleanup never fails a passing test.
 async fn delete_s3_prefix(config: &Config) {
     use futures::StreamExt;
     use object_store::aws::AmazonS3Builder;
@@ -961,11 +962,16 @@ async fn delete_s3_prefix(config: &Config) {
         Ok(store) => store,
         Err(_) => return,
     };
-    let prefix = ObjPath::from(d.s3_key_prefix.as_str());
-    let mut stream = store.list(Some(&prefix));
-    while let Some(entry) = stream.next().await {
-        if let Ok(meta) = entry {
-            let _result = store.delete(&meta.location).await;
+    // Checkpoint object files are keyed under `<hash>/<s3_key_prefix>/…`; metadata.json sits at the
+    // bare `<s3_key_prefix>/…` (the hash prefix is applied to files only). Sweep both.
+    let hashed = format!("{}/{}", store_hash_prefix(), d.s3_key_prefix);
+    for raw_prefix in [d.s3_key_prefix.as_str(), hashed.as_str()] {
+        let prefix = ObjPath::from(raw_prefix);
+        let mut stream = store.list(Some(&prefix));
+        while let Some(entry) = stream.next().await {
+            if let Ok(meta) = entry {
+                let _result = store.delete(&meta.location).await;
+            }
         }
     }
 }
