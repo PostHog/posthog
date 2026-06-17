@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { combineUrl, router } from 'kea-router'
-import { lazy, Suspense, useEffect, useRef, useState } from 'react'
+import { Fragment, lazy, Suspense, useEffect, useRef, useState } from 'react'
 
 import {
     IconChevronRight,
@@ -292,6 +292,20 @@ function SkillViewDetails(): JSX.Element {
         return <></>
     }
 
+    // The spec frontmatter, rendered as a compact monospace key/value block. `version` is the
+    // platform-owned field, shown last; a stored metadata `version` (if any) is dropped to avoid a clash.
+    const frontmatterRows: [string, string][] = [
+        ...(skill.license ? ([['license', skill.license]] as [string, string][]) : []),
+        ...(skill.compatibility ? ([['compatibility', skill.compatibility]] as [string, string][]) : []),
+        ...(skill.allowed_tools?.length
+            ? ([['allowed-tools', skill.allowed_tools.join(' ')]] as [string, string][])
+            : []),
+        ...Object.entries(skill.metadata ?? {})
+            .filter(([key]) => key !== 'version')
+            .map(([key, value]): [string, string] => [key, String(value)]),
+        ['version', String(skill.version)],
+    ]
+
     return (
         <div className="space-y-5">
             <div className="flex flex-wrap items-center gap-2">
@@ -322,35 +336,17 @@ function SkillViewDetails(): JSX.Element {
                 <p className="text-sm">{skill.description}</p>
             </div>
 
-            {(skill.license || skill.compatibility) && (
-                <div className="grid gap-3 sm:grid-cols-2">
-                    {skill.license && (
-                        <div>
-                            <label className="text-xs font-semibold uppercase text-secondary">License</label>
-                            <p className="text-sm">{skill.license}</p>
-                        </div>
-                    )}
-                    {skill.compatibility && (
-                        <div>
-                            <label className="text-xs font-semibold uppercase text-secondary">Compatibility</label>
-                            <p className="text-sm">{skill.compatibility}</p>
-                        </div>
-                    )}
+            <div>
+                <label className="text-xs font-semibold uppercase text-secondary">Frontmatter</label>
+                <div className="mt-1 grid grid-cols-[max-content_1fr] gap-x-4 gap-y-0.5 font-mono text-xs">
+                    {frontmatterRows.map(([key, value]) => (
+                        <Fragment key={key}>
+                            <span className="text-muted">{key}</span>
+                            <span className="text-secondary whitespace-pre-wrap break-words">{value}</span>
+                        </Fragment>
+                    ))}
                 </div>
-            )}
-
-            {skill.allowed_tools && skill.allowed_tools.length > 0 && (
-                <div>
-                    <label className="text-xs font-semibold uppercase text-secondary">Allowed tools</label>
-                    <div className="mt-1 flex flex-wrap gap-1">
-                        {skill.allowed_tools.map((tool) => (
-                            <LemonTag key={tool} type="highlight" size="small">
-                                {tool}
-                            </LemonTag>
-                        ))}
-                    </div>
-                </div>
-            )}
+            </div>
 
             <div>
                 <div className="flex items-center gap-2">
