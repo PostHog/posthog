@@ -2,8 +2,8 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
-import { toParams } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import { toParams } from 'lib/utils/url'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'

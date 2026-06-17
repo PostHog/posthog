@@ -20,7 +20,7 @@ import { initHogTemplateLanguage } from 'lib/monaco/languages/hogTemplate'
 import { initLiquidLanguage } from 'lib/monaco/languages/liquid'
 import { clearLogicReference, initModel } from 'lib/monaco/modelLogicReference'
 import { sharedMonacoOverflowRoot } from 'lib/monaco/sharedMonacoOverflowRoot'
-import { inStorybookTestRunner } from 'lib/utils'
+import { inStorybookTestRunner } from 'lib/utils/dom'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { AnyDataNode, HogLanguage, HogQLMetadataResponse, NodeKind } from '~/queries/schema/schema-general'

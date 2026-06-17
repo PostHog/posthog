@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -44,6 +45,7 @@ class GoCardlessSource(ResumableSource[GoCardlessSourceConfig, GoCardlessResumeC
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.GO_CARDLESS,
+            category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="GoCardless",
             caption="""Enter your GoCardless access token to pull your GoCardless payments data into the PostHog Data warehouse.
 

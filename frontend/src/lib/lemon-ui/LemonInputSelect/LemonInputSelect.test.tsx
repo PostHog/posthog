@@ -247,6 +247,31 @@ describe('LemonInputSelect', () => {
         expect(onChange).toHaveBeenCalledWith([])
     })
 
+    it('single-select mode: focusing with a selected option still shows every option', async () => {
+        // Regression: for option-backed single selects the option key is an opaque id (e.g. a UUID).
+        // Focusing must not seed the input with that key, which would filter the dropdown down to the
+        // selected option alone and hide every other choice (the OAuth organization picker symptom).
+        const onChange = jest.fn()
+
+        const { container } = render(
+            <LemonInputSelect<string>
+                mode="single"
+                options={[
+                    { key: '019cd764-55e6-0000-67dc-7f9cb756d36e', label: 'Testbench' },
+                    { key: '4dc8564d-bd82-1065-2f40-97f7c50f67cf', label: 'PostHog Inc.' },
+                ]}
+                value={['019cd764-55e6-0000-67dc-7f9cb756d36e']}
+                onChange={onChange}
+            />
+        )
+
+        await openDropdown(container)
+
+        // Both the selected org and the other org must be selectable from the open dropdown.
+        expect(await findDropdownButtonByText('Testbench')).toBeInTheDocument()
+        expect(await findDropdownButtonByText('PostHog Inc.')).toBeInTheDocument()
+    })
+
     it('custom values: typing prefix of existing option shows both entries, completing shows only one', async () => {
         const onChange = jest.fn()
 

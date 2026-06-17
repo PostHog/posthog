@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
-import { formatDate } from 'lib/utils'
+import { formatDate } from 'lib/utils/datetime'
 
 import { AlertState } from '~/queries/schema/schema-general'
 

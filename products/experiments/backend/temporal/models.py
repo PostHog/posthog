@@ -134,3 +134,7 @@ class RecalculationProgressUpdate:
     metric_uuids: list[str] | None = None
     mark_started: bool = False
     mark_completed: bool = False
+    # Run-level outcome carried on the finish step so the activity can emit the
+    # 'experiment results refresh completed' analytics event with real counts.
+    succeeded_metrics: int | None = None
+    failed_metrics: int | None = None

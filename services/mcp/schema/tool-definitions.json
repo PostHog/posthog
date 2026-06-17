@@ -57,6 +57,146 @@
             "readOnlyHint": true
         }
     },
+    "llma-skill-archive": {
+        "description": "DEPRECATED: renamed to skill-archive. This alias forwards to skill-archive and will be removed. Call skill-archive directly with the same arguments.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Deprecated alias for skill-archive.",
+        "title": "Archive skill (deprecated)",
+        "required_scopes": ["llm_skill:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-skill-create": {
+        "description": "DEPRECATED: renamed to skill-create. This alias forwards to skill-create and will be removed. Call skill-create directly with the same arguments.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Deprecated alias for skill-create.",
+        "title": "Create skill (deprecated)",
+        "required_scopes": ["llm_skill:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-skill-duplicate": {
+        "description": "DEPRECATED: renamed to skill-duplicate. This alias forwards to skill-duplicate and will be removed. Call skill-duplicate directly with the same arguments.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Deprecated alias for skill-duplicate.",
+        "title": "Duplicate skill (deprecated)",
+        "required_scopes": ["llm_skill:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-skill-file-create": {
+        "description": "DEPRECATED: renamed to skill-file-create. This alias forwards to skill-file-create and will be removed. Call skill-file-create directly with the same arguments.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Deprecated alias for skill-file-create.",
+        "title": "Create skill file (deprecated)",
+        "required_scopes": ["llm_skill:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-skill-file-delete": {
+        "description": "DEPRECATED: renamed to skill-file-delete. This alias forwards to skill-file-delete and will be removed. Call skill-file-delete directly with the same arguments.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Deprecated alias for skill-file-delete.",
+        "title": "Delete skill file (deprecated)",
+        "required_scopes": ["llm_skill:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-skill-file-get": {
+        "description": "DEPRECATED: renamed to skill-file-get. This alias forwards to skill-file-get and will be removed. Call skill-file-get directly with the same arguments.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Deprecated alias for skill-file-get.",
+        "title": "Get skill file (deprecated)",
+        "required_scopes": ["llm_skill:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "llma-skill-file-rename": {
+        "description": "DEPRECATED: renamed to skill-file-rename. This alias forwards to skill-file-rename and will be removed. Call skill-file-rename directly with the same arguments.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Deprecated alias for skill-file-rename.",
+        "title": "Rename skill file (deprecated)",
+        "required_scopes": ["llm_skill:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-skill-get": {
+        "description": "DEPRECATED: renamed to skill-get. This alias forwards to skill-get and will be removed. Call skill-get directly with the same arguments.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Deprecated alias for skill-get.",
+        "title": "Get skill (deprecated)",
+        "required_scopes": ["llm_skill:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "llma-skill-list": {
+        "description": "DEPRECATED: renamed to skill-list. This alias forwards to skill-list and will be removed. Call skill-list directly with the same arguments.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Deprecated alias for skill-list.",
+        "title": "List skills (deprecated)",
+        "required_scopes": ["llm_skill:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "llma-skill-update": {
+        "description": "DEPRECATED: renamed to skill-update. This alias forwards to skill-update and will be removed. Call skill-update directly with the same arguments.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Deprecated alias for skill-update.",
+        "title": "Update skill (deprecated)",
+        "required_scopes": ["llm_skill:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "insight-query": {
         "description": "Execute a saved insight's query and return results. THIS IS THE ONLY WAY TO RETRIEVE INSIGHT RESULTS — the insights-list, insight-get, insight-create, and insight-update tools all return metadata and query definitions but never the actual data. Call insight-query whenever the user asks to see, analyze, summarize, or compare data from a saved insight, and immediately after creating or updating an insight if they want to verify the output. Supports two output formats: 'optimized' (default) returns a human-readable summary from server-side formatters ideal for analysis, while 'json' returns the raw query results. Optionally accepts `variables_override` and `filters_override` to run the insight with one-off overrides without mutating the saved definition.",
         "category": "Insights & analytics",
@@ -72,7 +212,7 @@
         }
     },
     "evaluations-get": {
-        "description": "List AI observability evaluations for the project. Evaluations automatically score AI generations for quality, relevance, safety, and other criteria. Supports optional search by name/description and filtering by enabled status. Evaluation results are stored as '$ai_evaluation' events — to query results, use the execute-sql or query-run tool with a HogQL query filtering on event = '$ai_evaluation'. Key properties: $ai_evaluation_id (evaluation UUID), $ai_evaluation_name, $ai_target_event_id (generation event UUID), $ai_trace_id, $ai_evaluation_result (boolean pass/fail), $ai_evaluation_reasoning (text), $ai_evaluation_applicable (boolean, false = N/A).",
+        "description": "List AI observability evaluations for the project. Evaluations automatically score AI generations for quality, relevance, safety, and other criteria. Supports optional search by name/description and filtering by enabled status. Evaluation results are stored as '$ai_evaluation' events — to query results, use the execute-sql tool with a HogQL query filtering on event = '$ai_evaluation'. Key properties: $ai_evaluation_id (evaluation UUID), $ai_evaluation_name, $ai_target_event_id (generation event UUID), $ai_trace_id, $ai_evaluation_result (boolean pass/fail), $ai_evaluation_reasoning (text), $ai_evaluation_applicable (boolean, false = N/A).",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "List AI observability evaluations.",

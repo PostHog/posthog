@@ -74,6 +74,27 @@ class CDCSourceAdapter(Protocol[CDCConfigT_co]):
 
     def get_lag_bytes(self, conn: Any, slot_name: str) -> int | None: ...
 
+    def get_retention_cap_mb(self, conn: Any) -> int | None:
+        """Engine-enforced cap on retained change-stream backlog in MB (PG:
+        max_slot_wal_keep_size). None when unlimited or unknown. Once the backlog
+        crosses this cap the engine invalidates the slot itself, so safety nets
+        must act below it."""
+        ...
+
+    def is_slot_invalidation_error(self, exc: BaseException) -> bool:
+        """Whether the exception means the engine invalidated or dropped the
+        change-stream resource (PG: replication slot lost to max_slot_wal_keep_size)
+        such that it cannot be resumed and must be recreated."""
+        ...
+
+    def recreate_slot(self, source: ExternalDataSource, tables: list[str]) -> dict[str, Any]:
+        """Drop and recreate the change-stream resource after invalidation, against the
+        existing capture definition (recreating it when PostHog owns it). ``tables`` is
+        the capture set used if the definition must be recreated. Returns ``cdc_*``
+        job_inputs updates (e.g. the new consistent point). Raises when recreation isn't
+        possible (e.g. a customer-owned publication is missing)."""
+        ...
+
     def parse_cdc_config(self, source: ExternalDataSource) -> CDCConfigT_co: ...
 
     def setup_resources(

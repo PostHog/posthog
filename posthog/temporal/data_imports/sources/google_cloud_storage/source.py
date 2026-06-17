@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,8 @@ class GoogleCloudStorageSource(SimpleSource[GoogleCloudStorageSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.GOOGLE_CLOUD_STORAGE,
+            category=DataWarehouseSourceCategory.FILE_STORAGE,
+            keywords=["gcs"],
             label="Google Cloud Storage",
             iconPath="/static/services/google-cloud-storage.png",
             fields=cast(list[FieldType], []),

@@ -5,7 +5,7 @@ import posthog from 'posthog-js'
 
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
-import { parseTagsFilter } from 'lib/utils'
+import { parseTagsFilter } from 'lib/utils/url'
 import { Params } from 'scenes/sceneTypes'
 
 import { Breadcrumb } from '~/types'

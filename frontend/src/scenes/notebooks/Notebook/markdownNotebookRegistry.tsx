@@ -32,7 +32,14 @@ import '../Nodes/NotebookNodeZendeskTickets'
 
 import clsx from 'clsx'
 import { BindLogic, useActions, useMountedLogic } from 'kea'
-import { type CSSProperties, useCallback, useEffect, useMemo, useRef } from 'react'
+import {
+    type CSSProperties,
+    type PointerEvent as ReactPointerEvent,
+    useCallback,
+    useEffect,
+    useMemo,
+    useRef,
+} from 'react'
 
 import { IconComment, IconSparkles } from '@posthog/icons'
 import { LemonInput, LemonTextArea } from '@posthog/lemon-ui'
@@ -314,6 +321,7 @@ export function RealNotebookNodeEdit(props: NotebookComponentRenderProps): JSX.E
 export function RealNotebookNodeComponent({
     node,
     mode,
+    notebookMode,
     updateProps,
     deleteNode,
     forceEditing = false,
@@ -330,6 +338,7 @@ export function RealNotebookNodeComponent({
         <MountedRealNotebookNodeComponent
             node={node}
             mode={mode}
+            notebookMode={notebookMode}
             updateProps={updateProps}
             deleteNode={deleteNode}
             editOnly={editOnly}
@@ -343,6 +352,7 @@ export function RealNotebookNodeComponent({
 export function MountedRealNotebookNodeComponent({
     node,
     mode,
+    notebookMode,
     updateProps,
     editOnly,
     forceEditing,
@@ -398,8 +408,9 @@ export function MountedRealNotebookNodeComponent({
     const Settings = options.Settings
     const showSettings = forceEditing && Settings
     const showContent = !editOnly || !Settings
+    const isNotebookEditable = (notebookMode ?? mode) === 'edit'
     const isResizeable =
-        mode === 'edit' &&
+        isNotebookEditable &&
         (typeof options.resizeable === 'function' ? options.resizeable(attributes) : (options.resizeable ?? true))
     const contentStyle: CSSProperties | undefined =
         isResizeable || attributes.height
@@ -424,6 +435,39 @@ export function MountedRealNotebookNodeComponent({
         window.addEventListener('mouseup', handleResizeEnd)
     }, [isResizeable, updateAttributes])
 
+    const handleResizeHandlePointerDown = useCallback(
+        (event: ReactPointerEvent<HTMLDivElement>): void => {
+            if (!isResizeable || !contentRef.current) {
+                return
+            }
+
+            event.preventDefault()
+            event.stopPropagation()
+
+            const element = contentRef.current
+            const startY = event.clientY
+            const startHeight = element.getBoundingClientRect().height
+            const parsedMinHeight = Number.parseFloat(window.getComputedStyle(element).minHeight)
+            const minHeight = Number.isFinite(parsedMinHeight) ? parsedMinHeight : 0
+
+            const handlePointerMove = (moveEvent: PointerEvent): void => {
+                moveEvent.preventDefault()
+                const nextHeight = Math.max(minHeight, startHeight + moveEvent.clientY - startY)
+                element.style.height = `${Math.round(nextHeight)}px`
+            }
+
+            const handlePointerUp = (): void => {
+                window.removeEventListener('pointermove', handlePointerMove)
+                window.removeEventListener('pointerup', handlePointerUp)
+                updateAttributes({ height: element.clientHeight })
+            }
+
+            window.addEventListener('pointermove', handlePointerMove)
+            window.addEventListener('pointerup', handlePointerUp)
+        },
+        [isResizeable, updateAttributes]
+    )
+
     return (
         <NotebookNodeContext.Provider value={nodeLogic}>
             <BindLogic logic={notebookNodeLogic} props={logicProps}>
@@ -444,6 +488,13 @@ export function MountedRealNotebookNodeComponent({
                             onMouseDown={handleResizeStart}
                         >
                             <Component attributes={attributes} updateAttributes={updateAttributes} />
+                            {isResizeable ? (
+                                <div
+                                    className="MarkdownNotebook__real-node-resize-handle"
+                                    aria-hidden="true"
+                                    onPointerDown={handleResizeHandlePointerDown}
+                                />
+                            ) : null}
                         </div>
                     ) : null}
                 </div>
