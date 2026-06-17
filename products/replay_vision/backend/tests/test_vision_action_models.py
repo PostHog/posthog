@@ -1,3 +1,4 @@
+import uuid
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -160,8 +161,11 @@ class TestVisionActionScoping(BaseTest):
 
 
 class TestVisionActionRunModel(BaseTest):
-    def _run(self, **overrides) -> VisionActionRun:
-        action = _make_action(self.team)
+    def _run(self, action: VisionAction | None = None, **overrides) -> VisionActionRun:
+        # Default to a uniquely-named action so repeated calls don't trip the (team, name)
+        # constraint — that would mask the constraint a given test actually means to exercise.
+        if action is None:
+            action = _make_action(self.team, name=f"run-action-{uuid.uuid4().hex[:8]}")
         defaults: dict = {
             "vision_action": action,
             "team": self.team,
@@ -181,9 +185,11 @@ class TestVisionActionRunModel(BaseTest):
         self.assertIsNone(run.error)
 
     def test_idempotency_key_unique(self) -> None:
-        self._run(idempotency_key="dup")
+        # Both runs share one action, so the only constraint in play is idempotency_key uniqueness.
+        action = _make_action(self.team, name="shared-action")
+        self._run(action=action, idempotency_key="dup")
         with self.assertRaises(IntegrityError):
-            self._run(idempotency_key="dup")
+            self._run(action=action, idempotency_key="dup")
 
     def test_run_cascade_deleted_with_action(self) -> None:
         action = _make_action(self.team, name="parent")
@@ -197,6 +203,11 @@ class TestRruleHelper(BaseTest):
     def test_validate_rejects_dtstart(self) -> None:
         with self.assertRaises(ValueError):
             validate_rrule("DTSTART:20260101T090000\nFREQ=DAILY")
+
+    def test_validate_rejects_lowercase_dtstart(self) -> None:
+        # dateutil uppercases property names, so a lowercase dtstart must not slip past the guard.
+        with self.assertRaises(ValueError):
+            validate_rrule("dtstart:20260101T090000\nFREQ=DAILY")
 
     def test_validate_rejects_garbage(self) -> None:
         with self.assertRaises(ValueError):
