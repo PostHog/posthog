@@ -183,7 +183,7 @@ from products.conversations.backend.temporal import (
     ACTIVITIES as CONVERSATIONS_ACTIVITIES,
     WORKFLOWS as CONVERSATIONS_WORKFLOWS,
 )
-from products.error_tracking.backend.temporal import (
+from products.error_tracking.backend.facade.temporal import (
     ACTIVITIES as ERROR_TRACKING_ACTIVITIES,
     WORKFLOWS as ERROR_TRACKING_WORKFLOWS,
 )
