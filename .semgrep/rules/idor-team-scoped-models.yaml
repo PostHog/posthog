@@ -907,6 +907,7 @@ rules:
                               |KernelRuntime
                               |MCPServerInstallation
                               |PersistedFolder
+                              |Reminder
                               |SessionRecordingViewed
                               |UserHomeSettings
                               |UserProductList
@@ -978,6 +979,7 @@ rules:
                         |InsightViewed
                         |KernelRuntime
                         |PersistedFolder
+                        |Reminder
                         |SessionRecordingViewed
                         |UserHomeSettings
                         |UserProductList

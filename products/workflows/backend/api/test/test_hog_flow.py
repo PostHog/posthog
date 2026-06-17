@@ -4,6 +4,8 @@ from typing import Optional
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
+
 from parameterized import parameterized
 from rest_framework import status
 
@@ -309,10 +311,11 @@ class TestHogFlowAPI(APIBaseTest):
         assert flow_conversion["bytecode"] == expected_conversion_bytecode
 
     def test_hog_flow_conversion_event_object_in_filters_is_relocated(self):
-        # A client (e.g. MCP) that sends an event-based conversion goal as an object in the property
-        # slot must not persist the malformed shape: it is relocated to conversion.events and compiled,
-        # and conversion.filters is cleared. Mirrors the one-time backfill in migration 0009. Without
-        # this guard the object would fail property-list validation (non-draft) or silently persist.
+        # A client (e.g. an LLM via MCP) that sends an event-based conversion goal as an object in
+        # the property slot must not be rejected by the typed conversion field, nor persist the
+        # malformed shape: it is relocated to conversion.events and compiled, and conversion.filters
+        # is cleared. Mirrors the one-time backfill in migration 0009. Without the relocation the
+        # object would fail array validation with a 400.
         event_obj = {
             "events": [{"id": "purchase", "name": "purchase", "type": "events", "order": 0}],
             "source": "events",
@@ -333,6 +336,21 @@ class TestHogFlowAPI(APIBaseTest):
         assert moved["events"] == event_obj["events"]
         assert moved["bytecode"], moved
         assert "purchase" in moved["bytecode"]
+
+    def test_hog_flow_conversion_client_supplied_bytecode_is_ignored(self):
+        # Top-level conversion bytecode is read-only: the matcher executes it, so a client must not
+        # be able to persist bytecode that didn't come from server-side compilation of filters.
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        hog_flow["status"] = "active"
+        hog_flow["conversion"] = {"filters": [], "window_minutes": 60, "bytecode": ["_H", 1, 32, "injected"]}
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+
+        conversion = response.json()["conversion"]
+        assert conversion["bytecode"] == [], conversion
 
     def test_hog_flow_conversion_filters_compiles_bytecode_on_update(self):
         expected_conversion_bytecode = [
@@ -452,6 +470,37 @@ class TestHogFlowAPI(APIBaseTest):
         assert "filters" in conditions[0]
         assert "bytecode" in conditions[0]["filters"], conditions[0]["filters"]
         assert conditions[0]["filters"]["bytecode"] == ["_H", 1, 32, "custom_event", 32, "event", 1, 1, 11]
+
+    def test_hog_flow_wait_until_condition_defaults_missing_condition(self):
+        # An events-only wait omits 'condition'; the FE always seeds it and StepWaitUntilCondition
+        # assumes it, so the serializer defaults it to {filters: None} to keep one canonical shape.
+        wait_action = {
+            "id": "wait_1",
+            "name": "wait_1",
+            "type": "wait_until_condition",
+            "config": {
+                "events": [
+                    {"filters": {"events": [{"id": "purchase", "name": "purchase", "type": "events", "order": 0}]}}
+                ],
+                "max_wait_duration": "1h",
+            },
+        }
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]},
+            },
+        }
+        hog_flow = {"name": "Test Flow", "actions": [trigger_action, wait_action]}
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+
+        wait = next(a for a in response.json()["actions"] if a["type"] == "wait_until_condition")
+        assert wait["config"]["condition"] == {"filters": None}, wait["config"]
 
     def test_hog_flow_conditional_branch_condition_missing_filters_rejected(self):
         # A bare {properties: [...]} (no 'filters' wrapper) compiles to always-false; reject it in strict mode.
@@ -1224,6 +1273,54 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 400, response.json()
         assert "unknown target action 'ghost'" in str(response.json())
 
+    def _graph_insert_events_only_wait_ops(self) -> list[dict]:
+        # Splice an events-only wait_until_condition (no 'condition') between action_1 and exit_1, wiring
+        # both its edges: a branch edge at index 0 (resolution) and a continue edge (the timeout path).
+        return [
+            {"op": "remove_edge", "edge": {"from": "action_1", "to": "exit_1", "type": "continue"}},
+            {
+                "op": "add_action",
+                "action": {
+                    "id": "wait_1",
+                    "name": "Wait for purchase",
+                    "type": "wait_until_condition",
+                    "config": {
+                        "events": [
+                            {
+                                "filters": {
+                                    "events": [{"id": "purchase", "name": "purchase", "type": "events", "order": 0}]
+                                }
+                            }
+                        ],
+                        "max_wait_duration": "1h",
+                    },
+                },
+            },
+            {"op": "add_edge", "edge": {"from": "action_1", "to": "wait_1", "type": "continue"}},
+            {"op": "add_edge", "edge": {"from": "wait_1", "to": "exit_1", "type": "branch", "index": 0}},
+            {"op": "add_edge", "edge": {"from": "wait_1", "to": "exit_1", "type": "continue"}},
+        ]
+
+    def test_graph_events_only_wait_defaults_missing_condition(self):
+        # The /graph patch path is becoming the main MCP edit route and routes through the same validate()
+        # as create/update, so an events-only wait authored there must also get condition defaulted to
+        # {filters: None} (otherwise the visual editor's StepWaitUntilCondition crashes on it).
+        flow_id = self._create_draft_flow_with_graph()
+        response = self._patch_graph(flow_id, self._graph_insert_events_only_wait_ops())
+        assert response.status_code == 200, response.json()
+
+        wait = next(a for a in response.json()["actions"] if a["type"] == "wait_until_condition")
+        assert wait["config"]["condition"] == {"filters": None}, wait["config"]
+
+    def test_graph_wait_without_index_0_branch_rejected(self):
+        # A wait_until_condition wired with only a continue (timeout) edge silently never advances on
+        # resolution; the surgical endpoint rejects it so the agent fixes the missing resolution edge.
+        ops = [op for op in self._graph_insert_events_only_wait_ops() if op.get("edge", {}).get("type") != "branch"]
+        flow_id = self._create_draft_flow_with_graph()
+        response = self._patch_graph(flow_id, ops)
+        assert response.status_code == 400, response.json()
+        assert "missing its resolution edge" in str(response.json())
+
     def test_can_call_a_test_invocation(self):
         hog_flow, _ = self._create_hog_flow_with_action(
             {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
@@ -1651,6 +1748,61 @@ class TestHogFlowAPI(APIBaseTest):
             )
         assert response.status_code == 200, response.json()
         assert response.json() == {"affected": 1, "total": 10}
+
+    @parameterized.expand(
+        [
+            ("flag_only", [{"key": "my-other-flag", "type": "flag", "value": "true", "operator": "exact"}]),
+            (
+                "flag_mixed_with_person",
+                [
+                    {"key": "email", "type": "person", "value": "a@b.com", "operator": "exact"},
+                    {"key": "my-other-flag", "type": "flag", "value": "true", "operator": "exact"},
+                ],
+            ),
+        ]
+    )
+    def test_hog_flow_user_blast_radius_rejects_flag_condition(self, _name, properties):
+        # Feature flags can't be sized as a static batch audience — reject with a clean 400 before
+        # the condition reaches the blast-radius query (where it would otherwise 500).
+        with patch("products.workflows.backend.api.hog_flow.get_user_blast_radius") as mock_get_user_blast_radius:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
+                {"filters": {"properties": properties}},
+            )
+
+        assert response.status_code == 400, response.json()
+        assert "Feature flags can't be used as a batch audience condition" in response.json().get("detail", "")
+        mock_get_user_blast_radius.assert_not_called()
+
+    @override_settings(INTERNAL_API_SECRET="test-secret-123")
+    def test_internal_user_blast_radius_rejects_flag_condition(self):
+        with patch("products.workflows.backend.api.hog_flow.get_user_blast_radius") as mock_get_user_blast_radius:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/internal/hog_flows/user_blast_radius",
+                {"filters": {"properties": [{"key": "my-other-flag", "type": "flag", "value": "true"}]}},
+                format="json",
+                headers={"x-internal-api-secret": "test-secret-123"},
+            )
+
+        assert response.status_code == 400, response.json()
+        assert "Feature flags can't be used as a batch audience condition" in response.json().get("error", "")
+        mock_get_user_blast_radius.assert_not_called()
+
+    @override_settings(INTERNAL_API_SECRET="test-secret-123")
+    def test_internal_user_blast_radius_persons_rejects_flag_condition(self):
+        with patch(
+            "products.workflows.backend.api.hog_flow.get_user_blast_radius_persons"
+        ) as mock_get_user_blast_radius_persons:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/internal/hog_flows/user_blast_radius_persons",
+                {"filters": {"properties": [{"key": "my-other-flag", "type": "flag", "value": "true"}]}},
+                format="json",
+                headers={"x-internal-api-secret": "test-secret-123"},
+            )
+
+        assert response.status_code == 400, response.json()
+        assert "Feature flags can't be used as a batch audience condition" in response.json().get("error", "")
+        mock_get_user_blast_radius_persons.assert_not_called()
 
     def test_billable_action_types_computed_correctly(self):
         """Test that billable_action_types is computed correctly and cannot be overridden by clients"""

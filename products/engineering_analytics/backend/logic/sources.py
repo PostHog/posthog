@@ -20,10 +20,12 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 from uuid import UUID
 
+from django.db.models import QuerySet
+
 from posthog.models.team import Team
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
-from products.engineering_analytics.backend.facade.contracts import GitHubSourceNotConnectedError
+from products.engineering_analytics.backend.facade.contracts import GitHubSource, GitHubSourceNotConnectedError
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
@@ -63,21 +65,15 @@ def resolve_github_tables(
     presentation layer maps it to a 400, so the UI prompts to connect a source and an agent gets
     an actionable error), or ``ValueError`` when ``source_id`` is not a UUID.
 
-    ``user_access_control`` enforces the requesting user's per-source warehouse RBAC: a source the
-    user can't access is filtered out before resolution, so a denied ``source_id`` raises (400) and
-    the default-oldest path skips it. The curated HogQL runs team-scoped with no user and HogQL does
-    not enforce per-user ACL on warehouse tables, so this is the only place that can honor it. None
-    (system/Temporal/CLI contexts with no request user) skips filtering — team scoping still holds.
+    ``user_access_control`` enforces the requesting user's per-source warehouse RBAC (applied in
+    ``_github_sources``): a denied ``source_id`` raises (400) and the default-oldest path skips it.
+    The curated HogQL runs team-scoped with no user and HogQL does not enforce per-user ACL on
+    warehouse tables, so honoring it here is the only way the read path can. ``None`` (system/
+    Temporal/CLI contexts with no request user) skips filtering — team scoping still holds.
     """
-    sources = (
-        ExternalDataSource.objects.filter(team_id=team.pk, source_type=ExternalDataSourceType.GITHUB)
-        .exclude(deleted=True)
-        .order_by("created_at", "id")
-    )
+    sources = _github_sources(team, user_access_control)
     if source_id is not None:
         sources = sources.filter(id=_as_source_uuid(source_id))
-    if user_access_control is not None:
-        sources = user_access_control.filter_queryset_by_access_level(sources)
     for source in sources:
         tables = _synced_table_names(team=team, source=source)
         pull_requests = tables.get(PULL_REQUESTS_SCHEMA)
@@ -87,6 +83,43 @@ def resolve_github_tables(
     if source_id is not None:
         raise GitHubSourceNotConnectedError(_NO_SELECTED_SOURCE)
     raise GitHubSourceNotConnectedError()
+
+
+def list_github_sources(*, team: Team, user_access_control: "UserAccessControl | None" = None) -> list[GitHubSource]:
+    """The team's connected GitHub sources the caller may access, as selectable refs, oldest first.
+
+    Lists every non-deleted GitHub source the user can access — including ones whose endpoints aren't
+    fully synced yet — so a source picker shows everything they connected; selecting an unusable one
+    surfaces the same connect prompt ``resolve_github_tables`` drives. Sources the user can't access
+    (``user_access_control``) are filtered out, so the picker can't enumerate them. Each ``id`` is
+    what the caller passes back as ``source_id`` to read that source.
+    """
+    return [
+        GitHubSource(
+            id=str(source.id),
+            repo=str((source.job_inputs or {}).get("repository") or ""),
+            prefix=source.prefix or "",
+        )
+        for source in _github_sources(team, user_access_control)
+    ]
+
+
+def _github_sources(team: Team, user_access_control: "UserAccessControl | None" = None) -> QuerySet[ExternalDataSource]:
+    """The team's non-deleted GitHub sources the caller may access, oldest first — the order
+    ``resolve_github_tables`` defaults from, so a picker's first entry matches the default source.
+
+    ``user_access_control`` applies the requesting user's per-source warehouse RBAC, so neither the
+    resolver nor the picker can reach a source the user can't access; ``None`` (system/Temporal/CLI
+    contexts) skips it, leaving team scoping. This is the single place that access scope is decided.
+    """
+    sources = (
+        ExternalDataSource.objects.filter(team_id=team.pk, source_type=ExternalDataSourceType.GITHUB)
+        .exclude(deleted=True)
+        .order_by("created_at", "id")
+    )
+    if user_access_control is not None:
+        sources = user_access_control.filter_queryset_by_access_level(sources)
+    return sources
 
 
 # Distinct from the no-source message: the caller picked a source that isn't a usable GitHub

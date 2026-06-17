@@ -114,7 +114,7 @@ export function AddWidgetModal({ isOpen, onClose, loading, onAdd }: AddWidgetMod
         >
             <div className="@container/add-widget-modal">
                 <div
-                    className="grid grid-cols-1 @min-[36rem]/add-widget-modal:grid-cols-2 gap-x-3 gap-y-4"
+                    className="grid grid-cols-1 @min-[48rem]/add-widget-modal:grid-cols-2 gap-x-3 gap-y-4"
                     aria-label="Widget types"
                 >
                     {DASHBOARD_WIDGET_CATALOG_GROUPS.map((group, groupIndex) => (
