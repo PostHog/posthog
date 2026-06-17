@@ -136,6 +136,34 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
         name: zod.string().max(dashboardsPartialUpdateBodyNameMax).nullish(),
         description: zod.string().optional(),
         pinned: zod.boolean().optional(),
+        filters: zod
+            .object({
+                date_from: zod
+                    .string()
+                    .nullish()
+                    .describe(
+                        "Dashboard-level start of the date range, e.g. '-30d', '-7d', or an ISO date. Applies to all tiles."
+                    ),
+                date_to: zod
+                    .string()
+                    .nullish()
+                    .describe(
+                        "Dashboard-level end of the date range, e.g. '-1d' or an ISO date. Null/omitted means up to now."
+                    ),
+                properties: zod
+                    .unknown()
+                    .optional()
+                    .describe(
+                        'Dashboard-level property filters applied to every tile (PostHog property filter group).'
+                    ),
+            })
+            .describe(
+                "OpenAPI-only shape for a dashboard's filters object (agents/MCP).\n\nDocuments the dashboard-level filters that act as the single source of truth for the\ndashboard's tiles. Runtime persistence reads the raw ``filters`` dict from the request body, so\nextra keys are accepted, but these are the ones agents should set."
+            )
+            .optional()
+            .describe(
+                'Dashboard-level filters (date range and properties) applied across all tiles as the source of truth.'
+            ),
         breakdown_colors: zod.unknown().optional().describe('Custom color mapping for breakdown values.'),
         data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
         tags: zod.array(zod.string()).optional(),

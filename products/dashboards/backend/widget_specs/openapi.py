@@ -194,6 +194,30 @@ class DashboardPatchTileOpenApiSerializer(serializers.Serializer):
     widget = DashboardPatchWidgetOpenApiSerializer(required=False, help_text="Nested widget row updates.")
 
 
+class DashboardFiltersOpenApiSerializer(serializers.Serializer):
+    """OpenAPI-only shape for a dashboard's filters object (agents/MCP).
+
+    Documents the dashboard-level filters that act as the single source of truth for the
+    dashboard's tiles. Runtime persistence reads the raw ``filters`` dict from the request body, so
+    extra keys are accepted, but these are the ones agents should set.
+    """
+
+    date_from = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Dashboard-level start of the date range, e.g. '-30d', '-7d', or an ISO date. Applies to all tiles.",
+    )
+    date_to = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Dashboard-level end of the date range, e.g. '-1d' or an ISO date. Null/omitted means up to now.",
+    )
+    properties = serializers.JSONField(
+        required=False,
+        help_text="Dashboard-level property filters applied to every tile (PostHog property filter group).",
+    )
+
+
 class PatchedDashboardOpenApiSerializer(serializers.Serializer):
     """OpenAPI-only PATCH body for dashboards (agents/MCP).
 
@@ -204,6 +228,10 @@ class PatchedDashboardOpenApiSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=400, required=False, allow_null=True)
     description = serializers.CharField(required=False, allow_blank=True)
     pinned = serializers.BooleanField(required=False)
+    filters = DashboardFiltersOpenApiSerializer(
+        required=False,
+        help_text="Dashboard-level filters (date range and properties) applied across all tiles as the source of truth.",
+    )
     breakdown_colors = serializers.JSONField(
         required=False,
         help_text="Custom color mapping for breakdown values.",

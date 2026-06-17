@@ -39,3 +39,17 @@ class TestDashboardPatchOpenApiContract:
             "Generated OpenAPI schema for dashboard PATCH must include every agent-facing runtime field. "
             f"Missing: {sorted(missing)}."
         )
+
+    def test_filters_documented_as_writable_patch_field(self) -> None:
+        # filters is a SerializerMethodField on DashboardSerializer (read-only in the inferred schema),
+        # so it is excluded from dashboard_patch_runtime_openapi_field_names(). The PATCH runtime accepts and
+        # persists it, so PatchedDashboardOpenApiSerializer must document it explicitly for agents/MCP.
+        openapi_fields = PatchedDashboardOpenApiSerializer().fields
+        assert "filters" in openapi_fields, (
+            "PatchedDashboardOpenApiSerializer must document the writable 'filters' field so the dashboard-update "
+            "MCP tool can set dashboard-level date/property filters."
+        )
+        filters_fields = frozenset(openapi_fields["filters"].fields.keys())
+        assert {"date_from", "date_to", "properties"}.issubset(filters_fields), (
+            f"Dashboard filters schema must expose date_from/date_to/properties. Got: {sorted(filters_fields)}."
+        )

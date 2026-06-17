@@ -13740,6 +13740,28 @@ export namespace Schemas {
     }
 
     /**
+     * OpenAPI-only shape for a dashboard's filters object (agents/MCP).
+     *
+     * Documents the dashboard-level filters that act as the single source of truth for the
+     * dashboard's tiles. Runtime persistence reads the raw ``filters`` dict from the request body, so
+     * extra keys are accepted, but these are the ones agents should set.
+     */
+    export interface DashboardFiltersOpenApi {
+      /**
+         * Dashboard-level start of the date range, e.g. '-30d', '-7d', or an ISO date. Applies to all tiles.
+         * @nullable
+         */
+      date_from?: string | null;
+      /**
+         * Dashboard-level end of the date range, e.g. '-1d' or an ISO date. Null/omitted means up to now.
+         * @nullable
+         */
+      date_to?: string | null;
+      /** Dashboard-level property filters applied to every tile (PostHog property filter group). */
+      properties?: unknown;
+    }
+
+    /**
      * * `activity_events_list` - activity_events_list
      * * `error_tracking_list` - error_tracking_list
      * * `session_replay_list` - session_replay_list
@@ -35560,6 +35582,8 @@ export namespace Schemas {
       name?: string | null;
       description?: string;
       pinned?: boolean;
+      /** Dashboard-level filters (date range and properties) applied across all tiles as the source of truth. */
+      filters?: DashboardFiltersOpenApi;
       /** Custom color mapping for breakdown values. */
       breakdown_colors?: unknown;
       /**
