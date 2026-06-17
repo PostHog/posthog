@@ -1,3 +1,6 @@
+from collections.abc import Iterable
+from typing import Any, cast
+
 import pytest
 from freezegun import freeze_time
 from unittest import mock
@@ -727,7 +730,7 @@ def _materialize_get_rows(storage, bq_client, *, table_type="TABLE", inputs=None
             dataset_project_id=None,
             bq_destination_table_id="project-id.dataset-id.__posthog_import_temp",
         )
-        return list(response.items())
+        return list(cast(Iterable[Any], response.items()))
 
 
 def test_get_rows_falls_back_to_temp_table_on_unapplied_upsert_staleness():
