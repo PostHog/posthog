@@ -188,12 +188,13 @@ function SlopeChartInner<Meta = SlopeSeriesMeta>({
 
     const legendItems = useMemo(() => slopeLegendItems(series, theme, deltaFormatter), [series, theme, deltaFormatter])
 
-    // A caller-supplied tooltip takes precedence; otherwise sort the default rows (see helper).
+    // A caller-supplied tooltip takes precedence; otherwise sort the default rows (see helper) and
+    // format values with the chart's valueFormatter so the tooltip matches the on-chart labels' units.
     const sortedTooltip = useCallback(
         (ctx: TooltipContext<Meta>): React.ReactNode => (
-            <DefaultTooltip {...ctx} seriesData={sortSlopeTooltipRows(ctx.seriesData)} />
+            <DefaultTooltip {...ctx} seriesData={sortSlopeTooltipRows(ctx.seriesData)} valueFormatter={valueFormatter} />
         ),
-        []
+        [valueFormatter]
     )
 
     return (

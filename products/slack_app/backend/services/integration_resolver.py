@@ -224,7 +224,7 @@ def resolve_user_for_workspace(
 
     if not slack_user_id:
         logger.warning(
-            "posthog_code_no_integration_found",
+            "slack_app_no_integration_found",
             reason="user_not_found",
             slack_team_id=slack_team_id,
             slack_user_id=None,
@@ -250,7 +250,7 @@ def resolve_user_for_workspace(
     )
     if posthog_user is None:
         logger.warning(
-            "posthog_code_no_integration_found",
+            "slack_app_no_integration_found",
             reason="user_not_found",
             slack_team_id=slack_team_id,
             slack_user_id=slack_user_id,
@@ -273,7 +273,7 @@ def resolve_user_for_workspace(
     accessible_team_ids = {c.team_id for c in accessible_candidates}
     if not accessible_candidates:
         logger.warning(
-            "posthog_code_no_integration_found",
+            "slack_app_no_integration_found",
             reason="no_team_access",
             slack_team_id=slack_team_id,
             slack_user_id=slack_user_id,
