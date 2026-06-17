@@ -1,3 +1,5 @@
+from typing import Any
+
 import pytest
 
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
@@ -8,7 +10,7 @@ from products.tasks.backend.temporal.process_task.activities.provision_sandbox i
 
 
 def _context(**overrides) -> TaskProcessingContext:
-    defaults = {
+    defaults: dict[str, Any] = {
         "task_id": "task-123",
         "run_id": "run-456",
         "team_id": 42,
@@ -25,7 +27,7 @@ def _context(**overrides) -> TaskProcessingContext:
 
 
 def _prepared(**overrides) -> PrepareSandboxForRepositoryOutput:
-    defaults = {
+    defaults: dict[str, Any] = {
         "sandbox_name": "sandbox-name",
         "repository": "posthog/posthog",
         "github_token": "token",
