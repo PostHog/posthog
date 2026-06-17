@@ -82,9 +82,10 @@ async def get_person_id_ranges_page_activity(inputs: PersonIdRangesPageInputs) -
 
     # Enumerate person IDs straight off the raw ``person`` table with DISTINCT, not the ``persons``
     # lazy table. We only need ID range *boundaries* here, not deduplicated / is_deleted-filtered
-    # rows -- the child workflow re-queries each range through ``persons`` with full argMax dedup and
-    # is_deleted filtering, so a deleted/duplicate ID slipping into a boundary just yields no child
-    # rows. The ``persons`` table, by contrast, would rewrite our ``id > cursor`` filter into
+    # rows -- the child workflow re-queries each range against ``raw_persons`` via ``argmax_select``
+    # with full argMax dedup and is_deleted filtering, so a deleted/duplicate ID slipping into a
+    # boundary just yields no child rows. The ``persons`` table, by contrast, would rewrite our
+    # ``id > cursor`` filter into
     # ``id IN (SELECT id FROM person WHERE id > cursor)`` with no inner LIMIT, forcing a full
     # ``GROUP BY id ... HAVING argMax(is_deleted)`` over the entire ID tail on every page before the
     # outer LIMIT applies -- O(pages x tail). ``SELECT DISTINCT id FROM person WHERE id > cursor

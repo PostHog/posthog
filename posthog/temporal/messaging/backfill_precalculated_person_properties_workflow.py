@@ -608,7 +608,11 @@ async def backfill_precalculated_person_properties_activity(
                         reconstructed_properties = {}
                         for alias, original_prop_name in property_alias_mapping.items():
                             value = row.get(alias)
-                            if value:  # Only include non-empty values
+                            # The HogQL property extract maps a missing key to SQL NULL (-> None here),
+                            # while a present falsey value (0, false, "") comes back as a non-null string.
+                            # Keying on ``is not None`` keeps those present-but-falsey values instead of
+                            # silently turning them into a missing key, matching the full-properties fallback.
+                            if value is not None:
                                 reconstructed_properties[original_prop_name] = value
 
                         parsed_properties = parse_person_properties(reconstructed_properties, person_id)

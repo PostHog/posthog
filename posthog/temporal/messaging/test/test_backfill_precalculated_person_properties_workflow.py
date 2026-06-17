@@ -547,6 +547,18 @@ class TestActivityRowConsumption:
         assert node.select_from.table.chain == ["raw_persons"]
 
     @pytest.mark.asyncio
+    async def test_optimized_rows_keep_present_falsey_values_and_drop_missing(self):
+        # A missing key comes back as SQL NULL (None); a present falsey value comes back as a
+        # non-null string. The reconstruction must keep the falsey value and drop only the None,
+        # otherwise a present-but-falsey property silently becomes a missing key.
+        pid = "33333333-3333-3333-3333-333333333333"
+        rows = [{"id": pid, "prop_0": "", "prop_1": "0", "prop_2": "false", "prop_3": None}]
+
+        _result, _node, _produced, eval_globals = await self._run_with_rows(["empty", "zero", "flag", "absent"], rows)
+
+        assert eval_globals[0] == {"person": {"properties": {"empty": "", "zero": "0", "flag": "false"}}}
+
+    @pytest.mark.asyncio
     async def test_fallback_rows_use_full_properties_json(self):
         # Fallback format: a "properties" JSON column is present, so the consumer parses it directly.
         pid = "22222222-2222-2222-2222-222222222222"
