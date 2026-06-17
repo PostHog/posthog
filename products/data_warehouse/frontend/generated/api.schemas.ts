@@ -1387,6 +1387,7 @@ export interface CredentialApi {
  * * `YahooFinance` - YahooFinance
  * * `Clarifai` - Clarifai
  * * `Adapty` - Adapty
+ * * `Braintrust` - Braintrust
  * * `Custom` - Custom
  */
 export type ExternalDataSourceTypeEnumApi =
@@ -2013,6 +2014,7 @@ export const ExternalDataSourceTypeEnumApi = {
     YahooFinance: 'YahooFinance',
     Clarifai: 'Clarifai',
     Adapty: 'Adapty',
+    Braintrust: 'Braintrust',
     Custom: 'Custom',
 } as const
 
