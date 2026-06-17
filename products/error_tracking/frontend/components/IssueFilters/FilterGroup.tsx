@@ -34,6 +34,22 @@ import { TAXONOMIC_FILTER_LOGIC_KEY, TAXONOMIC_GROUP_TYPES } from './consts'
 import { issueFiltersLogic } from './issueFiltersLogic'
 import { ErrorTrackingStatusSelectValue, STATUS_OPTIONS, statusOptionLabelWithDescription } from './Status'
 
+/** Drops filter values of the given types from a group — for surfaces whose queries ignore them. */
+export function excludeFilterTypesFromGroup(
+    group: UniversalFiltersGroup,
+    excludeFilterTypes?: PropertyFilterType[]
+): UniversalFiltersGroup {
+    if (!excludeFilterTypes || excludeFilterTypes.length === 0) {
+        return group
+    }
+    return {
+        ...group,
+        values: group.values.filter(
+            (value) => !excludeFilterTypes.includes((value as { type: PropertyFilterType }).type)
+        ),
+    }
+}
+
 export const FilterGroup = ({
     taxonomicGroupTypes = TAXONOMIC_GROUP_TYPES,
     excludeFilterTypes,
@@ -44,11 +60,7 @@ export const FilterGroup = ({
     const { filterGroup } = useValues(issueFiltersLogic)
     const { setFilterGroup } = useActions(issueFiltersLogic)
 
-    const inner = filterGroup.values[0] as UniversalFiltersGroup
-    const displayGroup =
-        excludeFilterTypes && excludeFilterTypes.length > 0
-            ? { ...inner, values: inner.values.filter((f: any) => !excludeFilterTypes.includes(f.type)) }
-            : inner
+    const displayGroup = excludeFilterTypesFromGroup(filterGroup.values[0] as UniversalFiltersGroup, excludeFilterTypes)
 
     return (
         <UniversalFilters
@@ -308,7 +320,7 @@ const StatusEditor = ({
     </div>
 )
 
-const AssigneeEditor = ({
+export const AssigneeEditor = ({
     assignee,
     onChange,
 }: {

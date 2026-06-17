@@ -20,10 +20,7 @@ import { InsightLogicProps } from '~/types'
 
 import { IssueActions } from 'products/error_tracking/frontend/components/IssueActions/IssueActions'
 import { useErrorTrackingSearchBarRedesign } from 'products/error_tracking/frontend/components/IssueFilters/SearchBarVariantToggle'
-import {
-    IssueQueryOptions,
-    IssueReloadButton,
-} from 'products/error_tracking/frontend/components/IssueQueryOptions/IssueQueryOptions'
+import { IssueQueryOptions } from 'products/error_tracking/frontend/components/IssueQueryOptions/IssueQueryOptions'
 import { IssueListTitleColumn, IssueListTitleHeader } from 'products/error_tracking/frontend/components/TableColumns'
 import { errorTrackingVolumeSparklineLogic } from 'products/error_tracking/frontend/components/VolumeSparkline/errorTrackingVolumeSparklineLogic'
 import {
@@ -191,8 +188,4 @@ const ListOptions = (): JSX.Element => {
     }
 
     return <IssueQueryOptions />
-}
-
-export const ListReloadButton = (): JSX.Element => {
-    return <IssueReloadButton />
 }

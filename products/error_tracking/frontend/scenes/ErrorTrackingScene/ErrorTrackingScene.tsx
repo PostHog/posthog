@@ -27,6 +27,7 @@ import {
     SearchBarVariantToggle,
     useErrorTrackingSearchBarRedesign,
 } from '../../components/IssueFilters/SearchBarVariantToggle'
+import { IssueReloadButton } from '../../components/IssueQueryOptions/IssueQueryOptions'
 import { issueQueryOptionsLogic } from '../../components/IssueQueryOptions/issueQueryOptionsLogic'
 import { exceptionIngestionLogic } from '../../components/SetupPrompt/exceptionIngestionLogic'
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
@@ -40,7 +41,7 @@ import {
 } from './errorTrackingSceneLogic'
 import { ErrorTrackingInsights } from './tabs/insights/ErrorTrackingInsights'
 import { IssuesFilters } from './tabs/issues/IssuesFilters'
-import { IssuesList, ListReloadButton, insightProps } from './tabs/issues/IssuesList'
+import { IssuesList, insightProps } from './tabs/issues/IssuesList'
 import { SourceMapsBanner } from './tabs/issues/SourceMapsBanner'
 import { RecommendationsTab } from './tabs/recommendations/RecommendationsTab'
 import { recommendationsTabLogic } from './tabs/recommendations/recommendationsTabLogic'
@@ -97,7 +98,7 @@ const IssuesTab = (): JSX.Element => {
                     <div className="relative">
                         <SearchBarVariantToggle />
                         <FilterBar
-                            reload={<ListReloadButton />}
+                            reload={<IssueReloadButton />}
                             logicKey={ERROR_TRACKING_SCENE_LOGIC_KEY}
                             quickFilterContext={QuickFilterContext.ErrorTrackingIssueFilters}
                         />

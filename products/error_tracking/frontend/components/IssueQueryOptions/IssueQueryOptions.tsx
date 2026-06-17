@@ -1,10 +1,36 @@
 import { useActions, useValues } from 'kea'
+import { ReactNode } from 'react'
 
 import { IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonSelect, Spinner } from '@posthog/lemon-ui'
 
 import { issuesDataNodeLogic } from '../../logics/issuesDataNodeLogic'
 import { ORDER_BY_OPTIONS, issueQueryOptionsLogic } from './issueQueryOptionsLogic'
+
+/** Reload control shared across error tracking surfaces — spinner while loading, refresh icon otherwise. */
+export const ReloadButton = ({
+    loading,
+    onClick,
+    type = 'tertiary',
+    children,
+    tooltip,
+}: {
+    loading: boolean
+    onClick: () => void
+    type?: 'secondary' | 'tertiary'
+    children?: ReactNode
+    tooltip?: string
+}): JSX.Element => (
+    <LemonButton
+        type={type}
+        size="small"
+        onClick={onClick}
+        icon={loading ? <Spinner textColored /> : <IconRefresh />}
+        tooltip={tooltip}
+    >
+        {children}
+    </LemonButton>
+)
 
 /** Legacy sort + reload controls, used by the pre-redesign issues list. */
 export const IssueQueryOptions = (): JSX.Element => {
@@ -73,20 +99,13 @@ const Reload = (): JSX.Element => {
     const { reloadData, cancelQuery } = useActions(issuesDataNodeLogic)
 
     return (
-        <LemonButton
+        <ReloadButton
             type="secondary"
-            size="small"
-            onClick={() => {
-                if (responseLoading) {
-                    cancelQuery()
-                } else {
-                    reloadData()
-                }
-            }}
-            icon={responseLoading ? <Spinner textColored /> : <IconRefresh />}
+            loading={responseLoading}
+            onClick={() => (responseLoading ? cancelQuery() : reloadData())}
         >
             {responseLoading ? 'Cancel' : 'Reload'}
-        </LemonButton>
+        </ReloadButton>
     )
 }
 
@@ -95,17 +114,9 @@ export const IssueReloadButton = (): JSX.Element => {
     const { reloadData, cancelQuery } = useActions(issuesDataNodeLogic)
 
     return (
-        <LemonButton
-            type="tertiary"
-            size="small"
-            onClick={() => {
-                if (responseLoading) {
-                    cancelQuery()
-                } else {
-                    reloadData()
-                }
-            }}
-            icon={responseLoading ? <Spinner textColored /> : <IconRefresh />}
+        <ReloadButton
+            loading={responseLoading}
+            onClick={() => (responseLoading ? cancelQuery() : reloadData())}
             tooltip={responseLoading ? 'Cancel' : 'Reload'}
         />
     )

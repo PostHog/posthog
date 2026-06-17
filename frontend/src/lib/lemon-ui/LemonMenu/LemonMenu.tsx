@@ -34,8 +34,6 @@ export interface LemonMenuItemBase extends Pick<
 export interface LemonMenuItemNode extends LemonMenuItemBase {
     items: (LemonMenuItem | false | null)[]
     placement?: LemonDropdownProps['placement']
-    /** @default 'click' */
-    trigger?: LemonDropdownProps['trigger']
     keyboardShortcut?: never
 }
 
@@ -287,7 +285,7 @@ const LemonMenuItemButton: FunctionComponent<LemonMenuItemButtonProps & React.Re
     React.forwardRef(
         (
             {
-                item: { label, items, placement, trigger, keyboardShortcut, tag, custom, ...buttonProps },
+                item: { label, items, placement, keyboardShortcut, tag, custom, ...buttonProps },
                 size,
                 tooltipPlacement,
                 active,
@@ -336,7 +334,6 @@ const LemonMenuItemButton: FunctionComponent<LemonMenuItemButtonProps & React.Re
                     closeOnClickInside={!custom}
                     closeParentPopoverOnClickInside={!custom}
                     buttonSize={size}
-                    trigger={trigger}
                 >
                     {button}
                 </LemonMenu>

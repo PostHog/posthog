@@ -1,10 +1,5 @@
 import { useActions, useValues } from 'kea'
 
-import { IconRefresh } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
-
-import { Spinner } from 'lib/lemon-ui/Spinner'
-
 import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
 import { QuickFilterContext } from '~/queries/schema/schema-general'
 import { PropertyFilterType } from '~/types'
@@ -15,6 +10,7 @@ import {
     SearchBarVariantToggle,
     useErrorTrackingSearchBarRedesign,
 } from 'products/error_tracking/frontend/components/IssueFilters/SearchBarVariantToggle'
+import { ReloadButton } from 'products/error_tracking/frontend/components/IssueQueryOptions/IssueQueryOptions'
 
 import { ERROR_TRACKING_SCENE_LOGIC_KEY } from '../../errorTrackingSceneLogic'
 import { ChartCard } from './ChartCard'
@@ -36,11 +32,9 @@ export function ErrorTrackingInsights(): JSX.Element {
                         <SearchBarVariantToggle />
                         <FilterBar
                             reload={
-                                <LemonButton
-                                    type="tertiary"
-                                    size="small"
+                                <ReloadButton
+                                    loading={summaryStatsLoading}
                                     onClick={() => loadSummaryStats(null)}
-                                    icon={summaryStatsLoading ? <Spinner textColored /> : <IconRefresh />}
                                     tooltip={summaryStatsLoading ? 'Loading...' : 'Reload'}
                                 />
                             }

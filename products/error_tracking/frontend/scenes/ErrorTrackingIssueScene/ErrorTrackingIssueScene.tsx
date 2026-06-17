@@ -5,8 +5,8 @@ import { BindLogic, useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect, useRef } from 'react'
 
-import { IconFilter, IconList, IconRefresh, IconRewindPlay, IconSearch, IconX } from '@posthog/icons'
-import { LemonButton, LemonDivider, Spinner } from '@posthog/lemon-ui'
+import { IconFilter, IconList, IconRewindPlay, IconSearch, IconX } from '@posthog/icons'
+import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
@@ -50,6 +50,7 @@ import {
     useErrorTrackingSearchBarRedesign,
 } from '../../components/IssueFilters/SearchBarVariantToggle'
 import { Metadata } from '../../components/IssueMetadata'
+import { ReloadButton } from '../../components/IssueQueryOptions/IssueQueryOptions'
 import { IssueStatusButton } from '../../components/IssueStatusButton'
 import { IssueTasks } from '../../components/IssueTasks'
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
@@ -394,14 +395,12 @@ const ExceptionsTab = (): JSX.Element => {
                     <FilterBar
                         className="shrink-0 border-0 rounded-none shadow-none bg-transparent"
                         reload={
-                            <LemonButton
-                                type="tertiary"
-                                size="small"
+                            <ReloadButton
+                                loading={summaryLoading}
                                 onClick={() => {
                                     reloadEvents()
                                     loadSummary()
                                 }}
-                                icon={summaryLoading ? <Spinner textColored /> : <IconRefresh />}
                                 tooltip={summaryLoading ? 'Loading...' : 'Reload'}
                             />
                         }

@@ -12,15 +12,13 @@ import { InsightLogicProps } from '~/types'
 import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/customer_analytics/frontend/constants'
 import { customerProfileLogic } from 'products/customer_analytics/frontend/customerProfileLogic'
 import { issueFiltersLogic } from 'products/error_tracking/frontend/components/IssueFilters/issueFiltersLogic'
+import { IssueReloadButton } from 'products/error_tracking/frontend/components/IssueQueryOptions/IssueQueryOptions'
 import { issueQueryOptionsLogic } from 'products/error_tracking/frontend/components/IssueQueryOptions/issueQueryOptionsLogic'
 import { ErrorTrackingSetupPrompt } from 'products/error_tracking/frontend/components/SetupPrompt/SetupPrompt'
 import { issuesDataNodeLogic } from 'products/error_tracking/frontend/logics/issuesDataNodeLogic'
 import { errorTrackingQuery } from 'products/error_tracking/frontend/queries'
 import { IssuesFilters } from 'products/error_tracking/frontend/scenes/ErrorTrackingScene/tabs/issues/IssuesFilters'
-import {
-    ListReloadButton,
-    useIssueQueryContext,
-} from 'products/error_tracking/frontend/scenes/ErrorTrackingScene/tabs/issues/IssuesList'
+import { useIssueQueryContext } from 'products/error_tracking/frontend/scenes/ErrorTrackingScene/tabs/issues/IssuesList'
 
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 import { createPostHogWidgetNode } from './NodeWrapper'
@@ -135,7 +133,7 @@ export const Settings = ({
         <ContextualFilters logicKey={logicKey}>
             <div className="p-2 space-y-2 mb-2">
                 <IssuesFilters />
-                <ListReloadButton />
+                <IssueReloadButton />
             </div>
         </ContextualFilters>
     )

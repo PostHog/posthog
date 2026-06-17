@@ -23,7 +23,7 @@
  */
 import { useValues } from 'kea'
 import posthog from 'posthog-js'
-import { ReactElement, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { ReactElement, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconChevronRight, IconFilter } from '@posthog/icons'
 import {
@@ -130,7 +130,7 @@ export interface TaxonomicFilterMenuProps {
      * The render-prop form receives `close` for content that doesn't
      * auto-dismiss the menu (e.g. custom submenu bodies).
      */
-    extraMenuItems?: import('react').ReactNode | ((api: { close: () => void }) => import('react').ReactNode)
+    extraMenuItems?: ReactNode | ((api: { close: () => void }) => ReactNode)
     /** Forwarded to the main combobox's `leadingEntries` — consumer rows pinned above results. */
     comboboxLeadingEntries?: MenuFilterEntry[]
     /** Hide the "Recent" dropdown entry (recents still lead the combobox's All surface). */
@@ -775,8 +775,9 @@ export function TaxonomicFilterMenu({
                         <IconChevronRight className="ml-auto size-3.5 text-tertiary" />
                     </DropdownMenuItem>
                 )}
-                {!useInputTrigger &&
-                    ((!hideRecent && recentEntries.length > 0) || pinnedEntries.length > 0) && <DropdownMenuSeparator />}
+                {!useInputTrigger && ((!hideRecent && recentEntries.length > 0) || pinnedEntries.length > 0) && (
+                    <DropdownMenuSeparator />
+                )}
                 {!hideRecent && recentEntries.length > 0 && (
                     <DropdownMenuItem onClick={() => selectMenuOption('recent', () => openCombobox('recent'))}>
                         Recent

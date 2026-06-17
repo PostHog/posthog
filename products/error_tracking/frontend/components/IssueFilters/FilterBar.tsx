@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { ReactNode, useEffect, useMemo } from 'react'
+import { ReactNode, useMemo } from 'react'
 
 import { IconCheck, IconFilter } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -33,15 +33,15 @@ import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/fil
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { ErrorTrackingIssueAssignee, QuickFilterContext } from '~/queries/schema/schema-general'
+import { QuickFilterContext } from '~/queries/schema/schema-general'
 import { FilterLogicalOperator, PropertyFilterType, QuickFilter, UniversalFiltersGroup } from '~/types'
 
-import { AssigneeDropdown } from '../Assignee/AssigneeDropdown'
-import { assigneeSelectLogic } from '../Assignee/assigneeSelectLogic'
 import { issueQueryOptionsLogic } from '../IssueQueryOptions/issueQueryOptionsLogic'
 import { TAXONOMIC_FILTER_LOGIC_KEY, TAXONOMIC_GROUP_TYPES } from './consts'
 import { DateRangeFilter } from './DateRange'
 import {
+    AssigneeEditor,
+    excludeFilterTypesFromGroup,
     FilterChip,
     FilterOperatorToggle,
     InternalUsersChip,
@@ -104,16 +104,7 @@ export function FilterBar({
     const { filterGroup } = useValues(issueFiltersLogic)
     const { setFilterGroup } = useActions(issueFiltersLogic)
 
-    const inner = filterGroup.values[0] as UniversalFiltersGroup
-    const displayGroup =
-        excludeFilterTypes && excludeFilterTypes.length > 0
-            ? {
-                  ...inner,
-                  values: inner.values.filter(
-                      (value) => !excludeFilterTypes.includes((value as { type: PropertyFilterType }).type)
-                  ),
-              }
-            : inner
+    const displayGroup = excludeFilterTypesFromGroup(filterGroup.values[0] as UniversalFiltersGroup, excludeFilterTypes)
 
     return (
         <UniversalFilters
@@ -293,7 +284,7 @@ const IssueControlMenuItems = ({ close }: { close: () => void }): JSX.Element =>
             <DropdownMenuSub>
                 <DropdownMenuSubTrigger>Assignee</DropdownMenuSubTrigger>
                 <DropdownMenuSubContent className="p-0">
-                    <AssigneeSubmenu
+                    <AssigneeEditor
                         assignee={assignee ?? null}
                         onChange={(value) => {
                             setAssignee(value)
@@ -402,29 +393,5 @@ const InternalUsersMenuItem = (): JSX.Element => {
         >
             Filter out internal and test users
         </DropdownMenuCheckboxItem>
-    )
-}
-
-const AssigneeSubmenu = ({
-    assignee,
-    onChange,
-}: {
-    assignee: ErrorTrackingIssueAssignee | null
-    onChange: (assignee: ErrorTrackingIssueAssignee | null) => void
-}): JSX.Element => {
-    const { ensureAssigneeTypesLoaded, setSearch } = useActions(assigneeSelectLogic)
-
-    useEffect(() => {
-        ensureAssigneeTypesLoaded()
-    }, [ensureAssigneeTypesLoaded])
-
-    return (
-        <AssigneeDropdown
-            assignee={assignee}
-            onChange={(value) => {
-                setSearch('')
-                onChange(value)
-            }}
-        />
     )
 }
