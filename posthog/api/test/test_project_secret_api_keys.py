@@ -191,6 +191,25 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
         mock_feature_enabled.assert_called_once()
 
     @patch("posthog.api.project_secret_api_key.posthoganalytics.feature_enabled")
+    def test_update_adding_llm_gateway_scope_to_key_with_null_scopes(self, mock_feature_enabled):
+        mock_feature_enabled.return_value = True
+
+        key = ProjectSecretAPIKey.objects.create(
+            team=self.team,
+            label="existing",
+            secure_value=hash_key_value(generate_random_token_secret()),
+            scopes=None,
+            created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}",
+            {"scopes": ["llm_gateway:read"]},
+        )
+        assert response.status_code == 200
+        assert response.json()["scopes"] == ["llm_gateway:read"]
+
+    @patch("posthog.api.project_secret_api_key.posthoganalytics.feature_enabled")
     def test_non_gateway_scope_unaffected_by_flag(self, mock_feature_enabled):
         response = self.client.post(
             f"/api/projects/{self.team.id}/project_secret_api_keys",

@@ -95,7 +95,7 @@ class ProjectSecretAPIKeySerializer(serializers.ModelSerializer):
             # so a flag rollback never makes existing keys unsaveable.
             if scope_parts[0] == "llm_gateway":
                 existing_has_llm_gateway = self.instance is not None and any(
-                    s.startswith("llm_gateway:") for s in self.instance.scopes
+                    s.startswith("llm_gateway:") for s in (self.instance.scopes or [])
                 )
                 if not existing_has_llm_gateway and not self._ai_gateway_enabled():
                     raise serializers.ValidationError(
