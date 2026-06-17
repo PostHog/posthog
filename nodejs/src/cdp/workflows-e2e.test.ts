@@ -925,13 +925,19 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
 
     describe('wait_until_time_window: window in the future', () => {
         beforeEach(async () => {
+            // A fixed daily window is "open" during its own minutes every day, so any
+            // run landing inside it (e.g. CI at 09:5x UTC for a 23:5x UTC+14 window)
+            // executes immediately instead of rescheduling. Derive the window a few
+            // minutes ahead of now so it is always strictly in the future.
+            const now = DateTime.utc()
+            const windowStart = now.plus({ minutes: 10 }).toFormat('HH:mm')
+            const windowEnd = now.plus({ minutes: 20 }).toFormat('HH:mm')
             await createWorkflow({
                 actions: {
                     trigger: trigger(),
                     wait_window: {
                         type: 'wait_until_time_window',
-                        // UTC+14 with late-night window ensures it's always in the future
-                        config: { timezone: 'Pacific/Kiritimati', day: 'any', time: ['23:50', '23:59'] },
+                        config: { timezone: 'UTC', day: 'any', time: [windowStart, windowEnd] },
                     },
                     function_1: fetchAction('https://example.com/after-time-window'),
                     exit: exitAction(),

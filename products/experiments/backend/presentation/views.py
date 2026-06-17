@@ -45,6 +45,7 @@ from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricsRecalculation,
     ExperimentTimeseriesRecalculation,
+    ExperimentToSavedMetric,
     experiment_has_legacy_metrics,
 )
 from products.experiments.backend.presentation.serializers import (
@@ -238,17 +239,30 @@ class EnterpriseExperimentsViewSet(
 ):
     scope_object: Literal["experiment"] = "experiment"
     serializer_class = ExperimentSerializer
-    queryset = Experiment.objects.prefetch_related(
-        Prefetch(
-            "feature_flag__flag_evaluation_contexts",
-            queryset=FeatureFlagEvaluationContext.objects.select_related("evaluation_context"),
-        ),
-        "feature_flag",
-        "created_by",
-        "holdout",
-        "experimenttosavedmetric_set",
-        "saved_metrics",
-    ).all()
+    queryset = (
+        Experiment.objects.select_related(
+            "team",
+            "feature_flag",
+            "created_by",
+            "exposure_cohort",
+            "holdout__created_by",
+        )
+        .prefetch_related(
+            Prefetch(
+                "feature_flag__flag_evaluation_contexts",
+                queryset=FeatureFlagEvaluationContext.objects.select_related("evaluation_context"),
+            ),
+            Prefetch(
+                # order_by("id") keeps saved metrics in insertion order — select_related below adds
+                # joins that would otherwise leave the row order unspecified.
+                "experimenttosavedmetric_set",
+                queryset=ExperimentToSavedMetric.objects.select_related("saved_metric", "experiment__team").order_by(
+                    "id"
+                ),
+            ),
+        )
+        .all()
+    )
     ordering = "-created_at"
 
     def safely_get_queryset(self, queryset) -> QuerySet:

@@ -149,7 +149,8 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.Destinations]: {
         projectBased: true,
         name: 'Destinations',
-        description: 'Destinations allow you to send your data to external systems in real time.',
+        description:
+            'Destinations allow you to send your data to external systems either in real time or in scheduled batches.',
         activityScope: ActivityScope.HOG_FUNCTION,
         iconType: 'data_pipeline',
     },
