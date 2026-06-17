@@ -361,7 +361,7 @@ class TestFindMissingIntervals:
         assert missing == [(mar8, mar9)]
 
 
-def create_noop_export_with_schedule(team, interval="hour", offset_hour=None, offset_day=None, tz=None):
+def create_noop_export_with_schedule(team, interval="hour"):
     """Create a NoOp batch export with a real Temporal schedule."""
     return create_batch_export(
         team_id=team.pk,
@@ -369,9 +369,6 @@ def create_noop_export_with_schedule(team, interval="hour", offset_hour=None, of
         name=f"Test Export {uuid4()}",
         destination_data={"type": "NoOp", "config": {}},
         paused=False,
-        timezone=tz,
-        offset_hour=offset_hour,
-        offset_day=offset_day,
     )
 
 
@@ -381,31 +378,23 @@ async def delete_temporal_schedule(client, schedule_id: str):
     await handle.delete()
 
 
-async def wait_for_workflow_ids(
-    temporal_client: temporalio.client.Client, workflow_ids: list[str], timeout: int = 30
-) -> None:
-    pending_workflow_ids = set(workflow_ids)
+async def wait_for_workflow(temporal_client: temporalio.client.Client, workflow_id: str, timeout: int = 30) -> None:
+    handle = temporal_client.get_workflow_handle(workflow_id)
 
     for _ in range(timeout):
-        for workflow_id in list(pending_workflow_ids):
-            handle = temporal_client.get_workflow_handle(workflow_id)
-            try:
-                await handle.describe()
-            except RPCError as err:
-                if err.status != RPCStatusCode.NOT_FOUND:
-                    raise
-            else:
-                pending_workflow_ids.remove(workflow_id)
-
-        if not pending_workflow_ids:
+        try:
+            await handle.describe()
             return
+        except RPCError as err:
+            if err.status != RPCStatusCode.NOT_FOUND:
+                raise
 
         await asyncio.sleep(1)
 
-    raise TimeoutError(f"Timed out waiting for workflows to exist: {sorted(pending_workflow_ids)}")
+    raise TimeoutError(f"Timed out waiting for workflow to exist: {workflow_id}")
 
 
-sync_wait_for_workflow_ids = async_to_sync(wait_for_workflow_ids)
+sync_wait_for_workflow = async_to_sync(wait_for_workflow)
 
 
 REFERENCE_TIME = datetime(2026, 4, 1, 12, 0, tzinfo=UTC)
@@ -421,7 +410,11 @@ def run_backfill_command(*args, stderr=None):
     call_command("backfill_batch_export_runs", *args, "--no-delay", "--no-confirm", stderr=stderr)
 
 
-def mock_temporal_client(describe_side_effect: Exception | None = None) -> tuple[MagicMock, MagicMock]:
+def run_backfill_command_with_mocked_temporal(
+    *args: str,
+    describe_side_effect: Exception | None = None,
+    stderr: StringIO | None = None,
+) -> tuple[AsyncMock, MagicMock, MagicMock]:
     handle = MagicMock()
     handle.describe = AsyncMock(side_effect=describe_side_effect)
     handle.backfill = AsyncMock()
@@ -429,17 +422,7 @@ def mock_temporal_client(describe_side_effect: Exception | None = None) -> tuple
     client = MagicMock()
     client.get_schedule_handle.return_value = handle
 
-    return client, handle
-
-
-def run_backfill_command_with_mocked_temporal(
-    *args: str,
-    describe_side_effect: Exception | None = None,
-    stderr: StringIO | None = None,
-) -> tuple[AsyncMock, MagicMock, MagicMock]:
-    client, handle = mock_temporal_client(describe_side_effect)
     mock_connect = AsyncMock(return_value=client)
-
     with patch(f"{COMMAND_MODULE}.connect", new=mock_connect):
         run_backfill_command(*args, stderr=stderr)
 
@@ -449,7 +432,7 @@ def run_backfill_command_with_mocked_temporal(
 def assert_backfill_requests(
     handle: MagicMock,
     expected_windows: list[tuple[datetime, datetime]],
-    overlap_policy: temporalio.client.ScheduleOverlapPolicy,
+    overlap_policy: temporalio.client.ScheduleOverlapPolicy = temporalio.client.ScheduleOverlapPolicy.BUFFER_ALL,
 ) -> None:
     actual_backfills = [await_args.args[0] for await_args in handle.backfill.await_args_list]
     assert [(backfill.start_at, backfill.end_at, backfill.overlap) for backfill in actual_backfills] == [
@@ -526,7 +509,7 @@ class TestBackfillCommand:
             mock_connect.assert_awaited_once()
             mock_client.get_schedule_handle.assert_called_once_with(str(export.id))
             handle.describe.assert_awaited_once()
-            assert_backfill_requests(handle, expected_windows, temporalio.client.ScheduleOverlapPolicy.BUFFER_ALL)
+            assert_backfill_requests(handle, expected_windows)
         else:
             mock_connect.assert_not_awaited()
             handle.describe.assert_not_awaited()
@@ -542,7 +525,7 @@ class TestBackfillCommand:
         )
 
         expected_id = f"{export.id}-{start + timedelta(hours=2):%Y-%m-%dT%H:%M:%SZ}"
-        sync_wait_for_workflow_ids(temporal, [expected_id])
+        sync_wait_for_workflow(temporal, expected_id)
 
     def test_daily_backfill_with_offset_and_timezone(self, team):
         # Daily at 02:00 US/Pacific (PDT = UTC-7 during DST), so 02:00 PDT = 09:00 UTC
@@ -556,17 +539,14 @@ class TestBackfillCommand:
         # Cover first day, leave second missing
         create_run(export, day0, day1)
 
-        _, _, handle = run_backfill_command_with_mocked_temporal(
+        _, mock_client, handle = run_backfill_command_with_mocked_temporal(
             f"--batch-export-id={export.id}",
             f"--start={day0.isoformat()}",
             f"--end={day2.isoformat()}",
         )
 
-        assert_backfill_requests(
-            handle,
-            [(day2, day2 + export.jitter)],
-            temporalio.client.ScheduleOverlapPolicy.BUFFER_ALL,
-        )
+        mock_client.get_schedule_handle.assert_called_once_with(str(export.id))
+        assert_backfill_requests(handle, [(day2, day2 + export.jitter)])
 
     def test_weekly_backfill_with_offset_and_timezone(self, team):
         # Weekly on Monday at 02:00 Europe/Berlin
@@ -587,17 +567,14 @@ class TestBackfillCommand:
         # Cover first week, leave second missing
         create_run(export, week0, week1)
 
-        _, _, handle = run_backfill_command_with_mocked_temporal(
+        _, mock_client, handle = run_backfill_command_with_mocked_temporal(
             f"--batch-export-id={export.id}",
             f"--start={week0.isoformat()}",
             f"--end={week2.isoformat()}",
         )
 
-        assert_backfill_requests(
-            handle,
-            [(week2, week2 + export.jitter)],
-            temporalio.client.ScheduleOverlapPolicy.BUFFER_ALL,
-        )
+        mock_client.get_schedule_handle.assert_called_once_with(str(export.id))
+        assert_backfill_requests(handle, [(week2, week2 + export.jitter)])
 
     def test_dry_run_does_not_trigger_backfill_requests(self, team):
         export = create_export(team, interval="hour", destination_type="NoOp")
@@ -616,13 +593,14 @@ class TestBackfillCommand:
         export = create_export(team, interval="hour", destination_type="NoOp")
         start, end = hour_window(2)
 
-        _, _, handle = run_backfill_command_with_mocked_temporal(
+        _, mock_client, handle = run_backfill_command_with_mocked_temporal(
             f"--batch-export-id={export.id}",
             f"--start={start.isoformat()}",
             f"--end={end.isoformat()}",
             "--overlap-policy=ALLOW_ALL",
         )
 
+        mock_client.get_schedule_handle.assert_called_once_with(str(export.id))
         assert_backfill_requests(
             handle,
             [(start + timedelta(hours=1), end + export.jitter)],
