@@ -28,18 +28,18 @@ Every action object has these common fields plus a type-specific `config`:
 
 Use **only** these `type` values — they are the complete supported set. An unknown or unsupported `type` breaks the editor's parse for the entire graph.
 
-| `type`                   | `config`                                                                                                                                                                                    |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `trigger`                | a trigger config (see below). Exactly one trigger node per workflow.                                                                                                                        |
-| `delay`                  | `{ "delay_duration": "30m" }` — see duration rules below.                                                                                                                                   |
-| `conditional_branch`     | `{ "conditions": [ { "filters": {"properties": [<cond>]}, "name?": "" } ] }`. Index N pairs with the `branch` edge `index: N`.                                                              |
-| `random_cohort_branch`   | `{ "cohorts": [ { "percentage": 50, "name?": "A" } ] }`. Percentages should sum to 100 — a shortfall leaves an unrouted remainder, an excess makes later cohorts unreachable.               |
-| `wait_until_condition`   | `{ "condition": {"filters": {"properties": [<cond>]}}, "events?": [{"filters": {...}, "name?": ""}], "max_wait_duration": "7d" }`. Duration rules as `delay`.                               |
-| `wait_until_time_window` | `{ "timezone": "UTC", "use_person_timezone?": false, "day": <"weekday" / "weekend" / "any" / ["monday",...]>, "time": <"any" / ["10:00","11:00"]> }`.                                       |
-| `function`               | `{ "template_id": "<live template id>", "inputs": { ... }, "mappings?": [] }`. Don't guess the id or its inputs — discover them live (see below).                                           |
-| `function_email`         | `{ "template_id": "template-email", "inputs": {"email": {"value": {...}}}, "message_category_type?": <"marketing" / "transactional"> }`. `template_id` is the **literal** `template-email`. |
-| `function_sms`           | `{ "template_id": "template-twilio", "inputs": { ... }, "message_category_type?": "..." }`. `template_id` is the **literal** `template-twilio`.                                             |
-| `exit`                   | `{ "reason?": "Done" }`. Usually one terminal exit node.                                                                                                                                    |
+| `type`                   | `config`                                                                                                                                                                                                                                                                            |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `trigger`                | a trigger config (see below). Exactly one trigger node per workflow.                                                                                                                                                                                                                |
+| `delay`                  | `{ "delay_duration": "30m" }` — see duration rules below.                                                                                                                                                                                                                           |
+| `conditional_branch`     | `{ "conditions": [ { "filters": {"properties": [<cond>]}, "name?": "" } ] }`. Index N pairs with the `branch` edge `index: N`.                                                                                                                                                      |
+| `random_cohort_branch`   | `{ "cohorts": [ { "percentage": 50, "name?": "A" } ] }`. Percentages should sum to 100 — a shortfall leaves an unrouted remainder, an excess makes later cohorts unreachable.                                                                                                       |
+| `wait_until_condition`   | `{ "condition?": {"filters": {"properties": [<cond>]}}, "events?": [{"filters": {...}, "name?": ""}], "max_wait_duration": "7d" }`. `condition` is optional: an **events-only** wait is valid (server seeds a missing `condition` as `{filters: null}`). Duration rules as `delay`. |
+| `wait_until_time_window` | `{ "timezone": "UTC", "use_person_timezone?": false, "day": <"weekday" / "weekend" / "any" / ["monday",...]>, "time": <"any" / ["10:00","11:00"]> }`.                                                                                                                               |
+| `function`               | `{ "template_id": "<live template id>", "inputs": { ... }, "mappings?": [] }`. Don't guess the id or its inputs — discover them live (see below).                                                                                                                                   |
+| `function_email`         | `{ "template_id": "template-email", "inputs": {"email": {"value": {...}}}, "message_category_type?": <"marketing" / "transactional"> }`. `template_id` is the **literal** `template-email`.                                                                                         |
+| `function_sms`           | `{ "template_id": "template-twilio", "inputs": { ... }, "message_category_type?": "..." }`. `template_id` is the **literal** `template-twilio`.                                                                                                                                     |
+| `exit`                   | `{ "reason?": "Done" }`. Usually one terminal exit node.                                                                                                                                                                                                                            |
 
 ### Branch and wait condition filters (the `filters` wrapper is mandatory)
 
@@ -87,10 +87,11 @@ Property conditions used in trigger/action `filters`, branch conditions, and con
 { "from": "source_id", "to": "target_id", "type": "continue", "index": 0 }
 ```
 
-- `type: "continue"` — fall-through: the sequential next step, or the **no-match** path out of a `conditional_branch` / `wait_until_condition`.
-- `type: "branch"` — requires `index`, matching `config.conditions[index]` on the source branch node.
+- `type: "continue"` — fall-through: the sequential next step, or the **no-match** path out of a `conditional_branch`. For a `wait_until_condition` it is the **`max_wait_duration` timeout** path.
+- `type: "branch"` — requires `index`, matching `config.conditions[index]` on a `conditional_branch`. A `wait_until_condition` **resolves** (its `condition` matches or an `events` entry fires) out the `branch` edge at **`index: 0`**.
 - **Every non-exit node needs a reachable next action** via an outgoing edge, or execution fails with "No next action found".
 - A `conditional_branch` with N conditions typically has N `branch` edges (`index: 0..N-1`) plus one `continue` edge for the no-match path.
+- A `wait_until_condition` needs a `branch` edge at `index: 0` (resolution) **and** a `continue` edge (timeout). Without the `index: 0` branch it only ever advances on timeout, never on the event/condition firing.
 
 ## `function*` inputs
 
@@ -125,7 +126,11 @@ Must match `^\d*\.?\d+[dhm]$` — a number plus unit `m` | `h` | `d`. Examples: 
 ## Conversion & exit condition
 
 - `exit_condition`: `exit_only_at_end` (default), `exit_on_conversion`, `exit_on_trigger_not_matched`, `exit_on_trigger_not_matched_or_conversion`.
-- The `…conversion` variants require a `conversion` goal: `{ "filters": [<cond>...], "window_minutes": <int|null> }` (empty `filters` = any event in window). Without it they're a silent no-op. Server compiles the bytecode.
+- The `…conversion` variants require a `conversion` goal with two slots plus a window:
+  - `filters` — **property conditions only**, an array `[{key, value, operator, type}, ...]` (empty array = any event in the window converts).
+  - `events` — **event-based goals**, `[{ "filters": { "events": [{ "id": "<event>", "name": "<event>", "type": "events" }] } }]`.
+  - `window_minutes` — minutes after entry (`null` = no window).
+- **An event goal goes in `events`, never in `filters`.** An event object stuffed into `filters` is invisible to the conversion matcher and breaks the conversion picker. Without a goal the `…conversion` exit is a silent no-op. Server compiles the bytecode.
 
 ## Pre-submit checklist
 
