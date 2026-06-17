@@ -291,6 +291,26 @@ class TestGetRowsToSync:
         # Swallows the error rather than propagating — matches pre-refactor behavior.
         assert impl.get_rows_to_sync(cursor, "SELECT * FROM t", {}, logger) == 0
 
+    @pytest.mark.parametrize(
+        "error",
+        [
+            pymysql.err.OperationalError(1054, "Unknown column 'favoritor_id' in 'where clause'"),
+            pymysql.err.OperationalError(
+                3024, "Query execution was interrupted, maximum statement execution time exceeded"
+            ),
+            RuntimeError("boom"),
+        ],
+    )
+    def test_does_not_capture_handled_probe_failures(self, impl, cursor, logger, error, mocker):
+        # The COUNT(*) probe is best-effort: it falls back to 0 and must not flood error
+        # tracking with handled failures (e.g. a bad incremental field or the MAX_EXECUTION_TIME
+        # timeout). Genuine problems resurface in the real streaming query and are classified there.
+        cursor.execute.side_effect = error
+        capture = mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql.capture_exception")
+
+        assert impl.get_rows_to_sync(cursor, "SELECT * FROM t", {}, logger) == 0
+        capture.assert_not_called()
+
     def test_wraps_inner_query_as_subselect(self, impl, cursor, logger):
         cursor.fetchone.return_value = (5,)
         impl.get_rows_to_sync(cursor, "SELECT x FROM y WHERE a = %(a)s", {"a": 1}, logger)
@@ -360,14 +380,30 @@ class TestFetchAverageRowSize:
         assert "`email`" in sql
         assert "LENGTH(COALESCE(`id`" in sql
 
-    def test_rejects_malformed_column_names(self, impl, cursor, logger):
-        # If INFORMATION_SCHEMA somehow returns a weird column name, we must
-        # reject it rather than splice it into SQL. The quoter raises; the
-        # method catches and returns None.
+    def test_returns_none_when_no_columns_are_quotable(self, impl, cursor, logger):
+        # A column name we can't safely quote is never spliced into SQL. When
+        # it's the only column there's nothing left to estimate from, so we
+        # return None rather than raising.
         cursor.fetchall.return_value = [("bad;col",)]
         cursor.fetchone.return_value = (1,)
         result = impl.fetch_average_row_size(cursor, "db", "t", "SELECT 1", {}, logger)
         assert result is None
+
+    def test_skips_unquotable_columns_and_estimates_from_rest(self, impl, cursor, logger):
+        # Real MySQL columns can contain characters the identifier allowlist
+        # rejects (e.g. `:` in `Ach:CompanyId`). Row-size estimation is
+        # best-effort: skip the columns we can't quote and estimate from the
+        # rest instead of abandoning the whole query.
+        cursor.fetchall.return_value = [("id",), ("Ach:CompanyId",), ("email",)]
+        cursor.fetchone.return_value = (100,)
+        result = impl.fetch_average_row_size(cursor, "db", "t", "SELECT * FROM x", {}, logger)
+        assert result == 100
+        second_call = cursor.execute.call_args_list[1]
+        sql = second_call.args[0]
+        assert "`id`" in sql
+        assert "`email`" in sql
+        # The unquotable column is neither quoted nor spliced in raw.
+        assert "Ach:CompanyId" not in sql
 
     def test_returns_none_on_exception(self, impl, cursor, logger):
         cursor.execute.side_effect = RuntimeError("boom")
@@ -480,6 +516,17 @@ class TestExplainQuery:
         cursor.execute.side_effect = RuntimeError("boom")
         # Must not raise — diagnostic-only.
         impl.explain_query(cursor, "SELECT 1", {}, logger)
+
+    def test_does_not_capture_exceptions(self, impl, cursor, logger, mocker):
+        # EXPLAIN is best-effort diagnostics — a failure (e.g. MySQL 1345 when
+        # EXPLAINing a view whose underlying tables the user can't SHOW VIEW on)
+        # never affects the sync, so it must not be reported to error tracking.
+        capture = mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql.capture_exception")
+        cursor.execute.side_effect = pymysql.err.OperationalError(
+            1345, "EXPLAIN/SHOW can not be issued; lacking privileges for underlying table"
+        )
+        impl.explain_query(cursor, "SELECT 1", {}, logger)
+        capture.assert_not_called()
 
 
 class TestSafetyContract:
@@ -821,6 +868,22 @@ class TestMySQLSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # Raw pymysql str(error) form (classified in `_handle_import_error`).
+            str(pymysql.err.OperationalError(1054, "Unknown column 'favoritor_id' in 'where clause'")),
+            # Temporal-wrapped str(e.cause) form (classified in external_data_job).
+            "OperationalError: (1054, \"Unknown column 'favoritor_id' in 'where clause'\")",
+            # Other clause variants share the same 1054 code and "Unknown column" prefix.
+            "OperationalError: (1054, \"Unknown column 'deleted_at' in 'order clause'\")",
+        ],
+    )
+    def test_unknown_column_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Unknown-column error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             # A genuine transient connection drop (no SSL signature) must stay retryable.
             "OperationalError: (2013, 'Lost connection to MySQL server during query')",
             "Lost connection to MySQL server during query",
@@ -848,3 +911,46 @@ class TestMySQLSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert not is_non_retryable, f"Transient thread-exhaustion error should remain retryable: {error_msg}"
+
+
+class TestMySQLSourceValidateCredentials:
+    @pytest.fixture
+    def source(self, mocker):
+        source = MySQLSource()
+        mocker.patch.object(source, "ssh_tunnel_is_valid", return_value=(True, None))
+        mocker.patch.object(source, "is_database_host_valid", return_value=(True, None))
+        return source
+
+    @pytest.mark.parametrize(
+        "raised",
+        [
+            # The exact error that fired this triage: an unreachable host surfaces as a
+            # pymysql OperationalError(2003) wrapping an OSError — already non-retryable.
+            pymysql.err.OperationalError(
+                2003, "Can't connect to MySQL server on 'db.example.com' ([Errno 101] Network is unreachable)"
+            ),
+            pymysql.err.OperationalError(
+                2003, "Can't connect to MySQL server on 'db.example.com' ([Errno 111] Connection refused)"
+            ),
+            pymysql.err.OperationalError(1045, "Access denied for user 'u'@'1.2.3.4' (using password: YES)"),
+        ],
+    )
+    def test_known_connection_errors_are_not_captured(self, source, mocker, raised):
+        capture = mocker.patch("posthog.temporal.data_imports.sources.mysql.source.capture_exception")
+        mocker.patch.object(source, "get_schemas", side_effect=raised)
+
+        valid, error = source.validate_credentials(_make_config(), team_id=1)
+
+        assert valid is False
+        assert error is not None
+        capture.assert_not_called()
+
+    def test_unexpected_errors_are_still_captured(self, source, mocker):
+        capture = mocker.patch("posthog.temporal.data_imports.sources.mysql.source.capture_exception")
+        mocker.patch.object(source, "get_schemas", side_effect=RuntimeError("something genuinely unexpected"))
+
+        valid, error = source.validate_credentials(_make_config(), team_id=1)
+
+        assert valid is False
+        assert error is not None
+        capture.assert_called_once()

@@ -62,7 +62,7 @@ from products.warehouse_sources.backend.models.external_data_schema import Exter
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 logger = structlog.get_logger(__name__)
-logger.setLevel(logging.INFO)
+logging.getLogger(__name__).setLevel(logging.INFO)
 
 # AI events dynamically generated from AIEventType TS enum
 # Changes to the AIEventType enum will impact usage reporting

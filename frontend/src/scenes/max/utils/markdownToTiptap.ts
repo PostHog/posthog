@@ -3,7 +3,7 @@ import { MarkdownManager } from '@tiptap/markdown'
 import StarterKit from '@tiptap/starter-kit'
 
 import { JSONContent } from 'lib/components/RichContentEditor/types'
-import { expandFlattenedMarkdownTables } from 'lib/utils/expandFlattenedMarkdownTables'
+import { expandFlattenedMarkdownTables } from 'lib/utils/markdown'
 
 const markdownManager = new MarkdownManager({
     extensions: [StarterKit, Table, TableRow, TableHeader, TableCell],
