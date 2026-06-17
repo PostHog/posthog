@@ -42,7 +42,11 @@ export function EndpointExecutionFailedSignalCard({ signal }: SignalCardProps): 
                 {materialized && <LemonTag size="small">Materialized</LemonTag>}
             </div>
 
-            {signal.content && <LemonMarkdown className="text-sm text-secondary mt-2">{signal.content}</LemonMarkdown>}
+            {signal.content && (
+                <LemonMarkdown className="text-sm text-secondary mt-2" disableImages>
+                    {signal.content}
+                </LemonMarkdown>
+            )}
 
             <div className="mt-2">
                 <LemonTag type="danger" size="small" icon={<IconWarning />}>

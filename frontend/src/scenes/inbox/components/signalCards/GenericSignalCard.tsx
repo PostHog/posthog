@@ -16,7 +16,11 @@ export function GenericSignalCard({ signal }: SignalCardProps): JSX.Element {
 
     return (
         <SignalCardShell signal={signal}>
-            {signal.content && <LemonMarkdown className="text-sm text-secondary mb-2">{signal.content}</LemonMarkdown>}
+            {signal.content && (
+                <LemonMarkdown className="text-sm text-secondary mb-2" disableImages>
+                    {signal.content}
+                </LemonMarkdown>
+            )}
 
             <div className="text-xs text-tertiary">
                 <TZLabel time={signal.timestamp} />

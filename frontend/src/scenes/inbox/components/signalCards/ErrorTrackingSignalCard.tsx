@@ -111,7 +111,11 @@ export function ErrorTrackingSignalCard({ signal }: SignalCardProps): JSX.Elemen
                 </LemonTag>
             }
         >
-            {signal.content && <LemonMarkdown className="text-sm text-secondary mb-2">{signal.content}</LemonMarkdown>}
+            {signal.content && (
+                <LemonMarkdown className="text-sm text-secondary mb-2" disableImages>
+                    {signal.content}
+                </LemonMarkdown>
+            )}
 
             <BindLogic logic={inboxErrorTrackingIssueLogic} props={logicProps}>
                 <ErrorTrackingSignalCardBody signal={signal} fingerprint={fingerprint} />

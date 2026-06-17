@@ -146,7 +146,11 @@ function stringifyState(state: unknown): string {
 function LlmEvalTraceSignalCardBody({ signal, extra }: { signal: SignalNode; extra: LlmEvalSignalExtra }): JSX.Element {
     return (
         <SignalCardShell signal={signal}>
-            {signal.content && <LemonMarkdown className="text-sm text-secondary mb-2">{signal.content}</LemonMarkdown>}
+            {signal.content && (
+                <LemonMarkdown className="text-sm text-secondary mb-2" disableImages>
+                    {signal.content}
+                </LemonMarkdown>
+            )}
 
             <TraceMetricStrip extra={extra} />
             <TracePreview />
@@ -184,7 +188,9 @@ export function LlmEvalReportSignalCard({ signal }: SignalCardProps): JSX.Elemen
             )}
 
             {signal.content && (
-                <LemonMarkdown className="text-sm text-secondary mt-2 mb-2">{signal.content}</LemonMarkdown>
+                <LemonMarkdown className="text-sm text-secondary mt-2 mb-2" disableImages>
+                    {signal.content}
+                </LemonMarkdown>
             )}
 
             <div className="text-xs text-tertiary mt-1">

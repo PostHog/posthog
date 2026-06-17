@@ -118,7 +118,11 @@ export function SessionReplaySignalCard({ signal }: SignalCardProps): JSX.Elemen
                 ) : undefined
             }
         >
-            {signal.content && <LemonMarkdown className="text-sm text-secondary mb-2">{signal.content}</LemonMarkdown>}
+            {signal.content && (
+                <LemonMarkdown className="text-sm text-secondary mb-2" disableImages>
+                    {signal.content}
+                </LemonMarkdown>
+            )}
 
             {/* 16:9 framed preview: eager thumbnail when an export exists, otherwise a play affordance. */}
             <div className="relative w-full aspect-video rounded overflow-hidden border bg-surface-secondary mb-2">

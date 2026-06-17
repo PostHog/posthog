@@ -105,7 +105,9 @@ function RunOutputWidget({ report }: { report: SignalReport }): JSX.Element {
     return (
         <DetailSection icon={<IconDocument />} title="Draft summary">
             {report.summary ? (
-                <LemonMarkdown className="text-sm text-secondary leading-normal">{report.summary}</LemonMarkdown>
+                <LemonMarkdown className="text-sm text-secondary leading-normal" disableImages>
+                    {report.summary}
+                </LemonMarkdown>
             ) : (
                 <p className="text-sm text-tertiary m-0">
                     {report.status === SignalReportStatus.IN_PROGRESS

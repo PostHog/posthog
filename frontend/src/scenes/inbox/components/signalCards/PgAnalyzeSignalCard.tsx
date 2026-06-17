@@ -106,7 +106,9 @@ export function PgAnalyzeSignalCard({ signal }: SignalCardProps): JSX.Element {
             }
             link={externalUrl ? { to: externalUrl, label: 'View in pganalyze' } : undefined}
         >
-            <LemonMarkdown className="text-sm text-secondary mb-2">{signal.content}</LemonMarkdown>
+            <LemonMarkdown className="text-sm text-secondary mb-2" disableImages>
+                {signal.content}
+            </LemonMarkdown>
 
             {visibleReferences.length > 0 && (
                 <div className="border-t pt-2 mt-2 flex flex-col gap-2">

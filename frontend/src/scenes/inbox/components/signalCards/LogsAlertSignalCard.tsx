@@ -140,7 +140,11 @@ export function LogsAlertSignalCard({ signal }: SignalCardProps): JSX.Element {
             <div className="flex flex-col gap-3">
                 {extra.action === 'firing' ? <FiringBody extra={extra} /> : <BrokenBody extra={extra} />}
 
-                {signal.content && <LemonMarkdown className="text-sm text-secondary">{signal.content}</LemonMarkdown>}
+                {signal.content && (
+                    <LemonMarkdown className="text-sm text-secondary" disableImages>
+                        {signal.content}
+                    </LemonMarkdown>
+                )}
 
                 <FiltersBlock filters={extra.filters} />
 

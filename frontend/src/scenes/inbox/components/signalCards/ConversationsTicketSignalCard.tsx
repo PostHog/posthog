@@ -82,7 +82,11 @@ export function ConversationsTicketSignalCard({ signal }: SignalCardProps): JSX.
 
     return (
         <SignalCardShell signal={signal} label={extra.email_subject ?? undefined}>
-            {signal.content && <LemonMarkdown className="text-sm text-secondary mb-2">{signal.content}</LemonMarkdown>}
+            {signal.content && (
+                <LemonMarkdown className="text-sm text-secondary mb-2" disableImages>
+                    {signal.content}
+                </LemonMarkdown>
+            )}
             <div className="flex items-center gap-2 flex-wrap text-xs text-tertiary">
                 <span className="font-mono font-medium">#{extra.ticket_number}</span>
                 <LemonTag size="small" type={conversationsStatusTagType(extra.status)}>

@@ -318,7 +318,7 @@ export function InboxDetailFrame({
                 <div className="min-w-0">
                     <RightColumnSection icon={summary.icon} title={summary.title}>
                         {report.summary ? (
-                            <LemonMarkdown className="text-sm text-secondary leading-normal break-words">
+                            <LemonMarkdown className="text-sm text-secondary leading-normal break-words" disableImages>
                                 {report.summary}
                             </LemonMarkdown>
                         ) : (

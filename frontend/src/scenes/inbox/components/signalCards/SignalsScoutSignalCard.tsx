@@ -135,7 +135,11 @@ export function SignalsScoutSignalCard({ signal }: SignalCardProps): JSX.Element
             </div>
 
             {/* Hypothesis — the prominent narrative of the finding. */}
-            {hypothesis && <LemonMarkdown className="text-sm text-primary mb-2">{hypothesis}</LemonMarkdown>}
+            {hypothesis && (
+                <LemonMarkdown className="text-sm text-primary mb-2" disableImages>
+                    {hypothesis}
+                </LemonMarkdown>
+            )}
 
             {/* Tags as raw kebab slugs. */}
             {tags.length > 0 && (

@@ -180,7 +180,11 @@ export function HealthCheckSignalCard({ signal }: SignalCardProps): JSX.Element 
                     </LemonTag>
                 </div>
 
-                {markdownText && <LemonMarkdown className="text-sm text-secondary">{markdownText}</LemonMarkdown>}
+                {markdownText && (
+                    <LemonMarkdown className="text-sm text-secondary" disableImages>
+                        {markdownText}
+                    </LemonMarkdown>
+                )}
 
                 <PayloadRenderer kind={extra.kind} payload={extra.payload} />
 

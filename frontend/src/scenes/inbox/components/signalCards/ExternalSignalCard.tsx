@@ -74,7 +74,9 @@ export function ExternalSignalCard({
             rightSlot={statePill ? <StatePillBadge pill={statePill} /> : undefined}
         >
             {typeof children === 'string' ? (
-                <LemonMarkdown className="text-sm text-secondary mb-2">{children}</LemonMarkdown>
+                <LemonMarkdown className="text-sm text-secondary mb-2" disableImages>
+                    {children}
+                </LemonMarkdown>
             ) : (
                 children
             )}
