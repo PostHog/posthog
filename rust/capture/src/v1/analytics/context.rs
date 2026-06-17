@@ -31,7 +31,7 @@ impl Context {
         let req = RequestContext::new(headers, ip, raw_query, method, path)?;
         let query = match req.raw_query.as_deref() {
             Some(raw) => serde_urlencoded::from_str(raw)
-                .map_err(|e| Error::InvalidHeaderValue(format!("invalid query string: {e}")))?,
+                .map_err(|e| Error::InvalidQueryParam(format!("invalid query string: {e}")))?,
             None => Query::default(),
         };
         Ok(Self { req, query })
