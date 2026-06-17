@@ -566,6 +566,8 @@ SPECTACULAR_SETTINGS = {
         "ActivityEventsListWidgetTypeEnum": ["activity_events_list"],
         "ErrorTrackingListWidgetTypeEnum": ["error_tracking_list"],
         "SessionReplayListWidgetTypeEnum": ["session_replay_list"],
+        "ExperimentsListWidgetTypeEnum": ["experiments_list"],
+        "ExperimentResultsWidgetTypeEnum": ["experiment_results"],
         "OrderByEnum": ["latest", "earliest"],
         "PropertyGroupTypeEnum": ["cohort", "person", "group"],
         "ExistenceOperatorEnum": ["is_set", "is_not_set"],
