@@ -71,9 +71,6 @@ fn prepare_remote_event(
     } else {
         serde_json::to_vec(&serde_json::json!({
             "debug_images_json": evt.debug_images,
-            // Legacy key still read by older cymbal-resolution deployments.
-            // TODO(2026-09-01): drop once the dual-read release is fully rolled out.
-            "apple_debug_images_json": evt.debug_images,
         }))
         .map_err(UnhandledError::from)?
     };
