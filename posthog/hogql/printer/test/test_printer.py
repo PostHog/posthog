@@ -1218,22 +1218,15 @@ class TestPrinter(BaseTest):
         self.assertEqual(self._expr("max2(1,2)"), "max2(1, 2)")
         self.assertEqual(self._expr("toInt('1')", context), "accurateCastOrNull(%(hogql_val_0)s, %(hogql_val_1)s)")
         self.assertEqual(self._expr("toFloat('1.3')", context), "accurateCastOrNull(%(hogql_val_2)s, %(hogql_val_3)s)")
-        # toFloatOrNull / toFloat64OrNull are accepted ClickHouse-name aliases of toFloat
-        self.assertEqual(
-            self._expr("toFloatOrNull('1.3')", context), "accurateCastOrNull(%(hogql_val_4)s, %(hogql_val_5)s)"
-        )
-        self.assertEqual(
-            self._expr("toFloat64OrNull('1.3')", context), "accurateCastOrNull(%(hogql_val_6)s, %(hogql_val_7)s)"
-        )
         self.assertEqual(
             self._expr("toUUID('470f9b15-ff43-402a-af9f-2ed7c526a6cf')", context),
-            "accurateCastOrNull(%(hogql_val_8)s, %(hogql_val_9)s)",
+            "accurateCastOrNull(%(hogql_val_4)s, %(hogql_val_5)s)",
         )
         self.assertEqual(
-            self._expr("toDecimal('3.14', 2)", context), "accurateCastOrNull(%(hogql_val_10)s, %(hogql_val_11)s)"
+            self._expr("toDecimal('3.14', 2)", context), "accurateCastOrNull(%(hogql_val_6)s, %(hogql_val_7)s)"
         )
         # Single-arg toFloatOrDefault is degenerate; rewritten to toFloatOrZero for ClickHouse.
-        self.assertEqual(self._expr("toFloatOrDefault('1.5')", context), "toFloat64OrZero(%(hogql_val_12)s)")
+        self.assertEqual(self._expr("toFloatOrDefault('1.5')", context), "toFloat64OrZero(%(hogql_val_8)s)")
         self.assertEqual(self._expr("quantile(0.95)( event )"), "quantile(0.95)(events.event)")
 
         self.assertEqual(self._expr("groupArraySample(5)(event)"), "groupArraySample(5)(events.event)")
@@ -1258,6 +1251,19 @@ class TestPrinter(BaseTest):
         # They route through accurateCastOrNull so unparseable values become NULL instead
         # of raising "Cannot parse boolean value here" and failing the whole query.
         self.assertEqual(self._expr(expr), expected)
+
+    @parameterized.expand(
+        [
+            ("toFloat", "toFloat('1.3')"),
+            ("toFloatOrNull", "toFloatOrNull('1.3')"),
+            ("toFloat64OrNull", "toFloat64OrNull('1.3')"),
+        ]
+    )
+    def test_to_float_aliases(self, _name: str, expr: str) -> None:
+        # toFloatOrNull / toFloat64OrNull are accepted ClickHouse-name aliases of toFloat,
+        # all routing through accurateCastOrNull so unparseable input becomes NULL.
+        context = HogQLContext(team_id=self.team.pk)
+        self.assertEqual(self._expr(expr, context), "accurateCastOrNull(%(hogql_val_0)s, %(hogql_val_1)s)")
 
     def test_expr_parse_errors(self):
         self._assert_expr_error("", "Empty query")
