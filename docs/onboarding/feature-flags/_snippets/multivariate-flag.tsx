@@ -10,7 +10,7 @@ export const MultivariateFlagSnippet = memo(({ language = 'javascript' }: { lang
             if (posthog.getFeatureFlag('flag-key') == 'variant-key') { // replace 'variant-key' with the key of your variant
                 // Do something differently for this user
                 // Optional: fetch the payload
-                const matchedFlagPayload = posthog.getFeatureFlagPayload('flag-key')
+                const matchedFlagPayload = posthog.getFeatureFlagResult('flag-key')?.payload
             }
         `,
         react: dedent`
