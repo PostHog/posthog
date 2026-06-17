@@ -427,6 +427,31 @@ class TestPostgresSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # Raw message (what the activity-level check sees via str(e)) — no class name. Without the
+            # message-substring key the timeout would be treated as retryable here and the activity
+            # would re-run the same 10-min-timing-out query up to 9 times before the workflow stopped it.
+            "10 min timeout statement reached. Please ensure your incremental field (updated_at) has an appropriate index created",
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            "QueryTimeoutException: 10 min timeout statement reached. Please ensure your incremental field (updated_at) has an appropriate index created",
+        ],
+    )
+    def test_statement_timeout_errors_are_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Statement-timeout error should be non-retryable: {error_msg}"
+
+    def test_raw_query_canceled_stays_retryable(self, source):
+        # Full-table syncs re-raise the raw QueryCanceled (no conversion to QueryTimeoutException) so a
+        # fresh re-sync can reorder rows. Its message must NOT match any non-retryable key, otherwise we
+        # would permanently disable syncs that a retry could complete.
+        error_msg = "canceling statement due to statement timeout"
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert not is_non_retryable, "Raw QueryCanceled (full-table sync) should stay retryable"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             "cannot call jsonb_each on a non-object",
             "InvalidParameterValue: cannot call jsonb_each on a non-object",
             "cannot call jsonb_each_text on a non-object",

@@ -213,6 +213,17 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             "does not exist": None,
             "timestamp too small": None,
             "QueryTimeoutException": None,
+            # `QueryTimeoutException` is the class name, so it only matches once Temporal wraps the
+            # activity failure ("QueryTimeoutException: ...") at the workflow layer. The activity-level
+            # check (`_handle_import_error`) compares against the raw `str(e)` message, which carries
+            # no class name — so without this the converted statement_timeout is treated as retryable
+            # there and the incremental activity re-runs the same 10-min-timing-out query up to 9 times
+            # before the workflow finally stops it. Match the stable phrase from the raised message
+            # ("10 min timeout statement reached. ...") so it's caught at both layers, mirroring the
+            # `InsufficientPrivilege` / "permission denied for" pairing above. This phrase is absent
+            # from the raw QueryCanceled message ("canceling statement due to statement timeout"), so
+            # full-table syncs still re-raise it raw and stay retryable for a fresh re-sync.
+            "timeout statement reached": None,
             "TemporaryFileSizeExceedsLimitException": None,
             "Name or service not known": None,
             # Sibling getaddrinfo failure to "Name or service not known" (EAI_NONAME): EAI_NODATA
