@@ -1,3 +1,5 @@
+import pytest
+
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.activities.provision_sandbox import (
     PrepareSandboxForRepositoryOutput,
@@ -55,16 +57,18 @@ def test_build_sandbox_tags_includes_all_identifiers():
     }
 
 
-def test_build_sandbox_tags_marks_vm_runtime():
-    tags = _build_sandbox_tags(_context(), _prepared(), use_vm_sandbox=True)
+@pytest.mark.parametrize("use_vm_sandbox, expected", [(True, "vm"), (False, "gvisor")])
+def test_build_sandbox_tags_marks_runtime(use_vm_sandbox, expected):
+    tags = _build_sandbox_tags(_context(), _prepared(), use_vm_sandbox=use_vm_sandbox)
 
-    assert tags["sandbox_runtime"] == "vm"
+    assert tags["sandbox_runtime"] == expected
 
 
-def test_build_sandbox_tags_reflects_image_source():
-    tags = _build_sandbox_tags(_context(), _prepared(image_source="resume_snapshot"), use_vm_sandbox=False)
+@pytest.mark.parametrize("image_source", ["base_image", "resume_snapshot", "repository_snapshot"])
+def test_build_sandbox_tags_reflects_image_source(image_source):
+    tags = _build_sandbox_tags(_context(), _prepared(image_source=image_source), use_vm_sandbox=False)
 
-    assert tags["image_source"] == "resume_snapshot"
+    assert tags["image_source"] == image_source
 
 
 def test_build_sandbox_tags_drops_none_values():

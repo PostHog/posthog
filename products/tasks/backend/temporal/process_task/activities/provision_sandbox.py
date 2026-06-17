@@ -238,14 +238,13 @@ def _build_sandbox_tags(
 
     Modal tag values must be strings; None values are dropped so we don't emit empty tags.
     """
-    # Matches TaskRun.workflow_id so a sandbox links straight back to its Temporal workflow.
-    workflow_id = f"task-processing-{ctx.task_id}-{ctx.run_id}"
-    tags: dict[str, str | None] = {
+    tags: dict[str, str | int | None] = {
         "task_id": ctx.task_id,
         "task_run_id": ctx.run_id,
         "origin_product": ctx.origin_product,
-        "team_id": str(ctx.team_id),
-        "workflow_id": workflow_id,
+        "team_id": ctx.team_id,
+        # Links a sandbox straight back to its Temporal workflow.
+        "workflow_id": TaskRun.get_workflow_id(ctx.task_id, ctx.run_id),
         "image_source": prepared.image_source,
         "sandbox_runtime": "vm" if use_vm_sandbox else "gvisor",
     }
