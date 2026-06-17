@@ -172,19 +172,25 @@ describe('logsViewerLogic', () => {
             ...overrides,
         })
 
-        it('paginates the group subquery with limit and offset', () => {
-            const query = buildGroupedLogsQuery(makeParams(), 10, 20)
-            expect(query).toContain('LIMIT 10')
-            expect(query).toContain('OFFSET 20')
-        })
-
-        it('orders groups with a stable instance_id tiebreaker so offset pages do not skip or repeat', () => {
-            expect(buildGroupedLogsQuery(makeParams(), 10)).toContain('ORDER BY max(timestamp) DESC, instance_id DESC')
-        })
-
-        it('defaults to offset 0', () => {
-            expect(buildGroupedLogsQuery(makeParams(), 10)).toContain('OFFSET 0')
-        })
+        it.each([
+            {
+                description: 'paginates the group subquery with the requested limit',
+                args: [10, 20],
+                expected: 'LIMIT 10',
+            },
+            { description: 'offsets the group subquery to the requested page', args: [10, 20], expected: 'OFFSET 20' },
+            { description: 'defaults to offset 0', args: [10], expected: 'OFFSET 0' },
+            {
+                description: 'orders groups with a stable instance_id tiebreaker so offset pages do not skip or repeat',
+                args: [10],
+                expected: 'ORDER BY max(timestamp) DESC, instance_id DESC',
+            },
+        ] as { description: string; args: [number, number?]; expected: string }[])(
+            '$description',
+            ({ args, expected }) => {
+                expect(buildGroupedLogsQuery(makeParams(), ...args)).toContain(expected)
+            }
+        )
 
         it('pages by offset alone, without introducing a timestamp cursor', () => {
             // A batch fires every instance within the same millisecond, so successive pages must differ ONLY by
