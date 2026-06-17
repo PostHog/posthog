@@ -647,7 +647,11 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                 elif should_sync is True:
                     sync_external_data_job_workflow(updated_instance, create=True, should_sync=should_sync_value)
 
-                if was_sync_frequency_updated or was_sync_time_of_day_updated:
+                # Only re-issue the schedule when one already exists. A disabled / never-activated
+                # schema has no Temporal schedule, so updating it raises "workflow not found"; the new
+                # frequency is saved in the DB and applies if/when the schema is enabled (the create
+                # branch above builds the schedule from the current frequency).
+                if (was_sync_frequency_updated or was_sync_time_of_day_updated) and schedule_exists:
                     sync_external_data_job_workflow(updated_instance, create=False, should_sync=should_sync_value)
 
             self._run_temporal_side_effect(update_schedule)

@@ -580,6 +580,45 @@ class TestExternalDataSchema(APIBaseTest):
         assert schema.sync_frequency_interval == timedelta(minutes=1)
         assert schema.sync_type == ExternalDataSchema.SyncType.CDC
 
+    def test_update_schema_frequency_on_disabled_schema_does_not_touch_missing_schedule(self):
+        # A disabled / never-activated schema has no Temporal schedule. Changing its sync frequency
+        # must not try to update a schedule that doesn't exist (which raises "workflow not found");
+        # the new frequency is just saved, to apply if/when the schema is enabled.
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.POSTGRES,
+            job_inputs={"host": "h", "port": 5432, "database": "d", "user": "u", "password": "p", "schema": "public"},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="public.orders",
+            team=self.team,
+            source=source,
+            should_sync=False,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+            sync_frequency_interval=timedelta(hours=6),
+        )
+
+        with (
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
+                return_value=False,
+            ),
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.sync_external_data_job_workflow"
+            ) as mock_sync_workflow,
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={"sync_frequency": "30day"},
+            )
+
+        assert response.status_code == 200, response.content
+        # The frequency is saved...
+        schema.refresh_from_db()
+        assert schema.sync_frequency_interval == timedelta(days=30)
+        # ...but no schedule create/update is attempted, because the schema has no schedule to touch.
+        mock_sync_workflow.assert_not_called()
+
     def test_update_schema_enable_should_sync_rejects_cdc_without_primary_key(self):
         # Schemas already in CDC mode with an empty primary_key_columns (created before the
         # API gate landed) must not be re-enabled until a PK is added on the source side.
