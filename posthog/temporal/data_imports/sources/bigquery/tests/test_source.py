@@ -4,6 +4,7 @@ from unittest import mock
 
 from dateutil import parser
 from google.api_core.exceptions import BadRequest, Forbidden, NotFound, PermissionDenied
+from google.auth.exceptions import RefreshError
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from posthog.temporal.data_imports.sources.bigquery.bigquery import (
@@ -616,3 +617,42 @@ def test_bigquery_dataset_not_found_in_location_is_non_retryable(location):
     non_retryable_errors = BigQuerySource().get_non_retryable_errors()
 
     assert any(pattern in error_msg for pattern in non_retryable_errors)
+
+
+@pytest.mark.parametrize(
+    "error_description",
+    [
+        "Invalid grant: account not found",
+        "Invalid JWT Signature.",
+        "Token has been expired or revoked.",
+    ],
+)
+def test_bigquery_invalid_grant_is_non_retryable(error_description):
+    """google-auth raises `RefreshError: invalid_grant` when Google's token endpoint rejects the
+    service-account assertion (deleted account, rotated/disabled key, revoked grant). Retrying a
+    rejected credential never recovers, so it must be treated as non-retryable. Matching is the
+    same substring check used in `update_external_data_job_model`."""
+    error = RefreshError(
+        f"invalid_grant: {error_description}",
+        {"error": "invalid_grant", "error_description": error_description},
+    )
+    error_message = str(error)
+
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+
+    assert "invalid_grant" in non_retryable_errors
+    assert any(pattern in error_message for pattern in non_retryable_errors), (
+        f"Expected RefreshError message '{error_message}' to match a non-retryable pattern"
+    )
+
+
+def test_bigquery_unrelated_grant_error_is_retryable():
+    """Only the OAuth2 `invalid_grant` rejection is non-retryable. A transient token-endpoint
+    failure must stay retryable so genuine infrastructure blips aren't silently disabled."""
+    error_message = str(RefreshError("Failed to retrieve token: 503 Service Unavailable"))
+
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+
+    assert not any(pattern in error_message for pattern in non_retryable_errors), (
+        f"'{error_message}' must not match a non-retryable pattern"
+    )
