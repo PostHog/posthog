@@ -75,7 +75,9 @@ export function openDismissReportDialog({
         content: (
             <div className="flex flex-col gap-3">
                 <LemonField name="reason" label="Reason">
-                    <LemonRadio options={REASON_RADIO_OPTIONS} />
+                    {({ value, onChange }) => (
+                        <LemonRadio value={value} onChange={onChange} options={REASON_RADIO_OPTIONS} />
+                    )}
                 </LemonField>
                 <LemonField name="note" label="Note" info="Optional – helps the agent learn">
                     <LemonTextArea placeholder="Optional: add detail" maxLength={4000} rows={3} />
