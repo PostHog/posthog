@@ -6667,6 +6667,7 @@ export const externalDataSources = [
     'WikipediaPageviews',
     'YahooFinance',
     'Clarifai',
+    'Adapty',
     'Custom',
 ] as const
 
