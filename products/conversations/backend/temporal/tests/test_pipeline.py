@@ -303,6 +303,7 @@ class TestPersistReplyActivity:
         comment = Comment.objects.get(team_id=team.id, item_id="test-ticket-id")
         assert comment.content == "Here's how to do X."
         assert comment.scope == "conversations_ticket"
+        assert comment.item_context is not None
         assert comment.item_context["author_type"] == "AI"
         assert comment.item_context["is_private"] is True
         assert comment.item_context["citations"] == ["chunk-1", "chunk-2"]
@@ -322,6 +323,11 @@ class TestStripJsonFence:
                 "nested_content",
                 '```json\n{\n  "grounded": true,\n  "missing": []\n}\n```',
                 '{\n  "grounded": true,\n  "missing": []\n}',
+            ),
+            (
+                "trailing_text_after_fence",
+                '```json\n{"grounded": true}\n```\n\nHere is a summary.',
+                '{"grounded": true}',
             ),
         ]
     )

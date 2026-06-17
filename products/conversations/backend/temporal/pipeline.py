@@ -128,10 +128,6 @@ class ValidateOutput:
     confidence: float
     missing: list[str]
 
-    @property
-    def score(self) -> float:
-        return self.confidence
-
 
 @dataclass
 class PersistReplyInput:
@@ -411,8 +407,9 @@ def _strip_json_fence(text: str) -> str:
         s = s[3:]
         if s[:4].lower() == "json":
             s = s[4:]
-        if s.endswith("```"):
-            s = s[:-3]
+        close = s.rfind("```")
+        if close != -1:
+            s = s[:close]
     return s.strip()
 
 
@@ -625,7 +622,7 @@ class SupportReplyWorkflow:
                 best_citations = draft_output.citations
                 best_missing = validate_output.missing
 
-            if validate_output.score >= SCORE_THRESHOLD:
+            if validate_output.confidence >= SCORE_THRESHOLD:
                 # Persist the reply
                 await workflow.execute_activity(
                     persist_reply_activity,
