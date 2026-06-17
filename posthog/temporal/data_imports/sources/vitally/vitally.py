@@ -433,8 +433,8 @@ def get_messages(
             response = session.send(prepared_request)
             logger.debug(f"Requesting {prepared_request.url}")
 
-            json = response.json()
-            results = json["results"]
+            response.raise_for_status()
+            results = response.json().get("results") or []
 
             for conversation in results:
                 id = conversation.get("id")

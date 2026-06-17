@@ -1,4 +1,4 @@
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import patch
 
 from django.utils import timezone
@@ -9,6 +9,7 @@ from rest_framework import status
 from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.business_knowledge.backend import logic
+from products.business_knowledge.backend.api.serializers import _derive_scope_globs
 from products.business_knowledge.backend.constants import CLASSIFY_MAX_ATTEMPTS
 from products.business_knowledge.backend.models import KnowledgeChunk, KnowledgeDocument, KnowledgeSource, SafetyVerdict
 
@@ -379,6 +380,26 @@ class TestKnowledgeDocumentSearchAPI(APIBaseTest):
         assert len(body) >= 1
         assert "kubernetes" in body[0]["content"].lower()
 
+    @patch("posthog.api.embedding_worker.generate_embedding", side_effect=Exception("unavailable"))
+    @patch("products.business_knowledge.backend.logic.rerank_chunks")
+    def test_search_rerank_param_calls_reranker(self, mock_rerank, _embed, _ff) -> None:
+        self._ready_safe_source(text="Return policy details " * 60)
+        mock_rerank.side_effect = lambda _team, query, results, *, top_k: list(reversed(results))
+
+        response = self.client.get(self.url, {"query": "return policy", "rerank": "true"})
+        assert response.status_code == status.HTTP_200_OK, response.content
+        mock_rerank.assert_called_once()
+        assert mock_rerank.call_args.kwargs["top_k"] == 10
+
+    @patch("posthog.api.embedding_worker.generate_embedding", side_effect=Exception("unavailable"))
+    def test_search_rerank_defaults_false(self, _embed, _ff) -> None:
+        self._ready_safe_source(text="Return policy details " * 60)
+
+        with patch("products.business_knowledge.backend.logic.rerank_chunks") as mock_rerank:
+            response = self.client.get(self.url, {"query": "return policy"})
+            assert response.status_code == status.HTTP_200_OK, response.content
+            mock_rerank.assert_not_called()
+
 
 @patch("posthoganalytics.feature_enabled", return_value=True)
 class TestKnowledgeDocumentSearchScopes(APIBaseTest):
@@ -406,3 +427,140 @@ class TestKnowledgeDocumentSearchScopes(APIBaseTest):
         self._auth_with_pak(["insight:read"])
         response = self.client.get(self.url)
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
+class TestDeriveScopeGlobs(BaseTest):
+    @parameterized.expand(
+        [
+            ("subpath", "https://posthog.com/docs/support", ["/docs/support", "/docs/support/*"]),
+            ("deep_subpath", "https://example.com/a/b/c", ["/a/b/c", "/a/b/c/*"]),
+            ("root_slash", "https://posthog.com/", []),
+            ("root_no_slash", "https://posthog.com", []),
+            ("trailing_slash_stripped", "https://example.com/docs/", ["/docs", "/docs/*"]),
+        ]
+    )
+    def test_derivation(self, _name: str, url: str, expected: list[str]) -> None:
+        assert _derive_scope_globs(url) == expected
+
+
+@patch("posthoganalytics.feature_enabled", return_value=True)
+@patch("products.business_knowledge.backend.api.serializers.is_url_allowed", return_value=(True, None))
+class TestCrawlSourceAutoScope(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.api_url = f"/api/projects/{self.team.id}/business_knowledge/sources/"
+
+    @patch("products.business_knowledge.backend.api.views.KnowledgeSourceViewSet._start_background_ingest")
+    @patch("products.business_knowledge.backend.api.views.logic.claim_url_source")
+    def test_same_origin_derives_globs_from_entry_url(self, mock_claim, _bg, _url, _ff) -> None:
+        mock_claim.return_value = KnowledgeSource(
+            id="00000000-0000-0000-0000-000000000001",
+            team=self.team,
+            name="Support docs",
+            source_type="url",
+            status="processing",
+            crawl_mode="same_origin",
+            crawl_config={
+                "include_globs": ["/docs/support", "/docs/support/*"],
+                "exclude_globs": [],
+                "max_pages": 50,
+                "max_depth": 2,
+            },
+        )
+        response = self.client.post(
+            self.api_url,
+            {
+                "source_type": "url",
+                "name": "Support docs",
+                "url": "https://posthog.com/docs/support",
+                "crawl_mode": "same_origin",
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        call_kwargs = mock_claim.call_args.kwargs
+        assert call_kwargs["crawl_config"]["include_globs"] == ["/docs/support", "/docs/support/*"]
+
+    @patch("products.business_knowledge.backend.api.views.KnowledgeSourceViewSet._start_background_ingest")
+    @patch("products.business_knowledge.backend.api.views.logic.claim_url_source")
+    def test_explicit_include_globs_override_auto_scope(self, mock_claim, _bg, _url, _ff) -> None:
+        mock_claim.return_value = KnowledgeSource(
+            id="00000000-0000-0000-0000-000000000002",
+            team=self.team,
+            name="Custom",
+            source_type="url",
+            status="processing",
+            crawl_mode="same_origin",
+            crawl_config={"include_globs": ["/custom/*"], "exclude_globs": [], "max_pages": 50, "max_depth": 2},
+        )
+        response = self.client.post(
+            self.api_url,
+            {
+                "source_type": "url",
+                "name": "Custom",
+                "url": "https://posthog.com/docs/support",
+                "crawl_mode": "same_origin",
+                "include_globs": ["/custom/*"],
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        call_kwargs = mock_claim.call_args.kwargs
+        assert call_kwargs["crawl_config"]["include_globs"] == ["/custom/*"]
+
+    @patch("products.business_knowledge.backend.api.views.KnowledgeSourceViewSet._start_background_ingest")
+    @patch("products.business_knowledge.backend.api.views.logic.claim_url_source")
+    def test_root_url_derives_empty_globs(self, mock_claim, _bg, _url, _ff) -> None:
+        mock_claim.return_value = KnowledgeSource(
+            id="00000000-0000-0000-0000-000000000003",
+            team=self.team,
+            name="Whole site",
+            source_type="url",
+            status="processing",
+            crawl_mode="same_origin",
+            crawl_config={"include_globs": [], "exclude_globs": [], "max_pages": 50, "max_depth": 2},
+        )
+        response = self.client.post(
+            self.api_url,
+            {
+                "source_type": "url",
+                "name": "Whole site",
+                "url": "https://posthog.com/",
+                "crawl_mode": "same_origin",
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        call_kwargs = mock_claim.call_args.kwargs
+        assert call_kwargs["crawl_config"]["include_globs"] == []
+
+    @patch("products.business_knowledge.backend.api.views.KnowledgeSourceViewSet._start_background_ingest")
+    @patch("products.business_knowledge.backend.api.views.logic.update_url_source")
+    def test_update_url_rederives_globs_when_not_sent(self, mock_update, _bg, _url, _ff) -> None:
+        source = KnowledgeSource.objects.unscoped().create(
+            id="00000000-0000-0000-0000-000000000004",
+            team=self.team,
+            name="Old source",
+            source_type="url",
+            status="ready",
+            source_url="https://posthog.com/docs/old",
+            crawl_mode="same_origin",
+            crawl_config={
+                "include_globs": ["/docs/old", "/docs/old/*"],
+                "exclude_globs": [],
+                "max_pages": 50,
+                "max_depth": 2,
+            },
+        )
+        mock_update.return_value = source
+        response = self.client.patch(
+            f"{self.api_url}{source.id}/",
+            {
+                "url": "https://posthog.com/docs/new",
+                "crawl_mode": "same_origin",
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.content
+        call_kwargs = mock_update.call_args.kwargs
+        assert call_kwargs["crawl_config"]["include_globs"] == ["/docs/new", "/docs/new/*"]

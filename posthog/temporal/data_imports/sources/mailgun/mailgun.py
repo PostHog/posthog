@@ -209,6 +209,28 @@ def _fetch_page(url: str, api_key: str, logger: FilteringBoundLogger) -> dict[st
     return response.json()
 
 
+# Per-domain statuses that skip the domain instead of failing the fan-out. The account lists
+# every domain on it (`/v4/domains`), but individual domains may be unqueryable: 400 for
+# disabled / unverified / sandbox-like domains, and 401/403 when the key lacks access to a
+# specific domain (e.g. a subaccount domain, or a restricted key). A global credential failure
+# 401s the `/v4/domains` listing itself, which never reaches this fan-out and stays non-retryable.
+SKIPPABLE_DOMAIN_STATUS_CODES = frozenset({400, 401, 403})
+
+
+def _is_skippable_domain_error(config: MailgunEndpointConfig, domain: Optional[str], error: requests.HTTPError) -> bool:
+    """Whether a failed domain-scoped request should skip that domain instead of failing the sync.
+
+    The domain fan-out lists every domain on the account (`/v4/domains`), including ones that
+    can't be queried for events/suppressions — disabled, unverified, sandbox-like, or domains
+    the key has no access to. Those reject the domain-scoped request with a 400/401/403, so one
+    bad domain would otherwise abort the whole fan-out and strand every other domain on the
+    account."""
+    if not config.domain_scoped or domain is None:
+        return False
+    response = error.response
+    return response is not None and response.status_code in SKIPPABLE_DOMAIN_STATUS_CODES
+
+
 def get_domain_names(api_key: str, base_url: str, logger: FilteringBoundLogger) -> list[str]:
     config = MAILGUN_ENDPOINTS["domains"]
     names: list[str] = []
@@ -284,7 +306,21 @@ def get_rows(
                 resumable_source_manager.save_state(MailgunResumeConfig(pending_domains=pending_domains))
                 continue
 
-        data = _fetch_page(current_url, api_key, logger)
+        try:
+            data = _fetch_page(current_url, api_key, logger)
+        except requests.HTTPError as error:
+            if not _is_skippable_domain_error(config, current_domain, error):
+                raise
+            logger.warning(
+                f"Mailgun: skipping domain {current_domain} for {endpoint}; "
+                f"request returned {error.response.status_code if error.response is not None else '?'}. "
+                f"url={current_url}"
+            )
+            current_url = None
+            current_domain = None
+            resumable_source_manager.save_state(MailgunResumeConfig(pending_domains=pending_domains))
+            continue
+
         items = data.get("items") or []
 
         if items:

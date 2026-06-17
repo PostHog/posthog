@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -41,6 +42,7 @@ class CircleCISource(ResumableSource[CircleCISourceConfig, CircleCIResumeConfig]
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.CIRCLE_CI,
+            category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="CircleCI",
             caption="""Enter your CircleCI personal API token to pull your CircleCI pipelines, workflows, jobs, and projects into the PostHog Data warehouse.
 
