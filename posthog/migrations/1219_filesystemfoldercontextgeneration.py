@@ -8,7 +8,7 @@ import posthog.models.utils
 
 
 class Migration(migrations.Migration):
-    dependencies = [("posthog", "1225_team_llm_gateway_overspend_allowance_usd")]
+    dependencies = [("posthog", "1218_team_ingested_production_event_last_checked_at")]
 
     operations = [
         migrations.CreateModel(

@@ -143,6 +143,17 @@ def sync_identity_provider_config_from_domain(domain: "OrganizationDomain", dry_
 
     config = domain.identity_provider_config
 
+    # Fail closed on a cross-org link: never mirror one organization's IdP settings into
+    # another organization's config. A linked config must belong to the same organization
+    # as the domain, otherwise saving the domain (or the backfill command) would silently
+    # overwrite the other org's SAML/SCIM/XAA settings — an authentication-bypass vector.
+    if config is not None and config.organization_id != domain.organization_id:
+        raise ValueError(
+            f"OrganizationDomain {domain.pk} (organization {domain.organization_id}) is linked to "
+            f"IdentityProviderConfig {config.pk} owned by a different organization "
+            f"({config.organization_id}); refusing to mirror IdP settings across organizations."
+        )
+
     if config is None:
         if not _domain_has_any_idp_config(domain):
             return "skipped"

@@ -1,5 +1,7 @@
+import pytest
 from posthog.test.base import BaseTest
 
+from django.core.exceptions import ValidationError
 from django.core.management import call_command
 
 from posthog.models import IdentityProviderConfig, Organization, OrganizationDomain
@@ -108,6 +110,29 @@ class TestIdentityProviderConfigSync(BaseTest):
         domain.delete()
         assert config_id is not None
         assert IdentityProviderConfig.objects.filter(pk=config_id).exists()
+
+    def test_cross_org_config_link_is_rejected(self):
+        other_org = Organization.objects.create(name="Other")
+        other_config = IdentityProviderConfig.objects.create(organization=other_org, saml_entity_id="other-entity")
+        domain = self._create_domain()
+        domain.identity_provider_config = other_config
+
+        with pytest.raises(ValueError, match="different organization"):
+            domain.save()
+
+        # The cross-org config's settings must remain untouched
+        other_config.refresh_from_db()
+        assert other_config.saml_entity_id == "other-entity"
+
+    def test_cross_org_config_link_fails_validation(self):
+        other_org = Organization.objects.create(name="Other")
+        other_config = IdentityProviderConfig.objects.create(organization=other_org)
+        domain = self._create_domain()
+        domain.identity_provider_config = other_config
+
+        with pytest.raises(ValidationError) as exc_info:
+            domain.full_clean()
+        assert "identity_provider_config" in exc_info.value.message_dict
 
     def test_deleting_config_nulls_domain_link(self):
         domain = self._create_domain(id_jag_issuer_url="https://issuer.example.com")

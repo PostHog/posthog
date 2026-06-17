@@ -261,6 +261,14 @@ class OrganizationDomain(ModelActivityMixin, UUIDTModel):
             allowed, reason = is_url_allowed(url)
             if not allowed:
                 errors[field_name] = f"URL is not allowed: {reason}"
+        # A linked IdP config must belong to the same organization as the domain. Without
+        # this, an admin could link a domain to another org's config and have its IdP
+        # settings silently overwritten on save (see `sync_identity_provider_config_from_domain`).
+        if (
+            self.identity_provider_config_id is not None
+            and self.identity_provider_config.organization_id != self.organization_id
+        ):
+            errors["identity_provider_config"] = "IdP configuration must belong to the same organization as the domain."
         if errors:
             raise ValidationError(errors)
         super().clean()
