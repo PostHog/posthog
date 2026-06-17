@@ -845,14 +845,22 @@ class SnowflakeClient:
             if field_metadata.name.lower() in record_batch_field_names
         )
 
-        return SnowflakeTable.from_snowflake_table(
-            table.name,
-            fields=fields,
-            parents=table.parents,
-            primary_key=table.primary_key,
-            version_key=table.version_key,
-            stage_prefix=table.stage_prefix,
-        )
+        try:
+            table = SnowflakeTable.from_snowflake_table(
+                table.name,
+                fields=fields,
+                parents=table.parents,
+                primary_key=table.primary_key,
+                version_key=table.version_key,
+                stage_prefix=table.stage_prefix,
+            )
+        except ValueError as exc:
+            raise SnowflakeIncompatibleSchemaError(
+                f"A Snowflake table '{table.name}' was found, but one or more "
+                f"fields are defined with incompatible types: '{exc}'. Have "
+                "you created the table following the PostHog documentation? "
+            )
+        return table
 
     async def create_table(self, table: SnowflakeTable, exists_ok: bool = True) -> None:
         """Asynchronously create the table if it doesn't exist.
