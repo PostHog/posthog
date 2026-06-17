@@ -2,7 +2,7 @@ import datetime
 from typing import cast
 
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
@@ -40,6 +40,7 @@ from posthog.schema import (
 from posthog.models.organization import OrganizationMembership
 
 from ee.hogai.context import AssistantContextManager
+from ee.hogai.context.context import DASHBOARD_CONTEXT_CHAR_BUDGET
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import AssistantMessageUnion
 
@@ -189,6 +190,51 @@ class TestAssistantContextManager(BaseTest):
         self.assertIn("Dashboard insights:", result)
         # The insight execution is tested separately - just verify structure here
         self.assertNotIn("# Insights", result)
+
+    @patch("ee.hogai.context.context.DashboardContext")
+    async def test_dashboard_context_falls_back_to_schema_when_results_exceed_budget(self, MockDashboardContext):
+        # A large dashboard's executed results must not be inlined whole — that would overflow the
+        # conversation window and get the dashboard summarized away. Over budget => schema-only.
+        inst = MockDashboardContext.return_value
+        inst.execute_and_format = AsyncMock(return_value="RESULTS " + "x" * (DASHBOARD_CONTEXT_CHAR_BUDGET + 5000))
+        inst.format_schema = AsyncMock(return_value="SCHEMA-ONLY dashboard context")
+
+        ui_context = MaxUIContext(
+            dashboards=[
+                MaxDashboardContext(
+                    id=1,
+                    name="Big",
+                    insights=[MaxInsightContext(id="1", name="I", query=TrendsQuery(series=[EventsNode(event="x")]))],
+                    filters=DashboardFilter(),
+                )
+            ]
+        )
+        result = await self.context_manager._format_ui_context(ui_context)
+        inst.format_schema.assert_awaited_once()
+        assert result is not None
+        self.assertIn("SCHEMA-ONLY dashboard context", result)
+        self.assertNotIn("xxxx", result)  # the oversized executed results never reach the prompt
+
+    @patch("ee.hogai.context.context.DashboardContext")
+    async def test_dashboard_context_keeps_full_results_when_under_budget(self, MockDashboardContext):
+        inst = MockDashboardContext.return_value
+        inst.execute_and_format = AsyncMock(return_value="Full executed dashboard results")
+        inst.format_schema = AsyncMock(return_value="SCHEMA-ONLY")
+
+        ui_context = MaxUIContext(
+            dashboards=[
+                MaxDashboardContext(
+                    id=1,
+                    name="Small",
+                    insights=[MaxInsightContext(id="1", name="I", query=TrendsQuery(series=[EventsNode(event="x")]))],
+                    filters=DashboardFilter(),
+                )
+            ]
+        )
+        result = await self.context_manager._format_ui_context(ui_context)
+        inst.format_schema.assert_not_awaited()
+        assert result is not None
+        self.assertIn("Full executed dashboard results", result)
 
     @patch("ee.hogai.context.notebook.context.NotebookContext.from_short_id")
     async def test_format_ui_context_with_markdown_notebook_insertion_context(self, mock_from_short_id):

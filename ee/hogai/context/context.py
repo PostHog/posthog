@@ -56,6 +56,16 @@ from .prompts import (
 # malicious or buggy client can't blow up the context window.
 NOTEBOOK_MARKDOWN_MAX_LENGTH = 100_000
 
+# A dashboard's executed-results context is bounded so it can't overflow the conversation window
+# (compaction_manager.CONVERSATION_WINDOW_SIZE). If it does overflow, the whole conversation —
+# including this dashboard — gets summarized down to a few thousand tokens, so Max loses the
+# dashboard it was just asked about. When the executed results exceed this budget we fall back to
+# schema-only (insight names + queries, no result tables), which still lets Max identify and
+# describe the dashboard and fetch specific numbers via the read_data tool. Token count is
+# estimated with the same ~4-chars/token heuristic the compaction manager uses.
+DASHBOARD_CONTEXT_TOKEN_BUDGET = 50_000
+DASHBOARD_CONTEXT_CHAR_BUDGET = DASHBOARD_CONTEXT_TOKEN_BUDGET * 4
+
 
 def _sanitize_inline_prompt_value(value: str) -> str:
     """Make a client-supplied string safe to interpolate into a single prompt line."""
@@ -232,6 +242,15 @@ class AssistantContextManager(AssistantContextMixin):
 
                 try:
                     dashboard_text = await dashboard_ctx.execute_and_format()
+                    if len(dashboard_text) > DASHBOARD_CONTEXT_CHAR_BUDGET:
+                        # Results too large for the window — drop to schema-only so the dashboard
+                        # still fits and survives un-summarized (Max keeps the read_data tool for
+                        # specific numbers). format_schema runs no queries.
+                        dashboard_text = await dashboard_ctx.format_schema()
+                        if len(dashboard_text) > DASHBOARD_CONTEXT_CHAR_BUDGET:
+                            dashboard_text = (
+                                dashboard_text[:DASHBOARD_CONTEXT_CHAR_BUDGET] + "\n\n…(dashboard context truncated)"
+                            )
                     dashboard_contexts.append(
                         format_prompt_string(ROOT_DASHBOARD_CONTEXT_PROMPT, content=dashboard_text)
                     )
