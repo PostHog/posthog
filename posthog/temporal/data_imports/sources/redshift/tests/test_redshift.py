@@ -873,7 +873,7 @@ class TestConnect:
 
         kwargs = mock_connect.call_args.kwargs
         assert kwargs["keepalives"] == 1
-        assert kwargs["keepalives_idle"] > 0
-        assert kwargs["keepalives_interval"] > 0
-        assert kwargs["keepalives_count"] > 0
-        assert kwargs["tcp_user_timeout"] > 0
+        assert kwargs["keepalives_idle"] == 30
+        assert kwargs["keepalives_interval"] == 10
+        assert kwargs["keepalives_count"] == 3
+        assert kwargs["tcp_user_timeout"] == 60000
