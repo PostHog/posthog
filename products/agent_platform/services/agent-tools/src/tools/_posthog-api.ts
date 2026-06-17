@@ -22,7 +22,7 @@
  * `http://localhost:8010` via `PlatformConfigSchema`.
  */
 
-import type { ToolContext } from '@posthog/agent-shared'
+import { type ToolContext, Type } from '@posthog/agent-shared'
 
 export interface CallPosthogApiOpts {
     method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE'
@@ -72,22 +72,25 @@ export async function callPosthogApi<T = unknown>(ctx: ToolContext, opts: CallPo
 }
 
 /**
- * The team the `@posthog/*` data tools operate on: the invoking PostHog user's
- * team, NOT the agent's owning team. Fails closed when the session has no
- * PostHog user principal — these tools act as the connected user, so without
- * one there is no authorized context to act in.
+ * Build the project-scoped path prefix for an EXPLICIT project id supplied by
+ * the agent (the `project_id` tool arg) — never inferred from the principal.
+ *
+ * The `@posthog/*` data tools act as the connected user against whichever
+ * project the agent is operating on; the agent discovers that project from the
+ * `get_context` client tool (the host tells it the user's current project) or,
+ * when context is missing/ambiguous, from `@posthog/list-projects`. Standard
+ * PostHog access control enforces that the user may actually touch the project.
  */
-export function requirePosthogUserTeam(ctx: ToolContext): number {
-    if (ctx.posthogUserTeamId == null) {
-        throw new Error(
-            'posthog_user_context_required: this tool acts as the connected PostHog user and needs the ' +
-                'session to be authenticated with `posthog` auth — the current session has no PostHog user principal.'
-        )
-    }
-    return ctx.posthogUserTeamId
+export function projectPath(projectId: number, suffix: string): string {
+    return `/api/projects/${projectId}${suffix}`
 }
 
-/** Convenience: build the project-scoped path prefix for the calling user's team. */
-export function projectPath(ctx: ToolContext, suffix: string): string {
-    return `/api/projects/${requirePosthogUserTeam(ctx)}${suffix}`
-}
+/**
+ * The explicit project (team) id that every project-scoped `@posthog/*` tool
+ * takes as an argument. Spread/placed into each tool's `args: Type.Object({...})`
+ * so the description (how to resolve it) stays identical across the surface.
+ */
+export const ProjectIdArg = Type.Number({
+    description:
+        "PostHog project (team) id to act in. Resolve it from the `get_context` client tool (the host reports the user's current project as `project_id`), or — when context is missing or ambiguous — call `@posthog/list-projects` and ask the user which project to use. Never guess.",
+})

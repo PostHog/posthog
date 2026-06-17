@@ -42,18 +42,12 @@ export interface NativeToolSchema {
 export interface ToolContext {
     /**
      * The agent's owning team — scopes agent-internal storage (memory, tables).
-     * NOT used for PostHog data access; see `posthogUserTeamId`.
+     * NOT used for PostHog data access: the `@posthog/*` data tools act as the
+     * connected user against an EXPLICIT `project_id` tool arg (discovered via
+     * the `get_context` client tool or `@posthog/list-projects`), so the
+     * operating project is never inferred from the agent or the principal.
      */
     teamId: number
-    /**
-     * The team of the PostHog user who invoked this session (the incoming
-     * `posthog` principal's team), or undefined when the caller didn't
-     * authenticate as a PostHog user. The `@posthog/*` data tools act **as the
-     * connected user** and target THIS team — never the agent's owning team —
-     * so an agent can only read data the caller is authorized for. When
-     * undefined those tools fail closed with `posthog_user_context_required`.
-     */
-    posthogUserTeamId?: number
     /** The agent (application) running this session — the memory scope key. */
     applicationId: string
     sessionId: string

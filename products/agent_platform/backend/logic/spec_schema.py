@@ -86,6 +86,14 @@ _AUTH_CONFIG_JSON_SCHEMA: dict[str, Any] = {
                         "properties": {
                             "type": {"type": "string", "const": "posthog"},
                             "scopes": {"default": [], "type": "array", "items": {"type": "string"}},
+                            # Invocation boundary: bind to the agent's owning project
+                            # (default) or its owning organization. Mirrors the
+                            # `audience` field on `AuthModeSchema`'s posthog variant.
+                            "audience": {
+                                "default": "project",
+                                "type": "string",
+                                "enum": ["project", "organization"],
+                            },
                         },
                         "required": ["type"],
                         "additionalProperties": False,

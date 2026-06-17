@@ -35,13 +35,12 @@ describe('@posthog/query', () => {
         })
         const logs: Array<{ msg: string; meta?: Record<string, unknown> }> = []
         const ctx = makeCtx({
-            posthogUserTeamId: 7,
             credentials: posthogCredentials,
             http,
             log: (_level, msg, meta) => logs.push({ msg, meta }),
         })
 
-        const out = await posthogQueryV1.run({ query: 'select 1' }, ctx)
+        const out = await posthogQueryV1.run({ project_id: 7, query: 'select 1' }, ctx)
 
         expect(out).toEqual({
             rows: [
@@ -50,26 +49,31 @@ describe('@posthog/query', () => {
             ],
             columns: ['id', 'name'],
         })
-        // Targets the caller's team query endpoint with a HogQLQuery body.
+        // Targets the explicit project's query endpoint with a HogQLQuery body.
         expect(calls[0].url).toBe('http://localhost:8010/api/projects/7/query/')
         expect(calls[0].body).toEqual({ query: { kind: 'HogQLQuery', query: 'select 1' } })
         expect(logs[0]).toEqual({ msg: 'hogql.executed', meta: { query: 'select 1', row_count: 2 } })
     })
 
-    it('fails closed without a posthog user principal', async () => {
-        const { http } = fetchReturning({ results: [], columns: [] })
-        const ctx = makeCtx({ posthogUserTeamId: undefined, credentials: posthogCredentials, http })
-        await expect(posthogQueryV1.run({ query: 'select 1' }, ctx)).rejects.toThrow(/posthog_user_context_required/)
+    it('targets whatever project_id the agent passes (no principal coupling)', async () => {
+        const { http, calls } = fetchReturning({ results: [], columns: [] })
+        const ctx = makeCtx({ credentials: posthogCredentials, http })
+        await posthogQueryV1.run({ project_id: 42, query: 'select 1' }, ctx)
+        expect(calls[0].url).toBe('http://localhost:8010/api/projects/42/query/')
     })
 
     it('surfaces a missing posthog credential', async () => {
         const { http } = fetchReturning({ results: [], columns: [] })
         const ctx = makeCtx({ credentials: { resolve: async () => null }, http })
-        await expect(posthogQueryV1.run({ query: 'select 1' }, ctx)).rejects.toThrow(/posthog_credentials_unavailable/)
+        await expect(posthogQueryV1.run({ project_id: 1, query: 'select 1' }, ctx)).rejects.toThrow(
+            /posthog_credentials_unavailable/
+        )
     })
 
     it('validates args via TypeBox schema', () => {
-        expect(Value.Check(posthogQueryV1.schema.args, { query: '' })).toBe(false)
-        expect(Value.Check(posthogQueryV1.schema.args, { query: 'select 1' })).toBe(true)
+        // `project_id` is required now — a query without it must fail validation.
+        expect(Value.Check(posthogQueryV1.schema.args, { query: 'select 1' })).toBe(false)
+        expect(Value.Check(posthogQueryV1.schema.args, { project_id: 1, query: '' })).toBe(false)
+        expect(Value.Check(posthogQueryV1.schema.args, { project_id: 1, query: 'select 1' })).toBe(true)
     })
 })

@@ -6,7 +6,6 @@ export function makeCtx(overrides?: Partial<ToolContext>): ToolContext {
     const logs: Array<{ level: string; msg: string; meta?: Record<string, unknown> }> = []
     return {
         teamId: 1,
-        posthogUserTeamId: 1,
         applicationId: 'test-app',
         sessionId: 'test-session',
         integrations: {},
@@ -29,7 +28,6 @@ export function makeCapturingCtx(): {
     const logs: Array<{ level: string; msg: string; meta?: Record<string, unknown> }> = []
     const ctx: ToolContext = {
         teamId: 1,
-        posthogUserTeamId: 1,
         applicationId: 'test-app',
         sessionId: 'test-session',
         integrations: {},

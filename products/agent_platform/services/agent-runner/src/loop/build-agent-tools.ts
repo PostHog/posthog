@@ -430,16 +430,12 @@ function makeMcpTool(
 function buildToolContext(deps: AgentToolDeps): ToolContext {
     const credentialBroker = deps.credentialBroker
     const sessionId = deps.session.id
-    // The `@posthog/*` data tools act as the invoking PostHog user, so they
-    // target the caller's team — only ever set from a genuine `posthog`
-    // principal. Any other principal (internal / shared_secret / slack / cron)
-    // leaves it undefined and those tools fail closed (no ambient agent-team
-    // access).
-    const principal = deps.session.principal
-    const posthogUserTeamId = principal?.kind === 'posthog' ? principal.team_id : undefined
+    // The `@posthog/*` data tools act as the invoking PostHog user against an
+    // explicit `project_id` the agent supplies (resolved via the `get_context`
+    // client tool or `@posthog/list-projects`) — never inferred from the
+    // principal — so there's no ambient team to thread onto the context here.
     return {
         teamId: deps.session.team_id,
-        posthogUserTeamId,
         applicationId: deps.rev.application_id,
         sessionId,
         integrations: deps.integrations,

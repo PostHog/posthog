@@ -16,8 +16,10 @@ import {
     posthogVerifier,
     sharedSecretVerifier,
     type PosthogIdentityIntrospector,
+    type TeamOrgLookup,
 } from './verifiers'
 
+// Agent owned by team 7, which belongs to org-A.
 const APP: AgentApplication = {
     id: 'app-1',
     team_id: 7,
@@ -31,21 +33,35 @@ const APP: AgentApplication = {
 
 const introspector: PosthogIdentityIntrospector = {
     async introspect(bearer) {
+        // In org-A, can access the agent's team (7).
         if (bearer === 'good-token') {
-            return { uuid: 'u1', email: 'u1@test', team: { id: 7 } }
+            return { uuid: 'u1', email: 'u1@test', team: { id: 7 }, organization: { id: 'org-A' } }
         }
-        // A valid bearer whose active team is NOT the agent's owning team (7).
-        if (bearer === 'other-team-token') {
-            return { uuid: 'u2', email: 'u2@test', team: { id: 99 } }
+        // In org-A, but active project 99 and NO access to team 7 (RBAC).
+        if (bearer === 'org-peer-token') {
+            return { uuid: 'u2', email: 'u2@test', team: { id: 99 }, organizations: [{ id: 'org-A' }] }
         }
-        // A valid bearer whose introspect result has no `team` at all.
-        // The team-match gate must reject this (no `team` → `undefined !== 7`).
-        if (bearer === 'no-team-token') {
-            return { uuid: 'u3', email: 'u3@test', team: undefined as unknown as { id: number } }
+        // A valid user in a different org (org-B).
+        if (bearer === 'outsider-token') {
+            return { uuid: 'u3', email: 'u3@test', organization: { id: 'org-B' } }
         }
         return null
     },
+    // Only `good-token` can reach team 7.
+    async canAccessTeam(bearer, teamId) {
+        return bearer === 'good-token' && teamId === 7
+    },
 }
+
+// team 7 → org-A.
+const teamOrg: TeamOrgLookup = {
+    async orgForTeam(teamId) {
+        return teamId === 7 ? 'org-A' : null
+    },
+}
+
+const PROJECT_MODE = { type: 'posthog' as const, scopes: [], audience: 'project' as const }
+const ORG_MODE = { type: 'posthog' as const, scopes: [], audience: 'organization' as const }
 
 const secretResolver = { resolve: async (key: string): Promise<string | null> => (key === 'WH' ? 's3cret' : null) }
 
@@ -54,6 +70,7 @@ const req = (headers: Record<string, string>): Request => ({ headers }) as unkno
 const allVerifiers = (): ReturnType<typeof buildDefaultVerifiers> =>
     buildDefaultVerifiers({
         introspector,
+        teamOrg,
         jwtSecretResolver: secretResolver,
         sharedSecretResolver: secretResolver,
         internalSecret: 'internal-xyz',
@@ -67,10 +84,10 @@ describe('buildDefaultVerifiers', () => {
         expect(missing).toEqual([])
     })
 
-    it('posthog mode: valid bearer → posthog principal + posthog_api credential', async () => {
-        const res = await posthogVerifier(introspector).verify(
+    it('posthog project audience: caller with team access → principal + posthog_api credential', async () => {
+        const res = await posthogVerifier(introspector, teamOrg).verify(
             req({ authorization: 'Bearer good-token' }),
-            { type: 'posthog', scopes: [] },
+            PROJECT_MODE,
             APP
         )
         expect(res.ok).toBe(true)
@@ -80,24 +97,45 @@ describe('buildDefaultVerifiers', () => {
         }
     })
 
+    it('posthog project audience: org peer WITHOUT team access → 403 not_in_project', async () => {
+        // Same org as the agent, but no access to the agent's specific team —
+        // `project` audience denies them (org membership isn't enough).
+        const res = await posthogVerifier(introspector, teamOrg).verify(
+            req({ authorization: 'Bearer org-peer-token' }),
+            PROJECT_MODE,
+            APP
+        )
+        expect(res).toMatchObject({ ok: false, status: 403, reason: 'not_in_project' })
+    })
+
+    it('posthog organization audience: any org member passes — even without team access', async () => {
+        // The org peer can't reach team 7, but IS in org-A (the agent's org), so
+        // `organization` audience admits them. This is the shared-agent case.
+        const res = await posthogVerifier(introspector, teamOrg).verify(
+            req({ authorization: 'Bearer org-peer-token' }),
+            ORG_MODE,
+            APP
+        )
+        expect(res.ok).toBe(true)
+        if (res.ok) {
+            expect(res.principal).toMatchObject({ kind: 'posthog', user_id: 'u2' })
+        }
+    })
+
+    it('posthog organization audience: a user from a different org → 403 not_in_org', async () => {
+        const res = await posthogVerifier(introspector, teamOrg).verify(
+            req({ authorization: 'Bearer outsider-token' }),
+            ORG_MODE,
+            APP
+        )
+        expect(res).toMatchObject({ ok: false, status: 403, reason: 'not_in_org' })
+    })
+
     it.each<[string, Record<string, string>, { status: number; reason?: string }]>([
         ['missing bearer → skip', {}, { status: 0 }],
         ['bad bearer → 401', { authorization: 'Bearer nope' }, { status: 401 }],
-        [
-            'valid bearer from a different team → 403 wrong_team',
-            { authorization: 'Bearer other-team-token' },
-            { status: 403, reason: 'wrong_team' },
-        ],
-        // Defence-in-depth: an introspect response without a `team` must
-        // not slip through as a cross-team pass — the gate compares
-        // `me.team.id === application.team_id`, which is `undefined !== 7`.
-        [
-            'valid bearer with no team → 403 wrong_team',
-            { authorization: 'Bearer no-team-token' },
-            { status: 403, reason: 'wrong_team' },
-        ],
     ])('posthog mode: %s', async (_label, headers, expected) => {
-        const res = await posthogVerifier(introspector).verify(req(headers), { type: 'posthog', scopes: [] }, APP)
+        const res = await posthogVerifier(introspector, teamOrg).verify(req(headers), PROJECT_MODE, APP)
         expect(res).toMatchObject({ ok: false, ...expected })
     })
 

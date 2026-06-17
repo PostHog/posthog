@@ -37,10 +37,23 @@ export const AuthModeSchema = z.discriminatedUnion('type', [
     /** A PostHog credential bearer — a Personal API key today, OAuth in future.
      *  Both validate against `/api/users/@me/`; produces a `posthog` principal
      *  + `posthog_api` credential for tools. `scopes` is reserved for future
-     *  OAuth scope-gating. */
+     *  OAuth scope-gating.
+     *
+     *  `audience` is the tenant boundary for invocation — who may call a
+     *  `posthog`-gated agent:
+     *    - `project` (default): the caller must have access to the agent's
+     *      OWNING project (team). Tightest; the safe default.
+     *    - `organization`: the caller must be a member of the agent's owning
+     *      organization (any project within it). Use for a shared agent — e.g.
+     *      one "agent builder" used across an org's projects.
+     *  Either way the agent still acts AS the caller (their bearer + an explicit
+     *  `project_id` per tool), so data access is RBAC-enforced on top of this.
+     *  Opening an agent to ANY PostHog user across orgs is deliberately NOT an
+     *  option here yet — that needs a dedicated cross-tenant concept. */
     z.object({
         type: z.literal('posthog'),
         scopes: z.array(z.string()).default([]),
+        audience: z.enum(['project', 'organization']).default('project'),
     }),
     /** JWT signed with the named encrypted-env secret. Lets a B2B
      *  embedder mint identity tokens for their users without going

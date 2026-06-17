@@ -24,7 +24,7 @@
 
 import { defineNativeTool, type ToolContext, Type } from '@posthog/agent-shared'
 
-import { callPosthogApi, projectPath } from './_posthog-api'
+import { callPosthogApi, ProjectIdArg, projectPath } from './_posthog-api'
 
 interface AgentApplication {
     id: string
@@ -66,7 +66,10 @@ const AgentApplicationSchema = Type.Object({
  * call; lookup by id is direct. Lets the concierge accept either form
  * naturally without forcing slug→id translation upstream.
  */
-async function resolveApplicationId(ctx: ToolContext, ref: { slug?: string; id?: string }): Promise<string> {
+async function resolveApplicationId(
+    ctx: ToolContext,
+    ref: { slug?: string; id?: string; project_id: number }
+): Promise<string> {
     if (ref.id) {
         return ref.id
     }
@@ -75,7 +78,7 @@ async function resolveApplicationId(ctx: ToolContext, ref: { slug?: string; id?:
     }
     const list = await callPosthogApi<ListResponse<AgentApplication>>(ctx, {
         method: 'GET',
-        path: projectPath(ctx, '/agent_applications/'),
+        path: projectPath(ref.project_id, '/agent_applications/'),
     })
     const hit = list.results.find((a) => a.slug === ref.slug)
     if (!hit) {
@@ -107,6 +110,7 @@ export const posthogAgentApplicationsListV1 = defineNativeTool({
     description:
         "List every agent application the connected user can see in this project. Returns id, slug, name, description, live_revision. Use when the user asks 'what agents do I have?' / 'show me my agents'.",
     args: Type.Object({
+        project_id: ProjectIdArg,
         include_archived: Type.Optional(Type.Boolean({ description: 'Include archived agents (default false).' })),
     }),
     returns: Type.Object({ results: Type.Array(AgentApplicationSchema) }),
@@ -115,7 +119,7 @@ export const posthogAgentApplicationsListV1 = defineNativeTool({
     async run(args, ctx) {
         const data = await callPosthogApi<ListResponse<AgentApplication>>(ctx, {
             method: 'GET',
-            path: projectPath(ctx, '/agent_applications/'),
+            path: projectPath(args.project_id, '/agent_applications/'),
             query: args.include_archived ? { include_archived: 'true' } : undefined,
         })
         return { results: data.results }
@@ -126,7 +130,7 @@ export const posthogAgentApplicationsRetrieveV1 = defineNativeTool({
     id: '@posthog/agent-applications-retrieve',
     description:
         'Get the full record of one agent application by slug or id. Returns its name, description, current live_revision, archived state. Use as step 1 of inspecting any agent.',
-    args: Type.Object({ ...agentRefFields }),
+    args: Type.Object({ project_id: ProjectIdArg, ...agentRefFields }),
     returns: AgentApplicationSchema,
     requires: { integrations: [], scopes: ['agents:read'] },
     cost_hint: 'cheap',
@@ -134,7 +138,7 @@ export const posthogAgentApplicationsRetrieveV1 = defineNativeTool({
         const id = await resolveApplicationId(ctx, args)
         return callPosthogApi<AgentApplication>(ctx, {
             method: 'GET',
-            path: projectPath(ctx, `/agent_applications/${id}/`),
+            path: projectPath(args.project_id, `/agent_applications/${id}/`),
         })
     },
 })
@@ -160,7 +164,7 @@ export const posthogAgentApplicationsRevisionsListV1 = defineNativeTool({
     id: '@posthog/agent-applications-revisions-list',
     description:
         "List every revision of one agent in chronological order — draft, ready, live, archived. Use to see the agent's edit history or to find a specific revision to inspect.",
-    args: Type.Object({ ...agentRefFields }),
+    args: Type.Object({ project_id: ProjectIdArg, ...agentRefFields }),
     returns: Type.Object({ results: Type.Array(RevisionSchema) }),
     requires: { integrations: [], scopes: ['agents:read'] },
     cost_hint: 'cheap',
@@ -168,7 +172,7 @@ export const posthogAgentApplicationsRevisionsListV1 = defineNativeTool({
         const id = await resolveApplicationId(ctx, args)
         const data = await callPosthogApi<ListResponse<unknown>>(ctx, {
             method: 'GET',
-            path: projectPath(ctx, `/agent_applications/${id}/revisions/`),
+            path: projectPath(args.project_id, `/agent_applications/${id}/revisions/`),
         })
         return data as { results: never }
     },
@@ -179,6 +183,7 @@ export const posthogAgentApplicationsRevisionsRetrieveV1 = defineNativeTool({
     description:
         'Get a specific revision of an agent. Returns the full spec (model, triggers, tools, skills, limits, auth) plus the bundle_sha256 + state. Use to inspect what an agent is configured to do.',
     args: Type.Object({
+        project_id: ProjectIdArg,
         ...agentRefFields,
         revision_id: Type.String({ description: 'Revision UUID.' }),
     }),
@@ -189,7 +194,7 @@ export const posthogAgentApplicationsRevisionsRetrieveV1 = defineNativeTool({
         const id = await resolveApplicationId(ctx, args)
         return callPosthogApi(ctx, {
             method: 'GET',
-            path: projectPath(ctx, `/agent_applications/${id}/revisions/${args.revision_id}/`),
+            path: projectPath(args.project_id, `/agent_applications/${id}/revisions/${args.revision_id}/`),
         })
     },
 })
@@ -199,6 +204,7 @@ export const posthogAgentApplicationsRevisionsSystemPromptV1 = defineNativeTool(
     description:
         'Get the fully-rendered system prompt for a revision — what the model actually sees on every turn (framework preamble + agent.md + skills index). The single most informative artifact when explaining what an agent does.',
     args: Type.Object({
+        project_id: ProjectIdArg,
         ...agentRefFields,
         revision_id: Type.String({ description: 'Revision UUID.' }),
     }),
@@ -213,7 +219,10 @@ export const posthogAgentApplicationsRevisionsSystemPromptV1 = defineNativeTool(
         const id = await resolveApplicationId(ctx, args)
         return callPosthogApi(ctx, {
             method: 'GET',
-            path: projectPath(ctx, `/agent_applications/${id}/revisions/${args.revision_id}/system_prompt/`),
+            path: projectPath(
+                args.project_id,
+                `/agent_applications/${id}/revisions/${args.revision_id}/system_prompt/`
+            ),
         })
     },
 })
@@ -229,6 +238,7 @@ export const posthogAgentApplicationsRevisionsManifestV1 = defineNativeTool({
     description:
         "List every file in a revision's bundle (path + size + sha256). Use to see the bundle layout before pulling specific files. Cheap — no file content returned.",
     args: Type.Object({
+        project_id: ProjectIdArg,
         ...agentRefFields,
         revision_id: Type.String({ description: 'Revision UUID.' }),
     }),
@@ -244,7 +254,7 @@ export const posthogAgentApplicationsRevisionsManifestV1 = defineNativeTool({
         const id = await resolveApplicationId(ctx, args)
         return callPosthogApi(ctx, {
             method: 'GET',
-            path: projectPath(ctx, `/agent_applications/${id}/revisions/${args.revision_id}/manifest/`),
+            path: projectPath(args.project_id, `/agent_applications/${id}/revisions/${args.revision_id}/manifest/`),
         })
     },
 })
@@ -254,6 +264,7 @@ export const posthogAgentApplicationsRevisionsBundleRetrieveV1 = defineNativeToo
     description:
         "Read the full typed bundle for a revision. Returns `{ agent_md, skills, tools, spec }` — the agent's system prompt, every skill body + companion files, every custom tool's source + args_schema, and the author-facing spec slice. Use this when you want to inspect or edit the whole agent. Works on any revision state.",
     args: Type.Object({
+        project_id: ProjectIdArg,
         ...agentRefFields,
         revision_id: Type.String({ description: 'Revision UUID.' }),
     }),
@@ -264,7 +275,7 @@ export const posthogAgentApplicationsRevisionsBundleRetrieveV1 = defineNativeToo
         const id = await resolveApplicationId(ctx, args)
         return callPosthogApi(ctx, {
             method: 'GET',
-            path: projectPath(ctx, `/agent_applications/${id}/revisions/${args.revision_id}/bundle/`),
+            path: projectPath(args.project_id, `/agent_applications/${id}/revisions/${args.revision_id}/bundle/`),
         })
     },
 })
@@ -274,6 +285,7 @@ export const posthogAgentApplicationsRevisionsSlackManifestV1 = defineNativeTool
     description:
         "Generate the Slack app manifest for a revision that has a slack trigger. Returns `{ revision_id, manifest, notes, events_url, interactivity_url }`. `manifest` is a ready-to-paste Slack app manifest (JSON) for https://api.slack.com/apps?new_app=1 → 'From an app manifest' — its OAuth scopes and bot event subscriptions are DERIVED from the agent's slack trigger config (mention_only / auto_resume_threads / ack_reaction) and its Slack tools, so it subscribes to exactly the events the config needs. Hand the user the manifest plus the create-from-manifest link, and surface `notes` (e.g. invite the bot to its channels). Fails if the revision has no slack trigger.",
     args: Type.Object({
+        project_id: ProjectIdArg,
         ...agentRefFields,
         revision_id: Type.String({ description: 'Revision UUID.' }),
     }),
@@ -290,7 +302,10 @@ export const posthogAgentApplicationsRevisionsSlackManifestV1 = defineNativeTool
         const id = await resolveApplicationId(ctx, args)
         return callPosthogApi(ctx, {
             method: 'GET',
-            path: projectPath(ctx, `/agent_applications/${id}/revisions/${args.revision_id}/slack_manifest/`),
+            path: projectPath(
+                args.project_id,
+                `/agent_applications/${id}/revisions/${args.revision_id}/slack_manifest/`
+            ),
         })
     },
 })
@@ -314,6 +329,7 @@ export const posthogAgentApplicationsSessionsListV1 = defineNativeTool({
     description:
         'List recent sessions for an agent. Returns state, created_at, usage_total per session. Use to see what an agent has been doing or to find a specific session to debug.',
     args: Type.Object({
+        project_id: ProjectIdArg,
         ...agentRefFields,
         limit: Type.Optional(Type.Number({ description: 'Max sessions to return (default 50).' })),
         state: Type.Optional(
@@ -333,7 +349,7 @@ export const posthogAgentApplicationsSessionsListV1 = defineNativeTool({
         const id = await resolveApplicationId(ctx, args)
         return callPosthogApi(ctx, {
             method: 'GET',
-            path: projectPath(ctx, `/agent_applications/${id}/sessions/`),
+            path: projectPath(args.project_id, `/agent_applications/${id}/sessions/`),
             query: { limit: args.limit, state: args.state },
         })
     },
@@ -344,6 +360,7 @@ export const posthogAgentApplicationsSessionsRetrieveV1 = defineNativeTool({
     description:
         'Get the full record of one session, including its conversation (all user/assistant/tool turns), principal, usage_total, and state. The primary tool for debugging a specific session.',
     args: Type.Object({
+        project_id: ProjectIdArg,
         ...agentRefFields,
         session_id: Type.String({ description: 'Session UUID.' }),
     }),
@@ -354,7 +371,7 @@ export const posthogAgentApplicationsSessionsRetrieveV1 = defineNativeTool({
         const id = await resolveApplicationId(ctx, args)
         return callPosthogApi(ctx, {
             method: 'GET',
-            path: projectPath(ctx, `/agent_applications/${id}/sessions/${args.session_id}/`),
+            path: projectPath(args.project_id, `/agent_applications/${id}/sessions/${args.session_id}/`),
         })
     },
 })
@@ -372,6 +389,7 @@ export const posthogAgentApplicationsCreateV1 = defineNativeTool({
     description:
         'Mint a brand-new agent application. Body requires `name` + `slug`; description is optional. Returns the created application — no revisions until you create one with `@posthog/agent-applications-revisions-create`.',
     args: Type.Object({
+        project_id: ProjectIdArg,
         name: Type.String({ description: 'Human-readable name (shown in lists + headers).' }),
         slug: Type.String({
             description:
@@ -389,7 +407,7 @@ export const posthogAgentApplicationsCreateV1 = defineNativeTool({
     async run(args, ctx) {
         return callPosthogApi(ctx, {
             method: 'POST',
-            path: projectPath(ctx, '/agent_applications/'),
+            path: projectPath(args.project_id, '/agent_applications/'),
             body: {
                 name: args.name,
                 slug: args.slug,
@@ -405,6 +423,7 @@ export const posthogAgentApplicationsPartialUpdateV1 = defineNativeTool({
     description:
         'Patch the top-level fields of an agent application (`name`, `description`). To change the live revision use the freeze + promote tools; to manage env use `set-env-create`.',
     args: Type.Object({
+        project_id: ProjectIdArg,
         ...agentRefFields,
         name: Type.Optional(Type.String()),
         description: Type.Optional(Type.String()),
@@ -423,7 +442,7 @@ export const posthogAgentApplicationsPartialUpdateV1 = defineNativeTool({
         }
         return callPosthogApi(ctx, {
             method: 'PATCH',
-            path: projectPath(ctx, `/agent_applications/${id}/`),
+            path: projectPath(args.project_id, `/agent_applications/${id}/`),
             body,
         })
     },
@@ -438,6 +457,7 @@ export const posthogAgentApplicationsRevisionsCreateV1 = defineNativeTool({
     description:
         'Open a fresh empty draft revision under an application. Use when starting from scratch (no parent revision). For branching the current live revision use `@posthog/agent-applications-revisions-new-draft-create` instead — that one clones the bundle in the same call.',
     args: Type.Object({
+        project_id: ProjectIdArg,
         ...agentRefFields,
         spec: Type.Record(Type.String(), Type.Unknown(), {
             description:
@@ -458,7 +478,7 @@ export const posthogAgentApplicationsRevisionsCreateV1 = defineNativeTool({
         }
         return callPosthogApi(ctx, {
             method: 'POST',
-            path: projectPath(ctx, `/agent_applications/${id}/revisions/`),
+            path: projectPath(args.project_id, `/agent_applications/${id}/revisions/`),
             body,
         })
     },
@@ -469,6 +489,7 @@ export const posthogAgentApplicationsRevisionsNewDraftV1 = defineNativeTool({
     description:
         'One-shot helper: creates a draft revision and clones every file from `source_revision_id` into the new bundle in a single round-trip. Use for the common "edit live" workflow — branch from current live, mutate files, freeze, promote.',
     args: Type.Object({
+        project_id: ProjectIdArg,
         ...agentRefFields,
         source_revision_id: Type.String({ description: 'Revision UUID to clone bundle + spec from.' }),
     }),
@@ -479,7 +500,7 @@ export const posthogAgentApplicationsRevisionsNewDraftV1 = defineNativeTool({
         const id = await resolveApplicationId(ctx, args)
         return callPosthogApi(ctx, {
             method: 'POST',
-            path: projectPath(ctx, `/agent_applications/${id}/revisions/new_draft/`),
+            path: projectPath(args.project_id, `/agent_applications/${id}/revisions/new_draft/`),
             body: { application_id: id, source_revision_id: args.source_revision_id },
         })
     },
@@ -490,6 +511,7 @@ export const posthogAgentApplicationsRevisionsPartialUpdateV1 = defineNativeTool
     description:
         'Replace `spec` on a draft revision. Only `state=draft` accepts spec edits — promoting flips to `ready` which freezes the spec. Validation against AgentSpec runs server-side; an invalid spec surfaces at the next session start, not here.',
     args: Type.Object({
+        project_id: ProjectIdArg,
         ...agentRefFields,
         revision_id: Type.String({ description: 'Revision UUID (must be `state=draft`).' }),
         spec: Type.Record(Type.String(), Type.Unknown(), {
@@ -504,7 +526,7 @@ export const posthogAgentApplicationsRevisionsPartialUpdateV1 = defineNativeTool
         const id = await resolveApplicationId(ctx, args)
         return callPosthogApi(ctx, {
             method: 'PATCH',
-            path: projectPath(ctx, `/agent_applications/${id}/revisions/${args.revision_id}/`),
+            path: projectPath(args.project_id, `/agent_applications/${id}/revisions/${args.revision_id}/`),
             body: { spec: args.spec },
         })
     },
@@ -520,6 +542,7 @@ export const posthogAgentApplicationsRevisionsAgentMdUpdateV1 = defineNativeTool
     id: '@posthog/agent-applications-revisions-agent-md-update',
     description: "Replace the agent's system prompt (`agent.md`). Draft-only.",
     args: Type.Object({
+        project_id: ProjectIdArg,
         ...agentRefFields,
         revision_id: Type.String({ description: 'Revision UUID (must be `state=draft`).' }),
         content: Type.String({ description: 'Full system prompt body.' }),
@@ -531,7 +554,7 @@ export const posthogAgentApplicationsRevisionsAgentMdUpdateV1 = defineNativeTool
         const id = await resolveApplicationId(ctx, args)
         return callPosthogApi(ctx, {
             method: 'PUT',
-            path: projectPath(ctx, `/agent_applications/${id}/revisions/${args.revision_id}/agent_md/`),
+            path: projectPath(args.project_id, `/agent_applications/${id}/revisions/${args.revision_id}/agent_md/`),
             body: { content: args.content },
         })
     },
@@ -542,6 +565,7 @@ export const posthogAgentApplicationsRevisionsSkillsUpdateV1 = defineNativeTool(
     description:
         "Upsert one skill in a draft revision. Body shape `{ description, body, files? }`. `description` is the model-facing 'when to load' hint surfaced in the skill index. `body` is the skill markdown. `files[]` is optional companion docs (path relative to `skills/<id>/files/`). Skill id is the URL path.",
     args: Type.Object({
+        project_id: ProjectIdArg,
         ...agentRefFields,
         revision_id: Type.String({ description: 'Revision UUID (must be `state=draft`).' }),
         skill_id: Type.String({ description: 'Skill slug (lowercase alphanumeric, hyphens, underscores).' }),
@@ -560,7 +584,10 @@ export const posthogAgentApplicationsRevisionsSkillsUpdateV1 = defineNativeTool(
         const id = await resolveApplicationId(ctx, args)
         return callPosthogApi(ctx, {
             method: 'PUT',
-            path: projectPath(ctx, `/agent_applications/${id}/revisions/${args.revision_id}/skills/${args.skill_id}/`),
+            path: projectPath(
+                args.project_id,
+                `/agent_applications/${id}/revisions/${args.revision_id}/skills/${args.skill_id}/`
+            ),
             body: { description: args.description, body: args.body, files: args.files ?? [] },
         })
     },
@@ -570,6 +597,7 @@ export const posthogAgentApplicationsRevisionsSkillsDestroyV1 = defineNativeTool
     id: '@posthog/agent-applications-revisions-skills-destroy',
     description: 'Delete one skill (body + every companion file). Draft-only.',
     args: Type.Object({
+        project_id: ProjectIdArg,
         ...agentRefFields,
         revision_id: Type.String({ description: 'Revision UUID (must be `state=draft`).' }),
         skill_id: Type.String({ description: 'Skill slug.' }),
@@ -581,7 +609,10 @@ export const posthogAgentApplicationsRevisionsSkillsDestroyV1 = defineNativeTool
         const id = await resolveApplicationId(ctx, args)
         return callPosthogApi(ctx, {
             method: 'DELETE',
-            path: projectPath(ctx, `/agent_applications/${id}/revisions/${args.revision_id}/skills/${args.skill_id}/`),
+            path: projectPath(
+                args.project_id,
+                `/agent_applications/${id}/revisions/${args.revision_id}/skills/${args.skill_id}/`
+            ),
         })
     },
 })
@@ -591,6 +622,7 @@ export const posthogAgentApplicationsRevisionsToolsUpdateV1 = defineNativeTool({
     description:
         "Upsert one custom tool in a draft revision. The janitor runs an AST shape check + esbuild compile synchronously and returns 422 with structured diagnostics on failure — no half-written tool ever lands. Required source shape: `export default { actions: { default: async (args, ctx) => { ... } } }`. Do NOT include `compiled.js` — it's generated.",
     args: Type.Object({
+        project_id: ProjectIdArg,
         ...agentRefFields,
         revision_id: Type.String({ description: 'Revision UUID (must be `state=draft`).' }),
         tool_id: Type.String({ description: 'Tool slug (lowercase alphanumeric, hyphens, underscores).' }),
@@ -607,7 +639,10 @@ export const posthogAgentApplicationsRevisionsToolsUpdateV1 = defineNativeTool({
         const id = await resolveApplicationId(ctx, args)
         return callPosthogApi(ctx, {
             method: 'PUT',
-            path: projectPath(ctx, `/agent_applications/${id}/revisions/${args.revision_id}/tools/${args.tool_id}/`),
+            path: projectPath(
+                args.project_id,
+                `/agent_applications/${id}/revisions/${args.revision_id}/tools/${args.tool_id}/`
+            ),
             body: { description: args.description, args_schema: args.args_schema, source: args.source },
         })
     },
@@ -617,6 +652,7 @@ export const posthogAgentApplicationsRevisionsToolsDestroyV1 = defineNativeTool(
     id: '@posthog/agent-applications-revisions-tools-destroy',
     description: 'Delete one custom tool (source.ts + compiled.js + schema.json). Draft-only.',
     args: Type.Object({
+        project_id: ProjectIdArg,
         ...agentRefFields,
         revision_id: Type.String({ description: 'Revision UUID (must be `state=draft`).' }),
         tool_id: Type.String({ description: 'Tool slug.' }),
@@ -628,7 +664,10 @@ export const posthogAgentApplicationsRevisionsToolsDestroyV1 = defineNativeTool(
         const id = await resolveApplicationId(ctx, args)
         return callPosthogApi(ctx, {
             method: 'DELETE',
-            path: projectPath(ctx, `/agent_applications/${id}/revisions/${args.revision_id}/tools/${args.tool_id}/`),
+            path: projectPath(
+                args.project_id,
+                `/agent_applications/${id}/revisions/${args.revision_id}/tools/${args.tool_id}/`
+            ),
         })
     },
 })
@@ -638,6 +677,7 @@ export const posthogAgentApplicationsRevisionsValidateV1 = defineNativeTool({
     description:
         "Pre-flight check on any revision state. Surfaces missing entrypoints, unknown tool ids, custom tools missing compiled.js / schema.json, skill paths that don't exist, declared secrets that aren't set. Always run before freeze. Returns `{ ok, errors, resolved_natives }`.",
     args: Type.Object({
+        project_id: ProjectIdArg,
         ...agentRefFields,
         revision_id: Type.String({ description: 'Revision UUID.' }),
     }),
@@ -654,7 +694,7 @@ export const posthogAgentApplicationsRevisionsValidateV1 = defineNativeTool({
         const id = await resolveApplicationId(ctx, args)
         return callPosthogApi(ctx, {
             method: 'POST',
-            path: projectPath(ctx, `/agent_applications/${id}/revisions/${args.revision_id}/validate/`),
+            path: projectPath(args.project_id, `/agent_applications/${id}/revisions/${args.revision_id}/validate/`),
         })
     },
 })
@@ -664,6 +704,7 @@ export const posthogAgentApplicationsRevisionsFreezeV1 = defineNativeTool({
     description:
         'Walk the bundle, compute a manifest sha256, stamp it on the row, flip state `draft → ready`. After freeze the bundle is immutable. Idempotent — freezing a `ready` revision returns the existing sha256.',
     args: Type.Object({
+        project_id: ProjectIdArg,
         ...agentRefFields,
         revision_id: Type.String({ description: 'Revision UUID (must be `state=draft` or `ready`).' }),
     }),
@@ -679,7 +720,7 @@ export const posthogAgentApplicationsRevisionsFreezeV1 = defineNativeTool({
         const id = await resolveApplicationId(ctx, args)
         return callPosthogApi(ctx, {
             method: 'POST',
-            path: projectPath(ctx, `/agent_applications/${id}/revisions/${args.revision_id}/freeze/`),
+            path: projectPath(args.project_id, `/agent_applications/${id}/revisions/${args.revision_id}/freeze/`),
         })
     },
 })
@@ -689,6 +730,7 @@ export const posthogAgentApplicationsRevisionsPromoteV1 = defineNativeTool({
     description:
         "Flip a `ready` revision to `live` and set the parent application's `live_revision`. The previously-live revision is archived automatically. Requires `state=ready` and `bundle_sha256` set (call `freeze` first). Idempotent. SERVER-SIDE GATE: refuses with a clear error if trigger-required secrets (e.g. `SLACK_SIGNING_SECRET`, `SLACK_BOT_TOKEN` for slack triggers) are missing from the agent's `encrypted_env` — see `skills/setting-up-slack-app`. PER AGENT.MD HARD RULE #3: confirm with the user explicitly before calling.",
     args: Type.Object({
+        project_id: ProjectIdArg,
         ...agentRefFields,
         revision_id: Type.String({ description: 'Revision UUID (must be `state=ready`).' }),
     }),
@@ -699,7 +741,7 @@ export const posthogAgentApplicationsRevisionsPromoteV1 = defineNativeTool({
         const id = await resolveApplicationId(ctx, args)
         return callPosthogApi(ctx, {
             method: 'POST',
-            path: projectPath(ctx, `/agent_applications/${id}/revisions/${args.revision_id}/promote/`),
+            path: projectPath(args.project_id, `/agent_applications/${id}/revisions/${args.revision_id}/promote/`),
         })
     },
 })
@@ -709,6 +751,7 @@ export const posthogAgentApplicationsRevisionsArchiveV1 = defineNativeTool({
     description:
         "Archive any revision. Clears the parent application's `live_revision` if the archived revision was live. DESTRUCTIVE per agent.md hard rule #5 — confirm with the user before calling.",
     args: Type.Object({
+        project_id: ProjectIdArg,
         ...agentRefFields,
         revision_id: Type.String({ description: 'Revision UUID to archive.' }),
     }),
@@ -719,7 +762,7 @@ export const posthogAgentApplicationsRevisionsArchiveV1 = defineNativeTool({
         const id = await resolveApplicationId(ctx, args)
         return callPosthogApi(ctx, {
             method: 'POST',
-            path: projectPath(ctx, `/agent_applications/${id}/revisions/${args.revision_id}/archive/`),
+            path: projectPath(args.project_id, `/agent_applications/${id}/revisions/${args.revision_id}/archive/`),
         })
     },
 })
@@ -746,7 +789,7 @@ export const posthogAgentApplicationsEnvKeysListV1 = defineNativeTool({
     id: '@posthog/agent-applications-env-keys-list',
     description:
         'List every encrypted_env key set on an agent, with `is_set` per row. Does NOT return the values — those are encrypted at rest and never read back through this surface. Use to audit which secrets the agent has configured before freeze + promote.',
-    args: Type.Object({ ...agentRefFields }),
+    args: Type.Object({ project_id: ProjectIdArg, ...agentRefFields }),
     returns: Type.Object({ keys: Type.Array(EnvKeyRowSchema) }),
     requires: { integrations: [], scopes: ['agents:read'] },
     cost_hint: 'cheap',
@@ -754,7 +797,7 @@ export const posthogAgentApplicationsEnvKeysListV1 = defineNativeTool({
         const id = await resolveApplicationId(ctx, args)
         return callPosthogApi(ctx, {
             method: 'GET',
-            path: projectPath(ctx, `/agent_applications/${id}/env_keys/`),
+            path: projectPath(args.project_id, `/agent_applications/${id}/env_keys/`),
         })
     },
 })
@@ -764,6 +807,7 @@ export const posthogAgentApplicationsEnvKeysGetV1 = defineNativeTool({
     description:
         'Probe whether a single encrypted_env key is set on an agent. Returns `{ key, is_set }`. Never returns the value. Use as the precheck before triggering the `set_secret` punch-out flow.',
     args: Type.Object({
+        project_id: ProjectIdArg,
         ...agentRefFields,
         key: Type.String({ description: 'Env key to probe, e.g. `SLACK_BOT_TOKEN`.' }),
     }),
@@ -774,7 +818,7 @@ export const posthogAgentApplicationsEnvKeysGetV1 = defineNativeTool({
         const id = await resolveApplicationId(ctx, args)
         return callPosthogApi(ctx, {
             method: 'GET',
-            path: projectPath(ctx, `/agent_applications/${id}/env_keys/${args.key}/`),
+            path: projectPath(args.project_id, `/agent_applications/${id}/env_keys/${args.key}/`),
         })
     },
 })
@@ -784,6 +828,7 @@ export const posthogAgentApplicationsSetEnvV1 = defineNativeTool({
     description:
         'Replace the entire encrypted_env block. WARNING: puts secret values in the session tool-call history. Per `skills/secrets-and-integrations`, prefer the `set_secret` client tool (UI punch-out, never logs values). Use this raw API only when the user explicitly opts in (broken punch-out, CI script, etc.) — confirm before calling and warn about the trace.',
     args: Type.Object({
+        project_id: ProjectIdArg,
         ...agentRefFields,
         env: Type.Record(Type.String(), Type.String(), {
             description:
@@ -797,7 +842,7 @@ export const posthogAgentApplicationsSetEnvV1 = defineNativeTool({
         const id = await resolveApplicationId(ctx, args)
         return callPosthogApi(ctx, {
             method: 'POST',
-            path: projectPath(ctx, `/agent_applications/${id}/set_env/`),
+            path: projectPath(args.project_id, `/agent_applications/${id}/set_env/`),
             body: { env: args.env },
         })
     },
@@ -808,6 +853,7 @@ export const posthogAgentApplicationsSessionLogsV1 = defineNativeTool({
     description:
         "Get the structured event log for a session — session_started, turn_started, tool_call, tool_result, completed/failed events. Use after sessions-retrieve when you need turn-by-turn timing or error events the conversation doesn't carry.",
     args: Type.Object({
+        project_id: ProjectIdArg,
         ...agentRefFields,
         session_id: Type.String({ description: 'Session UUID.' }),
     }),
@@ -820,7 +866,7 @@ export const posthogAgentApplicationsSessionLogsV1 = defineNativeTool({
         const id = await resolveApplicationId(ctx, args)
         return callPosthogApi(ctx, {
             method: 'GET',
-            path: projectPath(ctx, `/agent_applications/${id}/sessions/${args.session_id}/logs/`),
+            path: projectPath(args.project_id, `/agent_applications/${id}/sessions/${args.session_id}/logs/`),
         })
     },
 })

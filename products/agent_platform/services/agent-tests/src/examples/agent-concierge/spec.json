@@ -9,7 +9,11 @@
             },
             "auth": {
                 "modes": [
-                    { "type": "posthog", "scopes": ["agents:read", "agents:write", "agent_session:read"] },
+                    {
+                        "type": "posthog",
+                        "scopes": ["agents:read", "agents:write", "agent_session:read"],
+                        "audience": "organization"
+                    },
                     { "type": "posthog_internal" }
                 ]
             }
@@ -20,7 +24,7 @@
                 "allow_restart": true
             },
             "auth": {
-                "modes": [{ "type": "posthog" }, { "type": "posthog_internal" }]
+                "modes": [{ "type": "posthog", "audience": "organization" }, { "type": "posthog_internal" }]
             }
         }
     ],
@@ -84,6 +88,10 @@
         {
             "kind": "native",
             "id": "@posthog/query"
+        },
+        {
+            "kind": "native",
+            "id": "@posthog/list-projects"
         },
         {
             "kind": "native",
@@ -282,7 +290,7 @@
         {
             "kind": "client",
             "id": "get_context",
-            "description": "Returns the user's current view in the host app \u2014 page, agent, session id, URL, follow-mode state, client identification. Call when you need to resolve deictic references like 'this agent' or 'this session', or after the user has navigated and your prior context envelope is stale. Free \u2014 no side effects.",
+            "description": "Returns the user's current view in the host app \u2014 page, agent, session id, URL, follow-mode state, client identification, and the user's current project (`project_id` + `project_name`/`org`). Call when you need the project to act in for a `@posthog/*` tool, to resolve deictic references like 'this agent' or 'this session', or after the user has navigated and your prior context envelope is stale. Free \u2014 no side effects.",
             "args_schema": {
                 "type": "object",
                 "properties": {},

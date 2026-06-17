@@ -33,17 +33,40 @@ export interface PosthogMeResponse {
     uuid: string
     email: string
     organization?: { id?: string; name?: string }
+    /** Every organization the user is a member of — used for `organization`-audience gating. */
+    organizations?: Array<{ id?: string; name?: string }>
     team?: { id: number; name?: string; uuid?: string }
     is_staff?: boolean
 }
 
 /**
- * The thing that takes a bearer and returns the PostHog user identity.
- * Default impl hits `/api/users/@me/`; tests inject a fake to avoid
- * standing up Django.
+ * The thing that takes a bearer and resolves PostHog access. `introspect`
+ * returns the user identity (+ their org memberships); `canAccessTeam` answers
+ * the `project`-audience entitlement question by delegating to PostHog's own
+ * access control. Default impl hits `/api/users/@me/` and `/api/projects/{id}/`;
+ * tests inject a fake to avoid standing up Django.
  */
 export interface PosthogIdentityIntrospector {
     introspect(bearer: string): Promise<PosthogMeResponse | null>
+    /**
+     * Can the bearer's user access `teamId`? Probes a team-scoped endpoint with
+     * the caller's bearer — 2xx ⇒ yes (RBAC applied server-side), anything else
+     * (401/403/404/5xx) ⇒ no, so the gate fails closed. Used only for
+     * `audience: 'project'`.
+     */
+    canAccessTeam(bearer: string, teamId: number): Promise<boolean>
+}
+
+/**
+ * Resolves a team (project) id to its owning organization id. Backed by the
+ * `posthogDb` pool in production (a tiny `posthog_team` lookup, cached — a
+ * team's org never changes); a fake in tests. Used only for
+ * `audience: 'organization'`, where the agent's team and the Django DB live in
+ * a different database than the ingress's revision store, so a JOIN isn't an
+ * option. Returns null when the team is unknown (gate fails closed).
+ */
+export interface TeamOrgLookup {
+    orgForTeam(teamId: number): Promise<string | null>
 }
 
 export interface DefaultIntrospectorOpts {
@@ -76,6 +99,16 @@ export function defaultPosthogIntrospector(opts: DefaultIntrospectorOpts = {}): 
             }
             return (await res.json()) as PosthogMeResponse
         },
+        async canAccessTeam(bearer: string, teamId: number): Promise<boolean> {
+            // Reading the project at all requires team access, so Django's
+            // permission stack is the oracle: 2xx ⇒ access, any failure (incl.
+            // 404, which is what PostHog returns for a project you may not see)
+            // ⇒ no access. Fails closed on 5xx / network.
+            const res = await http.fetch(`${baseUrl}/api/projects/${teamId}/`, {
+                headers: { Authorization: `Bearer ${bearer}`, Accept: 'application/json' },
+            })
+            return res.ok
+        },
     }
 }
 
@@ -84,25 +117,38 @@ function posthogPrincipalFrom(me: PosthogMeResponse): SessionPrincipal {
         kind: 'posthog',
         user_id: me.uuid,
         user_uuid: me.uuid,
+        // Best-effort: the user's active project at invocation. Informational
+        // only — the `@posthog/*` tools no longer derive their operating
+        // project from the principal (the agent supplies an explicit
+        // `project_id`), so this is for audit/display, not authorization.
         team_id: me.team?.id ?? 0,
         email: me.email,
     }
 }
 
 /**
- * PostHog credential verifier. Accepts a bearer (Personal API key today, OAuth
- * later) and validates it against `/api/users/@me/`. Produces a `posthog`
- * principal + a `posthog_api` credential for tools.
+ * PostHog credential verifier. Accepts a bearer (Personal API key or OAuth
+ * access token) and validates it against `/api/users/@me/`. Produces a
+ * `posthog` principal + a `posthog_api` credential for tools.
  *
- * The bearer only proves "is a valid PostHog user somewhere" — it carries no
- * tenant binding of its own. We therefore require the user's active team to
- * match the agent's owning team (`application.team_id`); otherwise any valid
- * bearer from any org would pass a `posthog`-gated agent (cross-team-open).
+ * The bearer proves "is a valid PostHog user"; it carries no tenant binding,
+ * so the agent declares its invocation boundary via `mode.audience`:
+ *   - `project` (default): the caller must be able to access the agent's owning
+ *     team — delegated to PostHog access control via `canAccessTeam`.
+ *   - `organization`: the caller must be a member of the agent's owning org —
+ *     `orgForTeam(application.team_id)` ∈ the caller's org memberships.
+ * Either way the agent then acts AS the caller: the `@posthog/*` tools call
+ * PostHog with this user's bearer against an explicit `project_id`, so RBAC is
+ * enforced again at the data layer. (Opening an agent to ANY PostHog user
+ * across orgs is intentionally not expressible here yet.)
  */
-export function posthogVerifier(introspector: PosthogIdentityIntrospector): AuthVerifier {
+export function posthogVerifier(introspector: PosthogIdentityIntrospector, teamOrg: TeamOrgLookup): AuthVerifier {
     return {
         modeType: 'posthog',
-        async verify(req: Request, _mode: AuthMode, application: AgentApplication): Promise<VerifyResult> {
+        async verify(req: Request, mode: AuthMode, application: AgentApplication): Promise<VerifyResult> {
+            if (mode.type !== 'posthog') {
+                return { ok: false, status: 0, reason: 'skip' }
+            }
             const bearer = readBearer(req)
             if (!bearer) {
                 return { ok: false, status: 0, reason: 'skip' }
@@ -111,11 +157,23 @@ export function posthogVerifier(introspector: PosthogIdentityIntrospector): Auth
             if (!me) {
                 return { ok: false, status: 401, reason: 'invalid_token' }
             }
-            // Tenant gate: the verified user must belong to the agent's team.
-            // `me.team?.id` is the user's active project; a stranger from
-            // another org is rejected even with a valid bearer.
-            if (me.team?.id !== application.team_id) {
-                return { ok: false, status: 403, reason: 'wrong_team' }
+            // Tenant gate — who may invoke this agent.
+            if (mode.audience === 'organization') {
+                const agentOrg = await teamOrg.orgForTeam(application.team_id)
+                const callerOrgs = new Set(
+                    [me.organization?.id, ...(me.organizations ?? []).map((o) => o.id)].filter(
+                        (id): id is string => !!id
+                    )
+                )
+                if (!agentOrg || !callerOrgs.has(agentOrg)) {
+                    return { ok: false, status: 403, reason: 'not_in_org' }
+                }
+            } else {
+                // 'project' (default): caller must be entitled to the agent's team.
+                const allowed = await introspector.canAccessTeam(bearer, application.team_id)
+                if (!allowed) {
+                    return { ok: false, status: 403, reason: 'not_in_project' }
+                }
             }
             const credentials: CredentialMap = {
                 posthog_api: { kind: 'posthog_bearer', token: bearer },
@@ -284,13 +342,14 @@ export function posthogInternalVerifier(internalSecret: string): AuthVerifier {
  */
 export function buildDefaultVerifiers(opts: {
     introspector: PosthogIdentityIntrospector
+    teamOrg: TeamOrgLookup
     jwtSecretResolver: JwtSecretResolver
     sharedSecretResolver: SecretResolver
     internalSecret: string
 }): AuthVerifier[] {
     return [
         publicVerifier,
-        posthogVerifier(opts.introspector),
+        posthogVerifier(opts.introspector, opts.teamOrg),
         jwtVerifier(opts.jwtSecretResolver),
         sharedSecretVerifier(opts.sharedSecretResolver),
         posthogInternalVerifier(opts.internalSecret),

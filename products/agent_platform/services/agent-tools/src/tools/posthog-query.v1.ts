@@ -1,6 +1,6 @@
 import { defineNativeTool, Type } from '@posthog/agent-shared'
 
-import { callPosthogApi, projectPath } from './_posthog-api'
+import { callPosthogApi, ProjectIdArg, projectPath } from './_posthog-api'
 
 /**
  * The slice of the Django `/query/` response we map for HogQL. The endpoint
@@ -16,8 +16,9 @@ interface HogQLQueryResponse {
 export const posthogQueryV1 = defineNativeTool({
     id: '@posthog/query',
     description:
-        "Run a HogQL query against the calling PostHog user's project (requires `posthog` auth). Returns rows and column names.",
+        'Run a HogQL query against a PostHog project as the connected user (requires `posthog` auth). Returns rows and column names. Pass the `project_id` of the project to query.',
     args: Type.Object({
+        project_id: ProjectIdArg,
         query: Type.String({ minLength: 1, description: 'HogQL query string' }),
     }),
     returns: Type.Object({
@@ -33,11 +34,10 @@ export const posthogQueryV1 = defineNativeTool({
         // Routes through the per-user credential broker (`posthog_api` bearer)
         // exactly like the sibling `@posthog/agent-applications-*` tools, so the
         // query executes AS the connected PostHog user and Django enforces that
-        // user's access. `projectPath` targets the caller's team and fails
-        // closed (`posthog_user_context_required`) without a `posthog` principal.
+        // user's access to `args.project_id` (a 403 surfaces as a tool error).
         const res = await callPosthogApi<HogQLQueryResponse>(ctx, {
             method: 'POST',
-            path: projectPath(ctx, '/query/'),
+            path: projectPath(args.project_id, '/query/'),
             body: { query: { kind: 'HogQLQuery', query: args.query } },
         })
         const columns = res.columns ?? []

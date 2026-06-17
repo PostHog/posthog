@@ -29,7 +29,7 @@ import {
 } from '@posthog/agent-shared'
 
 import { loadAgentIngressConfig } from './config'
-import { buildDefaultVerifiers, defaultPosthogIntrospector } from './enqueue/verifiers'
+import { buildDefaultVerifiers, defaultPosthogIntrospector, type TeamOrgLookup } from './enqueue/verifiers'
 import { buildApp } from './routing/server'
 
 const log = createLogger('agent-ingress')
@@ -70,6 +70,27 @@ async function main(): Promise<void> {
         baseUrl: config.posthogApiBaseUrl,
         http: new DirectHttpClient(),
     })
+    // Resolves an agent's owning org for `audience: 'organization'` gating. The
+    // agent's team lives in the Django DB (`posthogDb`), a different database
+    // than the revision store's `agentDb`, so we can't JOIN — a small lookup it
+    // is. A team's org never changes, so the result is cached for the process
+    // lifetime.
+    const teamOrgCache = new Map<number, string | null>()
+    const teamOrg: TeamOrgLookup = {
+        async orgForTeam(teamId: number): Promise<string | null> {
+            const cached = teamOrgCache.get(teamId)
+            if (cached !== undefined) {
+                return cached
+            }
+            const res = await posthogDb.query<{ organization_id: string | null }>(
+                'SELECT organization_id FROM posthog_team WHERE id = $1',
+                [teamId]
+            )
+            const org = res.rows[0]?.organization_id ?? null
+            teamOrgCache.set(teamId, org)
+            return org
+        },
+    }
     // Per-agent secret resolver. Decrypts the agent's `encrypted_env` and plucks
     // a named entry — backs the Slack signing-secret/bot-token lookups and the
     // shared_secret auth verifier (which reads `mode.secret_ref`).
@@ -77,6 +98,7 @@ async function main(): Promise<void> {
     const authProvider = {
         verifiers: buildDefaultVerifiers({
             introspector,
+            teamOrg,
             jwtSecretResolver: secretResolver,
             sharedSecretResolver: secretResolver,
             internalSecret: config.internalSigningKey,

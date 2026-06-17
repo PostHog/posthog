@@ -30,6 +30,7 @@ import {
     posthogVerifier,
     type PosthogIdentityIntrospector,
     publicVerifier,
+    type TeamOrgLookup,
 } from '@posthog/agent-ingress'
 
 import { buildCluster, closeSharedPool, Cluster, fauxCallTool, fauxText } from '../harness'
@@ -55,8 +56,20 @@ function buildIntrospector(validBearers: Record<string, { uuid: string; email: s
                 team: { id: hit.teamId },
             }
         },
+        // `project` audience: a known bearer can reach the team it maps to.
+        async canAccessTeam(bearer: string, teamId: number) {
+            const hit = validBearers[bearer]
+            return hit != null && hit.teamId === teamId
+        },
     }
     return { introspector, calls }
+}
+
+// These agents use `project` audience, so the org lookup is never consulted.
+const teamOrg: TeamOrgLookup = {
+    async orgForTeam() {
+        return null
+    },
 }
 
 const JWT_SECRET_REF = 'EMBED_SECRET'
@@ -86,7 +99,7 @@ function buildProvider(introspector: PosthogIdentityIntrospector): AuthProvider 
     return {
         verifiers: [
             publicVerifier,
-            posthogVerifier(introspector),
+            posthogVerifier(introspector, teamOrg),
             jwtVerifier({
                 async resolve(ref) {
                     return ref === JWT_SECRET_REF ? JWT_SECRET_VALUE : null
@@ -266,6 +279,9 @@ describe('multi-mode auth + credential broker: real e2e', () => {
                 }
                 return null
             },
+            async canAccessTeam(bearer: string, teamId: number) {
+                return (bearer === 'phx_test_pat' || bearer === ALT_BEARER) && teamId === TEAM_ID
+            },
         }
         // Swap the cluster's provider mid-test by re-wiring the ingress to
         // use our new provider for THIS request — we just inject by hitting
@@ -359,7 +375,7 @@ describe('multi-mode auth + credential broker: real e2e', () => {
                 tools: [{ kind: 'native', id: '@posthog/agent-applications-list' }],
             },
         })
-        c.setScript([fauxCallTool('@posthog/agent-applications-list', {}), fauxText('listed')])
+        c.setScript([fauxCallTool('@posthog/agent-applications-list', { project_id: TEAM_ID }), fauxText('listed')])
         const res = await request(c.ingress)
             .post('/agents/lister/run')
             .set('authorization', 'Bearer phx_test_pat')
