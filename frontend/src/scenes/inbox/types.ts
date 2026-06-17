@@ -16,6 +16,12 @@ export type SignalReportPriority = 'P0' | 'P1' | 'P2' | 'P3' | 'P4'
 /** Actionability judgment outcome. Mirrors desktop `SignalReportActionability`. */
 export type SignalReportActionability = 'immediately_actionable' | 'requires_human_input' | 'not_actionable'
 
+/** Actionability values that represent a report worth acting on — drives the Reports tab filter and the Create PR gate. */
+export const ACTIONABLE_ACTIONABILITY_VALUES: SignalReportActionability[] = [
+    'immediately_actionable',
+    'requires_human_input',
+]
+
 export interface SignalReport {
     id: string
     title: string | null

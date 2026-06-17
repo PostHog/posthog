@@ -9,7 +9,7 @@ import { urls } from 'scenes/urls'
 
 import { inboxSceneLogic } from '../../inboxSceneLogic'
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
-import { SignalReport } from '../../types'
+import { ACTIONABLE_ACTIONABILITY_VALUES, SignalReport } from '../../types'
 import { useReportArchive } from '../cards/useReportArchive'
 
 /** Mirror desktop's `Inbox report action` analytics for detail-pane actions. */
@@ -40,7 +40,7 @@ function canCreateImplementationPr(report: SignalReport): boolean {
         return true
     }
     if (report.status === 'ready') {
-        return report.actionability === 'immediately_actionable' || report.actionability === 'requires_human_input'
+        return report.actionability != null && ACTIONABLE_ACTIONABILITY_VALUES.includes(report.actionability)
     }
     return false
 }

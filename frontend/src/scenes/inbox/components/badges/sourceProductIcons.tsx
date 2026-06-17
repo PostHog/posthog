@@ -103,3 +103,43 @@ export function getSourceProductMeta(value: string | null | undefined): SourcePr
 export function hasKnownSourceProduct(values: string[] | null | undefined): boolean {
     return (values ?? []).some((value) => getSourceProductMeta(value) !== null)
 }
+
+export interface KnownSourceProductEntry {
+    key: string
+    meta: SourceProductMeta
+}
+
+/** Resolve `source_products` strings to entries with known display metadata, preserving order. */
+export function knownSourceProductEntries(sourceProducts: string[] | null | undefined): KnownSourceProductEntry[] {
+    return (sourceProducts ?? [])
+        .map((key) => ({ key, meta: getSourceProductMeta(key) }))
+        .filter((entry): entry is KnownSourceProductEntry => entry.meta !== null)
+}
+
+/** Row of color-coded source-product icons. Surfaces vary in wrapper layout, so the caller supplies `className`. */
+export function SourceProductIconRow({
+    entries,
+    className,
+}: {
+    entries: KnownSourceProductEntry[]
+    className?: string
+}): JSX.Element {
+    return (
+        <span className={className}>
+            {entries.map((entry) => {
+                const Icon = entry.meta.Icon
+                return (
+                    <span
+                        key={entry.key}
+                        className="inline-flex shrink-0 items-center"
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{ color: entry.meta.color }}
+                        aria-hidden
+                    >
+                        <Icon className="text-xs" />
+                    </span>
+                )
+            })}
+        </span>
+    )
+}

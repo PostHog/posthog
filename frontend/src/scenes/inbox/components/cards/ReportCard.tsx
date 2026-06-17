@@ -19,7 +19,7 @@ import {
 import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
 import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
 import { SignalReportStatusBadge } from '../badges/SignalReportStatusBadge'
-import { getSourceProductMeta, hasKnownSourceProduct } from '../badges/sourceProductIcons'
+import { hasKnownSourceProduct, knownSourceProductEntries, SourceProductIconRow } from '../badges/sourceProductIcons'
 import { inboxCardRowClassName, useReportArchive } from './useReportArchive'
 
 // ── Shared card sub-components ────────────────────────────────────────────────
@@ -38,38 +38,13 @@ export function ConventionalCommitScopeTag({ type, scope }: { type: string; scop
 
 /** Icon stack + primary source-product label, with a `+ n` tail when more sources contributed. */
 export function InboxCardSourceMeta({ sourceProducts }: { sourceProducts?: string[] | null }): JSX.Element | null {
-    const items = (sourceProducts ?? [])
-        .map((key) => ({ key, meta: getSourceProductMeta(key) }))
-        .filter(
-            (entry): entry is { key: string; meta: NonNullable<ReturnType<typeof getSourceProductMeta>> } =>
-                entry.meta !== null
-        )
-
-    if (items.length === 0) {
+    const [primary, ...overflow] = knownSourceProductEntries(sourceProducts)
+    if (!primary) {
         return null
     }
-
-    const primary = items[0]
-    const overflow = items.slice(1)
-
     return (
         <div className="flex items-center gap-2 min-w-0 text-xs text-tertiary leading-none select-none">
-            <div className="flex items-center gap-1.5 shrink-0">
-                {items.map((entry) => {
-                    const Icon = entry.meta.Icon
-                    return (
-                        <span
-                            key={entry.key}
-                            className="inline-flex shrink-0 items-center"
-                            // eslint-disable-next-line react/forbid-dom-props
-                            style={{ color: entry.meta.color }}
-                            aria-hidden
-                        >
-                            <Icon className="text-xs" />
-                        </span>
-                    )
-                })}
-            </div>
+            <SourceProductIconRow entries={[primary, ...overflow]} className="flex items-center gap-1.5 shrink-0" />
             <span>
                 {primary.meta.label}
                 {overflow.length > 0 ? ` + ${overflow.length}` : null}

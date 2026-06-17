@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import { ReactNode } from 'react'
 
-import { IconArrowLeft, IconDocument, IconExternal, IconPullRequest, IconSearch } from '@posthog/icons'
+import { IconArrowLeft, IconCode, IconDocument, IconExternal, IconPullRequest, IconSearch } from '@posthog/icons'
 import { LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -27,7 +27,7 @@ import { ForYouBadge } from '../badges/ForYouBadge'
 import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
 import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
 import { SignalReportStatusBadge } from '../badges/SignalReportStatusBadge'
-import { getSourceProductMeta, hasKnownSourceProduct } from '../badges/sourceProductIcons'
+import { hasKnownSourceProduct, knownSourceProductEntries, SourceProductIconRow } from '../badges/sourceProductIcons'
 import { ConventionalCommitScopeTag } from '../cards/ReportCard'
 import { RightColumnSection } from './DetailSection'
 import { ReportDetailActions } from './ReportDetailActions'
@@ -106,36 +106,17 @@ function ReportDetailMeta({ report, evidenceCount }: { report: SignalReport; evi
 
 /** Source-product icon stack, prefixed with "agent ·", reused inside the detail meta row. */
 function MetaSourceStack({ sourceProducts }: { sourceProducts?: string[] | null }): JSX.Element | null {
-    const items = (sourceProducts ?? [])
-        .map((key) => ({ key, meta: getSourceProductMeta(key) }))
-        .filter(
-            (entry): entry is { key: string; meta: NonNullable<ReturnType<typeof getSourceProductMeta>> } =>
-                entry.meta !== null
-        )
-    if (items.length === 0) {
+    const [primary, ...overflow] = knownSourceProductEntries(sourceProducts)
+    if (!primary) {
         return null
     }
-    const primary = items[0]
-    const overflow = items.slice(1)
     return (
         <span className="inline-flex items-center gap-1.5 min-w-0">
             <span>agent ·</span>
-            <span className="inline-flex items-center gap-1 shrink-0">
-                {items.map((entry) => {
-                    const Icon = entry.meta.Icon
-                    return (
-                        <span
-                            key={entry.key}
-                            className="inline-flex shrink-0 items-center"
-                            // eslint-disable-next-line react/forbid-dom-props
-                            style={{ color: entry.meta.color }}
-                            aria-hidden
-                        >
-                            <Icon className="text-xs" />
-                        </span>
-                    )
-                })}
-            </span>
+            <SourceProductIconRow
+                entries={[primary, ...overflow]}
+                className="inline-flex items-center gap-1 shrink-0"
+            />
             <span>
                 {primary.meta.label}
                 {overflow.length > 0 ? ` + ${overflow.length}` : null}
@@ -359,12 +340,9 @@ function PullRequestBanner({ prUrl, prRef }: { prUrl: string; prRef: ParsedPrUrl
             <span className="flex items-center justify-center size-7 shrink-0 rounded-full bg-success-highlight text-success">
                 <IconPullRequest className="text-base" />
             </span>
-            <div className="flex flex-col gap-0.5 min-w-0 flex-1">
-                <span className="font-mono text-[13px] text-primary truncate">
-                    {prRef.repoSlug}#{prRef.number}
-                </span>
-                <span className="text-xs text-tertiary leading-none">Pull request</span>
-            </div>
+            <span className="font-mono text-[13px] text-primary truncate">
+                {prRef.repoSlug}#{prRef.number}
+            </span>
             <Tooltip title="Open in GitHub">
                 <span className="shrink-0 text-tertiary transition-colors group-hover:text-default">
                     <IconExternal className="text-base" />
@@ -404,7 +382,11 @@ export function ReportDetail({ report, tab }: { report: SignalReport; tab: Inbox
                 ) : undefined
             }
         >
-            {hasPr ? <PullRequestBanner prUrl={prUrl} prRef={prRef} /> : null}
+            {hasPr ? (
+                <RightColumnSection icon={<IconCode />} title="Diff">
+                    <PullRequestBanner prUrl={prUrl} prRef={prRef} />
+                </RightColumnSection>
+            ) : null}
         </InboxDetailFrame>
     )
 }

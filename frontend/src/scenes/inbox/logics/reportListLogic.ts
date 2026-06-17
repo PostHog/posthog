@@ -6,7 +6,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { userLogic } from 'scenes/userLogic'
 
-import { INBOX_SCOPE_FOR_YOU, InboxFlatListTabKey, SignalReport } from '../types'
+import { ACTIONABLE_ACTIONABILITY_VALUES, INBOX_SCOPE_FOR_YOU, InboxFlatListTabKey, SignalReport } from '../types'
 import { DismissalReasonValue } from '../utils/dismissalReasons'
 import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
 import { buildSignalReportListOrdering, inboxFiltersLogic } from './inboxFiltersLogic'
@@ -32,7 +32,7 @@ export const INBOX_FLAT_TAB_LIST_PARAMS: Record<InboxFlatListTabKey, ReportListP
     reports: {
         has_implementation_pr: 'false',
         status: 'ready,pending_input',
-        actionability: 'immediately_actionable,requires_human_input',
+        actionability: ACTIONABLE_ACTIONABILITY_VALUES.join(','),
     },
     'not-actionable': { actionability: 'not_actionable' },
 }

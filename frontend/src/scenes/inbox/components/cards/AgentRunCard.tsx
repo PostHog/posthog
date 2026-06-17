@@ -7,8 +7,8 @@ import { urls } from 'scenes/urls'
 
 import { isFinishedRunReport, isLiveRunReport, isQueuedRunReport } from '../../inboxMembership'
 import { SignalReport } from '../../types'
-import { deriveHeadline } from '../../utils/reportPresentation'
-import { getSourceProductMeta, hasKnownSourceProduct } from '../badges/sourceProductIcons'
+import { deriveHeadline, parsePrUrlParts } from '../../utils/reportPresentation'
+import { hasKnownSourceProduct, knownSourceProductEntries, SourceProductIconRow } from '../badges/sourceProductIcons'
 
 type RunVariant = 'queued' | 'live' | 'completed' | 'failed'
 
@@ -98,35 +98,16 @@ function RunStatusOrb({ meta }: { meta: VariantMeta }): JSX.Element {
 
 /** Source-product icon stack reused inside the run card meta row. */
 function RunSourceStack({ sourceProducts }: { sourceProducts?: string[] | null }): JSX.Element | null {
-    const items = (sourceProducts ?? [])
-        .map((key) => ({ key, meta: getSourceProductMeta(key) }))
-        .filter(
-            (entry): entry is { key: string; meta: NonNullable<ReturnType<typeof getSourceProductMeta>> } =>
-                entry.meta !== null
-        )
-    if (items.length === 0) {
+    const [primary, ...overflow] = knownSourceProductEntries(sourceProducts)
+    if (!primary) {
         return null
     }
-    const primary = items[0]
-    const overflow = items.slice(1)
     return (
         <span className="inline-flex items-center gap-2 min-w-0">
-            <span className="inline-flex items-center gap-1.5 shrink-0">
-                {items.map((entry) => {
-                    const Icon = entry.meta.Icon
-                    return (
-                        <span
-                            key={entry.key}
-                            className="inline-flex shrink-0 items-center"
-                            // eslint-disable-next-line react/forbid-dom-props
-                            style={{ color: entry.meta.color }}
-                            aria-hidden
-                        >
-                            <Icon className="text-xs" />
-                        </span>
-                    )
-                })}
-            </span>
+            <SourceProductIconRow
+                entries={[primary, ...overflow]}
+                className="inline-flex items-center gap-1.5 shrink-0"
+            />
             <span>
                 {primary.meta.label}
                 {overflow.length > 0 ? ` + ${overflow.length}` : null}
@@ -137,11 +118,8 @@ function RunSourceStack({ sourceProducts }: { sourceProducts?: string[] | null }
 
 /** PR number from an implementation PR url, e.g. `#12001`. Null when there's no PR. */
 function prRef(prUrl: string | null | undefined): string | null {
-    if (!prUrl) {
-        return null
-    }
-    const match = prUrl.match(/\/pull\/(\d+)/)
-    return match ? `#${match[1]}` : null
+    const parts = prUrl ? parsePrUrlParts(prUrl) : null
+    return parts ? `#${parts.number}` : null
 }
 
 export function AgentRunCard({ report }: { report: SignalReport }): JSX.Element {
