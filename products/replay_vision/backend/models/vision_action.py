@@ -69,7 +69,12 @@ class VisionAction(TeamScopedRootMixin, UUIDModel):
     )
     selection = models.JSONField(
         default=default_selection,
-        help_text="Observation filter applied at synthesis time (scanner_ids, verdict, tags, scores, status, window_days).",
+        help_text=(
+            "Observation filter applied at synthesis time. "
+            "Supported keys: scanner_type (string — filters observations by scanner type, "
+            "independent of the bound `scanner` FK which scopes scheduling), "
+            "scanner_ids (list[str]), verdict, tags, scores, status, window_days."
+        ),
     )
     synthesis_config = models.JSONField(default=dict, help_text="Synthesis options, e.g. {prompt_guide}.")
     delivery_config = models.JSONField(
