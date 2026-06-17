@@ -1,12 +1,6 @@
 import clsx from 'clsx'
 
-import {
-    Legend,
-    TimeSeriesLineChart,
-    type TooltipContext,
-    TooltipSurface,
-    TooltipSwatch,
-} from '@posthog/quill-charts'
+import { Legend, TimeSeriesLineChart, type TooltipContext, TooltipSurface, TooltipSwatch } from '@posthog/quill-charts'
 
 import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
 
