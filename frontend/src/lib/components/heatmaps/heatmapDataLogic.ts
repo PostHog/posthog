@@ -239,8 +239,18 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                           : fetch(apiURL))
                     breakpoint()
 
-                    if (props.context === 'toolbar' && response.status === 403) {
-                        toolbarConfigLogic.actions.authenticate()
+                    // Toolbar OAuth tokens expire mid-session. A 401 (invalid/expired access
+                    // token) or 403 (lost project access) is an expected re-auth condition, not
+                    // a failure worth capturing — trigger re-authentication and return gracefully
+                    // instead of throwing the backend's "Invalid access token." detail.
+                    if (props.context === 'toolbar' && (response.status === 401 || response.status === 403)) {
+                        if (response.status === 403) {
+                            toolbarConfigLogic.actions.authenticate()
+                        } else {
+                            toolbarConfigLogic.actions.tokenExpired()
+                        }
+                        actions.setIsReady(true)
+                        return null
                     }
 
                     if (response.status !== 200) {
