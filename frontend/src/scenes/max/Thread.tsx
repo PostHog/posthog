@@ -43,7 +43,7 @@ import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { humanFriendlyNumber, inStorybookTestRunner, pluralize } from 'lib/utils'
+import { inStorybookTestRunner, pluralize } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -96,13 +96,17 @@ import {
     isRenderableUIPayloadTool,
 } from './messages/UIPayloadAnswer'
 import { VisualizationArtifact } from './messages/VisualizationArtifact'
+import {
+    SandboxCompactBoundaryItem,
+    SandboxStatusItem,
+    SandboxTaskNotificationItem,
+} from './sandbox/SandboxThreadItems'
 import { sandboxStreamLogic } from './sandboxStreamLogic'
 import { MAX_SLASH_COMMANDS, SlashCommandName } from './slash-commands'
 import { TicketPrompt } from './TicketPrompt'
 import { getTicketPromptData, getTicketSummaryData, isTicketConfirmationMessage } from './ticketUtils'
 import { ToolCallWidgetDef, getToolCallDescriptionAndWidgetDef } from './toolCallDisplay'
 import { TraceIdProvider, useTraceId } from './TraceIdContext'
-import type { ThreadItem } from './types/sandboxStreamTypes'
 import { useFeedback } from './useFeedback'
 import {
     isArtifactMessage,
@@ -282,60 +286,6 @@ function SandboxThinkingIndicator({ progress }: { progress: string | null }): JS
                 <span>{message}</span>
             </div>
         </MessageTemplate>
-    )
-}
-
-/** Inline `_posthog/status` item — a spinner while compacting, a generic status line otherwise. */
-function SandboxStatusItem({ item }: { item: ThreadItem }): JSX.Element {
-    const isCompacting = item.status === 'compacting' && !item.isComplete
-    return (
-        <div className="flex items-center justify-center gap-2 py-1 text-xs text-muted">
-            {isCompacting ? (
-                <>
-                    <Spinner className="size-3" />
-                    <span>Compacting conversation history…</span>
-                </>
-            ) : (
-                <span>Status: {item.status}</span>
-            )}
-        </div>
-    )
-}
-
-/** Inline `_posthog/compact_boundary` item — the post-compaction rule. */
-function SandboxCompactBoundaryItem({ item }: { item: ThreadItem }): JSX.Element {
-    return (
-        <div className="flex items-center gap-2 py-1 text-xs text-muted">
-            <div className="h-px grow bg-border" />
-            <span className="shrink-0">
-                Conversation compacted
-                {item.trigger ? ` (${item.trigger})` : ''}
-                {typeof item.preTokens === 'number'
-                    ? ` · ~${humanFriendlyNumber(item.preTokens)} tokens summarized`
-                    : ''}
-            </span>
-            <div className="h-px grow bg-border" />
-        </div>
-    )
-}
-
-/** Inline `_posthog/task_notification` item — a colored rule by status (completed/failed/stopped). */
-function SandboxTaskNotificationItem({ item }: { item: ThreadItem }): JSX.Element {
-    const colorClass =
-        item.status === 'completed' ? 'text-success' : item.status === 'failed' ? 'text-danger' : 'text-warning'
-    const icon =
-        item.status === 'completed' ? (
-            <IconCheck className="size-3" />
-        ) : item.status === 'failed' ? (
-            <IconX className="size-3" />
-        ) : (
-            <IconWarning className="size-3" />
-        )
-    return (
-        <div className={cn('flex items-center justify-center gap-1.5 py-1 text-xs', colorClass)}>
-            {icon}
-            <span>{item.summary || `Task ${item.status}`}</span>
-        </div>
     )
 }
 

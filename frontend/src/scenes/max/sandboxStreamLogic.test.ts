@@ -1263,6 +1263,28 @@ describe('sandboxStreamLogic', () => {
                 })
             )
         })
+
+        it('clears the in-progress compaction spinner once compaction completes', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(notification('_posthog/status', { status: 'compacting' }))
+                logic.actions.ingestAcpFrame(
+                    notification('_posthog/status', { status: 'compacting', isComplete: true })
+                )
+            }).toFinishAllListeners()
+
+            expect(logic.values.threadItems.filter((i) => i.type === 'status')).toEqual([])
+        })
+
+        it('replaces the in-progress spinner with the compact_boundary divider', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(notification('_posthog/status', { status: 'compacting' }))
+                logic.actions.ingestAcpFrame(notification('_posthog/compact_boundary', { trigger: 'auto' }))
+            }).toFinishAllListeners()
+
+            const items = logic.values.threadItems
+            expect(items.some((i) => i.type === 'status')).toBe(false)
+            expect(items.some((i) => i.type === 'compact_boundary')).toBe(true)
+        })
     })
 
     describe('_posthog/task_notification inline item', () => {

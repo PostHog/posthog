@@ -20,14 +20,9 @@ import type {
 import {
     type PermissionOption,
     type PermissionRequestFrame,
-    type PosthogCompactBoundaryParams,
     type PosthogErrorParams,
     type PosthogPermissionRequestParams,
     type PosthogProgressParams,
-    type PosthogResourcesUsedParams,
-    type PosthogSdkSessionParams,
-    type PosthogStatusParams,
-    type PosthogTaskNotificationParams,
     type PosthogUsageUpdateParams,
     type SessionUpdateUsage,
     type SseErrorFrameData,
@@ -339,6 +334,11 @@ function findLastBufferIndex(state: ThreadItem[], id: string, type: ThreadItemTy
     return -1
 }
 
+/** The in-progress compaction spinner item — cleared when compaction completes or a boundary lands. */
+function isPendingCompactingStatus(item: ThreadItem): boolean {
+    return item.type === 'status' && item.status === 'compacting' && item.isComplete !== true
+}
+
 function mapAcpStatus(status: unknown): ToolInvocationStatus {
     switch (status) {
         case 'in_progress':
@@ -564,6 +564,8 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
         setContextUsage: (usage: ContextUsage) => ({ usage }),
         /** Inline `_posthog/status` thread item (e.g. compaction in progress). */
         pushStatusItem: (status: string, isComplete: boolean) => ({ status, isComplete }),
+        /** Removes the in-progress compaction spinner once compaction completes. */
+        clearCompactingStatus: true,
         /** Inline `_posthog/compact_boundary` thread item — the post-compaction marker. */
         pushCompactBoundaryItem: (payload: { trigger?: string; preTokens?: number; contextSize?: number }) => payload,
         /** Inline `_posthog/task_notification` thread item — a task milestone. */
@@ -724,8 +726,11 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                     ...state,
                     { id: `status-${state.length}`, type: 'status', status, isComplete },
                 ],
+                clearCompactingStatus: (state) => state.filter((item) => !isPendingCompactingStatus(item)),
+                // Drop the in-progress spinner before the divider lands, in case the completing
+                // status frame never arrived — the boundary itself signals compaction is done.
                 pushCompactBoundaryItem: (state, { trigger, preTokens, contextSize }) => [
-                    ...state,
+                    ...state.filter((item) => !isPendingCompactingStatus(item)),
                     { id: `compact-${state.length}`, type: 'compact_boundary', trigger, preTokens, contextSize },
                 ],
                 pushTaskNotificationItem: (state, { status, summary }) => [
@@ -1382,8 +1387,7 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             // The agent reports, per turn, which PostHog products an answer was grounded in. Union
             // them by id into the persistent resources bar — accumulates across the whole session.
             if (isPosthogNotification(notification, '_posthog/resources_used')) {
-                const params = (notification.params ?? {}) as PosthogResourcesUsedParams
-                actions.mergeResourcesUsed(params.products ?? [])
+                actions.mergeResourcesUsed(notification.params?.products ?? [])
                 return
             }
             // Token usage + cost + context-window breakdown. The Codex adapter sends two split
@@ -1391,40 +1395,40 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             // breakdown). The permissive fold tolerates both. The numeric used/size aggregate that
             // drives the percentage ring arrives separately on a session/update (handled below).
             if (isPosthogNotification(notification, '_posthog/usage_update')) {
-                const params = (notification.params ?? {}) as PosthogUsageUpdateParams
-                actions.setContextUsage(foldUsageNotification(values.contextUsage, params))
+                actions.setContextUsage(foldUsageNotification(values.contextUsage, notification.params ?? {}))
                 return
             }
-            // Context-compaction start/end. Twig renders nothing for the completed case, so gate it
-            // at dispatch: a `compacting` status that is complete pushes no thread item.
+            // Context-compaction start/end. The in-progress frame pushes a spinner item; the
+            // completed frame clears that spinner (Twig renders nothing for the completed case)
+            // rather than leaving it hanging beside the `compact_boundary` divider that follows.
             if (isPosthogNotification(notification, '_posthog/status')) {
-                const params = (notification.params ?? {}) as PosthogStatusParams
-                const status = String(params.status ?? '')
-                const isComplete = params.isComplete === true
+                const status = String(notification.params?.status ?? '')
+                const isComplete = notification.params?.isComplete === true
                 if (status === 'compacting' && isComplete) {
+                    actions.clearCompactingStatus()
                     return
                 }
                 actions.pushStatusItem(status, isComplete)
                 return
             }
             if (isPosthogNotification(notification, '_posthog/compact_boundary')) {
-                const params = (notification.params ?? {}) as PosthogCompactBoundaryParams
+                const params = notification.params
                 actions.pushCompactBoundaryItem({
-                    trigger: params.trigger,
-                    preTokens: params.preTokens,
-                    contextSize: params.contextSize,
+                    trigger: params?.trigger,
+                    preTokens: params?.preTokens,
+                    contextSize: params?.contextSize,
                 })
                 return
             }
             if (isPosthogNotification(notification, '_posthog/task_notification')) {
-                const params = (notification.params ?? {}) as PosthogTaskNotificationParams
-                actions.pushTaskNotificationItem({ status: params.status, summary: params.summary })
+                const params = notification.params
+                actions.pushTaskNotificationItem({ status: params?.status, summary: params?.summary })
                 return
             }
             // Diagnostic only — no UI; kept for resume telemetry / crash-affordance work.
             if (isPosthogNotification(notification, '_posthog/sdk_session')) {
-                const params = (notification.params ?? {}) as PosthogSdkSessionParams
-                actions.setSdkSession({ sessionId: params.sessionId, adapter: params.adapter })
+                const params = notification.params
+                actions.setSdkSession({ sessionId: params?.sessionId, adapter: params?.adapter })
                 return
             }
             if (method?.startsWith('_posthog/')) {
