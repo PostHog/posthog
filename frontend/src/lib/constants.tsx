@@ -269,6 +269,7 @@ export const FEATURE_FLAGS = {
     DASHBOARD_QUICK_FILTERS_EXPERIMENT: 'dashboard-quick-filters-experiment', // owner: @vdekrijger #team-product-analytics multivariate=control,test
     DASHBOARD_TEMPLATE_CHOOSER_EXPERIMENT: 'dashboard-template-chooser-experiment', // owner: @mattp #team-analytics-platform multivariate=control,simple,new
     DASHBOARD_WIDGETS: 'dashboard-widgets', // owner: @mattp #team-analytics-platform
+    DASHBOARDS_LIST_VIEW: 'dashboards-list-view', // owner: @vdekrijger #team-product-analytics multivariate=control,grid,finder — dashboards list presentation A/C/B
     DATA_MODELING_BACKEND_V2: 'data-modeling-backend-v2', // owner: #team-data-modeling
     DATA_MODELING_MULTI_DAG: 'data-modeling-multi-dag', // owner: #team-data-modeling
     DATA_MODELING_TAB: 'data-modeling-tab', // owner: #team-data-modeling
