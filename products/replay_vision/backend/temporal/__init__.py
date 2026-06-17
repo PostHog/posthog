@@ -34,6 +34,17 @@ from products.replay_vision.backend.temporal.gemini_cleanup_sweep import (
 )
 from products.replay_vision.backend.temporal.reconciler import ReconcileScannerSchedulesWorkflow
 from products.replay_vision.backend.temporal.sweep_workflow import SweepScannerWorkflow
+from products.replay_vision.backend.temporal.vision_actions import (
+    ProcessVisionActionWorkflow,
+    ScheduleAllVisionActionsWorkflow,
+    advance_next_run_at_activity,
+    create_vision_action_run_activity,
+    emit_action_ready_activity,
+    fetch_due_vision_actions_activity,
+    synthesize_action_activity,
+    update_vision_action_run_activity,
+    validate_vision_action_activity,
+)
 from products.replay_vision.backend.temporal.workflow import ApplyScannerWorkflow
 
 WORKFLOWS = [
@@ -42,6 +53,8 @@ WORKFLOWS = [
     RefreshScannerEstimatesWorkflow,
     ReplayVisionGeminiCleanupSweepWorkflow,
     SweepScannerWorkflow,
+    ScheduleAllVisionActionsWorkflow,
+    ProcessVisionActionWorkflow,
 ]
 ACTIVITIES: list[Callable[..., Any]] = [
     create_observation_activity,
@@ -69,16 +82,32 @@ ACTIVITIES: list[Callable[..., Any]] = [
     list_stale_scanner_estimates_activity,
     refresh_scanner_estimate_activity,
     sweep_gemini_files_activity,
+    fetch_due_vision_actions_activity,
+    create_vision_action_run_activity,
+    validate_vision_action_activity,
+    synthesize_action_activity,
+    emit_action_ready_activity,
+    update_vision_action_run_activity,
+    advance_next_run_at_activity,
 ]
 
 __all__ = [
     "ACTIVITIES",
     "WORKFLOWS",
     "ApplyScannerWorkflow",
+    "ProcessVisionActionWorkflow",
     "ReconcileScannerSchedulesWorkflow",
     "RefreshScannerEstimatesWorkflow",
     "ReplayVisionGeminiCleanupSweepWorkflow",
+    "ScheduleAllVisionActionsWorkflow",
     "SweepScannerWorkflow",
+    "advance_next_run_at_activity",
+    "create_vision_action_run_activity",
+    "emit_action_ready_activity",
+    "fetch_due_vision_actions_activity",
+    "synthesize_action_activity",
+    "update_vision_action_run_activity",
+    "validate_vision_action_activity",
     "advance_scanner_watermark_activity",
     "call_scanner_provider_activity",
     "cleanup_gemini_file_activity",
