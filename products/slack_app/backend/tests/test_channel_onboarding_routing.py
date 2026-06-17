@@ -4,19 +4,19 @@ from django.core.cache import cache
 from django.test import TestCase, override_settings
 from django.test.client import RequestFactory
 
+from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.slack_app.backend.api import (
-    POSTHOG_CODE_REQUIRED_SLACK_SCOPES,
     ROUTE_HANDLED_LOCALLY,
     ROUTE_NO_INTEGRATION,
-    _bot_user_id_cache_key,
     _channel_onboarding_cache_key,
     route_posthog_code_event_to_relevant_region,
 )
+from products.slack_app.backend.services.slack_user_info import bot_user_id_cache_key
 
 
 @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
@@ -43,7 +43,7 @@ class TestMemberJoinedChannelRouting(TestCase):
             team=self.team,
             kind="slack",
             integration_id=self.SLACK_TEAM_ID,
-            config={"scope": ",".join(sorted(POSTHOG_CODE_REQUIRED_SLACK_SCOPES))},
+            config={"scope": ",".join(sorted(REQUIRED_SLACK_SCOPES))},
             sensitive_config={"access_token": "xoxb-test"},
         )
 
@@ -165,4 +165,4 @@ class TestMemberJoinedChannelRouting(TestCase):
         route_posthog_code_event_to_relevant_region(self._request(), self._event(channel="C_OTHER"), self.SLACK_TEAM_ID)
 
         assert instance.client.auth_test.call_count == 1
-        assert cache.get(_bot_user_id_cache_key(self.integration.id)) == self.BOT_USER_ID
+        assert cache.get(bot_user_id_cache_key(self.integration.id)) == self.BOT_USER_ID

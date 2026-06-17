@@ -2200,25 +2200,21 @@ class TestStripeIntegrationOAuthTokens:
 
     @parameterized.expand(
         [
-            ("write_uses_sandbox_when_flag_set", "write_posthog_secrets", {"is_sandbox": True}, "sk_test_sandbox"),
-            ("clear_uses_sandbox_when_flag_set", "clear_posthog_secrets", {"is_sandbox": True}, "sk_test_sandbox"),
-            ("write_uses_live_when_flag_missing", "write_posthog_secrets", {}, "sk_live"),
+            ("write", "write_posthog_secrets"),
+            ("clear", "clear_posthog_secrets"),
         ]
     )
     @patch("stripe.StripeClient")
     @patch("posthog.models.integration.settings")
-    def test_stripe_client_secret_selection(
-        self, _name, method_name, config, expected_key, mock_settings, MockStripeClient
-    ):
+    def test_stripe_client_uses_live_secret(self, _name, method_name, mock_settings, MockStripeClient):
         mock_settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID = self.oauth_app.client_id
         mock_settings.STRIPE_APP_SECRET_KEY = "sk_live"
-        mock_settings.STRIPE_APP_SANDBOX_SECRET_KEY = "sk_test_sandbox"
         MockStripeClient.return_value = MagicMock()
 
         integration = Integration.objects.create(
             team=self.team,
             kind="stripe",
-            config=config,
+            config={},
             sensitive_config={},
             integration_id=f"acct_{_name}",
             created_by=self.user,
@@ -2229,25 +2225,23 @@ class TestStripeIntegrationOAuthTokens:
         else:
             stripe_int.clear_posthog_secrets()
 
-        MockStripeClient.assert_called_once_with(expected_key)
+        MockStripeClient.assert_called_once_with("sk_live")
 
     @patch("posthog.models.integration.capture_exception")
     @patch("stripe.StripeClient")
     @patch("posthog.models.integration.settings")
-    def test_write_posthog_secrets_skips_when_sandbox_keys_missing(self, mock_settings, MockStripeClient, mock_capture):
+    def test_write_posthog_secrets_skips_when_keys_missing(self, mock_settings, MockStripeClient, mock_capture):
         mock_settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID = self.oauth_app.client_id
-        mock_settings.STRIPE_APP_CLIENT_ID = "ca_live"
-        mock_settings.STRIPE_APP_SECRET_KEY = "sk_live"
-        mock_settings.STRIPE_APP_SANDBOX_CLIENT_ID = None
-        mock_settings.STRIPE_APP_SANDBOX_SECRET_KEY = None
+        mock_settings.STRIPE_APP_CLIENT_ID = None
+        mock_settings.STRIPE_APP_SECRET_KEY = None
         MockStripeClient.return_value = MagicMock()
 
         integration = Integration.objects.create(
             team=self.team,
             kind="stripe",
-            config={"is_sandbox": True},
+            config={},
             sensitive_config={},
-            integration_id="acct_sandbox_missing_write",
+            integration_id="acct_missing_write",
             created_by=self.user,
         )
         stripe_int = StripeIntegration(integration)
@@ -2261,19 +2255,15 @@ class TestStripeIntegrationOAuthTokens:
     @patch("posthog.models.integration.capture_exception")
     @patch("stripe.StripeClient")
     @patch("posthog.models.integration.settings")
-    def test_clear_posthog_secrets_skips_and_revokes_tokens_when_sandbox_keys_missing(
+    def test_clear_posthog_secrets_skips_and_revokes_tokens_when_keys_missing(
         self, mock_settings, MockStripeClient, mock_capture
     ):
         mock_settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID = self.oauth_app.client_id
-        mock_settings.STRIPE_APP_CLIENT_ID = "ca_live"
-        mock_settings.STRIPE_APP_SECRET_KEY = "sk_live"
-        mock_settings.STRIPE_APP_SANDBOX_CLIENT_ID = None
-        mock_settings.STRIPE_APP_SANDBOX_SECRET_KEY = None
+        mock_settings.STRIPE_APP_CLIENT_ID = None
+        mock_settings.STRIPE_APP_SECRET_KEY = None
         MockStripeClient.return_value = MagicMock()
 
         integration, access_token, refresh_token = self._create_integration_with_tokens()
-        integration.config = {"is_sandbox": True}
-        integration.save()
 
         stripe_int = StripeIntegration(integration)
         stripe_int.clear_posthog_secrets()

@@ -143,7 +143,6 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
             repo_research_task_id: str | None = None
             repo_research_run_id: str | None = None
 
-            workflow.deprecate_patch("posthog-code-slack-user-github-2026-06")
             cascade = await _execute_posthog_code_activity(
                 cascade_posthog_code_repository_activity,
                 inputs,
@@ -160,7 +159,6 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                 # answer with no repo; coding asks surface the connect-personal-
                 # GitHub prompt instead of silently no-op'ing.
                 repository = None
-                workflow.deprecate_patch("posthog-code-classify-before-gate-2026-06")
                 needs_repo = await _execute_posthog_code_activity(
                     classify_posthog_code_task_needs_repo_activity,
                     event.get("text", ""),

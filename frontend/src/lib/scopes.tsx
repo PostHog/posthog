@@ -70,6 +70,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'llm_skill', objectName: 'LLM skill', objectPlural: 'LLM skills' },
     { key: 'logs', objectName: 'Logs', objectPlural: 'logs' },
     { key: 'marketing_analytics', objectName: 'Marketing analytics', objectPlural: 'marketing analytics' },
+    { key: 'mcp_analytics', objectName: 'MCP analytics', objectPlural: 'MCP analytics' },
     { key: 'metrics', objectName: 'Metrics', objectPlural: 'metrics' },
     { key: 'notebook', objectName: 'Notebook', objectPlural: 'notebooks' },
     { key: 'organization', objectName: 'Organization', objectPlural: 'organizations', disabledWhenProjectScoped: true },
@@ -211,12 +212,17 @@ export const APIScopeActionLabels: Record<APIScopeAction, string> = {
     write: 'Write',
 }
 
-export const PROJECT_SECRET_API_KEY_SCOPE_PRESETS: {
+export type ProjectSecretAPIKeyScopePreset = {
     value: string
     label: string
     scopes: string[]
     isCloudOnly?: boolean
-}[] = [{ value: 'endpoint_execution', label: 'Endpoint execution', scopes: ['endpoint:read'] }]
+}
+
+export const PROJECT_SECRET_API_KEY_SCOPE_PRESETS: ProjectSecretAPIKeyScopePreset[] = [
+    { value: 'endpoint_execution', label: 'Endpoint execution', scopes: ['endpoint:read'] },
+    { value: 'llm_gateway', label: 'AI gateway access', scopes: ['llm_gateway:read'] },
+]
 
 export const DEFAULT_OAUTH_SCOPES = ['openid', 'email', 'profile']
 

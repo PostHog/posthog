@@ -9,7 +9,7 @@ from urllib.parse import quote
 
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db import transaction
+from django.db import connection, transaction
 from django.db.models import Prefetch, Q
 from django.utils import timezone
 
@@ -17,10 +17,12 @@ import structlog
 import temporalio
 from dateutil import parser
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_field
+from psycopg import OperationalError
 from rest_framework import filters, serializers, status, viewsets
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import APIException, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
+from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.schema import (
     SourceFieldFileUploadConfig,
@@ -53,7 +55,11 @@ from posthog.temporal.data_imports.sources.postgres.cdc.config import (
     DEFAULT_LAG_WARNING_THRESHOLD_MB,
 )
 from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import cdc_pg_connection
-from posthog.temporal.data_imports.sources.postgres.postgres import get_primary_key_columns, source_requires_ssl
+from posthog.temporal.data_imports.sources.postgres.postgres import (
+    SSLRequiredError,
+    get_primary_key_columns,
+    source_requires_ssl,
+)
 from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
 
 from products.cdp.backend.api.hog_function import HogFunctionSerializer
@@ -496,6 +502,32 @@ class ExternalDataSourceBulkUpdateSchemasSerializer(serializers.Serializer):
         allow_empty=False,
         help_text="Schema updates to apply in a single batch.",
     )
+
+
+def _validation_error_message(error: ValidationError) -> str:
+    # DRF normalizes ValidationError.detail to a list or dict (never a bare string).
+    detail = error.detail
+    if isinstance(detail, dict):
+        return " ".join(f"{field}: {value}" for field, value in detail.items())
+    return " ".join(str(item) for item in detail)
+
+
+class BulkSchemaSaveError(APIException):
+    default_code = "bulk_schema_save_failed"
+
+    def __init__(self, failures: dict[str, tuple[str, str]], *, only_validation_errors: bool) -> None:
+        # Pure input problems are the caller's to fix (400). A database/infra error is ours and is
+        # retryable (503); treat a mix as a server problem so it surfaces as retryable.
+        self.status_code = (
+            status.HTTP_400_BAD_REQUEST if only_validation_errors else status.HTTP_503_SERVICE_UNAVAILABLE
+        )
+        reasons = "; ".join(f"{name} ({reason})" for name, reason in failures.values())
+        super().__init__(
+            detail=(
+                f"These schemas in the batch could not be saved: {reasons}. "
+                "Any other schemas in the batch were saved successfully — retry the ones listed here."
+            )
+        )
 
 
 class ExternalDataJobSerializers(serializers.ModelSerializer):
@@ -1185,7 +1217,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
     queryset = ExternalDataSource.objects.all()
     serializer_class = ExternalDataSourceSerializers
     filter_backends = [filters.SearchFilter]
-    search_fields = ["source_id"]
+    # `source_id` is an opaque internal connection UUID — useless to search by. Callers
+    # (the in-app sources list, the MCP tool) narrow by what they can actually see: the
+    # source type ("Stripe", "Postgres") and the HogQL table prefix.
+    search_fields = ["source_type", "prefix"]
     ordering = "-created_at"
 
     def get_serializer_class(self) -> type[serializers.Serializer]:
@@ -2441,6 +2476,15 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 slot_name=slot_name,
                 publication_name=publication_name,
             )
+        except (OperationalError, BaseSSHTunnelForwarderError, SSLRequiredError) as e:
+            # Probing a user-supplied database to validate it is expected to fail when the host,
+            # credentials, or SSH tunnel are wrong or the server drops the connection. Surface it
+            # to the wizard as a 400, but don't capture it — these are user/upstream connection
+            # problems, not bugs in our code, and capturing every one floods error tracking.
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Could not connect to Postgres to check prerequisites: {e}"},
+            )
         except Exception as e:
             capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
             return Response(
@@ -3303,26 +3347,88 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
         serializer_context = self.get_serializer_context()
         updated_schemas: list[ExternalDataSchema] = []
-        post_commit_actions: list[Callable[[], None]] = []
-        update_serializer_context = {**serializer_context, "post_commit_actions": post_commit_actions}
+        # Each deferred action is paired with its schema so a post-commit failure can be attributed.
+        post_commit_actions: list[tuple[ExternalDataSchema, Callable[[], None]]] = []
 
-        with transaction.atomic():
-            for schema_update in schema_updates:
-                schema_id = schema_update["id"]
-                schema = source_schemas_by_id[schema_id]
-                schema_payload = {key: value for key, value in schema_update.items() if key != "id"}
+        # Validate every payload before writing anything, so a malformed request is rejected up
+        # front. Some checks only run inside the serializer's update() (during save() below), so
+        # this catches the common input errors but not all of them — the save loop handles the rest.
+        prepared: list[tuple[ExternalDataSchema, ExternalDataSchemaSerializer, list[Callable[[], None]]]] = []
+        for schema_update in schema_updates:
+            schema_id = schema_update["id"]
+            schema = source_schemas_by_id[schema_id]
+            schema_payload = {key: value for key, value in schema_update.items() if key != "id"}
 
-                schema_serializer = ExternalDataSchemaSerializer(
-                    schema,
-                    data=schema_payload,
-                    partial=True,
-                    context=update_serializer_context,
+            schema_post_commit_actions: list[Callable[[], None]] = []
+            schema_serializer = ExternalDataSchemaSerializer(
+                schema,
+                data=schema_payload,
+                partial=True,
+                context={**serializer_context, "post_commit_actions": schema_post_commit_actions},
+            )
+            schema_serializer.is_valid(raise_exception=True)
+            prepared.append((schema, schema_serializer, schema_post_commit_actions))
+
+        # Commit each schema in its own transaction. A single atomic block around the whole batch
+        # meant one schema's failure rolled back every schema and failed the request, so the user
+        # got nothing applied. Isolating per schema keeps the ones that saved committed, attempts
+        # every schema so a single bad one can't block the rest, and reports the failures together.
+        failed_schemas: dict[str, tuple[str, str]] = {}
+        only_validation_errors = True
+        for schema, schema_serializer, schema_post_commit_actions in prepared:
+            try:
+                with transaction.atomic():
+                    updated_schemas.append(schema_serializer.save())
+            except Exception as e:
+                if isinstance(e, ValidationError):
+                    reason = _validation_error_message(e)
+                    logger.warning(
+                        "bulk_update_schemas validation error during save",
+                        source_id=str(source.id),
+                        schema_id=str(schema.id),
+                    )
+                else:
+                    only_validation_errors = False
+                    reason = "a database error occurred while saving"
+                    capture_exception(e)
+                    logger.exception(
+                        "bulk_update_schemas failed to persist schema",
+                        source_id=str(source.id),
+                        schema_id=str(schema.id),
+                    )
+                failed_schemas[str(schema.id)] = (schema.name, reason)
+                # A dropped connection leaves Django holding a dead handle; reset it so the next
+                # schema reconnects instead of failing on the same broken connection.
+                if not connection.is_usable():
+                    connection.close()
+                continue
+
+            # Only run a schema's Temporal side effects once its own row is committed.
+            post_commit_actions.extend((schema, action) for action in schema_post_commit_actions)
+
+        post_commit_error: Exception | None = None
+        for action_schema, post_commit_action in post_commit_actions:
+            try:
+                post_commit_action()
+            except Exception as e:
+                # The row is already committed but its schedule still runs the old cadence. Capture +
+                # log every failure (with the schema id) so the drift is visible, and remember it so
+                # the request fails below — the caller must know the batch did not fully apply.
+                post_commit_error = e
+                capture_exception(e)
+                logger.warning(
+                    "bulk_update_schemas saved the schema but its Temporal schedule update failed",
+                    source_id=str(source.id),
+                    schema_id=str(action_schema.id),
+                    exc_info=e,
                 )
-                schema_serializer.is_valid(raise_exception=True)
-                updated_schemas.append(schema_serializer.save())
 
-        for post_commit_action in post_commit_actions:
-            post_commit_action()
+        # Report save failures first so a schedule-update failure can't mask which schemas didn't
+        # save, then fail the request on the schedule-update failure.
+        if failed_schemas:
+            raise BulkSchemaSaveError(failed_schemas, only_validation_errors=only_validation_errors)
+        if post_commit_error is not None:
+            raise post_commit_error
 
         return Response(
             ExternalDataSchemaSerializer(updated_schemas, many=True, context=serializer_context).data,

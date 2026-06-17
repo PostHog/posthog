@@ -5,6 +5,7 @@ import pytest
 from unittest.mock import Mock, patch
 
 from parameterized import parameterized
+from requests.exceptions import HTTPError
 
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.generated_configs import SentrySourceConfig
@@ -31,7 +32,7 @@ def _response(payload, status_code: int = 200, link_header: str = "") -> Mock:
 
     def _raise_for_status() -> None:
         if status_code >= 400:
-            raise Exception(f"{status_code} client error")
+            raise HTTPError(f"{status_code} Server Error", response=response)
 
     response.raise_for_status = _raise_for_status
     return response
@@ -64,6 +65,18 @@ class _FakeDltResource:
 
     def __iter__(self):
         return iter(self._rows)
+
+
+class _RaisingResource:
+    """Fan-out resource stand-in that raises an HTTPError when iterated."""
+
+    def __init__(self, status_code: int) -> None:
+        self._status_code = status_code
+
+    def __iter__(self):
+        response = Mock()
+        response.status_code = self._status_code
+        raise HTTPError(f"{self._status_code} Client Error", response=response)
 
 
 class TestSentryTransport:
@@ -335,6 +348,60 @@ class TestSentrySourceValidation:
         assert "_projects_id" not in row
         assert "_projects_slug" not in row
 
+    # ----- Project service hooks: graceful skip on org-gated 403 -----
+
+    @patch("posthog.temporal.data_imports.sources.sentry.sentry.build_dependent_resource")
+    def test_project_service_hooks_skips_on_forbidden(self, mock_build) -> None:
+        # Sentry 403s the service hooks endpoint for orgs without the feature,
+        # even with full scopes. The schema should complete empty, not error.
+        mock_build.return_value = _RaisingResource(403)
+
+        resp = sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="project_service_hooks",
+            team_id=123,
+            job_id="job-id",
+        )
+
+        assert list(cast(Any, resp.items())) == []
+
+    @patch("posthog.temporal.data_imports.sources.sentry.sentry.build_dependent_resource")
+    def test_project_service_hooks_propagates_non_forbidden(self, mock_build) -> None:
+        # A server error is not the org-gate signal — it must still propagate.
+        mock_build.return_value = _RaisingResource(500)
+
+        resp = sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="project_service_hooks",
+            team_id=123,
+            job_id="job-id",
+        )
+
+        with pytest.raises(HTTPError):
+            list(cast(Any, resp.items()))
+
+    @patch("posthog.temporal.data_imports.sources.sentry.sentry.build_dependent_resource")
+    def test_other_fanout_endpoint_propagates_forbidden(self, mock_build) -> None:
+        # A 403 on a non-servicehooks fan-out endpoint is a genuine scope error
+        # and must still reach the non-retryable handler.
+        mock_build.return_value = _RaisingResource(403)
+
+        resp = sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="project_users",
+            team_id=123,
+            job_id="job-id",
+        )
+
+        with pytest.raises(HTTPError):
+            list(cast(Any, resp.items()))
+
     # ----- Issue fan-out: dependent resources (issue_events, issue_hashes) -----
 
     @parameterized.expand(
@@ -441,6 +508,64 @@ class TestSentrySourceValidation:
         assert rows == [
             {"value": "Chrome", "lastSeen": "2026-03-05T12:00:00Z", "issue_id": "100", "tag_key": "browser"}
         ]
+
+    # Patch _request_with_retry directly so the test exercises the iterator's
+    # skip logic without incurring the real (post-exhaustion) retry sleeps.
+    @patch("posthog.temporal.data_imports.sources.sentry.sentry._request_with_retry")
+    def test_issue_tag_values_skips_tag_on_persistent_server_error(self, mock_request) -> None:
+        def side_effect(url, headers=None, params=None, timeout=None):
+            if url.endswith("/organizations/acme/issues/"):
+                return _response([{"id": "100"}])
+            if url.endswith("/organizations/acme/issues/100/tags/"):
+                return _response([{"key": "bad tag"}, {"key": "browser"}])
+            if "tags/bad%20tag/values/" in url:
+                # Sentry persistently 500s for this tag's values endpoint.
+                return _response(None, status_code=500)
+            if url.endswith("/organizations/acme/issues/100/tags/browser/values/"):
+                return _response([{"value": "Chrome"}])
+            return _response([])
+
+        mock_request.side_effect = side_effect
+
+        resp = sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="issue_tag_values",
+            team_id=123,
+            job_id="job-id",
+        )
+
+        # The 500 on the "bad tag" values endpoint is skipped; the healthy
+        # "browser" tag still yields its values instead of the whole sync crashing.
+        rows = list(cast(Any, resp.items()))
+        assert rows == [{"value": "Chrome", "issue_id": "100", "tag_key": "browser"}]
+
+    @patch("posthog.temporal.data_imports.sources.sentry.sentry._request_with_retry")
+    def test_issue_tag_values_propagates_client_error(self, mock_request) -> None:
+        def side_effect(url, headers=None, params=None, timeout=None):
+            if url.endswith("/organizations/acme/issues/"):
+                return _response([{"id": "100"}])
+            if url.endswith("/organizations/acme/issues/100/tags/"):
+                return _response([{"key": "browser"}])
+            if url.endswith("/organizations/acme/issues/100/tags/browser/values/"):
+                # A 4xx is not a transient upstream blip — it must still propagate.
+                return _response(None, status_code=403)
+            return _response([])
+
+        mock_request.side_effect = side_effect
+
+        resp = sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="issue_tag_values",
+            team_id=123,
+            job_id="job-id",
+        )
+
+        with pytest.raises(HTTPError):
+            list(cast(Any, resp.items()))
 
 
 class TestSentrySourceResumable:
