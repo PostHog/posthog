@@ -18,6 +18,15 @@ from posthog.temporal.data_imports.sources.generated_configs import GoogleSheets
 
 from products.data_warehouse.backend.types import IncrementalField, IncrementalFieldType
 
+# (connect, read) timeout for every Sheets API request, in seconds. gspread defaults to no
+# timeout, so a stalled connection blocks the worker thread indefinitely. Because the sync
+# activities are threaded, a blocked thread can't be interrupted cleanly — Temporal eventually
+# hits the activity's `start_to_close_timeout` and raises a `CancelledError` into the thread mid
+# socket-read, which surfaces as a noisy "Cancelled" error. A bounded timeout turns a stall into a
+# fast, retryable `requests.Timeout` instead. The read timeout is the max gap between received
+# bytes (not total download time), so it stays safe for large sheets that stream in steadily.
+_REQUEST_TIMEOUT_SECONDS: tuple[float, float] = (30.0, 120.0)
+
 
 def google_sheets_client() -> gspread.Client:
     credentials = service_account.Credentials.from_service_account_info(
@@ -36,7 +45,9 @@ def google_sheets_client() -> gspread.Client:
     adapter = make_tracked_adapter()
     session.mount("https://", adapter)
     session.mount("http://", adapter)
-    return gspread.authorize(credentials, session=session)
+    client = gspread.authorize(credentials, session=session)
+    client.set_timeout(_REQUEST_TIMEOUT_SECONDS)
+    return client
 
 
 cache: Cache[Any, Any] = TTLCache(maxsize=500, ttl=120)  # 120 seconds
@@ -60,6 +71,28 @@ _PERMISSION_DENIED_MESSAGE = "Spreadsheet access denied. Please share the spread
 T = TypeVar("T")
 
 
+def _is_retryable_api_error(e: gspread.exceptions.APIError) -> bool:
+    """Decide whether a gspread APIError is a transient error worth retrying.
+
+    We deliberately key off the HTTP status on the response rather than `e.code`.
+    gspread derives `e.code` from the JSON error body (`error.code`), which is not a
+    reliable signal for transient failures: when Google (or a gateway/proxy in front of
+    it) returns a 5xx/429 with a non-JSON body, gspread falls back to `code = -1`, and
+    some error envelopes carry the code as a string. In those cases the underlying request
+    is still a transient 5xx/429 that should be retried, but a `code`-based check misses it
+    and fails the sync on the first attempt. `response.status_code` is always the real HTTP
+    status, so prefer it and fall back to `e.code` only when it is unavailable."""
+
+    status_code = getattr(getattr(e, "response", None), "status_code", None)
+    if isinstance(status_code, int):
+        return status_code in _RETRYABLE_API_ERROR_CODES
+
+    try:
+        return int(e.code) in _RETRYABLE_API_ERROR_CODES
+    except (TypeError, ValueError):
+        return False
+
+
 def _retry_on_transient_api_error(execute: Callable[[], T]) -> T:
     """Run `execute` with linear backoff, retrying transient Google Sheets API
     errors. Google Sheets has a 300 request quota per minute, and also returns
@@ -77,7 +110,7 @@ def _retry_on_transient_api_error(execute: Callable[[], T]) -> T:
         try:
             return execute()
         except gspread.exceptions.APIError as e:
-            if e.code not in _RETRYABLE_API_ERROR_CODES or attempts >= max_attempts:
+            if not _is_retryable_api_error(e) or attempts >= max_attempts:
                 raise
 
             jitter = random.uniform(-jitter_in_seconds, jitter_in_seconds)

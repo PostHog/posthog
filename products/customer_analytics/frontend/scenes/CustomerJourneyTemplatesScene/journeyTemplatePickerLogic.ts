@@ -3,8 +3,8 @@ import { lazyLoaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
-import { isEmptyObject } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { isEmptyObject } from 'lib/utils/guards'
 import { urls } from 'scenes/urls'
 
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'

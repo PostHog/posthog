@@ -6,7 +6,7 @@ import { subscriptions } from 'kea-subscriptions'
 import { findElement } from 'posthog-js/dist/element-inference'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { uuid } from 'lib/utils'
+import { uuid } from 'lib/utils/dom'
 import { ProductTourEvent } from 'scenes/product-tours/constants'
 import { DEFAULT_APPEARANCE } from 'scenes/product-tours/constants'
 import { prepareStepForRender, prepareStepsForRender } from 'scenes/product-tours/editor/generateStepHtml'

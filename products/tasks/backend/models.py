@@ -220,6 +220,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
                 event=event,
                 properties=all_properties,
                 groups=groups(team=self.team),
+                send_feature_flags=True,
             )
         except Exception as e:
             logger.warning("task.capture_event_failed", analytics_event=event, error=str(e))
@@ -922,6 +923,7 @@ class TaskRun(models.Model):
                 "event": event,
                 "properties": all_properties,
                 "groups": groups(team=self.team),
+                "send_feature_flags": True,
             }
             if event_uuid:
                 capture_kwargs["uuid"] = event_uuid

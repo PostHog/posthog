@@ -9,7 +9,7 @@ import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimi
 import { Combobox } from 'lib/ui/Combobox/Combobox'
 import { Label } from 'lib/ui/Label/Label'
 import { MenuSeparator } from 'lib/ui/Menus/Menus'
-import { getProjectSwitchTargetUrl } from 'lib/utils/router-utils'
+import { getProjectSwitchTargetUrl } from 'lib/utils/kea-router'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
