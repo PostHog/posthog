@@ -1125,17 +1125,52 @@ describe('taxonomicBreakdownFilterLogic', () => {
                     breakdownFilter: {
                         breakdown: 'prop',
                         breakdown_type: 'event',
-                        breakdown_normalize_url: true,
+                        breakdown_normalize_url: false,
                     },
                 })
             )
             logic.mount()
 
+            await expectLogic(logic).toMatchValues({ normalizeBreakdownUrl: false })
+
             await expectLogic(logic, () => {
-                logic.actions.setNormalizeBreakdownURL('prop', 'event', false)
+                logic.actions.setNormalizeBreakdownURL('prop', 'event', true)
             }).toFinishListeners()
 
-            expect(updateBreakdownFilter).toHaveBeenCalledWith({ breakdown_normalize_url: false })
+            expect(updateBreakdownFilter).toHaveBeenCalledWith({ breakdown_normalize_url: true })
+        })
+
+        it('setPathCleaningEnabled: updates correctly', async () => {
+            logic = taxonomicBreakdownFilterLogic(
+                makeProps({
+                    breakdownFilter: {
+                        breakdown: 'prop',
+                        breakdown_type: 'event',
+                        breakdown_path_cleaning: true,
+                    },
+                })
+            )
+            logic.mount()
+
+            await expectLogic(logic).toMatchValues({ pathCleaningEnabled: true })
+
+            await expectLogic(logic, () => {
+                logic.actions.setPathCleaningEnabled('prop', 'event', false)
+            }).toFinishListeners()
+
+            expect(updateBreakdownFilter).toHaveBeenCalledWith({ breakdown_path_cleaning: false })
+        })
+
+        it('normalize url and path cleaning: defaults when unset', async () => {
+            logic = taxonomicBreakdownFilterLogic(
+                makeProps({ breakdownFilter: { breakdown: 'prop', breakdown_type: 'event' } })
+            )
+            logic.mount()
+
+            await expectLogic(logic).toMatchValues({
+                normalizeBreakdownUrl: true,
+                pathCleaningEnabled: false,
+            })
         })
 
         it('setHistogramBinsUsed: updates correctly', async () => {
