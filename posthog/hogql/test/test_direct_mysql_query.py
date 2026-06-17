@@ -368,6 +368,7 @@ class TestDirectMySQLQuery(APIBaseTest):
             ("executable_comment", "SELECT 1 /*!50000 INTO OUTFILE '/tmp/orders.csv' */"),
             ("mariadb_executable_comment", "SELECT 1 /*M!100100 INTO OUTFILE '/tmp/orders.csv' */"),
             ("for_update", "SELECT * FROM orders FOR UPDATE"),
+            ("for_share", "SELECT * FROM orders FOR SHARE"),
             ("lock_in_share_mode", "SELECT * FROM orders LOCK IN SHARE MODE"),
         ]
     )

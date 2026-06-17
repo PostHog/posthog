@@ -249,7 +249,7 @@ def ensure_read_only_raw_mysql_statement(sql: str) -> str:
             raise ExposedHogQLError(RAW_MYSQL_READ_ONLY_ERROR)
         if normalized_value == "LOAD_FILE" and index + 1 < len(token_values) and token_values[index + 1] == "(":
             raise ExposedHogQLError(RAW_MYSQL_READ_ONLY_ERROR)
-        if value == "FOR" and index + 1 < len(token_values) and token_values[index + 1] == "UPDATE":
+        if value == "FOR" and index + 1 < len(token_values) and token_values[index + 1] in {"UPDATE", "SHARE"}:
             raise ExposedHogQLError(RAW_MYSQL_READ_ONLY_ERROR)
         if token_values[index : index + 4] == ["LOCK", "IN", "SHARE", "MODE"]:
             raise ExposedHogQLError(RAW_MYSQL_READ_ONLY_ERROR)

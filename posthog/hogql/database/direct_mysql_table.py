@@ -16,6 +16,8 @@ class DirectMySQLTable(FunctionCallTable):
         return escape_hogql_identifier(self.name)
 
     def to_printed_mysql(self, context) -> str:
+        if not self.mysql_schema.strip():
+            raise QueryError("Direct MySQL tables require a database name.")
         return ".".join(
             [
                 escape_mysql_identifier(self.mysql_schema),
