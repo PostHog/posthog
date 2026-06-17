@@ -578,7 +578,7 @@ class HogFlowConversionSerializer(serializers.Serializer):
         required=False,
         help_text=(
             "Property-based conversion conditions, as an ARRAY of property filters: "
-            "[{key, value, operator, type: person|hogql}, ...]. Event-based goals do NOT go here — "
+            "[{key, value, operator, type: event|person|group}, ...]. Event-based goals do NOT go here — "
             "put them in 'events'. Empty array = any event within the window converts."
         ),
     )
@@ -741,7 +741,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         required=False,
         allow_null=True,
         help_text=(
-            "Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: person|hogql}]; "
+            "Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; "
             "events: event-based goals [{filters: {events: [...]}}]; window_minutes: minutes after entry. "
             "Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. "
             "bytecode compiled server-side."

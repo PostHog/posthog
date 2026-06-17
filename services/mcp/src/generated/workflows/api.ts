@@ -98,7 +98,7 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod.object({
                     .array(zod.record(zod.string(), zod.unknown()))
                     .optional()
                     .describe(
-                        "Property-based conversion conditions, as an ARRAY of property filters: [{key, value, operator, type: person|hogql}, ...]. Event-based goals do NOT go here — put them in 'events'. Empty array = any event within the window converts."
+                        "Property-based conversion conditions, as an ARRAY of property filters: [{key, value, operator, type: event|person|group}, ...]. Event-based goals do NOT go here — put them in 'events'. Empty array = any event within the window converts."
                     ),
                 events: zod
                     .array(
@@ -144,7 +144,7 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod.object({
         ])
         .optional()
         .describe(
-            'Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: person|hogql}]; events: event-based goals [{filters: {events: [...]}}]; window_minutes: minutes after entry. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side.'
+            'Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window_minutes: minutes after entry. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side.'
         ),
     exit_condition: zod
         .enum([
@@ -423,7 +423,7 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod.object({
                     .array(zod.record(zod.string(), zod.unknown()))
                     .optional()
                     .describe(
-                        "Property-based conversion conditions, as an ARRAY of property filters: [{key, value, operator, type: person|hogql}, ...]. Event-based goals do NOT go here — put them in 'events'. Empty array = any event within the window converts."
+                        "Property-based conversion conditions, as an ARRAY of property filters: [{key, value, operator, type: event|person|group}, ...]. Event-based goals do NOT go here — put them in 'events'. Empty array = any event within the window converts."
                     ),
                 events: zod
                     .array(
@@ -471,7 +471,7 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod.object({
         ])
         .optional()
         .describe(
-            'Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: person|hogql}]; events: event-based goals [{filters: {events: [...]}}]; window_minutes: minutes after entry. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side.'
+            'Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window_minutes: minutes after entry. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side.'
         ),
     exit_condition: zod
         .enum([

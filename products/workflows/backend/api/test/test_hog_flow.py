@@ -1271,6 +1271,54 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 400, response.json()
         assert "unknown target action 'ghost'" in str(response.json())
 
+    def _graph_insert_events_only_wait_ops(self) -> list[dict]:
+        # Splice an events-only wait_until_condition (no 'condition') between action_1 and exit_1, wiring
+        # both its edges: a branch edge at index 0 (resolution) and a continue edge (the timeout path).
+        return [
+            {"op": "remove_edge", "edge": {"from": "action_1", "to": "exit_1", "type": "continue"}},
+            {
+                "op": "add_action",
+                "action": {
+                    "id": "wait_1",
+                    "name": "Wait for purchase",
+                    "type": "wait_until_condition",
+                    "config": {
+                        "events": [
+                            {
+                                "filters": {
+                                    "events": [{"id": "purchase", "name": "purchase", "type": "events", "order": 0}]
+                                }
+                            }
+                        ],
+                        "max_wait_duration": "1h",
+                    },
+                },
+            },
+            {"op": "add_edge", "edge": {"from": "action_1", "to": "wait_1", "type": "continue"}},
+            {"op": "add_edge", "edge": {"from": "wait_1", "to": "exit_1", "type": "branch", "index": 0}},
+            {"op": "add_edge", "edge": {"from": "wait_1", "to": "exit_1", "type": "continue"}},
+        ]
+
+    def test_graph_events_only_wait_defaults_missing_condition(self):
+        # The /graph patch path is becoming the main MCP edit route and routes through the same validate()
+        # as create/update, so an events-only wait authored there must also get condition defaulted to
+        # {filters: None} (otherwise the visual editor's StepWaitUntilCondition crashes on it).
+        flow_id = self._create_draft_flow_with_graph()
+        response = self._patch_graph(flow_id, self._graph_insert_events_only_wait_ops())
+        assert response.status_code == 200, response.json()
+
+        wait = next(a for a in response.json()["actions"] if a["type"] == "wait_until_condition")
+        assert wait["config"]["condition"] == {"filters": None}, wait["config"]
+
+    def test_graph_wait_without_index_0_branch_rejected(self):
+        # A wait_until_condition wired with only a continue (timeout) edge silently never advances on
+        # resolution; the surgical endpoint rejects it so the agent fixes the missing resolution edge.
+        ops = [op for op in self._graph_insert_events_only_wait_ops() if op.get("edge", {}).get("type") != "branch"]
+        flow_id = self._create_draft_flow_with_graph()
+        response = self._patch_graph(flow_id, ops)
+        assert response.status_code == 400, response.json()
+        assert "missing its resolution edge" in str(response.json())
+
     def test_can_call_a_test_invocation(self):
         hog_flow, _ = self._create_hog_flow_with_action(
             {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
