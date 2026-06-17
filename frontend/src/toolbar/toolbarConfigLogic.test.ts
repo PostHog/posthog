@@ -8,6 +8,7 @@ import {
     toolbarFetch,
     toolbarUploadMedia,
 } from '~/toolbar/toolbarConfigLogic'
+import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { cleanToolbarAuthHash, OAUTH_LOCALSTORAGE_KEY, PKCE_STORAGE_KEY, readToolbarAuthHash } from '~/toolbar/utils'
 
 // The toolbar calls `global.fetch` directly (not the app api client / MSW). Reassign the mock per
@@ -349,6 +350,50 @@ describe('toolbar toolbarConfigLogic', () => {
             logic.mount()
             expect(logic.values.authStatus).toBe('checking')
             window.history.pushState({}, '', '/')
+        })
+    })
+
+    describe('ui host reachability check exception capture', () => {
+        // captureToolbarException delegates to toolbarPosthogJS.captureException, tagging every call with a
+        // `toolbar_context`. Spy there and filter for our context so unrelated posthog-js autocaptures
+        // (e.g. the SDK's own unhandled-rejection handler) don't pollute the assertion.
+        let captureExceptionSpy: jest.SpyInstance
+
+        const uiHostCheckCaptures = (): unknown[] =>
+            captureExceptionSpy.mock.calls.filter((c) => (c[1] as any)?.toolbar_context === 'ui_host_check')
+
+        beforeEach(() => {
+            captureExceptionSpy = jest.spyOn(toolbarPosthogJS, 'captureException').mockImplementation(() => '' as any)
+        })
+
+        afterEach(() => {
+            captureExceptionSpy.mockRestore()
+        })
+
+        it.each([
+            ['CORS/network failure (TypeError)', () => new TypeError('Failed to fetch')],
+            ['timeout (AbortError)', () => new DOMException('The operation timed out', 'AbortError')],
+        ])('does not capture an exception for benign %s', async (_label, makeError) => {
+            ;(global.fetch as jest.Mock).mockImplementation(() => Promise.reject(makeError()))
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
+            logic.mount()
+
+            await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'error' })
+            expect(uiHostCheckCaptures()).toHaveLength(0)
+        })
+
+        it('still captures an exception for unexpected HTTP errors', async () => {
+            ;(global.fetch as jest.Mock).mockImplementation(() => Promise.resolve({ ok: false, status: 500 }))
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
+            logic.mount()
+
+            await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'error' })
+            const captures = uiHostCheckCaptures()
+            expect(captures).toHaveLength(1)
+            expect(captures[0]).toEqual([
+                expect.any(Error),
+                expect.objectContaining({ toolbar_context: 'ui_host_check', error_type: 'http_error' }),
+            ])
         })
     })
 
