@@ -304,6 +304,27 @@ class TestPostgresSourceNonRetryableErrors:
         assert friendly, "TLS ALPN rejection error should surface an actionable message"
         assert "host and port" in friendly[0]
 
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Neon suspends compute when the plan's compute-time quota is exhausted; the handshake
+            # fails with this provider message. The host/IP and port are volatile and excluded.
+            'connection failed: connection to server at "44.198.216.75", port 5432 failed: ERROR:  Your account or project has exceeded the compute time quota. Upgrade your plan to increase limits.',
+            "OperationalError: Your account or project has exceeded the compute time quota. Upgrade your plan to increase limits.",
+        ],
+    )
+    def test_exceeded_compute_time_quota_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Exceeded compute-time quota error should be non-retryable: {error_msg}"
+
+    def test_exceeded_compute_time_quota_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = "Your account or project has exceeded the compute time quota. Upgrade your plan to increase limits."
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "Exceeded compute-time quota error should surface an actionable message"
+        assert "compute-time quota" in friendly[0]
+
     def test_supavisor_enotfound_tenant_user_uses_new_key(self, source):
         # The older tenant/user patterns don't cover the newer "(ENOTFOUND) tenant/user" wording,
         # so confirm it's specifically the new key that recognises this message.
