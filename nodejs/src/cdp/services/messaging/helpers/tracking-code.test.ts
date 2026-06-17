@@ -176,6 +176,22 @@ describe('email tracking code', () => {
                 },
             },
             {
+                // Security: a forged UNSIGNED code carrying a distinct_id must NOT be trusted —
+                // distinct_id is only honored from signed codes, so this one parses with no distinctId.
+                name: 'ignores distinct_id on an unsigned (forged) code',
+                encoded: encodeRaw('fn-1:inv-2:3:act-5:batch-4::attacker-distinct-id'),
+                expected: {
+                    functionId: 'fn-1',
+                    invocationId: 'inv-2',
+                    teamId: '3',
+                    actionId: 'act-5',
+                    parentRunId: 'batch-4',
+                    isTest: false,
+                    distinctId: undefined,
+                    format: 'unsigned',
+                },
+            },
+            {
                 name: 'returns null when the encoded string is empty',
                 encoded: '',
                 expected: null,

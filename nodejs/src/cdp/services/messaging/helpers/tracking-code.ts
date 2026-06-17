@@ -114,7 +114,11 @@ export const parseEmailTrackingCode = (
             actionId: actionId || undefined,
             parentRunId: parentRunId || undefined,
             isTest: isTest === '1',
-            distinctId: distinctIdParts.length > 0 ? distinctIdParts.join(':') || undefined : undefined,
+            // Only trust distinct_id from a signed code — the HMAC is its integrity guarantee. The
+            // legitimate unsigned tag never carries a distinct_id, so an unsigned code with one is
+            // forged; honoring it would let a crafted ph_id inject engagement events for any team.
+            distinctId:
+                format === 'signed' && distinctIdParts.length > 0 ? distinctIdParts.join(':') || undefined : undefined,
             format,
         }
     } catch {
