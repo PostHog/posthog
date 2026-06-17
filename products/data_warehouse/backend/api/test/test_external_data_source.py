@@ -577,6 +577,46 @@ class TestExternalDataSource(APIBaseTest):
         "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
         return_value=False,
     )
+    def test_bulk_update_schemas_warns_when_schedule_update_fails_after_save(self, _mock_workflow_exists):
+        # When a schema's row commits but its Temporal schedule update fails in the post-commit step,
+        # the failure must be logged rather than dropped silently — the DB now holds the new settings
+        # while the schedule still runs the old cadence.
+        source = self._create_external_data_source()
+        schema = ExternalDataSchema.objects.create(
+            name="Table0",
+            team_id=self.team.pk,
+            source=source,
+            should_sync=True,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+
+        with (
+            patch(
+                "products.data_warehouse.backend.api.external_data_schema.sync_external_data_job_workflow",
+                side_effect=Exception("temporal unavailable"),
+            ),
+            patch("products.data_warehouse.backend.api.external_data_source.logger") as mock_logger,
+        ):
+            try:
+                self.client.patch(
+                    f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/bulk_update_schemas",
+                    data={"schemas": [{"id": str(schema.id), "sync_frequency": "7day"}]},
+                    format="json",
+                )
+            except Exception:
+                # The post-commit failure surfaces as an error; the warning + commit are asserted below.
+                pass
+
+        # The row committed even though the schedule update failed afterwards...
+        schema.refresh_from_db()
+        assert sync_frequency_interval_to_sync_frequency(schema.sync_frequency_interval) == "7day"
+        # ...and a warning naming the schema was logged.
+        assert any(call.kwargs.get("schema_id") == str(schema.id) for call in mock_logger.warning.call_args_list)
+
+    @patch(
+        "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
+        return_value=False,
+    )
     def test_bulk_update_schemas_webhook_reconcile_raising_does_not_500(self, _mock_workflow_exists):
         # Webhook reconcile runs as a deferred post-commit hook in the bulk path, AFTER the
         # atomic block. If it raised there it would 500 the request with the rows already

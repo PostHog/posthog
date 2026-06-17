@@ -3329,7 +3329,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
         serializer_context = self.get_serializer_context()
         updated_schemas: list[ExternalDataSchema] = []
-        post_commit_actions: list[Callable[[], None]] = []
+        # Each deferred action is paired with its schema so a post-commit failure can be attributed.
+        post_commit_actions: list[tuple[ExternalDataSchema, Callable[[], None]]] = []
 
         # Validate every payload before writing anything, so a malformed request is rejected up
         # front. Some checks only run inside the serializer's update() (during save() below), so
@@ -3385,10 +3386,22 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 continue
 
             # Only run a schema's Temporal side effects once its own row is committed.
-            post_commit_actions.extend(schema_post_commit_actions)
+            post_commit_actions.extend((schema, action) for action in schema_post_commit_actions)
 
-        for post_commit_action in post_commit_actions:
-            post_commit_action()
+        for action_schema, post_commit_action in post_commit_actions:
+            try:
+                post_commit_action()
+            except Exception as e:
+                # The row is already committed; surface the stranded schedule update instead of
+                # letting it fail silently — the DB now holds the new settings while the Temporal
+                # schedule still runs the old cadence.
+                logger.warning(
+                    "bulk_update_schemas saved the schema but its Temporal schedule update failed",
+                    source_id=str(source.id),
+                    schema_id=str(action_schema.id),
+                    exc_info=e,
+                )
+                raise
 
         if failed_schemas:
             raise BulkSchemaSaveError(failed_schemas, only_validation_errors=only_validation_errors)
