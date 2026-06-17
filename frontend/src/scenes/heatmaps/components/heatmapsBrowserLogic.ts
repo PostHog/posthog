@@ -14,7 +14,7 @@ import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { CommonFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
 import { PostHogAppToolbarEvent, calculateViewportRange } from 'lib/components/IframedToolbarBrowser/utils'
 import { LemonBannerProps } from 'lib/lemon-ui/LemonBanner'
-import { objectsEqual } from 'lib/utils'
+import { objectsEqual } from 'lib/utils/objects'
 import { removeReplayIframeDataFromLocalStorage } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 import { hogql } from '~/queries/utils'

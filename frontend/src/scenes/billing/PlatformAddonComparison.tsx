@@ -21,7 +21,8 @@ import { UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
-import { humanFriendlyCurrency, toSentenceCase } from 'lib/utils'
+import { humanFriendlyCurrency } from 'lib/utils/numbers'
+import { toSentenceCase } from 'lib/utils/strings'
 
 import { BillingFeatureType, BillingPlan, BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 

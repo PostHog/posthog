@@ -235,8 +235,6 @@ test.describe('Funnel insights', () => {
         await test.step('switch back to Sequential', async () => {
             await insight.funnels.selectStepOrder('Sequential')
             await insight.funnels.waitForChart()
-            // Without this check a silently failed switch gets saved below, and any
-            // test reading this insight afterwards runs against the wrong step order.
             await expect(insight.funnels.stepOrderFilter).toContainText('Sequential')
         })
 

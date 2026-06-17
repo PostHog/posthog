@@ -6,8 +6,8 @@ import { Link } from '@posthog/lemon-ui'
 
 import { getRuntimeFromLib } from 'lib/components/Errors/utils'
 import { TZLabel } from 'lib/components/TZLabel'
-import { humanFriendlyLargeNumber } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
+import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'

@@ -72,6 +72,7 @@ env:
     INKEEP_API_KEY: ${{ secrets.INKEEP_API_KEY }}
     AZURE_INFERENCE_CREDENTIAL: ${{ secrets.AZURE_INFERENCE_CREDENTIAL }}
     AZURE_INFERENCE_ENDPOINT: ${{ secrets.AZURE_INFERENCE_ENDPOINT }}
+    PERSONHOG_ADDR: 'localhost:50052'
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}

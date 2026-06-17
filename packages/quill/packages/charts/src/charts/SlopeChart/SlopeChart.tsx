@@ -12,6 +12,7 @@ import type {
     TooltipContext,
     ValueDomain,
 } from '../../core/types'
+import { DefaultTooltip } from '../../overlays/DefaultTooltip'
 import { AXIS_LABEL_FONT, FONT_FAMILY, measureLabelWidth } from '../../utils/text-measure'
 import { LineChart } from '../LineChart/LineChart'
 import {
@@ -20,6 +21,7 @@ import {
     slopeEnd,
     slopeLabelVisible,
     slopeStart,
+    sortSlopeTooltipRows,
     type SlopeSeriesMeta,
 } from './slope-data'
 import { slopeLegendItems } from './slope-legend'
@@ -186,6 +188,14 @@ function SlopeChartInner<Meta = SlopeSeriesMeta>({
 
     const legendItems = useMemo(() => slopeLegendItems(series, theme, deltaFormatter), [series, theme, deltaFormatter])
 
+    // A caller-supplied tooltip takes precedence; otherwise sort the default rows (see helper).
+    const sortedTooltip = useCallback(
+        (ctx: TooltipContext<Meta>): React.ReactNode => (
+            <DefaultTooltip {...ctx} seriesData={sortSlopeTooltipRows(ctx.seriesData)} />
+        ),
+        []
+    )
+
     return (
         <ChartLegend
             show={legend?.show ?? false}
@@ -200,7 +210,7 @@ function SlopeChartInner<Meta = SlopeSeriesMeta>({
                 labels={slopeLabels}
                 config={lineConfig}
                 theme={theme}
-                tooltip={tooltip}
+                tooltip={tooltip ?? sortedTooltip}
                 onPointClick={onPointClick}
                 className={className}
                 dataAttr={dataAttr}
