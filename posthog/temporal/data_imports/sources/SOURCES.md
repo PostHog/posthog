@@ -273,6 +273,7 @@ doesn't conflict with concurrent PRs.
 - bluetally
 - boldsign
 - box
+- braintrust
 - branch
 - breezometer
 - breezy_hr
@@ -321,6 +322,7 @@ doesn't conflict with concurrent PRs.
 - customerly
 - databricks
 - datascope
+- datorama
 - db2
 - dbt
 - deputy
@@ -623,6 +625,8 @@ doesn't conflict with concurrent PRs.
 - stigg
 - stockdata
 - strava
+- streamelements
+- streamlabs
 - surveymonkey
 - surveysparrow
 - survicate

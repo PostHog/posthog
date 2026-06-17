@@ -1663,6 +1663,8 @@ export namespace Schemas {
 
 
     export const WidgetDateRangeDateFrom = {
+      '1m': '-1M',
+      '30m': '-30M',
       '1h': '-1h',
       '3h': '-3h',
       '24h': '-24h',
@@ -4093,14 +4095,123 @@ export namespace Schemas {
       config: SessionReplayListWidgetConfig;
     }
 
-    export type AddDashboardWidgetRequest = ActivityEventsListWidgetAddRequestOpenApi | ErrorTrackingListWidgetAddRequestOpenApi | SessionReplayListWidgetAddRequestOpenApi;
+    export type ExperimentsListWidgetAddRequestOpenApiWidgetType = typeof ExperimentsListWidgetAddRequestOpenApiWidgetType[keyof typeof ExperimentsListWidgetAddRequestOpenApiWidgetType];
+
+
+    export const ExperimentsListWidgetAddRequestOpenApiWidgetType = {
+      ExperimentsList: 'experiments_list',
+    } as const;
+
+    /**
+     * Experiment list sort column.
+     */
+    export type ExperimentsListWidgetConfigOrderBy = typeof ExperimentsListWidgetConfigOrderBy[keyof typeof ExperimentsListWidgetConfigOrderBy];
+
+
+    export const ExperimentsListWidgetConfigOrderBy = {
+      CreatedAt: 'created_at',
+      Name: 'name',
+      StartDate: 'start_date',
+    } as const;
+
+    /**
+     * Sort direction for orderBy.
+     */
+    export type ExperimentsListWidgetConfigOrderDirection = typeof ExperimentsListWidgetConfigOrderDirection[keyof typeof ExperimentsListWidgetConfigOrderDirection];
+
+
+    export const ExperimentsListWidgetConfigOrderDirection = {
+      Asc: 'ASC',
+      Desc: 'DESC',
+    } as const;
+
+    /**
+     * Experiment status filter.
+     */
+    export type ExperimentsListWidgetConfigStatus = typeof ExperimentsListWidgetConfigStatus[keyof typeof ExperimentsListWidgetConfigStatus];
+
+
+    export const ExperimentsListWidgetConfigStatus = {
+      Draft: 'draft',
+      Running: 'running',
+      Paused: 'paused',
+      Stopped: 'stopped',
+      All: 'all',
+    } as const;
+
+    export interface ExperimentsListWidgetConfig {
+      /**
+         * Maximum number of experiments to return.
+         * @minimum 1
+         * @maximum 25
+         */
+      limit?: number;
+      /** Experiment list sort column. */
+      orderBy?: ExperimentsListWidgetConfigOrderBy;
+      /** Sort direction for orderBy. */
+      orderDirection?: ExperimentsListWidgetConfigOrderDirection;
+      /** Experiment status filter. */
+      status?: ExperimentsListWidgetConfigStatus;
+      /** Filter by creator (user id). Omit for any creator. */
+      createdBy?: number | null;
+    }
+
+    export interface ExperimentsListWidgetAddRequestOpenApi {
+      /**
+         * Optional custom display name for the widget tile.
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /** Optional markdown description shown when show_description is enabled. */
+      description?: string;
+      /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
+      layouts?: _WidgetTileLayoutsOpenApi;
+      /** Whether to show the description on the dashboard tile. */
+      show_description?: boolean;
+      widget_type: ExperimentsListWidgetAddRequestOpenApiWidgetType;
+      /** Configuration for the experiments list widget. */
+      config: ExperimentsListWidgetConfig;
+    }
+
+    export type ExperimentResultsWidgetAddRequestOpenApiWidgetType = typeof ExperimentResultsWidgetAddRequestOpenApiWidgetType[keyof typeof ExperimentResultsWidgetAddRequestOpenApiWidgetType];
+
+
+    export const ExperimentResultsWidgetAddRequestOpenApiWidgetType = {
+      ExperimentResults: 'experiment_results',
+    } as const;
+
+    export interface ExperimentResultsWidgetConfig {
+      /** Experiment to show results for. Null until the user picks one in the widget settings. */
+      experimentId?: number | null;
+    }
+
+    export interface ExperimentResultsWidgetAddRequestOpenApi {
+      /**
+         * Optional custom display name for the widget tile.
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /** Optional markdown description shown when show_description is enabled. */
+      description?: string;
+      /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
+      layouts?: _WidgetTileLayoutsOpenApi;
+      /** Whether to show the description on the dashboard tile. */
+      show_description?: boolean;
+      widget_type: ExperimentResultsWidgetAddRequestOpenApiWidgetType;
+      /** Configuration for the experiment results widget. */
+      config: ExperimentResultsWidgetConfig;
+    }
+
+    export type AddDashboardWidgetRequest = ActivityEventsListWidgetAddRequestOpenApi | ErrorTrackingListWidgetAddRequestOpenApi | SessionReplayListWidgetAddRequestOpenApi | ExperimentsListWidgetAddRequestOpenApi | ExperimentResultsWidgetAddRequestOpenApi;
 
     /**
      * OpenAPI-only batch-add schema with widget_type-discriminated config shapes for agents.
      */
     export interface AddDashboardWidgetsBatchRequestOpenApi {
       /**
-         * Widget tiles to add atomically. Supported widget_type values: activity_events_list, error_tracking_list, session_replay_list. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
+         * Widget tiles to add atomically. Supported widget_type values: activity_events_list, error_tracking_list, experiment_results, experiments_list, session_replay_list. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
          * @minItems 1
          * @maxItems 10
          */
@@ -7083,7 +7194,7 @@ export namespace Schemas {
       team: number;
     }
 
-    export type DashboardWidgetConfig = ActivityEventsListWidgetConfig | ErrorTrackingListWidgetConfig | SessionReplayListWidgetConfig;
+    export type DashboardWidgetConfig = ActivityEventsListWidgetConfig | ErrorTrackingListWidgetConfig | SessionReplayListWidgetConfig | ExperimentsListWidgetConfig | ExperimentResultsWidgetConfig;
 
     export interface DashboardWidget {
       readonly id: string;
@@ -13797,6 +13908,8 @@ export namespace Schemas {
     /**
      * * `activity_events_list` - activity_events_list
      * * `error_tracking_list` - error_tracking_list
+     * * `experiment_results` - experiment_results
+     * * `experiments_list` - experiments_list
      * * `session_replay_list` - session_replay_list
      */
     export type DashboardPatchWidgetOpenApiWidgetTypeEnum = typeof DashboardPatchWidgetOpenApiWidgetTypeEnum[keyof typeof DashboardPatchWidgetOpenApiWidgetTypeEnum];
@@ -13805,6 +13918,8 @@ export namespace Schemas {
     export const DashboardPatchWidgetOpenApiWidgetTypeEnum = {
       ActivityEventsList: 'activity_events_list',
       ErrorTrackingList: 'error_tracking_list',
+      ExperimentResults: 'experiment_results',
+      ExperimentsList: 'experiments_list',
       SessionReplayList: 'session_replay_list',
     } as const;
 
@@ -13815,6 +13930,8 @@ export namespace Schemas {
        *
        * * `activity_events_list` - activity_events_list
        * * `error_tracking_list` - error_tracking_list
+       * * `experiment_results` - experiment_results
+       * * `experiments_list` - experiments_list
        * * `session_replay_list` - session_replay_list */
       widget_type?: DashboardPatchWidgetOpenApiWidgetTypeEnum;
       /** Widget-specific configuration. Shape depends on the tile's widget_type. */
@@ -15175,6 +15292,10 @@ export namespace Schemas {
      * * `YahooFinance` - YahooFinance
      * * `Clarifai` - Clarifai
      * * `Adapty` - Adapty
+     * * `Braintrust` - Braintrust
+     * * `StreamElements` - StreamElements
+     * * `Streamlabs` - Streamlabs
+     * * `Datorama` - Datorama
      * * `Custom` - Custom
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
@@ -15801,6 +15922,10 @@ export namespace Schemas {
       YahooFinance: 'YahooFinance',
       Clarifai: 'Clarifai',
       Adapty: 'Adapty',
+      Braintrust: 'Braintrust',
+      StreamElements: 'StreamElements',
+      Streamlabs: 'Streamlabs',
+      Datorama: 'Datorama',
       Custom: 'Custom',
     } as const;
 
@@ -16434,6 +16559,10 @@ export namespace Schemas {
        * * `YahooFinance` - YahooFinance
        * * `Clarifai` - Clarifai
        * * `Adapty` - Adapty
+       * * `Braintrust` - Braintrust
+       * * `StreamElements` - StreamElements
+       * * `Streamlabs` - Streamlabs
+       * * `Datorama` - Datorama
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
     }
@@ -17822,6 +17951,7 @@ export namespace Schemas {
     /**
      * * `duckdb` - duckdb
      * * `postgres` - postgres
+     * * `mysql` - mysql
      */
     export type EngineEnum = typeof EngineEnum[keyof typeof EngineEnum];
 
@@ -17829,6 +17959,7 @@ export namespace Schemas {
     export const EngineEnum = {
       Duckdb: 'duckdb',
       Postgres: 'postgres',
+      Mysql: 'mysql',
     } as const;
 
     /**
@@ -20262,6 +20393,35 @@ export namespace Schemas {
       readonly results: readonly MetricRecalculationResult[];
     }
 
+    export type ExperimentResultsWidgetCatalogEntryOpenApiWidgetType = typeof ExperimentResultsWidgetCatalogEntryOpenApiWidgetType[keyof typeof ExperimentResultsWidgetCatalogEntryOpenApiWidgetType];
+
+
+    export const ExperimentResultsWidgetCatalogEntryOpenApiWidgetType = {
+      ExperimentResults: 'experiment_results',
+    } as const;
+
+    export interface ExperimentResultsWidgetCatalogEntryOpenApi {
+      widget_type: ExperimentResultsWidgetCatalogEntryOpenApiWidgetType;
+      group_id: string;
+      group_label: string;
+      label: string;
+      description: string;
+      /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+      readonly config_schema: ExperimentResultsWidgetConfig;
+      /** @nullable */
+      required_product_access?: string | null;
+    }
+
+    /**
+     * * `experiment_results` - experiment_results
+     */
+    export type ExperimentResultsWidgetTypeEnum = typeof ExperimentResultsWidgetTypeEnum[keyof typeof ExperimentResultsWidgetTypeEnum];
+
+
+    export const ExperimentResultsWidgetTypeEnum = {
+      ExperimentResults: 'experiment_results',
+    } as const;
+
     /**
      * Mixin for serializers to add user access control fields
      */
@@ -20290,6 +20450,35 @@ export namespace Schemas {
          */
       readonly user_access_level: string | null;
     }
+
+    export type ExperimentsListWidgetCatalogEntryOpenApiWidgetType = typeof ExperimentsListWidgetCatalogEntryOpenApiWidgetType[keyof typeof ExperimentsListWidgetCatalogEntryOpenApiWidgetType];
+
+
+    export const ExperimentsListWidgetCatalogEntryOpenApiWidgetType = {
+      ExperimentsList: 'experiments_list',
+    } as const;
+
+    export interface ExperimentsListWidgetCatalogEntryOpenApi {
+      widget_type: ExperimentsListWidgetCatalogEntryOpenApiWidgetType;
+      group_id: string;
+      group_label: string;
+      label: string;
+      description: string;
+      /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+      readonly config_schema: ExperimentsListWidgetConfig;
+      /** @nullable */
+      required_product_access?: string | null;
+    }
+
+    /**
+     * * `experiments_list` - experiments_list
+     */
+    export type ExperimentsListWidgetTypeEnum = typeof ExperimentsListWidgetTypeEnum[keyof typeof ExperimentsListWidgetTypeEnum];
+
+
+    export const ExperimentsListWidgetTypeEnum = {
+      ExperimentsList: 'experiments_list',
+    } as const;
 
     export interface ExplainRequest {
       /** UUID of the log entry to explain */
@@ -20600,7 +20789,8 @@ export namespace Schemas {
       /** Backend engine detected for the direct connection.
        *
        * * `duckdb` - duckdb
-       * * `postgres` - postgres */
+       * * `postgres` - postgres
+       * * `mysql` - mysql */
       readonly engine: EngineEnum | null;
     }
 
@@ -21232,6 +21422,10 @@ export namespace Schemas {
        * * `YahooFinance` - YahooFinance
        * * `Clarifai` - Clarifai
        * * `Adapty` - Adapty
+       * * `Braintrust` - Braintrust
+       * * `StreamElements` - StreamElements
+       * * `Streamlabs` - Streamlabs
+       * * `Datorama` - Datorama
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
@@ -21319,7 +21513,8 @@ export namespace Schemas {
       /** Backend engine detected for the direct connection.
        *
        * * `duckdb` - duckdb
-       * * `postgres` - postgres */
+       * * `postgres` - postgres
+       * * `mysql` - mysql */
       readonly engine: EngineEnum | null;
       /** @nullable */
       readonly last_run_at: string | null;
@@ -21930,11 +22125,27 @@ export namespace Schemas {
       bucketing_identifier?: BucketingIdentifierEnum | null;
     }
 
+    export interface FeatureFlagRolloutSummary {
+      /** True if the flag is effectively rolled out to everyone, independent of recent evaluation. For boolean flags this means at least one release condition targets 100% with no property filters (or there are no release conditions); for multivariate flags it means a single variant is served to 100% via a fully rolled out release condition. This is the signal for 'fully rolled out' / GA — unlike `status`, which only reflects recent evaluation. */
+      effectively_full_rollout: boolean;
+      /** True if any release condition has property filters, i.e. the flag is conditionally targeted rather than a blanket rollout. When true, `max_rollout_percentage` is a percentage within the targeted segment, not of the whole user base. */
+      has_targeting_conditions: boolean;
+      /**
+         * Highest rollout percentage (0-100) across the flag's release conditions, treating a missing percentage as 100. Null when the flag has no release conditions. Interpret together with `has_targeting_conditions`.
+         * @nullable
+         */
+      max_rollout_percentage: number | null;
+      /** True if the flag serves multiple variants (has a multivariate variant set). */
+      is_multivariate: boolean;
+    }
+
     export interface FeatureFlagStatusResponse {
-      /** Flag status: active, stale, deleted, or unknown */
+      /** Flag staleness/evaluation status: active, stale, deleted, or unknown. 'active' means the flag was recently evaluated (or has no usage data yet) — it does NOT mean the flag is fully rolled out. Use the `rollout` object to determine rollout completeness. */
       status: string;
       /** Human-readable explanation of the status */
       reason: string;
+      /** Summary of the flag's rollout configuration, for determining whether it is fully rolled out. */
+      rollout: FeatureFlagRolloutSummary;
     }
 
     export interface FeatureFlagTestEvaluationRequest {
@@ -22270,6 +22481,11 @@ export namespace Schemas {
 
     export interface Run {
       approved_by?: UserBasicInfo | null;
+      /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of branch/run type, a commit SHA prefix, or an exact PR number) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`.
+       *
+       * * `exact` - exact
+       * * `similar` - similar */
+      readonly search_match_type: SearchMatchTypeEnum | null;
       id: string;
       repo_id: string;
       status: string;
@@ -22492,6 +22708,15 @@ export namespace Schemas {
       repositories: GitHubRepo[];
       /** Whether more repositories are available beyond this page. */
       has_more: boolean;
+    }
+
+    export interface GitHubSource {
+      /** Source id — pass as `source_id` to the other endpoints to read this source. */
+      id: string;
+      /** Connected repository as 'owner/name', or '' if unknown. */
+      repo: string;
+      /** User-chosen warehouse table-name prefix for this source, or '' when none. */
+      prefix: string;
     }
 
     export interface GitHubTeam {
@@ -23081,44 +23306,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `continue` - continue
-     * * `branch` - branch
-     */
-    export type HogFlowEdgeTypeEnum = typeof HogFlowEdgeTypeEnum[keyof typeof HogFlowEdgeTypeEnum];
-
-
-    export const HogFlowEdgeTypeEnum = {
-      Continue: 'continue',
-      Branch: 'branch',
-    } as const;
-
-    export interface HogFlowEdge {
-      /** Target action id. */
-      to: string;
-      /** continue: fall-through (sequential or the no-match path of conditional_branch). branch: requires 'index' matching config.conditions[index].
-       *
-       * * `continue` - continue
-       * * `branch` - branch */
-      type: HogFlowEdgeTypeEnum;
-      /** Required for type='branch'. Index into config.conditions on conditional_branch / wait_until_condition. */
-      index?: number;
-      /** Source action id. */
-      from: string;
-    }
-
-    /**
-     * * `continue` - continue
-     * * `abort` - abort
-     */
-    export type OnErrorEnum = typeof OnErrorEnum[keyof typeof OnErrorEnum];
-
-
-    export const OnErrorEnum = {
-      Continue: 'continue',
-      Abort: 'abort',
-    } as const;
-
-    /**
      * * `events` - events
      * * `person-updates` - person-updates
      * * `data-warehouse-table` - data-warehouse-table
@@ -23152,6 +23339,87 @@ export namespace Schemas {
       bytecode_error?: string;
     }
 
+    export interface HogFlowConversionEvent {
+      /** Event/action filters for this conversion event, same shape as trigger filters: {events: [{id, name, type: 'events', properties?: [<cond>]}], actions?: [...], properties?: [<cond>]}. bytecode is compiled server-side. */
+      filters: HogFunctionFilters;
+    }
+
+    export type HogFlowConversionFiltersItem = { [key: string]: unknown };
+
+    export interface HogFlowConversion {
+      /** Property-based conversion conditions, as an ARRAY of property filters: [{key, value, operator, type: event|person|group}, ...]. Event-based goals do NOT go here — put them in 'events'. Empty array = any event within the window converts. */
+      filters?: HogFlowConversionFiltersItem[];
+      /** Event-based conversion goals: [{filters: {events: [{id, name, type: 'events'}], ...}}]. */
+      events?: HogFlowConversionEvent[];
+      /**
+         * Conversion window in minutes after a person enters the workflow. null = no explicit window.
+         * @nullable
+         */
+      window_minutes?: number | null;
+      /** Compiled server-side from 'filters'. Do not set; ignored if sent. */
+      bytecode?: unknown;
+    }
+
+    /**
+     * * `continue` - continue
+     * * `branch` - branch
+     */
+    export type HogFlowEdgeTypeEnum = typeof HogFlowEdgeTypeEnum[keyof typeof HogFlowEdgeTypeEnum];
+
+
+    export const HogFlowEdgeTypeEnum = {
+      Continue: 'continue',
+      Branch: 'branch',
+    } as const;
+
+    export interface HogFlowEdge {
+      /** Target action id. */
+      to: string;
+      /** continue: fall-through (sequential or the no-match path of conditional_branch). branch: requires 'index' matching config.conditions[index].
+       *
+       * * `continue` - continue
+       * * `branch` - branch */
+      type: HogFlowEdgeTypeEnum;
+      /** Required for type='branch'. conditional_branch: index into config.conditions[index]. wait_until_condition: use index:0 — it advances via the index:0 branch edge when it resolves (a condition match or an events entry firing). */
+      index?: number;
+      /** Source action id. */
+      from: string;
+    }
+
+    /**
+     * * `continue` - continue
+     * * `abort` - abort
+     */
+    export type OnErrorEnum = typeof OnErrorEnum[keyof typeof OnErrorEnum];
+
+
+    export const OnErrorEnum = {
+      Continue: 'continue',
+      Abort: 'abort',
+    } as const;
+
+    /**
+     * Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}.
+     */
+    export type HogFlowActionConfig = { [key: string]: unknown } | {
+      /** Property-based wait condition; continues when the person matches. A condition with no property filters is ignored — the wait then relies on 'events' and the max_wait_duration timeout. */
+      condition?: {
+      /** Property conditions, e.g. {properties: [{key, value, operator, type}]}. */
+      filters?: HogFunctionFilters | null;
+      /** Optional display name. */
+      name?: string;
+    };
+      /** Events to wait for: continues when ANY entry fires (OR'd with 'condition'). Each entry: {filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}. */
+      events?: ({
+      /** Event/action filters; the workflow wakes when a matching event fires. Must target at least one event or action (entries targeting neither are dropped). */
+      filters?: HogFunctionFilters | null;
+      /** Optional display name. */
+      name?: string;
+    })[];
+      /** '<number><unit>' with unit m|h|d, e.g. '30m' (same rules as delay). */
+      max_wait_duration: string;
+    };
+
     export interface HogFlowAction {
       /** Unique node ID within the workflow. */
       id: string;
@@ -23178,8 +23446,8 @@ export namespace Schemas {
          * @maxLength 100
          */
       type: string;
-      /** Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, max_wait_duration: <duration>} (same rules as delay). exit: {reason}. */
-      config: unknown;
+      /** Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}. */
+      config: HogFlowActionConfig;
       /** Output variable definition for downstream actions. */
       output_variable?: unknown;
     }
@@ -23249,8 +23517,8 @@ export namespace Schemas {
       readonly trigger: unknown;
       /** Optional dedup/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable. */
       trigger_masking?: HogFlowMasking | null;
-      /** Conversion goal: {filters: [<cond>, ...], window_minutes}. <cond>: {key, value, operator, type: event|person|group}. Empty filters = any event in window. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
-      conversion?: unknown;
+      /** Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window_minutes: minutes after entry. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
+      conversion?: HogFlowConversion | null;
       /** exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').
        *
        * * `exit_on_conversion` - Conversion
@@ -30435,6 +30703,8 @@ export namespace Schemas {
      * * `signals_scout` - Signals scout
      * * `logs` - Logs
      * * `health_checks` - Health checks
+     * * `endpoints` - Endpoints
+     * * `replay_vision` - Replay Vision
      */
     export type SourceProductEnum = typeof SourceProductEnum[keyof typeof SourceProductEnum];
 
@@ -30451,6 +30721,8 @@ export namespace Schemas {
       SignalsScout: 'signals_scout',
       Logs: 'logs',
       HealthChecks: 'health_checks',
+      Endpoints: 'endpoints',
+      ReplayVision: 'replay_vision',
     } as const;
 
     /**
@@ -30464,6 +30736,9 @@ export namespace Schemas {
      * * `cross_source_issue` - Cross source issue
      * * `alert_state_change` - Alert state change
      * * `health_issue` - Health issue
+     * * `endpoint_execution_failed` - Endpoint execution failed
+     * * `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded
+     * * `scanner_finding` - Scanner finding
      */
     export type SignalSourceConfigSourceTypeEnum = typeof SignalSourceConfigSourceTypeEnum[keyof typeof SignalSourceConfigSourceTypeEnum];
 
@@ -30479,6 +30754,9 @@ export namespace Schemas {
       CrossSourceIssue: 'cross_source_issue',
       AlertStateChange: 'alert_state_change',
       HealthIssue: 'health_issue',
+      EndpointExecutionFailed: 'endpoint_execution_failed',
+      EndpointBreakdownLimitExceeded: 'endpoint_breakdown_limit_exceeded',
+      ScannerFinding: 'scanner_finding',
     } as const;
 
     export interface SignalSourceConfig {
@@ -34602,7 +34880,8 @@ export namespace Schemas {
       /** Backend engine detected for the direct connection.
        *
        * * `duckdb` - duckdb
-       * * `postgres` - postgres */
+       * * `postgres` - postgres
+       * * `mysql` - mysql */
       readonly engine?: EngineEnum | null;
       /** @nullable */
       readonly last_run_at?: string | null;
@@ -34935,8 +35214,8 @@ export namespace Schemas {
       readonly trigger?: unknown;
       /** Optional dedup/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable. */
       trigger_masking?: HogFlowMasking | null;
-      /** Conversion goal: {filters: [<cond>, ...], window_minutes}. <cond>: {key, value, operator, type: event|person|group}. Empty filters = any event in window. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
-      conversion?: unknown;
+      /** Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window_minutes: minutes after entry. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
+      conversion?: HogFlowConversion | null;
       /** exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').
        *
        * * `exit_on_conversion` - Conversion
@@ -44361,7 +44640,7 @@ export namespace Schemas {
       /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true. */
       emit?: boolean;
       /**
-         * Minutes between runs (10–43200). Defaults to 60 (hourly).
+         * Minutes between runs (10–43200). Defaults to 180 (every 3 hours).
          * @minimum 10
          * @maximum 43200
          */
@@ -45445,6 +45724,10 @@ export namespace Schemas {
        * * `YahooFinance` - YahooFinance
        * * `Clarifai` - Clarifai
        * * `Adapty` - Adapty
+       * * `Braintrust` - Braintrust
+       * * `StreamElements` - StreamElements
+       * * `Streamlabs` - Streamlabs
+       * * `Datorama` - Datorama
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
@@ -46104,6 +46387,10 @@ export namespace Schemas {
        * * `YahooFinance` - YahooFinance
        * * `Clarifai` - Clarifai
        * * `Adapty` - Adapty
+       * * `Braintrust` - Braintrust
+       * * `StreamElements` - StreamElements
+       * * `Streamlabs` - Streamlabs
+       * * `Datorama` - Datorama
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
@@ -48313,7 +48600,7 @@ export namespace Schemas {
       is_organization_first_user: boolean;
     }
 
-    export type WidgetCatalogEntry = ActivityEventsListWidgetCatalogEntryOpenApi | ErrorTrackingListWidgetCatalogEntryOpenApi | SessionReplayListWidgetCatalogEntryOpenApi;
+    export type WidgetCatalogEntry = ActivityEventsListWidgetCatalogEntryOpenApi | ErrorTrackingListWidgetCatalogEntryOpenApi | SessionReplayListWidgetCatalogEntryOpenApi | ExperimentsListWidgetCatalogEntryOpenApi | ExperimentResultsWidgetCatalogEntryOpenApi;
 
     export interface WidgetCatalogResponse {
       /** Registered dashboard widget types available when dashboard-widgets is enabled. */
@@ -60788,6 +61075,10 @@ export namespace Schemas {
      * Filter by review state
      */
     review_state?: string;
+    /**
+     * Free-text search over branch, commit SHA, run type, and PR number
+     */
+    search?: string;
     };
 
     export type VisualReviewReposSnapshotsListParams = {
@@ -60826,6 +61117,10 @@ export namespace Schemas {
      * Filter by review state
      */
     review_state?: string;
+    /**
+     * Free-text search over branch, commit SHA, run type, and PR number
+     */
+    search?: string;
     };
 
     export type VisualReviewRunsSnapshotHistoryListParams = {

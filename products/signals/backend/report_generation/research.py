@@ -591,6 +591,7 @@ async def run_multi_turn_research(
         output_fn=output_fn,
         origin_product=Task.OriginProduct.SIGNAL_REPORT,
         signal_report_id=signal_report_id,
+        ai_stage="research",
         internal=True,
     )
 
