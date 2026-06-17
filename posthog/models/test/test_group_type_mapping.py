@@ -27,7 +27,6 @@ from posthog.models.group_type_mapping import (
     project_has_group_types_authoritatively,
     update_group_type_mapping_fields,
 )
-from posthog.person_db_router import PERSONS_DB_FOR_WRITE
 from posthog.personhog_client.fake_client import FakePersonHogClient
 from posthog.utils import get_safe_cache, safe_cache_delete, safe_cache_set
 
@@ -1286,6 +1285,16 @@ class TestRecordGroupTypesFetchFailureThrottle(SimpleTestCase):
 
 class TestProjectHasGroupTypesAuthoritatively(SimpleTestCase):
     _PROJECT_IDS = (123, 777, 888)
+    _DIRECT_PATCH = "posthog.models.group_type_mapping._fetch_group_types_for_project_direct"
+    _SAMPLE_ROW = {
+        "group_type": "organization",
+        "group_type_index": 0,
+        "name_singular": None,
+        "name_plural": None,
+        "detail_dashboard": None,
+        "default_columns": None,
+        "created_at": None,
+    }
 
     def setUp(self):
         self._clear_markers()
@@ -1297,50 +1306,42 @@ class TestProjectHasGroupTypesAuthoritatively(SimpleTestCase):
         for project_id in self._PROJECT_IDS:
             safe_cache_delete(f"{GROUP_TYPES_CONFIRMED_EMPTY_CACHE_KEY_PREFIX}{project_id}")
 
-    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
-    def test_returns_true_when_rows_exist(self, mock_objects):
-        mock_objects.using.return_value.filter.return_value.exists.return_value = True
+    @patch(_DIRECT_PATCH)
+    def test_returns_true_when_rows_exist(self, mock_fetch):
+        mock_fetch.return_value = [self._SAMPLE_ROW]
 
         assert project_has_group_types_authoritatively(123) is True
-        # Reads the primary, not a replica, so a lagging read cannot fake a deletion.
-        mock_objects.using.assert_called_once_with(PERSONS_DB_FOR_WRITE)
-        mock_objects.using.return_value.filter.assert_called_once_with(project_id=123)
+        mock_fetch.assert_called_once_with(123, "strong")
 
-    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
-    def test_returns_false_when_no_rows(self, mock_objects):
-        mock_objects.using.return_value.filter.return_value.exists.return_value = False
+    @patch(_DIRECT_PATCH)
+    def test_returns_false_when_no_rows(self, mock_fetch):
+        mock_fetch.return_value = []
 
         assert project_has_group_types_authoritatively(123) is False
 
-    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
-    def test_fails_closed_on_db_error(self, mock_objects):
+    @patch(_DIRECT_PATCH)
+    def test_fails_closed_on_db_error(self, mock_fetch):
         from django.db import DatabaseError
 
-        mock_objects.using.return_value.filter.return_value.exists.side_effect = DatabaseError("db down")
+        mock_fetch.side_effect = DatabaseError("db down")
 
-        # Cannot confirm absence → assume present so the caller keeps the existing entry.
         assert project_has_group_types_authoritatively(123) is True
 
-    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
-    def test_confirmed_empty_marker_short_circuits_second_call(self, mock_objects):
-        exists_mock = mock_objects.using.return_value.filter.return_value.exists
-        exists_mock.return_value = False
+    @patch(_DIRECT_PATCH)
+    def test_confirmed_empty_marker_short_circuits_second_call(self, mock_fetch):
+        mock_fetch.return_value = []
 
-        # First call confirms empty against the DB and caches the marker.
         assert project_has_group_types_authoritatively(777) is False
-        # Second call reads the marker instead of probing the writer DB again.
         assert project_has_group_types_authoritatively(777) is False
-        exists_mock.assert_called_once()
+        mock_fetch.assert_called_once()
 
-    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
-    def test_present_result_is_not_cached(self, mock_objects):
-        exists_mock = mock_objects.using.return_value.filter.return_value.exists
-        exists_mock.return_value = True
+    @patch(_DIRECT_PATCH)
+    def test_present_result_is_not_cached(self, mock_fetch):
+        mock_fetch.return_value = [self._SAMPLE_ROW]
 
-        # A True is never cached, so a later deletion is seen on the next call.
         assert project_has_group_types_authoritatively(777) is True
         assert project_has_group_types_authoritatively(777) is True
-        assert exists_mock.call_count == 2
+        assert mock_fetch.call_count == 2
 
     def test_invalidate_group_types_cache_clears_confirmed_empty_marker(self):
         marker_key = f"{GROUP_TYPES_CONFIRMED_EMPTY_CACHE_KEY_PREFIX}888"
@@ -1348,7 +1349,6 @@ class TestProjectHasGroupTypesAuthoritatively(SimpleTestCase):
 
         invalidate_group_types_cache(888)
 
-        # A team adding its first group type must stop short-circuiting to False at once.
         assert get_safe_cache(marker_key) is None
 
 
@@ -1542,95 +1542,22 @@ class TestGetGroupTypeMappingInstance(SimpleTestCase):
 
         mock_builder.assert_called_once_with(PERSONHOG_SUCCESS_DATA[0], project_id=self.project_id, team=team)
 
-    @patch("posthog.models.group_type_mapping.invalidate_group_types_cache")
-    @patch("posthog.models.group_type_mapping.get_group_types_for_project")
-    def test_handles_rows_without_group_type_index_key(self, mock_get, mock_invalidate):
-        mock_get.return_value = [{"stale": True}]
+    @patch("posthog.models.group_type_mapping._fetch_group_types_for_project_direct")
+    def test_consistency_strong_bypasses_cache(self, mock_fetch):
+        mock_fetch.return_value = PERSONHOG_SUCCESS_DATA
+        mock_builder_result = MagicMock(spec=GroupTypeMapping)
+
+        with patch(
+            "posthog.models.group_type_mapping._dict_to_group_type_mapping_model", return_value=mock_builder_result
+        ):
+            result = get_group_type_mapping_instance(self.project_id, 0, consistency="strong")
+
+        assert result is mock_builder_result
+        mock_fetch.assert_called_once()
+
+    @patch("posthog.models.group_type_mapping._fetch_group_types_for_project_direct")
+    def test_consistency_strong_raises_does_not_exist(self, mock_fetch):
+        mock_fetch.return_value = PERSONHOG_SUCCESS_DATA
 
         with self.assertRaises(GroupTypeMapping.DoesNotExist):
-            get_group_type_mapping_instance(self.project_id, 0)
-
-
-class TestProjectHasGroupTypesAuthoritativelyPersonhog(SimpleTestCase):
-    _PROJECT_IDS = (123,)
-
-    def setUp(self):
-        for pid in self._PROJECT_IDS:
-            safe_cache_delete(f"{GROUP_TYPES_CONFIRMED_EMPTY_CACHE_KEY_PREFIX}{pid}")
-
-    def tearDown(self):
-        for pid in self._PROJECT_IDS:
-            safe_cache_delete(f"{GROUP_TYPES_CONFIRMED_EMPTY_CACHE_KEY_PREFIX}{pid}")
-
-    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
-    @patch(_CLIENT_PATCH)
-    def test_personhog_returns_true_when_mappings_exist(self, mock_get_client, mock_objects):
-        mock_client = MagicMock()
-        resp = MagicMock()
-        resp.mappings = [MagicMock()]
-        mock_client.get_group_type_mappings_by_project_id.return_value = resp
-        mock_get_client.return_value = mock_client
-
-        assert project_has_group_types_authoritatively(123) is True
-
-        mock_client.get_group_type_mappings_by_project_id.assert_called_once()
-        req = mock_client.get_group_type_mappings_by_project_id.call_args[0][0]
-        assert req.project_id == 123
-        from posthog.personhog_client.proto import CONSISTENCY_LEVEL_STRONG
-
-        assert req.read_options.consistency == CONSISTENCY_LEVEL_STRONG
-        mock_objects.using.assert_not_called()
-
-    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
-    @patch(_CLIENT_PATCH)
-    def test_personhog_returns_false_when_no_mappings(self, mock_get_client, mock_objects):
-        mock_client = MagicMock()
-        resp = MagicMock()
-        resp.mappings = []
-        mock_client.get_group_type_mappings_by_project_id.return_value = resp
-        mock_get_client.return_value = mock_client
-
-        assert project_has_group_types_authoritatively(123) is False
-
-        mock_objects.using.assert_not_called()
-
-    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
-    @patch(_CLIENT_PATCH)
-    def test_personhog_failure_falls_back_to_orm(self, mock_get_client, mock_objects):
-        mock_client = MagicMock()
-        mock_client.get_group_type_mappings_by_project_id.side_effect = RuntimeError("grpc down")
-        mock_get_client.return_value = mock_client
-
-        mock_objects.using.return_value.filter.return_value.exists.return_value = True
-
-        assert project_has_group_types_authoritatively(123) is True
-
-        mock_objects.using.assert_called_once_with(PERSONS_DB_FOR_WRITE)
-
-    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
-    @patch(_CLIENT_PATCH)
-    def test_personhog_false_sets_confirmed_empty_marker(self, mock_get_client, mock_objects):
-        mock_client = MagicMock()
-        resp = MagicMock()
-        resp.mappings = []
-        mock_client.get_group_type_mappings_by_project_id.return_value = resp
-        mock_get_client.return_value = mock_client
-
-        assert project_has_group_types_authoritatively(123) is False
-
-        marker = get_safe_cache(f"{GROUP_TYPES_CONFIRMED_EMPTY_CACHE_KEY_PREFIX}123")
-        assert marker is True
-
-    @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
-    @patch(_CLIENT_PATCH)
-    def test_personhog_true_does_not_set_confirmed_empty_marker(self, mock_get_client, mock_objects):
-        mock_client = MagicMock()
-        resp = MagicMock()
-        resp.mappings = [MagicMock()]
-        mock_client.get_group_type_mappings_by_project_id.return_value = resp
-        mock_get_client.return_value = mock_client
-
-        assert project_has_group_types_authoritatively(123) is True
-
-        marker = get_safe_cache(f"{GROUP_TYPES_CONFIRMED_EMPTY_CACHE_KEY_PREFIX}123")
-        assert marker is None
+            get_group_type_mapping_instance(self.project_id, 99, consistency="strong")

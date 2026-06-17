@@ -21,6 +21,7 @@ from prometheus_client import Counter
 
 from posthog.models.utils import RootTeamMixin
 from posthog.person_db_router import PERSONS_DB_FOR_WRITE
+from posthog.personhog_client import ReadConsistency, consistency_to_read_options
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.personhog_client.metrics import PERSONHOG_ROUTING_ERRORS_TOTAL, PERSONHOG_ROUTING_TOTAL, get_client_name
 from posthog.rbac.decorators import field_access_control
@@ -448,10 +449,9 @@ def project_has_group_types_authoritatively(project_id: int) -> bool:
     (the per-project stale key) is absent, so a write that would empty a populated
     mapping is only allowed when the project is *confirmed* to have no group types.
 
-    Uses personhog with CONSISTENCY_LEVEL_STRONG so the read hits the primary, not a
-    lagging replica.  Falls back to a direct ORM read against the writer DB if personhog
-    is unavailable.  On any error it returns True — the caller must not treat an
-    unconfirmable state as safe to empty.
+    Uses _fetch_group_types_for_project_direct with "strong" consistency so the read
+    hits the primary, not a lagging replica.  On any error it returns True — the caller
+    must not treat an unconfirmable state as safe to empty.
 
     A short-lived "confirmed empty" marker caches the authoritative False so a team
     that has never had group types — the common case, where this fires on every
@@ -459,37 +459,12 @@ def project_has_group_types_authoritatively(project_id: int) -> bool:
     clears the marker when a group type is created, and the short TTL bounds the window
     if that invalidation is ever missed.
     """
-    from posthog.personhog_client.proto import (
-        CONSISTENCY_LEVEL_STRONG,
-        GetGroupTypeMappingsByProjectIdRequest,
-        ReadOptions,
-    )
-
     confirmed_empty_key = f"{GROUP_TYPES_CONFIRMED_EMPTY_CACHE_KEY_PREFIX}{project_id}"
     if get_safe_cache(confirmed_empty_key):
         return False
 
     try:
-        has_group_types = _personhog_routed(
-            "project_has_group_types_authoritatively",
-            lambda client: (
-                len(
-                    client.get_group_type_mappings_by_project_id(
-                        GetGroupTypeMappingsByProjectIdRequest(
-                            project_id=project_id,
-                            read_options=ReadOptions(consistency=CONSISTENCY_LEVEL_STRONG),
-                        )
-                    ).mappings
-                )
-                > 0
-            ),
-            lambda: (
-                GroupTypeMapping.objects.using(PERSONS_DB_FOR_WRITE)  # nosemgrep: no-direct-persons-db-orm
-                .filter(project_id=project_id)
-                .exists()
-            ),
-            project_id=project_id,
-        )
+        has_group_types = len(_fetch_group_types_for_project_direct(project_id, "strong")) > 0
     except DatabaseError:
         logger.warning("group_types_primary_confirmation_failed", project_id=project_id, exc_info=True)
         return True
@@ -515,7 +490,7 @@ def _dict_to_group_type_mapping_model(
     detail_dashboard_id = row.get("detail_dashboard", row.get("detail_dashboard_id"))
     obj = GroupTypeMapping(
         project_id=project_id,
-        team=team,  # type: ignore[misc]
+        team=team,
         group_type=row["group_type"],
         group_type_index=row["group_type_index"],
         name_singular=row.get("name_singular"),
@@ -528,19 +503,66 @@ def _dict_to_group_type_mapping_model(
     return obj
 
 
+def _fetch_group_types_for_project_direct(
+    project_id: int,
+    consistency: ReadConsistency,
+) -> list[dict[str, Any]]:
+    """Cache-bypassing read at the requested consistency level."""
+    from posthog.personhog_client.converters import proto_group_type_mapping_to_dict
+    from posthog.personhog_client.proto import GetGroupTypeMappingsByProjectIdRequest
+
+    db_alias = PERSONS_DB_FOR_WRITE if consistency == "strong" else "default"
+
+    return _personhog_routed(
+        "get_group_types_for_project_direct",
+        lambda client: sorted(
+            [
+                proto_group_type_mapping_to_dict(m)
+                for m in client.get_group_type_mappings_by_project_id(
+                    GetGroupTypeMappingsByProjectIdRequest(
+                        project_id=project_id,
+                        read_options=consistency_to_read_options(consistency),
+                    )
+                ).mappings
+            ],
+            key=lambda d: d["group_type_index"],
+        ),
+        lambda: list(
+            GroupTypeMapping.objects.using(db_alias)  # nosemgrep: no-direct-persons-db-orm
+            .filter(project_id=project_id)
+            .order_by("group_type_index")
+            .values(*GROUP_TYPE_MAPPING_SERIALIZER_FIELDS)
+        ),
+        project_id=project_id,
+    )
+
+
 def get_group_type_mapping_instance(
     project_id: int,
     group_type_index: int,
     *,
     team: Team | None = None,
+    consistency: ReadConsistency | None = None,
 ) -> GroupTypeMapping:
     """Fetch a single GroupTypeMapping by (project_id, group_type_index) via personhog.
 
-    Uses the cached, personhog-routed get_group_types_for_project helper so reads
-    never hit the persons DB directly.  If the mapping isn't in the cached results
-    (stale cache, race with a concurrent create), invalidates the cache and retries
-    once before raising GroupTypeMapping.DoesNotExist.
+    When consistency is None (default), uses the cached get_group_types_for_project
+    helper.  If the mapping isn't in the cached results, invalidates the cache and
+    retries once before raising GroupTypeMapping.DoesNotExist.
+
+    When consistency is set (e.g. "strong"), skips the cache and does a direct read
+    at the requested consistency level — use "strong" before writes to avoid acting
+    on stale data.
     """
+    if consistency is not None:
+        rows = _fetch_group_types_for_project_direct(project_id, consistency)
+        for row in rows:
+            if row["group_type_index"] == group_type_index:
+                return _dict_to_group_type_mapping_model(row, project_id=project_id, team=team)
+        raise GroupTypeMapping.DoesNotExist(
+            f"GroupTypeMapping matching query does not exist: project_id={project_id}, group_type_index={group_type_index}"
+        )
+
     rows = get_group_types_for_project(project_id)
     for row in rows:
         if row["group_type_index"] == group_type_index:

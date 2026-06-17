@@ -140,17 +140,15 @@ def _group_type_row_to_response(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-class GroupsTypesViewSet(TeamAndOrgViewSetMixin, mixins.DestroyModelMixin, viewsets.GenericViewSet):
+class GroupsTypesViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "group"
     serializer_class = GroupTypeSerializer
-    queryset = GroupTypeMapping.objects.all().order_by("group_type_index")  # nosemgrep: no-direct-persons-db-orm
+    # DRF requires a queryset for model resolution, but all actions are overridden
+    # to read via personhog-routed helpers — this queryset is never evaluated.
+    queryset = GroupTypeMapping.objects.none()  # nosemgrep: no-direct-persons-db-orm
     pagination_class = None
     sharing_enabled_actions = ["list"]
     lookup_field = "group_type_index"
-    filter_rewrite_rules = {"project_id": "project_id"}
-
-    def safely_get_queryset(self, queryset):
-        return queryset.filter(project_id=self.team.project_id)
 
     @extend_schema(responses={200: GroupTypeSerializer(many=True)})
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
@@ -160,7 +158,9 @@ class GroupsTypesViewSet(TeamAndOrgViewSetMixin, mixins.DestroyModelMixin, views
     @action(detail=False, methods=["PATCH"], name="Update group types metadata")
     def update_metadata(self, request: request.Request, *args, **kwargs):
         for row in cast(list[dict], request.data):
-            instance = get_group_type_mapping_instance(self.team.project_id, row["group_type_index"], team=self.team)
+            instance = get_group_type_mapping_instance(
+                self.team.project_id, row["group_type_index"], team=self.team, consistency="strong"
+            )
             serializer = self.get_serializer(instance, data=row)
             serializer.is_valid(raise_exception=True)
             fields: dict[str, Any] = {}
@@ -178,7 +178,7 @@ class GroupsTypesViewSet(TeamAndOrgViewSetMixin, mixins.DestroyModelMixin, views
     def create_detail_dashboard(self, request: request.Request, **kw):
         try:
             group_type_mapping = get_group_type_mapping_instance(
-                self.team.project_id, request.data["group_type_index"], team=self.team
+                self.team.project_id, request.data["group_type_index"], team=self.team, consistency="strong"
             )
         except GroupTypeMapping.DoesNotExist:
             raise NotFound(detail="Group type not found")
@@ -198,15 +198,23 @@ class GroupsTypesViewSet(TeamAndOrgViewSetMixin, mixins.DestroyModelMixin, views
         invalidate_group_types_cache(self.team.project_id)
         return response.Response(self.get_serializer(group_type_mapping).data)
 
-    def perform_destroy(self, instance):
+    def destroy(self, request: request.Request, *args, **kwargs):
+        group_type_index = int(kwargs[self.lookup_field])
+        try:
+            instance = get_group_type_mapping_instance(
+                self.team.project_id, group_type_index, team=self.team, consistency="strong"
+            )
+        except GroupTypeMapping.DoesNotExist:
+            raise NotFound(detail="Group type not found")
         delete_group_type_mapping(instance)
         invalidate_group_types_cache(self.team.project_id)
+        return response.Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(methods=["PUT"], detail=False)
     def set_default_columns(self, request: request.Request, **kw):
         try:
             group_type_mapping = get_group_type_mapping_instance(
-                self.team.project_id, request.data["group_type_index"], team=self.team
+                self.team.project_id, request.data["group_type_index"], team=self.team, consistency="strong"
             )
         except GroupTypeMapping.DoesNotExist:
             raise NotFound(detail="Group type not found")
