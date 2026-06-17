@@ -37,6 +37,7 @@
     'posthog.tasks.email.send_hog_function_disabled',
     'posthog.tasks.email.send_hog_functions_daily_digest',
     'posthog.tasks.email.send_hog_functions_digest_email',
+    'posthog.tasks.email.send_integration_access_request',
     'posthog.tasks.email.send_invite',
     'posthog.tasks.email.send_matview_failure_digest',
     'posthog.tasks.email.send_member_join',
