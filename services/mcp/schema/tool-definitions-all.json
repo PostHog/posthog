@@ -8018,7 +8018,7 @@
         }
     },
     "workflows-enable": {
-        "description": "Enable / activate a draft workflow and start processing events. Confirm with the user before invoking.",
+        "description": "Enable / activate a draft workflow and start processing events. One-way door: a live workflow can't be edited over MCP (to change it you recreate it as a new draft), so test it first and get the user's explicit approval before invoking. Don't enable on your own initiative.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Enable workflow",
@@ -8256,7 +8256,7 @@
         }
     },
     "workflows-update": {
-        "description": "Last resort, for top-level metadata only (name, description, exit_condition). For ANY change to the graph (actions/edges) use workflows-patch-graph instead: it sends only the delta, is structurally validated, and returns the full updated graph. Draft only: active workflows are read-only via MCP (editing risks breaking already-scheduled runs), so create a new draft to change a live one. Status changes go through workflows-enable / workflows-archive.",
+        "description": "Fallback editor. Prefer workflows-patch-graph for graph changes: it sends only the delta, is structurally validated, and returns the full updated graph. Reach for workflows-update for top-level metadata a patch can't express (name, description, exit_condition), or as an escape hatch to replace the whole workflow when you can't get workflows-patch-graph to land a change. Draft only: active workflows are read-only via MCP (editing risks breaking already-scheduled runs), so create a new draft to change a live one. Status changes go through workflows-enable / workflows-archive.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Update workflow",

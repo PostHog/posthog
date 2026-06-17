@@ -8,8 +8,8 @@ The MCP tools for the workflows product, grouped by job. The lifecycle that stri
 
 - `workflows-create` — create a workflow. Always created as a `draft`.
 - `workflows-patch-graph` — **the way to edit a draft's graph.** An ordered, id-addressed op list (`update_action`, `add_action`, `remove_action`, `add_edge`, `remove_edge`, `replace_action_edges`) applied atomically; `update_action` deep-merges (a `null` leaf deletes a key). Returns the full updated graph, so no re-fetch. **Drafts only.**
-- `workflows-update` — **last resort, metadata only.** Use only for top-level fields a graph patch can't express (e.g. renaming). Anything touching `actions`/`edges` goes through `workflows-patch-graph`. **Drafts only**; active workflows are read-only over MCP, so to change a live one create a new draft.
-- `workflows-enable` — draft → `active`.
+- `workflows-update` — **fallback editor.** Top-level metadata a graph patch can't express (renaming), or an escape hatch to replace the whole workflow when `workflows-patch-graph` won't land a change. **Drafts only**; active workflows are read-only over MCP, so to change a live one create a new draft.
+- `workflows-enable` — draft → `active`. **One-way door:** you can't edit a live workflow (only recreate it as a draft), so test first and get the user's explicit approval before enabling.
 - `workflows-archive` — retire a workflow.
 - `workflows-get` — full definition: trigger, edges, actions, exit condition, variables, and read-only `schedules` (any recurring schedules attached to the workflow; there's no separate list-schedules tool).
 - `workflows-list` — all workflows with name, status, version, trigger, timestamps.
