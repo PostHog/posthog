@@ -46,6 +46,7 @@
           ExternalDataSourceType.ACTIVECAMPAIGN: ActiveCampaignSourceConfig,
           ExternalDataSourceType.ACUITYSCHEDULING: AcuitySchedulingSourceConfig,
           ExternalDataSourceType.ADROLL: AdRollSourceConfig,
+          ExternalDataSourceType.ADAPTY: AdaptySourceConfig,
           ExternalDataSourceType.ADJUST: AdjustSourceConfig,
           ExternalDataSourceType.ADOBEANALYTICS: AdobeAnalyticsSourceConfig,
           ExternalDataSourceType.ADOBECOMMERCE: AdobeCommerceSourceConfig,

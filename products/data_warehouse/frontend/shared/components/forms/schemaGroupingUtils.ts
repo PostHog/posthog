@@ -1,4 +1,4 @@
-import { groupBy } from 'lib/utils'
+import { groupBy } from 'lib/utils/arrays'
 
 /** Source types that support `access_method: 'direct'` (live querying without syncing to the warehouse). */
 export const DIRECT_QUERY_SOURCE_TYPES = ['Postgres', 'MySQL'] as const
