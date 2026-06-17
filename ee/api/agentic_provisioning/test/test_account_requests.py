@@ -440,7 +440,7 @@ class TestPKCEPartnerExistingUserConsent(ProvisioningTestBase):
     def test_pkce_partner_with_skip_consent_existing_user_requires_consent(self):
         # A public PKCE caller is identified only by a client_id anyone can send, so even with
         # skip_existing_user_consent it must not silently mint for an existing account — it has
-        # no proof it controls the partner or the account (VERIA-327).
+        # no proof it controls the partner or the account.
         self.pkce_partner.provisioning_skip_existing_user_consent = True
         self.pkce_partner.save()
         User.objects.create_and_join(
@@ -486,7 +486,7 @@ class TestSilentRemintRequiresTrustProof(ProvisioningTestBase):
     (live partner credential for HMAC, the user's own token for bearer). Otherwise
     the consent screen is required. This holds whether or not the user has reviewed
     their credentials: an unreviewed account is still a pre-existing account that a
-    caller must not be able to silently link (VERIA-327)."""
+    caller must not be able to silently link."""
 
     def setUp(self):
         super().setUp()
@@ -761,7 +761,7 @@ class TestSilentRemintRequiresTrustProof(ProvisioningTestBase):
         assert "code" in data["oauth"]
 
     def test_bearer_caller_cannot_remint_for_other_user_unreviewed(self):
-        # VERIA-327: an attacker holding their own bearer token must not silently mint a code
+        # An attacker holding their own bearer token must not silently mint a code
         # for a victim's pre-existing account just because the victim has never reviewed
         # credentials. The unreviewed state is not a license to link a stranger's account.
         self._make_user(credentials_reviewed=False)
