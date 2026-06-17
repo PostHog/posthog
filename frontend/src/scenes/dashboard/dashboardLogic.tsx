@@ -293,6 +293,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setAddWidgetModalOpen: (open: boolean) => ({ open }),
         toggleAddWidgetSelectedType: (widgetType: string) => ({ widgetType }),
         clearAddWidgetSelectedTypes: true,
+        toggleAddWidgetCollapsedGroup: (groupId: string) => ({ groupId }),
         addWidgetTileFinished: true,
         /** One-shot signal asking the view to scroll the dashboard to the bottom (e.g. after adding tiles). */
         requestScrollToBottom: true,
@@ -1350,6 +1351,20 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     return Array.from(selected)
                 },
                 clearAddWidgetSelectedTypes: () => [],
+            },
+        ],
+        addWidgetCollapsedGroups: [
+            [] as string[],
+            {
+                toggleAddWidgetCollapsedGroup: (state, { groupId }) => {
+                    const collapsed = new Set(state)
+                    if (collapsed.has(groupId)) {
+                        collapsed.delete(groupId)
+                    } else {
+                        collapsed.add(groupId)
+                    }
+                    return Array.from(collapsed)
+                },
             },
         ],
     })),

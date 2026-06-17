@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { Fragment } from 'react'
 
-import { IconLightBulb } from '@posthog/icons'
+import { IconChevronDown, IconChevronRight, IconLightBulb } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -71,10 +71,11 @@ function AddWidgetCatalogPicker({
 }
 
 export function AddWidgetModal({ isOpen, onClose, loading, onAdd }: AddWidgetModalProps): JSX.Element {
-    const { addWidgetSelectedTypes } = useValues(dashboardLogic)
-    const { toggleAddWidgetSelectedType } = useActions(dashboardLogic)
+    const { addWidgetSelectedTypes, addWidgetCollapsedGroups } = useValues(dashboardLogic)
+    const { toggleAddWidgetSelectedType, toggleAddWidgetCollapsedGroup } = useActions(dashboardLogic)
     const { currentTeam } = useValues(teamLogic)
     const selectedTypes = new Set(addWidgetSelectedTypes)
+    const collapsedGroups = new Set(addWidgetCollapsedGroups)
 
     const selectedCount = selectedTypes.size
 
@@ -143,6 +144,7 @@ export function AddWidgetModal({ isOpen, onClose, loading, onAdd }: AddWidgetMod
                             !!availabilityConfig &&
                             !getWidgetAvailabilityStatus(availabilityConfig, currentTeam).isAvailable
                         const GroupIcon = getDashboardWidgetGroupIcon(group.groupId)
+                        const isCollapsed = collapsedGroups.has(group.groupId)
 
                         return (
                             <Fragment key={group.groupId}>
@@ -153,9 +155,21 @@ export function AddWidgetModal({ isOpen, onClose, loading, onAdd }: AddWidgetMod
                                         showProductIntro ? 'bg-accent-highlight-secondary' : 'bg-surface-secondary'
                                     )}
                                 >
-                                    <h5 className="m-0 flex shrink-0 items-center gap-1.5">
-                                        {GroupIcon ? <GroupIcon className="text-base text-secondary" /> : null}
-                                        {group.groupLabel}
+                                    <h5 className="m-0 shrink-0">
+                                        <button
+                                            type="button"
+                                            aria-expanded={!isCollapsed}
+                                            onClick={() => toggleAddWidgetCollapsedGroup(group.groupId)}
+                                            className="flex items-center gap-1.5 cursor-pointer bg-transparent border-none p-0 text-inherit"
+                                        >
+                                            {isCollapsed ? (
+                                                <IconChevronRight className="shrink-0 text-base text-secondary" />
+                                            ) : (
+                                                <IconChevronDown className="shrink-0 text-base text-secondary" />
+                                            )}
+                                            {GroupIcon ? <GroupIcon className="text-base text-secondary" /> : null}
+                                            {group.groupLabel}
+                                        </button>
                                     </h5>
                                     {showProductIntro && productIntro ? (
                                         <span className="flex items-start gap-1.5 text-xs text-secondary">
@@ -173,15 +187,16 @@ export function AddWidgetModal({ isOpen, onClose, loading, onAdd }: AddWidgetMod
                                         </span>
                                     ) : null}
                                 </div>
-                                {group.widgets.map(({ widgetType, entry }) => (
-                                    <AddWidgetCatalogPicker
-                                        key={widgetType}
-                                        widgetType={widgetType}
-                                        entry={entry}
-                                        selected={selectedTypes.has(widgetType)}
-                                        onToggleWidgetType={handleToggleWidgetType}
-                                    />
-                                ))}
+                                {!isCollapsed &&
+                                    group.widgets.map(({ widgetType, entry }) => (
+                                        <AddWidgetCatalogPicker
+                                            key={widgetType}
+                                            widgetType={widgetType}
+                                            entry={entry}
+                                            selected={selectedTypes.has(widgetType)}
+                                            onToggleWidgetType={handleToggleWidgetType}
+                                        />
+                                    ))}
                             </Fragment>
                         )
                     })}

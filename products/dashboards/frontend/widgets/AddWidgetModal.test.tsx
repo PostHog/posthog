@@ -135,4 +135,16 @@ describe('AddWidgetModal', () => {
 
         expect(screen.queryByRole('link', { name: /Explore experiments/i })).not.toBeInTheDocument()
     })
+
+    it('collapses and expands a section when its header is clicked', async () => {
+        renderAddWidgetModal()
+
+        expect(screen.getByRole('checkbox', { name: 'Top issues' })).toBeInTheDocument()
+
+        await userEvent.click(screen.getByRole('button', { name: /Error tracking/i }))
+        expect(screen.queryByRole('checkbox', { name: 'Top issues' })).not.toBeInTheDocument()
+
+        await userEvent.click(screen.getByRole('button', { name: /Error tracking/i }))
+        expect(screen.getByRole('checkbox', { name: 'Top issues' })).toBeInTheDocument()
+    })
 })
