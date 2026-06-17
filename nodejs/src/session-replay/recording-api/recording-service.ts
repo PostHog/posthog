@@ -1,4 +1,4 @@
-import { GetObjectCommand, NoSuchKey, S3Client } from '@aws-sdk/client-s3'
+import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3'
 import { ClickHouseClient } from '@clickhouse/client'
 import snappy from 'snappy'
 
@@ -136,7 +136,7 @@ export class RecordingService {
             )
             return { ok: true, data: result }
         } catch (error) {
-            if (error instanceof NoSuchKey) {
+            if ((error as Error)?.name === 'NoSuchKey') {
                 logger.warn('[RecordingService] S3 object not found (NoSuchKey)', {
                     key,
                     teamId,

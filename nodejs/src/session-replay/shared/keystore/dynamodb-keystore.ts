@@ -1,10 +1,4 @@
-import {
-    ConditionalCheckFailedException,
-    DynamoDBClient,
-    GetItemCommand,
-    PutItemCommand,
-    UpdateItemCommand,
-} from '@aws-sdk/client-dynamodb'
+import { DynamoDBClient, GetItemCommand, PutItemCommand, UpdateItemCommand } from '@aws-sdk/client-dynamodb'
 import { DecryptCommand, GenerateDataKeyCommand, KMSClient } from '@aws-sdk/client-kms'
 import sodium from 'libsodium-wrappers'
 
@@ -65,7 +59,7 @@ export class DynamoDBKeyStore implements KeyStore {
                 })
             )
         } catch (error) {
-            if (error instanceof ConditionalCheckFailedException) {
+            if ((error as Error)?.name === 'ConditionalCheckFailedException') {
                 // Key already exists — return the existing key instead of overwriting
                 return this.getKey(sessionId, teamId)
             }
