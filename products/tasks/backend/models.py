@@ -69,6 +69,8 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         SIGNAL_REPORT = "signal_report", "Signal Report"
         # Headless Signals scout — proactively explores a project and emits signals.
         SIGNALS_SCOUT = "signals_scout", "Signals Scout"
+        # Conversations support reply pipeline — autonomous grounded draft replies.
+        SUPPORT_REPLY = "support_reply", "Support Reply"
 
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
