@@ -3,8 +3,8 @@ import { Link, Tooltip } from '@posthog/lemon-ui'
 
 import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { isURL } from 'lib/utils'
 import stringWithWBR from 'lib/utils/stringWithWBR'
+import { isURL } from 'lib/utils/url'
 import { formatBreakdownType } from 'scenes/insights/utils'
 import { IndexedTrendResult } from 'scenes/trends/types'
 

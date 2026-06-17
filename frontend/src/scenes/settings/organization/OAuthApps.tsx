@@ -4,8 +4,8 @@ import { IconCopy } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { IconKey } from 'lib/lemon-ui/icons'
-import { humanFriendlyDetailedTime } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
 import { OrganizationOAuthApplicationApi } from '~/generated/core/api.schemas'
 

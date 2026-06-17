@@ -144,7 +144,10 @@ def _update_cache_on_save(sender: type[Team], instance: Team, created: bool, **k
                 clear_team_llm_gateway_policy_cache(instance, kinds=kinds)
         except Exception as e:
             HYPERCACHE_SIGNAL_UPDATE_COUNTER.labels(
-                namespace="team_llm_gateway_policy", operation="enqueue", result="failure"
+                namespace="team_metadata",
+                cache_name="llm_gateway_policy",
+                operation="enqueue",
+                result="failure",
             ).inc()
             logger.exception(
                 "Failed to enqueue llm-gateway policy cache update",
