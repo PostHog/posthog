@@ -3,8 +3,10 @@ import { type Series, type TimeSeriesLineChartConfig, createXAxisTickCallback } 
 
 import { getSeriesColor } from 'lib/colors'
 
-import { ChartSettings } from '~/queries/schema/schema-general'
+import { ChartSettings, GoalLine } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
+
+import { schemaGoalLinesToConfigs } from 'products/product_analytics/frontend/insights/trends/shared/goalLinesAdapter'
 
 import { AxisSeries, AxisSeriesSettings } from '../../dataVisualizationLogic'
 import { AxisBreakdownSeries } from '../seriesBreakdownLogic'
@@ -29,11 +31,11 @@ const getSeriesKey = (series: SqlLineYSeries, index: number): string =>
     'breakdownValue' in series ? series.breakdownValue : `${series.column.name}-${index}`
 
 /**
- * Plain line/area charts — including dual y-axis — render here. Goal lines, trend lines, and mixed
+ * Plain line/area charts — including dual y-axis and goal lines — render here. Trend lines and mixed
  * line/bar series aren't ported yet, so those fall back to the legacy chart.js path.
  */
 export function canRenderSqlLineGraph(props: LineGraphProps): boolean {
-    const { visualizationType, yData, goalLines } = props
+    const { visualizationType, yData } = props
 
     if (
         visualizationType !== ChartDisplayType.ActionsLineGraph &&
@@ -42,9 +44,6 @@ export function canRenderSqlLineGraph(props: LineGraphProps): boolean {
         return false
     }
     if (yData?.some((series) => series.settings?.display?.displayType === 'bar')) {
-        return false
-    }
-    if (goalLines && goalLines.length > 0) {
         return false
     }
     if (yData?.some((series) => series.settings?.display?.trendLine)) {
@@ -96,9 +95,15 @@ interface BuildConfigArgs {
     xData: AxisSeries<string>
     chartSettings: ChartSettings
     timezone: string
+    goalLines?: GoalLine[]
 }
 
-export function buildLineChartConfig({ xData, chartSettings, timezone }: BuildConfigArgs): TimeSeriesLineChartConfig {
+export function buildLineChartConfig({
+    xData,
+    chartSettings,
+    timezone,
+    goalLines,
+}: BuildConfigArgs): TimeSeriesLineChartConfig {
     const isDateAxis = xData.column.type.name === 'DATE' || xData.column.type.name === 'DATETIME'
     const yAxis = chartSettings.leftYAxisSettings
 
@@ -114,6 +119,7 @@ export function buildLineChartConfig({ xData, chartSettings, timezone }: BuildCo
             showGrid: yAxis?.showGridLines ?? true,
             hide: yAxis?.showTicks === false,
         },
+        goalLines: schemaGoalLinesToConfigs(goalLines),
         tooltip: { enabled: true, pinnable: true },
     }
 }

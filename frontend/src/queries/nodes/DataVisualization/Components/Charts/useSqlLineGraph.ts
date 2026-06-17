@@ -32,6 +32,7 @@ export function useSqlLineGraph({
     visualizationType,
     chartSettings,
     dashboardId,
+    goalLines,
 }: LineGraphProps): SqlLineGraphModel | null {
     const { timezone } = useValues(teamLogic)
     const [hiddenKeys, setHiddenKeys] = useState<string[]>([])
@@ -46,8 +47,8 @@ export function useSqlLineGraph({
     const theme = useMemo(() => buildTheme(), [])
 
     const config = useMemo(
-        () => (xData ? buildLineChartConfig({ xData, chartSettings, timezone }) : undefined),
-        [xData, chartSettings, timezone]
+        () => (xData ? buildLineChartConfig({ xData, chartSettings, timezone, goalLines }) : undefined),
+        [xData, chartSettings, timezone, goalLines]
     )
 
     const showLegend = chartSettings.showLegend ?? false

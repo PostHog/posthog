@@ -8,12 +8,17 @@ import {
     TooltipSwatch,
 } from '@posthog/quill-charts'
 
+import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
+
 import { formatDataWithSettings } from '../../dataVisualizationLogic'
 import { LineGraphProps } from './LineGraph'
 import { SqlLineSeriesMeta } from './sqlLineGraphAdapter'
 import { useSqlLineGraph } from './useSqlLineGraph'
 
-// TODO(PR2): port the full LemonTable/InsightLabel tooltip (sorted rows, total row, ribbon colors).
+const handleChartError = makeChartErrorHandler('sql-line-chart')
+
+// TODO(PR2): reuse the shared TrendsTooltip (TooltipContext -> InsightTooltip bridge) instead of
+// this minimal placeholder, once the SQL meta carries the fields InsightTooltip needs.
 function renderTooltip(ctx: TooltipContext<SqlLineSeriesMeta>): JSX.Element {
     return (
         <TooltipSurface>
@@ -33,8 +38,8 @@ function renderTooltip(ctx: TooltipContext<SqlLineSeriesMeta>): JSX.Element {
 
 /**
  * SQL line/area graph rendered via @posthog/quill-charts, gated behind the `data-viz-quill-charts`
- * flag (see {@link LineGraph}). Handles line, area, and dual y-axis; everything else falls back to
- * the legacy chart.js path.
+ * flag (see {@link LineGraph}). Handles line, area, dual y-axis, and goal lines; everything else
+ * falls back to the legacy chart.js path.
  */
 export const SqlLineGraph = (props: LineGraphProps): JSX.Element | null => {
     const model = useSqlLineGraph(props)
@@ -67,6 +72,7 @@ export const SqlLineGraph = (props: LineGraphProps): JSX.Element | null => {
                     theme={theme}
                     config={config}
                     tooltip={renderTooltip}
+                    onError={handleChartError}
                 />
             </div>
         </div>
