@@ -2289,7 +2289,7 @@
         }
     },
     "error-tracking-alerts-delete": {
-        "description": "Delete an error tracking alert by ID (soft delete). The alert stops firing immediately, but the HogFunction row and its execution history are preserved. To re-enable a deleted alert, the user must re-create it; partial-update with `enabled=true` will not resurrect a soft-deleted alert.",
+        "description": "Delete an error tracking alert by ID (soft delete). The alert stops firing immediately, but the HogFunction row and its execution history are preserved. To re-enable a deleted alert, the user must re-create it; partial-update with `enabled=true` will not resurrect a soft-deleted alert.\n\nThis wraps the generic HogFunction delete and does not verify the ID belongs to an error tracking alert — it soft-deletes whatever function the ID points to, including unrelated destinations or transformations. Confirm the target with `error-tracking-alerts-list` before deleting.",
         "category": "Error tracking alerts",
         "feature": "error_tracking",
         "summary": "Delete error tracking alert",
@@ -2317,7 +2317,7 @@
         }
     },
     "error-tracking-alerts-partial-update": {
-        "description": "Partially update an error tracking alert. Use to enable or disable an alert, rename it, change the destination channel/URL, or adjust the Slack message body. The `type` field cannot be changed after creation. To delete an alert, use `error-tracking-alerts-delete`. To change the trigger event, set `filters.events` to a list with the new event id — but consider creating a new alert instead so the old one's history is preserved.",
+        "description": "Partially update an error tracking alert. Use to enable or disable an alert, rename it, change the destination channel/URL, or adjust the Slack message body. The `type` field cannot be changed after creation. To delete an alert, use `error-tracking-alerts-delete`. To change the trigger event, set `filters.events` to a list with the new event id — but consider creating a new alert instead so the old one's history is preserved.\n\nLike delete, this addresses the function by ID without verifying it is an error tracking alert; an unrelated function ID is updated instead. Confirm the target with `error-tracking-alerts-list` first.",
         "category": "Error tracking alerts",
         "feature": "error_tracking",
         "summary": "Update error tracking alert",
