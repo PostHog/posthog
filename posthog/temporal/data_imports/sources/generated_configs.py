@@ -1914,8 +1914,8 @@ class MySQLSourceConfig(config.Config):
     database: str
     user: str
     password: str
-    schema: str
     port: int = config.value(converter=int)
+    schema: str | None = None
     using_ssl: bool = config.value(default=config.str_to_bool("true"), converter=config.str_to_bool)
     ssh_tunnel: SSHTunnelConfig | None = None
 
