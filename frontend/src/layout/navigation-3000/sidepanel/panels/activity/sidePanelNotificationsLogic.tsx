@@ -46,7 +46,11 @@ const SSE_RETRY_ATTEMPTS = 3
 const SSE_RETRY_INITIAL_DELAY_MS = 30000
 const SSE_RETRY_BACKOFF_MULTIPLIER = 4
 
-const SOURCE_TYPE_TO_PATH: Record<NotificationEventSourceTypeEnumApi, (id: string) => string> = {
+// Types whose canonical URL is reconstructed from source_id alone. Types absent
+// here fall through to the backend-provided source_url — used by customer_analytics,
+// whose notifications carry a precise account deep-link (account + tab) that a
+// source_id→path mapping can't build.
+const SOURCE_TYPE_TO_PATH: Partial<Record<NotificationEventSourceTypeEnumApi, (id: string) => string>> = {
     replay: (id) => urls.replaySingle(id),
     notebook: (id) => urls.notebook(id),
     insight: (id) => urls.insightView(id as InsightShortId),
@@ -55,7 +59,6 @@ const SOURCE_TYPE_TO_PATH: Record<NotificationEventSourceTypeEnumApi, (id: strin
     survey: (id) => urls.survey(id),
     experiment: (id) => urls.experiment(id),
     error_tracking: (id) => urls.errorTrackingIssue(id),
-    customer_analytics: () => urls.customerAnalyticsAccounts(),
 }
 
 export interface NotificationGroup {
@@ -77,10 +80,11 @@ export function groupKey(n: InAppNotification): string {
 }
 
 export function buildNotificationSourcePath(notification: InAppNotification): string | null {
-    if (notification.source_type && notification.source_id && notification.source_type in SOURCE_TYPE_TO_PATH) {
-        return SOURCE_TYPE_TO_PATH[notification.source_type as NotificationEventSourceTypeEnumApi](
-            notification.source_id
-        )
+    const toPath = notification.source_type
+        ? SOURCE_TYPE_TO_PATH[notification.source_type as NotificationEventSourceTypeEnumApi]
+        : undefined
+    if (toPath && notification.source_id) {
+        return toPath(notification.source_id)
     }
     return notification.source_url || null
 }
