@@ -132,12 +132,11 @@ class ProcessVisionActionWorkflow(PostHogWorkflow):
                 retry_policy=_RECORD_RETRY,
             )
             if skip_reason is not None:
-                final_status = VisionActionRunStatus.SKIPPED.value
-                return
+                return  # final_status stays SKIPPED (the initialized default)
 
             synth = await wf.execute_activity(
                 synthesize_action_activity,
-                SynthesizeActionInputs(vision_action_id=inputs.vision_action_id, run_id=run_id),
+                SynthesizeActionInputs(run_id=run_id),
                 start_to_close_timeout=dt.timedelta(minutes=10),
                 retry_policy=_SYNTH_RETRY,
             )
@@ -145,8 +144,7 @@ class ProcessVisionActionWorkflow(PostHogWorkflow):
                 final_status = VisionActionRunStatus.FAILED.value
                 return
             if synth.status in (SynthesisStatus.SKIPPED_EMPTY, SynthesisStatus.SKIPPED_OVER_BUDGET):
-                final_status = VisionActionRunStatus.SKIPPED.value
-                return
+                return  # final_status stays SKIPPED (the initialized default)
 
             await wf.execute_activity(
                 emit_action_ready_activity,
@@ -177,12 +175,18 @@ class ProcessVisionActionWorkflow(PostHogWorkflow):
                     if caught is None:
                         raise
             # Always advance — even a failed run must not hot-loop on the same next_run_at.
-            await wf.execute_activity(
-                advance_next_run_at_activity,
-                inputs.vision_action_id,
-                start_to_close_timeout=dt.timedelta(minutes=2),
-                retry_policy=_RECORD_RETRY,
-            )
+            try:
+                await wf.execute_activity(
+                    advance_next_run_at_activity,
+                    inputs.vision_action_id,
+                    start_to_close_timeout=dt.timedelta(minutes=2),
+                    retry_policy=_RECORD_RETRY,
+                )
+            except Exception:
+                # Must not overwrite a caught error from the body — re-raise only if there was none.
+                wf.logger.exception("vision_action.advance_failed", vision_action_id=str(inputs.vision_action_id))
+                if caught is None:
+                    raise
 
         # Re-raise after finally — Temporal blocks activity scheduling while an exception propagates.
         if caught:

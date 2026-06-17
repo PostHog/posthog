@@ -238,6 +238,24 @@ async def test_process_synthesis_failure_records_failed_and_reraises() -> None:
     assert act.advance_next_run_at_activity in mocks.calls()
 
 
+@pytest.mark.asyncio
+async def test_advance_failure_does_not_mask_body_error() -> None:
+    # If both the body and the finally's advance raise, the original body error must win —
+    # the advance failure must not clobber it.
+    mocks = _Mocks(
+        errors={
+            synthesize_action_activity: RuntimeError("llm exploded"),
+            act.advance_next_run_at_activity: RuntimeError("advance boom"),
+        },
+        results={
+            act.create_vision_action_run_activity: uuid.uuid4(),
+            act.validate_vision_action_activity: None,
+        },
+    )
+    with pytest.raises(RuntimeError, match="llm exploded"):
+        await _run_process(_process_inputs(), mocks)
+
+
 async def _run_schedule_all(due_list, mocks: _Mocks) -> None:
     with (
         patch("temporalio.workflow.execute_activity", side_effect=mocks.execute_activity),
