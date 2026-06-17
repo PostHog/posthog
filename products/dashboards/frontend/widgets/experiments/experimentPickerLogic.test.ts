@@ -16,11 +16,11 @@ describe('experimentPickerLogic', () => {
 
     beforeEach(() => {
         lastSearch = null
-        listMock = jest.fn((req) => {
-            lastSearch = req.url.searchParams.get('search')
+        listMock = jest.fn(({ request }) => {
+            lastSearch = new URL(request.url).searchParams.get('search')
             return [200, { results: [experiment(101, 'New signup CTA'), experiment(102, 'Pricing page')], count: 2 }]
         })
-        retrieveMock = jest.fn((req) => [200, experiment(Number(req.params.id), `Experiment ${req.params.id}`)])
+        retrieveMock = jest.fn(({ params }) => [200, experiment(Number(params.id), `Experiment ${params.id}`)])
         useMocks({
             get: {
                 '/api/projects/:team_id/experiments/': listMock,
