@@ -1263,6 +1263,26 @@ class TestSpecificObjectAccessControl(BaseUserAccessControlTest):
         assert self.notebook_2.id in filtered_ids
         assert self.notebook_3.id in filtered_ids
 
+    def test_blocked_resource_ids_by_scope_ignores_rules_without_entitlement(self):
+        # Member-level "none" rule blocking notebook_2 for the user
+        self._create_access_control(
+            resource="notebook",
+            resource_id=str(self.notebook_2.id),
+            access_level="none",
+            organization_member=self.organization_membership,
+        )
+
+        # Sanity: with the entitlement the object is reported as blocked
+        self._clear_uac_caches()
+        assert str(self.notebook_2.id) in self.user_access_control.blocked_resource_ids_by_scope.get("notebook", set())
+
+        # Downgrade: drop the access_control entitlement -> stale rule must be ignored
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        fresh_uac = UserAccessControl(self.user, self.team)
+        assert fresh_uac.blocked_resource_ids_by_scope == {}
+
     @parameterized.expand(
         [
             (

@@ -1004,6 +1004,10 @@ class UserAccessControl:
         if not EE_AVAILABLE or not self._team or self.is_organization_admin:
             return {}
 
+        if not self.access_controls_supported:
+            # Without the entitlement, stale rules in the DB must be ignored, not enforced
+            return {}
+
         object_rows_by_resource: dict[APIScopeObject, list[_AccessControl]] = defaultdict(list)
         for ac in self._cached_access_controls:
             if ac.resource_id is not None:
