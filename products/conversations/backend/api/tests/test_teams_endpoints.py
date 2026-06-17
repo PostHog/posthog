@@ -549,7 +549,6 @@ class TestTeamsSelectChannelMultiChannel(APIBaseTest):
             data=json.dumps(
                 {
                     "action": "remove",
-                    "team_id": "00000000-0000-0000-0000-000000000000",  # Ignored for remove
                     "channel_id": "ch-1",
                 }
             ),
@@ -582,7 +581,6 @@ class TestTeamsSelectChannelMultiChannel(APIBaseTest):
             data=json.dumps(
                 {
                     "action": "remove",
-                    "team_id": "00000000-0000-0000-0000-000000000000",
                     "channel_id": "ch-1",
                 }
             ),
@@ -612,7 +610,6 @@ class TestTeamsSelectChannelMultiChannel(APIBaseTest):
             data=json.dumps(
                 {
                     "action": "remove",
-                    "team_id": "00000000-0000-0000-0000-000000000000",
                     "channel_id": "ch-nonexistent",
                 }
             ),
@@ -620,6 +617,22 @@ class TestTeamsSelectChannelMultiChannel(APIBaseTest):
         )
 
         assert response.status_code == 404
+
+    @patch("products.conversations.backend.support_teams.refresh_graph_token", return_value="fresh-token")
+    def test_add_without_team_id_returns_400(self, _mock_refresh):
+        response = self.client.post(
+            "/api/conversations/v1/teams/select-channel",
+            data=json.dumps(
+                {
+                    "action": "add",
+                    "channel_id": "ch-1",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+        assert response.json()["error"] == "team_id_required"
 
     @patch("products.conversations.backend.api.teams_channels.requests.get")
     @patch("products.conversations.backend.support_teams.refresh_graph_token", return_value="fresh-token")

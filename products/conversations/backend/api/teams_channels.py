@@ -224,7 +224,7 @@ class TeamsSelectChannelRequestSerializer(serializers.Serializer):
 
 class TeamsChannelActionSerializer(serializers.Serializer):
     action = serializers.ChoiceField(choices=["add", "remove"], required=True)
-    team_id = serializers.UUIDField(required=True)
+    team_id = serializers.UUIDField(required=False)
     channel_id = serializers.CharField(required=True, max_length=500)
 
 
@@ -269,8 +269,8 @@ class TeamsSelectChannelView(APIView):
 
     Supports two request formats:
 
-    1. **New format (add/remove)**: Incremental updates with ``action``, ``team_id``, and ``channel_id``.
-       - ``action: "add"``: Validates the pair against Graph, upserts into ``teams_channels`` (keyed by channel_id).
+    1. **New format (add/remove)**: Incremental updates with ``action`` and ``channel_id``.
+       - ``action: "add"``: Requires ``team_id``. Validates the pair against Graph, upserts into ``teams_channels`` (keyed by channel_id).
        - ``action: "remove"``: Removes the entry by ``channel_id``, no Graph call needed.
 
     2. **Legacy format**: Single ``teams_team_id`` / ``teams_channel_id`` pair.
@@ -303,7 +303,6 @@ class TeamsSelectChannelView(APIView):
             return Response({"error": "invalid_payload", "details": serializer.errors}, status=400)
 
         action = serializer.validated_data["action"]
-        teams_team_id = str(serializer.validated_data["team_id"])
         teams_channel_id = serializer.validated_data["channel_id"].strip()
 
         if not teams_channel_id:
@@ -314,8 +313,12 @@ class TeamsSelectChannelView(APIView):
 
         if action == "remove":
             return self._handle_remove(team, user, teams_channel_id)
-        else:
-            return self._handle_add(team, user, teams_team_id, teams_channel_id)
+
+        teams_team_id = serializer.validated_data.get("team_id")
+        if not teams_team_id:
+            return Response({"error": "team_id_required"}, status=400)
+
+        return self._handle_add(team, user, str(teams_team_id), teams_channel_id)
 
     def _handle_add(self, team: Team, user: User, teams_team_id: str, teams_channel_id: str) -> Response:
         """Validate and add a team/channel pair."""
@@ -373,6 +376,8 @@ class TeamsSelectChannelView(APIView):
             # Seed from legacy if teams_channels not yet present
             teams_channels = _seed_teams_channels_from_legacy(settings_blob)
 
+            existing_entry = next((c for c in teams_channels if c.get("channel_id") == teams_channel_id), None)
+
             # Upsert by channel_id (channel_id is unique across teams)
             new_entry = {
                 "team_id": teams_team_id,
@@ -399,6 +404,23 @@ class TeamsSelectChannelView(APIView):
             locked_team.save(update_fields=["conversations_settings"])
             team.conversations_settings = settings_blob
 
+        new_label = f"{teams_team_name} / {teams_channel_name}"
+        if existing_entry:
+            change = Change(
+                type="Team",
+                action="changed",
+                field="teams_channels",
+                before=f"{existing_entry.get('team_name')} / {existing_entry.get('channel_name')}",
+                after=new_label,
+            )
+        else:
+            change = Change(
+                type="Team",
+                action="created",
+                field="teams_channels",
+                after=new_label,
+            )
+
         log_activity(
             organization_id=team.organization_id,
             team_id=team.pk,
@@ -409,14 +431,7 @@ class TeamsSelectChannelView(APIView):
             activity="updated",
             detail=Detail(
                 name=str(team.name),
-                changes=[
-                    Change(
-                        type="Team",
-                        action="created",
-                        field="teams_channels",
-                        after=f"{teams_team_name} / {teams_channel_name}",
-                    ),
-                ],
+                changes=[change],
             ),
         )
 

@@ -292,7 +292,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             },
         ],
     }),
-    loaders(({ values }) => ({
+    loaders(({ actions, values }) => ({
         githubIntegrations: [
             [] as { id: number; name: string }[],
             {
@@ -359,7 +359,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         teamsChannels: [
             [] as { id: string; name: string }[],
             {
-                loadTeamsChannelsForTeam: async ({ teamId }, breakpoint, _, previousState) => {
+                loadTeamsChannelsForTeam: async ({ teamId }: { teamId: string }) => {
                     try {
                         // nosemgrep: prefer-codegen-api
                         const response = await api.create('api/conversations/v1/teams/channels', {
@@ -371,7 +371,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                         return channels
                     } catch {
                         lemonToast.error('Failed to load Teams channels')
-                        return previousState ?? []
+                        return values.teamsChannels
                     }
                 },
             },
@@ -846,7 +846,6 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 // nosemgrep: prefer-codegen-api
                 await api.create('api/conversations/v1/teams/select-channel', {
                     action: 'remove',
-                    team_id: '00000000-0000-0000-0000-000000000000', // Required by serializer but not used for remove
                     channel_id: channelId,
                 })
             } catch {
