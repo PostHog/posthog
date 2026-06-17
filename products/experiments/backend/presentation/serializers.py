@@ -33,6 +33,7 @@ from products.experiments.backend.hogql_queries.utils import get_experiment_stat
 from products.experiments.backend.llm_metric_templates import TEMPLATE_NAMES
 from products.experiments.backend.metric_utils import refresh_action_names_in_metric
 from products.experiments.backend.models.experiment import Experiment, ExperimentHoldout, ExperimentMetricsRecalculation
+from products.experiments.backend.running_time_calculator import METRIC_TYPE_CHOICES
 from products.feature_flags.backend.api.feature_flag import MinimalFeatureFlagSerializer
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -704,4 +705,135 @@ class ExperimentMetricsRecalculationSerializer(serializers.Serializer):
         read_only=True,
         required=False,
         help_text="Per-metric results computed by this run, scoped by the run's recalc fingerprint",
+    )
+
+
+class RunningTimeBaselineStatsSerializer(serializers.Serializer):
+    """Raw control-group statistics the calculator uses to derive a baseline value and variance.
+
+    Supply this when you want the server to compute the baseline value and (for ratio/retention)
+    the delta-method variance, instead of passing `baseline_value`/`variance` directly.
+    """
+
+    number_of_samples = serializers.IntegerField(
+        min_value=0, help_text="Number of control-group samples (users/units) observed."
+    )
+    sum = serializers.FloatField(
+        help_text="Sum of the metric values across the control group (for funnels, the numerator/conversions)."
+    )
+    sum_squares = serializers.FloatField(
+        required=False, default=0.0, help_text="Sum of squared metric values. Required for ratio/retention variance."
+    )
+    denominator_sum = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        help_text="Sum of the denominator values. Required for ratio/retention metrics.",
+    )
+    denominator_sum_squares = serializers.FloatField(
+        required=False, allow_null=True, help_text="Sum of squared denominator values (ratio/retention variance)."
+    )
+    numerator_denominator_sum_product = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        help_text="Sum of numerator×denominator products, used for the delta-method covariance term.",
+    )
+    step_counts = serializers.ListField(
+        child=serializers.FloatField(),
+        required=False,
+        help_text="Per-step counts for funnel metrics; the last entry is the final-step count.",
+    )
+
+
+class RunningTimeCalculationInputSerializer(serializers.Serializer):
+    """Inputs for estimating the recommended sample size and running time of an experiment."""
+
+    metric_type = serializers.ChoiceField(
+        choices=METRIC_TYPE_CHOICES,
+        help_text=(
+            "Metric type to size for. 'funnel' for conversion rates, 'mean_count' for event counts per user, "
+            "'mean_sum_or_avg' for summed property values per user, 'ratio' and 'retention' for ratio-style metrics "
+            "(both require baseline_stats or an explicit variance)."
+        ),
+    )
+    minimum_detectable_effect = serializers.FloatField(
+        min_value=0,
+        help_text="Smallest relative change to detect, as a percentage (e.g. 5 means a 5% lift). Must be > 0.",
+    )
+    number_of_variants = serializers.IntegerField(
+        required=False,
+        default=2,
+        min_value=2,
+        help_text="Total number of variants including control (default 2).",
+    )
+    exposure_rate_per_day = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        min_value=0,
+        help_text="Expected exposures per day. When provided, the response includes the recommended running time.",
+    )
+    baseline_value = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Baseline metric value: conversion rate as a fraction 0-1 (funnel), average per user (mean), or the ratio "
+            "(ratio/retention). Provide this or baseline_stats."
+        ),
+    )
+    variance = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Pre-computed variance for ratio/retention metrics. Provide this or baseline_stats when metric_type is "
+            "ratio/retention and baseline_value is given directly."
+        ),
+    )
+    baseline_stats = RunningTimeBaselineStatsSerializer(
+        required=False,
+        allow_null=True,
+        help_text="Raw control-group statistics. When provided, the server derives baseline_value and variance.",
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if attrs.get("minimum_detectable_effect", 0) <= 0:
+            raise ValidationError({"minimum_detectable_effect": "Must be greater than 0."})
+
+        has_baseline_value = attrs.get("baseline_value") is not None
+        has_baseline_stats = attrs.get("baseline_stats") is not None
+        if not has_baseline_value and not has_baseline_stats:
+            raise ValidationError("Provide either baseline_value or baseline_stats.")
+
+        if attrs["metric_type"] in ("ratio", "retention"):
+            # A baseline value and variance must both be available. Pass them directly, or supply
+            # baseline_stats with denominator_sum so the server can derive them — without it both
+            # derivations return None and the endpoint silently responds with all-null results.
+            has_variance = attrs.get("variance") is not None
+            if not (has_baseline_value and has_variance):
+                stats = attrs.get("baseline_stats")
+                if not stats:
+                    raise ValidationError(
+                        "Ratio and retention metrics require baseline_stats, or both baseline_value and variance."
+                    )
+                if not stats.get("denominator_sum"):
+                    raise ValidationError(
+                        {"baseline_stats": {"denominator_sum": "Required to size ratio and retention metrics."}}
+                    )
+
+        return attrs
+
+
+class RunningTimeCalculationResultSerializer(serializers.Serializer):
+    """Estimated sample size and running time for the given inputs."""
+
+    baseline_value = serializers.FloatField(
+        allow_null=True, help_text="Baseline metric value used in the calculation (echoed or derived from stats)."
+    )
+    variance = serializers.FloatField(
+        allow_null=True, help_text="Variance used in the calculation; null for funnel metrics (implicit in p(1-p))."
+    )
+    recommended_sample_size = serializers.IntegerField(
+        allow_null=True, help_text="Total recommended sample size across all variants. Null if inputs are insufficient."
+    )
+    recommended_running_time_days = serializers.IntegerField(
+        allow_null=True,
+        help_text="Estimated days to reach the recommended sample size. Null when exposure_rate_per_day is omitted.",
     )

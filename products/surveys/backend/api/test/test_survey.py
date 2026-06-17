@@ -3,7 +3,7 @@ import json
 import time
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Any, cast
+from typing import Any, Optional, cast
 
 import pytest
 from freezegun.api import freeze_time
@@ -140,6 +140,49 @@ class TestSurvey(APIBaseTest):
         assert questions[0]["translations"]["es"]["question"] == "¿Qué tan satisfecho estás?"
         assert questions[0]["translations"]["fr"]["question"] == "Êtes-vous satisfait?"
         assert questions[1]["translations"]["es"]["choices"] == ["Analítica", "Feature Flags"]
+
+    @parameterized.expand(
+        [
+            ("empty_string", "", False),
+            ("absent", None, False),
+            ("valid_url", "https://posthog.com/docs", True),
+        ]
+    )
+    def test_link_question_translation_allows_empty_link(
+        self, _name: str, translation_link: Optional[str], expect_link_present: bool
+    ) -> None:
+        translation: dict[str, Any] = {"question": "Mira nuestra documentación"}
+        if translation_link is not None:
+            translation["link"] = translation_link
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Link survey with translations",
+                "type": "popover",
+                "questions": [
+                    {
+                        "type": "link",
+                        "question": "Check out our docs",
+                        "link": "https://posthog.com",
+                        "translations": {
+                            "es": translation,
+                        },
+                    },
+                ],
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        survey = Survey.objects.get(id=response.json()["id"])
+        questions = cast(list[dict[str, Any]], survey.questions)
+
+        es_translation = questions[0]["translations"]["es"]
+        assert es_translation["question"] == "Mira nuestra documentación"
+        if expect_link_present:
+            assert es_translation.get("link") == translation_link
+        else:
+            assert "link" not in es_translation
 
     def test_translation_language_codes_are_normalized(self) -> None:
         """BCP-47-ish codes are normalized to lowercase + hyphenated on save."""
