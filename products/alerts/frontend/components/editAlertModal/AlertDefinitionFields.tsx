@@ -7,7 +7,7 @@ import { AlertFormType } from 'lib/components/Alerts/alertFormLogic'
 import { HogQLAlertPreview } from 'lib/components/Alerts/hogqlAlertPreview'
 import { isHogQLAlertConfig } from 'lib/components/Alerts/types'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { alphabet } from 'lib/utils'
+import { alphabet } from 'lib/utils/strings'
 
 import { AlertConditionType } from '~/queries/schema/schema-general'
 

@@ -5,7 +5,8 @@ import {
     HogQLAlertPreview,
     HogQLAlertPreviewRow,
 } from 'lib/components/Alerts/hogqlAlertPreview'
-import { humanFriendlyNumber, pluralize } from 'lib/utils'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { pluralize } from 'lib/utils/strings'
 
 import { AlertConditionType } from '~/queries/schema/schema-general'
 
