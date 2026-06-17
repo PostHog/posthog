@@ -5,6 +5,10 @@
             "description": "Whether the feature flag is active.",
             "type": "boolean"
         },
+        "archived": {
+            "description": "Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`).",
+            "type": "boolean"
+        },
         "bucketing_identifier": {
             "anyOf": [
                 {
