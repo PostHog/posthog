@@ -1,9 +1,10 @@
 from django.db import models
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
+from posthog.models.utils import UUIDModel
 
 
-class WebAnalyticsVisit(TeamScopedRootMixin):
+class WebAnalyticsVisit(TeamScopedRootMixin, UUIDModel):
     """One row per user per team-local calendar day they opened Web analytics. Single source of
     truth for streak and cumulative-loyalty achievements. `visit_date` is the team-local date, not
     a datetime — streak math must use the same team timezone that wrote it."""

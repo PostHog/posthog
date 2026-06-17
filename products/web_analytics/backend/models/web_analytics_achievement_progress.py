@@ -2,9 +2,10 @@ from django.db import models
 from django.db.models import Q
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
+from posthog.models.utils import UUIDModel
 
 
-class WebAnalyticsAchievementProgress(TeamScopedRootMixin):
+class WebAnalyticsAchievementProgress(TeamScopedRootMixin, UUIDModel):
     """Per-track achievement progress for a scope holder. `user` is NULL for team-scoped tracks
     (Goal Hog, Mighty Hog) — never sum per-user rows into team totals. `state` holds the JSON
     detail: `unlocked_stages` (stage -> ISO timestamp), `pending_celebrations` (stages awaiting a

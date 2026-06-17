@@ -4,6 +4,8 @@ import django.db.models.deletion
 from django.conf import settings
 from django.db import migrations, models
 
+import posthog.models.utils
+
 
 class Migration(migrations.Migration):
     dependencies = [
@@ -18,11 +20,11 @@ class Migration(migrations.Migration):
             fields=[
                 (
                     "id",
-                    models.BigAutoField(
-                        auto_created=True,
+                    models.UUIDField(
+                        default=posthog.models.utils.uuid7,
+                        editable=False,
                         primary_key=True,
                         serialize=False,
-                        verbose_name="ID",
                     ),
                 ),
                 (

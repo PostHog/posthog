@@ -1,9 +1,10 @@
 from django.db import models
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
+from posthog.models.utils import UUIDModel
 
 
-class WebAnalyticsInteraction(TeamScopedRootMixin):
+class WebAnalyticsInteraction(TeamScopedRootMixin, UUIDModel):
     """First-party per-user counter of in-product Web analytics interactions, the source for the
     Data Hog and Detective Hog tracks. The product-usage events these tracks reward are captured to
     PostHog's own internal analytics instance, not the customer team's events table, so they can't be
