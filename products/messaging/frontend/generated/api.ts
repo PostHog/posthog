@@ -17,6 +17,7 @@ import type {
     MessagingTemplatesListParams,
     PaginatedMessageCategoryListApi,
     PaginatedMessageTemplateListApi,
+    PatchedDesignPatchApi,
     PatchedMessageCategoryApi,
     PatchedMessageTemplateApi,
 } from './api.schemas'
@@ -507,5 +508,23 @@ export const messagingTemplatesDestroy = async (
     return apiMutator<unknown>(getMessagingTemplatesDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getMessagingTemplatesDesignPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/messaging_templates/${id}/design/`
+}
+
+export const messagingTemplatesDesignPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedDesignPatchApi?: PatchedDesignPatchApi,
+    options?: RequestInit
+): Promise<MessageTemplateApi> => {
+    return apiMutator<MessageTemplateApi>(getMessagingTemplatesDesignPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedDesignPatchApi),
     })
 }

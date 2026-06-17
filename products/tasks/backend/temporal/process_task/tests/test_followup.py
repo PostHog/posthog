@@ -119,7 +119,7 @@ class TestFollowupDeliveryFailure:
     async def test_failed_followup_marks_run_as_failed_promptly(self):
         """The workflow must exit its main loop and mark the run as failed
         within seconds when a followup delivery fails — not after the
-        2-hour inactivity timeout."""
+        full inactivity timeout."""
         _status_updates.clear()
 
         async with await WorkflowEnvironment.start_time_skipping() as env:

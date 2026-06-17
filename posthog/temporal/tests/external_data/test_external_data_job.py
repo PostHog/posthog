@@ -586,6 +586,18 @@ async def test_update_external_job_activity_with_tls_handshake_failure_is_non_re
     assert schema.should_sync is False
 
 
+@pytest.mark.parametrize(
+    "error_msg",
+    [
+        "SSHTunnel auth is not valid",
+        "Exception: SSHTunnel auth is not valid",
+    ],
+)
+def test_invalid_ssh_tunnel_auth_is_non_retryable_for_any_source(error_msg):
+    is_non_retryable = any(pattern in error_msg for pattern in Any_Source_Errors.keys())
+    assert is_non_retryable, f"Invalid SSH tunnel auth error should be non-retryable: {error_msg}"
+
+
 @pytest.fixture
 def mock_stripe_client():
     with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient") as MockStripeClient:

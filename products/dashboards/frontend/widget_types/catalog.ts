@@ -1,9 +1,15 @@
 import { urls } from 'scenes/urls'
 
 import { QuickFilterContext } from '~/queries/schema/schema-general'
+import { ActivityTab } from '~/types'
 
-import { errorTrackingWidgetConfigSchema, sessionReplayWidgetConfigSchema } from '../generated/widget-configs.zod'
+import {
+    activityEventsWidgetConfigSchema,
+    errorTrackingWidgetConfigSchema,
+    sessionReplayWidgetConfigSchema,
+} from '../generated/widget-configs.zod'
 import type { DashboardWidgetProductAccess } from '../types'
+import { ActivityEventsWidgetPreview } from '../widgets/previews/ActivityEventsWidgetPreview'
 import { ErrorTrackingWidgetPreview } from '../widgets/previews/ErrorTrackingWidgetPreview'
 import { SessionReplayWidgetPreview } from '../widgets/previews/SessionReplayWidgetPreview'
 import type { WidgetAvailabilityConfig } from './widgetAvailability'
@@ -59,6 +65,7 @@ export type DashboardWidgetTileFiltersCatalogConfig = {
 
 /** Product area labels keyed by catalog `groupId`. New groups: add here. */
 export const DASHBOARD_WIDGET_GROUP_LABELS = {
+    activity: 'Activity',
     error_tracking: 'Error tracking',
     session_replay: 'Session replay',
 } as const satisfies Record<string, string>
@@ -150,12 +157,28 @@ export const DASHBOARD_WIDGET_CATALOG = {
             allowedPropertyNames: SESSION_REPLAY_LIST_TILE_FILTER_PROPERTIES,
         },
     },
+    activity_events_list: {
+        groupId: 'activity',
+        label: 'Recent events',
+        description: 'Latest events captured in this project, as on Activity > Explore.',
+        headerTitle: 'Recent events',
+        defaultConfig: activityEventsWidgetConfigSchema.parse({
+            dateRange: { date_from: '-24h' },
+        }),
+        defaultLayout: { w: 6, h: 5, minW: 3, minH: 3 },
+        titleHref: urls.activity(ActivityTab.ExploreEvents),
+        sharedPlaceholder: {
+            title: 'Recent events',
+            message: 'Log in to PostHog to explore the latest events from this dashboard.',
+        },
+    },
 } as const satisfies Record<string, DashboardWidgetCatalogEntry>
 
 export type DashboardWidgetCatalogKey = keyof typeof DASHBOARD_WIDGET_CATALOG
 
 /** New widget types: add preview components here. See products/dashboards/CONTRIBUTING.md. */
 export const DASHBOARD_WIDGET_PREVIEWS: Record<DashboardWidgetCatalogKey, () => JSX.Element> = {
+    activity_events_list: ActivityEventsWidgetPreview,
     error_tracking_list: ErrorTrackingWidgetPreview,
     session_replay_list: SessionReplayWidgetPreview,
 }
@@ -219,7 +242,6 @@ export type DashboardWidgetCatalogGroup = {
 
 function getDashboardWidgetCatalogGroups(): DashboardWidgetCatalogGroup[] {
     const groupsById = new Map<string, DashboardWidgetCatalogGroup>()
-    const groupOrder: string[] = []
 
     for (const [widgetType, entry] of Object.entries(DASHBOARD_WIDGET_CATALOG)) {
         let group = groupsById.get(entry.groupId)
@@ -231,13 +253,12 @@ function getDashboardWidgetCatalogGroups(): DashboardWidgetCatalogGroup[] {
                 widgets: [],
             }
             groupsById.set(entry.groupId, group)
-            groupOrder.push(entry.groupId)
         }
 
         group.widgets.push({ widgetType: widgetType as DashboardWidgetCatalogKey, entry })
     }
 
-    return groupOrder.map((groupId) => groupsById.get(groupId)!)
+    return [...groupsById.values()].sort((a, b) => a.groupLabel.localeCompare(b.groupLabel))
 }
 
 export const DASHBOARD_WIDGET_CATALOG_GROUPS = getDashboardWidgetCatalogGroups()

@@ -64,5 +64,6 @@ describe('SessionReplayWidget', () => {
 
         expect(container.querySelector('[data-attr="session-replay-widget-empty-state"]')).toBeInTheDocument()
         expect(screen.getByText('No recordings yet')).toBeInTheDocument()
+        expect(screen.getByText('No session recordings matched your filters.')).toBeInTheDocument()
     })
 })

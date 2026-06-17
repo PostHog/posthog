@@ -94,7 +94,7 @@ def wire_booster_as_s3(
     we already have on disk. Same code path as prod, zero network.
     """
     payload = booster_path.read_bytes()
-    monkeypatch.setenv("SESSION_INTERESTINGNESS_MODEL_S3_URI", uri)
+    monkeypatch.setenv("SESSION_SURFACING_MODEL_S3_URI", uri)
     monkeypatch.setattr(
         "posthog.temporal.session_replay.surfacing_scoring_sweep.scorer.object_storage.read_bytes",
         lambda key, *, bucket=None: payload,

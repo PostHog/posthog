@@ -279,6 +279,7 @@ urlpatterns = [
     ),
     path("api/sdk_health/", sdk_health),
     path("api/conversations/", include("products.conversations.backend.api.urls")),
+    path("api/customer_analytics/", include("products.customer_analytics.backend.api.urls")),
     path(
         "api/environments/<int:parent_lookup_team_id>/mcp_analytics/",
         include("products.mcp_analytics.backend.presentation.urls"),
@@ -506,6 +507,9 @@ frontend_unauthenticated_routes = [
     "unsubscribe",
     "verify_email",
     r"agentic/account-mismatch",
+    # OAuth redirect target when logging the local frontend into a remote cloud region;
+    # the SPA handles the code→token exchange client-side, so it must load without auth.
+    r"^oauth/callback",
 ]
 for route in frontend_unauthenticated_routes:
     urlpatterns.append(re_path(route, home))

@@ -186,6 +186,9 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             # Snowflake error 250001: the user account was disabled by the customer's Snowflake admin
             # (e.g. `ALTER USER ... SET DISABLED = TRUE`). Retrying can never succeed until they re-enable it.
             "User access disabled. Contact your local system administrator": "Your Snowflake user account has been disabled. Please contact your Snowflake administrator to re-enable it, then resync.",
+            # Snowflake error 250001 (08001): the user's password has expired. Snowflake requires it
+            # to be changed via the web console before any login can succeed, so retrying never works.
+            "Specified password has expired": "Your Snowflake password has expired. Please change it in the Snowflake web console (or switch to key-pair authentication), then resync.",
             "MFA authentication is required": None,
             # The account enforces Duo Security multi-factor auth for this user, so the
             # connector's login is rejected (250001 / 08001). An unattended sync can't answer a
@@ -199,6 +202,17 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             # lives in the customer's object, not in our SQL. Retrying can't fix it until they repair
             # the object or reconfigure the synced columns.
             "invalid identifier": "A Snowflake table or view you're syncing references a column that no longer exists (for example a stale view definition, or a column that was dropped or renamed). Please fix the table or view in Snowflake, or reconfigure the columns selected for this table, then resync.",
+            # Snowflake error 250001 (08001): a network policy (IP allowlist) on the customer's account
+            # rejects the connection because PostHog's egress IP isn't permitted. Retrying can never
+            # succeed until their admin allowlists our IPs, so stop retrying and surface what to do.
+            "is not allowed to access Snowflake": "Snowflake rejected the connection because a network policy (IP allowlist) on your account does not permit PostHog's IP address. Ask your Snowflake administrator to add PostHog's egress IP addresses to the network policy allowlist, then resync.",
+            # Snowflake error 002003 (SQLSTATE 42S02 for tables / 02000 for schemas): a table or
+            # schema the source syncs was dropped or renamed in Snowflake, or the role's grant on it
+            # was revoked, after the schema was discovered. The driver raises "<object> does not exist
+            # or not authorized" on `SHOW PRIMARY KEYS` / the data query. Retrying can never succeed
+            # until the user restores the object or re-grants access. The object name and query id in
+            # the message are volatile, so we match on the stable trailing phrase.
+            "does not exist or not authorized": "A table or schema this source syncs no longer exists in Snowflake, or your role is no longer authorized to access it. Check that the object still exists and that your Snowflake role has access, then resync.",
             # Raised from the shared `evolve_pyarrow_schema` in `pipelines/pipeline/utils.py`
             # when an integer column's source type was widened (e.g. a narrower NUMBER widened
             # to a larger NUMBER/BIGINT) after the destination table was created with the

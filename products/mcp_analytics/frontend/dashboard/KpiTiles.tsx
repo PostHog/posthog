@@ -2,7 +2,7 @@ import { Link } from '@posthog/lemon-ui'
 import { type ChartTheme, MetricCard } from '@posthog/quill-charts'
 import { Card, CardContent, Skeleton } from '@posthog/quill-primitives'
 
-import { formatPercentage } from 'lib/utils'
+import { formatPercentage } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
 import { type KPIData, KPIMetric } from '../mcpDashboardOverviewLogic'

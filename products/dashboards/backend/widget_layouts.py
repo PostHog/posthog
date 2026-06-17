@@ -6,43 +6,17 @@ from products.dashboards.backend.constants import DASHBOARD_GRID_COLUMN_COUNT
 from products.dashboards.backend.widget_catalog import get_default_widget_layouts
 
 
-def _rectangles_overlap(
-    x1: int,
-    y1: int,
-    w1: int,
-    h1: int,
-    x2: int,
-    y2: int,
-    w2: int,
-    h2: int,
-) -> bool:
-    return x1 < x2 + w2 and x1 + w1 > x2 and y1 < y2 + h2 and y1 + h1 > y2
-
-
-def _layout_overlaps_any(
-    sm_layouts: list[dict[str, Any]],
-    x: int,
-    y: int,
-    w: int,
-    h: int,
-) -> bool:
+def _column_heights(sm_layouts: list[dict[str, Any]]) -> list[int]:
+    """Per-column bottom edge (max y + h). The overall dashboard bottom is ``max(...)``."""
+    heights = [0] * DASHBOARD_GRID_COLUMN_COUNT
     for layout in sm_layouts:
-        lx = int(layout.get("x", 0))
+        lx = max(0, int(layout.get("x", 0)))
         ly = int(layout.get("y", 0))
         lw = max(1, min(int(layout.get("w", 1)), DASHBOARD_GRID_COLUMN_COUNT))
         lh = max(1, int(layout.get("h", 1)))
-        if _rectangles_overlap(x, y, w, h, lx, ly, lw, lh):
-            return True
-    return False
-
-
-def _dashboard_bottom_y(sm_layouts: list[dict[str, Any]]) -> int:
-    bottom_y = 0
-    for layout in sm_layouts:
-        y = int(layout.get("y", 0))
-        h = max(1, int(layout.get("h", 1)))
-        bottom_y = max(bottom_y, y + h)
-    return bottom_y
+        for column in range(lx, min(lx + lw, DASHBOARD_GRID_COLUMN_COUNT)):
+            heights[column] = max(heights[column], ly + lh)
+    return heights
 
 
 def _find_bottom_row_placement(
@@ -52,23 +26,24 @@ def _find_bottom_row_placement(
     width: int,
     height: int,
 ) -> dict[str, int]:
-    """Place a widget on the bottom row of the dashboard, packing batch adds horizontally."""
+    """Place a widget at the bottom of the dashboard, anchored to the tallest column.
+
+    The grid compacts vertically on render, so a tile only stays at the bottom if its
+    column span includes the column that defines the bottom — otherwise compaction lifts
+    it up into a shorter column's gap (the "lands in the middle" bug). Batch adds stack
+    downward: each tile counts the previously placed ones (``pending_sm_layouts``), so the
+    second lands below the first, and so on — a horizontal row can't survive compaction on
+    a staircased dashboard.
+    """
     w = max(1, min(width, DASHBOARD_GRID_COLUMN_COUNT))
     h = max(1, height)
-    pending = pending_sm_layouts or []
-    all_layouts = [*existing_sm_layouts, *pending]
+    all_layouts = [*existing_sm_layouts, *(pending_sm_layouts or [])]
 
-    if pending:
-        placement_y = int(pending[0].get("y", 0))
-    else:
-        placement_y = _dashboard_bottom_y(existing_sm_layouts)
-
-    for x in range(0, DASHBOARD_GRID_COLUMN_COUNT - w + 1):
-        if not _layout_overlaps_any(all_layouts, x, placement_y, w, h):
-            return {"x": x, "y": placement_y, "w": w, "h": h}
-
-    next_y = _dashboard_bottom_y(all_layouts)
-    return {"x": 0, "y": next_y, "w": w, "h": h}
+    heights = _column_heights(all_layouts)
+    placement_y = max(heights)
+    tallest_column = next(column for column, column_height in enumerate(heights) if column_height == placement_y)
+    x = min(tallest_column, DASHBOARD_GRID_COLUMN_COUNT - w)
+    return {"x": x, "y": placement_y, "w": w, "h": h}
 
 
 def stack_widget_layout_at_bottom(

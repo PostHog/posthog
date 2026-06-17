@@ -78,11 +78,9 @@ function setupDashboard(quickFilterIds: string[] | null): () => {
                     previous: null,
                     results: [dashboard],
                 },
-                '/api/environments/:team_id/insights/:id/': (req) => {
+                '/api/environments/:team_id/insights/:id/': ({ params }) => {
                     const id =
-                        typeof req.params['id'] === 'string'
-                            ? parseInt(req.params['id'])
-                            : parseInt(req.params['id'][0])
+                        typeof params.id === 'string' ? parseInt(params.id) : parseInt((params.id as string[])[0])
                     if (id === 101) {
                         return [200, insight1]
                     }

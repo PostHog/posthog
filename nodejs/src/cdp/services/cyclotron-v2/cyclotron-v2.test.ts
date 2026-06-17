@@ -3,8 +3,9 @@ import { v7 as uuidv7 } from 'uuid'
 
 import { CyclotronV2Janitor } from './janitor'
 import { CyclotronV2Manager } from './manager'
-import { CyclotronV2DequeuedJob, CyclotronV2JobInit } from './types'
+import { CyclotronV2BatchLimit, CyclotronV2DequeuedJob, CyclotronV2JobInit } from './types'
 import { CyclotronV2Worker } from './worker'
+import { CyclotronV2RateLimitedWorker } from './worker-rate-limited'
 
 const DB_URL = 'postgres://posthog:posthog@localhost:5432/test_cyclotron_node'
 const QUEUE = 'test-queue'
@@ -486,6 +487,159 @@ describe('Cyclotron V2', () => {
 
             expect(jobs).toHaveLength(1)
             expect(jobs[0].queueName).toBe(QUEUE)
+        })
+
+        describe('CyclotronV2RateLimitedWorker', () => {
+            // The hook is consulted on every poll. It receives the number of
+            // rows actually visible (capped at batchMaxSize). Returning a
+            // positive limit clamps the SQL LIMIT to min(limit, batchMaxSize);
+            // 0 skips the dequeue and sleeps; undefined falls back to batchMaxSize.
+            const createRateLimitedWorker = (
+                getBatchLimit: (requested: number) => Promise<CyclotronV2BatchLimit | undefined>,
+                overrides?: Record<string, unknown>
+            ): CyclotronV2RateLimitedWorker =>
+                new CyclotronV2RateLimitedWorker(
+                    {
+                        pool: { dbUrl: DB_URL },
+                        queueName: QUEUE,
+                        batchMaxSize: 100,
+                        pollDelayMs: 10,
+                        includeEmptyBatches: true,
+                        ...overrides,
+                    },
+                    getBatchLimit
+                )
+
+            it('clamps the batch to the granted limit', async () => {
+                await manager.bulkCreateJobs(Array.from({ length: 10 }, () => ({ teamId: 1, queueName: QUEUE })))
+
+                // eslint-disable-next-line @typescript-eslint/require-await
+                const worker = createRateLimitedWorker(async () => ({ limit: 3 }))
+                const jobs = await dequeueOneBatch(worker)
+
+                expect(jobs).toHaveLength(3)
+                expect(await countByStatus('available')).toBe(7)
+            })
+
+            it('skips the dequeue entirely when the granted limit is 0', async () => {
+                await manager.createJob({ teamId: 1, queueName: QUEUE })
+                await manager.createJob({ teamId: 1, queueName: QUEUE })
+
+                // eslint-disable-next-line @typescript-eslint/require-await
+                const worker = createRateLimitedWorker(async () => ({ limit: 0, sleepMs: 5 }), {
+                    includeEmptyBatches: false,
+                })
+                const jobs = await dequeueOneBatch(worker, 200)
+
+                expect(jobs).toHaveLength(0)
+                // Critical: the SQL UPDATE never fires — rows stay 'available'.
+                expect(await countByStatus('available')).toBe(2)
+                expect(await countByStatus('running')).toBe(0)
+            })
+
+            it('falls back to batchMaxSize when the hook returns undefined', async () => {
+                await manager.bulkCreateJobs(Array.from({ length: 5 }, () => ({ teamId: 1, queueName: QUEUE })))
+
+                // eslint-disable-next-line @typescript-eslint/require-await
+                const worker = createRateLimitedWorker(async () => undefined)
+                const jobs = await dequeueOneBatch(worker)
+
+                expect(jobs).toHaveLength(5)
+            })
+
+            it('exits promptly when stopConsuming is called during a throttled sleep', async () => {
+                // eslint-disable-next-line @typescript-eslint/require-await
+                const worker = createRateLimitedWorker(async () => ({ limit: 0, sleepMs: 100 }))
+
+                await worker.connect(async () => {})
+                // Let the loop reach the sleep branch.
+                await new Promise((resolve) => setTimeout(resolve, 50))
+
+                const stopStarted = Date.now()
+                await worker.stopConsuming()
+                const stopDuration = Date.now() - stopStarted
+
+                // At most one sleepMs (100ms) + small overhead — never indefinite.
+                expect(stopDuration).toBeLessThan(300)
+            })
+
+            it('keeps looping after the hook rejects', async () => {
+                await manager.createJob({ teamId: 1, queueName: QUEUE })
+                await manager.createJob({ teamId: 1, queueName: QUEUE })
+
+                // Reject once, then return a valid decision so dequeueOneBatch
+                // captures a non-empty batch and resolves.
+                let calls = 0
+                const worker = createRateLimitedWorker(() => {
+                    calls += 1
+                    if (calls === 1) {
+                        return Promise.reject(new Error('boom'))
+                    }
+                    return Promise.resolve({ limit: 5 })
+                })
+
+                const jobs = await dequeueOneBatch(worker, 1000)
+                expect(jobs).toHaveLength(2)
+                // The first call rejected — the loop's catch swallowed it and tried again.
+                expect(calls).toBeGreaterThan(1)
+            })
+
+            it('skips the limiter entirely when there is no work to dequeue', async () => {
+                // Idle queue → peek returns no rows → worker sleeps without
+                // ever consulting the rate limiter. Keeps the bucket at
+                // capacity and the limiter's metrics silent during idle.
+                let hookCalls = 0
+                const worker = createRateLimitedWorker(() => {
+                    hookCalls += 1
+                    return Promise.resolve({ limit: 5 })
+                })
+
+                await worker.connect(async () => {})
+                // Let the loop poll several times (pollDelayMs is 10ms in tests).
+                await new Promise((resolve) => setTimeout(resolve, 200))
+                await worker.stopConsuming()
+
+                // Many poll cycles ran (~20 at 10ms cadence) but no jobs exist,
+                // so the limiter hook is never invoked.
+                expect(hookCalls).toBe(0)
+            })
+
+            it('passes the visible row count to the limiter hook', async () => {
+                // Sparse-traffic regression guard. 3 ready rows + batchMaxSize=100
+                // → hook must be asked for 3 tokens, not 100. Without pre-sizing,
+                // a single trickle of jobs would drain the full bucket per send.
+                await manager.bulkCreateJobs(Array.from({ length: 3 }, () => ({ teamId: 1, queueName: QUEUE })))
+
+                const requestedHistory: number[] = []
+                const worker = createRateLimitedWorker((requested) => {
+                    requestedHistory.push(requested)
+                    return Promise.resolve({ limit: requested })
+                })
+
+                await dequeueOneBatch(worker)
+
+                // First (and only relevant) call: 3 rows visible → 3 requested.
+                expect(requestedHistory[0]).toBe(3)
+            })
+
+            it('caps the visible row count at batchMaxSize', async () => {
+                // Backlog of 10 rows with batchMaxSize=4 should ask for 4
+                // (the batch ceiling), not 10.
+                await manager.bulkCreateJobs(Array.from({ length: 10 }, () => ({ teamId: 1, queueName: QUEUE })))
+
+                const requestedHistory: number[] = []
+                const worker = createRateLimitedWorker(
+                    (requested) => {
+                        requestedHistory.push(requested)
+                        return Promise.resolve({ limit: requested })
+                    },
+                    { batchMaxSize: 4 }
+                )
+
+                await dequeueOneBatch(worker)
+
+                expect(requestedHistory[0]).toBe(4)
+            })
         })
 
         it.each([

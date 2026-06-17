@@ -19,7 +19,7 @@ import {
 import { HeartHog } from 'lib/components/hedgehogs'
 import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 import { supportLogic } from 'lib/components/Support/supportLogic'
-import { humanFriendlyCurrency } from 'lib/utils'
+import { humanFriendlyCurrency } from 'lib/utils/numbers'
 
 import { BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
