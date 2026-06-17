@@ -260,7 +260,7 @@ analytics-only concern while the sink layer remains capture-mode-agnostic.
 `serialize(ctx)` returns `bytes::Bytes` and `partition_key(ctx)` returns a
 fresh owned `String`. `Bytes` is zero-copy to construct from a `Vec<u8>`
 and cheap (refcounted) to clone, so a `PreparedEvent` can be moved into a
-`spawn_blocking` task and fanned out to multiple sinks without re-encoding.
+tokio task and fanned out to multiple sinks without re-encoding.
 The owned contract needs no shared mutable buffers, which is what makes
 the scatter-gather prep loop safe to parallelize.
 
@@ -364,15 +364,20 @@ back into the request. `Bytes` makes it cheap to clone across a dual-write.
 
   events.len() >= 8
     └── Arc<Vec<E>> + Arc<RequestContext>
-        └── JoinSet of spawn_blocking tasks, one per event index
+        └── JoinSet of tokio tasks (spawn, not spawn_blocking), one per event index
             └── each task: catch_unwind(prepare_one(&events[i], &ctx))
         └── collect by index → preserves input order
 ```
 
-Small batches stay inline because a `JoinSet` of `spawn_blocking` tasks
-costs more than the serialization itself for a handful of events. Large
-batches fan out across the blocking pool to cut tail latency on big
-payloads. Both paths produce identical output (ordering, skips, failures)
+Small batches stay inline because a `JoinSet` of tokio tasks costs more
+than the serialization itself for a handful of events. Large batches fan
+out across the async worker pool to cut tail latency on big payloads. We
+use `spawn` (not `spawn_blocking`) to match v0's `send_batch`: per-event
+serialize is short CPU work, so concurrent execution is naturally bounded
+by `worker_threads` (~num_cpus) and excess events queue cheaply, rather
+than spawning one blocking-pool task per event and risking saturation of
+the shared `spawn_blocking` pool on very large batches. Both paths produce
+identical output (ordering, skips, failures)
 — verified by parity tests in `prepare.rs`.
 
 ### Panic isolation
@@ -385,7 +390,7 @@ returns become `SerializationFailure::from_error`. Both are fatal
 
 ### Ownership (Arc::try_unwrap)
 
-`spawn_blocking` requires `'static`, so the parallel path wraps the events
+`spawn` requires `'static`, so the parallel path wraps the events
 in `Arc<Vec<E>>` and tasks borrow by index. After the `JoinSet` drains,
 every task has dropped its `Arc` clone, so `Arc::try_unwrap` reclaims the
 sole-owner `Vec<E>` and hands it back to the caller. This is why
