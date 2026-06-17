@@ -252,7 +252,10 @@ class AssistantContextManager(AssistantContextMixin):
                         dashboard_text = await dashboard_ctx.format_schema()
                         if len(dashboard_text) > remaining_char_budget:
                             marker = "\n\n…(dashboard context truncated)"
-                            dashboard_text = dashboard_text[: max(0, remaining_char_budget - len(marker))] + marker
+                            # No room for even the marker — stop here so the budget can't go negative.
+                            if remaining_char_budget <= len(marker):
+                                break
+                            dashboard_text = dashboard_text[: remaining_char_budget - len(marker)] + marker
                     remaining_char_budget -= len(dashboard_text)
                     dashboard_contexts.append(
                         format_prompt_string(ROOT_DASHBOARD_CONTEXT_PROMPT, content=dashboard_text)

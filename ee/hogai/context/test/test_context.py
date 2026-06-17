@@ -283,6 +283,24 @@ class TestAssistantContextManager(BaseTest):
         # only the first dashboard's executed results are inlined; total stays within budget
         self.assertLessEqual(result.count("r"), DASHBOARD_CONTEXT_CHAR_BUDGET)
 
+    @patch("ee.hogai.context.context.DashboardContext")
+    async def test_dashboard_context_budget_drops_dashboard_with_no_room_for_marker(self, MockDashboardContext):
+        # The 1st dashboard leaves only a few chars of budget — too little for even the truncation
+        # marker. The 2nd must be dropped entirely rather than emitting a marker that overshoots the
+        # budget (which would drive the running budget negative).
+        # Sentinels are uppercase so they can't collide with the prompt-template prose.
+        inst = MockDashboardContext.return_value
+        inst.execute_and_format = AsyncMock(return_value="Q" * (DASHBOARD_CONTEXT_CHAR_BUDGET - 10))
+        inst.format_schema = AsyncMock(return_value="Z" * 100)
+
+        result = await self.context_manager._format_ui_context(self._dashboard_ui_context(1, 2))
+
+        assert result is not None
+        self.assertEqual(result.count("Q"), DASHBOARD_CONTEXT_CHAR_BUDGET - 10)  # 1st dashboard inlined whole
+        self.assertNotIn("Z", result)  # 2nd dashboard dropped, not marker-truncated
+        self.assertNotIn("…(dashboard context truncated)", result)
+        self.assertLessEqual(result.count("Q"), DASHBOARD_CONTEXT_CHAR_BUDGET)
+
     @patch("ee.hogai.context.notebook.context.NotebookContext.from_short_id")
     async def test_format_ui_context_with_markdown_notebook_insertion_context(self, mock_from_short_id):
         ui_context = MaxUIContext(
