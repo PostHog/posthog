@@ -59,6 +59,17 @@ TIME_BUCKET_DATE_RANGE_WHERE = (
     "and toStartOfDay(time_bucket, 'UTC') <= toStartOfDay({date_to}, 'UTC')"
 )
 
+# Value-search probes attribute_value with ILIKE %search%, which scans far more rows than
+# the key-only path. Require a meaningfully specific term so short prefixes (e.g. "id")
+# don't trigger an expensive scan.
+MIN_VALUE_SEARCH_LENGTH = 4
+
+
+def _ilike_pattern(search: str) -> str:
+    # Escape ILIKE wildcards so a search for "%" matches a literal percent sign, not every row.
+    escaped = search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
+
 
 def _normalise_to_base64(value: str) -> str:
     try:
@@ -736,7 +747,7 @@ def run_service_names_query(
         exprs.append(
             parse_expr(
                 "service_name ILIKE {search}",
-                placeholders={"search": ast.Constant(value=f"%{search}%")},
+                placeholders={"search": ast.Constant(value=_ilike_pattern(search))},
             )
         )
 
@@ -776,10 +787,25 @@ def run_attribute_names_query(
     date_range: DateRange,
     attribute_type: str = "span_attribute",
     search: str = "",
+    search_values: bool = False,
     limit: int = 100,
     offset: int = 0,
 ) -> tuple[list[dict], int]:
-    """Return attribute names from trace_attributes table."""
+    """Return attribute names from trace_attributes table.
+
+    When search_values is set and the search term is specific enough, also match
+    on attribute values so a user can find the key holding e.g. a trace_id.
+    """
+    if search_values and search and len(search) >= MIN_VALUE_SEARCH_LENGTH:
+        return _run_attribute_names_value_search(
+            team=team,
+            date_range=date_range,
+            attribute_type=attribute_type,
+            search=search,
+            limit=limit,
+            offset=offset,
+        )
+
     query_date_range = QueryDateRange(
         date_range=date_range,
         team=team,
@@ -806,14 +832,14 @@ def run_attribute_names_query(
             WHERE time_bucket >= {date_from_start_of_interval}
             AND time_bucket <= {date_to_start_of_interval} + {one_interval_period}
             AND attribute_type = {attributeType}
-            AND attribute_key LIKE {search}
+            AND attribute_key ILIKE {search}
             GROUP BY team_id, attribute_key
             ORDER BY sum(attribute_count) desc, attribute_key asc
             OFFSET {offset}
         )
         """,
         placeholders={
-            "search": ast.Constant(value=f"%{search}%"),
+            "search": ast.Constant(value=_ilike_pattern(search)),
             "attributeType": ast.Constant(value=attribute_type),
             "limit": ast.Constant(value=limit),
             "offset": ast.Constant(value=offset),
@@ -838,10 +864,119 @@ def run_attribute_names_query(
     count = 0
     if isinstance(response.results, list) and len(response.results) > 0 and len(response.results[0]) > 0:
         for name in response.results[0][0]:
-            results.append({"name": name, "propertyFilterType": property_filter_type})
+            results.append({"name": name, "propertyFilterType": property_filter_type, "matchedOn": "key"})
         count = response.results[0][1] + offset
 
     return results, count
+
+
+def _run_attribute_names_value_search(
+    team: "Team",
+    date_range: DateRange,
+    attribute_type: str,
+    search: str,
+    limit: int,
+    offset: int,
+) -> tuple[list[dict], int]:
+    # UNION ALL of two branches:
+    #   (1) keys whose name matches the search
+    #   (2) keys whose values match the search but whose name does NOT match
+    # The NOT-ILIKE on the value branch dedupes — a key never appears twice.
+    # match_type lets the outer ORDER BY put key matches above value matches.
+    query_date_range = QueryDateRange(
+        date_range=date_range,
+        team=team,
+        interval=IntervalType.MINUTE,
+        interval_count=10,
+        now=dt.datetime.now(),
+        timezone_info=ZoneInfo("UTC"),
+    )
+
+    property_filter_type = (
+        attribute_type if attribute_type in ("span_attribute", "span_resource_attribute") else "span_attribute"
+    )
+
+    query = parse_select(
+        """
+        SELECT
+            attribute_key,
+            match_type,
+            sample_value,
+            total_count
+        FROM (
+            SELECT
+                attribute_key,
+                'key' AS match_type,
+                '' AS sample_value,
+                sum(attribute_count) AS total_count
+            FROM posthog.trace_attributes
+            WHERE time_bucket >= {date_from_start_of_interval}
+            AND time_bucket <= {date_to_start_of_interval} + {one_interval_period}
+            AND attribute_type = {attributeType}
+            AND attribute_key ILIKE {search}
+            GROUP BY team_id, attribute_key
+
+            UNION ALL
+
+            SELECT
+                attribute_key,
+                'value' AS match_type,
+                argMax(attribute_value, attribute_count) AS sample_value,
+                sum(attribute_count) AS total_count
+            FROM posthog.trace_attributes
+            WHERE time_bucket >= {date_from_start_of_interval}
+            AND time_bucket <= {date_to_start_of_interval} + {one_interval_period}
+            AND attribute_type = {attributeType}
+            AND attribute_value ILIKE {search}
+            AND attribute_key NOT ILIKE {search}
+            GROUP BY team_id, attribute_key
+        )
+        ORDER BY
+            match_type = 'key' DESC,
+            total_count DESC,
+            attribute_key ASC
+        LIMIT {limit}
+        OFFSET {offset}
+        """,
+        placeholders={
+            "search": ast.Constant(value=_ilike_pattern(search)),
+            "attributeType": ast.Constant(value=attribute_type),
+            "limit": ast.Constant(value=limit),
+            "offset": ast.Constant(value=offset),
+            **query_date_range.to_placeholders(),
+        },
+    )
+
+    response = execute_hogql_query(
+        query_type="TracingAttributeNamesQuery",
+        query=query,
+        team=team,
+        workload=Workload.LOGS,
+        filters=HogQLFilters(dateRange=date_range),
+        modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
+        settings=HogQLGlobalSettings(
+            read_overflow_mode="break",
+            max_bytes_to_read=5_000_000_000,
+        ),
+    )
+
+    results = []
+    if isinstance(response.results, list):
+        for row in response.results:
+            attribute_key, match_type, sample_value, _total_count = row
+            matched_on_key = match_type == "key"
+            results.append(
+                {
+                    "name": attribute_key,
+                    "propertyFilterType": property_filter_type,
+                    "matchedOn": "key" if matched_on_key else "value",
+                    "matchedValue": None if matched_on_key else (sample_value or None),
+                }
+            )
+
+    # Total count for value-search isn't separately computed; use the returned page
+    # size plus offset as a lower bound — enough for the "load more" affordance.
+    return results, len(results) + offset
 
 
 def run_attribute_values_query(
@@ -884,7 +1019,7 @@ def run_attribute_values_query(
         )
         """,
         placeholders={
-            "search": ast.Constant(value=f"%{search}%"),
+            "search": ast.Constant(value=_ilike_pattern(search)),
             "attributeType": ast.Constant(value=attribute_type),
             "attributeKey": ast.Constant(value=attribute_key),
             "limit": ast.Constant(value=limit),

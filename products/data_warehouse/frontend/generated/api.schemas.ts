@@ -58,8 +58,10 @@ export interface CheckDatabaseNameResponseApi {
 }
 
 export interface DeprovisionWarehouseResponseApi {
+    /** Deprovisioning lifecycle message, e.g. 'deprovisioning started' */
     status: string
-    team: string
+    /** duckgres org identifier (the PostHog organization id) */
+    org: string
 }
 
 export interface ProvisionWarehouseRequestApi {
@@ -68,8 +70,14 @@ export interface ProvisionWarehouseRequestApi {
 }
 
 export interface ProvisionWarehouseResponseApi {
+    /** Provisioning lifecycle message, e.g. 'provisioning started' */
     status: string
-    team: string
+    /** duckgres org identifier (the PostHog organization id) */
+    org: string
+    /** Root database username */
+    username: string
+    /** Root database password — returned only here at provision time and on reset-password */
+    password: string
 }
 
 export interface ResetPasswordResponseApi {
@@ -97,14 +105,50 @@ export const WarehouseStatusResponseStateEnumApi = {
     Deleted: 'deleted',
 } as const
 
+export interface WarehouseConnectionApi {
+    /** Connection host — the warehouse name is the SNI subdomain, e.g. my-warehouse.dw.us.postwh.com */
+    host: string
+    /** Postgres wire-protocol port */
+    port: number
+    /** Database to connect to — always 'ducklake' */
+    database: string
+    /** Root database username */
+    username: string
+}
+
 export interface WarehouseStatusResponseApi {
-    team_name: string
+    /** duckgres org identifier (the PostHog organization id) */
+    org_id: string
+    /** Overall provisioning lifecycle state
+     *
+     * * `pending` - pending
+     * * `provisioning` - provisioning
+     * * `ready` - ready
+     * * `failed` - failed
+     * * `deleting` - deleting
+     * * `deleted` - deleted */
     state: WarehouseStatusResponseStateEnumApi
+    /** Human-readable detail for the current state */
     status_message: string
-    /** @nullable */
+    /** Object-store sub-resource provisioning state */
+    s3_state: string
+    /** Metadata-store sub-resource provisioning state */
+    metadata_store_state: string
+    /** Worker identity sub-resource provisioning state */
+    identity_state: string
+    /** Credentials sub-resource provisioning state */
+    secrets_state: string
+    /**
+     * When the warehouse became ready
+     * @nullable
+     */
     ready_at: string | null
-    /** @nullable */
+    /**
+     * When provisioning failed
+     * @nullable
+     */
     failed_at: string | null
+    connection?: WarehouseConnectionApi | null
 }
 
 /**
@@ -1045,6 +1089,7 @@ export const CreatedViaEnumApi = {
  * * `WikipediaPageviews` - WikipediaPageviews
  * * `YahooFinance` - YahooFinance
  * * `Clarifai` - Clarifai
+ * * `Adapty` - Adapty
  * * `Custom` - Custom
  */
 export type ExternalDataSourceTypeEnumApi =
@@ -1670,6 +1715,7 @@ export const ExternalDataSourceTypeEnumApi = {
     WikipediaPageviews: 'WikipediaPageviews',
     YahooFinance: 'YahooFinance',
     Clarifai: 'Clarifai',
+    Adapty: 'Adapty',
     Custom: 'Custom',
 } as const
 
@@ -2389,6 +2435,7 @@ export interface ExternalDataSourceCreateApi {
      * * `WikipediaPageviews` - WikipediaPageviews
      * * `YahooFinance` - YahooFinance
      * * `Clarifai` - Clarifai
+     * * `Adapty` - Adapty
      * * `Custom` - Custom */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
@@ -3196,6 +3243,7 @@ export interface DatabaseSchemaRequestApi {
      * * `WikipediaPageviews` - WikipediaPageviews
      * * `YahooFinance` - YahooFinance
      * * `Clarifai` - Clarifai
+     * * `Adapty` - Adapty
      * * `Custom` - Custom */
     source_type: ExternalDataSourceTypeEnumApi
 }
@@ -3827,6 +3875,7 @@ export interface SourceSetupApi {
      * * `WikipediaPageviews` - WikipediaPageviews
      * * `YahooFinance` - YahooFinance
      * * `Clarifai` - Clarifai
+     * * `Adapty` - Adapty
      * * `Custom` - Custom */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
@@ -4496,6 +4545,7 @@ export interface SourceCredentialCreateApi {
      * * `WikipediaPageviews` - WikipediaPageviews
      * * `YahooFinance` - YahooFinance
      * * `Clarifai` - Clarifai
+     * * `Adapty` - Adapty
      * * `Custom` - Custom */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */

@@ -27,6 +27,7 @@ from posthog.schema import (
     DateRange,
     ProductKey,
     PropertyGroupFilter,
+    SourceSymbol,
     TraceSpanBreakdownOrderBy,
     TraceSpanBreakdownType,
     TraceSpansQuery,
@@ -45,6 +46,7 @@ from ..facade.api import (
     run_attribute_breakdown_query,
     run_count_query,
     run_duration_histogram_query,
+    run_symbol_stats_query,
 )
 from ..has_spans_query_runner import team_has_spans
 from ..logic import (
@@ -234,6 +236,11 @@ class _TracingServiceNamesQuerySerializer(serializers.Serializer):
 
 class _TracingAttributesQuerySerializer(serializers.Serializer):
     search = serializers.CharField(required=False, help_text="Search filter for attribute names.")
+    search_values = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="When true, the search query also matches attribute values (not just keys), so a value such as a trace_id finds the key holding it.",
+    )
     attribute_type = serializers.ChoiceField(
         choices=["span_attribute", "span_resource_attribute"],
         required=False,
@@ -243,6 +250,27 @@ class _TracingAttributesQuerySerializer(serializers.Serializer):
         required=False, min_value=1, max_value=100, help_text="Max results (default: 100)."
     )
     offset = serializers.IntegerField(required=False, min_value=0, help_text="Pagination offset (default: 0).")
+
+
+class _TracingAttributeEntrySerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="Attribute key name.")
+    propertyFilterType = serializers.CharField(
+        help_text='Property filter type: "span_attribute" or "span_resource_attribute". Use this as the `type` field when filtering.',
+    )
+    matchedOn = serializers.ChoiceField(
+        choices=["key", "value"],
+        help_text='How the search query matched this row: "key" if the attribute key matched, "value" if a value matched.',
+    )
+    matchedValue = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text='Sample matching value — only set when matchedOn is "value".',
+    )
+
+
+class _TracingAttributesResponseSerializer(serializers.Serializer):
+    results = _TracingAttributeEntrySerializer(many=True, help_text="Available attribute keys matching the filters.")
+    count = serializers.IntegerField(help_text="Total attribute keys matched (lower bound when searching values).")
 
 
 class _TracingValuesQuerySerializer(serializers.Serializer):
@@ -413,6 +441,105 @@ class _TracingCountRequestSerializer(serializers.Serializer):
 
 class _TracingCountResponseSerializer(serializers.Serializer):
     count = serializers.IntegerField(help_text="Number of spans matching the filters.")
+
+
+# Upper bound on symbols per request; each becomes a multiIf branch in the generated query.
+_MAX_SYMBOLS = 1000
+
+
+class _SymbolStatsSymbolSerializer(serializers.Serializer):
+    name = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Opaque identifier (e.g. the function name) echoed back on the matching result row.",
+    )
+    startLine = serializers.IntegerField(min_value=1, help_text="First line of the symbol's range, inclusive.")
+    endLine = serializers.IntegerField(min_value=1, help_text="Last line of the symbol's range, inclusive.")
+
+
+class _SymbolStatsQueryBodySerializer(serializers.Serializer):
+    filePath = serializers.CharField(
+        help_text=(
+            "Repo-relative path of the source file to aggregate (e.g. 'src/flags/flag_matching.rs'). "
+            "Matched as a path suffix against the recorded OTel code.file.path / code.filepath, so a "
+            "recorded path carrying an extra crate/workspace prefix still matches. Separators are normalized."
+        ),
+    )
+    dateRange = _TracingDateRangeSerializer(
+        required=False,
+        help_text="Current period to aggregate over; the prior equal-length window is the comparison. Defaults to last 24h.",
+    )
+    symbols = _SymbolStatsSymbolSerializer(
+        many=True,
+        required=False,
+        help_text=(
+            "Optional symbol (function) line ranges, supplied by the client from its own AST/LSP. When "
+            "given, each span is attributed to the smallest enclosing range (one row per symbol). When "
+            "omitted (or an empty list), spans are aggregated per source line (one row per line); pass a "
+            "single whole-file range for a file-level total."
+        ),
+    )
+
+
+class _SymbolStatsRequestSerializer(serializers.Serializer):
+    query = _SymbolStatsQueryBodySerializer(help_text="The symbol-stats per-symbol aggregation query to execute.")
+
+
+class _SymbolStatsPeriodSerializer(serializers.Serializer):
+    count = serializers.IntegerField(help_text="Number of spans attributed to this symbol in the period.")
+    error_count = serializers.IntegerField(help_text="Spans whose OTel status is Error (status_code = 2).")
+    sum_duration_nano = serializers.FloatField(
+        help_text="Total wall-clock span duration in the period, in nanoseconds (additive across spans)."
+    )
+    p50_duration_nano = serializers.FloatField(help_text="Median wall-clock span duration, in nanoseconds.")
+    p95_duration_nano = serializers.FloatField(help_text="95th-percentile wall-clock span duration, in nanoseconds.")
+    p99_duration_nano = serializers.FloatField(help_text="99th-percentile wall-clock span duration, in nanoseconds.")
+    busy_count = serializers.IntegerField(
+        help_text="Spans in the period carrying an active/busy time attribute. 0 means busy_* are not meaningful."
+    )
+    p50_busy_nano = serializers.FloatField(
+        help_text="Median active (busy) time, in nanoseconds. Excludes awaiting children."
+    )
+    p95_busy_nano = serializers.FloatField(help_text="95th-percentile active (busy) time, in nanoseconds.")
+    p99_busy_nano = serializers.FloatField(help_text="99th-percentile active (busy) time, in nanoseconds.")
+
+
+class _SymbolStatsRowSerializer(_SymbolStatsPeriodSerializer):
+    line = serializers.IntegerField(
+        help_text="Bucket anchor: the source line (line mode) or the symbol's startLine (symbol mode)."
+    )
+    name = serializers.CharField(
+        required=False, allow_null=True, help_text="Echoed name from the requested symbol (symbol mode only)."
+    )
+    end_line = serializers.IntegerField(
+        required=False, allow_null=True, help_text="endLine of the matched symbol's range (symbol mode only)."
+    )
+    previous = _SymbolStatsPeriodSerializer(
+        help_text="The same metrics over the immediately-preceding equal-length period."
+    )
+    count_pct_change = serializers.FloatField(
+        allow_null=True,
+        help_text=(
+            "Percentage change in count vs the previous period (180 = +180%). Null when there is no "
+            "baseline (previous count 0). Use `previous.count` — not a null here — to detect a new symbol."
+        ),
+    )
+    p95_duration_pct_change = serializers.FloatField(
+        allow_null=True,
+        help_text=(
+            "Percentage change in p95 duration vs the previous period (180 = +180%). Null when the previous "
+            "p95 is 0 (no comparable baseline), which can occur even when previous.count > 0 — do not read "
+            "null as 'new symbol'."
+        ),
+    )
+
+
+class _SymbolStatsResponseSerializer(serializers.Serializer):
+    results = _SymbolStatsRowSerializer(many=True, help_text="One row per bucket, ordered by line ascending.")
+    granularity = serializers.ChoiceField(
+        choices=["line", "symbol"],
+        help_text="Bucketing applied: 'line' when no symbols were supplied, 'symbol' otherwise.",
+    )
 
 
 def _encode_after_cursor(timestamp: str, **secondary: str) -> str:
@@ -618,6 +745,77 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         )
 
         return Response(response.results, status=status.HTTP_200_OK)
+
+    @extend_schema(request=_SymbolStatsRequestSerializer, responses={200: _SymbolStatsResponseSerializer})
+    @action(detail=False, methods=["POST"], url_path="symbol-stats", required_scopes=["tracing:read"])
+    def symbol_stats(self, request: Request, *args, **kwargs) -> Response:
+        tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
+        query_data = request.data.get("query", {}) or {}
+
+        file_path = query_data.get("filePath")
+        if not file_path or not isinstance(file_path, str):
+            return Response(
+                {"detail": "`filePath` is required for symbol-stats queries."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # symbols is optional: omitted/empty -> per-line aggregation; supplied -> per-symbol ranges.
+        symbols: list[SourceSymbol] | None = None
+        raw_symbols = query_data.get("symbols")
+        if raw_symbols:
+            if not isinstance(raw_symbols, list):
+                return Response(
+                    {"detail": "`symbols` must be a list of {startLine, endLine} ranges."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if len(raw_symbols) > _MAX_SYMBOLS:
+                # Each symbol expands to a multiIf branch; an unbounded list would inflate the generated
+                # SQL past ClickHouse's parse limits before any row cap applies.
+                return Response(
+                    {"detail": f"At most {_MAX_SYMBOLS} symbols may be requested at once."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            try:
+                symbols = [self.get_model(s, SourceSymbol) for s in raw_symbols]
+            except (ValidationError, ValueError, ParseError):
+                return Response(
+                    {"detail": "Each symbol must be an object with integer `startLine` and `endLine`."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if any(symbol.startLine > symbol.endLine for symbol in symbols):
+                # An inverted range matches no line, so the symbol would silently vanish from the results.
+                return Response(
+                    {"detail": "Each symbol's `startLine` must be <= `endLine`."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if len({symbol.startLine for symbol in symbols}) != len(symbols):
+                # Rows are keyed by startLine; duplicates would silently merge into one row with one name.
+                return Response(
+                    {"detail": "Symbols must have distinct `startLine` values."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        date_range = self.get_model(query_data.get("dateRange", {"date_from": "-24h"}), DateRange)
+
+        response = run_symbol_stats_query(team=self.team, file_path=file_path, date_range=date_range, symbols=symbols)
+        granularity = response.granularity.value
+
+        report_user_action(
+            request.user,
+            "tracing symbol stats queried",
+            {
+                "symbol_count": len(symbols or []),
+                "matched_count": len(response.results),
+                "granularity": granularity,
+            },
+            team=self.team,
+            request=request,
+        )
+
+        return Response(
+            {"results": [row.model_dump() for row in response.results], "granularity": granularity},
+            status=status.HTTP_200_OK,
+        )
 
     @extend_schema(request=_TracingTimeseriesRequestSerializer)
     @action(detail=False, methods=["POST"], required_scopes=["tracing:read"])
@@ -888,11 +1086,15 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             status=status.HTTP_200_OK,
         )
 
-    @extend_schema(parameters=[_TracingAttributesQuerySerializer])
+    @extend_schema(
+        parameters=[_TracingAttributesQuerySerializer],
+        responses={200: _TracingAttributesResponseSerializer},
+    )
     @action(detail=False, methods=["get"], required_scopes=["tracing:read"])
     def attributes(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
         search = request.GET.get("search", "")
+        search_values = request.GET.get("search_values", "false").lower() == "true"
         limit = int(request.GET.get("limit", "100"))
         offset = int(request.GET.get("offset", "0"))
 
@@ -910,6 +1112,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             date_range=date_range,
             attribute_type=attribute_type,
             search=search,
+            search_values=search_values,
             limit=limit,
             offset=offset,
         )

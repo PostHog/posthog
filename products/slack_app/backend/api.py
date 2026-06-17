@@ -22,6 +22,7 @@ from slack_sdk.http_retry.builtin_handlers import RateLimitErrorRetryHandler
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
 from posthog.event_usage import groups
+from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 from posthog.llm.gateway_client import get_llm_client
 from posthog.models.integration import (
     SLACK_INTEGRATION_KINDS,
@@ -81,27 +82,6 @@ HANDLED_EVENT_TYPES = [
 # The notifications Slack app (`slack`) install carries every scope the coding-agent flow
 # needs, so both surfaces share one kind.
 SLACK_INTEGRATION_KIND = "slack"
-
-# Scopes the coding-agent flow exercises end-to-end. Slack stores the granted scope set
-# per install, so tenants who connected the Slack integration before the full scope set
-# was requested in prod (2026-05-04, #57177) must reconnect before mentions can work.
-#
-# ``member_joined_channel`` (used by the channel-onboarding flow) additionally requires
-# ``channels:read`` and ``groups:read``. Those are in the Slack app manifest but **not**
-# in the required set on purpose: workspaces that connected before the scopes were added
-# keep working — they just don't deliver the join event, so they silently skip the
-# welcome message instead of seeing a "missing scopes" warning.
-POSTHOG_CODE_REQUIRED_SLACK_SCOPES: frozenset[str] = frozenset(
-    {
-        "app_mentions:read",
-        "users:read",
-        "users:read.email",
-        "chat:write",
-        "channels:history",
-        "groups:history",
-        "reactions:write",
-    }
-)
 
 # Onboarding-on-join dedupe TTL: just long enough to absorb Slack retries and
 # a near-simultaneous cross-region race during cutover. A real re-add after
@@ -1642,8 +1622,8 @@ def send_assistant_install_welcome(integration: Integration) -> None:
 
 
 # The DM/agent surface needs the base coding-agent scopes plus the assistant container scopes.
-# Kept separate from POSTHOG_CODE_REQUIRED_SLACK_SCOPES so the mention flow isn't gated on im:history.
-_ASSISTANT_REQUIRED_SLACK_SCOPES = POSTHOG_CODE_REQUIRED_SLACK_SCOPES | frozenset({"assistant:write", "im:history"})
+# Kept separate from REQUIRED_SLACK_SCOPES so the mention flow isn't gated on im:history.
+_ASSISTANT_REQUIRED_SLACK_SCOPES = REQUIRED_SLACK_SCOPES | frozenset({"assistant:write", "im:history"})
 
 
 def _handle_assistant_dm_message(
@@ -1953,7 +1933,7 @@ def route_posthog_code_event_to_relevant_region(
             return ROUTE_HANDLED_LOCALLY
 
         slack = SlackIntegration(mention_target)
-        missing = slack.missing_scopes(POSTHOG_CODE_REQUIRED_SLACK_SCOPES)
+        missing = slack.missing_scopes(REQUIRED_SLACK_SCOPES)
         if missing:
             if untagged_followup_mapping is not None:
                 logger.info(

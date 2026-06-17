@@ -72,6 +72,7 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     _is_read_replica,
     _is_unsupported_function_error,
     _normalize_function_names,
+    _raise_if_setup_connection_broken,
     _rls_active_from_conn,
     _role_subject_to_rls,
     _statement_timeout_as_non_retryable,
@@ -233,6 +234,11 @@ class TestPostgresSourceNonRetryableErrors:
         "error_msg",
         [
             'OperationalError: connection failed: connection to server at "10.0.0.1", port 5432 failed: FATAL: MaxClientsInSessionMode: max clients reached',
+            # Newer Supabase/Supavisor session-mode pooler wording for the same client-slot
+            # exhaustion as "MaxClientsInSessionMode: max clients reached". The pooler has
+            # momentarily run out of client slots (pool_size reached); it recovers as connections
+            # free up, so a fresh attempt succeeds — must stay retryable.
+            'OperationalError: connection failed: connection to server at "44.216.29.125", port 5432 failed: FATAL:  (EMAXCONNSESSION) max clients reached in session mode - max clients are limited to pool_size: 15',
             'OperationalError: connection failed: connection to server at "10.0.0.1", port 5432 failed: FATAL: remaining connection slots are reserved for roles with the SUPERUSER attribute',
             'OperationalError: connection failed: connection to server at "10.0.0.1", port 5432 failed: FATAL: too many connections for role "user"',
             # Mid-stream SSL/connection drops during schema discovery — the pooler culled an idle
@@ -269,6 +275,32 @@ class TestPostgresSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Permanent error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Raw psycopg message (what the activity-level check sees via str(e)) when require_ssl=False
+            # leaves the OperationalError unwrapped. The host/port are volatile; the alert text is stable.
+            'connection failed: connection to server at "37.16.27.102", port 6432 failed: SSL error: tlsv1 alert no application protocol',
+            'connection failed: connection to server at "10.0.0.1", port 5432 failed: SSL error: tlsv1 alert no application protocol',
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            'OperationalError: connection failed: connection to server at "37.16.27.102", port 6432 failed: SSL error: tlsv1 alert no application protocol',
+        ],
+    )
+    def test_tls_no_application_protocol_errors_are_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"TLS ALPN rejection error should be non-retryable: {error_msg}"
+
+    def test_tls_no_application_protocol_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = (
+            'connection failed: connection to server at "37.16.27.102", port 6432 failed: '
+            "SSL error: tlsv1 alert no application protocol"
+        )
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "TLS ALPN rejection error should surface an actionable message"
+        assert "host and port" in friendly[0]
 
     def test_supavisor_enotfound_tenant_user_uses_new_key(self, source):
         # The older tenant/user patterns don't cover the newer "(ENOTFOUND) tenant/user" wording,
@@ -569,6 +601,33 @@ class TestIsConnectionDroppedError:
         assert _is_connection_dropped_error(error) is False
 
 
+class TestRaiseIfSetupConnectionBroken:
+    """A connection dropped mid-discovery must surface as a retryable error, not the masked
+    `ProgrammingError: Explicit commit() forbidden within a Transaction context` that psycopg's
+    implicit `with connection:` exit-commit raises when a savepoint teardown leaks the
+    transaction-nesting counter on a no-longer-OK connection."""
+
+    def test_broken_connection_raises_retryable_dropped_error(self):
+        connection = mock.MagicMock()
+        connection.broken = True
+
+        with pytest.raises(psycopg.OperationalError) as exc_info:
+            _raise_if_setup_connection_broken(cast(Any, connection))
+
+        # Classified as a transient drop, so the activity keeps retrying...
+        assert _is_connection_dropped_error(exc_info.value) is True
+        # ...and the message is not matched by any NonRetryableErrors substring.
+        message = str(exc_info.value)
+        assert not any(key in message for key in PostgresSource().get_non_retryable_errors())
+
+    def test_healthy_connection_is_a_noop(self):
+        connection = mock.MagicMock()
+        connection.broken = False
+
+        # A healthy connection must not raise.
+        _raise_if_setup_connection_broken(cast(Any, connection))
+
+
 class TestConnectWithDroppedRetry:
     @pytest.fixture
     def logger(self):
@@ -786,6 +845,7 @@ class TestPostgresSourceForPipelineSchemaResolution:
         schema_metadata: dict | None = None,
         source_model=None,
         sync_type_config: dict | None = None,
+        s3_folder_name: str | None = None,
     ):
         schema = mock.MagicMock()
         schema.name = name
@@ -797,6 +857,10 @@ class TestPostgresSourceForPipelineSchemaResolution:
         schema.chunk_size_override = None
         schema.schema_metadata = schema_metadata
         schema.sync_type_config = sync_type_config or {}
+        schema.s3_folder_name = s3_folder_name
+        # MagicMock auto-attrs are truthy; pin the property to what the real model would resolve
+        # (resolution itself is covered by warehouse_sources test_models).
+        schema.resolved_s3_folder_name = s3_folder_name
         schema.source = source_model or mock.MagicMock()
         return schema
 
@@ -853,9 +917,9 @@ class TestPostgresSourceForPipelineSchemaResolution:
             assert kwargs["schema"] == "real_schema"
             assert kwargs["table_names"] == ["real_table"]
 
-    def test_dwh_storage_key_drives_response_name_so_delta_writes_to_legacy_path(self, source):
+    def test_s3_folder_name_drives_response_name_so_delta_writes_to_legacy_path(self, source):
         # After `consolidate_postgres_legacy_rows` renames `example_table` → `public.example_table`,
-        # the row carries `dwh_storage_key="example_table"`. `validate_schema_and_update_table` uses
+        # the row carries `s3_folder_name="example_table"`. `validate_schema_and_update_table` uses
         # that key for `url_pattern`, so `SourceResponse.name` MUST also derive from the storage key
         # — otherwise Delta files land at `.../public__example_table/` while `DataWarehouseTable.url_pattern`
         # points at `.../example_table/` and HogQL reads from an empty location.
@@ -864,7 +928,7 @@ class TestPostgresSourceForPipelineSchemaResolution:
         schema_model = self._make_schema_model(
             "public.example_table",
             schema_metadata={"source_schema": "public", "source_table_name": "example_table"},
-            sync_type_config={"dwh_storage_key": "example_table"},
+            s3_folder_name="example_table",
         )
         inputs = self._make_inputs("public.example_table")
         config = self._make_config(schema=None)
@@ -884,12 +948,12 @@ class TestPostgresSourceForPipelineSchemaResolution:
             source.source_for_pipeline(config, inputs)
 
             assert response.name == NamingConvention.normalize_identifier("example_table"), (
-                f"response.name must derive from dwh_storage_key to keep Delta writes anchored to the "
+                f"response.name must derive from s3_folder_name to keep Delta writes anchored to the "
                 f"legacy folder; got {response.name!r}"
             )
 
     def test_response_name_uses_schema_name_when_no_storage_key(self, source):
-        # New (non-migrated) rows have no dwh_storage_key — response.name falls back to the row's
+        # New (non-migrated) rows have no s3_folder_name — response.name falls back to the row's
         # current name so the Delta path matches `url_pattern` (also derived from the row's name).
         from posthog.temporal.data_imports.naming_convention import NamingConvention
 
