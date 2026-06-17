@@ -10,13 +10,13 @@ import {
 } from 'd3-scale'
 import { stack as stackGen, stackOffsetDiverging, stackOffsetExpand, stackOffsetNone } from 'd3-shape'
 
-import type { BandSlot, ChartDimensions, ChartScales, ResolveValueFn, Series, ValueDomain } from './types'
+import type { BandSlot, ChartDimensions, ResolveValueFn, Series, ValueDomain, YAxisScale } from './types'
 import { DEFAULT_Y_AXIS_ID } from './types'
 
 /** Inner padding fraction applied to the band scale when `BarChartConfig.bars.bandPadding` is unset. */
 export const DEFAULT_BAND_PADDING = 0.2
 
-type D3YScale = ScaleLinear<number, number> | ScaleLogarithmic<number, number>
+export type D3YScale = ScaleLinear<number, number> | ScaleLogarithmic<number, number>
 
 export interface ScaleSet {
     x: ScalePoint<string>
@@ -159,10 +159,49 @@ export function createYScale(
     const dataRange = seriesValueRange(series)
     const range = include?.length ? extendValueRange(dataRange, include) : dataRange
 
+    // A negative `include` value (a goal line below 0) is explicit, so it must not be clamped away.
+    const hasExplicitNegativeGoal = include?.some((v) => v != null && isFinite(v) && v < 0) ?? false
+    const primaryRange = series.some((s) => s.overlay) ? seriesValueRange(series.filter((s) => !s.overlay)) : dataRange
+
+    return buildValueScale({
+        range,
+        primaryRange,
+        valueRange: [dimensions.plotTop + dimensions.plotHeight, dimensions.plotTop],
+        tickCount,
+        scaleType,
+        allowNegativeBaseline: hasExplicitNegativeGoal,
+    })
+}
+
+/** Build a value (y, or x for horizontal) scale from a precomputed {@link SeriesValueRange}, applying
+ *  the overlay-aware zero-baseline clamp, the degenerate `min === max` guard, and the log/no-positive
+ *  fallback. Single source of truth shared by `createYScale` and the combo chart's per-axis scales so
+ *  the baseline logic can't drift between them. */
+export function buildValueScale(options: {
+    range: SeriesValueRange
+    /** Pixel range `[lowEdge, highEdge]` — for a vertical y-scale this is `[bottom, top]`. */
+    valueRange: [number, number]
+    tickCount: number
+    scaleType?: 'linear' | 'log'
+    /** Range used for the overlay-aware zero-baseline clamp; defaults to `range`. Overlays
+     *  (trendlines, moving averages) may dip below 0 when the underlying data doesn't — they
+     *  shouldn't drag the baseline negative, since `d3.nice()` on a slightly-negative min yields a
+     *  disproportionately large negative tick (e.g. [-1, 14500] → [-2000, 16000]). */
+    primaryRange?: SeriesValueRange
+    /** Keep a negative min even when the primary data is non-negative (an explicit negative goal). */
+    allowNegativeBaseline?: boolean
+}): D3YScale {
+    const {
+        range,
+        valueRange,
+        tickCount,
+        scaleType = 'linear',
+        primaryRange = range,
+        allowNegativeBaseline = false,
+    } = options
+
     if (range.count === 0) {
-        return scaleLinear()
-            .domain([0, 1])
-            .range([dimensions.plotTop + dimensions.plotHeight, dimensions.plotTop])
+        return scaleLinear().domain([0, 1]).range(valueRange)
     }
 
     let { min, max } = range
@@ -177,42 +216,60 @@ export function createYScale(
                 logMin = Math.min(0, logMin)
                 logMax = Math.max(0, logMax, logMin + 1)
             }
-            return scaleLinear()
-                .domain([logMin, logMax])
-                .nice(tickCount)
-                .range([dimensions.plotTop + dimensions.plotHeight, dimensions.plotTop])
+            return scaleLinear().domain([logMin, logMax]).nice(tickCount).range(valueRange)
         }
-        return scaleLog()
-            .domain(niceLogDomain(range.minPositive, max))
-            .range([dimensions.plotTop + dimensions.plotHeight, dimensions.plotTop])
-            .clamp(true)
+        return scaleLog().domain(niceLogDomain(range.minPositive, max)).range(valueRange).clamp(true)
     }
 
-    // Auxiliary overlays (trendline projections, moving averages) may dip below 0
-    // when the underlying data does not. They shouldn't drag the axis baseline below
-    // 0 — d3.nice() applied to a slightly-negative min produces a disproportionately
-    // large negative tick (e.g. [-1, 14500] → [-2000, 16000]). A negative `include`
-    // value (a goal line below 0) is explicit, though, so it must not be clamped away.
-    const hasExplicitNegativeGoal = include?.some((v) => v != null && isFinite(v) && v < 0) ?? false
-    const primaryRange = series.some((s) => s.overlay) ? seriesValueRange(series.filter((s) => !s.overlay)) : dataRange
-    if (primaryRange.count > 0 && primaryRange.min >= 0 && !hasExplicitNegativeGoal) {
+    if (primaryRange.count > 0 && primaryRange.min >= 0 && !allowNegativeBaseline) {
         min = 0
     } else if (max < 0) {
         max = 0
     }
 
-    // With no real data, `include` (goal) values are the only contributors, so the range can
-    // collapse to a single point (e.g. `[100, 100]`) — a degenerate domain that maps everything to
-    // NaN. Bracket zero, then guarantee a unit span, so the axis stays well-formed.
+    // The range can collapse to a single point (e.g. all-equal data, or `include`-only goal values
+    // like `[100, 100]`) — a degenerate domain that maps everything to NaN. Bracket zero, then
+    // guarantee a unit span, so the axis stays well-formed.
     if (min === max) {
         min = Math.min(0, min)
         max = Math.max(0, max, min + 1)
     }
 
-    return scaleLinear()
-        .domain([min, max])
-        .nice(tickCount)
-        .range([dimensions.plotTop + dimensions.plotHeight, dimensions.plotTop])
+    return scaleLinear().domain([min, max]).nice(tickCount).range(valueRange)
+}
+
+/** Map raw d3 per-axis scales into the public {@link YAxisScale} shape (value→pixel fn + tick
+ *  accessor + side). Shared by every multi-axis chart's `createScales` so the wrapping is uniform. */
+export function toYAxisScales(
+    d3Axes: Record<string, { scale: D3YScale; position: 'left' | 'right' }>,
+    tickCount: number
+): Record<string, YAxisScale> {
+    const yAxes: Record<string, YAxisScale> = {}
+    for (const [axisId, { scale, position }] of Object.entries(d3Axes)) {
+        yAxes[axisId] = {
+            scale: (value: number) => scale(value),
+            ticks: () => scale.ticks?.(tickCount) ?? [],
+            position,
+        }
+    }
+    return yAxes
+}
+
+/** Topmost visible series key per axis id — the cap-rounded layer of each stack. Iteration order
+ *  matches d3.stack's key order, so the last write per axis is that axis's top layer. `skip` lets a
+ *  mixed-type chart exclude non-bar series so only bars determine the cap. */
+export function computeTopStackedKeyByAxis<S extends Pick<Series, 'key' | 'visibility' | 'yAxisId'>>(
+    series: readonly S[],
+    options: { skip?: (s: S) => boolean } = {}
+): Map<string, string> {
+    const m = new Map<string, string>()
+    for (const s of series) {
+        if (s.visibility?.excluded || options.skip?.(s)) {
+            continue
+        }
+        m.set(s.yAxisId ?? DEFAULT_Y_AXIS_ID, s.key)
+    }
+    return m
 }
 
 /** Order the visible series' axis ids — DEFAULT_Y_AXIS_ID first (when present), then the
@@ -621,9 +678,9 @@ export function autoFormatterFor(ticks: number[]): (value: number) => string {
     return (v) => autoFormatYTick(v, domainMax)
 }
 
-export function resolveYScaleForSeries(
-    scales: Pick<ChartScales, 'y' | 'yAxes'>,
+export function resolveYScaleForSeries<S extends (value: number) => number>(
+    scales: { y: S; yAxes?: Record<string, { scale: S }> },
     series: Pick<Series, 'yAxisId'>
-): (value: number) => number {
+): S {
     return scales.yAxes?.[series.yAxisId ?? DEFAULT_Y_AXIS_ID]?.scale ?? scales.y
 }

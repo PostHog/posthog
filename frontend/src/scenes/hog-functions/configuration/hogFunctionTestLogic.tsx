@@ -5,8 +5,8 @@ import type { editor } from 'monaco-editor'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { tryJsonParse } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import { tryJsonParse } from 'lib/utils/json'
 
 import { groupsModel } from '~/models/groupsModel'
 import { CyclotronJobInvocationGlobals, CyclotronJobTestInvocationResult } from '~/types'

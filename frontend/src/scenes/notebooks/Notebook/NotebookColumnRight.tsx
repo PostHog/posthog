@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { BuiltLogic, useValues } from 'kea'
 
-import { uuid } from 'lib/utils'
+import { uuid } from 'lib/utils/dom'
 
 import { NotebookNodeChildRenderer } from '../Nodes/NodeWrapper'
 import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'

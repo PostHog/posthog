@@ -22,21 +22,31 @@ pub enum CohortType {
 #[derive(Debug, Clone, Default, Serialize, Deserialize, FromRow)]
 pub struct Cohort {
     pub id: i32,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     pub team_id: i32,
     pub deleted: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub filters: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub query: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub pending_version: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub count: Option<i32>,
     pub is_calculating: bool,
     pub is_static: bool,
     pub errors_calculating: i32,
     pub groups: serde_json::Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub created_by_id: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub cohort_type: Option<CohortType>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub last_backfill_person_properties_at: Option<DateTime<Utc>>,
 }
 
@@ -370,5 +380,85 @@ mod tests {
             size > 1000,
             "Large JSON should have significant estimated size"
         );
+    }
+}
+
+#[cfg(test)]
+mod skip_serializing_if_tests {
+    //! Verify the `skip_serializing_if = "Option::is_none"` sweep on `Cohort`.
+    //! For every swept `Option<T>` field, absent input must round-trip as absent
+    //! (no fabricated `null` key on cache-write serialize), and a real value must
+    //! round-trip unchanged. See
+    //! plans/rust-flag-models-skip-serializing-if-sweep.md.
+    use super::*;
+
+    fn assert_absent(value: &serde_json::Value, key: &str) {
+        let map = value
+            .as_object()
+            .expect("serialized cohort should be an object");
+        assert!(
+            !map.contains_key(key),
+            "absent field `{key}` must not be promoted to a null key on serialize"
+        );
+    }
+
+    /// Minimal cohort with every swept Option field at `None`.
+    fn minimal_cohort() -> Cohort {
+        Cohort {
+            id: 1,
+            team_id: 1,
+            groups: serde_json::json!({}),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn cohort_absent_options_stay_absent() {
+        let output = serde_json::to_value(minimal_cohort()).unwrap();
+        for key in [
+            "name",
+            "description",
+            "filters",
+            "query",
+            "version",
+            "pending_version",
+            "count",
+            "created_by_id",
+            "cohort_type",
+            "last_backfill_person_properties_at",
+        ] {
+            assert_absent(&output, key);
+        }
+    }
+
+    #[test]
+    fn cohort_values_round_trip() {
+        let cohort = Cohort {
+            id: 1,
+            name: Some("QA".to_string()),
+            description: Some("desc".to_string()),
+            team_id: 1,
+            filters: Some(serde_json::json!({"k": "v"})),
+            query: Some(serde_json::json!({"q": 1})),
+            version: Some(2),
+            pending_version: Some(3),
+            count: Some(7),
+            created_by_id: Some(9),
+            cohort_type: Some(CohortType::Behavioral),
+            last_backfill_person_properties_at: Some(Utc::now()),
+            groups: serde_json::json!({}),
+            ..Default::default()
+        };
+        let output = serde_json::to_value(&cohort).unwrap();
+        assert_eq!(output["name"], "QA");
+        assert_eq!(output["description"], "desc");
+        assert_eq!(output["filters"]["k"], "v");
+        assert_eq!(output["query"]["q"], 1);
+        assert_eq!(output["version"], 2);
+        assert_eq!(output["pending_version"], 3);
+        assert_eq!(output["count"], 7);
+        assert_eq!(output["created_by_id"], 9);
+        assert_eq!(output["cohort_type"], "behavioral");
+        assert!(output["last_backfill_person_properties_at"].is_string());
     }
 }
