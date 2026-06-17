@@ -114,6 +114,22 @@ describe('WidgetTypePickerCard', () => {
         expect(onSelect).toHaveBeenCalledTimes(1)
     })
 
+    it('shows a "New" badge when isNew, and no learn-more banner without a link', () => {
+        render(
+            <WidgetTypePickerCard
+                label="Error tracking"
+                description="Top issues"
+                selected={false}
+                preview={<div>Preview</div>}
+                onSelect={jest.fn()}
+                isNew
+            />
+        )
+
+        expect(screen.getByText('New')).toBeInTheDocument()
+        expect(screen.queryByRole('link', { name: /Learn more/i })).not.toBeInTheDocument()
+    })
+
     it('marks preview content as non-interactive', () => {
         render(
             <WidgetTypePickerCard

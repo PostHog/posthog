@@ -1,6 +1,6 @@
 import { urls } from 'scenes/urls'
 
-import { QuickFilterContext } from '~/queries/schema/schema-general'
+import { ProductKey, QuickFilterContext } from '~/queries/schema/schema-general'
 import { ActivityTab } from '~/types'
 
 import {
@@ -79,6 +79,25 @@ export const DASHBOARD_WIDGET_GROUP_LABELS = {
 
 export function getDashboardWidgetGroupLabel(groupId: string): string {
     return DASHBOARD_WIDGET_GROUP_LABELS[groupId as keyof typeof DASHBOARD_WIDGET_GROUP_LABELS] ?? groupId
+}
+
+/**
+ * Products that can be surfaced as "new" in the Add widget picker for teams that haven't adopted them yet,
+ * keyed by catalog `groupId`. The `activity` group is intentionally omitted — it's core and always available.
+ */
+export const DASHBOARD_WIDGET_GROUP_PRODUCT_INTRO = {
+    error_tracking: { productKey: ProductKey.ERROR_TRACKING, docsHref: 'https://posthog.com/docs/error-tracking' },
+    session_replay: { productKey: ProductKey.SESSION_REPLAY, docsHref: 'https://posthog.com/docs/session-replay' },
+    experiments: { productKey: ProductKey.EXPERIMENTS, docsHref: 'https://posthog.com/docs/experiments' },
+} as const satisfies Partial<
+    Record<keyof typeof DASHBOARD_WIDGET_GROUP_LABELS, { productKey: ProductKey; docsHref: string }>
+>
+
+export type DashboardWidgetGroupProductIntro =
+    (typeof DASHBOARD_WIDGET_GROUP_PRODUCT_INTRO)[keyof typeof DASHBOARD_WIDGET_GROUP_PRODUCT_INTRO]
+
+export function getDashboardWidgetGroupProductIntro(groupId: string): DashboardWidgetGroupProductIntro | undefined {
+    return DASHBOARD_WIDGET_GROUP_PRODUCT_INTRO[groupId as keyof typeof DASHBOARD_WIDGET_GROUP_PRODUCT_INTRO]
 }
 
 export type DashboardWidgetCatalogEntry = {

@@ -6,12 +6,14 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import {
     DASHBOARD_WIDGET_CATALOG_GROUPS,
     DASHBOARD_WIDGET_PREVIEWS,
     type DashboardWidgetCatalogEntry,
     type DashboardWidgetCatalogKey,
+    getDashboardWidgetGroupProductIntro,
 } from '../widget_types/catalog'
 import {
     type AddWidgetPayload,
@@ -20,6 +22,7 @@ import {
     submitAddWidgetPayloads,
 } from './addWidgetModalUtils'
 import { WidgetTypePickerCard } from './WidgetTypePickerCard'
+import { teamHasAdoptedProduct } from './widgetProductIntro'
 
 export type { AddWidgetPayload }
 
@@ -35,6 +38,10 @@ type AddWidgetCatalogPickerProps = {
     entry: DashboardWidgetCatalogEntry
     selected: boolean
     onToggleWidgetType: (widgetType: string) => void
+    isNew?: boolean
+    productName?: string
+    learnMoreHref?: string
+    onLearnMore?: () => void
 }
 
 function AddWidgetCatalogPicker({
@@ -42,6 +49,10 @@ function AddWidgetCatalogPicker({
     entry,
     selected,
     onToggleWidgetType,
+    isNew,
+    productName,
+    learnMoreHref,
+    onLearnMore,
 }: AddWidgetCatalogPickerProps): JSX.Element {
     const WidgetPreview = DASHBOARD_WIDGET_PREVIEWS[widgetType]
 
@@ -56,6 +67,10 @@ function AddWidgetCatalogPicker({
             selected={selected}
             preview={WidgetPreview ? <WidgetPreview /> : <div />}
             onSelect={handleSelect}
+            isNew={isNew}
+            productName={productName}
+            learnMoreHref={learnMoreHref}
+            onLearnMore={onLearnMore}
         />
     )
 }
@@ -63,6 +78,7 @@ function AddWidgetCatalogPicker({
 export function AddWidgetModal({ isOpen, onClose, loading, onAdd }: AddWidgetModalProps): JSX.Element {
     const { addWidgetSelectedTypes } = useValues(dashboardLogic)
     const { toggleAddWidgetSelectedType } = useActions(dashboardLogic)
+    const { currentTeam } = useValues(teamLogic)
     const selectedTypes = new Set(addWidgetSelectedTypes)
 
     const selectedCount = selectedTypes.size
@@ -80,13 +96,17 @@ export function AddWidgetModal({ isOpen, onClose, loading, onAdd }: AddWidgetMod
         onClose()
     }
 
+    function handleLearnMoreClicked(groupId: string): void {
+        posthog.capture('dashboard add widget modal - learn more clicked', { widget_group: groupId })
+    }
+
     return (
         <LemonModal
             isOpen={isOpen}
             onClose={onClose}
             title="Add widget"
             description="Bring context from your different PostHog products into one dashboard."
-            width={960}
+            width={1200}
             footer={
                 <>
                     <LemonButton
@@ -114,24 +134,35 @@ export function AddWidgetModal({ isOpen, onClose, loading, onAdd }: AddWidgetMod
         >
             <div className="@container/add-widget-modal">
                 <div
-                    className="grid grid-cols-1 @min-[48rem]/add-widget-modal:grid-cols-2 gap-x-3 gap-y-4"
+                    className="grid grid-cols-1 @min-[56rem]/add-widget-modal:grid-cols-2 gap-x-3 gap-y-4"
                     aria-label="Widget types"
                 >
-                    {DASHBOARD_WIDGET_CATALOG_GROUPS.map((group, groupIndex) => (
-                        <Fragment key={group.groupId}>
-                            {groupIndex > 0 ? <LemonDivider className="col-span-full my-0" /> : null}
-                            <h5 className="col-span-full mx-0 my-0">{group.groupLabel}</h5>
-                            {group.widgets.map(({ widgetType, entry }) => (
-                                <AddWidgetCatalogPicker
-                                    key={widgetType}
-                                    widgetType={widgetType}
-                                    entry={entry}
-                                    selected={selectedTypes.has(widgetType)}
-                                    onToggleWidgetType={handleToggleWidgetType}
-                                />
-                            ))}
-                        </Fragment>
-                    ))}
+                    {DASHBOARD_WIDGET_CATALOG_GROUPS.map((group, groupIndex) => {
+                        const productIntro = getDashboardWidgetGroupProductIntro(group.groupId)
+                        const productIsNew = productIntro
+                            ? !teamHasAdoptedProduct(currentTeam, productIntro.productKey)
+                            : false
+
+                        return (
+                            <Fragment key={group.groupId}>
+                                {groupIndex > 0 ? <LemonDivider className="col-span-full my-0" /> : null}
+                                <h5 className="col-span-full mx-0 my-0">{group.groupLabel}</h5>
+                                {group.widgets.map(({ widgetType, entry }) => (
+                                    <AddWidgetCatalogPicker
+                                        key={widgetType}
+                                        widgetType={widgetType}
+                                        entry={entry}
+                                        selected={selectedTypes.has(widgetType)}
+                                        onToggleWidgetType={handleToggleWidgetType}
+                                        isNew={productIsNew}
+                                        productName={group.groupLabel}
+                                        learnMoreHref={productIsNew ? productIntro?.docsHref : undefined}
+                                        onLearnMore={() => handleLearnMoreClicked(group.groupId)}
+                                    />
+                                ))}
+                            </Fragment>
+                        )
+                    })}
                 </div>
             </div>
         </LemonModal>

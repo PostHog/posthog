@@ -2,12 +2,22 @@ import clsx from 'clsx'
 
 import { IconCheck } from '@posthog/icons'
 
+import { LemonTag } from 'lib/lemon-ui/LemonTag'
+import { Link } from 'lib/lemon-ui/Link'
+
 type WidgetTypePickerCardProps = {
     label: string
     description: string
     selected: boolean
     preview: JSX.Element
     onSelect: () => void
+    /** Highlight the widget as new when its product hasn't been adopted by the team yet. */
+    isNew?: boolean
+    /** Product name shown in the learn-more banner (e.g. "Error tracking"). */
+    productName?: string
+    /** Docs link surfaced in the learn-more banner; when set the banner is shown. */
+    learnMoreHref?: string
+    onLearnMore?: () => void
 }
 
 function WidgetTypePickerSelectionIndicator({ selected }: { selected: boolean }): JSX.Element {
@@ -30,6 +40,10 @@ export function WidgetTypePickerCard({
     selected,
     preview,
     onSelect,
+    isNew,
+    productName,
+    learnMoreHref,
+    onLearnMore,
 }: WidgetTypePickerCardProps): JSX.Element {
     return (
         <div
@@ -51,11 +65,35 @@ export function WidgetTypePickerCard({
             }}
         >
             <div className="flex items-center justify-between gap-2">
-                <div className="font-semibold">{label}</div>
+                <div className="flex items-center gap-1.5 min-w-0">
+                    <span className="font-semibold truncate">{label}</span>
+                    {isNew ? (
+                        <LemonTag type="highlight" size="small" className="shrink-0">
+                            New
+                        </LemonTag>
+                    ) : null}
+                </div>
                 <WidgetTypePickerSelectionIndicator selected={selected} />
             </div>
             <p className="text-xs text-muted m-0 mt-0.5 mb-2">{description}</p>
-            <div className="pointer-events-none select-none" aria-hidden="true">
+            {isNew && learnMoreHref ? (
+                <div className="flex items-center gap-2 rounded bg-accent-highlight-secondary px-2 py-1 mb-2 text-xs">
+                    <span className="text-secondary">
+                        {productName ? `${productName} is new for your team.` : 'New for your team.'}
+                    </span>
+                    <Link
+                        to={learnMoreHref}
+                        target="_blank"
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            onLearnMore?.()
+                        }}
+                    >
+                        Learn more
+                    </Link>
+                </div>
+            ) : null}
+            <div className="pointer-events-none select-none overflow-hidden rounded" aria-hidden="true">
                 {preview}
             </div>
         </div>
