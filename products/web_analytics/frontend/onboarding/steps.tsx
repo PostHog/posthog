@@ -75,7 +75,7 @@ export const webAnalyticsOnboarding: ProductOnboardingProvider = {
             },
             {
                 title: 'Enable web vitals autocapture',
-                description: `Uses Google's web vitals library to automagically capture performance information.`,
+                description: `Uses Google's web vitals library to automatically capture page performance metrics.`,
                 teamProperty: 'autocapture_web_vitals_opt_in',
                 value: ctx.currentTeam?.autocapture_web_vitals_opt_in ?? true,
                 type: 'toggle',
