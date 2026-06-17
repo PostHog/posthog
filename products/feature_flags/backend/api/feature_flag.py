@@ -381,22 +381,22 @@ def find_dependent_flags_batch(
 def _get_flag_rollout_info(flag: FeatureFlag, checker: FeatureFlagStatusChecker) -> dict[str, Any]:
     """Compute rollout state for a flag to include in bulk delete response.
 
-    Returns a dict with:
+    Thin adapter over ``FeatureFlagStatusChecker.get_rollout_summary`` so the
+    "fully rolled out" determination has a single source of truth. Maps the
+    summary to the bulk-delete vocabulary:
       - rollout_state: "fully_rolled_out", "not_rolled_out", or "partial"
       - active_variant: variant key if a multivariate flag is fully rolled out to one variant
     """
-    multivariate = flag.filters.get("multivariate", None)
+    summary = checker.get_rollout_summary(flag)
 
-    if multivariate:
-        is_fully_rolled_out, variant_key = checker.is_multivariate_flag_fully_rolled_out(flag)
-        if is_fully_rolled_out:
-            return {"rollout_state": "fully_rolled_out", "active_variant": variant_key}
-    elif checker.is_boolean_flag_fully_rolled_out(flag):
-        return {"rollout_state": "fully_rolled_out", "active_variant": None}
+    if summary.effectively_full_rollout:
+        active_variant = None
+        if summary.is_multivariate:
+            _, active_variant = checker.is_multivariate_flag_fully_rolled_out(flag)
+        return {"rollout_state": "fully_rolled_out", "active_variant": active_variant}
 
-    # Check if flag is effectively at 0%: all groups have rollout_percentage == 0
-    groups = flag.filters.get("groups", [])
-    if groups and all(g.get("rollout_percentage", None) == 0 for g in groups):
+    # Effectively at 0%: every release condition is at 0 (max across groups is 0).
+    if summary.max_rollout_percentage == 0:
         return {"rollout_state": "not_rolled_out", "active_variant": None}
 
     return {"rollout_state": "partial", "active_variant": None}
