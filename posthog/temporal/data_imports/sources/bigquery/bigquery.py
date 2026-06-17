@@ -315,7 +315,22 @@ def bigquery_storage_read_client(credentials: google_auth_credentials.Credential
     # via `create_channel(credentials=...)`. This routes the Storage Read API's
     # create_read_session (unary) + read_rows (server-streaming) RPCs through our
     # logging / metrics / sample-capture pipeline.
-    channel = BigQueryReadGrpcTransport.create_channel(host=BIGQUERY_STORAGE_HOST, credentials=credentials)
+    #
+    # `read_rows` streams Arrow record batches whose ReadRowsResponse messages
+    # routinely exceed gRPC's default 4 MiB client receive limit (wide rows or large
+    # string columns such as GeoJSON push a single message past it). When the
+    # transport builds its own channel it sets both message-length limits to -1
+    # (unlimited); because we supply the channel ourselves that default is skipped,
+    # so we must replicate it here. Without it large pages fail with RESOURCE_EXHAUSTED
+    # "Received message larger than max" and the sync can never make progress.
+    channel = BigQueryReadGrpcTransport.create_channel(
+        host=BIGQUERY_STORAGE_HOST,
+        credentials=credentials,
+        options=[
+            ("grpc.max_send_message_length", -1),
+            ("grpc.max_receive_message_length", -1),
+        ],
+    )
     tracked_channel = make_tracked_channel(channel, host=BIGQUERY_STORAGE_HOST)
     transport = BigQueryReadGrpcTransport(channel=tracked_channel)
 

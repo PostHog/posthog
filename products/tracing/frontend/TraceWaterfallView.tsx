@@ -2,6 +2,7 @@ import { CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from
 import { List, useDynamicRowHeight, useListRef } from 'react-window'
 
 import { IconWarning } from '@posthog/icons'
+import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { getSeriesColor } from 'lib/colors'
 import { AutoSizer } from 'lib/components/AutoSizer'
@@ -15,6 +16,11 @@ interface TraceWaterfallViewProps {
     /** Currently-selected span (controlled by the scene's URL-canonical state). */
     selectedSpanId?: string | null
     onSpanSelect?: (spanId: string | null) => void
+    /** The trace has more spans than are loaded — show the infinite-scroll affordance at the bottom. */
+    hasMore?: boolean
+    /** A next page of spans is being fetched. */
+    loadingMore?: boolean
+    onLoadMore?: () => void
 }
 
 interface SpanNode {
@@ -147,6 +153,8 @@ const LABEL_SPLITTER_HIT_PX = 8
 const ROW_HEIGHT = 32
 // Cap the windowed list viewport; taller traces scroll inside it instead of growing the modal.
 const MAX_WATERFALL_HEIGHT = 600
+// Fetch the next page once the bottom of the rendered window is within this many rows of the end.
+const LOAD_MORE_THRESHOLD = 10
 // Rough extra room reserved when a span's detail panel is open, so a selection near the top of a
 // short trace doesn't pop an unexpected scrollbar.
 
@@ -433,6 +441,9 @@ export function TraceWaterfallView({
     spans,
     selectedSpanId = null,
     onSpanSelect,
+    hasMore = false,
+    loadingMore = false,
+    onLoadMore,
 }: TraceWaterfallViewProps): JSX.Element {
     const [cursorPct, setCursorPct] = useState<number | null>(null)
     const [labelColumnWidth, setLabelColumnWidth] = useState(
@@ -452,6 +463,24 @@ export function TraceWaterfallView({
     const flatSpans = useMemo(() => flattenTree(tree), [tree])
     const dynamicRowHeight = useDynamicRowHeight({ defaultRowHeight: ROW_HEIGHT })
     const listRef = useListRef(null)
+
+    // Infinite scroll: fetch the next page once the rendered window nears the end of the loaded spans.
+    const handleRowsRendered = useCallback(
+        (
+            _visibleRows: { startIndex: number; stopIndex: number },
+            allRows: { startIndex: number; stopIndex: number }
+        ): void => {
+            if (
+                onLoadMore &&
+                hasMore &&
+                !loadingMore &&
+                allRows.stopIndex >= flatSpans.length - 1 - LOAD_MORE_THRESHOLD
+            ) {
+                onLoadMore()
+            }
+        },
+        [onLoadMore, hasMore, loadingMore, flatSpans.length]
+    )
 
     // Deep links land with a span anchor — scroll it into view once the tree is built. The anchor
     // is captured at mount (the drawer keys this component by trace, so it remounts per trace) so
@@ -694,10 +723,28 @@ export function TraceWaterfallView({
                             onSelect: handleSelect,
                             dynamicRowHeight,
                         }}
+                        onRowsRendered={handleRowsRendered}
                         listRef={listRef}
                     />
                 )}
             />
+
+            {/* Infinite-scroll footer: a trace can exceed the per-page span cap, so page the rest in
+                as the user scrolls to the bottom. The button is a manual fallback to the auto-trigger. */}
+            {hasMore && (
+                <div className="flex items-center justify-center gap-2 py-2 text-xs text-muted border-t border-border">
+                    {loadingMore ? (
+                        <>
+                            <Spinner />
+                            <span>Loading more spans…</span>
+                        </>
+                    ) : (
+                        <LemonButton size="xsmall" type="tertiary" onClick={() => onLoadMore?.()}>
+                            Load more spans
+                        </LemonButton>
+                    )}
+                </div>
+            )}
 
             {/* Full-height splitter between label column and timeline */}
             <div
