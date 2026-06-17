@@ -1770,6 +1770,7 @@ class ExternalDataSourceType(StrEnum):
     CLARIFAI = "Clarifai"
     ADAPTY = "Adapty"
     BRAINTRUST = "Braintrust"
+    STREAM_ELEMENTS = "StreamElements"
     CUSTOM = "Custom"
 
 
