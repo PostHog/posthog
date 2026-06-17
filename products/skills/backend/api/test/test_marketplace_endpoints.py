@@ -272,6 +272,11 @@ class TestSkillFilePathValidation:
     def test_accepts_safe_paths(self, good_path):
         assert validate_skill_file_path(good_path) == good_path
 
+    def test_backslashes_are_normalized_to_slashes(self):
+        # Stored as forward-slash so it nests as a real file in the git tree (and so the two
+        # spellings can't dodge dedup), not a flat entry literally named "references\\guide.md".
+        assert validate_skill_file_path("references\\guide.md") == "references/guide.md"
+
 
 class TestMarketplaceResilience(APIBaseTest):
     def test_skill_with_uncloneable_paths_is_skipped_not_fatal(self):

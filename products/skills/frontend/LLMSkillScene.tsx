@@ -292,8 +292,11 @@ function SkillViewDetails(): JSX.Element {
         return <></>
     }
 
-    // The spec frontmatter, rendered as a compact monospace key/value block. `version` is the
-    // platform-owned field, shown last; a stored metadata `version` (if any) is dropped to avoid a clash.
+    // The spec frontmatter, rendered as a compact monospace key/value block. The top-level spec
+    // fields are authoritative, so any stored metadata entry that reuses one of their names (or
+    // `version`, the platform-owned field shown last) is dropped — otherwise it would render a
+    // second, duplicate row for the same key.
+    const reservedFrontmatterKeys = new Set(['license', 'compatibility', 'allowed-tools', 'version'])
     const frontmatterRows: [string, string][] = [
         ...(skill.license ? ([['license', skill.license]] as [string, string][]) : []),
         ...(skill.compatibility ? ([['compatibility', skill.compatibility]] as [string, string][]) : []),
@@ -301,7 +304,7 @@ function SkillViewDetails(): JSX.Element {
             ? ([['allowed-tools', skill.allowed_tools.join(' ')]] as [string, string][])
             : []),
         ...Object.entries(skill.metadata ?? {})
-            .filter(([key]) => key !== 'version')
+            .filter(([key]) => !reservedFrontmatterKeys.has(key))
             .map(([key, value]): [string, string] => [key, String(value)]),
         ['version', String(skill.version)],
     ]

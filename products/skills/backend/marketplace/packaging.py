@@ -236,7 +236,9 @@ def parse_skill_zip(data: bytes) -> SkillExport:
         for member in members:
             if member == skill_md_name or not member.startswith(prefix):
                 continue
-            rel_path = member[len(prefix) :]
+            # Normalize backslashes to "/" so a zip member like `references\guide.md` becomes a
+            # nested file, not a flat entry, matching how the write path stores bundled paths.
+            rel_path = member[len(prefix) :].replace("\\", "/")
             if rel_path == CODEX_METADATA_PATH:
                 continue  # generated Codex sidecar — regenerated on export, not a stored file
             content = _read_zip_text(archive, member, rel_path)

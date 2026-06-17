@@ -65,7 +65,10 @@ def validate_skill_file_path(value: str) -> str:
         raise serializers.ValidationError("File paths must not contain control characters.")
     if normalized.lower() in RESERVED_SKILL_FILE_PATHS:
         raise serializers.ValidationError(f"'{value}' is a reserved file path and cannot be used.")
-    return value
+    # Persist the normalized (forward-slash) form, not the original: backslashes mean "separator"
+    # here, so storing them verbatim would make `references\guide.md` a single flat tree entry
+    # rather than a file under `references/`, and would let the two spellings dodge dedup.
+    return normalized
 
 
 def _validate_files(files: list[dict[str, Any]]) -> list[dict[str, Any]]:
