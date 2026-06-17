@@ -194,6 +194,20 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "deleted, or the pooler username/host is wrong. Check that your database is active "
                 "and the connection details are correct, then re-enable the sync."
             ),
+            # Supabase/Supavisor poolers reject a connection that carries no tenant identifier with
+            # "FATAL: (ENOIDENTIFIER) no tenant identifier provided (external_id or sni_hostname
+            # required)". The shared regional pooler host (e.g. aws-0-<region>.pooler.supabase.com)
+            # can't identify the project from SNI, so the pooler username must embed the project ref
+            # (e.g. "postgres.<project-ref>"). A plain username like "postgres" leaves the pooler with
+            # nothing to route on — deterministic until the customer fixes the username, so retrying
+            # just re-hits it. Match the stable message and exclude the volatile host/IP/port.
+            "no tenant identifier provided": (
+                "Your Supabase connection pooler rejected the connection because it couldn't "
+                'identify your project ("no tenant identifier provided"). On the shared pooler host '
+                "the username must include your project ref (for example "
+                '"postgres.<project-ref>"). Update the user for this source to the pooler username '
+                "shown in your Supabase dashboard, then re-enable the sync."
+            ),
             "error received from server in SCRAM exchange: Wrong password": None,
             "could not translate host name": None,
             "timeout expired connection to server at": None,
