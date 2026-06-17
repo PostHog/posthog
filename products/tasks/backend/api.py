@@ -2358,6 +2358,14 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     status=status.HTTP_502_BAD_GATEWAY,
                 )
 
+            # A warm Run has now received a human message — drop the warm flag so the warm-pool cap
+            # (see products/tasks/backend/services/warm.py) stops counting it. No-op for Runs that
+            # were never warm; best-effort, since a failure only over-counts the pool until terminal.
+            try:
+                TaskRun.update_state_atomic(task_run.id, remove_keys=["await_user_message"])
+            except Exception:
+                logger.warning("Failed to clear await_user_message for task run %s", task_run.id)
+
             response_payload: dict[str, Any] = {
                 "jsonrpc": request.validated_data["jsonrpc"],
                 "result": {"queued": True},
