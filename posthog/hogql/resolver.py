@@ -115,6 +115,11 @@ assert POSTGRES_KEYWORD_TYPES.keys() == ast.VALID_KEYWORD_NAMES, (
 # takes the PG code path in the resolver.
 _POSTGRES_FAMILY: frozenset[HogQLDialect] = frozenset({"postgres", "duckdb"})
 
+# All dialects that compile to an external SQL database queried directly (as opposed to
+# ClickHouse / HogQL). MySQL shares the standard-SQL keyword surface (CURRENT_DATE & co.)
+# but not Postgres-specific features like PIVOT/UNPIVOT, TRY_CAST, or positional references.
+_DIRECT_SQL_FAMILY: frozenset[HogQLDialect] = frozenset({"postgres", "duckdb", "mysql"})
+
 
 def resolve_constant_data_type(constant: Any) -> ConstantType:
     if constant is None:
@@ -1863,7 +1868,7 @@ class Resolver(CloningVisitor):
         scope = self._get_scope()
         name = str(node.chain[0])
 
-        if self.dialect in _POSTGRES_FAMILY and len(node.chain) == 1:
+        if self.dialect in _DIRECT_SQL_FAMILY and len(node.chain) == 1:
             keyword = name.lower()
             if keyword in POSTGRES_KEYWORD_TYPES and name not in scope.columns and name not in scope.aliases:
                 keyword_type = POSTGRES_KEYWORD_TYPES[keyword]
@@ -1906,7 +1911,7 @@ class Resolver(CloningVisitor):
         if (
             not type
             and len(node.chain) == 1
-            and self.dialect in _POSTGRES_FAMILY
+            and self.dialect in _DIRECT_SQL_FAMILY
             and name.lower() in POSTGRES_KEYWORD_TYPES
             and name in scope.columns
         ):
