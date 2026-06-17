@@ -235,7 +235,7 @@ async def test_authoring_skill_auto_registers_enabled_config_and_runs(ateam):
 
     config = await database_sync_to_async(SignalScoutConfig.all_teams.get)(team=ateam, skill_name="signals-scout-foo")
     assert config.enabled is True
-    assert config.run_interval_minutes == 60
+    assert config.run_interval_minutes == 180
     assert config.emit is True
     # Never-run row is immediately due, so it's dispatched this tick.
     assert [(p.team_id, p.skill_name) for p in planned] == [(ateam.id, "signals-scout-foo")]
