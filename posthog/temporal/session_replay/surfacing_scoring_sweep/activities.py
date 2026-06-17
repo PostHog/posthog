@@ -123,10 +123,11 @@ async def list_chunks_activity(_inputs: ScoreSessionsBatchInputs) -> ListChunksR
 
 
 def _build_features_dataframe(rows: list[tuple], columns: list[str]) -> pd.DataFrame:
-    """Coerce feature columns to numeric so an all-NULL column (driver returns all-`None`, which pandas infers as `object`) doesn't fail `validate_features`."""
+    """Coerce all-NULL feature columns (driver returns all-`None` → pandas `object`) to float so they pass `validate_features`; typed columns are left untouched so genuine dtype drift still fails the chunk."""
     df = pd.DataFrame(rows, columns=pd.Index(columns))
-    feature_cols = [c for c in df.columns if c not in ID_COLUMNS]
-    df[feature_cols] = df[feature_cols].astype(float)
+    for col in df.columns:
+        if col not in ID_COLUMNS and df[col].dtype == object and df[col].isna().all():
+            df[col] = df[col].astype(float)
     return df
 
 

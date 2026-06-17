@@ -104,15 +104,21 @@ class TestBuildFeaturesDataframe:
         assert df["session_id"].dtype.kind == "O"
         assert df["min_first_timestamp"].dtype.kind == "M"
 
-    def test_non_numeric_feature_value_still_raises(self, feature_names_for_tests: tuple[str, ...]) -> None:
-        # Coercion must not mask genuine SQL drift — a non-numeric feature value
-        # is a wiring bug and should fail loudly, not become NaN.
+    def test_non_numeric_feature_drift_is_left_for_validation_to_reject(
+        self, feature_names_for_tests: tuple[str, ...]
+    ) -> None:
+        # Coercion only touches all-NULL columns, so genuine SQL drift (a typed
+        # non-numeric column) stays object dtype and fails loudly at the validator
+        # — a non-retryable FeatureValidationError, not a silently coerced NaN.
         rows, columns = self._rows(feature_names_for_tests, null_feature=None)
         bad = list(rows[0])
         bad[len(ID_COLUMNS)] = "not-a-number"  # first feature column
 
-        with pytest.raises((ValueError, TypeError)):
-            _build_features_dataframe([tuple(bad)], columns)
+        df = _build_features_dataframe([tuple(bad)], columns)
+
+        assert df[feature_names_for_tests[0]].dtype.kind == "O"
+        with pytest.raises(FeatureValidationError):
+            validate_features(df, feature_names=feature_names_for_tests)
 
 
 class TestScoreChunkActivity:
