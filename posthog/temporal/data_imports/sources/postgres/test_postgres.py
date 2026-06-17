@@ -614,9 +614,13 @@ class TestIsConnectionDroppedError:
             psycopg.errors.IdleInTransactionSessionTimeout(),
             # Supavisor (Supabase's connection pooler) tears down a session whose backend connection
             # died and surfaces it as a generic XX000 InternalError_ — a transient drop, not a libpq
-            # signature, so it's matched on the pooler's own "DbHandler exited" text.
+            # signature, so it's matched on the pooler's own "(EDBHANDLEREXITED)" code. The trailing
+            # message wording varies for the same condition, so every observed variant must match.
             psycopg.errors.InternalError_("(EDBHANDLEREXITED) DbHandler exited. Check logs for more information"),
             psycopg.errors.InternalError_("(EDBHANDLEREXITED) DBHANDLER EXITED. Check logs for more information"),
+            psycopg.errors.InternalError_(
+                "(EDBHANDLEREXITED) connection to database closed. Check logs for more information"
+            ),
         ],
     )
     def test_connection_dropped_errors_are_detected(self, error):
@@ -637,7 +641,7 @@ class TestIsConnectionDroppedError:
             ValueError("server conn crashed?"),
             Exception("server conn crashed?"),
             # A genuine XX000 internal error that isn't the Supavisor pooler drop must stay
-            # non-recoverable — the InternalError_ match is scoped to the "DbHandler exited" text.
+            # non-recoverable — the InternalError_ match is scoped to the "(EDBHANDLEREXITED)" code.
             psycopg.errors.InternalError_("XX000: internal error: something went wrong"),
         ],
     )

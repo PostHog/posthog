@@ -141,13 +141,15 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
 
 # Supavisor (Supabase's connection pooler) doesn't surface a dropped upstream connection with a
 # libpq/PgBouncer signature — it raises its own pooler-internal error as a generic psycopg
-# InternalError_ (SQLSTATE XX000) with the message "(EDBHANDLEREXITED) DbHandler exited. Check
-# logs for more information". The pooler's per-session DbHandler process exits when its backend
-# connection dies (idle cull, backend restart, failover), so it's the same transient class as the
-# libpq drops above and recovers on reconnect. Matched narrowly by the stable "DbHandler exited"
-# text — the surrounding "(EDBHANDLEREXITED)" code and trailing "Check logs..." vary and are
-# excluded — so genuine XX000 internal errors (data corruption, etc.) stay non-recoverable.
-_POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS = ("dbhandler exited",)
+# InternalError_ (SQLSTATE XX000) carrying the "(EDBHANDLEREXITED)" code. The trailing message
+# varies — both "(EDBHANDLEREXITED) DbHandler exited. Check logs for more information" and
+# "(EDBHANDLEREXITED) connection to database closed. Check logs for more information" have been
+# observed for the same condition — but the EDBHANDLEREXITED code is the stable signal: the
+# pooler's per-session DbHandler process exited because its backend connection died (idle cull,
+# backend restart, failover). That's the same transient class as the libpq drops above and
+# recovers on reconnect, so match the code itself rather than any one message wording. Genuine
+# XX000 internal errors (data corruption, etc.) carry a different code and stay non-recoverable.
+_POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS = ("edbhandlerexited",)
 
 # Exception types that can carry a connection-dropped error. ProtocolViolation is
 # PgBouncer's synthetic error packet; OperationalError is libpq detecting the dead
