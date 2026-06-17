@@ -189,8 +189,8 @@ class TestEndpointViewSetPSAKAuth(ClickhouseTestMixin, APIBaseTest):
 
         captured: dict = {}
 
-        def spy(team, user):
-            result = _compute_system_table_access_decision(team, user)
+        def spy(team, user, user_access_control=None):
+            result = _compute_system_table_access_decision(team, user, user_access_control)
             captured.setdefault("results", []).append(result)
             return result
 

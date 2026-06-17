@@ -630,6 +630,7 @@ mod tests {
         let server_sdks = vec![
             "posthog-python/1.4.0",
             "posthog-ruby/2.0.0",
+            "posthog-ruby2.0.0",
             "posthog-php/3.0.0",
             "posthog-java/1.0.0",
             "posthog-go/0.1.0",

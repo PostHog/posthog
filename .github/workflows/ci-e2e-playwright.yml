@@ -6,6 +6,11 @@
 name: E2E CI Playwright
 on:
     pull_request:
+        # Draft PRs skip E2E entirely — the broad path filter below matches nearly
+        # every code PR, and a full ~25-minute stack boot per draft push is the
+        # remaining big per-PR cost. The ready-for-review full run is the merge
+        # gate; use workflow_dispatch to force a run on a draft.
+        types: [opened, synchronize, reopened, ready_for_review]
     workflow_dispatch:
         inputs:
             playwright_retries:
@@ -67,6 +72,7 @@ env:
     INKEEP_API_KEY: ${{ secrets.INKEEP_API_KEY }}
     AZURE_INFERENCE_CREDENTIAL: ${{ secrets.AZURE_INFERENCE_CREDENTIAL }}
     AZURE_INFERENCE_ENDPOINT: ${{ secrets.AZURE_INFERENCE_ENDPOINT }}
+    PERSONHOG_ADDR: 'localhost:50052'
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -76,14 +82,15 @@ jobs:
     changes:
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        # Run on master push, manual dispatch, and on internal-repo PRs.
-        # Skipped on merge_group (explicitly, though the allowlist below would
-        # also skip it implicitly) — see the trigger comment above.
+        # Run on master push, manual dispatch, and on ready internal-repo PRs.
+        # Drafts skip E2E (see the trigger comment); the `Playwright tests pass`
+        # aggregator treats skipped as success, and drafts can't merge anyway.
         if: |
             github.event_name != 'merge_group' && (
             github.event_name == 'push' ||
             github.event_name == 'workflow_dispatch' ||
-            github.event.pull_request.head.repo.full_name == github.repository)
+            (github.event.pull_request.head.repo.full_name == github.repository &&
+             github.event.pull_request.draft != true))
         name: Determine need to run E2E checks
         outputs:
             shouldRun: ${{ steps.decide.outputs.shouldRun }}

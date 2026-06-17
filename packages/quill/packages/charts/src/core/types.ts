@@ -57,6 +57,10 @@ export interface Series<Meta = unknown> {
             fromIndex?: number
             /** Index up to which the partial pattern applies (inclusive). Clamped to [0, data.length-1]. */
             toIndex?: number
+            /** Split the *final* segment at this fraction (0–1) of its length and dash only the part
+             *  beyond it — everything before stays solid. Lets a two-point line dash just its second
+             *  half without a phantom interior point. Takes precedence over `fromIndex`/`toIndex`. */
+            fromFraction?: number
             /** Dash pattern for the partial range. Defaults to [10, 10]. */
             pattern?: number[]
         }

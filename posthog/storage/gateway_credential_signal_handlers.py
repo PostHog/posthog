@@ -42,7 +42,7 @@ from posthog.storage.hypercache_manager import HYPERCACHE_SIGNAL_UPDATE_COUNTER
 
 logger = structlog.get_logger(__name__)
 
-_NAMESPACE = "gateway_credential"
+_CACHE_NAME = "gateway_credential"
 
 _LOADED_HASH_ATTR = "_fp_loaded_hash"
 _LOADED_ELIGIBLE_ATTR = "_fp_loaded_eligible"
@@ -162,7 +162,9 @@ def _on_credential_save(
                 # Scope was removed: clear promptly rather than waiting for a task.
                 clear_gateway_credential(new_hash)
         except Exception as e:
-            HYPERCACHE_SIGNAL_UPDATE_COUNTER.labels(namespace=_NAMESPACE, operation="enqueue", result="failure").inc()
+            HYPERCACHE_SIGNAL_UPDATE_COUNTER.labels(
+                namespace="team_metadata", cache_name=_CACHE_NAME, operation="enqueue", result="failure"
+            ).inc()
             logger.exception("Failed to enqueue gateway credential cache update", kind=kind, error=str(e))
             # A sync clear/enqueue failed (e.g. transient Redis) — queue the task so a
             # revoke self-heals in queue-time instead of waiting out the blob TTL. The

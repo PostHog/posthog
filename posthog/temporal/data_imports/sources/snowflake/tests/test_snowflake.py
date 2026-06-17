@@ -623,6 +623,39 @@ class TestSnowflakeSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            "is not allowed to access Snowflake",
+            # The real shape from production: codes, IP/token, host, and help URL all vary,
+            # but the network-policy substring is stable.
+            "250001 (08001): None: Failed to connect to DB: ihoilnv-wd33458.snowflakecomputing.com:443. "
+            "Incoming request with IP/Token 44.208.188.173 is not allowed to access Snowflake. "
+            "Contact your account administrator. For more information about this error, go to "
+            "https://community.snowflake.com/s/ip-xxxxxxxxxxxx-is-not-allowed-to-access.",
+        ],
+    )
+    def test_network_policy_block_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Network-policy block should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Table dropped/renamed or grant revoked (002003 / 42S02). Object name and query id vary.
+            "002003 (42S02): 01c511e7-0307-1937-0000-7c994379a9c2: SQL compilation error:\n"
+            "Table 'PRODUCTION.DBTNOVA.SCOPE_CATEGORIZATION' does not exist or not authorized.",
+            # Schema variant (002003 / 02000).
+            "002003 (02000): 01c4a15c-0105-a872-0002-113a44c42eaa: SQL compilation error:\n"
+            "Schema 'AXIOM.PRECOG_PRECOG_OPERATIONS_PRODUCT_US' does not exist or not authorized.",
+        ],
+    )
+    def test_object_not_found_or_unauthorized_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Missing/unauthorized object error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             "250003 (08001): Failed to connect to DB: acme-xy123.snowflakecomputing.com:443. Connection timed out",
             "Operation timed out while waiting for the warehouse to resume",
         ],

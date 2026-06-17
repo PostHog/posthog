@@ -162,6 +162,9 @@ jobs:
                   filter: blob:none
                   token: ${{ steps.app-token.outputs.token }}
 
+            - name: Update to latest master before preparing release
+              run: git pull --ff-only origin master
+
             - name: Install Rust
               uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
               with:
@@ -228,6 +231,14 @@ jobs:
                   fi
 
                   echo "committed=true" >> "$GITHUB_OUTPUT"
+
+            - name: Ensure master did not advance during release prep
+              run: |
+                  git fetch origin master
+                  if [ "$(git rev-parse HEAD)" != "$(git rev-parse FETCH_HEAD)" ]; then
+                      echo "::error::master advanced while preparing the CLI release. Re-run the workflow so the release includes the latest changesets."
+                      exit 1
+                  fi
 
             - name: Commit release changes
               id: commit-release

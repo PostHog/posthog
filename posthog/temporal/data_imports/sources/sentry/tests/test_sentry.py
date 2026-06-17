@@ -67,6 +67,18 @@ class _FakeDltResource:
         return iter(self._rows)
 
 
+class _RaisingResource:
+    """Fan-out resource stand-in that raises an HTTPError when iterated."""
+
+    def __init__(self, status_code: int) -> None:
+        self._status_code = status_code
+
+    def __iter__(self):
+        response = Mock()
+        response.status_code = self._status_code
+        raise HTTPError(f"{self._status_code} Client Error", response=response)
+
+
 class TestSentryTransport:
     def test_normalize_api_base_url(self) -> None:
         assert _normalize_api_base_url(None) == "https://sentry.io"
@@ -335,6 +347,60 @@ class TestSentrySourceValidation:
         assert row["project_slug"] == "web"
         assert "_projects_id" not in row
         assert "_projects_slug" not in row
+
+    # ----- Project service hooks: graceful skip on org-gated 403 -----
+
+    @patch("posthog.temporal.data_imports.sources.sentry.sentry.build_dependent_resource")
+    def test_project_service_hooks_skips_on_forbidden(self, mock_build) -> None:
+        # Sentry 403s the service hooks endpoint for orgs without the feature,
+        # even with full scopes. The schema should complete empty, not error.
+        mock_build.return_value = _RaisingResource(403)
+
+        resp = sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="project_service_hooks",
+            team_id=123,
+            job_id="job-id",
+        )
+
+        assert list(cast(Any, resp.items())) == []
+
+    @patch("posthog.temporal.data_imports.sources.sentry.sentry.build_dependent_resource")
+    def test_project_service_hooks_propagates_non_forbidden(self, mock_build) -> None:
+        # A server error is not the org-gate signal — it must still propagate.
+        mock_build.return_value = _RaisingResource(500)
+
+        resp = sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="project_service_hooks",
+            team_id=123,
+            job_id="job-id",
+        )
+
+        with pytest.raises(HTTPError):
+            list(cast(Any, resp.items()))
+
+    @patch("posthog.temporal.data_imports.sources.sentry.sentry.build_dependent_resource")
+    def test_other_fanout_endpoint_propagates_forbidden(self, mock_build) -> None:
+        # A 403 on a non-servicehooks fan-out endpoint is a genuine scope error
+        # and must still reach the non-retryable handler.
+        mock_build.return_value = _RaisingResource(403)
+
+        resp = sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="project_users",
+            team_id=123,
+            job_id="job-id",
+        )
+
+        with pytest.raises(HTTPError):
+            list(cast(Any, resp.items()))
 
     # ----- Issue fan-out: dependent resources (issue_events, issue_hashes) -----
 

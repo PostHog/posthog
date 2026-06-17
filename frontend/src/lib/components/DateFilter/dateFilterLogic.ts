@@ -7,15 +7,8 @@ import {
     SELECT_FIXED_VALUE_PLACEHOLDER,
 } from 'lib/components/DateFilter/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
-import {
-    dateFilterToText,
-    dateStringToDayJs,
-    formatDate,
-    formatDateRange,
-    formatDateTime,
-    formatDateTimeRange,
-    isDate,
-} from 'lib/utils'
+import { dateFilterToText, dateStringToDayJs } from 'lib/utils/dateFilters'
+import { formatDate, formatDateRange, formatDateTime, formatDateTimeRange, isDate } from 'lib/utils/datetime'
 
 import { DateMappingOption } from '~/types'
 

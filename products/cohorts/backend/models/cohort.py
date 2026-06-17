@@ -14,6 +14,7 @@ from django.dispatch import receiver
 from django.utils import timezone
 
 import structlog
+from celery.exceptions import SoftTimeLimitExceeded
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, tag_queries
@@ -629,6 +630,14 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                     """
                     cursor.execute(query, params)
 
+        except SoftTimeLimitExceeded as err:
+            # Let a Celery soft-time-limit interruption propagate so the task's time limit
+            # actually bounds the run. Swallowing it here (as the broad except below would)
+            # leaves the caller's loop running past the limit, since Celery raises it once.
+            # Record it as a processing error so the finally marks the run as failed
+            # rather than a successful calculation.
+            processing_error = err
+            raise
         except Exception as err:
             processing_error = err
             # When the caller owns terminal-state finalization (raise_on_error), surface

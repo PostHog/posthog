@@ -1348,6 +1348,91 @@ export const HogFlowsBatchJobsCreateBody = /* @__PURE__ */ zod.object({
     variables: zod.unknown().optional().describe('Variable value overrides applied to this run.'),
 })
 
+export const HogFlowsGraphPartialUpdateBody = /* @__PURE__ */ zod.object({
+    operations: zod
+        .array(
+            zod.object({
+                op: zod
+                    .enum([
+                        'update_action',
+                        'add_action',
+                        'remove_action',
+                        'add_edge',
+                        'remove_edge',
+                        'replace_action_edges',
+                    ])
+                    .describe(
+                        '\* `update_action` - update_action\n\* `add_action` - add_action\n\* `remove_action` - remove_action\n\* `add_edge` - add_edge\n\* `remove_edge` - remove_edge\n\* `replace_action_edges` - replace_action_edges'
+                    )
+                    .describe(
+                        "Graph edit. update_action {id, patch}: deep-merge patch into the action's fields (a null leaf deletes that key) — the surgical path for tweaking one config value. add_action {action}: append a full action node. remove_action {id}: delete a node and reconnect its incoming edges to its first outgoer. add_edge {edge} \/ remove_edge {edge}: add or delete one edge. replace_action_edges {id, edges}: replace this action's outgoing edges with the given set (use when adding\/removing branch conditions); incoming edges are left intact.\n\n\* `update_action` - update_action\n\* `add_action` - add_action\n\* `remove_action` - remove_action\n\* `add_edge` - add_edge\n\* `remove_edge` - remove_edge\n\* `replace_action_edges` - replace_action_edges"
+                    ),
+                id: zod
+                    .string()
+                    .optional()
+                    .describe('Action id. Required for update_action, remove_action, replace_action_edges.'),
+                patch: zod
+                    .unknown()
+                    .optional()
+                    .describe(
+                        "update_action only. Partial action fields, deep-merged into the existing action; a null leaf deletes that key. e.g. {config: {inputs: {subject: {value: 'Hi'}}}} changes only that input."
+                    ),
+                action: zod
+                    .unknown()
+                    .optional()
+                    .describe(
+                        'add_action only. A full action node {id, name, type, config, ...}; same shape as in actions.'
+                    ),
+                edge: zod
+                    .object({
+                        to: zod.string().describe('Target action id.'),
+                        type: zod
+                            .enum(['continue', 'branch'])
+                            .describe('\* `continue` - continue\n\* `branch` - branch')
+                            .describe(
+                                "continue: fall-through (sequential or the no-match path of conditional_branch). branch: requires 'index' matching config.conditions[index].\n\n\* `continue` - continue\n\* `branch` - branch"
+                            ),
+                        index: zod
+                            .number()
+                            .optional()
+                            .describe(
+                                "Required for type='branch'. conditional_branch: index into config.conditions[index]. wait_until_condition: use index:0 — it advances via the index:0 branch edge when it resolves (a condition match or an events entry firing)."
+                            ),
+                        from: zod.string().describe('Source action id.'),
+                    })
+                    .optional()
+                    .describe('add_edge \/ remove_edge only. The edge {from, to, type, index?}.'),
+                edges: zod
+                    .array(
+                        zod.object({
+                            to: zod.string().describe('Target action id.'),
+                            type: zod
+                                .enum(['continue', 'branch'])
+                                .describe('\* `continue` - continue\n\* `branch` - branch')
+                                .describe(
+                                    "continue: fall-through (sequential or the no-match path of conditional_branch). branch: requires 'index' matching config.conditions[index].\n\n\* `continue` - continue\n\* `branch` - branch"
+                                ),
+                            index: zod
+                                .number()
+                                .optional()
+                                .describe(
+                                    "Required for type='branch'. conditional_branch: index into config.conditions[index]. wait_until_condition: use index:0 — it advances via the index:0 branch edge when it resolves (a condition match or an events entry firing)."
+                                ),
+                            from: zod.string().describe('Source action id.'),
+                        })
+                    )
+                    .optional()
+                    .describe(
+                        "replace_action_edges only. The complete set of the action's outgoing edges; incoming edges are preserved."
+                    ),
+            })
+        )
+        .optional()
+        .describe(
+            "Ordered graph edits applied atomically to a draft workflow: the stored graph is read, the ops are applied in order, the result is fully validated, and it's saved only if valid — otherwise the workflow is unchanged. Reference nodes\/edges by id so you never resend the whole graph. The full updated workflow is returned."
+        ),
+})
+
 export const hogFlowsInvocationsCreateBodyConfigurationOneNameMax = 400
 
 export const hogFlowsInvocationsCreateBodyConfigurationOneDescriptionDefault = ``
@@ -1799,7 +1884,12 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .default(hogFlowsInvocationsCreateBodyMockAsyncFunctionsDefault)
         .describe('True (default) mocks HTTP\/email\/SMS. False fires real side effects.'),
-    current_action_id: zod.string().optional().describe('Start from this action ID instead of the trigger.'),
+    current_action_id: zod
+        .string()
+        .optional()
+        .describe(
+            'Start execution from this action ID instead of the trigger. Each test run executes a single node and returns the next action id.'
+        ),
 })
 
 export const hogFlowsSchedulesCreateBodyTimezoneMax = 64
