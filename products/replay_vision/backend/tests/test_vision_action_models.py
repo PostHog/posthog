@@ -25,6 +25,14 @@ DAILY_9AM = "FREQ=DAILY;BYHOUR=9;BYMINUTE=0;BYSECOND=0"
 
 
 def _make_action(team, **overrides) -> VisionAction:
+    if "scanner" not in overrides:
+        overrides["scanner"] = ReplayScanner.objects.create(
+            team=team,
+            name=f"scanner-{uuid.uuid4().hex[:8]}",
+            scanner_type=ScannerType.SUMMARIZER,
+            scanner_config={"prompt": "x"},
+            model=ScannerModel.GEMINI_3_FLASH,
+        )
     defaults: dict = {
         "team": team,
         "name": "my-action",
@@ -48,7 +56,7 @@ class TestVisionActionModel(BaseTest):
         self.assertEqual(action.selection, {"scanner_type": "summarizer", "window_days": 1})
         self.assertEqual(action.synthesis_config, {})
         self.assertEqual(action.delivery_config, [])
-        self.assertIsNone(action.scanner)
+        self.assertIsNotNone(action.scanner)
         self.assertIsNone(action.hog_flow)
 
     def test_default_selection_is_a_fresh_dict_per_instance(self) -> None:
@@ -95,6 +103,21 @@ class TestVisionActionModel(BaseTest):
         self.assertIsNotNone(action.next_run_at)
         assert action.next_run_at is not None
         self.assertEqual(action.next_run_at.astimezone(UTC).hour, 17)
+
+    def test_next_run_at_recomputed_on_timezone_change(self) -> None:
+        # Same rrule, different timezone → next_run_at must move (9am UTC vs 9am Tokyo are different
+        # instants). Keying the recompute on the rrule string alone would miss this.
+        action = self._create_action(trigger_config={"rrule": DAILY_9AM, "timezone": "UTC"})
+        original = action.next_run_at
+
+        action.trigger_config = {"rrule": DAILY_9AM, "timezone": "Asia/Tokyo"}
+        action.save()
+        action.refresh_from_db()
+        self.assertIsNotNone(action.next_run_at)
+        self.assertNotEqual(action.next_run_at, original)
+        assert action.next_run_at is not None
+        # 9am Tokyo = 00:00 UTC.
+        self.assertEqual(action.next_run_at.astimezone(UTC).hour, 0)
 
     def test_recompute_survives_update_fields(self) -> None:
         action = self._create_action()
@@ -178,10 +201,10 @@ class TestVisionActionRunModel(BaseTest):
 
     def test_defaults(self) -> None:
         run = self._run()
-        self.assertEqual(run.status, VisionActionRunStatus.STARTING)
+        self.assertEqual(run.status, VisionActionRunStatus.RUNNING)
         self.assertEqual(run.observation_count, 0)
         self.assertEqual(run.synthesized_markdown, "")
-        self.assertEqual(run.slack_text, "")
+        self.assertEqual(run.output, {})
         self.assertIsNone(run.error)
 
     def test_idempotency_key_unique(self) -> None:

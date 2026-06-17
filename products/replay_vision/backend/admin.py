@@ -91,7 +91,7 @@ class VisionActionRunAdmin(admin.ModelAdmin):
         "scheduled_at",
         "status",
         "synthesized_markdown",
-        "slack_text",
+        "output",
         "observation_count",
         "error",
         "created_at",

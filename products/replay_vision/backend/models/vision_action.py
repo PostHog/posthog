@@ -37,10 +37,8 @@ class VisionAction(TeamScopedRootMixin, UUIDModel):
     scanner = models.ForeignKey(
         "replay_vision.ReplayScanner",
         on_delete=models.CASCADE,
-        null=True,
-        blank=True,
         related_name="vision_actions",
-        help_text="Scanner whose observations this action operates on. Null leaves room for cross-scanner actions.",
+        help_text="Scanner whose observations this action operates on. An action runs as a child of this scanner's sweep.",
     )
     name = models.CharField(max_length=255)
     enabled = models.BooleanField(default=True)
@@ -107,22 +105,28 @@ class VisionAction(TeamScopedRootMixin, UUIDModel):
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-        # Cache the rrule so save() can detect cadence changes. Guard against deferred-field
+        # Cache the schedule key so save() can detect cadence changes. Guard against deferred-field
         # recursion the same way Subscription does (accessing a deferred field triggers a reload).
         if not ({"trigger_type", "trigger_config"} & self.get_deferred_fields()):
-            self._cached_rrule = self._rrule_string()
+            self._cached_schedule_key = self._schedule_key()
 
-    def _rrule_string(self) -> str | None:
+    def _schedule_key(self) -> tuple[str, str] | None:
+        # Both the rrule AND the timezone determine the next fire time, so a change to either must
+        # trigger a recompute — keying on the rrule alone would miss a timezone-only edit.
         if self.trigger_type != TriggerType.SCHEDULE:
             return None
-        return (self.trigger_config or {}).get("rrule")
+        cfg = self.trigger_config or {}
+        rrule = cfg.get("rrule")
+        if not rrule:
+            return None
+        return (rrule, cfg.get("timezone", "UTC"))
 
     def _recompute_next_run_at(self) -> None:
-        rrule = self._rrule_string()
-        if not rrule:
+        key = self._schedule_key()
+        if key is None:
             self.next_run_at = None
             return
-        timezone_str = (self.trigger_config or {}).get("timezone", "UTC")
+        rrule, timezone_str = key
         starts_at = self.created_at or timezone.now()
         occurrences = compute_next_occurrences(
             rrule_string=rrule, starts_at=starts_at, timezone_str=timezone_str, count=1
@@ -132,21 +136,21 @@ class VisionAction(TeamScopedRootMixin, UUIDModel):
     def save(self, *args: Any, **kwargs: Any) -> None:
         # UUIDModel assigns `id` at __init__, so `not self.id` never detects a create —
         # `_state.adding` is the correct new-vs-persisted signal here.
-        current_rrule = self._rrule_string()
-        if self._state.adding or getattr(self, "_cached_rrule", None) != current_rrule:
+        current_key = self._schedule_key()
+        if self._state.adding or getattr(self, "_cached_schedule_key", None) != current_key:
             self._recompute_next_run_at()
             update_fields = kwargs.get("update_fields")
             if update_fields is not None:
                 kwargs["update_fields"] = [*update_fields, "next_run_at"]
         super().save(*args, **kwargs)
-        self._cached_rrule = current_rrule
+        self._cached_schedule_key = current_key
 
     def __str__(self) -> str:
         return f"{self.name} ({self.trigger_type})"
 
 
 class VisionActionRunStatus(models.TextChoices):
-    STARTING = "starting", "Starting"
+    RUNNING = "running", "Running"
     COMPLETED = "completed", "Completed"
     FAILED = "failed", "Failed"
     SKIPPED = "skipped", "Skipped"
@@ -165,10 +169,12 @@ class VisionActionRun(TeamScopedRootMixin, UUIDModel):
     idempotency_key = models.CharField(max_length=255, unique=True)
     scheduled_at = models.DateTimeField(null=True, blank=True)
     status = models.CharField(
-        max_length=20, choices=VisionActionRunStatus.choices, default=VisionActionRunStatus.STARTING
+        max_length=20, choices=VisionActionRunStatus.choices, default=VisionActionRunStatus.RUNNING
     )
     synthesized_markdown = models.TextField(blank=True, default="")
-    slack_text = models.TextField(blank=True, default="")
+    # Channel-formatted delivery payloads keyed by channel, e.g. {"slack": "...", "email": "..."} —
+    # generic so new channels don't each add a column. synthesized_markdown stays the canonical report.
+    output = models.JSONField(default=dict)
     observation_count = models.PositiveIntegerField(default=0)
     error = models.JSONField(null=True, blank=True)
 
