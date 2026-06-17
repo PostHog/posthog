@@ -519,6 +519,11 @@
                                                         },
                                                         {
                                                             "properties": {
+                                                                "audience": {
+                                                                    "default": "project",
+                                                                    "enum": ["project", "organization"],
+                                                                    "type": "string"
+                                                                },
                                                                 "scopes": {
                                                                     "default": [],
                                                                     "items": {
@@ -669,6 +674,11 @@
                                                         },
                                                         {
                                                             "properties": {
+                                                                "audience": {
+                                                                    "default": "project",
+                                                                    "enum": ["project", "organization"],
+                                                                    "type": "string"
+                                                                },
                                                                 "scopes": {
                                                                     "default": [],
                                                                     "items": {
@@ -775,6 +785,11 @@
                                                         },
                                                         {
                                                             "properties": {
+                                                                "audience": {
+                                                                    "default": "project",
+                                                                    "enum": ["project", "organization"],
+                                                                    "type": "string"
+                                                                },
                                                                 "scopes": {
                                                                     "default": [],
                                                                     "items": {
