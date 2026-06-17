@@ -256,6 +256,9 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                 loadMoreTraceSpans: () => true,
                 loadMoreTraceSpansSuccess: () => false,
                 loadMoreTraceSpansFailure: () => false,
+                // A fresh trace fetch must show the full-trace overlay even if a stale load-more is
+                // still in flight.
+                loadTraceSpans: () => false,
             },
         ],
     }),
