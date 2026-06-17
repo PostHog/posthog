@@ -770,7 +770,7 @@
                                     },
                                     "id": {
                                         "type": "string",
-                                        "description": "Action id whose edges are being replaced."
+                                        "description": "Action id whose outgoing edges are being replaced."
                                     },
                                     "edges": {
                                         "type": "array",
@@ -799,7 +799,7 @@
                                             },
                                             "required": ["from", "to", "type"]
                                         },
-                                        "description": "The complete set of edges that should touch this action id."
+                                        "description": "The complete set of the action's outgoing edges; incoming edges are preserved."
                                     }
                                 },
                                 "required": ["op", "id", "edges"]

@@ -444,8 +444,10 @@ const WorkflowGraphOperationSchema = z.discriminatedUnion('op', [
     }),
     z.object({
         op: z.literal('replace_action_edges'),
-        id: z.string().describe('Action id whose edges are being replaced.'),
-        edges: z.array(WorkflowGraphEdgeSchema).describe('The complete set of edges that should touch this action id.'),
+        id: z.string().describe('Action id whose outgoing edges are being replaced.'),
+        edges: z
+            .array(WorkflowGraphEdgeSchema)
+            .describe("The complete set of the action's outgoing edges; incoming edges are preserved."),
     }),
 ])
 

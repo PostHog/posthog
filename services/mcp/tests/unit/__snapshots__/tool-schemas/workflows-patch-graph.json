@@ -138,7 +138,7 @@
                     {
                         "properties": {
                             "edges": {
-                                "description": "The complete set of edges that should touch this action id.",
+                                "description": "The complete set of the action's outgoing edges; incoming edges are preserved.",
                                 "items": {
                                     "properties": {
                                         "from": {
@@ -167,7 +167,7 @@
                                 "type": "array"
                             },
                             "id": {
-                                "description": "Action id whose edges are being replaced.",
+                                "description": "Action id whose outgoing edges are being replaced.",
                                 "type": "string"
                             },
                             "op": {

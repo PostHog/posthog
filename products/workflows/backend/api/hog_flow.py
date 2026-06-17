@@ -693,12 +693,28 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         # (e.g. a cohort reference) fails at create rather than being silently stored.
         strict = _should_validate_strictly(self.context, self.context.get("is_draft"))
 
-        # Graph wiring (dangling edges, branch-index range, abort_action, reachability) is only
-        # checked for strict callers — the web builder saves incomplete drafts mid-edit, where a
-        # half-wired graph is expected. Reachability is advisory; log it rather than reject.
-        if strict:
+        # Graph wiring (dangling edges, branch-index range, abort_action, reachability) is enforced only on
+        # the surgical /graph endpoint (which sets enforce_graph_structure and builds a clean graph by
+        # construction). On every other save it's advisory: existing workflows carry pre-existing structural
+        # corruption (stale branch edges from removed conditions, legacy null endpoints), and a normal edit —
+        # even an unrelated one — must not be blocked by graph state the caller didn't introduce. We log it
+        # for telemetry instead. The web builder's incomplete drafts (not strict) skip the check entirely.
+        enforce_graph = self.context.get("enforce_graph_structure", False)
+        if strict or enforce_graph:
             edges = data.get("edges", instance.edges if instance else [])
-            warnings = validate_graph(actions, edges, abort_action=instance.abort_action if instance else None)
+            try:
+                warnings = validate_graph(actions, edges, abort_action=instance.abort_action if instance else None)
+            except serializers.ValidationError as exc:
+                if enforce_graph:
+                    raise
+                graph_errors = exc.detail.get("graph", []) if isinstance(exc.detail, dict) else [exc.detail]
+                for error in graph_errors:
+                    logger.warning(
+                        "hog_flow_graph_structural_error",
+                        error=str(error),
+                        hog_flow_id=str(instance.id) if instance else None,
+                    )
+                warnings = []
             for warning in warnings:
                 logger.info(
                     "hog_flow_graph_warning", warning=warning, hog_flow_id=str(instance.id) if instance else None
@@ -798,8 +814,8 @@ class HogFlowGraphOperationSerializer(serializers.Serializer):
             "deletes that key) — the surgical path for tweaking one config value. add_action {action}: append "
             "a full action node. remove_action {id}: delete a node and reconnect its incoming edges to its "
             "first outgoer. add_edge {edge} / remove_edge {edge}: add or delete one edge. "
-            "replace_action_edges {id, edges}: replace every edge touching this action id with the given set "
-            "(use when adding/removing branch conditions)."
+            "replace_action_edges {id, edges}: replace this action's outgoing edges with the given set "
+            "(use when adding/removing branch conditions); incoming edges are left intact."
         ),
     )
     id = serializers.CharField(
@@ -822,7 +838,7 @@ class HogFlowGraphOperationSerializer(serializers.Serializer):
     edges = serializers.ListField(
         child=HogFlowEdgeSerializer(),
         required=False,
-        help_text="replace_action_edges only. The complete set of edges that should touch this action id.",
+        help_text="replace_action_edges only. The complete set of the action's outgoing edges; incoming edges are preserved.",
     )
 
     def validate(self, data):
@@ -1097,6 +1113,9 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
             )
 
             serializer = self.get_serializer(locked, data={"actions": new_actions, "edges": new_edges}, partial=True)
+            # The surgical endpoint is the one path where structural corruption would be newly introduced,
+            # so it enforces graph validation as a hard error (unlike the lenient full-save path).
+            serializer.context["enforce_graph_structure"] = True
             serializer.is_valid(raise_exception=True)
 
             # nosemgrep: semgrep.rules.idor-lookup-without-team (re-fetch of already-authorized instance for activity logging)

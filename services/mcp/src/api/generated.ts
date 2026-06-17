@@ -20350,7 +20350,7 @@ export namespace Schemas {
     } as const;
 
     export interface HogFlowGraphOperation {
-      /** Graph edit. update_action {id, patch}: deep-merge patch into the action's fields (a null leaf deletes that key) — the surgical path for tweaking one config value. add_action {action}: append a full action node. remove_action {id}: delete a node and reconnect its incoming edges to its first outgoer. add_edge {edge} / remove_edge {edge}: add or delete one edge. replace_action_edges {id, edges}: replace every edge touching this action id with the given set (use when adding/removing branch conditions).
+      /** Graph edit. update_action {id, patch}: deep-merge patch into the action's fields (a null leaf deletes that key) — the surgical path for tweaking one config value. add_action {action}: append a full action node. remove_action {id}: delete a node and reconnect its incoming edges to its first outgoer. add_edge {edge} / remove_edge {edge}: add or delete one edge. replace_action_edges {id, edges}: replace this action's outgoing edges with the given set (use when adding/removing branch conditions); incoming edges are left intact.
        *
        * * `update_action` - update_action
        * * `add_action` - add_action
@@ -20367,7 +20367,7 @@ export namespace Schemas {
       action?: unknown;
       /** add_edge / remove_edge only. The edge {from, to, type, index?}. */
       edge?: HogFlowEdge;
-      /** replace_action_edges only. The complete set of edges that should touch this action id. */
+      /** replace_action_edges only. The complete set of the action's outgoing edges; incoming edges are preserved. */
       edges?: HogFlowEdge[];
     }
 

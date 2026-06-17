@@ -1173,6 +1173,57 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 200, response.json()
         assert {a["id"]: a for a in response.json()["actions"]}["action_1"]["name"] == "Renamed via UI"
 
+    def _flow_with_dangling_edge(self, status: str) -> dict:
+        # A structurally-invalid graph: an edge pointing at an action that doesn't exist. Mirrors the
+        # pre-existing corruption real workflows carry (stale edges from removed nodes/conditions).
+        return {
+            "name": "Dangling Flow",
+            "status": status,
+            "actions": [
+                {
+                    "id": "trigger_node",
+                    "name": "t",
+                    "type": "trigger",
+                    "config": {
+                        "type": "event",
+                        "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]},
+                    },
+                },
+                {"id": "exit_1", "name": "exit", "type": "exit", "config": {}},
+            ],
+            "edges": [
+                {"from": "trigger_node", "to": "exit_1", "type": "continue"},
+                {"from": "trigger_node", "to": "ghost", "type": "continue"},
+            ],
+        }
+
+    def test_create_active_flow_with_invalid_graph_is_lenient(self):
+        # Option B: the full create/PATCH path no longer hard-blocks on graph structure — only the surgical
+        # /graph endpoint enforces. A dangling edge is logged, not rejected, so callers (incl. the web UI on
+        # an active save) aren't trapped by pre-existing corruption.
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", self._flow_with_dangling_edge("active"))
+        assert response.status_code == 201, response.json()
+
+    def test_full_patch_with_invalid_graph_is_lenient(self):
+        create = self.client.post(f"/api/projects/{self.team.id}/hog_flows", self._flow_with_dangling_edge("draft"))
+        assert create.status_code == 201, create.json()
+        flow_id = create.json()["id"]
+        # Re-saving the (already structurally-broken) flow as active must succeed — the user isn't blocked
+        # from editing a workflow whose graph corruption they didn't introduce.
+        response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"status": "active"})
+        assert response.status_code == 200, response.json()
+        assert HogFlow.objects.get(pk=flow_id).status == "active"
+
+    def test_graph_endpoint_still_enforces_on_draft(self):
+        # The new surgical endpoint is where corruption would be newly introduced, so it stays strict even
+        # though the full-PATCH path is lenient.
+        flow_id = self._create_draft_flow_with_graph()
+        response = self._patch_graph(
+            flow_id, [{"op": "add_edge", "edge": {"from": "action_1", "to": "ghost", "type": "continue"}}]
+        )
+        assert response.status_code == 400, response.json()
+        assert "unknown target action 'ghost'" in str(response.json())
+
     def test_can_call_a_test_invocation(self):
         hog_flow, _ = self._create_hog_flow_with_action(
             {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}

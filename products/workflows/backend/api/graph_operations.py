@@ -96,7 +96,9 @@ def apply_graph_operations(
             target_id = op["id"]
             if target_id not in actions_by_id:
                 _fail(f"replace_action_edges: action '{target_id}' not found")
-            edges = [e for e in edges if e.get("from") != target_id and e.get("to") != target_id]
+            # Replace only the node's *outgoing* edges (the rewire-branches use case). Incoming edges are
+            # left intact so a caller who sends just the new branches can't accidentally orphan the node.
+            edges = [e for e in edges if e.get("from") != target_id]
             edges.extend(dict(e) for e in op["edges"])
 
     return actions, edges

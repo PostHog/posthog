@@ -188,20 +188,23 @@ class TestApplyGraphOperations(TestCase):
             apply_graph_operations([TRIGGER, _fn("a")], [], [{"op": "remove_edge", "edge": _edge("t", "a")}])
         assert "no matching edge" in str(exc.value.detail)
 
-    def test_replace_action_edges_swaps_touching_edges(self):
-        # c has two old branch edges; replace with a fresh set
+    def test_replace_action_edges_swaps_outgoing_and_preserves_incoming(self):
+        # c has old outgoing branch edges; replace with a fresh set. The incoming t->c edge is left intact
+        # so editing a node's branches can't orphan it when the caller only sends outgoing edges.
         actions = [TRIGGER, _cond("c", 2), _fn("a"), _fn("b"), EXIT]
         edges = [_edge("t", "c"), _edge("c", "a", "branch", index=0), _edge("c", "x")]
         ops = [
             {
                 "op": "replace_action_edges",
                 "id": "c",
-                "edges": [_edge("c", "a", "branch", index=0), _edge("c", "b", "branch", index=1), _edge("c", "x")],
+                "edges": [_edge("c", "a", "branch", index=0), _edge("c", "b", "branch", index=1)],
             }
         ]
         _, new_edges = apply_graph_operations(actions, edges, ops)
-        # the t->c edge (touches c as target) is stripped and not re-added, since replace owns all edges on c
-        assert _edge("t", "c") not in new_edges
+        # incoming edge preserved
+        assert _edge("t", "c") in new_edges
+        # old outgoing replaced by the new set
+        assert _edge("c", "x") not in new_edges
         assert _edge("c", "b", "branch", index=1) in new_edges
 
     def test_replace_action_edges_unknown_id_raises(self):
