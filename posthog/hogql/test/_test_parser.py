@@ -928,6 +928,30 @@ def parser_test_factory(backend: HogQLParserBackend):
                     negated=True,
                 ),
             )
+            # MySQL null-safe equality is sugar for IS NOT DISTINCT FROM
+            self.assertEqual(
+                self._expr("1 <=> 2"),
+                ast.IsDistinctFrom(
+                    left=ast.Constant(value=1),
+                    right=ast.Constant(value=2),
+                    negated=True,
+                ),
+            )
+
+        def test_mysql_hash_comments(self):
+            self.assertEqual(
+                self._select("select 1 # mysql comment"),
+                ast.SelectQuery(select=[ast.Constant(value=1)]),
+            )
+            self.assertEqual(
+                self._select("select 1 # comment\n, 2"),
+                ast.SelectQuery(select=[ast.Constant(value=1), ast.Constant(value=2)]),
+            )
+            # `#<digit>` stays a positional reference, not a comment
+            self.assertEqual(
+                self._select("select #1"),
+                ast.SelectQuery(select=[ast.PositionalRef(index=1)]),
+            )
 
         def test_null_comparison_operations(self):
             self.assertEqual(

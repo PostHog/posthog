@@ -165,6 +165,11 @@ class AhaSourceConfig(config.Config):
 
 
 @config.config
+class AhrefsSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class AirbyteSourceConfig(config.Config):
     pass
 
@@ -846,6 +851,11 @@ class DatadogSourceConfig(config.Config):
 
 @config.config
 class DatascopeSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class DatoramaSourceConfig(config.Config):
     pass
 
 
@@ -1914,8 +1924,8 @@ class MySQLSourceConfig(config.Config):
     database: str
     user: str
     password: str
-    schema: str
     port: int = config.value(converter=int)
+    schema: str | None = None
     using_ssl: bool = config.value(default=config.str_to_bool("true"), converter=config.str_to_bool)
     ssh_tunnel: SSHTunnelConfig | None = None
 
@@ -2898,6 +2908,16 @@ class StravaSourceConfig(config.Config):
 
 
 @config.config
+class StreamElementsSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class StreamlabsSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class StripeSourceConfig(config.Config):
     auth_method: StripeAuthMethodConfig
     stripe_account_id: str | None = None
@@ -3428,6 +3448,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.ADYEN: AdyenSourceConfig,
         ExternalDataSourceType.AGILECRM: AgileCRMSourceConfig,
         ExternalDataSourceType.AHA: AhaSourceConfig,
+        ExternalDataSourceType.AHREFS: AhrefsSourceConfig,
         ExternalDataSourceType.AIRBYTE: AirbyteSourceConfig,
         ExternalDataSourceType.AIRCALL: AircallSourceConfig,
         ExternalDataSourceType.AIRTABLE: AirtableSourceConfig,
@@ -3554,6 +3575,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.DATABRICKS: DatabricksSourceConfig,
         ExternalDataSourceType.DATADOG: DatadogSourceConfig,
         ExternalDataSourceType.DATASCOPE: DatascopeSourceConfig,
+        ExternalDataSourceType.DATORAMA: DatoramaSourceConfig,
         ExternalDataSourceType.DB2: Db2SourceConfig,
         ExternalDataSourceType.DBT: DbtSourceConfig,
         ExternalDataSourceType.DEEL: DeelSourceConfig,
@@ -3944,6 +3966,8 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.STIGG: StiggSourceConfig,
         ExternalDataSourceType.STOCKDATA: StockDataSourceConfig,
         ExternalDataSourceType.STRAVA: StravaSourceConfig,
+        ExternalDataSourceType.STREAMELEMENTS: StreamElementsSourceConfig,
+        ExternalDataSourceType.STREAMLABS: StreamlabsSourceConfig,
         ExternalDataSourceType.STRIPE: StripeSourceConfig,
         ExternalDataSourceType.SUPABASE: SupabaseSourceConfig,
         ExternalDataSourceType.SURVEYMONKEY: SurveyMonkeySourceConfig,

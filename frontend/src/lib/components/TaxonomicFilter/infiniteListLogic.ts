@@ -44,7 +44,6 @@ import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { CohortType, EventDefinition, GroupTypeIndex, PropertyType } from '~/types'
 
 import { teamLogic } from '../../../scenes/teamLogic'
-import { captureTimeToSeeData } from '../../internalMetrics'
 import { getItemGroup } from './InfiniteList'
 import type { infiniteListLogicType } from './infiniteListLogicType'
 
@@ -325,21 +324,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     breakpoint()
 
                     const queryChanged = values.remoteItems.searchQuery !== searchQuery
-
-                    // Cache before the second await — the logic may unmount during captureTimeToSeeData,
-                    // and kea's no-arg breakpoint() does not protect against unmount (only new invocations).
-                    const currentTeamId = values.currentTeamId
                     const existingResults = values.remoteItems.results
-
-                    await captureTimeToSeeData(currentTeamId, {
-                        type: 'properties_load',
-                        context: 'filters',
-                        action: listGroupType,
-                        primary_interaction_id: '',
-                        status: 'success',
-                        time_to_see_data_ms: Math.floor(performance.now() - start),
-                        api_response_bytes: 0,
-                    })
                     cache.abortController = null
 
                     return {
@@ -350,6 +335,9 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                         ),
                         searchQuery,
                         queryChanged,
+                        // Only the initial page times the search; "load more" (offset > 0)
+                        // would otherwise overwrite it with pagination latency.
+                        loadDurationMs: offset === 0 ? Math.floor(performance.now() - start) : undefined,
                         count:
                             response.count ||
                             (Array.isArray(response) ? response.length : 0) ||
