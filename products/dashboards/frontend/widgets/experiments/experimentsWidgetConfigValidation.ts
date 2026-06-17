@@ -12,10 +12,6 @@ import {
 } from '../../generated/widget-configs.zod'
 import { fieldErrorsFromZodError, parseWidgetConfig } from '../widgetConfigValidation'
 
-// ---------------------------------------------------------------------------
-// experiments_list widget
-// ---------------------------------------------------------------------------
-
 export const EXPERIMENTS_WIDGET_FORM_FIELD_NAMES = Object.keys(
     experimentsWidgetFormSchema.shape
 ) as (keyof typeof experimentsWidgetFormSchema.shape)[]
@@ -122,10 +118,6 @@ export function parseExperimentsListWidgetConfigApiError(
 
     return fieldErrorsFromZodError(parsedConfig.error)
 }
-
-// ---------------------------------------------------------------------------
-// experiment_results widget
-// ---------------------------------------------------------------------------
 
 type ExperimentResultsWidgetFormField = keyof z.infer<typeof experimentResultsWidgetFormSchema>
 

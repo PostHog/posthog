@@ -20,7 +20,6 @@ from posthog.models.user import User
 
 from products.dashboards.backend.widget_specs.configs import EXPERIMENT_RESULTS_WIDGET_TYPE
 from products.dashboards.backend.widget_specs.registry import validate_widget_config
-from products.dashboards.backend.widgets.experiments_list import derive_experiment_status
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.models.experiment import Experiment
 
@@ -41,7 +40,7 @@ def _serialize_experiment_summary(experiment: Experiment) -> dict[str, Any]:
     return {
         "id": experiment.id,
         "name": experiment.name,
-        "status": derive_experiment_status(experiment),
+        "status": experiment.status_label,
         "start_date": experiment.start_date.isoformat() if experiment.start_date else None,
         "end_date": experiment.end_date.isoformat() if experiment.end_date else None,
         "feature_flag_key": experiment.feature_flag.key,

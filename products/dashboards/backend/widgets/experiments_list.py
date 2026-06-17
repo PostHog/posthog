@@ -14,23 +14,12 @@ from products.experiments.backend.models.experiment import Experiment
 ValidatedExperimentsListWidgetConfig = dict[str, Any]
 
 
-def derive_experiment_status(experiment: Experiment) -> str:
-    """Public status string (draft/running/paused/stopped) for one row.
-
-    Reuses the canonical model derivation (`Experiment.is_paused` / `computed_status`),
-    matching `ExperimentSerializer.get_status`.
-    """
-    if experiment.is_paused:
-        return "paused"
-    return experiment.status or experiment.computed_status.value
-
-
 def _serialize_experiment_row(experiment: Experiment) -> dict[str, Any]:
     created_by = experiment.created_by
     return {
         "id": experiment.id,
         "name": experiment.name,
-        "status": derive_experiment_status(experiment),
+        "status": experiment.status_label,
         "conclusion": experiment.conclusion,
         "start_date": experiment.start_date.isoformat() if experiment.start_date else None,
         "end_date": experiment.end_date.isoformat() if experiment.end_date else None,

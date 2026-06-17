@@ -11,6 +11,17 @@ import type { ExperimentApi } from 'products/experiments/frontend/generated/api.
 
 import { experimentPickerLogic } from './experimentPickerLogic'
 
+export type ExperimentPickerSelectProps = {
+    /** Isolates picker state per mount (modal vs. each tile). */
+    pickerKey: string
+    value: number | null
+    onChange: (experimentId: number | null) => void
+    disabled?: boolean
+    size?: 'small' | 'medium'
+    fullWidth?: boolean
+    dataAttr?: string
+}
+
 function ExperimentOptionLabel({ experiment }: { experiment: ExperimentApi }): JSX.Element {
     const creator = experiment.created_by
     const creatorName = creator ? fullName(creator) || creator.email : null
@@ -28,17 +39,6 @@ function ExperimentOptionLabel({ experiment }: { experiment: ExperimentApi }): J
             ) : null}
         </span>
     )
-}
-
-export type ExperimentPickerSelectProps = {
-    /** Isolates picker state per mount (modal vs. each tile). */
-    pickerKey: string
-    value: number | null
-    onChange: (experimentId: number | null) => void
-    disabled?: boolean
-    size?: 'small' | 'medium'
-    fullWidth?: boolean
-    dataAttr?: string
 }
 
 export function ExperimentPickerSelect({

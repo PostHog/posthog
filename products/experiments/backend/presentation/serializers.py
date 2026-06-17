@@ -246,9 +246,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
 
     @extend_schema_field({"type": "string", "enum": ["draft", "running", "paused", "stopped"]})
     def get_status(self, instance: Experiment) -> str:
-        if instance.is_paused:
-            return "paused"
-        return instance.status or instance.computed_status.value
+        return instance.status_label
 
     class Meta:
         model = Experiment
