@@ -117,7 +117,16 @@ class MultiTurnSession:
                     session.task_run.id,
                     e,
                 )
-                return session, fallback_from_text(last_message)
+                try:
+                    salvaged = fallback_from_text(last_message)
+                except Exception:
+                    # A raising fallback (e.g. a stricter model that also rejects the raw text)
+                    # must not escape before teardown — the caller never received the session,
+                    # so its own finally is unreachable and the run would wedge in IN_PROGRESS.
+                    # Fall through to end the run as failed on the original parse error.
+                    logger.exception("multi_turn: fallback_from_text raised for run=%s", session.task_run.id)
+                else:
+                    return session, salvaged
             # `start()` is about to raise so the caller never receives the session to run its
             # own teardown. End it here so a first-turn parse failure (or a Temporal timeout,
             # which raises CancelledError — a BaseException) doesn't leave the run wedged in

@@ -1376,6 +1376,22 @@ class TestMultiTurnSessionStartFallback:
         session.end.assert_not_awaited()  # type: ignore[attr-defined]
 
     @pytest.mark.asyncio
+    async def test_raising_fallback_ends_run_instead_of_escaping(self):
+        # A fallback that itself raises (e.g. a stricter model that also rejects the raw text)
+        # must not escape start() before teardown — the run is ended as failed, not left wedged.
+        session = self._fake_session()
+
+        def boom(_text: str) -> _Resp:
+            raise ValueError("stricter model rejects raw text too")
+
+        with patch.object(MultiTurnSession, "start_raw", new=AsyncMock(return_value=(session, "prose only"))):
+            with pytest.raises(ValueError):
+                await MultiTurnSession.start(prompt="x", context=MagicMock(), model=_Resp, fallback_from_text=boom)
+
+        session.end.assert_awaited_once()  # type: ignore[attr-defined]
+        assert session.end.await_args.kwargs.get("status") == "failed"  # type: ignore[attr-defined]
+
+    @pytest.mark.asyncio
     async def test_cancellation_never_salvages(self):
         # A Temporal cancellation must propagate and fail the run even when a fallback is set —
         # salvaging a cancelled turn would mask a genuine timeout as a degraded success.
