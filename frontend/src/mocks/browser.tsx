@@ -1,9 +1,9 @@
 import type { ReactRenderer } from '@storybook/react'
 import { DecoratorFunction } from '@storybook/types'
-import { rest, setupWorker } from 'msw'
+import { setupWorker } from 'msw/browser'
 
 import { handlers } from '~/mocks/handlers'
-import { MockSignature, Mocks, mocksToHandlers } from '~/mocks/utils'
+import { HTTP_METHODS, MockSignature, Mocks, mocksToHandlers } from '~/mocks/utils'
 import type { AppContext } from '~/types'
 
 // Default handlers ensure no request is unhandled by msw
@@ -16,18 +16,17 @@ export const mswDecorator = (mocks: Mocks): DecoratorFunction<ReactRenderer, any
         // merge the default mocks provided in `preview.tsx` with any provided by the story
         // allow the story to override defaults
         const mergedMocks: Mocks = {}
-        const restKeys = Object.keys(rest) as Array<keyof typeof rest>
-        for (const restMethod of restKeys) {
-            mergedMocks[restMethod] = {}
-            const storyMethodMocks = (parameters.msw?.mocks?.[restMethod] || {}) as Record<string, MockSignature>
+        for (const method of HTTP_METHODS) {
+            mergedMocks[method] = {}
+            const storyMethodMocks = (parameters.msw?.mocks?.[method] || {}) as Record<string, MockSignature>
             // Ensure trailing slashes to avoid default handlers accidentally overshadowing story mocks
             for (const [path, handler] of Object.entries(storyMethodMocks)) {
                 const cleanedPath = path.replace(/\/?$/, '/')
-                mergedMocks[restMethod][cleanedPath] = handler
+                mergedMocks[method][cleanedPath] = handler
             }
-            for (const [path, handler] of Object.entries(mocks?.[restMethod] || {})) {
+            for (const [path, handler] of Object.entries(mocks?.[method] || {})) {
                 const cleanedPath = path.replace(/\/?$/, '/')
-                mergedMocks[restMethod][cleanedPath] = handler
+                mergedMocks[method][cleanedPath] = handler
             }
         }
         useStorybookMocks(mergedMocks)
