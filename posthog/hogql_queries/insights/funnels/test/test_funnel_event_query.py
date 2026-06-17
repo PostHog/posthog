@@ -32,14 +32,13 @@ from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
 def format_query(query: ast.SelectQuery):
-    sql = str(query)[4:-1]
-    return sqlparse.format(sql, keyword_case="upper", reindent=True)
+    return sqlparse.format(query.to_hogql(), keyword_case="upper", reindent=True)
 
 
 def raw_query(query: ast.SelectQuery) -> str:
     # The single-line HogQL string, without sqlparse reindentation, so substring
     # assertions don't break on line wrapping.
-    return str(query)[4:-1]
+    return query.to_hogql()
 
 
 class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
