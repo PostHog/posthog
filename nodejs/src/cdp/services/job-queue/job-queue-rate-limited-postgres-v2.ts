@@ -46,26 +46,29 @@ export class CyclotronJobQueueRateLimitedPostgresV2 extends CyclotronJobQueuePos
     }
 
     protected override createWorker(workerConfig: CyclotronV2WorkerConfig): CyclotronV2Worker {
-        return new CyclotronV2RateLimitedWorker(workerConfig, () => this.claimBatchLimit())
+        return new CyclotronV2RateLimitedWorker(workerConfig, (requested) => this.claimBatchLimit(requested))
     }
 
     /**
-     * Claim outbound capacity from the bucket before each poll. Returns the
-     * decision the worker applies: how many rows to dequeue, or "skip and
-     * sleep" when nothing is available. Runtime Valkey errors return 0 granted
-     * (fail-closed mid-shift) — the worker sleeps and retries.
+     * Claim outbound capacity from the bucket before each poll. `requested` is
+     * the number of rows the worker actually sees as dequeueable right now
+     * (capped at batchMaxSize). We additionally cap it at bucket capacity, in
+     * case capacity < batchMaxSize. Returns the decision the worker applies:
+     * how many rows to dequeue, or "skip and sleep" when nothing was granted.
+     * Runtime Valkey errors return 0 granted (fail-closed mid-shift) — the
+     * worker sleeps and retries.
      *
-     * We cap `requested` at `consumerBatchSize` because tokens granted above
-     * that ceiling would be deducted from the Valkey bucket but never used —
-     * `effectiveLimit` in the worker is `min(decision.limit, batchMaxSize)`.
-     * Without the cap, an operator misconfiguration setting capacity > batch
-     * size would silently waste SES budget.
+     * Pre-sizing `requested` to the visible row count is what fixes the
+     * "sparse traffic drains the bucket" failure mode: if only one row is
+     * ready we ask for one token, not `capacity`. Granted tokens above the
+     * row count would otherwise be deducted from the bucket but never used
+     * (the worker's `effectiveLimit` is `min(decision.limit, batchMaxSize)`).
      */
-    private async claimBatchLimit(): Promise<CyclotronV2BatchLimit | undefined> {
-        const requested = Math.min(this.rateLimit.capacity, this.consumerBatchSize)
+    private async claimBatchLimit(requested: number): Promise<CyclotronV2BatchLimit | undefined> {
+        const claimRequested = Math.min(requested, this.rateLimit.capacity)
         const granted = await this.rateLimit.limiter.claimUpTo({
             key: this.rateLimit.key,
-            requested,
+            requested: claimRequested,
             capacity: this.rateLimit.capacity,
             refillPerSecond: this.rateLimit.refillPerSecond,
         })

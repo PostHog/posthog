@@ -53,7 +53,13 @@ import { MainLaneOverflowRedirect } from '../ingestion/utils/overflow-redirect/m
 import { OverflowLaneOverflowRedirect } from '../ingestion/utils/overflow-redirect/overflow-lane-overflow-redirect'
 import { OverflowRedirectService } from '../ingestion/utils/overflow-redirect/overflow-redirect-service'
 import { RedisOverflowRepository } from '../ingestion/utils/overflow-redirect/overflow-redis-repository'
-import { HealthCheckResultOk, PluginServerService, RedisPool } from '../types'
+import {
+    HealthCheckResult,
+    HealthCheckResultError,
+    HealthCheckResultOk,
+    PluginServerService,
+    RedisPool,
+} from '../types'
 import { PostgresRouter } from '../utils/db/postgres'
 import { createRedisPoolFromConfig } from '../utils/db/redis'
 import { EventIngestionRestrictionManagerComponent } from '../utils/event-ingestion-restrictions'
@@ -154,6 +160,13 @@ export class IngestionApiServer implements NodeServer {
     private promiseScheduler = new PromiseScheduler()
     private hogTransformer!: HogTransformerService
     private topHog!: TopHog
+
+    // Latched on the first unexpected pipeline error. The joinedPipeline is a
+    // single long-lived instance shared across all requests; a throw can leave
+    // it permanently poisoned (e.g. a group exhausted retries), so we mirror the
+    // Kafka consumer's contract of crashing and rebuilding rather than serving a
+    // wedged pipeline forever.
+    private fatalError?: Error
 
     constructor(config: Partial<IngestionApiServerConfig> = {}) {
         this.config = {
@@ -454,14 +467,28 @@ export class IngestionApiServer implements NodeServer {
             res.status(200).json({ batch_id, status: 'ok', accepted: messages.length })
         } catch (err) {
             batchErrors.inc()
-            const message = err instanceof Error ? err.message : String(err)
-            logger.error('💥', 'Ingestion API batch processing failed', { batch_id, error: message })
-            res.status(500).json({ batch_id, status: 'error', accepted: 0, error: message })
+            const error = err instanceof Error ? err : new Error(String(err))
+            logger.error('💥', 'Ingestion API batch processing failed', { batch_id, error: error.message })
+            // A throw here can leave the shared pipeline permanently poisoned, so
+            // mirror the Kafka consumer's crash-and-rebuild contract. Respond 500
+            // (the Rust transport treats it as retriable and redelivers), mark the
+            // server unhealthy, and shut down so the supervisor rebuilds a fresh
+            // pipeline instead of serving a wedged one. Trigger the shutdown once:
+            // concurrent in-flight requests can all fail on the same poisoned
+            // pipeline, but only the first should start teardown.
+            if (!this.fatalError) {
+                this.fatalError = error
+                void this.stop(error)
+            }
+            res.status(500).json({ batch_id, status: 'error', accepted: 0, error: error.message })
         }
     }
 
-    private isHealthy() {
+    private isHealthy(): HealthCheckResult {
         // TODO: add output producer health checks
+        if (this.fatalError) {
+            return new HealthCheckResultError('Ingestion pipeline crashed', { error: this.fatalError.message })
+        }
         return new HealthCheckResultOk()
     }
 

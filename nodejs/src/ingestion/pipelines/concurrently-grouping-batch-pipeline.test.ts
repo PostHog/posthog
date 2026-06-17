@@ -454,17 +454,19 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
             await jest.advanceTimersByTimeAsync(0)
             expect(processingOrder).toEqual(['start-a1'])
 
-            // Feed more items for group A while a1 is still processing
-            previousPipeline.feed([createOkContext({ value: 'a3', group: 'A' }, context3)])
+            // Feed more items for group A while a1 is still processing. Fed through the
+            // pipeline (not previousPipeline directly) so the wake-up reaches the parked next().
+            pipeline.feed([createOkContext({ value: 'a3', group: 'A' }, context3)])
             expect(processingOrder).toEqual(['start-a1'])
 
             // Advance to complete a1 (50ms), a2 should start
             await jest.advanceTimersByTimeAsync(50)
             expect(processingOrder).toEqual(['start-a1', 'end-a1', 'start-a2'])
 
-            // Advance to complete a2 - first batch processing ends
+            // Advance to complete a2 - the group's batch ends and the queued a3
+            // starts (per-key ordering: a3 runs after a1, a2)
             await jest.advanceTimersByTimeAsync(50)
-            expect(processingOrder).toEqual(['start-a1', 'end-a1', 'start-a2', 'end-a2'])
+            expect(processingOrder).toEqual(['start-a1', 'end-a1', 'start-a2', 'end-a2', 'start-a3'])
 
             // Await first next() - gets results for a1 and a2
             const results: any[] = []
@@ -474,7 +476,7 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
             }
             expect(results).toHaveLength(2)
 
-            // Call next() to route and process a3
+            // a3 is already in flight; the second next() collects it
             const nextPromise2 = pipeline.next()
             await jest.advanceTimersByTimeAsync(0)
             expect(processingOrder).toEqual(['start-a1', 'end-a1', 'start-a2', 'end-a2', 'start-a3'])
@@ -553,10 +555,19 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
             expect(results).toHaveLength(2)
             expect((results[1].result as any).value.value).toBe('c1')
 
-            // Advance remaining time for B to complete b1 (1000 - 50 - 50 = 900ms)
+            // Advance remaining time for B to complete b1 (1000 - 50 - 50 = 900ms).
+            // The parked next() eagerly starts the queued b2 when b1's group ends.
             const nextPromise3 = pipeline.next()
             await jest.advanceTimersByTimeAsync(900)
-            expect(processingOrder).toEqual(['start-a1', 'start-b1', 'end-a1', 'start-c1', 'end-c1', 'end-b1'])
+            expect(processingOrder).toEqual([
+                'start-a1',
+                'start-b1',
+                'end-a1',
+                'start-c1',
+                'end-c1',
+                'end-b1',
+                'start-b2',
+            ])
 
             // Await third next() - returns b1's result
             const result3 = await nextPromise3
@@ -565,7 +576,7 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
             }
             expect(results).toHaveLength(3)
 
-            // Call next() to route b2 and start processing
+            // b2 is already in flight; the fourth next() collects it
             const nextPromise4 = pipeline.next()
             await jest.advanceTimersByTimeAsync(0)
             expect(processingOrder).toEqual([
@@ -687,6 +698,168 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
 
             expect(result).not.toBeNull()
             expect(result).toHaveLength(3)
+        })
+    })
+
+    describe('feeds interleaving with in-flight group processing', () => {
+        it('wakes a parked drain when a group fed after it parked completes', async () => {
+            const processor = createNewPipeline<{ value: string; group: string }>().pipe(async (input) => {
+                // A is slow enough to keep the drain parked; B finishes quickly.
+                const delay = input.group === 'A' ? 1000 : 10
+                await new Promise((resolve) => setTimeout(resolve, delay))
+                return ok({ ...input, processed: true })
+            })
+            const previousPipeline = createNewBatchPipeline<{ value: string; group: string }>().build()
+            const pipeline = new ConcurrentlyGroupingBatchPipeline((input) => input.group, processor, previousPipeline)
+
+            previousPipeline.feed([createOkContext({ value: 'a1', group: 'A' }, context1)])
+            const nextPromise = pipeline.next()
+            await jest.advanceTimersByTimeAsync(0) // A starts, the drain parks on it
+
+            // Feed a brand-new group B while the drain is parked on A.
+            pipeline.feed([createOkContext({ value: 'b1', group: 'B' }, context2)])
+            await jest.advanceTimersByTimeAsync(10)
+
+            // B started only after the drain parked, yet its completion wakes it.
+            const result = await nextPromise
+            expect(result).toHaveLength(1)
+            expect((result![0].result as any).value.value).toBe('b1')
+        })
+
+        it('starts groups from several feeds while a slow group keeps the drain parked', async () => {
+            const processor = createNewPipeline<{ value: string; group: string }>().pipe(async (input) => {
+                const delay = input.group === 'A' ? 1000 : 10
+                await new Promise((resolve) => setTimeout(resolve, delay))
+                return ok({ ...input, processed: true })
+            })
+            const previousPipeline = createNewBatchPipeline<{ value: string; group: string }>().build()
+            const pipeline = new ConcurrentlyGroupingBatchPipeline((input) => input.group, processor, previousPipeline)
+
+            previousPipeline.feed([createOkContext({ value: 'a1', group: 'A' }, context1)])
+
+            const drained: any[] = []
+            const run = (async () => {
+                let result = await pipeline.next()
+                while (result !== null) {
+                    drained.push(...result)
+                    // Stop once both fast groups are collected — A blocks for 1000ms.
+                    if (drained.length >= 2) {
+                        break
+                    }
+                    result = await pipeline.next()
+                }
+            })()
+
+            await jest.advanceTimersByTimeAsync(0) // A starts, the drain parks
+            pipeline.feed([createOkContext({ value: 'b1', group: 'B' }, context2)])
+            await jest.advanceTimersByTimeAsync(0) // B starts
+            pipeline.feed([createOkContext({ value: 'c1', group: 'C' }, context3)])
+            await jest.advanceTimersByTimeAsync(10) // B and C complete
+            await run
+
+            // Both groups, each from a separate feed landed mid-park, were processed.
+            expect(drained.map((r) => r.result.value.value).sort()).toEqual(['b1', 'c1'])
+        })
+    })
+
+    describe('failure surfacing with concurrent groups', () => {
+        it('returns a completed group before surfacing a later failure in an in-flight group', async () => {
+            const processor = createNewPipeline<{ value: string; group: string }>().pipe(async (input) => {
+                if (input.group === 'B') {
+                    await new Promise((resolve) => setTimeout(resolve, 10))
+                    throw new Error('group B failed')
+                }
+                await new Promise((resolve) => setTimeout(resolve, 5))
+                return ok({ ...input, processed: true })
+            })
+            const previousPipeline = createNewBatchPipeline<{ value: string; group: string }>().build()
+            const pipeline = new ConcurrentlyGroupingBatchPipeline((input) => input.group, processor, previousPipeline)
+
+            previousPipeline.feed([
+                createOkContext({ value: 'a1', group: 'A' }, context1),
+                createOkContext({ value: 'b1', group: 'B' }, context2),
+            ])
+
+            // A completes at t=5 while B is still in flight, so the first drain
+            // returns A's result rather than waiting on B.
+            const first = pipeline.next()
+            await jest.advanceTimersByTimeAsync(5)
+            const result = await first
+            expect(result).toHaveLength(1)
+            expect((result![0].result as any).value.value).toBe('a1')
+
+            // The second drain parks on the in-flight B; B's failure at t=10 wakes
+            // it and the failure surfaces. Attach the rejection handler before
+            // advancing time so the rejection that lands mid-advance is observed.
+            const second = pipeline.next()
+            const failure = expect(second).rejects.toThrow('group B failed')
+            await jest.advanceTimersByTimeAsync(5)
+            await failure
+        })
+
+        it('drains all completed group results before surfacing a failure', async () => {
+            const processor = createNewPipeline<{ value: string; group: string }>().pipe(async (input) => {
+                await new Promise((resolve) => setTimeout(resolve, 5))
+                if (input.group === 'C') {
+                    throw new Error('group C failed')
+                }
+                return ok({ ...input, processed: true })
+            })
+            const previousPipeline = createNewBatchPipeline<{ value: string; group: string }>().build()
+            const pipeline = new ConcurrentlyGroupingBatchPipeline((input) => input.group, processor, previousPipeline)
+
+            previousPipeline.feed([
+                createOkContext({ value: 'a1', group: 'A' }, context1),
+                createOkContext({ value: 'b1', group: 'B' }, context2),
+                createOkContext({ value: 'c1', group: 'C' }, context3),
+            ])
+
+            const drained: any[] = []
+            let thrown: Error | undefined
+            const run = (async () => {
+                try {
+                    let result = await pipeline.next()
+                    while (result !== null) {
+                        drained.push(...result)
+                        result = await pipeline.next()
+                    }
+                } catch (error) {
+                    thrown = error as Error
+                }
+            })()
+
+            await jest.advanceTimersByTimeAsync(5)
+            await run
+
+            // Both successful groups come out before the failure ends the stream.
+            expect(drained.map((r) => r.result.value.value).sort()).toEqual(['a1', 'b1'])
+            expect(thrown?.message).toBe('group C failed')
+        })
+
+        it('keeps rejecting after a processor error', async () => {
+            const processor = createNewPipeline<{ value: string; group: string }>().pipe(() =>
+                Promise.reject(new Error('processor boom'))
+            )
+            const previousPipeline = createNewBatchPipeline<{ value: string; group: string }>().build()
+            previousPipeline.feed([createOkContext({ value: 'a1', group: 'A' }, context1)])
+            const pipeline = new ConcurrentlyGroupingBatchPipeline((input) => input.group, processor, previousPipeline)
+
+            await expect(pipeline.next()).rejects.toThrow('processor boom')
+            await expect(pipeline.next()).rejects.toThrow('processor boom')
+        })
+
+        it('poisons permanently after a source error', async () => {
+            const processor = createNewPipeline<{ value: string; group: string }>().pipe((input) =>
+                Promise.resolve(ok(input))
+            )
+            const previousPipeline = {
+                feed: jest.fn(),
+                next: jest.fn().mockRejectedValueOnce(new Error('source boom')).mockResolvedValue(null),
+            }
+            const pipeline = new ConcurrentlyGroupingBatchPipeline((input) => input.group, processor, previousPipeline)
+
+            await expect(pipeline.next()).rejects.toThrow('source boom')
+            await expect(pipeline.next()).rejects.toThrow('source boom')
         })
     })
 })

@@ -49,8 +49,8 @@ describe('GroupKeySelect', () => {
                     results: MOCK_GROUPS,
                     next: null,
                 },
-                '/api/environments/:team/groups/find': (req: any) => {
-                    const groupKey = req.url.searchParams.get('group_key')
+                '/api/environments/:team/groups/find': ({ request }) => {
+                    const groupKey = new URL(request.url).searchParams.get('group_key')
                     const group = [...MOCK_GROUPS, FIND_ONLY_GROUP].find((g) => g.group_key === groupKey)
                     return group ? [200, group] : [404, { detail: 'Not found' }]
                 },
