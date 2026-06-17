@@ -8,7 +8,7 @@ from posthog.hogql import ast
 class FirstTimeForUserDataWarehouseConfig:
     """Retargets the first-time-for-user subquery from the events table to a data warehouse table."""
 
-    table_expr: ast.Expr
+    table_expr: ast.Field
     """The data warehouse table, e.g. ast.Field(chain=[table_name])."""
     timestamp_expr: ast.Expr
     """The timestamp column, e.g. e.<timestamp_field> (wrapped in toDateTime() for String columns)."""
