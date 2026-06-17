@@ -611,6 +611,8 @@ class SnowflakeClient:
                 raise SnowflakeConnectionError(
                     f"Could not establish a connection to Snowflake as the resolved URL does not exist. This usually indicates an invalid Snowflake account."
                 ) from err
+            # allow other errors to raise in case they're temporary connection issues
+            raise
 
         self.logger.debug("Connected to Snowflake")
 
