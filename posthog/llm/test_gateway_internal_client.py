@@ -137,6 +137,21 @@ class TestAddCredit:
             with pytest.raises(AIGatewayInternalError, match="not valid JSON"):
                 add_credit(42, "10", "x", "key-123")
 
+    @patch("posthog.llm.gateway_internal_client.settings")
+    def test_raises_on_success_body_missing_required_fields(self, mock_settings):
+        _configured(mock_settings)
+        with patch("posthog.llm.gateway_internal_client.httpx.post", return_value=_response(200, {"team_id": 42})):
+            with pytest.raises(AIGatewayInternalError, match="missing required fields"):
+                add_credit(42, "10", "x", "key-123")
+
+    @patch("posthog.llm.gateway_internal_client.settings")
+    def test_accepts_zero_balance(self, mock_settings):
+        _configured(mock_settings)
+        body = {"team_id": 42, "entry_id": "e1", "amount_usd": "10", "balance_usd": "0", "duplicate": False}
+        with patch("posthog.llm.gateway_internal_client.httpx.post", return_value=_response(200, body)):
+            result = add_credit(42, "10", "x", "key-123")
+        assert result.balance_usd == "0"
+
 
 class TestNotConfigured:
     @pytest.mark.parametrize("url,token", [("", "tok"), ("http://gw", ""), ("", "")])

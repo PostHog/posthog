@@ -119,6 +119,11 @@ def add_credit(team_id: int, amount_usd: str, reason: str, idempotency_key: str)
         data = response.json()
     except ValueError as exc:
         raise AIGatewayInternalError(f"credit response was not valid JSON: {exc}") from exc
+    # A 2xx with a partial body would otherwise coerce to empty strings and surface
+    # as "Added $ … New balance: $." in the admin. balance_usd may legitimately be
+    # "0", so presence-check it rather than truthiness.
+    if not data.get("entry_id") or data.get("balance_usd") is None:
+        raise AIGatewayInternalError("credit response missing required fields (entry_id/balance_usd)")
     return CreditResult(
         team_id=int(data.get("team_id", team_id)),
         entry_id=data.get("entry_id", ""),
