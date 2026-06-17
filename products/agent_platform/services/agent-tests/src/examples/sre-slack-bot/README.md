@@ -25,7 +25,7 @@ doesn't exist yet; see [Gaps](#gaps-that-constrain-this-version) below.
 | Calls the Slack Web API directly           | `@posthog/http-request` + `SLACK_BOT_TOKEN` secret (bring-your-own bot, no integration)                                           |
 | **Reads + writes incident.io directly**    | `@posthog/http-request` + `INCIDENT_IO_TOKEN` secret — lists active incidents, posts triage updates onto the timeline.            |
 | Queries PostHog event data **and logs**    | `@posthog/query` (HogQL against `events` + the `logs` table — schema documented in `agent.md`)                                    |
-| Fetches runbook URLs                       | `@posthog/web-fetch`                                                                                                              |
+| Fetches runbook URLs                       | `@posthog/http-request`                                                                                                           |
 | Remembers prior incident outcomes          | `@posthog/table-query`, `@posthog/table-append` on the `incidents` table (now with optional `incident_io_id` column)              |
 | **Consults a runbook corpus on triage**    | `@posthog/memory-search` / `-read` over `runbooks/` (alert / system / procedure runbooks) — see [Runbook memory](#runbook-memory) |
 | **Proposes runbook updates for users**     | `@posthog/memory-write` / `-update`, **approval-gated** — queues the change and links the user to approve it                      |
@@ -252,7 +252,7 @@ useful:
   Grafana and Kubernetes typically aren't publicly reachable.
   Cloudflare Tunnel is the planned v1 path; `kind: 'tailscale'`
   is parked.
-- **Runbook corpus retrieval** — `@posthog/web-fetch` works for a
+- **Runbook corpus retrieval** — `@posthog/http-request` works for a
   single URL but the bot needs an index over the whole runbook
   tree. Could mirror periodically into the `memory-*` store via a
   loader job; not yet built.

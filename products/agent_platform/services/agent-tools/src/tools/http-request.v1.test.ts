@@ -375,6 +375,44 @@ describe('@posthog/http-request', () => {
             expect(out.truncated).toBe(false)
         })
 
+        it('streams the body and stops at the cap without reading the whole response', async () => {
+            // Emit 1KB chunks and count pulls. With a 2500-byte cap the reader
+            // should stop after ~3 chunks — proving max_response_bytes truncates
+            // mid-stream rather than after the full body is materialized.
+            let pulled = 0
+            const oneKb = new Uint8Array(1000).fill(0x78) // 'x'
+            const stream = new ReadableStream<Uint8Array>({
+                pull(controller) {
+                    pulled++
+                    if (pulled > 100) {
+                        controller.close()
+                        return
+                    }
+                    controller.enqueue(oneKb)
+                },
+            })
+            const res = {
+                ok: true,
+                status: 200,
+                body: stream,
+                // Must NOT be called — a streamed body should never be fully buffered.
+                text: async () => {
+                    throw new Error('text() should not be called when a body stream is present')
+                },
+                headers: { get: () => null, entries: () => [][Symbol.iterator]() },
+            } as unknown as Response
+            const http: HttpFetcher = { fetch: async () => res }
+
+            const out = await httpRequestV1.run(
+                { url: 'https://example.com/big', max_response_bytes: 2500 },
+                makeCtx({ http })
+            )
+
+            expect(out.truncated).toBe(true)
+            expect(out.body.length).toBe(2500)
+            expect(pulled).toBeLessThan(10)
+        })
+
         it('rejects invalid URLs with a clear error before calling fetch', async () => {
             // Different error class than http_request_failed so the model can
             // tell "I sent a malformed URL" apart from "the network blew up."

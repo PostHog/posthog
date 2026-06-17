@@ -52,6 +52,7 @@ import {
     posthogAgentApplicationsSessionsRetrieveV1,
     posthogAgentApplicationsSetEnvV1,
 } from './tools/posthog-agent-management.v1'
+import { posthogListProjectsV1 } from './tools/posthog-projects.v1'
 import { posthogQueryV1 } from './tools/posthog-query.v1'
 import {
     slackPostMessageV1,
@@ -68,8 +69,6 @@ import {
     tableQueryV1,
     tableTruncateV1,
 } from './tools/table'
-import { webFetchV1 } from './tools/web-fetch.v1'
-import { webSearchV1 } from './tools/web-search.v1'
 
 /**
  * Lists every native (`@posthog/*`) tool the runner knows — the authoring
@@ -118,6 +117,7 @@ export const nativeToolsCatalogV1 = defineNativeTool({
 
 export const ALL_TOOLS: NativeTool[] = [
     posthogQueryV1,
+    posthogListProjectsV1,
     posthogAgentApplicationsListV1,
     posthogAgentApplicationsRetrieveV1,
     posthogAgentApplicationsRevisionsListV1,
@@ -153,8 +153,6 @@ export const ALL_TOOLS: NativeTool[] = [
     slackReadThreadV1,
     slackReactV1,
     httpRequestV1,
-    webFetchV1,
-    webSearchV1,
     endTurnTool,
     endSessionTool,
     emitEventTool,

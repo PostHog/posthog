@@ -27,7 +27,7 @@ cron trigger, native tools, both prose (`memory-*`) and tabular
 | On-demand re-run from Slack               | `slack` trigger, `mention_only: true`                                |
 | Ad-hoc from the agent console             | `chat` trigger — useful for iterating on prompt / skills             |
 | Pulls PostHog signals (alerts, anomalies) | `@posthog/query`                                                     |
-| Pulls GitHub / external HTTP data         | `@posthog/web-fetch`, `@posthog/web-search`                          |
+| Pulls GitHub / external HTTP data         | `@posthog/http-request`                                              |
 | Reads monitored Slack channels            | `@posthog/slack-read-channel`                                        |
 | Writes the markdown report                | `@posthog/memory-write` to `briefings/{YYYY-MM-DD}.md`               |
 | Tracks briefing index for carry-over      | `@posthog/table-append`, `@posthog/table-query` on `briefings` table |
@@ -38,7 +38,7 @@ cron trigger, native tools, both prose (`memory-*`) and tabular
 ## What it cannot do (yet)
 
 - **Reach private SaaS data.** Public GitHub / Zendesk / etc. is
-  fine via `web-fetch`; private dashboards need an external MCP
+  fine via `http-request`; private dashboards need an external MCP
   or a custom API tool.
 - **Drive a UI.** This is a fire-and-write agent; it produces a
   markdown file + Slack post. The user reads from those, not from
@@ -93,7 +93,7 @@ pnpm --filter @posthog/agent-tests test cases/example-wake-me-up
 
 ## Gaps that would make it better
 
-- **External MCPs for GitHub / Zendesk / Linear.** `web-fetch`
+- **External MCPs for GitHub / Zendesk / Linear.** `http-request`
   against public APIs works, but a dedicated MCP gets you typed
   responses + auth handling. Hooks straight into the
   `kind: 'external'` McpRef variant once you have the MCP URL

@@ -82,7 +82,7 @@ The runner runs test sessions with egress sandboxed:
 
 - `@posthog/slack-*` becomes a no-op that logs the call (so you
   can assert it was called, without actually posting)
-- `@posthog/web-fetch` returns fixture responses from the test
+- `@posthog/http-request` returns fixture responses from the test
   spec
 - Custom tools' egress goes through a proxy that blocks non-
   fixture hosts

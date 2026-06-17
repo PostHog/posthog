@@ -246,7 +246,7 @@ describe('example: sre-slack-bot bundle', () => {
                 body: { channel: 'C-incidents', limit: 20 },
             }),
             // Phase 5: fetch the runbook.
-            fauxCallTool('@posthog/web-fetch', {
+            fauxCallTool('@posthog/http-request', {
                 url: 'https://runbooks.internal/ingestion-500s',
             }),
             // Phase 6: load the reply-protocol skill.
@@ -330,7 +330,7 @@ describe('example: sre-slack-bot bundle', () => {
             '@posthog/http-request', // list active incidents (incident.io)
             '@posthog/load-skill', // triage-playbook
             '@posthog/http-request', // conversations.history (slack)
-            '@posthog/web-fetch',
+            '@posthog/http-request', // runbook fetch
             '@posthog/load-skill', // slack-thread-protocol
             '@posthog/http-request', // chat.postMessage (slack)
             '@posthog/table-append',

@@ -119,12 +119,12 @@ agent's prompt live?" or "where do I edit the model?":
 
 This is the most common source of confusion. Be precise.
 
-| Class                 | Spec ref                                           | Where it runs            | Examples                                                              |
-| --------------------- | -------------------------------------------------- | ------------------------ | --------------------------------------------------------------------- |
-| **Native**            | `{ kind: "native", id: "@posthog/foo" }`           | In the runner process    | `@posthog/query`, `@posthog/web-fetch`, `@posthog/slack-post-message` |
-| **Custom**            | `{ kind: "custom", id, path: "tools/x/" }`         | In a per-session sandbox | Anything the team writes themselves                                   |
-| **MCP** (`spec.mcps`) | Not in `tools[]` — listed in `spec.mcps[]` instead | In a remote MCP server   | Anything any MCP exposes. Routed by prefix `<id>__<name>`.            |
-| **Client**            | `{ kind: "client", id, description, args_schema }` | In the connecting client | `focus_revision`, `focus_session`, `focus_file`, `toast`              |
+| Class                 | Spec ref                                           | Where it runs            | Examples                                                                 |
+| --------------------- | -------------------------------------------------- | ------------------------ | ------------------------------------------------------------------------ |
+| **Native**            | `{ kind: "native", id: "@posthog/foo" }`           | In the runner process    | `@posthog/query`, `@posthog/http-request`, `@posthog/slack-post-message` |
+| **Custom**            | `{ kind: "custom", id, path: "tools/x/" }`         | In a per-session sandbox | Anything the team writes themselves                                      |
+| **MCP** (`spec.mcps`) | Not in `tools[]` — listed in `spec.mcps[]` instead | In a remote MCP server   | Anything any MCP exposes. Routed by prefix `<id>__<name>`.               |
+| **Client**            | `{ kind: "client", id, description, args_schema }` | In the connecting client | `focus_revision`, `focus_session`, `focus_file`, `toast`                 |
 
 Native tools are catalogued via `@posthog/agent-applications-native-tools-list`. MCP
 tools are discoverable per server via the MCP `tools/list` call

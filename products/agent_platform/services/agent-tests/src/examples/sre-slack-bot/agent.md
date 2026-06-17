@@ -118,8 +118,7 @@ someone provide it?" is far more useful than a guess.
 | Tool                        | Use when                                                                                                                         |
 | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | `@posthog/query`            | Need PostHog event data **or logs** to verify a hypothesis (volumes, error rates, deploys, log lines). See "PostHog Logs" below. |
-| `@posthog/web-fetch`        | Need to read a runbook URL, a status page, or any HTTP-accessible doc.                                                           |
-| `@posthog/http-request`     | Call Slack Web API or incident.io API. See "Slack" + "incident.io" below.                                                        |
+| `@posthog/http-request`     | Read a runbook URL or HTTP-accessible doc; call the Slack Web API or incident.io API. See "Slack" + "incident.io" below.         |
 | `@posthog/table-query`      | Recall prior incidents matching this alert signature.                                                                            |
 | `@posthog/table-append`     | Record a resolved incident's outcome (`{ alert_signature, root_cause, mitigation, … }`).                                         |
 | `@posthog/table-membership` | Cheap "have I seen this alert signature before?" check across a batch.                                                           |

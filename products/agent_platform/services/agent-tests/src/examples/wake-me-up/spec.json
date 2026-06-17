@@ -32,8 +32,7 @@
     ],
     "tools": [
         { "kind": "native", "id": "@posthog/query" },
-        { "kind": "native", "id": "@posthog/web-fetch" },
-        { "kind": "native", "id": "@posthog/web-search" },
+        { "kind": "native", "id": "@posthog/http-request" },
         { "kind": "native", "id": "@posthog/slack-post-message" },
         { "kind": "native", "id": "@posthog/slack-read-channel" },
         { "kind": "native", "id": "@posthog/memory-search" },

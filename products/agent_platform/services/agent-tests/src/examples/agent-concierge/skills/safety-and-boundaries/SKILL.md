@@ -177,7 +177,7 @@ caution. Things you can do without confirmation:
 
 - Read any agent's spec, bundle, sessions, system prompt
 - Run any `@posthog/query` query (read-only)
-- Fetch any URL via `@posthog/web-fetch`
+- Fetch any URL via `@posthog/http-request`
 - Branch a draft (drafts are free; the agent isn't affected until
   promote)
 - Validate a draft

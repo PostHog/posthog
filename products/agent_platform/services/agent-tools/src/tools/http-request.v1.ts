@@ -160,6 +160,61 @@ const ABSOLUTE_MAX_RESPONSE_BYTES = 5_000_000
 const DEFAULT_TIMEOUT_MS = 15_000
 const ABSOLUTE_MAX_TIMEOUT_MS = 60_000
 
+/**
+ * Read the response body up to `maxBytes`, streaming so an oversized or
+ * highly-compressed response is never fully materialized before truncation.
+ * Stops at the cap and cancels the stream, which tears down the underlying
+ * connection so we don't keep pulling bytes we'll throw away. Falls back to
+ * `res.text()` only when the response exposes no readable stream (e.g. an
+ * empty body or a non-streaming test mock), still capping the result.
+ */
+async function readCappedBody(
+    res: Response,
+    maxBytes: number
+): Promise<{ body: string; bytesRead: number; truncated: boolean }> {
+    const stream = res.body
+    if (!stream) {
+        const text = await res.text()
+        const bytes = new TextEncoder().encode(text)
+        if (bytes.byteLength <= maxBytes) {
+            return { body: text, bytesRead: bytes.byteLength, truncated: false }
+        }
+        return { body: new TextDecoder().decode(bytes.subarray(0, maxBytes)), bytesRead: maxBytes, truncated: true }
+    }
+
+    const reader = stream.getReader()
+    const chunks: Uint8Array[] = []
+    let total = 0
+    let truncated = false
+    try {
+        while (total < maxBytes) {
+            const { done, value } = await reader.read()
+            if (done) {
+                break
+            }
+            if (total + value.byteLength > maxBytes) {
+                chunks.push(value.subarray(0, maxBytes - total))
+                total = maxBytes
+                truncated = true
+                break
+            }
+            chunks.push(value)
+            total += value.byteLength
+        }
+    } finally {
+        // Cancel rather than drain: releases the socket so we never pull past the cap.
+        await reader.cancel().catch(() => {})
+    }
+
+    const buf = new Uint8Array(total)
+    let offset = 0
+    for (const chunk of chunks) {
+        buf.set(chunk, offset)
+        offset += chunk.byteLength
+    }
+    return { body: new TextDecoder().decode(buf), bytesRead: total, truncated }
+}
+
 export const httpRequestV1 = defineNativeTool({
     id: '@posthog/http-request',
     description: [
@@ -263,9 +318,7 @@ export const httpRequestV1 = defineNativeTool({
             clearTimeout(abortTimer)
         }
 
-        const text = await res.text()
-        const truncated = text.length > maxBytes
-        const bodyOut = truncated ? text.slice(0, maxBytes) : text
+        const { body: bodyOut, bytesRead, truncated } = await readCappedBody(res, maxBytes)
 
         // Surface a small fixed set of useful response headers; sending every
         // header back inflates the context for no model-side payoff.
@@ -281,7 +334,7 @@ export const httpRequestV1 = defineNativeTool({
             method,
             url,
             status: res.status,
-            response_bytes: text.length,
+            response_bytes: bytesRead,
             truncated,
         })
 

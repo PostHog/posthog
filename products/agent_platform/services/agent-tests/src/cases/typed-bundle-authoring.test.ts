@@ -514,7 +514,7 @@ describe('typed bundle authoring API: real e2e', () => {
             const current = await c.revisions.getRevision(rid)
             const specWithNative = AgentSpecSchema.parse({
                 ...current!.spec,
-                tools: [{ kind: 'native', id: '@posthog/web-fetch' }],
+                tools: [{ kind: 'native', id: '@posthog/http-request' }],
             })
             await c.revisions.updateSpec(rid, specWithNative)
 
@@ -526,7 +526,7 @@ describe('typed bundle authoring API: real e2e', () => {
             await request(c.janitor).post(`/revisions/${rid}/freeze`)
             const after = await c.revisions.getRevision(rid)
             const ids = after!.spec.tools.map((t) => ('id' in t ? t.id : ''))
-            expect(ids).toContain('@posthog/web-fetch')
+            expect(ids).toContain('@posthog/http-request')
             expect(ids).toContain('custom1')
         })
     })

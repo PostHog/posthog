@@ -100,7 +100,7 @@ Peak `<metric>` was `<value>` (threshold `<value>`); now back to
 - Don't reply more than 3 times to the same thread within 5 minutes
   unless a human asked a follow-up. You become noise after that.
 - Don't paste log snippets longer than ~15 lines inline. Paste to a
-  gist / pastebin (via `@posthog/web-fetch` if you have a target) or
+  gist / pastebin (via `@posthog/http-request` if you have a target) or
   describe + link.
 - Don't apologise for being unsure. Stating uncertainty clearly is
   high-value; padding it with "sorry" wastes bytes.

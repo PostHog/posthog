@@ -106,7 +106,7 @@ on the first try.
     }
   ],
   "tools": [
-    { "kind": "native", "id": "@posthog/web-fetch" },
+    { "kind": "native", "id": "@posthog/http-request" },
     { "kind": "custom", "id": "my-tool", "path": "tools/my-tool" }
   ],
   "skills": [{ "id": "my-skill", "path": "skills/my-skill.md", "description": "When to load it." }],

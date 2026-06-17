@@ -33,7 +33,7 @@ For every invocation, follow this order. Skip steps that don't apply
    - `@posthog/query` — alerts firing, dashboards trending the wrong
      way, saved insights flagged as anomalies. Cite the insight URL
      for every claim.
-   - `@posthog/web-fetch` against public GitHub APIs (or via an
+   - `@posthog/http-request` against public GitHub APIs (or via an
      external MCP if the user has one configured) — PRs awaiting
      review, your open PRs, @-mentions.
    - `@posthog/slack-read-channel` for any monitored channels the
@@ -64,8 +64,7 @@ For every invocation, follow this order. Skip steps that don't apply
 | Tool                          | Use when                                                                              |
 | ----------------------------- | ------------------------------------------------------------------------------------- |
 | `@posthog/query`              | PostHog signals — alerts, anomalous insights, recent events with specific properties. |
-| `@posthog/web-fetch`          | GitHub / Zendesk / any HTTP-accessible source with a known URL.                       |
-| `@posthog/web-search`         | Open-ended "what changed in X overnight" lookups when you don't have a specific URL.  |
+| `@posthog/http-request`       | GitHub / Zendesk / any HTTP-accessible source with a known URL.                       |
 | `@posthog/slack-read-channel` | Pull recent messages from a monitored channel to summarise.                           |
 | `@posthog/slack-post-message` | Post the condensed briefing (final step, gated on configured target).                 |
 | `@posthog/memory-search`      | Look for user-maintained config — `channels.yml`, `relevance.yml`, teammates list.    |

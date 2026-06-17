@@ -55,17 +55,6 @@
             "requires_approval": false
         },
         {
-            "id": "@posthog/web-fetch",
-            "kind": "native",
-            "approval_policy": {
-                "ttl_ms": 86400000,
-                "approvers": ["team_admins"],
-                "allow_edit": false,
-                "allow_agent_approver": false
-            },
-            "requires_approval": false
-        },
-        {
             "id": "@posthog/http-request",
             "kind": "native",
             "approval_policy": {

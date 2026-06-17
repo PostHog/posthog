@@ -40,7 +40,7 @@ async function loadBundle(): Promise<{ spec: Record<string, unknown>; files: Rec
     return { spec, files }
 }
 
-/** Stub fetch — covers slack.com/api/* and any web-fetch URL. */
+/** Stub fetch — covers slack.com/api/* and any http-request URL. */
 function stubFetch(responses: Record<string, unknown>): typeof fetch {
     return (async (input: string | URL | Request) => {
         const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
@@ -51,6 +51,7 @@ function stubFetch(responses: Record<string, unknown>): typeof fetch {
             status: 200,
             json: async () => body,
             text: async () => (typeof body === 'string' ? body : JSON.stringify(body)),
+            headers: new Map([['content-type', 'application/json']]),
         } as unknown as Response
     }) as unknown as typeof fetch
 }
@@ -128,8 +129,8 @@ describe('example: wake-me-up bundle', () => {
             // Phase 4: gather PostHog signals.
             fauxCallTool('@posthog/query', { query: 'SELECT 1' }),
             // Phase 5: gather GitHub data (would be an external MCP in real
-            // life; using web-fetch as the publicly-reachable v0 path).
-            fauxCallTool('@posthog/web-fetch', {
+            // life; using http-request as the publicly-reachable v0 path).
+            fauxCallTool('@posthog/http-request', {
                 url: 'https://api.github.com/search/issues?q=is:open+is:pr+review-requested:@me',
             }),
             // Phase 6: write today's full markdown briefing.
@@ -226,7 +227,7 @@ describe('example: wake-me-up bundle', () => {
             '@posthog/table-query',
             '@posthog/memory-read',
             '@posthog/query',
-            '@posthog/web-fetch',
+            '@posthog/http-request',
             '@posthog/memory-write',
             '@posthog/table-append',
             '@posthog/load-skill',
