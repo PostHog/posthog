@@ -548,6 +548,34 @@ function getFileLanguage(path: string, contentType?: string): Language | null {
     return null
 }
 
+// Bundled markdown files can carry their own YAML frontmatter; mirror the backend regex so it
+// renders as a tidy block rather than a run-on paragraph the markdown renderer makes of it.
+const BUNDLED_FRONTMATTER_RE = /^---[^\n]*\n([\s\S]*?)\n---[^\n]*\n?([\s\S]*)$/
+
+function splitBundledFrontmatter(text: string): { frontmatter: string; body: string } {
+    const match = text.match(BUNDLED_FRONTMATTER_RE)
+    if (!match) {
+        return { frontmatter: '', body: text }
+    }
+    return { frontmatter: match[1].replace(/\s+$/, ''), body: match[2] }
+}
+
+function BundledMarkdown({ content }: { content: string }): JSX.Element {
+    const { frontmatter, body } = splitBundledFrontmatter(content)
+    return (
+        <>
+            {frontmatter && (
+                <pre className="mb-2 overflow-auto whitespace-pre-wrap rounded bg-fill-secondary px-2 py-1 font-mono text-xs text-muted">
+                    {frontmatter}
+                </pre>
+            )}
+            <LemonMarkdownWithMermaid className="text-sm" generateHeadingIds>
+                {body}
+            </LemonMarkdownWithMermaid>
+        </>
+    )
+}
+
 function SkillFileViewer({
     skillName,
     file,
@@ -617,9 +645,7 @@ function SkillFileViewer({
                             <LemonSkeleton active className="h-3 w-1/2" />
                         </div>
                     ) : content === null ? null : isMarkdown ? (
-                        <LemonMarkdownWithMermaid className="text-sm" generateHeadingIds>
-                            {content}
-                        </LemonMarkdownWithMermaid>
+                        <BundledMarkdown content={content} />
                     ) : codeLanguage !== null ? (
                         <CodeSnippet language={codeLanguage} compact thing={file.path} maxLinesWithoutExpansion={20}>
                             {content}
