@@ -95,8 +95,8 @@ tools:
         description: >
             Create a workflow. It is created as a draft and does NOT run until enabled: test it with workflows-test-run
             first, then enable (workflows-enable) only with the user's explicit approval — enabling is a one-way door,
-            since live workflows can't be edited over MCP. Provide an actions array with
-            exactly one type='trigger' (config.type: event|webhook|manual|batch|tracking_pixel) plus action nodes
+            since live workflows can't be edited over MCP. Provide an actions array with exactly one type='trigger'
+            (config.type: event|webhook|manual|batch|tracking_pixel) plus action nodes
             (function/function_email/function_sms, delay, conditional_branch, wait_until_condition, ...) connected by
             edges. Read the building-workflows skill for node shapes before composing: a node that mismatches the
             per-type schema saves but breaks the visual editor. Two traps that save but break: (1) a conditional_branch
