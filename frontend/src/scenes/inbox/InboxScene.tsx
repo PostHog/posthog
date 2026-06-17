@@ -125,10 +125,44 @@ export function InboxScene(): JSX.Element {
     const { runSessionAnalysis } = useActions(inboxSceneLogic)
     const { isDev } = useValues(preflightLogic)
 
-    // Detail route: render the report full-width, replacing the list (desktop parity).
-    if (selectedReportId) {
-        return (
-            <SceneContent className="gap-y-0 border-b-0 flex-1 min-h-0">
+    // Detail route renders full-width over the list (desktop parity), but the list view stays *mounted*
+    // (just hidden) rather than being unmounted. That keeps `reportListLogic` and the scroll container
+    // alive, so clicking "back" lands on the same scroll position with the same loaded pages — instead of
+    // remounting and resetting to the first page at the top.
+    const showDetail = !!selectedReportId
+
+    return (
+        <SceneContent className="gap-y-0 border-b-0 flex-1 min-h-0">
+            <div className={showDetail ? 'hidden' : 'flex flex-col gap-y-2 flex-1 min-h-0'}>
+                <SceneTitleSection
+                    name="Inbox"
+                    description="Work done by your agents – pull requests, reports, and live runs."
+                    resourceType={{ type: 'inbox' }}
+                    actions={
+                        isDev ? (
+                            <Tooltip title="Analyze the last 7 days of sessions">
+                                <LemonButton
+                                    type="secondary"
+                                    onClick={() => runSessionAnalysis()}
+                                    loading={isRunningSessionAnalysis}
+                                    size="small"
+                                    data-attr="run-session-analysis-button"
+                                    tooltip="DEBUG-only"
+                                    icon={<IconBug />}
+                                >
+                                    Run session analysis
+                                </LemonButton>
+                            </Tooltip>
+                        ) : undefined
+                    }
+                />
+
+                <div className="flex flex-col -mx-4 flex-1 min-h-0">
+                    <InboxListView />
+                </div>
+            </div>
+
+            {showDetail && (
                 <div className="flex flex-col -mx-4 flex-1 min-h-0">
                     {selectedReport ? (
                         <InboxDetailView report={selectedReport} />
@@ -142,38 +176,7 @@ export function InboxScene(): JSX.Element {
                         </div>
                     )}
                 </div>
-            </SceneContent>
-        )
-    }
-
-    return (
-        <SceneContent className="gap-y-2 border-b-0 flex-1 min-h-0">
-            <SceneTitleSection
-                name="Inbox"
-                description="Work done by your agents – pull requests, reports, and live runs."
-                resourceType={{ type: 'inbox' }}
-                actions={
-                    isDev ? (
-                        <Tooltip title="Analyze the last 7 days of sessions">
-                            <LemonButton
-                                type="secondary"
-                                onClick={() => runSessionAnalysis()}
-                                loading={isRunningSessionAnalysis}
-                                size="small"
-                                data-attr="run-session-analysis-button"
-                                tooltip="DEBUG-only"
-                                icon={<IconBug />}
-                            >
-                                Run session analysis
-                            </LemonButton>
-                        </Tooltip>
-                    ) : undefined
-                }
-            />
-
-            <div className="flex flex-col -mx-4 flex-1 min-h-0">
-                <InboxListView />
-            </div>
+            )}
         </SceneContent>
     )
 }
