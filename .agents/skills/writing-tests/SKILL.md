@@ -35,8 +35,8 @@ A good answer sounds like: _"if someone makes `parse_filters` drop the `team_id`
 That is a test worth keeping.
 
 Aim each test at a failure mode we actually hit, not a hypothetical.
-The bugs PostHog ships and reverts cluster into a handful of shapes — catalogued with the test that catches each, and the failure modes no unit test should, in [references/mistakes-we-make.md](references/mistakes-we-make.md).
-If your test doesn't map to one of them, be sceptical it's worth keeping.
+The bugs PostHog ships and reverts cluster into a handful of shapes — cataloged with the test that catches each, and the failure modes no unit test should, in [references/mistakes-we-make.md](references/mistakes-we-make.md).
+If your test doesn't map to one of them, be skeptical it's worth keeping.
 
 ## Don't write it — the four no's
 
@@ -69,8 +69,8 @@ A test that earns its place still has to be cheap.
 Cost is a ladder; each rung is roughly an order of magnitude slower and flakier than the one below:
 
 ```text
-pure function / unit  →  kea logic test  →  Django TestCase  →  TransactionTestCase / ClickHouse  →  Playwright e2e
-        cheapest                                                                                        most expensive
+pure function / unit  →  kea logic test  →  Django TestCase  →  ClickHouse-backed test  →  Playwright e2e
+        cheapest                                                                                most expensive
 ```
 
 The goal is a **ratio**, not a cap: many tests at the bottom, very few at the top.
@@ -85,15 +85,16 @@ Escalating to the next rung is the last resort, not the default.
 - If logic is in (or can be moved to) a pure function, test the function — don't stand up a DB, a request, or a render.
 - Frontend: test the **kea logic** (`logic.actions` / `logic.values`), not a full component render, whenever the behavior lives in the logic.
   A `render()` + DOM-query test is for things only the DOM can show.
-- Reach for `TransactionTestCase`, ClickHouse, or a browser only when the regression genuinely lives there — not because it was the first way the test came to mind.
+- Reach for ClickHouse or a browser only when the regression genuinely lives there — not because it was the first way the test came to mind.
 
 ### Python (pytest / Django)
 
 - **`TestCase`, not `TransactionTestCase`, unless you truly need it.**
   `TransactionTestCase` flushes the DB between tests instead of rolling back a transaction — dramatically slower, and a common source of cross-test interference.
-  Most tests that reach for it don't need it:
+  It's a Postgres-isolation choice, orthogonal to which datastore you touch: a ClickHouse-backed test is still a plain `TestCase` (`ClickhouseTestMixin` sets ClickHouse up), so reaching ClickHouse is not a reason to switch.
+  The cases that genuinely need it:
   - testing `transaction.on_commit` side effects → use `TestCase` + `self.captureOnCommitCallbacks(execute=True)`.
-  - needing a connection visible across a thread (`thread_sensitive`) → `async_to_sync(...)`, not `asyncio.run(...)`.
+  - needing a connection visible across a real separate thread (`thread_sensitive`) → `async_to_sync(...)`, not `asyncio.run(...)`.
 - **Parameterize** repeated assertions with the `parameterized` library — don't copy-paste test bodies.
 - **No doc comments** in Python tests (house rule).
 - Mock only **true boundaries** — network, external APIs, the clock, queues.
@@ -116,8 +117,10 @@ Escalating to the next rung is the last resort, not the default.
 - **No real network / live external services.** Mock the boundary.
 - **No cross-test ordering.**
   Tests must pass in any order and in isolation; don't rely on state a previous test left behind.
-- **No `@skip` / `xfail` / `.skip` / `.only`** without a one-line reason and a linked issue.
+- **No `@skip` / `xfail` / `.skip`** without a one-line reason and a linked issue.
   A permanently-skipped test is dead weight — delete it or fix it.
+- **Never commit `.only`** (`it.only` / `describe.only`).
+  It doesn't skip one test, it skips every _other_ test in the file — turning the suite green on a sliver.
 
 ## Before you open the PR
 

@@ -1,11 +1,11 @@
 # Mistakes we actually make
 
 The bugs PostHog ships and reverts cluster into a small number of shapes.
-This catalogues them — derived from merged `fix:` and `revert:` PRs, with each example checked at the diff level (does the PR actually add a regression test, and at what level?) and cross-referenced against recurring production incidents.
+This catalogs them — derived from merged `fix:` and `revert:` PRs, with each example checked at the diff level (does the PR actually add a regression test, and at what level?) and cross-referenced against recurring production incidents.
 
 Use it to aim a test at a failure mode we really hit, not a hypothetical.
 Find the shape your change touches and write the test at the level noted.
-If your change maps to nothing here and isn't genuinely new behavior, be sceptical the test earns its place.
+If your change maps to nothing here and isn't genuinely new behavior, be skeptical the test earns its place.
 
 Two headlines:
 
@@ -27,11 +27,11 @@ The most common `fix:` cluster, and the best-tested.
 ### Null / empty / wrong-shape input → crash
 
 Code assumes a value is present or well-formed (a DB field, a JSON body, a group type) and crashes instead of degrading.
-Common, and incident follow-ups repeatedly self-diagnose it as "we should have had a test for this."
+Common — and cheap to guard against relative to the cost of shipping it.
 
 - **Catch it at:** the cheapest level that exercises the boundary — a pure-unit call with the bad value, or a Django `TestCase` hitting the endpoint. No ClickHouse.
 - [#62757](https://github.com/PostHog/posthog/pull/62757) — handle null metrics when serializing experiments — a `NULL` `metrics` column reached `enumerate(None)`, so one bad row 500'd the whole experiments list; the test parameterizes null/empty combinations against the list and detail endpoints.
-- [#11792](https://github.com/PostHog/posthog/pull/11792) — return 400 instead of 500 if event properties isn't JSON — subscripting non-dict `properties` raised `TypeError`; the unit test calls the function directly and asserts it raises (a rung below even the endpoint).
+- [#11792](https://github.com/PostHog/posthog/pull/11792) — return 400 instead of 500 if event properties isn't JSON — subscripting non-dict `properties` raised `TypeError`; the fix converts it to a `ValueError` (→ 400), and the unit test calls the function directly and asserts that — a rung below even the endpoint.
 - [#61076](https://github.com/PostHog/posthog/pull/61076) — guard `wordPluralize` against null `group_type` — a null group type crashed the flags page render; tested at the helper (Jest) and at the converter that produced the null (Python unit).
 
 ### Tenant-isolation / scoping (IDOR)
@@ -47,7 +47,7 @@ Code assumes UTC; date bucketing, pagination cursors, and chart labels shift by 
 
 - **Catch it at:** usually the cheapest rung — a pure-unit test parameterized over non-UTC zones (plus a DST boundary). But when the truncation happens _inside ClickHouse_, the cheap test can't see it and you need real execution.
 - [#57593](https://github.com/PostHog/posthog/pull/57593) — timezone-safe date parsing — frontend parsing read the system wall-clock and rolled the calendar day back east of UTC; a pure Jest test over UTC/LA/Tokyo/Berlin and a DST boundary catches it. The clean cheap exemplar.
-- [#61111](https://github.com/PostHog/posthog/pull/61111) — UTC-pin `time_bucket` truncation — `toStartOfDay` truncated on the session-timezone grid while cursors printed UTC, emptying keyset page 2 under a non-UTC `session_timezone`. This one is _not_ cheap: the regression test inserts rows and runs the real SQL with `session_timezone=US/Pacific` (`TransactionTestCase` + ClickHouse). Know which kind you have.
+- [#61111](https://github.com/PostHog/posthog/pull/61111) — UTC-pin `time_bucket` truncation — `toStartOfDay` truncated on the session-timezone grid while cursors printed UTC, emptying keyset page 2 under a non-UTC `session_timezone`. This one is _not_ cheap: the regression test inserts rows and runs the real SQL with `session_timezone=US/Pacific` (a ClickHouse-backed `TestCase`). Know which kind you have.
 
 ### HogQL printer / type coercion
 
@@ -55,7 +55,7 @@ The printer emits SQL that crashes ClickHouse with a cast error or returns wrong
 These split into two test levels, and confusing them is a trap.
 
 - **Catch a SQL-_shape_ change at:** a printed-SQL assertion or `.ambr` snapshot (`test_printer.py`), no execution. Fast — but it only proves the SQL changed, not that ClickHouse stopped erroring.
-- **Catch a wrong-_result_ or hard error at:** a `TransactionTestCase` + ClickHouse test that actually runs the query.
+- **Catch a wrong-_result_ or hard error at:** a ClickHouse-backed `TestCase` that actually runs the query.
 - [#63220](https://github.com/PostHog/posthog/pull/63220) — make `toBool` null-safe — bare `toBool` hard-failed on UUID-shaped strings, fixed to `accurateCastOrNull`. Caught with a printed-SQL string assert plus an `.ambr` snapshot; the snapshot proves the cast wrapper is present, nothing more.
 - [#58713](https://github.com/PostHog/posthog/pull/58713) — coerce funnel aggregation target before the empty check — a numeric-typed property hit ClickHouse error code 72 (`Cannot read floating point value`); the `.ambr` diff alone (a `toString()` wrap) wouldn't prove the error is gone, so the real test executes `.calculate()` against ClickHouse.
 
@@ -75,12 +75,12 @@ Reach for the right tool instead of writing a test that proves nothing.
 
 - **Async / Temporal teardown hangs.**
   An uncancellable `sync_to_async` gRPC call in fixture teardown hangs the whole job — [#62339](https://github.com/PostHog/posthog/pull/62339), fixed by removing the call and relying on DB CASCADE, not by a test.
-  And beware the adjacent trap: a test that mocks the boundary it is supposed to verify catches nothing. [#60302](https://github.com/PostHog/posthog/pull/60302) fixed a real workflow-logger crash, but its tests mock the logger, so they would miss a re-regression.
+  And beware the adjacent trap: a test that mocks the boundary it is supposed to verify catches nothing. [#60302](https://github.com/PostHog/posthog/pull/60302) fixed a real workflow-logger crash, yet its logger tests mock the logger — so they pass whether or not the crash is present and would miss a re-regression.
 
 - **Refactor regressions that escape correctness tests.**
   A "behavior-preserving" refactor regresses on an axis the tests don't cover.
   The lesson isn't "add a characterization test" — it's "cover the behavior that actually changes."
-  [#59920](https://github.com/PostHog/posthog/pull/59920) was reverted _despite_ a data-executing correctness test, because the regression was performance/semantics that test never asserted; [#56785](https://github.com/PostHog/posthog/pull/56785) had helper and API tests that passed cleanly through both the refactor and its revert.
+  [#59920](https://github.com/PostHog/posthog/pull/59920) was reverted even though a data-executing correctness test existed — the regressing behavior was outside what that test asserted; [#56785](https://github.com/PostHog/posthog/pull/56785) had helper and API tests that passed cleanly through both the refactor and its revert.
 
 ## Not test-shaped at all
 
