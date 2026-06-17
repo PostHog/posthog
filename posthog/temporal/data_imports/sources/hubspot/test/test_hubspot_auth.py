@@ -112,3 +112,17 @@ def test_transient_status_reraises_after_exhausting_retries() -> None:
         with pytest.raises(HubspotRetryableError, match="You have reached your rate limit."):
             hubspot_refresh_access_token("refresh-token")
     assert session.post.call_count == 5
+
+
+def test_non_transient_status_is_not_retried() -> None:
+    # A non-transient status (e.g. invalid_grant) must surface immediately, not be retried.
+    session = MagicMock()
+    session.post.return_value = _make_response(400, {"message": "missing or invalid refresh token"})
+    with patch(
+        "posthog.temporal.data_imports.sources.hubspot.auth.make_tracked_session",
+        return_value=session,
+    ):
+        with pytest.raises(Exception) as exc_info:
+            hubspot_refresh_access_token("refresh-token")
+        assert not isinstance(exc_info.value, HubspotRetryableError)
+    assert session.post.call_count == 1
