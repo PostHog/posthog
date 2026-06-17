@@ -530,7 +530,6 @@ ignore_imports = [
     # TODO: error_tracking presentation wave — these views still reach internals directly.
     # Thin each view to parse -> facade -> serialize and delete its entry. backend:contract-check
     # stays off until this list (and the frozen-migration DDL leak) is resolved.
-    "products.error_tracking.backend.presentation.views.grouping_rules -> products.error_tracking.backend.models",
     "products.error_tracking.backend.presentation.views.issues -> products.cohorts.backend.models.cohort",
     "products.error_tracking.backend.presentation.views.issues -> products.error_tracking.backend.issue_serializers",
     "products.error_tracking.backend.presentation.views.issues -> products.error_tracking.backend.models",
@@ -541,9 +540,7 @@ ignore_imports = [
     "products.error_tracking.backend.presentation.views.recommendations -> products.error_tracking.backend.logic.recommendations.refresh",
     "products.error_tracking.backend.presentation.views.recommendations -> products.error_tracking.backend.models",
     "products.error_tracking.backend.presentation.views.recommendations -> products.error_tracking.backend.tasks",
-    "products.error_tracking.backend.presentation.views.suppression_rules -> products.error_tracking.backend.models",
     "products.error_tracking.backend.presentation.views.symbol_sets -> products.error_tracking.backend.models",
-    "products.error_tracking.backend.presentation.views.utils -> products.error_tracking.backend.hogvm_stl",
     # logs presentation isolation (temporary): the moved viewsets still reach in-product
     # internals directly. Removed by the follow-up that thins each viewset to go through
     # the facade.

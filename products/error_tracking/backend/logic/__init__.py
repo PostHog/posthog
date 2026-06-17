@@ -16,6 +16,7 @@ from posthog.models.utils import UUIDT
 from products.error_tracking.backend.models import (
     ErrorTrackingAssignmentRule,
     ErrorTrackingExternalReference,
+    ErrorTrackingGroupingRule,
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
     ErrorTrackingIssueFingerprintV2,
@@ -24,8 +25,11 @@ from products.error_tracking.backend.models import (
     ErrorTrackingSpikeDetectionConfig,
     ErrorTrackingSpikeEvent,
     ErrorTrackingStackFrame,
+    ErrorTrackingSuppressionRule,
     ErrorTrackingSymbolSet,
 )
+
+SERVER_ONLY_PROPERTIES = frozenset({"$exception_sources", "$exception_functions"})
 
 
 class ErrorTrackingReleaseHashInUseError(Exception):
@@ -524,3 +528,136 @@ def delete_assignment_rule(team_id: int, rule_id: str) -> bool:
 
 def reorder_assignment_rules(team_id: int, orders: dict[str, int]) -> None:
     _reorder_rules(ErrorTrackingAssignmentRule, team_id, orders)
+
+
+def list_grouping_rules(team_id: int) -> QuerySet[ErrorTrackingGroupingRule]:
+    return ErrorTrackingGroupingRule.objects.filter(team_id=team_id).order_by("order_key")
+
+
+def grouping_rule_issue_map(team_id: int, rule_ids: list[str]) -> dict[str, tuple[UUID, str | None]]:
+    """Map grouping rule id -> (issue_id, issue_name) via the custom-rule fingerprint."""
+    if not rule_ids:
+        return {}
+    fingerprints = (
+        ErrorTrackingIssueFingerprintV2.objects.select_related("issue")
+        .filter(team_id=team_id, fingerprint__in=[f"custom-rule:{rid}" for rid in rule_ids])
+        .only("fingerprint", "issue_id", "issue__id", "issue__name")
+    )
+    return {fp.fingerprint.removeprefix("custom-rule:"): (fp.issue.id, fp.issue.name) for fp in fingerprints}
+
+
+def get_grouping_rule(team_id: int, rule_id: str) -> ErrorTrackingGroupingRule | None:
+    return ErrorTrackingGroupingRule.objects.filter(team_id=team_id, id=rule_id).first()
+
+
+def create_grouping_rule(
+    team_id: int, *, filters: dict, assignee: dict | None = None, description: str | None = None
+) -> ErrorTrackingGroupingRule:
+    return ErrorTrackingGroupingRule.objects.create(
+        team_id=team_id,
+        filters=filters,
+        bytecode=compile_filter_bytecode(team_id, filters),
+        order_key=0,
+        user_id=assignee["id"] if assignee and assignee["type"] == "user" else None,
+        role_id=assignee["id"] if assignee and assignee["type"] == "role" else None,
+        description=description,
+    )
+
+
+def update_grouping_rule(
+    team_id: int, rule_id: str, *, filters: dict | None = None
+) -> ErrorTrackingGroupingRule | None:
+    rule = get_grouping_rule(team_id, rule_id)
+    if rule is None:
+        return None
+    if filters:
+        rule.filters = filters
+        rule.bytecode = compile_filter_bytecode(team_id, filters)
+    rule.disabled_data = None
+    rule.save()
+    return rule
+
+
+def delete_grouping_rule(team_id: int, rule_id: str) -> bool:
+    deleted, _ = ErrorTrackingGroupingRule.objects.filter(team_id=team_id, id=rule_id).delete()
+    return deleted > 0
+
+
+def reorder_grouping_rules(team_id: int, orders: dict[str, int]) -> None:
+    _reorder_rules(ErrorTrackingGroupingRule, team_id, orders)
+
+
+def list_suppression_rules(team_id: int) -> QuerySet[ErrorTrackingSuppressionRule]:
+    return ErrorTrackingSuppressionRule.objects.filter(team_id=team_id).order_by("order_key")
+
+
+def get_suppression_rule(team_id: int, rule_id: str) -> ErrorTrackingSuppressionRule | None:
+    return ErrorTrackingSuppressionRule.objects.filter(team_id=team_id, id=rule_id).first()
+
+
+def create_suppression_rule(team_id: int, *, filters: dict, sampling_rate: float) -> ErrorTrackingSuppressionRule:
+    return ErrorTrackingSuppressionRule.objects.create(
+        team_id=team_id,
+        filters=filters,
+        bytecode=_rule_bytecode(team_id, filters),
+        order_key=0,
+        sampling_rate=sampling_rate,
+    )
+
+
+def update_suppression_rule(
+    team_id: int,
+    rule_id: str,
+    *,
+    filters: dict | None = None,
+    sampling_rate: float | None = None,
+) -> ErrorTrackingSuppressionRule | None:
+    rule = get_suppression_rule(team_id, rule_id)
+    if rule is None:
+        return None
+    if filters is not None:
+        rule.filters = filters
+        rule.bytecode = _rule_bytecode(team_id, filters)
+    if sampling_rate is not None:
+        rule.sampling_rate = sampling_rate
+    rule.disabled_data = None
+    rule.save()
+    return rule
+
+
+def delete_suppression_rule(team_id: int, rule_id: str) -> bool:
+    deleted, _ = ErrorTrackingSuppressionRule.objects.filter(team_id=team_id, id=rule_id).delete()
+    return deleted > 0
+
+
+def reorder_suppression_rules(team_id: int, orders: dict[str, int]) -> None:
+    _reorder_rules(ErrorTrackingSuppressionRule, team_id, orders)
+
+
+def get_client_safe_filters(filters: dict) -> dict | None:
+    """Return the filters if every leaf is client-safe, otherwise None.
+
+    A filter that references a server-only property cannot be evaluated
+    client-side, so the whole rule is excluded.
+    """
+    for value in filters.get("values", []):
+        if "key" in value:
+            if value.get("key") in SERVER_ONLY_PROPERTIES:
+                return None
+        elif "values" in value:
+            if get_client_safe_filters(value) is None:
+                return None
+    return filters
+
+
+def get_client_safe_suppression_rules(team_id: int) -> list[dict]:
+    rules = ErrorTrackingSuppressionRule.objects.filter(team_id=team_id).values_list("filters", "sampling_rate")
+    result = []
+    for filters, sampling_rate in rules:
+        safe = get_client_safe_filters(filters)
+        if safe is not None:
+            rule_data = {**safe}
+            if sampling_rate < 1.0:
+                rule_data["samplingRate"] = sampling_rate
+            result.append(rule_data)
+    return result

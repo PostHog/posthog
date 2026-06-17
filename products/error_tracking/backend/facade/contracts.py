@@ -160,3 +160,33 @@ class ErrorTrackingAssignmentRule:
     disabled_data: dict | None
     created_at: datetime
     updated_at: datetime
+
+
+@dataclass(frozen=True)
+class ErrorTrackingGroupingRuleIssue:
+    id: UUID
+    name: str | None
+
+
+@dataclass(frozen=True)
+class ErrorTrackingGroupingRule:
+    id: UUID
+    filters: dict
+    assignee: ErrorTrackingRuleAssignee | None
+    description: str | None
+    issue: ErrorTrackingGroupingRuleIssue | None
+    order_key: int
+    disabled_data: dict | None
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
+class ErrorTrackingSuppressionRule:
+    id: UUID
+    filters: dict
+    order_key: int
+    disabled_data: dict | None
+    sampling_rate: float
+    created_at: datetime
+    updated_at: datetime

@@ -319,6 +319,99 @@ def reorder_assignment_rules(team_id: int, orders: dict[str, int]) -> None:
     logic.reorder_assignment_rules(team_id, orders)
 
 
+def _to_grouping_rule(rule, issue: tuple[UUID, str | None] | None = None) -> contracts.ErrorTrackingGroupingRule:
+    return contracts.ErrorTrackingGroupingRule(
+        id=rule.id,
+        filters=rule.filters,
+        assignee=_to_rule_assignee(rule),
+        description=rule.description,
+        issue=contracts.ErrorTrackingGroupingRuleIssue(id=issue[0], name=issue[1]) if issue else None,
+        order_key=rule.order_key,
+        disabled_data=rule.disabled_data,
+        created_at=rule.created_at,
+        updated_at=rule.updated_at,
+    )
+
+
+def list_grouping_rules(team_id: int) -> list[contracts.ErrorTrackingGroupingRule]:
+    rules = list(logic.list_grouping_rules(team_id))
+    issue_map = logic.grouping_rule_issue_map(team_id, [str(rule.id) for rule in rules])
+    return [_to_grouping_rule(rule, issue_map.get(str(rule.id))) for rule in rules]
+
+
+def get_grouping_rule(team_id: int, rule_id: str) -> contracts.ErrorTrackingGroupingRule | None:
+    rule = logic.get_grouping_rule(team_id, rule_id)
+    return _to_grouping_rule(rule) if rule is not None else None
+
+
+def create_grouping_rule(
+    team_id: int, *, filters: dict, assignee: dict | None = None, description: str | None = None
+) -> contracts.ErrorTrackingGroupingRule:
+    rule = logic.create_grouping_rule(team_id, filters=filters, assignee=assignee, description=description)
+    return _to_grouping_rule(rule)
+
+
+def update_grouping_rule(
+    team_id: int, rule_id: str, *, filters: dict | None = None
+) -> contracts.ErrorTrackingGroupingRule | None:
+    rule = logic.update_grouping_rule(team_id, rule_id, filters=filters)
+    return _to_grouping_rule(rule) if rule is not None else None
+
+
+def delete_grouping_rule(team_id: int, rule_id: str) -> bool:
+    return logic.delete_grouping_rule(team_id, rule_id)
+
+
+def reorder_grouping_rules(team_id: int, orders: dict[str, int]) -> None:
+    logic.reorder_grouping_rules(team_id, orders)
+
+
+def _to_suppression_rule(rule) -> contracts.ErrorTrackingSuppressionRule:
+    return contracts.ErrorTrackingSuppressionRule(
+        id=rule.id,
+        filters=rule.filters,
+        order_key=rule.order_key,
+        disabled_data=rule.disabled_data,
+        sampling_rate=rule.sampling_rate,
+        created_at=rule.created_at,
+        updated_at=rule.updated_at,
+    )
+
+
+def list_suppression_rules(team_id: int) -> list[contracts.ErrorTrackingSuppressionRule]:
+    return [_to_suppression_rule(rule) for rule in logic.list_suppression_rules(team_id)]
+
+
+def get_suppression_rule(team_id: int, rule_id: str) -> contracts.ErrorTrackingSuppressionRule | None:
+    rule = logic.get_suppression_rule(team_id, rule_id)
+    return _to_suppression_rule(rule) if rule is not None else None
+
+
+def create_suppression_rule(
+    team_id: int, *, filters: dict, sampling_rate: float
+) -> contracts.ErrorTrackingSuppressionRule:
+    return _to_suppression_rule(logic.create_suppression_rule(team_id, filters=filters, sampling_rate=sampling_rate))
+
+
+def update_suppression_rule(
+    team_id: int, rule_id: str, *, filters: dict | None = None, sampling_rate: float | None = None
+) -> contracts.ErrorTrackingSuppressionRule | None:
+    rule = logic.update_suppression_rule(team_id, rule_id, filters=filters, sampling_rate=sampling_rate)
+    return _to_suppression_rule(rule) if rule is not None else None
+
+
+def delete_suppression_rule(team_id: int, rule_id: str) -> bool:
+    return logic.delete_suppression_rule(team_id, rule_id)
+
+
+def reorder_suppression_rules(team_id: int, orders: dict[str, int]) -> None:
+    logic.reorder_suppression_rules(team_id, orders)
+
+
+def get_client_safe_suppression_rules(team_id: int) -> list[dict]:
+    return logic.get_client_safe_suppression_rules(team_id)
+
+
 def get_issue_id_for_fingerprint(team_id: int, fingerprint: str) -> UUID | None:
     return logic.get_issue_id_for_fingerprint(team_id=team_id, fingerprint=fingerprint)
 
