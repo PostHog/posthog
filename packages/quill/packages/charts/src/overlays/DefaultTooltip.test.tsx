@@ -6,21 +6,7 @@ import { DefaultTooltip } from './DefaultTooltip'
 
 const SCALES = { x: () => 0, y: (v: number) => v, yTicks: () => [] }
 
-const CANVAS_BOUNDS = {
-    x: 0,
-    y: 0,
-    width: 800,
-    height: 400,
-    top: 0,
-    right: 800,
-    bottom: 400,
-    left: 0,
-    toJSON: () => ({}),
-} as DOMRect
-
-const SERIES_DATA: TooltipContext['seriesData'] = [
-    { series: { key: 'a', label: 'A', data: [] }, value: 19402, color: '#000' },
-]
+const SERIES_DATA: TooltipContext['seriesData'] = [{ series: { key: 'a', label: 'A', data: [] }, value: 19402, color: '#000' }]
 
 function renderTooltip(valueFormatter?: (v: number) => string): void {
     const ctx: TooltipContext = {
@@ -29,7 +15,7 @@ function renderTooltip(valueFormatter?: (v: number) => string): void {
         seriesData: SERIES_DATA,
         position: { x: 0, y: 0 },
         hoverPosition: null,
-        canvasBounds: CANVAS_BOUNDS,
+        canvasBounds: new DOMRect(),
         isPinned: false,
     }
     renderOverlayInChart(<DefaultTooltip {...ctx} valueFormatter={valueFormatter} />, makeOverlayContext(SCALES))
