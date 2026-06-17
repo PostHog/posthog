@@ -1,5 +1,4 @@
-import { expectLogic } from 'kea-test-utils'
-
+import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 import { initKeaTests } from '~/test/init'
@@ -86,7 +85,7 @@ describe('exportsLogic', () => {
         })
     })
 
-    describe('async export toast resolution', () => {
+    describe('createExport toast', () => {
         let logic: ReturnType<typeof exportsLogic.build>
 
         beforeEach(() => {
@@ -94,39 +93,53 @@ describe('exportsLogic', () => {
             initKeaTests()
             logic = exportsLogic()
             logic.mount()
+            jest.spyOn(api.exports, 'list').mockResolvedValue({ results: [], count: 0 } as any)
         })
 
-        it.each([
-            {
-                label: 'success',
-                finishedAsset: asset({ id: 5, export_format: ExporterFormat.MP4, has_content: true }),
-                expectedToast: { fn: 'success' as const, message: 'Export complete!' },
-                expectsDownload: true,
-            },
-            {
-                label: 'error',
-                finishedAsset: asset({ id: 7, export_format: ExporterFormat.MP4, exception: 'boom' }),
-                expectedToast: { fn: 'error' as const, message: 'Export failed: boom' },
-                expectsDownload: false,
-            },
-        ])(
-            'resolves the per-export toast to $label once a tracked async export finishes',
-            async ({ finishedAsset, expectedToast, expectsDownload }) => {
-                logic.actions.addFresh(asset({ id: finishedAsset.id, export_format: ExporterFormat.MP4 }))
+        afterEach(() => {
+            logic.unmount()
+        })
 
-                await expectLogic(logic, () => {
-                    logic.actions.loadExportsSuccess([finishedAsset])
-                }).toFinishAllListeners()
+        // Let the fire-and-forget IIFE in the createExport loader run to its toast.
+        const flush = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
 
-                if (expectsDownload) {
-                    expect(downloadExportedAsset).toHaveBeenCalledWith(finishedAsset)
-                } else {
-                    expect(downloadExportedAsset).not.toHaveBeenCalled()
-                }
-                expect(lemonToast.dismiss).toHaveBeenCalledWith(`export-${finishedAsset.id}`)
-                expect(lemonToast[expectedToast.fn]).toHaveBeenCalledWith(expectedToast.message)
-                expect(logic.values.freshUndownloadedExports).toEqual([])
-            }
-        )
+        it('acknowledges an async export immediately and tracks it as undownloaded', async () => {
+            const asyncAsset = asset({ id: 11, export_format: ExporterFormat.MP4, has_content: false })
+            jest.spyOn(api.exports, 'create').mockResolvedValue(asyncAsset)
+
+            logic.actions.createExport({ exportData: { export_format: ExporterFormat.MP4 } })
+            await flush()
+
+            expect(lemonToast.success).toHaveBeenCalledWith(
+                'Export started',
+                expect.objectContaining({ button: expect.any(Object) })
+            )
+            expect(downloadExportedAsset).not.toHaveBeenCalled()
+            expect(logic.values.freshUndownloadedExports.map((a) => a.id)).toEqual([11])
+        })
+
+        it('downloads and confirms a blocking export that already has content', async () => {
+            const doneAsset = asset({ id: 12, export_format: ExporterFormat.CSV, has_content: true })
+            jest.spyOn(api.exports, 'create').mockResolvedValue(doneAsset)
+
+            logic.actions.createExport({ exportData: { export_format: ExporterFormat.CSV } })
+            await flush()
+
+            expect(downloadExportedAsset).toHaveBeenCalledWith(doneAsset)
+            expect(lemonToast.success).toHaveBeenCalledWith('Export complete!')
+            expect(logic.values.freshUndownloadedExports).toEqual([])
+        })
+
+        it('surfaces an export that failed during the request', async () => {
+            const failedAsset = asset({ id: 13, export_format: ExporterFormat.MP4, exception: 'boom' })
+            jest.spyOn(api.exports, 'create').mockResolvedValue(failedAsset)
+
+            logic.actions.createExport({ exportData: { export_format: ExporterFormat.MP4 } })
+            await flush()
+
+            expect(lemonToast.error).toHaveBeenCalledWith('Export failed: boom')
+            expect(downloadExportedAsset).not.toHaveBeenCalled()
+            expect(logic.values.freshUndownloadedExports).toEqual([])
+        })
     })
 })
