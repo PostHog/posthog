@@ -82,6 +82,20 @@ class TestCommandExecAuditScrubbing(TestCase):
     def test_scrub_command_string_redacts_secret(self) -> None:
         self.assertEqual(_scrub_command_string("psql --password supersecret db"), f"psql --password {_R} db")
 
+    def test_base64_payload_is_redacted(self) -> None:
+        # A secret written via a b64decode heredoc (as the sandbox does) must not be recoverable.
+        import base64
+
+        blob = base64.b64encode(b"GITHUB_TOKEN=ghp_" + b"x" * 64).decode()
+        token = f"payload = base64.b64decode('{blob}')"
+        scrubbed = _scrub_args([token])[0]
+        self.assertNotIn(blob, scrubbed)
+        self.assertIn(_R, scrubbed)
+
+    def test_short_alphanumeric_args_are_not_blob_redacted(self) -> None:
+        # Ordinary short identifiers/flags must survive — blob redaction targets long runs only.
+        self.assertEqual(_scrub_args(["ls", "-la", "abc123DEF456"]), ["ls", "-la", "abc123DEF456"])
+
     def test_summarize_env_redacts_non_allowlisted(self) -> None:
         allowed, redacted = _summarize_env({"PATH": "/usr/bin", "AWS_SECRET_KEY": "xxx", "FOO": "bar"})
         self.assertEqual(allowed, {"PATH": "/usr/bin"})
@@ -170,6 +184,18 @@ class TestCommandExecAuditPatching(TestCase):
         entry = self._find(logs, "subprocess.Popen")
         assert entry is not None
         self.assertNotIn("has_shell_operators", entry)
+
+    def test_encoded_blob_redacted_but_flagged(self) -> None:
+        # The base64 body must be unrecoverable, yet the entry still signals an encoded payload.
+        import base64
+
+        blob = base64.b64encode(b"GITHUB_TOKEN=ghp_" + b"x" * 64).decode()
+        with structlog.testing.capture_logs() as logs:
+            subprocess.run(["python3", "-c", f"import base64; base64.b64decode('{blob}')"], check=False)
+        entry = self._find(logs, "subprocess.Popen")
+        assert entry is not None
+        self.assertNotIn(blob, " ".join(entry["command"]))
+        self.assertTrue(entry["has_encoded_blob"])
 
     def test_operator_chars_in_argv_are_not_flagged(self) -> None:
         # shell=False: operator chars inside an arg are literal, not injection — must not flag.
