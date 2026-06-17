@@ -22,7 +22,7 @@ from typing import Any
 
 import pyarrow as pa
 import structlog
-from google.api_core.exceptions import Forbidden, NotFound
+from google.api_core.exceptions import BadRequest, Forbidden, NotFound
 from google.auth.transport.requests import AuthorizedSession
 from google.cloud import bigquery, bigquery_storage
 from google.cloud.bigquery.job import QueryJobConfig
@@ -206,7 +206,22 @@ def bigquery_storage_read_client(
     # via `create_channel(credentials=...)`. This routes the Storage Read API's
     # create_read_session (unary) + read_rows (server-streaming) RPCs through our
     # logging / metrics / sample-capture pipeline.
-    channel = BigQueryReadGrpcTransport.create_channel(host=BIGQUERY_STORAGE_HOST, credentials=credentials)
+    #
+    # `read_rows` streams Arrow record batches whose ReadRowsResponse messages
+    # routinely exceed gRPC's default 4 MiB client receive limit (wide rows or large
+    # string columns such as GeoJSON push a single message past it). When the
+    # transport builds its own channel it sets both message-length limits to -1
+    # (unlimited); because we supply the channel ourselves that default is skipped,
+    # so we must replicate it here. Without it large pages fail with RESOURCE_EXHAUSTED
+    # "Received message larger than max" and the sync can never make progress.
+    channel = BigQueryReadGrpcTransport.create_channel(
+        host=BIGQUERY_STORAGE_HOST,
+        credentials=credentials,
+        options=[
+            ("grpc.max_send_message_length", -1),
+            ("grpc.max_receive_message_length", -1),
+        ],
+    )
     tracked_channel = make_tracked_channel(channel, host=BIGQUERY_STORAGE_HOST)
     transport = BigQueryReadGrpcTransport(channel=tracked_channel)
 
@@ -386,6 +401,19 @@ def _get_primary_keys_for_table(table: bigquery.Table, client: bigquery.Client) 
     return primary_keys
 
 
+def _is_bigquery_resource_exceeded(error: BadRequest) -> bool:
+    """True for BigQuery's `resourcesExceeded` query failures.
+
+    BigQuery raises this when a query can't run within a node's memory (for
+    example a large GROUP BY or sort over a big table). It's a property of the
+    customer's data volume, not something we can fix, so best-effort diagnostic
+    queries should degrade gracefully instead of treating it as an actionable
+    crash.
+    """
+    reasons = {err.get("reason") for err in (getattr(error, "errors", None) or [])}
+    return "resourcesExceeded" in reasons or "Resources exceeded during query execution" in str(error)
+
+
 def _has_duplicate_primary_keys(table: bigquery.Table, client: bigquery.Client, primary_keys: list[str] | None) -> bool:
     if not primary_keys or len(primary_keys) == 0:
         return False
@@ -403,6 +431,20 @@ def _has_duplicate_primary_keys(table: bigquery.Table, client: bigquery.Client, 
 
         for _ in job.result():
             return True
+    except BadRequest as e:
+        if _is_bigquery_resource_exceeded(e):
+            # The duplicate-key probe runs a full GROUP BY over the table; on very large
+            # tables BigQuery can't sort it within a node's memory and raises
+            # `resourcesExceeded`. That's a data-volume limit we can't fix, and this check
+            # is best-effort, so skip it quietly rather than capturing non-actionable noise
+            # on every sync.
+            structlog.get_logger().warning(
+                "Skipping duplicate primary key check for BigQuery table %s.%s: query exceeded BigQuery memory limits",
+                table.dataset_id,
+                table.table_id,
+            )
+            return False
+        capture_exception(e)
     except Exception as e:
         capture_exception(e)
 
@@ -552,8 +594,11 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
         schema_list: dict[str, list[tuple[str, str, bool]]] = collections.defaultdict(list)
 
         try:
-            # Submitting the job triggers the lazy service-account token refresh, so an
-            # auth failure surfaces here rather than at `result()`.
+            # `conn.query()` eagerly creates the BigQuery job (POST .../jobs) and triggers the
+            # lazy service-account token refresh, so a `Forbidden` (e.g. missing
+            # `bigquery.jobs.create`) or auth failure surfaces here rather than at `result()`.
+            # Both calls must sit inside the try so a permission-denied account degrades to
+            # "no new schemas" instead of crashing schema discovery.
             query = conn.query(
                 f"SELECT table_name, column_name, data_type, is_nullable FROM `{_resolve_dataset_id(config)}.INFORMATION_SCHEMA.COLUMNS` ORDER BY table_name ASC",
                 project=_resolve_query_project(config),

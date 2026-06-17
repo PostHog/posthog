@@ -3,7 +3,7 @@ import { Fragment, memo } from 'react'
 
 import { HeatmapCanvas } from 'lib/components/heatmaps/HeatmapCanvas'
 import { useShiftKeyPressed } from 'lib/components/heatmaps/useShiftKeyPressed'
-import { compactNumber } from 'lib/utils'
+import { compactNumber } from 'lib/utils/numbers'
 
 import { AutocaptureElement } from '~/toolbar/elements/AutocaptureElement'
 import { AutocaptureElementLabel } from '~/toolbar/elements/AutocaptureElementLabel'
