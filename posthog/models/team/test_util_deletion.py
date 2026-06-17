@@ -2,7 +2,11 @@ from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
-from posthog.models.team.util import _delete_group_type_mappings_for_teams, _delete_groups_for_teams
+from posthog.models.team.util import (
+    _delete_group_type_mappings_for_teams,
+    _delete_groups_for_teams,
+    _delete_hash_key_overrides_for_teams,
+)
 
 _CLIENT_PATCH = "posthog.personhog_client.client.get_personhog_client"
 
@@ -145,3 +149,42 @@ class TestDeleteGroupTypeMappingsForTeams(SimpleTestCase):
         _delete_group_type_mappings_for_teams([])
 
         mock_get_client.return_value.delete_group_type_mappings_batch_for_team.assert_not_called()
+
+
+class TestDeleteHashKeyOverridesForTeams(SimpleTestCase):
+    @patch(_CLIENT_PATCH)
+    def test_deletes_via_personhog_in_one_call(self, mock_get_client):
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+
+        _delete_hash_key_overrides_for_teams([1, 2, 3])
+
+        assert mock_client.delete_hash_key_overrides_by_teams.call_count == 1
+        req = mock_client.delete_hash_key_overrides_by_teams.call_args[0][0]
+        assert list(req.team_ids) == [1, 2, 3]
+
+    @patch("posthog.models.team.util._raw_delete_batch")
+    @patch(_CLIENT_PATCH)
+    def test_falls_back_to_orm_when_client_none(self, mock_get_client, mock_raw_delete_batch):
+        mock_get_client.return_value = None
+
+        _delete_hash_key_overrides_for_teams([42])
+
+        mock_raw_delete_batch.assert_called_once()
+
+    @patch("posthog.models.team.util._raw_delete_batch")
+    @patch(_CLIENT_PATCH)
+    def test_falls_back_to_orm_on_error(self, mock_get_client, mock_raw_delete_batch):
+        mock_client = MagicMock()
+        mock_client.delete_hash_key_overrides_by_teams.side_effect = Exception("rpc failed")
+        mock_get_client.return_value = mock_client
+
+        _delete_hash_key_overrides_for_teams([42])
+
+        mock_raw_delete_batch.assert_called_once()
+
+    @patch(_CLIENT_PATCH)
+    def test_empty_list_does_nothing(self, mock_get_client):
+        _delete_hash_key_overrides_for_teams([])
+
+        mock_get_client.return_value.delete_hash_key_overrides_by_teams.assert_not_called()
