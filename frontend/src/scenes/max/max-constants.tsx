@@ -1232,7 +1232,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Searching LLM traces...'
         },
     },
-    create_parser_recipe: {
+    create_ai_trace_parser: {
         name: 'Create custom parsers',
         description: 'Create custom parsers to control how AI observability events are displayed',
         icon: iconForType('llm_analytics'),

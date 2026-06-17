@@ -26,7 +26,7 @@ export interface CustomParserMaxToolOptions {
 }
 
 /**
- * Registers the create_parser_recipe Max tool for an event that fell back to raw JSON.
+ * Registers the create_ai_trace_parser Max tool for an event that fell back to raw JSON.
  * The clientExecution handler validates the agent's YAML against this exact event, saves it
  * on success, and resumes the conversation with the verdict. Returns openMax (null while inactive).
  */
@@ -103,7 +103,7 @@ export function useCustomParserMaxTool({
     )
 
     const { openMax } = useMaxTool({
-        identifier: 'create_parser_recipe',
+        identifier: 'create_ai_trace_parser',
         active,
         context,
         clientExecution: validateAndSave,

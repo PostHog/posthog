@@ -14,7 +14,7 @@ from posthog.models import User
 from posthog.permissions import AccessControlPermission
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
-from products.ai_observability.backend.models.parser_recipe import ParserRecipe
+from products.ai_observability.backend.models.parser_recipe import MAX_SOURCE_LENGTH, ParserRecipe
 
 
 class ParserRecipeSerializer(serializers.ModelSerializer):
@@ -40,7 +40,7 @@ class ParserRecipeSerializer(serializers.ModelSerializer):
             "source": {
                 # Preserve the YAML verbatim
                 "trim_whitespace": False,
-                "max_length": 100_000,
+                "max_length": MAX_SOURCE_LENGTH,
                 "help_text": "Raw YAML recipe source. Must parse as YAML; recipe semantics are compiled and validated client-side.",
             },
         }

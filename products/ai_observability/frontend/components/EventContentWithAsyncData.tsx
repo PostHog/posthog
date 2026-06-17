@@ -165,7 +165,7 @@ function JsonInputOutput({
                         onClick={onSetUpCustomParser}
                         data-attr="llma-json-fallback-create-parser"
                     >
-                        Set up custom parser
+                        Set up custom parser with PostHog AI
                     </LemonButton>
                 </div>
             )}

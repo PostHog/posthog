@@ -71,7 +71,7 @@ export interface CreateParserRecipeHandlerDeps {
     saveRecipe: (name: string, source: string) => Promise<string>
 }
 
-// The create_parser_recipe client execution handler; the verdict shape is the contract with
+// The create_ai_trace_parser client execution handler; the verdict shape is the contract with
 // the backend tool's ParserRecipeVerdict model.
 export async function handleCreateParserRecipeCall(
     args: Record<string, any>,

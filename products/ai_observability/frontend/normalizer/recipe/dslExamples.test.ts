@@ -5,7 +5,7 @@ import { parse as parseYaml } from 'yaml'
 import { compileRecipe } from './compile/compiler'
 import { RecipeNormalizer } from './recipeNormalizer'
 
-// The examples file is the DSL reference embedded in the create_parser_recipe tool prompt;
+// The examples file is the DSL reference embedded in the create_ai_trace_parser tool prompt;
 // running every documented example against the real compiler keeps the prompt from drifting.
 const EXAMPLES_PATH = path.resolve(__dirname, '../../../backend/prompts/parser_recipe_examples.yaml')
 

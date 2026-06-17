@@ -25,6 +25,13 @@ describe('sampleForContext', () => {
         expect(parsed[5]).toEqual({ index: 49 })
     })
 
+    it('uses the singular noun when exactly one array item is omitted', () => {
+        const rendered = sampleForContext(Array.from({ length: 6 }, (_, i) => ({ index: i })))
+
+        const parsed = JSON.parse(rendered)
+        expect(parsed[4]).toEqual('… (1 more item)')
+    })
+
     it('caps the total rendered length', () => {
         const rendered = sampleForContext(
             Array.from({ length: 5 }, () => ({ blob: 'y'.repeat(279), more: 'z'.repeat(279) }))

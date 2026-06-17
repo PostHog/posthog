@@ -49,7 +49,7 @@ class TestCreateParserRecipeTool(BaseTest):
 
             request = mock_interrupt.call_args.args[0]
             self.assertIsInstance(request, ClientToolCallRequest)
-            self.assertEqual(request.tool_name, "create_parser_recipe")
+            self.assertEqual(request.tool_name, "create_ai_trace_parser")
             self.assertEqual(request.original_tool_call_id, "call_1")
 
     async def test_valid_verdict_returns_success_with_artifact(self):

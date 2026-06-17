@@ -6,6 +6,8 @@ from pydantic import BaseModel, Field, ValidationError
 from posthog.rbac.user_access_control import AccessControlLevel
 from posthog.scopes import APIScopeObject
 
+from products.ai_observability.backend.models.parser_recipe import MAX_SOURCE_LENGTH
+
 from ee.hogai.tool import MaxTool
 from ee.hogai.tool_errors import MaxToolRetryableError
 
@@ -99,7 +101,7 @@ class ParserRecipeVerdict(BaseModel):
 
 
 class CreateParserRecipeTool(MaxTool):
-    name: str = "create_parser_recipe"
+    name: str = "create_ai_trace_parser"
     description: str = CREATE_PARSER_RECIPE_DESCRIPTION
     args_schema: type[BaseModel] = CreateParserRecipeArgs
     context_prompt_template: str = CONTEXT_PROMPT_TEMPLATE
@@ -110,6 +112,15 @@ class CreateParserRecipeTool(MaxTool):
     async def _arun_impl(
         self, name: str, yaml_source: str, event_uuid: str
     ) -> tuple[str, dict[str, str | None] | None]:
+        # Tool args bypass the serializer's length cap, so bound the source before the sync parse
+        # to keep an oversized payload from blocking the event loop.
+        if len(yaml_source) > MAX_SOURCE_LENGTH:
+            return (
+                f"The recipe YAML is too large ({len(yaml_source)} characters; the limit is {MAX_SOURCE_LENGTH}). "
+                "Write a more concise recipe and call this tool again.",
+                None,
+            )
+
         try:
             # PyYAML raises RecursionError (not YAMLError) on deeply nested input.
             yaml.safe_load(yaml_source)
