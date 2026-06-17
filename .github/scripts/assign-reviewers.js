@@ -223,6 +223,25 @@ async function getChangedFiles() {
     return allFiles
 }
 
+// On external PRs these teams are labelled instead of requested as reviewers, so
+// the team is surfaced without being pulled into the queue before triage. Names
+// are the part after `@PostHog/`.
+const LABEL_ONLY_TEAMS_FOR_EXTERNAL = new Set(['team-product-analytics'])
+
+// `team-product-analytics` -> `team/product-analytics`; null for non-team owners.
+function teamSlugToLabel(name) {
+    if (!name || !name.startsWith('team-')) {
+        return null
+    }
+    return name.replace(/^team-/, 'team/')
+}
+
+function partitionExternalTeams(teams) {
+    const toLabel = teams.filter((name) => LABEL_ONLY_TEAMS_FOR_EXTERNAL.has(name))
+    const toRequest = teams.filter((name) => !LABEL_ONLY_TEAMS_FOR_EXTERNAL.has(name))
+    return { toLabel, toRequest }
+}
+
 // Resolve a raw CODEOWNERS owner token to a kind we can act on, or null if it's
 // something we don't assign (e.g. a malformed entry).
 function classifyOwner(owner) {
@@ -462,6 +481,39 @@ async function assignReviewers(teams, users) {
     console.info('✅ Reviewers assigned successfully')
 }
 
+// Best-effort: a label failure must never fail the job.
+async function applyTeamLabels(labels) {
+    const { GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER } = process.env
+
+    if (labels.length === 0) {
+        console.info('ℹ️  No team labels to apply')
+        return
+    }
+
+    console.info(`Applying team labels: ${labels.join(', ')}`)
+
+    try {
+        const response = await fetch(`https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/labels`, {
+            method: 'POST',
+            headers: {
+                Authorization: `token ${GITHUB_TOKEN}`,
+                Accept: 'application/vnd.github.v3+json',
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ labels }),
+        })
+
+        if (!response.ok) {
+            console.warn(`⚠️  Could not apply team labels: ${response.status} ${response.statusText}`)
+            return
+        }
+
+        console.info('✅ Team labels applied')
+    } catch (error) {
+        console.warn(`⚠️  Skipping team labels: ${error.message}`)
+    }
+}
+
 async function findExistingComment(marker) {
     const { GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER } = process.env
     let url = `https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments?per_page=100`
@@ -567,12 +619,22 @@ async function main() {
         const teams = requested.filter((f) => f.type === 'team').map((f) => f.name)
         const users = requested.filter((f) => f.type === 'user').map((f) => f.name)
 
-        console.info(`Teams to request: ${teams.join(', ') || 'none'}`)
+        // Forks come from external contributors (no write access for same-repo branches).
+        const isExternal = process.env.IS_FORK === 'true'
+
+        console.info(`External (fork) PR: ${isExternal}`)
+        console.info(`Teams matched: ${teams.join(', ') || 'none'}`)
         console.info(`Users to request: ${users.join(', ') || 'none'}`)
         console.info(`Demoted to comment: ${demoted.map((f) => f.owner).join(', ') || 'none'}`)
         console.info()
 
-        await assignReviewers(teams, users)
+        if (!isExternal) {
+            await assignReviewers(teams, users)
+        } else {
+            const { toLabel, toRequest } = partitionExternalTeams(teams)
+            await applyTeamLabels(toLabel.map(teamSlugToLabel).filter(Boolean))
+            await assignReviewers(toRequest, users)
+        }
 
         const commentBody = buildReviewerComment(requested, demoted)
         if (commentBody) {
@@ -592,6 +654,8 @@ module.exports = {
     CONFIG,
     isExcludedFile,
     classifyOwner,
+    teamSlugToLabel,
+    partitionExternalTeams,
     computeOwnerFootprints,
     isSubstantive,
     classifyOwners,
