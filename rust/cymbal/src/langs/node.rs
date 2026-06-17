@@ -199,7 +199,9 @@ impl From<(&RawNodeFrame, SourceLocation<'_>)> for Frame {
 
         // Demote-only, consistent with the unresolved paths: honor an explicit
         // client in_app=false rather than promoting it back to true on resolution.
-        let in_app = raw_frame.meta.in_app && !source.as_deref().is_some_and(is_dependency_source);
+        // Base on raw_frame.in_app() so the raw filename is still checked when the
+        // resolved source has no name.
+        let in_app = raw_frame.in_app() && !source.as_deref().is_some_and(is_dependency_source);
 
         let mut res = Self {
             frame_id: FrameId::placeholder(),
@@ -349,6 +351,14 @@ mod test {
                 true,
             ),
             (
+                "application frame with no in_app field defaults to true",
+                serde_json::json!({
+                    "filename": "/app/src/index.js",
+                    "function": "main",
+                }),
+                true,
+            ),
+            (
                 "explicit client false is never promoted",
                 serde_json::json!({
                     "filename": "/app/src/handlers/user.js",
@@ -363,15 +373,5 @@ mod test {
             let raw: RawNodeFrame = serde_json::from_value(value).unwrap();
             assert_eq!(raw.in_app(), expected, "{case}");
         }
-    }
-
-    #[test]
-    fn test_unset_in_app_defaults_to_true() {
-        let raw: RawNodeFrame = serde_json::from_value(serde_json::json!({
-            "filename": "/app/src/index.js",
-            "function": "main",
-        }))
-        .unwrap();
-        assert!(raw.meta.in_app);
     }
 }
