@@ -20783,6 +20783,25 @@ class AssistantPathsActorsQuery(BaseModel):
     source: AssistantPathsQuery = Field(..., description="The source paths insight query whose actors we are listing.")
 
 
+class AssistantRetentionActorsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    interval: int | None = Field(
+        default=None,
+        description=(
+            "Which acquisition cohort to drill into, 0-based. `0` is the acquisition"
+            " interval itself (every actor who entered the cohort); `1` is the cohort"
+            " that entered one interval later, and so on. Defaults to `0` when omitted."
+        ),
+    )
+    kind: Literal["InsightActorsQuery"] = "InsightActorsQuery"
+    source: AssistantRetentionQuery = Field(
+        ...,
+        description=("The source retention insight query whose cohort we are drilling into."),
+    )
+
+
 class AssistantTrendsActorsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",

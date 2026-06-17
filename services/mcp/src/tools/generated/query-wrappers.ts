@@ -1245,6 +1245,16 @@ const AssistantPathsActorsQuery = z.object({
     source: AssistantPathsQuery.describe('The source paths insight query whose actors we are listing.'),
 })
 
+const AssistantRetentionActorsQuery = z.object({
+    interval: integer
+        .describe(
+            'Which acquisition cohort to drill into, 0-based. `0` is the acquisition interval itself (every actor who entered the cohort); `1` is the cohort that entered one interval later, and so on. Defaults to `0` when omitted.'
+        )
+        .optional(),
+    kind: z.literal('InsightActorsQuery').default('InsightActorsQuery'),
+    source: AssistantRetentionQuery.describe('The source retention insight query whose cohort we are drilling into.'),
+})
+
 const QueryTrendsSchema = AssistantTrendsQuery.extend({
     output_format: z
         .enum(['optimized', 'json'])
@@ -1335,6 +1345,16 @@ const QueryPathsActorsSchema = AssistantPathsActorsQuery.extend({
         ),
 })
 
+const QueryRetentionActorsSchema = AssistantRetentionActorsQuery.extend({
+    output_format: z
+        .enum(['optimized', 'json'])
+        .default('optimized')
+        .optional()
+        .describe(
+            'Output format. "optimized" returns a human-readable summary from server-side formatters (recommended for analysis). "json" returns the raw query results as JSON.'
+        ),
+})
+
 // --- Tool registrations ---
 
 export const GENERATED_TOOLS: Record<string, ReturnType<typeof createQueryWrapper<ZodObjectAny>>> = {
@@ -1409,6 +1429,13 @@ export const GENERATED_TOOLS: Record<string, ReturnType<typeof createQueryWrappe
     'query-paths-actors': createQueryWrapper({
         name: 'query-paths-actors',
         schema: QueryPathsActorsSchema,
+        kind: 'InsightActorsQuery',
+        uiResourceUri: 'ui://posthog/insight-actors.html',
+        outputFormat: 'optimized',
+    }),
+    'query-retention-actors': createQueryWrapper({
+        name: 'query-retention-actors',
+        schema: QueryRetentionActorsSchema,
         kind: 'InsightActorsQuery',
         uiResourceUri: 'ui://posthog/insight-actors.html',
         outputFormat: 'optimized',

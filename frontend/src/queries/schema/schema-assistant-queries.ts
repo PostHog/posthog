@@ -1343,6 +1343,35 @@ export interface AssistantPathsActorsQuery {
 }
 
 /**
+ * Drills into a retention insight to list the persons in one acquisition cohort and show, for each,
+ * which subsequent intervals they came back in. Returned rows are `distinct_id`, `email`, `name`,
+ * followed by one column per retention interval (`<period>_0` … `<period>_N`, e.g. `day_0`, `day_1`,
+ * … for a daily insight). Each interval column is `1` when the actor was active in that interval and
+ * `0` otherwise; `<period>_0` is the acquisition interval and is always `1`. Rows are ordered by how
+ * many intervals each actor returned in (most-retained first).
+ *
+ * The number and name of the interval columns are derived from the source — `retentionFilter.period`
+ * sets the prefix and `retentionFilter.totalIntervals` (or `retentionCustomBrackets.length + 1` when
+ * custom brackets are set) sets the count.
+ *
+ * Retention drilldown has no per-cell `day` / `series` / `compare` selectors and no matched-recordings
+ * column — its persons output is appearance-based.
+ */
+export interface AssistantRetentionActorsQuery {
+    kind: NodeKind.InsightActorsQuery
+
+    /** The source retention insight query whose cohort we are drilling into. */
+    source: AssistantRetentionQuery
+
+    /**
+     * Which acquisition cohort to drill into, 0-based. `0` is the acquisition interval itself (every
+     * actor who entered the cohort); `1` is the cohort that entered one interval later, and so on.
+     * Defaults to `0` when omitted.
+     */
+    interval?: integer
+}
+
+/**
  * Query LLM traces to inspect AI/LLM usage. Returns a list of traces with latency,
  * token usage, costs, errors, and other metadata. Use for AI observability — debugging
  * slow generations, investigating errors, analyzing token spend, and auditing LLM behavior.

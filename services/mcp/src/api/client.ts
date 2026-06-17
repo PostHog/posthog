@@ -1158,10 +1158,11 @@ export class ApiClient {
 
             const baseUrl = this.getProjectBaseUrl(projectId)
 
-            // `actor` → 3 columns, `matched_recordings` → recordings, everything else passes through.
+            // `actor`/`person` → 3 columns, `matched_recordings` → recordings, everything else passes through.
+            // Retention projects `person`, which carries the same actor shape as `actor`.
             const columns: string[] = []
             for (const field of finalSelect) {
-                if (field === 'actor') {
+                if (field === 'actor' || field === 'person') {
                     columns.push('distinct_id', 'email', 'name')
                 } else if (field === 'matched_recordings') {
                     columns.push('recordings')
@@ -1175,7 +1176,7 @@ export class ApiClient {
                 for (let i = 0; i < finalSelect.length; i++) {
                     const field = finalSelect[i]
                     const cell = row[i]
-                    if (field === 'actor') {
+                    if (field === 'actor' || field === 'person') {
                         const props = cell?.properties ?? {}
                         cells.push(cell?.distinct_ids?.[0] ?? null, props.email, props.name)
                     } else if (field === 'matched_recordings') {
@@ -1226,6 +1227,20 @@ export class ApiClient {
 
             pathsActors: async ({ query }: { query: Record<string, unknown> }) =>
                 runActorsQuery(query, ['actor', 'event_count'], ['event_count DESC', 'actor_id DESC']),
+
+            retentionActors: async ({ query }: { query: Record<string, unknown> }) => {
+                // Columns are `person` + one per return interval: prefix = period (day/week/…), count =
+                // custom-bracket count + 1, else totalIntervals. Mirrors the frontend retentionToActorsQuery.
+                const filter = ((query.source as Record<string, unknown>)?.retentionFilter ?? {}) as Record<
+                    string,
+                    unknown
+                >
+                const period = typeof filter.period === 'string' ? filter.period.toLowerCase() : 'day'
+                const brackets = filter.retentionCustomBrackets as number[] | undefined
+                const count = brackets?.length ? brackets.length + 1 : (filter.totalIntervals as number) || 7
+                const select = ['person', ...Array.from({ length: count }, (_, i) => `${period}_${i}`)]
+                return runActorsQuery(query, select, ['length(appearances) DESC', 'actor_id'])
+            },
         }
     }
 
