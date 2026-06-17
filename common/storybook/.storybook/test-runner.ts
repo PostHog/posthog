@@ -69,11 +69,8 @@ declare module '@storybook/types' {
              */
             skipDarkMode?: boolean
             /**
-             * Suppress quill-charts canvas painting for this story's snapshot. quill charts paint
-             * asynchronously (ResizeObserver → requestAnimationFrame), so in full-scene stories the
-             * screenshot can land before the chart draws, producing flaky empty-vs-rendered diffs.
-             * Set this on scene stories that aren't testing chart pixels (those are covered by the
-             * isolated chart stories). Handled by the `withChartCanvasSnapshot` decorator.
+             * Suppress quill-charts canvas painting for this story's snapshot, avoiding flake from
+             * the charts' async paint. Handled by the `withChartCanvasSnapshot` decorator.
              * @default false
              */
             skipCanvasDraw?: boolean
