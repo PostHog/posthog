@@ -486,7 +486,12 @@ class TestActivityRowConsumption:
 
         produced: list[dict] = []
         producer = Mock()
-        producer.produce = lambda **kwargs: produced.append(kwargs["data"]) or Mock()
+
+        def _produce(**kwargs):
+            produced.append(kwargs["data"])
+            return Mock()
+
+        producer.produce = _produce
 
         mock_client = Mock()
         mock_client.stream_query_as_jsonl = lambda *a, **kw: aiter(rows)

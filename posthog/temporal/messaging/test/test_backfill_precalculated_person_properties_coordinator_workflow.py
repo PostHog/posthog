@@ -391,7 +391,7 @@ class TestDrainCompleted:
         handles = [ok, bad]
 
         workflow = BackfillPrecalculatedPersonPropertiesCoordinatorWorkflow()
-        completed, failed = await workflow._drain_completed({ok, bad}, handles, Mock())
+        completed, failed = await workflow._drain_completed({ok, bad}, handles, Mock())  # type: ignore[arg-type]  # fake handles stand in for ChildWorkflowHandle
 
         assert completed == 1
         assert failed == 1
