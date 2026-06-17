@@ -1023,6 +1023,11 @@ class SignalReportViewSet(
                     type=SignalReportArtefact.ArtefactType.DISMISSAL,
                     content=json.dumps(artefact_content),
                 )
+                # get_object() evaluated the dismissal prefetch before this artefact
+                # existed; drop the stale cache so the response serializer re-reads the
+                # just-written reason/note instead of the previous (or empty) dismissal.
+                if hasattr(report, "prefetched_dismissal_artefacts"):
+                    del report.prefetched_dismissal_artefacts
 
         return Response(SignalReportSerializer(report, context=self._enriched_report_context(report)).data)
 

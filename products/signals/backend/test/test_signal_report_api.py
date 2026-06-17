@@ -829,15 +829,24 @@ class TestSignalReportListAPI(APIBaseTest):
             art.refresh_from_db()
         return art
 
-    def test_list_includes_dismissal_reason_and_note(self):
+    @parameterized.expand(
+        [
+            # Known reason code with a note: both are surfaced verbatim.
+            ("known_reason_with_note", "wontfix_intentional", "by design", "wontfix_intentional", "by design"),
+            # Reason codes are client-owned, so an unrecognised code passes through;
+            # an empty note collapses to null.
+            ("unknown_reason_passes_through", "some_brand_new_code", "", "some_brand_new_code", None),
+        ]
+    )
+    def test_list_surfaces_dismissal_reason_and_note(self, _name, reason, note, expected_reason, expected_note):
         report = self._create_report(status=SignalReport.Status.SUPPRESSED)
-        self._dismissal_artefact(report, reason="wontfix_intentional", note="by design")
+        self._dismissal_artefact(report, reason=reason, note=note)
 
         response = self.client.get(self._list_url(status="suppressed"))
         assert response.status_code == status.HTTP_200_OK
         row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
-        assert row["dismissal_reason"] == "wontfix_intentional"
-        assert row["dismissal_note"] == "by design"
+        assert row["dismissal_reason"] == expected_reason
+        assert row["dismissal_note"] == expected_note
 
     def test_list_dismissal_reason_null_without_artefact(self):
         report = self._create_report(status=SignalReport.Status.SUPPRESSED)
@@ -857,15 +866,6 @@ class TestSignalReportListAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
         assert row["dismissal_reason"] == "analysis_wrong"
-
-    def test_list_passes_through_unknown_dismissal_reason_code(self):
-        report = self._create_report(status=SignalReport.Status.SUPPRESSED)
-        self._dismissal_artefact(report, reason="some_brand_new_code")
-
-        response = self.client.get(self._list_url(status="suppressed"))
-        assert response.status_code == status.HTTP_200_OK
-        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
-        assert row["dismissal_reason"] == "some_brand_new_code"
 
 
 class TestSignalReportSuppressionAPI(APIBaseTest):
@@ -937,6 +937,11 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         report.refresh_from_db()
         assert report.status == expected_final_status
+
+        # The response serializes the report after the dismissal artefact is written, so it must
+        # reflect the just-saved reason/note — not a stale prefetch evaluated before the write.
+        assert response.json()["dismissal_reason"] == expected_reason
+        assert response.json()["dismissal_note"] == expected_note
 
         artefacts = list(
             SignalReportArtefact.objects.filter(report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL)
