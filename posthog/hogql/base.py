@@ -72,11 +72,7 @@ class AST:
         raise NotImplementedError(f"{visitor.__class__.__name__} has no method {method_name}")
 
     def __deepcopy__(self, memo: dict[int, Any]) -> "AST":
-        # Faster than stdlib's pickle/__reduce_ex__ path: clone via __new__ + a per-field copy over
-        # a cached plan. Registering `new` in memo before recursing (here and per container in
-        # _clone_value) keeps reference cycles (e.g. the resolved FieldType <-> SelectQueryType
-        # graph) and shared subtrees intact, matching stock deepcopy. start/end are Optional[int],
-        # copied by reference; every other field is deep-copied via _clone_value.
+        # Faster than stdlib's pickle/__reduce_ex__ path: clone via __new__ + a per-field copy over a cached plan; registering `new` in memo before recursing (here and per container in _clone_value) keeps reference cycles and shared subtrees intact, matching stock deepcopy.
         cls = self.__class__
         plan = _clone_plan_cache.get(cls)
         if plan is None:
@@ -85,8 +81,7 @@ class AST:
         new = cls.__new__(cls)  # bare instance, no __init__/__post_init__
         memo[id(self)] = new  # register BEFORE recursing so cycles terminate
         for name, needs_clone in plan:
-            # Reading self.<name> directly requires every slot to be set; that holds for any node
-            # built through the dataclass __init__ (the only construction path in practice).
+            # Reading self.<name> directly requires every slot set, which holds for any node built through the dataclass __init__ (the only construction path in practice).
             value = getattr(self, name)
             setattr(new, name, _clone_value(value, memo) if needs_clone else value)
         return new
@@ -144,10 +139,7 @@ def _clone_value(value: Any, memo: dict[int, Any]) -> Any:
         return new_dict
     if isinstance(value, Enum):
         return value
-    # Tuples, sets, and embedded non-AST objects (e.g. database Tables): defer to stdlib, sharing
-    # memo. A tuple can't be registered before its elements exist, so to preserve cycle identity
-    # (a cycle re-entering the tuple must resolve to the in-progress copy) we let stdlib's
-    # _deepcopy_tuple handle it exactly; AST elements inside still hit the fast path via the memo.
+    # Tuples, sets, embedded non-AST objects (e.g. database Tables): defer to stdlib (sharing memo) -- a tuple can't be registered before its elements exist, so let stdlib preserve cycle identity exactly; AST elements inside still hit the fast path via the memo.
     return copy.deepcopy(value, memo)
 
 
