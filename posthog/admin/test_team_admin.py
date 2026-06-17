@@ -480,6 +480,8 @@ class TestTeamAdminAIGatewayWallet(BaseTest):
         with patch.object(self.admin, "has_change_permission", return_value=False):
             with self.assertRaises(PermissionDenied):
                 self.admin.add_ai_gateway_credit_view(request, str(self.team.pk))
+
+
 class TestTeamAdminFormOverspendAllowance(BaseTest):
     def _form(self, value, instance=None):
         instance = instance or self.team
