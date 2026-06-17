@@ -12552,12 +12552,15 @@ export namespace Schemas {
       columns?: string[];
       /** @maxLength 255 */
       name?: string;
+      /** Column filter state persisted with this view configuration. */
       filters?: unknown;
       /**
          * Ordered list of HogQL expressions describing the table sort. Null preserves the current sort on apply (legacy rows); an empty list explicitly means no sort.
          * @nullable
          */
       order_by?: string[] | null;
+      /** Product-specific view state that does not fit the columnar fields (e.g. Customer analytics overview tiles and column display). */
+      properties?: unknown;
       visibility?: VisibilityEnum;
       /** @nullable */
       readonly created_by: number | null;
@@ -16720,18 +16723,6 @@ export namespace Schemas {
       checks: DiagnosticCheckResult[];
     }
 
-    /**
-     * * `Up` - Up
-     * * `Down` - Down
-     */
-    export type DirectionEnum = typeof DirectionEnum[keyof typeof DirectionEnum];
-
-
-    export const DirectionEnum = {
-      Up: 'Up',
-      Down: 'Down',
-    } as const;
-
     export type DistanceFunc = typeof DistanceFunc[keyof typeof DistanceFunc];
 
 
@@ -16847,6 +16838,18 @@ export namespace Schemas {
       has_draft: boolean;
     }
 
+    /**
+     * * `Up` - Up
+     * * `Down` - Down
+     */
+    export type WoWChangeDirectionEnum = typeof WoWChangeDirectionEnum[keyof typeof WoWChangeDirectionEnum];
+
+
+    export const WoWChangeDirectionEnum = {
+      Up: 'Up',
+      Down: 'Down',
+    } as const;
+
     export interface WoWChange {
       /** Absolute percentage change, rounded to nearest integer. */
       percent: number;
@@ -16854,7 +16857,7 @@ export namespace Schemas {
        *
        * * `Up` - Up
        * * `Down` - Down */
-      direction: DirectionEnum;
+      direction: WoWChangeDirectionEnum;
       /** Hex color indicating whether the change is a positive or negative signal. */
       color: string;
       /** Short label, e.g. 'Up 12%'. */
@@ -21778,6 +21781,17 @@ export namespace Schemas {
          * @nullable
          */
       ensure_experience_continuity?: boolean | null;
+      /** Where this flag is allowed to evaluate: 'server' (server-side SDKs only), 'client' (client-side SDKs only), or 'all' (both). Defaults to 'all'.
+       *
+       * * `server` - Server
+       * * `client` - Client
+       * * `all` - All */
+      evaluation_runtime?: EvaluationRuntimeEnum | null;
+      /** Identifier used to bucket users into rollout percentages and variants: 'distinct_id' (user ID, the default) or 'device_id'. Using 'device_id' is incompatible with ensure_experience_continuity=True.
+       *
+       * * `distinct_id` - User ID (default)
+       * * `device_id` - Device ID */
+      bucketing_identifier?: BucketingIdentifierEnum | null;
     }
 
     export interface FeatureFlagStatusResponse {
@@ -32894,12 +32908,15 @@ export namespace Schemas {
       columns?: string[];
       /** @maxLength 255 */
       name?: string;
+      /** Column filter state persisted with this view configuration. */
       filters?: unknown;
       /**
          * Ordered list of HogQL expressions describing the table sort. Null preserves the current sort on apply (legacy rows); an empty list explicitly means no sort.
          * @nullable
          */
       order_by?: string[] | null;
+      /** Product-specific view state that does not fit the columnar fields (e.g. Customer analytics overview tiles and column display). */
+      properties?: unknown;
       visibility?: VisibilityEnum;
       /** @nullable */
       readonly created_by?: number | null;
@@ -34238,6 +34255,17 @@ export namespace Schemas {
          * @nullable
          */
       ensure_experience_continuity?: boolean | null;
+      /** Where this flag is allowed to evaluate: 'server' (server-side SDKs only), 'client' (client-side SDKs only), or 'all' (both). Defaults to 'all'.
+       *
+       * * `server` - Server
+       * * `client` - Client
+       * * `all` - All */
+      evaluation_runtime?: EvaluationRuntimeEnum | null;
+      /** Identifier used to bucket users into rollout percentages and variants: 'distinct_id' (user ID, the default) or 'device_id'. Using 'device_id' is incompatible with ensure_experience_continuity=True.
+       *
+       * * `distinct_id` - User ID (default)
+       * * `device_id` - Device ID */
+      bucketing_identifier?: BucketingIdentifierEnum | null;
     }
 
     /**
@@ -48261,6 +48289,149 @@ export namespace Schemas {
       scope?: MetricAttributeScopeEnum;
     }
 
+    export interface _MetricAnomalyBody {
+      /**
+         * Exact metric name to characterize (e.g. 'metrics_rate_limiter_message_lag_seconds').
+         * @maxLength 255
+         */
+      metricName: string;
+      /** Start of the suspicious window (inclusive). ISO 8601 — e.g. when the alert fired or the graph started looking wrong. */
+      anomalyFrom: string;
+      /** End of the suspicious window (exclusive). Defaults to now. */
+      anomalyTo?: string;
+      /** Start of the healthy comparison window. Defaults to one anomaly-window-length before baselineTo. */
+      baselineFrom?: string;
+      /** End of the healthy comparison window. Defaults to anomalyFrom. Must not extend past anomalyFrom. */
+      baselineTo?: string;
+      /** Aggregation to characterize. Omit to auto-pick from the metric's OTel type (counter -> rate, gauge -> avg, histogram -> histogram_quantile 0.95).
+       *
+       * * `sum` - sum
+       * * `avg` - avg
+       * * `count` - count
+       * * `p95` - p95
+       * * `rate` - rate
+       * * `increase` - increase
+       * * `histogram_quantile` - histogram_quantile */
+      aggregation?: AggregationEnum | null;
+      /**
+         * Quantile for histogram_quantile. Defaults to 0.95.
+         * @minimum 0
+         * @maximum 1
+         * @nullable
+         */
+      quantile?: number | null;
+      /** Label predicates narrowing which series are characterized. */
+      filters?: _MetricFilter[];
+      /**
+         * Label keys to drill into when finding which label values moved. Omit to auto-discover the most common keys on this metric (plus service_name). Max 4 are used.
+         * @items.maxLength 255
+         */
+      candidateKeys?: string[];
+    }
+
+    export interface _MetricAnomalyDimension {
+      /** Label key that was drilled into. */
+      key: string;
+      /** Label value this row describes. */
+      label: string;
+      /** Mean value over the baseline window for this label value. */
+      baseline_value: number;
+      /** Mean value over the anomaly window for this label value. */
+      anomaly_value: number;
+      /** anomaly_value / baseline_value. A zero baseline yields the anomaly value itself (new traffic). */
+      change_ratio: number;
+    }
+
+    /**
+     * * `up` - up
+     * * `down` - down
+     * * `flat` - flat
+     */
+    export type _MetricAnomalyReportDirectionEnum = typeof _MetricAnomalyReportDirectionEnum[keyof typeof _MetricAnomalyReportDirectionEnum];
+
+
+    export const _MetricAnomalyReportDirectionEnum = {
+      Up: 'up',
+      Down: 'down',
+      Flat: 'flat',
+    } as const;
+
+    export interface _MetricQueryPoint {
+      /** Bucket start as ISO 8601 timestamp. */
+      time: string;
+      /** Aggregated value for the bucket. */
+      value: number;
+    }
+
+    /**
+     * Label values identifying this series. Empty for an ungrouped query.
+     */
+    export type _MetricSeriesLabels = {[key: string]: string};
+
+    export interface _MetricSeries {
+      /** Label values identifying this series. Empty for an ungrouped query. */
+      labels: _MetricSeriesLabels;
+      /** Time-bucketed points, ordered by time ascending. */
+      points: _MetricQueryPoint[];
+      /**
+         * Metric the series was computed from. Null for formula results.
+         * @nullable
+         */
+      metric_name?: string | null;
+      /**
+         * Name of the query clause that produced this series.
+         * @nullable
+         */
+      clause?: string | null;
+    }
+
+    export interface _MetricAnomalyReport {
+      /** Metric that was characterized. */
+      metric_name: string;
+      /** Aggregation used (auto-picked when not specified). */
+      aggregation: string;
+      /** Bucket size of the analysis grid. */
+      interval: string;
+      /** Baseline window start, ISO 8601. */
+      baseline_from: string;
+      /** Baseline window end, ISO 8601. */
+      baseline_to: string;
+      /** Anomaly window start, ISO 8601. */
+      anomaly_from: string;
+      /** Anomaly window end, ISO 8601. */
+      anomaly_to: string;
+      /** Mean over the baseline window. */
+      baseline_mean: number;
+      /** Population stddev over the baseline window. */
+      baseline_stddev: number;
+      /** Mean over the anomaly window. */
+      anomaly_mean: number;
+      /** Maximum bucket value in the anomaly window. */
+      anomaly_peak: number;
+      /** anomaly_mean / baseline_mean. A zero baseline yields anomaly_mean itself. */
+      change_ratio: number;
+      /** Which way the metric moved versus the baseline.
+       *
+       * * `up` - up
+       * * `down` - down
+       * * `flat` - flat */
+      direction: _MetricAnomalyReportDirectionEnum;
+      /**
+         * First bucket clearly outside the baseline range (3 stddevs or 50% relative change), or null if no clear onset.
+         * @nullable
+         */
+      onset_time: string | null;
+      /** Label values whose behavior changed the most between windows, largest change first. Empty when nothing moved or the metric has no labels. */
+      top_movers: _MetricAnomalyDimension[];
+      /** The metric across baseline + anomaly windows on one grid, for plotting or further inspection. */
+      series: _MetricSeries;
+    }
+
+    export interface _MetricAnomalyRequest {
+      /** The anomaly characterization to run. */
+      query: _MetricAnomalyBody;
+    }
+
     export interface _MetricGroupBy {
       /**
          * Attribute name to split series by (e.g. 'k8s.pod.name', 'env').
@@ -48373,38 +48544,9 @@ export namespace Schemas {
       dateTo?: string;
     }
 
-    export interface _MetricQueryPoint {
-      /** Bucket start as ISO 8601 timestamp. */
-      time: string;
-      /** Aggregated value for the bucket. */
-      value: number;
-    }
-
     export interface _MetricQueryRequest {
       /** The metric query to execute. */
       query: _MetricQueryBody;
-    }
-
-    /**
-     * Label values identifying this series. Empty for an ungrouped query.
-     */
-    export type _MetricSeriesLabels = {[key: string]: string};
-
-    export interface _MetricSeries {
-      /** Label values identifying this series. Empty for an ungrouped query. */
-      labels: _MetricSeriesLabels;
-      /** Time-bucketed points, ordered by time ascending. */
-      points: _MetricQueryPoint[];
-      /**
-         * Metric the series was computed from. Null for formula results.
-         * @nullable
-         */
-      metric_name?: string | null;
-      /**
-         * Name of the query clause that produced this series.
-         * @nullable
-         */
-      clause?: string | null;
     }
 
     export interface _MetricQueryResponse {
@@ -55690,9 +55832,9 @@ export namespace Schemas {
      */
     archived?: boolean;
     /**
-     * Filter to experiments created by the given user ID.
+     * Filter to experiments created by the given user(s). Accepts a single user ID, or a JSON-encoded / comma-separated list of user IDs to match any of them.
      */
-    created_by_id?: number;
+    created_by_id?: string;
     /**
      * Filter to experiments whose metrics reference this event name. Matches events used directly in metric queries as well as events behind any actions those metrics reference.
      */
@@ -55853,7 +55995,7 @@ export namespace Schemas {
     export type FeatureFlagsListParams = {
     active?: FeatureFlagsListActive;
     /**
-     * The User ID which initially created the feature flag.
+     * Filter by the user(s) who created the feature flag. Accepts a single user ID, or a JSON-encoded / comma-separated list of user IDs to match any of them.
      */
     created_by_id?: string;
     /**
@@ -59015,6 +59157,10 @@ export namespace Schemas {
     };
 
     export type SignalsReportsListParams = {
+    /**
+     * Filter reports by whether a shipped implementation pull request exists. 'true' keeps only reports with a PR; 'false' keeps only those without. Pair with limit=1 to count PR reports cheaply.
+     */
+    has_implementation_pr?: boolean;
     /**
      * Number of results to return per page.
      */

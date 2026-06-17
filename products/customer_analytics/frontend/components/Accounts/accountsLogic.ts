@@ -3,7 +3,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { objectsEqual } from 'lib/utils'
+import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -27,6 +27,7 @@ import {
 import { AccountExpansionTab, accountsExpansionLogic } from './accountsExpansionLogic'
 import type { accountsLogicType } from './accountsLogicType'
 import { accountsOverviewTilesLogic, TileFilter } from './accountsOverviewTilesLogic'
+import { normalizeRoleFilter } from './accountsViewState'
 import { AccountsEvents } from './constants'
 
 export const SEARCH_DEBOUNCE_MS = 300
@@ -59,17 +60,6 @@ function clearSortIfColumnRemoved(values: SortLikeValues, actions: SortLikeActio
 }
 
 export type RoleFilterValue = number[]
-
-// Shared URLs persisted a single role id (e.g. `csm: 7`) before the filters
-// became multi-select. Coerce any scalar (or malformed value) from the view
-// hash into a `number[]` so restoring a legacy link can't poison the array
-// (a stray number breaks the `.length`/`.map` the filters now rely on).
-function normalizeRoleFilter(value: unknown): RoleFilterValue {
-    if (Array.isArray(value)) {
-        return value.filter((entry): entry is number => typeof entry === 'number')
-    }
-    return typeof value === 'number' ? [value] : []
-}
 
 export type AccountRoleKey = 'csm' | 'account_executive' | 'account_owner'
 
