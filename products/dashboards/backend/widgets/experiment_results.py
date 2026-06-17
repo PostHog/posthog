@@ -87,7 +87,7 @@ def _compute_metric_entry(
     try:
         metric = metric_builder.model_validate(metric_dict)
         runner = ExperimentQueryRunner(
-            query=ExperimentQuery(experiment_id=experiment.id, metric=metric),  # type: ignore[arg-type]
+            query=ExperimentQuery(experiment_id=experiment.id, metric=metric),
             team=team,
         )
         response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)

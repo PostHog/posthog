@@ -5,7 +5,7 @@ import { useEffect, useMemo } from 'react'
 
 import { LemonInputSelect, type LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { fullName } from 'lib/utils'
+import { fullName } from 'lib/utils/strings'
 
 import type { ExperimentApi } from 'products/experiments/frontend/generated/api.schemas'
 
