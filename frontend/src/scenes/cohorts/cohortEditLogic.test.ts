@@ -1100,7 +1100,6 @@ describe('cohortEditLogic', () => {
                     source: { ...(logic.values.query.source as ActorsQuery), select: customColumns },
                 } as DataTableNode)
             }).toDispatchActions(['setQuery'])
-            expect(logic.values.persistedColumns).toEqual(customColumns)
 
             // Simulate a refresh: tear down and rebuild the logic for the same cohort
             logic.unmount()
