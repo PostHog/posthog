@@ -88,6 +88,7 @@ function createEntry(entry) {
                     'charts',
                     'src'
                 ),
+                '@babel/runtime': path.resolve(__dirname, 'node_modules', '@babel', 'runtime'),
                 types: path.resolve(__dirname, '..', '..', 'frontend', 'types'),
                 public: path.resolve(__dirname, '..', '..', 'frontend', 'public'),
                 process: 'process/browser',

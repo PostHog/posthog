@@ -11,6 +11,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     CohortApi,
     CohortPersonsResponseApi,
+    CohortUsedInResponseApi,
     CohortsListParams,
     CohortsPersonsRetrieveParams,
     PaginatedCohortListApi,
@@ -228,6 +229,21 @@ export const cohortsRemovePersonFromStaticCohortPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedRemovePersonRequestApi),
+    })
+}
+
+export const getCohortsUsedInRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/cohorts/${id}/used_in/`
+}
+
+export const cohortsUsedInRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<CohortUsedInResponseApi> => {
+    return apiMutator<CohortUsedInResponseApi>(getCohortsUsedInRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 

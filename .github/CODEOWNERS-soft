@@ -133,6 +133,7 @@ products/error_tracking/mcp/** @PostHog/team-error-tracking
 products/error_tracking/skills/** @PostHog/team-error-tracking
 cli/** @PostHog/team-error-tracking
 rust/cymbal/** @PostHog/team-error-tracking
+rust/common/symbol_data/** @PostHog/team-error-tracking
 
 # Notebooks - owned by @PostHog/team-platform-features
 frontend/src/scenes/notebooks/ @PostHog/team-platform-features
@@ -231,6 +232,7 @@ Dockerfile @PostHog/team-devex
 docker-compose\*.yml @PostHog/team-devex
 .prettierrc @PostHog/team-devex
 mypy.ini @PostHog/team-devex
+.test_quarantine.json @PostHog/team-devex
 posthog/management/migration_analysis/ @PostHog/team-devex
 tools/hogli/ @PostHog/team-devex
 tools/hogli-commands/ @PostHog/team-devex

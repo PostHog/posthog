@@ -713,7 +713,7 @@ class TestPrinter(BaseTest):
 
         self.assertEqual(
             self._expr("properties['foo']", context),
-            "has(events.properties_group_custom, %(hogql_val_0)s) ? events.properties_group_custom[%(hogql_val_0)s] : null",
+            "if(has(events.properties_group_custom, %(hogql_val_0)s), events.properties_group_custom[%(hogql_val_1)s], NULL)",
         )
         self.assertEqual(context.values["hogql_val_0"], "foo")
 
@@ -737,7 +737,7 @@ class TestPrinter(BaseTest):
 
         self.assertEqual(
             self._expr("person.properties['foo']", context),
-            "has(events.person_properties_map_custom, %(hogql_val_0)s) ? events.person_properties_map_custom[%(hogql_val_0)s] : null",
+            "if(has(events.person_properties_map_custom, %(hogql_val_0)s), events.person_properties_map_custom[%(hogql_val_1)s], NULL)",
         )
         self.assertEqual(context.values["hogql_val_0"], "foo")
 
@@ -885,14 +885,14 @@ class TestPrinter(BaseTest):
         # filter so it won't be used here.
         self._test_property_group_comparison(
             "properties.key = '' as eq",
-            "and(has(events.properties_group_custom, %(hogql_val_0)s), equals(events.properties_group_custom[%(hogql_val_0)s], %(hogql_val_1)s)) AS eq",
-            {"hogql_val_0": "key", "hogql_val_1": ""},
+            "and(has(events.properties_group_custom, %(hogql_val_0)s), equals(events.properties_group_custom[%(hogql_val_1)s], %(hogql_val_2)s)) AS eq",
+            {"hogql_val_0": "key", "hogql_val_1": "key", "hogql_val_2": ""},
             expected_skip_indexes_used={"properties_group_custom_keys_bf"},
         )
         self._test_property_group_comparison(
             "equals(properties.key, '') as eq",
-            "and(has(events.properties_group_custom, %(hogql_val_0)s), equals(events.properties_group_custom[%(hogql_val_0)s], %(hogql_val_1)s)) AS eq",
-            {"hogql_val_0": "key", "hogql_val_1": ""},
+            "and(has(events.properties_group_custom, %(hogql_val_0)s), equals(events.properties_group_custom[%(hogql_val_1)s], %(hogql_val_2)s)) AS eq",
+            {"hogql_val_0": "key", "hogql_val_1": "key", "hogql_val_2": ""},
             expected_skip_indexes_used={"properties_group_custom_keys_bf"},
         )
 
@@ -961,15 +961,15 @@ class TestPrinter(BaseTest):
         # We check which skip indexes are used on the test DB, but please test this on a prod-sized DB too when changing this.
         self._test_property_group_comparison(
             "properties.key IN ('a', 'b')",
-            "and(has(events.properties_group_custom, %(hogql_val_0)s), in(events.properties_group_custom[%(hogql_val_0)s], tuple(%(hogql_val_1)s, %(hogql_val_2)s)))",
-            {"hogql_val_0": "key", "hogql_val_1": "a", "hogql_val_2": "b"},
+            "and(has(events.properties_group_custom, %(hogql_val_0)s), in(events.properties_group_custom[%(hogql_val_1)s], tuple(%(hogql_val_2)s, %(hogql_val_3)s)))",
+            {"hogql_val_0": "key", "hogql_val_1": "key", "hogql_val_2": "a", "hogql_val_3": "b"},
             expected_skip_indexes_used={"properties_group_custom_keys_bf"},
             expected_skip_indexes_not_used={"properties_group_custom_values_bf"},
         )
         self._test_property_group_comparison(
             "properties.key IN ['a', 'b']",
-            "and(has(events.properties_group_custom, %(hogql_val_0)s), in(events.properties_group_custom[%(hogql_val_0)s], tuple(%(hogql_val_1)s, %(hogql_val_2)s)))",
-            {"hogql_val_0": "key", "hogql_val_1": "a", "hogql_val_2": "b"},
+            "and(has(events.properties_group_custom, %(hogql_val_0)s), in(events.properties_group_custom[%(hogql_val_1)s], tuple(%(hogql_val_2)s, %(hogql_val_3)s)))",
+            {"hogql_val_0": "key", "hogql_val_1": "key", "hogql_val_2": "a", "hogql_val_3": "b"},
             expected_skip_indexes_used={"properties_group_custom_keys_bf"},
             expected_skip_indexes_not_used={"properties_group_custom_values_bf"},
         )
@@ -991,8 +991,8 @@ class TestPrinter(BaseTest):
         # Single empty string does need to check if the key exists as well as equality
         self._test_property_group_comparison(
             "properties.key IN ''",
-            "and(has(events.properties_group_custom, %(hogql_val_0)s), equals(events.properties_group_custom[%(hogql_val_0)s], %(hogql_val_1)s))",
-            {"hogql_val_0": "key", "hogql_val_1": ""},
+            "and(has(events.properties_group_custom, %(hogql_val_0)s), equals(events.properties_group_custom[%(hogql_val_1)s], %(hogql_val_2)s))",
+            {"hogql_val_0": "key", "hogql_val_1": "key", "hogql_val_2": ""},
             expected_skip_indexes_used={"properties_group_custom_keys_bf"},
             expected_skip_indexes_not_used={"properties_group_custom_values_bf"},
         )
@@ -1010,19 +1010,19 @@ class TestPrinter(BaseTest):
         )  # if changing this assumption, you'll need to change the printer too
         self._test_property_group_comparison(
             "properties.key in NULL",
-            "in(has(events.properties_group_custom, %(hogql_val_2)s) ? events.properties_group_custom[%(hogql_val_2)s] : null, NULL)",
+            "in(if(has(events.properties_group_custom, %(hogql_val_0)s), events.properties_group_custom[%(hogql_val_1)s], NULL), NULL)",
         )
         self._test_property_group_comparison(
             "properties.key in (NULL)",
-            "in(has(events.properties_group_custom, %(hogql_val_2)s) ? events.properties_group_custom[%(hogql_val_2)s] : null, NULL)",
+            "in(if(has(events.properties_group_custom, %(hogql_val_0)s), events.properties_group_custom[%(hogql_val_1)s], NULL), NULL)",
         )
         self._test_property_group_comparison(
             "properties.key in (NULL, NULL, NULL)",
-            "in(has(events.properties_group_custom, %(hogql_val_2)s) ? events.properties_group_custom[%(hogql_val_2)s] : null, tuple(NULL, NULL, NULL))",
+            "in(if(has(events.properties_group_custom, %(hogql_val_0)s), events.properties_group_custom[%(hogql_val_1)s], NULL), tuple(NULL, NULL, NULL))",
         )
         self._test_property_group_comparison(
             "properties.key in [NULL, NULL, NULL]",
-            "in(has(events.properties_group_custom, %(hogql_val_2)s) ? events.properties_group_custom[%(hogql_val_2)s] : null, [NULL, NULL, NULL])",
+            "in(if(has(events.properties_group_custom, %(hogql_val_0)s), events.properties_group_custom[%(hogql_val_1)s], NULL), [NULL, NULL, NULL])",
         )
 
         # Don't optimize comparisons to types that require additional type conversions.
@@ -1156,9 +1156,9 @@ class TestPrinter(BaseTest):
         parsed = parse_select("SELECT properties.file_type AS ft FROM events WHERE ft = 'image/svg'")
         printed, _ = prepare_and_print_ast(parsed, build_context(PropertyGroupsMode.OPTIMIZED), dialect="clickhouse")
         assert printed == (
-            "SELECT has(events.properties_group_custom, %(hogql_val_0)s) ? events.properties_group_custom[%(hogql_val_0)s] : null AS ft "
+            "SELECT if(has(events.properties_group_custom, %(hogql_val_0)s), events.properties_group_custom[%(hogql_val_1)s], NULL) AS ft "
             "FROM events "
-            f"WHERE and(equals(events.team_id, {self.team.pk}), equals(events.properties_group_custom[%(hogql_val_1)s], %(hogql_val_2)s)) "
+            f"WHERE and(equals(events.team_id, {self.team.pk}), equals(events.properties_group_custom[%(hogql_val_2)s], %(hogql_val_3)s)) "
             "LIMIT 50000"
         )
 
@@ -1171,6 +1171,36 @@ class TestPrinter(BaseTest):
             prepare_and_print_ast(parsed, build_context(PropertyGroupsMode.OPTIMIZED), dialect="clickhouse")[0]
             == prepare_and_print_ast(parsed, build_context(PropertyGroupsMode.ENABLED), dialect="clickhouse")[0]
         )
+
+    def _print_shadowed_alias_query(self) -> str:
+        # Two aliases share the name `a`: the outer one is a property read, the inner one is `event`. The inner
+        # `WHERE a = 'v'` must compare the inner alias — never the outer query's property.
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            modifiers=HogQLQueryModifiers(
+                materializationMode=MaterializationMode.AUTO,
+                propertyGroupsMode=PropertyGroupsMode.OPTIMIZED,
+            ),
+        )
+        parsed = parse_select(
+            "SELECT properties.file_type AS a FROM events WHERE event IN (SELECT event AS a FROM events WHERE a = 'v')"
+        )
+        printed, _ = prepare_and_print_ast(parsed, context, dialect="clickhouse")
+        return printed
+
+    def test_property_alias_shadowed_in_subquery_is_not_rebound(self):
+        printed = self._print_shadowed_alias_query()
+        inner = printed.split("SELECT", 2)[2]
+        assert "properties_group_custom" not in inner, f"inner alias rebound to the outer property:\n{printed}"
+        assert "equals(a," in inner, f"expected the inner comparison to stay on the inner alias:\n{printed}"
+
+    def test_materialized_property_alias_shadowed_in_subquery_is_not_rebound(self):
+        with materialized("events", "file_type"):
+            printed = self._print_shadowed_alias_query()
+        inner = printed.split("SELECT", 2)[2]
+        assert "file_type" not in inner, f"inner alias rebound to the outer materialized property:\n{printed}"
+        assert "equals(a," in inner, f"expected the inner comparison to stay on the inner alias:\n{printed}"
 
     def test_methods(self):
         self.assertEqual(self._expr("count()"), "count()")
@@ -1209,6 +1239,18 @@ class TestPrinter(BaseTest):
             self._expr("groupArraySampleIf(5, 123456)(event, event is not null)"),
             "groupArraySampleIf(5, 123456)(events.event, isNotNull(events.event))",
         )
+
+    @parameterized.expand(
+        [
+            ("toBool", "toBool(uuid)", "accurateCastOrNull(events.uuid, %(hogql_val_0)s)"),
+            ("every", "every(uuid)", "accurateCastOrNull(min(events.uuid), 'Bool')"),
+        ]
+    )
+    def test_to_bool_is_null_safe(self, _name: str, expr: str, expected: str) -> None:
+        # Boolean casts must not hard-fail on non-boolean input (e.g. a UUID-shaped string).
+        # They route through accurateCastOrNull so unparseable values become NULL instead
+        # of raising "Cannot parse boolean value here" and failing the whole query.
+        self.assertEqual(self._expr(expr), expected)
 
     def test_expr_parse_errors(self):
         self._assert_expr_error("", "Empty query")
@@ -1981,14 +2023,14 @@ class TestPrinter(BaseTest):
                 "tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, "
                 "person_distinct_id_overrides.distinct_id AS distinct_id FROM person_distinct_id_overrides WHERE "
                 f"equals(person_distinct_id_overrides.team_id, {self.team.pk}) GROUP BY person_distinct_id_overrides.distinct_id "
-                "HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) "
+                "HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) "
                 "SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) "
                 f"JOIN (SELECT person.id AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), "
                 "in(tuple(person.id, person.version), (SELECT person.id AS id, max(person.version) AS version "
                 f"FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id "
-                "HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), "
-                "ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_0)s), person.version), "
-                "plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))), 0))))) "
+                "HAVING and(equals(argMax(person.is_deleted, person.version), 0), "
+                "less(argMax(toTimeZone(person.created_at, %(hogql_val_0)s), person.version), "
+                "plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))))))) "
                 "SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, if(not(empty(events__override.distinct_id)), "
                 f"events__override.person_id, events.person_id)) WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
             )
@@ -2007,14 +2049,14 @@ class TestPrinter(BaseTest):
                 "tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, "
                 "person_distinct_id_overrides.distinct_id AS distinct_id FROM person_distinct_id_overrides WHERE "
                 f"equals(person_distinct_id_overrides.team_id, {self.team.pk}) GROUP BY person_distinct_id_overrides.distinct_id "
-                "HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) "
+                "HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) "
                 "SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) "
                 f"JOIN (SELECT person.id AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), "
                 "in(tuple(person.id, person.version), (SELECT person.id AS id, max(person.version) AS version "
                 f"FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id "
-                "HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), "
-                "ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_0)s), person.version), "
-                "plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))), 0))))) "
+                "HAVING and(equals(argMax(person.is_deleted, person.version), 0), "
+                "less(argMax(toTimeZone(person.created_at, %(hogql_val_0)s), person.version), "
+                "plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))))))) "
                 "SETTINGS optimize_aggregation_in_order=1) AS persons SAMPLE 0.1 ON equals(persons.id, if(not(empty(events__override.distinct_id)), "
                 f"events__override.person_id, events.person_id)) WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
             )
@@ -2034,8 +2076,8 @@ class TestPrinter(BaseTest):
                 f"SELECT events.event AS event FROM events SAMPLE 2/78 OFFSET 999 JOIN (SELECT person.id AS id FROM person WHERE "
                 f"and(equals(person.team_id, {self.team.pk}), in(tuple(person.id, person.version), (SELECT person.id AS id, "
                 f"max(person.version) AS version FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id "
-                f"HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, "
-                f"%(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) "
+                f"HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, "
+                f"%(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) "
                 f"AS persons ON equals(persons.id, events.person_id) WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
             )
 
@@ -2053,8 +2095,8 @@ class TestPrinter(BaseTest):
                 f"SELECT events.event AS event FROM events SAMPLE 2/78 OFFSET 999 JOIN (SELECT person.id AS id FROM person WHERE "
                 f"and(equals(person.team_id, {self.team.pk}), in(tuple(person.id, person.version), (SELECT person.id AS id, "
                 f"max(person.version) AS version FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id "
-                f"HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, "
-                f"%(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) "
+                f"HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, "
+                f"%(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) "
                 f"AS persons SAMPLE 0.1 ON equals(persons.id, events.person_id) WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
             )
 
@@ -2324,18 +2366,18 @@ class TestPrinter(BaseTest):
         assert generated_sql_statements1 == generated_sql_statements2
         assert generated_sql_statements1 == (
             f"SELECT "
+            # The view projects min(...)/sum(...), which resolve non-nullable, and the printer reads a subquery
+            # column's nullability from its resolved type — so every comparison below prints bare, no ifNull wrapping.
             # start_time = toStartOfMonth(now())
-            # (the return of toStartOfMonth() is treated as "potentially nullable" since we yet have full typing support)
-            f"ifNull(equals(session_replay_events.start_time, toStartOfMonth(now64(6, %(hogql_val_1)s))), "
-            f"isNull(session_replay_events.start_time) and isNull(toStartOfMonth(now64(6, %(hogql_val_1)s)))) AS a, "
+            f"equals(session_replay_events.start_time, toStartOfMonth(now64(6, %(hogql_val_1)s))) AS a, "
             # 1 = 1
             f"1 AS b, "
             # click_count = 1
-            f"ifNull(equals(session_replay_events.click_count, 1), 0) AS c, "
+            f"equals(session_replay_events.click_count, 1) AS c, "
             # 1 = click_count
-            f"ifNull(equals(1, session_replay_events.click_count), 0) AS d, "
+            f"equals(1, session_replay_events.click_count) AS d, "
             # click_count = keypress_count
-            f"ifNull(equals(session_replay_events.click_count, session_replay_events.keypress_count), isNull(session_replay_events.click_count) and isNull(session_replay_events.keypress_count)) AS e, "
+            f"equals(session_replay_events.click_count, session_replay_events.keypress_count) AS e, "
             # click_count = null
             f"isNull(session_replay_events.click_count) AS f, "
             # null = click_count
@@ -2358,25 +2400,46 @@ class TestPrinter(BaseTest):
         assert generated_sql1 == generated_sql2
         assert generated_sql1 == (
             f"SELECT "
-            # start_time = toStartOfMonth(now())
-            # (the return of toStartOfMonth() is treated as "potentially nullable" since we yet have full typing support)
-            f"ifNull(notEquals(session_replay_events.start_time, toStartOfMonth(now64(6, %(hogql_val_1)s))), "
-            f"isNotNull(session_replay_events.start_time) or isNotNull(toStartOfMonth(now64(6, %(hogql_val_1)s)))) AS a, "
-            # 1 = 1
+            # Same as test_field_nullable_equals: non-nullable view columns print bare comparisons.
+            # start_time != toStartOfMonth(now())
+            f"notEquals(session_replay_events.start_time, toStartOfMonth(now64(6, %(hogql_val_1)s))) AS a, "
+            # 1 != 1
             f"0 AS b, "
-            # click_count = 1
-            f"ifNull(notEquals(session_replay_events.click_count, 1), 1) AS c, "
-            # 1 = click_count
-            f"ifNull(notEquals(1, session_replay_events.click_count), 1) AS d, "
-            # click_count = keypress_count
-            f"ifNull(notEquals(session_replay_events.click_count, session_replay_events.keypress_count), isNotNull(session_replay_events.click_count) or isNotNull(session_replay_events.keypress_count)) AS e, "
-            # click_count = null
+            # click_count != 1
+            f"notEquals(session_replay_events.click_count, 1) AS c, "
+            # 1 != click_count
+            f"notEquals(1, session_replay_events.click_count) AS d, "
+            # click_count != keypress_count
+            f"notEquals(session_replay_events.click_count, session_replay_events.keypress_count) AS e, "
+            # click_count != null
             f"isNotNull(session_replay_events.click_count) AS f, "
-            # null = click_count
+            # null != click_count
             f"isNotNull(session_replay_events.click_count) AS g "
             # ...
             f"FROM (SELECT min(toTimeZone(session_replay_events.min_first_timestamp, %(hogql_val_0)s)) AS start_time, sum(session_replay_events.click_count) AS click_count, sum(session_replay_events.keypress_count) AS keypress_count FROM session_replay_events WHERE equals(session_replay_events.team_id, {self.team.pk})) AS session_replay_events LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
+
+    def test_subquery_column_nullability_drives_comparison_wrapping(self):
+        # The printer reads a subquery column's nullability from its resolved type. Both directions matter: a
+        # genuinely nullable projection must KEEP its ifNull comparison guard (erasing it would change NULL semantics
+        # outside filter position), and a non-nullable projection prints bare (wrapping it hides the column from
+        # join-key detection and skip indexes).
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=Database())
+        context.database.get_table("events").fields["nullable_field"] = StringDatabaseField(  # type: ignore
+            name="nullable_field", nullable=True
+        )
+        printed_nullable = self._select(
+            "SELECT x = 'a' AS matches FROM (SELECT nullable_field AS x FROM events) AS sub",
+            context,
+        )
+        assert "ifNull(equals(sub.x, %(hogql_val_0)s), 0) AS matches" in printed_nullable, printed_nullable
+
+        printed_non_nullable = self._select(
+            "SELECT x = 'a' AS matches FROM (SELECT event AS x FROM events) AS sub",
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=Database()),
+        )
+        assert "equals(sub.x, %(hogql_val_0)s) AS matches" in printed_non_nullable, printed_non_nullable
+        assert "ifNull" not in printed_non_nullable.split("FROM")[0], printed_non_nullable
 
     def test_field_nullable_not_in(self):
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=Database())
@@ -2396,22 +2459,43 @@ class TestPrinter(BaseTest):
             f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
 
-    def test_assume_not_null_prevents_ifnull_wrapping_in_comparison(self):
-        # base64Encode has no type signatures → returns UnknownType(nullable=True)
-        # Without assumeNotNull, one side is considered nullable → comparison gets ifNull wrapping
-        sql_without = self._expr("event = base64Encode('test')")
+    def test_typed_string_function_prevents_ifnull_wrapping_in_comparison(self):
+        sql = self._expr("event = base64Encode('test')")
+
+        self.assertNotIn("ifNull(", sql)
+        self.assertTrue(sql.startswith("equals("))
+
+    def test_typed_url_function_prevents_ifnull_wrapping_in_comparison(self):
+        sql = self._expr("event = protocol('https://posthog.com')")
+
+        self.assertNotIn("ifNull(", sql)
+        self.assertTrue(sql.startswith("equals("))
+
+    def test_assume_not_null_prevents_ifnull_wrapping_for_unknown_function(self):
+        sql_without = self._expr("event = throwIf(0, 'not reached')")
         self.assertIn("ifNull(", sql_without)
 
-        # assumeNotNull forces nullable=False → both sides non-nullable → no wrapping
-        sql_with = self._expr("event = assumeNotNull(base64Encode('test'))")
+        sql_with = self._expr("event = assumeNotNull(throwIf(0, 'not reached'))")
         self.assertNotIn("ifNull(", sql_with)
         self.assertTrue(sql_with.startswith("equals("))
 
-    def test_assume_not_null_prevents_ifnull_wrapping_not_equals(self):
-        sql_without = self._expr("event != base64Encode('test')")
+    def test_typed_string_function_prevents_ifnull_wrapping_not_equals(self):
+        sql = self._expr("event != base64Encode('test')")
+
+        self.assertNotIn("ifNull(", sql)
+        self.assertTrue(sql.startswith("notEquals("))
+
+    def test_typed_url_function_prevents_ifnull_wrapping_not_equals(self):
+        sql = self._expr("event != protocol('https://posthog.com')")
+
+        self.assertNotIn("ifNull(", sql)
+        self.assertTrue(sql.startswith("notEquals("))
+
+    def test_assume_not_null_prevents_ifnull_wrapping_unknown_function_not_equals(self):
+        sql_without = self._expr("event != throwIf(0, 'not reached')")
         self.assertIn("ifNull(", sql_without)
 
-        sql_with = self._expr("event != assumeNotNull(base64Encode('test'))")
+        sql_with = self._expr("event != assumeNotNull(throwIf(0, 'not reached'))")
         self.assertNotIn("ifNull(", sql_with)
         self.assertTrue(sql_with.startswith("notEquals("))
 
@@ -2437,21 +2521,24 @@ class TestPrinter(BaseTest):
         )
         assert generated_sql_statements1 == (
             f"SELECT "
-            "ifNull(equals(toBool(transform(toString(nullIf(nullIf(events.mat_is_boolean, ''), 'null')), %(hogql_val_0)s, %(hogql_val_1)s, NULL)), 1), 0), "
-            "ifNull(equals(toBool(transform(toString(nullIf(nullIf(events.mat_is_boolean, ''), 'null')), %(hogql_val_2)s, %(hogql_val_3)s, NULL)), 0), 0), "
-            "isNull(toBool(transform(toString(nullIf(nullIf(events.mat_is_boolean, ''), 'null')), %(hogql_val_4)s, %(hogql_val_5)s, NULL))) "
+            "ifNull(equals(accurateCastOrNull(transform(toString(nullIf(nullIf(events.mat_is_boolean, ''), 'null')), %(hogql_val_0)s, %(hogql_val_1)s, NULL), %(hogql_val_2)s), 1), 0), "
+            "ifNull(equals(accurateCastOrNull(transform(toString(nullIf(nullIf(events.mat_is_boolean, ''), 'null')), %(hogql_val_3)s, %(hogql_val_4)s, NULL), %(hogql_val_5)s), 0), 0), "
+            "isNull(accurateCastOrNull(transform(toString(nullIf(nullIf(events.mat_is_boolean, ''), 'null')), %(hogql_val_6)s, %(hogql_val_7)s, NULL), %(hogql_val_8)s)) "
             f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
         assert context.values == {
             "hogql_val_0": ["true", "false"],
             "hogql_val_1": [1, 0],
-            "hogql_val_2": ["true", "false"],
-            "hogql_val_3": [1, 0],
-            "hogql_val_4": ["true", "false"],
-            "hogql_val_5": [1, 0],
+            "hogql_val_2": "Bool",
+            "hogql_val_3": ["true", "false"],
+            "hogql_val_4": [1, 0],
+            "hogql_val_5": "Bool",
+            "hogql_val_6": ["true", "false"],
+            "hogql_val_7": [1, 0],
+            "hogql_val_8": "Bool",
         }
 
-    @patch("posthog.hogql.printer.base.get_materialized_column_for_property")
+    @patch("posthog.hogql.transforms.clickhouse_property_resolution.get_materialized_column_for_property")
     def test_ai_trace_id_optimizations(self, mock_get_mat_col):
         """Test that $ai_trace_id gets special treatment for bloom filter index optimization"""
 
@@ -2527,7 +2614,7 @@ class TestPrinter(BaseTest):
             sql,
         )
 
-    @patch("posthog.hogql.printer.base.get_materialized_column_for_property")
+    @patch("posthog.hogql.transforms.clickhouse_property_resolution.get_materialized_column_for_property")
     def test_ai_session_id_optimizations(self, mock_get_mat_col):
         """Test that $ai_session_id gets special treatment for bloom filter index optimization"""
 
@@ -2577,6 +2664,58 @@ class TestPrinter(BaseTest):
             f"in(events.`mat_$ai_session_id`, tuple(%({session1_param_key})s, %({session2_param_key})s))", sql
         )
         self.assertNotIn("ifNull(in", sql)
+
+    @patch("posthog.hogql.transforms.clickhouse_property_resolution.get_materialized_column_for_property")
+    def test_materialized_property_through_column_aliased_table(self, mock_get_mat_col):
+        # A property read through a column-renamed table (`FROM events AS e (...)`, a ColumnAliasedTableType) must still
+        # resolve to its materialized column. Property resolution has to unwrap that table type to reach the real table; if
+        # it doesn't, the read silently falls back to a slow JSONExtract over the raw blob.
+        from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
+
+        mock_get_mat_col.return_value = MaterializedColumn(
+            name="mat_foo",
+            details=MaterializedColumnDetails(table_column="properties", property_name="foo", is_disabled=False),
+            is_nullable=False,
+        )
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        sql = self._select("SELECT e.properties.foo FROM events AS e (a, b)", context)
+        self.assertIn("mat_foo", sql)
+        self.assertNotIn("JSONExtractRaw(events.properties", sql)
+
+    @patch("posthog.hogql.transforms.clickhouse_property_resolution.get_materialized_column_for_property")
+    def test_deep_key_materialized_read_prints_shared_json_extract_shape(self, mock_get_mat_col):
+        # Reading properties.foo.bar through materialized column mat_foo extracts key "bar" from the column value.
+        # That extract must print exactly what `json_extract_trim_quotes` (kafka_engine.py) builds — the one
+        # implementation of the extract-and-trim SQL shape, which backfill and ingest also match byte-for-byte.
+        from posthog.clickhouse.kafka_engine import json_extract_trim_quotes
+
+        from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
+
+        mock_get_mat_col.return_value = MaterializedColumn(
+            name="mat_foo",
+            details=MaterializedColumnDetails(table_column="properties", property_name="foo", is_disabled=False),
+            is_nullable=False,
+        )
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        printed = self._expr("properties.foo.bar", context)
+        head = "nullIf(nullIf(events.mat_foo, ''), 'null')"
+        self.assertEqual(printed, json_extract_trim_quotes(head, "%(hogql_val_0)s"))
+        self.assertEqual(context.values, {"hogql_val_0": "bar"})
+
+    def _print_constant(self, node: ast.Constant) -> str:
+        return print_prepared_ast(
+            node, HogQLContext(team_id=self.team.pk, enable_select_queries=True), "clickhouse", stack=[]
+        )
+
+    def test_inline_sentinel_renders_allowlisted_literal_inline(self):
+        # An allowlisted scrubbing sentinel renders inline (escaped), not as a bound parameter.
+        self.assertEqual(self._print_constant(ast.Constant(value="null", inline_sentinel=True)), "'null'")
+
+    def test_inline_sentinel_rejects_non_allowlisted_literal(self):
+        # The flag is internal-only; setting it on anything outside the sentinel allowlist is a bug, so the printer
+        # refuses to inline it rather than emit unparameterized text.
+        with self.assertRaises(ImpossibleASTError):
+            self._print_constant(ast.Constant(value="evil'; DROP", inline_sentinel=True))
 
     def test_field_nullable_like(self):
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=Database())
@@ -2962,8 +3101,8 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(
             printed,
-            f"SELECT `$browser` AS `$browser` FROM (SELECT nullIf(nullIf(events.`mat_$browser`, ''), 'null'), "
-            f"nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS `$browser` "  # only the second one gets the alias
+            f"SELECT `$browser` AS `$browser` FROM (SELECT nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS `$browser`, "
+            f"nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS `$browser` "
             f"FROM events WHERE equals(events.team_id, {self.team.pk})) LIMIT {MAX_SELECT_RETURNED_ROWS} "
             f"SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
         )
@@ -3987,15 +4126,48 @@ class TestPrinter(BaseTest):
             self._expr("event::unsupported_type")
         self.assertIn("Unsupported type cast", str(ctx.exception))
 
-    def test_cte_materialization_hint_not_supported(self):
-        with self.assertRaises(ImpossibleASTError) as ctx:
+    @parameterized.expand(
+        [
+            ("int", "accurateCast('1', 'Int64')"),
+            ("nullable", "accurateCastOrNull('1', 'Nullable(Int64)')"),
+            ("array", "accurateCast('[]', 'Array(String)')"),
+            ("datetime", "accurateCast('2024-01-01', 'DateTime64(6, \\'UTC\\')')"),
+        ]
+    )
+    def test_accurate_cast_known_type_names_print(self, _name, expr):
+        assert "accurateCast" in self._expr(expr)
+
+    def test_accurate_cast_unknown_type_name_rejected(self):
+        with self.assertRaises(QueryError) as ctx:
+            self._expr("accurateCast('1', 'TotallyMadeUpType')")
+        self.assertIn("Unsupported type in accurateCast", str(ctx.exception))
+
+    def test_accurate_cast_non_constant_type_name_rejected(self):
+        with self.assertRaises(QueryError) as ctx:
+            self._expr("accurateCast('1', concat('Int', '64'))")
+        self.assertIn("constant string type name", str(ctx.exception))
+
+    def test_cte_materialization_hint_materialized(self):
+        self.assertEqual(
             self._select(
                 """
                 WITH some_cte AS MATERIALIZED (SELECT event FROM events)
                 SELECT event FROM some_cte
                 """,
+            ),
+            f"WITH some_cte AS MATERIALIZED (SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk})) "
+            "SELECT some_cte.event AS event FROM some_cte LIMIT 50000",
+        )
+
+    def test_cte_materialization_hint_not_materialized_not_supported(self):
+        with self.assertRaises(ImpossibleASTError) as ctx:
+            self._select(
+                """
+                WITH some_cte AS NOT MATERIALIZED (SELECT event FROM events)
+                SELECT event FROM some_cte
+                """,
             )
-        self.assertIn("not supported", str(ctx.exception))
+        self.assertIn("NOT MATERIALIZED", str(ctx.exception))
 
     def test_cte_column_name_list_not_supported(self):
         with self.assertRaises(NotImplementedError):
@@ -4236,12 +4408,12 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             # equals: use AND IS NOT NULL to preserve skip index usage
             self._test_materialized_column_comparison(
                 "properties.test_prop = 'some_value'",
-                f"(equals(events.{mat_col.name}, %(hogql_val_0)s) AND (events.{mat_col.name} IS NOT NULL))",
+                f"and(equals(events.{mat_col.name}, %(hogql_val_0)s), isNotNull(events.{mat_col.name}))",
                 {"hogql_val_0": "some_value"},
             )
             self._test_materialized_column_comparison(
                 "'some_value' = properties.test_prop",
-                f"(equals(events.{mat_col.name}, %(hogql_val_0)s) AND (events.{mat_col.name} IS NOT NULL))",
+                f"and(equals(events.{mat_col.name}, %(hogql_val_0)s), isNotNull(events.{mat_col.name}))",
                 {"hogql_val_0": "some_value"},
             )
             # notEquals: use ifNull since skip index is less important here
@@ -4298,9 +4470,9 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         with materialized("events", "test_prop", is_nullable=False) as mat_col:
             self._test_materialized_column_comparison(
                 f"properties.test_prop {op} 'some_value'",
-                f"({ch_fn}(events.{mat_col.name}, %(hogql_val_0)s) "
-                f"AND notEquals(events.{mat_col.name}, '') "
-                f"AND notEquals(events.{mat_col.name}, 'null'))",
+                f"and({ch_fn}(events.{mat_col.name}, %(hogql_val_0)s), "
+                f"notEquals(events.{mat_col.name}, ''), "
+                f"notEquals(events.{mat_col.name}, 'null'))",
                 {"hogql_val_0": "some_value"},
             )
 
@@ -4317,7 +4489,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         with materialized("events", "test_prop", is_nullable=True) as mat_col:
             self._test_materialized_column_comparison(
                 f"properties.test_prop {op} 'some_value'",
-                f"({ch_fn}(events.{mat_col.name}, %(hogql_val_0)s) AND (events.{mat_col.name} IS NOT NULL))",
+                f"and({ch_fn}(events.{mat_col.name}, %(hogql_val_0)s), isNotNull(events.{mat_col.name}))",
                 {"hogql_val_0": "some_value"},
             )
 
@@ -4337,6 +4509,133 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
                 f"ifNull(less(%(hogql_val_0)s, events.{mat_col.name}), 0)",
                 {"hogql_val_0": "some_value"},
             )
+
+    def test_materialized_column_range_comparison_not_optimized_for_numeric_property_type(self) -> None:
+        PropertyDefinition.objects.create(
+            team=self.team,
+            project_id=self.team.project_id,
+            name="numeric_test_prop",
+            property_type=PropertyType.Numeric,
+            type=PropertyDefinition.Type.EVENT,
+        )
+
+        with materialized("events", "numeric_test_prop", is_nullable=True, create_minmax_index=True) as mat_col:
+            printed = self._expr("properties.numeric_test_prop < 5")
+
+        assert f"less(accurateCastOrNull(events.{mat_col.name}," in printed
+        assert f"less(events.{mat_col.name}," not in printed
+
+    def test_materialized_column_range_comparison_not_optimized_for_datetime_property_type(self) -> None:
+        PropertyDefinition.objects.create(
+            team=self.team,
+            project_id=self.team.project_id,
+            name="datetime_test_prop",
+            property_type=PropertyType.Datetime,
+            type=PropertyDefinition.Type.EVENT,
+        )
+
+        with materialized("events", "datetime_test_prop", is_nullable=True, create_minmax_index=True) as mat_col:
+            printed = self._expr("properties.datetime_test_prop < toDateTime('2024-01-15')")
+
+        assert f"less(parseDateTime64BestEffortOrNull(events.{mat_col.name}," in printed
+        assert f"less(events.{mat_col.name}," not in printed
+
+    @patch("posthog.hogql.property_planner.get_materialized_column_for_property")
+    @patch("posthog.hogql.transforms.clickhouse_property_resolution.get_materialized_column_for_property")
+    def test_materialized_column_range_comparison_uses_typed_numeric_source(
+        self, mock_resolution_get_mat_col, mock_planner_get_mat_col
+    ) -> None:
+        from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
+
+        PropertyDefinition.objects.create(
+            team=self.team,
+            project_id=self.team.project_id,
+            name="numeric_test_prop",
+            property_type=PropertyType.Numeric,
+            type=PropertyDefinition.Type.EVENT,
+        )
+        mock_mat_col = MaterializedColumn(
+            name="mat_numeric_test_prop",
+            details=MaterializedColumnDetails(
+                table_column="properties", property_name="numeric_test_prop", is_disabled=False
+            ),
+            is_nullable=True,
+            column_type="Nullable(Float64)",
+            has_minmax_index=True,
+        )
+        mock_resolution_get_mat_col.return_value = mock_mat_col
+        mock_planner_get_mat_col.return_value = mock_mat_col
+
+        printed = self._expr("properties.numeric_test_prop < 5")
+
+        assert "less(events." in printed
+        assert "mat_numeric_test_prop" in printed
+        assert "accurateCastOrNull" not in printed
+
+    @patch("posthog.hogql.property_planner.get_materialized_column_for_property")
+    @patch("posthog.hogql.transforms.clickhouse_property_resolution.get_materialized_column_for_property")
+    def test_materialized_column_range_comparison_uses_typed_datetime_source(
+        self, mock_resolution_get_mat_col, mock_planner_get_mat_col
+    ) -> None:
+        from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
+
+        PropertyDefinition.objects.create(
+            team=self.team,
+            project_id=self.team.project_id,
+            name="datetime_test_prop",
+            property_type=PropertyType.Datetime,
+            type=PropertyDefinition.Type.EVENT,
+        )
+        mock_mat_col = MaterializedColumn(
+            name="mat_datetime_test_prop",
+            details=MaterializedColumnDetails(
+                table_column="properties", property_name="datetime_test_prop", is_disabled=False
+            ),
+            is_nullable=True,
+            column_type="Nullable(DateTime64(6, 'UTC'))",
+            has_minmax_index=True,
+        )
+        mock_resolution_get_mat_col.return_value = mock_mat_col
+        mock_planner_get_mat_col.return_value = mock_mat_col
+
+        printed = self._expr("properties.datetime_test_prop < '2024-01-15'")
+
+        assert "less(events." in printed
+        assert "mat_datetime_test_prop" in printed
+        assert "toDateTime64(" in printed
+        assert "parseDateTime64BestEffortOrNull" not in printed
+
+    @patch("posthog.hogql.property_planner.get_materialized_column_for_property")
+    @patch("posthog.hogql.transforms.clickhouse_property_resolution.get_materialized_column_for_property")
+    def test_materialized_column_range_comparison_skips_non_nullable_numeric_source(
+        self, mock_resolution_get_mat_col, mock_planner_get_mat_col
+    ) -> None:
+        from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
+
+        PropertyDefinition.objects.create(
+            team=self.team,
+            project_id=self.team.project_id,
+            name="numeric_test_prop",
+            property_type=PropertyType.Numeric,
+            type=PropertyDefinition.Type.EVENT,
+        )
+        mock_mat_col = MaterializedColumn(
+            name="mat_numeric_test_prop",
+            details=MaterializedColumnDetails(
+                table_column="properties", property_name="numeric_test_prop", is_disabled=False
+            ),
+            is_nullable=False,
+            column_type="Float64",
+            has_minmax_index=True,
+        )
+        mock_resolution_get_mat_col.return_value = mock_mat_col
+        mock_planner_get_mat_col.return_value = mock_mat_col
+
+        printed = self._expr("properties.numeric_test_prop < 5")
+
+        # A non-nullable Float64 column stores 0 for missing JSON, so the bare minmax rewrite would
+        # match rows where the property is absent. The optimization must be skipped (no bare column).
+        assert "less(events.mat_numeric_test_prop, " not in printed
 
     @parameterized.expand(
         [
@@ -4668,13 +4967,13 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         with materialized("events", "test_prop", is_nullable=False) as mat_col:
             self._test_materialized_column_comparison(
                 "properties.test_prop ilike '%null%'",
-                f"ifNull(ilike(nullIf(nullIf(events.{mat_col.name}, ''), 'null'), %(hogql_val_1)s), 0)",
-                {"hogql_val_1": "%null%"},
+                f"ifNull(ilike(nullIf(nullIf(events.{mat_col.name}, ''), 'null'), %(hogql_val_0)s), 0)",
+                {"hogql_val_0": "%null%"},
             )
             self._test_materialized_column_comparison(
                 "properties.test_prop ilike '%NULL%'",
-                f"ifNull(ilike(nullIf(nullIf(events.{mat_col.name}, ''), 'null'), %(hogql_val_1)s), 0)",
-                {"hogql_val_1": "%NULL%"},
+                f"ifNull(ilike(nullIf(nullIf(events.{mat_col.name}, ''), 'null'), %(hogql_val_0)s), 0)",
+                {"hogql_val_0": "%NULL%"},
             )
 
     def test_materialized_column_like_uses_raw_column_for_non_nullable(self) -> None:
@@ -4748,7 +5047,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         with materialized("events", "test_prop", is_nullable=True) as mat_col:
             self._test_materialized_column_comparison(
                 "properties.test_prop in ('value1', 'value2')",
-                f"and(has([%(hogql_val_0)s, %(hogql_val_1)s], events.{mat_col.name}), events.mat_test_prop IS NOT NULL)",
+                f"and(has([%(hogql_val_0)s, %(hogql_val_1)s], events.{mat_col.name}), isNotNull(events.{mat_col.name}))",
                 {"hogql_val_0": "value1", "hogql_val_1": "value2"},
             )
 
@@ -5196,6 +5495,26 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         with materialized("events", "test_prop", is_nullable=False) as mat_col:
             printed = self._expr("JSONExtractString(properties, 'test_prop')")
             assert printed == f"nullIf(nullIf(events.{mat_col.name}, ''), 'null')"
+
+    @patch("posthog.hogql.transforms.property_types.get_materialized_column_for_property")
+    def test_jsonextractstring_not_rewritten_for_non_string_mat_column(self, mock_get_mat_col) -> None:
+        from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
+
+        # JSONExtractString has string semantics, so a numeric-typed materialized column must not be
+        # substituted for it — that would emit a bare Float64 column where a string is expected.
+        mock_get_mat_col.return_value = MaterializedColumn(
+            name="mat_numeric_prop",
+            details=MaterializedColumnDetails(
+                table_column="properties", property_name="numeric_prop", is_disabled=False
+            ),
+            is_nullable=True,
+            column_type="Nullable(Float64)",
+            has_minmax_index=True,
+        )
+        printed = self._expr("JSONExtractString(properties, 'numeric_prop')")
+
+        assert "mat_numeric_prop" not in printed
+        assert "JSONExtractString(events.properties" in printed
 
 
 class TestSessionIdUuidOptimization(ClickhouseTestMixin, APIBaseTest):

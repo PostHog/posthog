@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { IconX } from '@posthog/icons'
+import { IconChevronLeft, IconChevronRight, IconX } from '@posthog/icons'
 import {
     LemonButton,
     LemonDivider,
@@ -12,7 +12,9 @@ import {
     Spinner,
 } from '@posthog/lemon-ui'
 
+import { ZoomableImage } from 'lib/components/ZoomableImage/ZoomableImage'
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
+import { backendAssetUrl } from 'lib/utils/apiHost'
 
 import { experimentLogic } from '../experimentLogic'
 import { VariantTag } from './VariantTag'
@@ -142,6 +144,30 @@ export function VariantScreenshot({
 
     const widthClass = getThumbnailWidth()
 
+    const getMediaSrc = (mediaId: string): string =>
+        mediaId.startsWith('data:') ? mediaId : backendAssetUrl(`/uploaded_media/${mediaId}`)
+
+    const showPrevious = (): void =>
+        setSelectedImageIndex((prev) => (prev === null ? prev : (prev - 1 + mediaIds.length) % mediaIds.length))
+    const showNext = (): void => setSelectedImageIndex((prev) => (prev === null ? prev : (prev + 1) % mediaIds.length))
+
+    // Arrow-key navigation while the screenshot viewer is open.
+    useEffect(() => {
+        if (selectedImageIndex === null || mediaIds.length <= 1) {
+            return
+        }
+        const onKeyDown = (e: KeyboardEvent): void => {
+            if (e.key === 'ArrowLeft') {
+                showPrevious()
+            } else if (e.key === 'ArrowRight') {
+                showNext()
+            }
+        }
+        window.addEventListener('keydown', onKeyDown)
+        return () => window.removeEventListener('keydown', onKeyDown)
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [selectedImageIndex, mediaIds.length])
+
     return (
         <div
             ref={containerRef}
@@ -168,7 +194,7 @@ export function VariantScreenshot({
                                     {loadingImages[mediaId] && <LemonSkeleton className="absolute inset-0" />}
                                     <img
                                         className="w-full h-full object-cover"
-                                        src={mediaId.startsWith('data:') ? mediaId : `/uploaded_media/${mediaId}`}
+                                        src={getMediaSrc(mediaId)}
                                         alt={`Variant screenshot thumbnail ${index + 1}`}
                                         onError={() => handleImageError(mediaId)}
                                         onLoad={() => handleImageLoad(mediaId)}
@@ -224,9 +250,13 @@ export function VariantScreenshot({
             <LemonModal
                 isOpen={selectedImageIndex !== null}
                 onClose={() => setSelectedImageIndex(null)}
+                width="90vw"
+                maxWidth={1400}
                 title={
                     <div className="flex items-center gap-2">
-                        <span>Screenshot {selectedImageIndex !== null ? selectedImageIndex + 1 : ''}</span>
+                        <span>
+                            Screenshot {selectedImageIndex !== null ? selectedImageIndex + 1 : ''} of {mediaIds.length}
+                        </span>
                         <LemonDivider className="my-0 mx-1" vertical />
                         <VariantTag variantKey={variantKey} />
                         {rolloutPercentage !== undefined && (
@@ -236,15 +266,32 @@ export function VariantScreenshot({
                 }
             >
                 {selectedImageIndex !== null && mediaIds[selectedImageIndex] && (
-                    <img
-                        src={
-                            mediaIds[selectedImageIndex]?.startsWith('data:')
-                                ? mediaIds[selectedImageIndex]
-                                : `/uploaded_media/${mediaIds[selectedImageIndex]}`
-                        }
-                        alt={`Screenshot ${selectedImageIndex + 1}: ${variantKey}`}
-                        className="max-w-full max-h-[80vh] overflow-auto"
-                    />
+                    <div className="flex items-center gap-2">
+                        {mediaIds.length > 1 && (
+                            <LemonButton
+                                icon={<IconChevronLeft />}
+                                onClick={showPrevious}
+                                size="large"
+                                tooltip="Previous screenshot"
+                                aria-label="Previous screenshot"
+                            />
+                        )}
+                        <ZoomableImage
+                            src={getMediaSrc(mediaIds[selectedImageIndex])}
+                            alt={`Screenshot ${selectedImageIndex + 1}: ${variantKey}`}
+                            resetKey={selectedImageIndex}
+                            className="flex-1 h-[80vh]"
+                        />
+                        {mediaIds.length > 1 && (
+                            <LemonButton
+                                icon={<IconChevronRight />}
+                                onClick={showNext}
+                                size="large"
+                                tooltip="Next screenshot"
+                                aria-label="Next screenshot"
+                            />
+                        )}
+                    </div>
                 )}
             </LemonModal>
         </div>

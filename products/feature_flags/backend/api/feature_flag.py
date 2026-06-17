@@ -40,13 +40,12 @@ from posthog.approvals.mixins import ApprovalHandlingMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, TeamSecretTokenAuthentication
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.constants import FlagRequestType
-from posthog.date_util import thirty_days_ago
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.dashboard_templates import add_enriched_insights_to_feature_flag_dashboard
 from posthog.models import Team
-from posthog.models.activity_logging.activity_log import Detail, changes_between, load_activity, log_activity
+from posthog.models.activity_logging.activity_log import Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
 from posthog.models.activity_logging.model_activity import ImpersonatedContext, is_impersonated_session
 from posthog.models.person.point_in_time_properties import (
@@ -54,7 +53,6 @@ from posthog.models.person.point_in_time_properties import (
     get_person_and_distinct_ids_for_identifier,
 )
 from posthog.models.property import Property
-from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.permissions import TeamSecretTokenPermission
 from posthog.queries.base import determine_parsed_date_for_property_matching
 from posthog.rate_limit import BurstRateThrottle, ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
@@ -74,7 +72,7 @@ from products.feature_flags.backend.encrypted_flag_payloads import (
     get_decrypted_flag_payloads_protected,
 )
 from products.feature_flags.backend.flag_analytics import increment_request_count
-from products.feature_flags.backend.flag_status import FeatureFlagStatusChecker
+from products.feature_flags.backend.flag_status import FeatureFlagStatusChecker, filter_flags_by_active_param
 from products.feature_flags.backend.local_evaluation import _get_flag_properties_from_filters
 from products.feature_flags.backend.models.evaluation_context import normalize_context_name
 from products.feature_flags.backend.models.feature_flag import (
@@ -103,7 +101,6 @@ scope_audit_logger = structlog.get_logger("posthog.feature_flag_scope_audit")
 BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
 
 REALTIME_COHORT_FLAG_TARGETING_FLAG = "realtime-cohort-flag-targeting"
-MIXED_TARGETING_FLAG = "feature-flag-mixed-targeting"
 EARLY_EXIT_FLAG = "feature-flag-early-exit"
 
 # Fields that Rust's FeatureFlag struct expects for historical evaluation
@@ -572,7 +569,7 @@ class EvaluationContextSerializerMixin(serializers.Serializer):
     def _log_evaluation_context_change(self, obj: FeatureFlag, before: list[str], after: list[str]) -> None:
         from loginas.utils import is_impersonated_session
 
-        from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+        from posthog.models.activity_logging.activity_log import Change, Detail
 
         request = self.context.get("request")
         was_impersonated = is_impersonated_session(request) if request else False
@@ -641,6 +638,26 @@ class FeatureFlagCreateRequestSchemaSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Whether this flag is a remote configuration flag that delivers a payload rather than gating a feature.",
     )
+    ensure_experience_continuity = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        help_text="Whether to persist a user's flag value across the anonymous-to-identified transition "
+        "(the 'persist across authentication steps' option). Incompatible with device_id bucketing.",
+    )
+    evaluation_runtime = serializers.ChoiceField(
+        choices=FeatureFlag.EVALUATION_RUNTIME_CHOICES,
+        required=False,
+        allow_null=True,
+        help_text="Where this flag is allowed to evaluate: 'server' (server-side SDKs only), "
+        "'client' (client-side SDKs only), or 'all' (both). Defaults to 'all'.",
+    )
+    bucketing_identifier = serializers.ChoiceField(
+        choices=FeatureFlag.BUCKETING_IDENTIFIER_CHOICES,
+        required=False,
+        allow_null=True,
+        help_text="Identifier used to bucket users into rollout percentages and variants: 'distinct_id' "
+        "(user ID, the default) or 'device_id'. Using 'device_id' is incompatible with ensure_experience_continuity=True.",
+    )
 
 
 class FeatureFlagPartialUpdateRequestSchemaSerializer(serializers.Serializer):
@@ -666,6 +683,26 @@ class FeatureFlagPartialUpdateRequestSchemaSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         help_text="Whether this flag is a remote configuration flag that delivers a payload rather than gating a feature.",
+    )
+    ensure_experience_continuity = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        help_text="Whether to persist a user's flag value across the anonymous-to-identified transition "
+        "(the 'persist across authentication steps' option). Incompatible with device_id bucketing.",
+    )
+    evaluation_runtime = serializers.ChoiceField(
+        choices=FeatureFlag.EVALUATION_RUNTIME_CHOICES,
+        required=False,
+        allow_null=True,
+        help_text="Where this flag is allowed to evaluate: 'server' (server-side SDKs only), "
+        "'client' (client-side SDKs only), or 'all' (both). Defaults to 'all'.",
+    )
+    bucketing_identifier = serializers.ChoiceField(
+        choices=FeatureFlag.BUCKETING_IDENTIFIER_CHOICES,
+        required=False,
+        allow_null=True,
+        help_text="Identifier used to bucket users into rollout percentages and variants: 'distinct_id' "
+        "(user ID, the default) or 'device_id'. Using 'device_id' is incompatible with ensure_experience_continuity=True.",
     )
 
 
@@ -1066,12 +1103,6 @@ class FeatureFlagSerializer(
             if all(a == condition_aggregations[0] for a in condition_aggregations):
                 filters["aggregation_group_type_index"] = condition_aggregations[0]
             else:
-                if not self._is_mixed_targeting_enabled():
-                    raise serializers.ValidationError(
-                        "Mixed aggregation types across condition sets are not yet supported. "
-                        "All condition sets must use the same aggregation type.",
-                        code="invalid_input",
-                    )
                 filters["aggregation_group_type_index"] = None
 
         # Check Early Access Feature constraint: no condition set can use group
@@ -1373,26 +1404,6 @@ class FeatureFlagSerializer(
                 flag_key = self._validate_flag_reference(flag_reference)
                 dependencies.add(flag_key)
         return dependencies
-
-    def _is_mixed_targeting_enabled(self) -> bool:
-        try:
-            request = self.context.get("request")
-            if not request:
-                return False
-            user = getattr(request, "user", None)
-            if user is None or user.is_anonymous:
-                return False
-            return posthoganalytics.feature_enabled(
-                MIXED_TARGETING_FLAG,
-                user.distinct_id,
-                groups={"organization": str(user.organization.id)},
-                group_properties={"organization": {"id": str(user.organization.id)}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        except Exception:
-            logger.exception("Failed to check mixed targeting flag")
-            return False
 
     def _is_early_exit_enabled(self) -> bool:
         try:
@@ -2563,7 +2574,7 @@ class FeatureFlagViewSet(
                 OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
                 required=False,
-                enum=["server", "client", "both"],
+                enum=[choice[0] for choice in FeatureFlag.EVALUATION_RUNTIME_CHOICES],
                 description="Filter feature flags by their evaluation runtime.",
             ),
             OpenApiParameter(
@@ -3221,64 +3232,7 @@ class FeatureFlagViewSet(
 
         for key, value in filters.items():
             if key == "active":
-                if value == "STALE":
-                    # Get stale flags using the best available signal:
-                    # 1. If last_called_at exists: flag hasn't been called in 30+ days
-                    # 2. If last_called_at is NULL: flag is 100% rolled out and 30+ days old
-                    stale_threshold = thirty_days_ago()
-                    usage_based_stale = Q(last_called_at__lt=stale_threshold, active=True)
-                    # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (static SQL, no user input)
-                    config_based_queryset = queryset.filter(
-                        last_called_at__isnull=True,
-                        active=True,
-                        created_at__lt=stale_threshold,
-                    ).extra(
-                        where=[
-                            """
-                            (
-                                (
-                                    EXISTS (
-                                        SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'groups') AS elem
-                                        WHERE elem->>'rollout_percentage' = '100'
-                                        AND (elem->'properties')::text = '[]'::text
-                                    )
-                                    AND (posthog_featureflag.filters->>'multivariate' IS NULL
-                                        OR posthog_featureflag.filters->'multivariate' = '{}'::jsonb
-                                        OR jsonb_array_length(posthog_featureflag.filters->'multivariate'->'variants') = 0)
-                                )
-                                OR
-                                (
-                                    EXISTS (
-                                        SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'multivariate'->'variants') AS variant
-                                        WHERE variant->>'rollout_percentage' = '100'
-                                    )
-                                    AND EXISTS (
-                                        SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'groups') AS elem
-                                        WHERE elem->>'rollout_percentage' = '100'
-                                        AND (elem->'properties')::text = '[]'::text
-                                    )
-                                )
-                                OR
-                                (
-                                    EXISTS (
-                                        SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'groups') AS elem
-                                        WHERE elem->>'rollout_percentage' = '100'
-                                        AND (elem->'properties')::text = '[]'::text
-                                        AND elem->'variant' IS NOT NULL
-                                        AND elem->>'variant' IS NOT NULL
-                                    )
-                                    AND (posthog_featureflag.filters->>'multivariate' IS NOT NULL AND jsonb_array_length(posthog_featureflag.filters->'multivariate'->'variants') > 0)
-                                )
-                                OR (posthog_featureflag.filters IS NULL OR posthog_featureflag.filters = '{}'::jsonb)
-                            )
-                            """
-                        ]
-                    )
-                    queryset = queryset.filter(usage_based_stale) | config_based_queryset
-                else:
-                    # Handle both string "true"/"false" and boolean True/False
-                    is_active = value == "true" or value is True
-                    queryset = queryset.filter(active=is_active)
+                queryset = filter_flags_by_active_param(queryset, value)
             elif key == "created_by_id":
                 queryset = queryset.filter(created_by_id=value)
             elif key == "search":
@@ -3832,8 +3786,16 @@ class FeatureFlagViewSet(
         if not feature_flag.is_remote_configuration:
             return Response(status=status.HTTP_404_NOT_FOUND)
 
+        # Remote config usage is tracked for telemetry only (never billed), and only genuine SDK
+        # fetches (team secret token, phs_…) count. Session and personal-key requests are the app's
+        # own preview/decrypt feature, not customer usage, and a session-authenticated GET would
+        # otherwise let a cross-site request inflate the team's usage numbers.
+        should_count = isinstance(request.successful_authenticator, TeamSecretTokenAuthentication)
+
         if not feature_flag.has_encrypted_payloads:
             payloads = feature_flag.filters.get("payloads", {})
+            if should_count:
+                increment_request_count(self.team.pk, 1, FlagRequestType.REMOTE_CONFIG)
             return Response(payloads.get("true") or None)
 
         # Note: This decryption step is protected by the feature_flag:read scope, so we can assume the
@@ -3843,9 +3805,9 @@ class FeatureFlagViewSet(
             request, feature_flag.filters.get("payloads", {})
         )
 
-        sampling_rate = getattr(settings, "DECIDE_BILLING_SAMPLING_RATE", 1.0)
-        count = int(1 / sampling_rate)
-        increment_request_count(self.team.pk, count, FlagRequestType.REMOTE_CONFIG)
+        # Count after a successful decryption so a decrypt failure (500) is never counted.
+        if should_count:
+            increment_request_count(self.team.pk, 1, FlagRequestType.REMOTE_CONFIG)
 
         return Response(decrypted_flag_payloads["true"] or None)
 
@@ -3871,57 +3833,6 @@ class FeatureFlagViewSet(
             page=page,
         )
         return activity_page_response(activity_page, limit, page, request)
-
-
-@mutable_receiver(model_activity_signal, sender=FeatureFlag)
-def handle_feature_flag_change(
-    sender,
-    scope,
-    before_update,
-    after_update,
-    activity,
-    was_impersonated=False,
-    **kwargs,
-):
-    # Extract scheduled change context if present
-    scheduled_change_context = getattr(after_update, "_scheduled_change_context", {})
-    scheduled_change_id = scheduled_change_context.get("scheduled_change_id")
-    is_scheduled_change = scheduled_change_id is not None
-
-    # Create trigger info for scheduled changes
-    trigger = None
-    if is_scheduled_change:
-        from posthog.models.activity_logging.activity_log import Trigger
-
-        trigger = Trigger(
-            job_type="scheduled_change",
-            job_id=str(scheduled_change_id),
-            payload={"scheduled_change_id": scheduled_change_id},
-        )
-
-    changes = changes_between(scope, previous=before_update, current=after_update)
-    resolved_activity = activity
-    deleted_change = next((change for change in changes if change.field == "deleted"), None)
-    if deleted_change:
-        if bool(deleted_change.after):
-            resolved_activity = "deleted"
-        elif bool(deleted_change.before):
-            resolved_activity = "restored"
-
-    log_activity(
-        organization_id=after_update.team.organization_id,
-        team_id=after_update.team_id,
-        user=after_update.last_modified_by,
-        was_impersonated=was_impersonated,
-        item_id=after_update.id,
-        scope=scope,
-        activity=resolved_activity,
-        detail=Detail(
-            changes=changes,
-            name=after_update.key,
-            trigger=trigger,
-        ),
-    )
 
 
 class LegacyFeatureFlagViewSet(FeatureFlagViewSet):

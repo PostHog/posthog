@@ -421,6 +421,13 @@ export const InvestigationInconclusiveActionEnumApi = {
     Suppress: 'suppress',
 } as const
 
+export type SearchMatchTypeEnumApi = (typeof SearchMatchTypeEnumApi)[keyof typeof SearchMatchTypeEnumApi]
+
+export const SearchMatchTypeEnumApi = {
+    Exact: 'exact',
+    Similar: 'similar',
+} as const
+
 export interface AlertApi {
     readonly id: string
     readonly created_by: UserBasicApi
@@ -489,6 +496,8 @@ export interface AlertApi {
      * * `notify` - Notify
      * * `suppress` - Suppress */
     investigation_inconclusive_action?: InvestigationInconclusiveActionEnumApi
+    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+    readonly search_match_type: SearchMatchTypeEnumApi | null
 }
 
 export interface PaginatedAlertListApi {
@@ -568,6 +577,8 @@ export interface PatchedAlertApi {
      * * `notify` - Notify
      * * `suppress` - Suppress */
     investigation_inconclusive_action?: InvestigationInconclusiveActionEnumApi
+    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+    readonly search_match_type?: SearchMatchTypeEnumApi | null
 }
 
 export interface AlertSimulateApi {

@@ -2,6 +2,7 @@ import { color as d3Color } from 'd3-color'
 
 import { bandCenter, type BarChartPrivate, computeBarTrackRect, computeSeriesBars } from '../../../core/bar-layout'
 import {
+    BAR_HIGHLIGHT_DARKEN,
     BAR_TRACK_HOVER_ALPHA,
     type BarRect,
     type BarShadow,
@@ -226,7 +227,7 @@ export function drawBarHoverItems(
             )
         } else {
             const barColor = barColorAt(s, bar.dataIndex)
-            const highlightColor = d3Color(barColor)?.darker(0.6).toString() ?? barColor
+            const highlightColor = d3Color(barColor)?.darker(BAR_HIGHLIGHT_DARKEN).toString() ?? barColor
             drawBarHighlight(ctx, bar, highlightColor, highlightRadius)
         }
     }

@@ -53,3 +53,33 @@ def test_get_access_token_transient_stays_retryable(status_code):
 def test_get_access_token_success_returns_token():
     with _patched_token_call(_mock_response(200, ok=True, json_data={"access_token": "tok"})):
         assert _get_shopify_access_token("store", "client-id", "client-secret") == "tok"
+
+
+@pytest.mark.parametrize(
+    "error_message",
+    [
+        "Shopify GraphQL error: Access denied for fulfillmentOrders field.",
+        "Shopify GraphQL error: Access denied for paymentTerms field. Required access: `read_payment_terms` access scope.",
+        "Shopify GraphQL error: Access denied for orders field.; Access denied for paymentTerms field.",
+    ],
+)
+def test_graphql_access_denied_is_non_retryable(error_message):
+    patterns = ShopifySource().get_non_retryable_errors()
+    assert any(pattern in error_message for pattern in patterns), (
+        f"GraphQL access-scope error '{error_message}' should match a non-retryable pattern"
+    )
+
+
+@pytest.mark.parametrize(
+    "error_message",
+    [
+        "Shopify: rate limit exceeded...",
+        "Shopify: internal error from request 503 Service Unavailable",
+        "Unexpected graphql response format in Shopify rows read. Keys: ['extensions']",
+    ],
+)
+def test_transient_graphql_errors_stay_retryable(error_message):
+    patterns = ShopifySource().get_non_retryable_errors()
+    assert not any(pattern in error_message for pattern in patterns), (
+        f"transient error '{error_message}' should remain retryable"
+    )

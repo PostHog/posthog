@@ -1,8 +1,6 @@
 import re
 from typing import TYPE_CHECKING, Optional, cast
 
-from posthog.schema import BounceRatePageViewMode
-
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
@@ -28,6 +26,7 @@ from posthog.models.sessions.sql import (
     SELECT_SESSION_PROP_STRING_VALUES_SQL_WITH_FILTER,
 )
 from posthog.queries.insight import insight_sync_execute
+from posthog.schema_enums import BounceRatePageViewMode
 
 from products.event_definitions.backend.models.property_definition import PropertyType
 

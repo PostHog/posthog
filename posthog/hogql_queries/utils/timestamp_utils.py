@@ -1,6 +1,7 @@
 import contextvars
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import AbstractContextManager
 from datetime import date, datetime, timedelta, tzinfo
 from typing import Any, Union
 
@@ -24,6 +25,7 @@ from posthog.hogql.ast import SelectQuery
 from posthog.hogql.property import action_to_expr
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tags_context
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
 from posthog.models.team import WeekStartDay
@@ -155,6 +157,24 @@ def _coerce_to_datetime(value: Any, tz: tzinfo) -> datetime:
     return EARLIEST_EVENT_TIMESTAMP
 
 
+def _earliest_timestamp_query_tags() -> AbstractContextManager[None]:
+    """Ensure the earliest-timestamp resolution query carries product/feature tags.
+
+    Resolving "all time" date_from runs this query while setting up a date range —
+    often before the main query runner has tagged its execution context. An untagged
+    ClickHouse query raises UntaggedQueryError in local dev. Inherit whatever the
+    caller already set and only fill product/feature when missing, so callers like
+    marketing analytics keep their own attribution.
+    """
+    current = get_query_tags()
+    overrides: dict[str, Any] = {}
+    if current.product is None:
+        overrides["product"] = Product.PRODUCT_ANALYTICS
+    if current.feature is None:
+        overrides["feature"] = Feature.INSIGHT
+    return tags_context(**overrides)
+
+
 def _get_earliest_timestamp_from_node(
     team: Team,
     node: Union[EventsNode, ActionsNode, DataWarehouseNode, FunnelsDataWarehouseNode, LifecycleDataWarehouseNode],
@@ -169,7 +189,10 @@ def _get_earliest_timestamp_from_node(
     cache_key = _get_earliest_timestamp_cache_key(team, node)
     cached_result = get_safe_cache(cache_key)
     if cached_result is not None:
-        return cached_result
+        # Coerce on read too: entries cached before the coercion fix shipped hold a raw
+        # str/date for up to the TTL window. Passing them through is idempotent for the
+        # datetime values written after the fix and repairs the stale ones.
+        return _coerce_to_datetime(cached_result, team.timezone_info)
 
     if (
         isinstance(node, DataWarehouseNode)
@@ -181,7 +204,8 @@ def _get_earliest_timestamp_from_node(
         query = _get_event_earliest_timestamp_query(team, node)
 
     earliest_timestamp = EARLIEST_EVENT_TIMESTAMP
-    result = execute_hogql_query(query=query, team=team)
+    with _earliest_timestamp_query_tags():
+        result = execute_hogql_query(query=query, team=team)
     if result and len(result.results) > 0 and len(result.results[0]) > 0 and result.results[0][0] is not None:
         earliest_timestamp = _coerce_to_datetime(result.results[0][0], team.timezone_info)
 

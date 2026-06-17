@@ -4,9 +4,8 @@ Dagster job to backfill ClickHouse events to customer-specific ducklings.
 This job exports events from ClickHouse's `posthog.events` table to customer S3 buckets
 as Parquet files, then registers those files with their DuckLake catalog.
 
-Unlike the main DuckLake backfill (events_backfill_to_ducklake.py) which targets PostHog's
-shared DuckLake, this job targets individual customer "ducklings" - isolated DuckLake
-instances with their own RDS catalog and S3 bucket.
+This job targets individual customer "ducklings" - isolated DuckLake instances with their
+own RDS catalog and S3 bucket.
 
 Architecture:
     DuckLakeCatalog (Django model)
@@ -32,7 +31,9 @@ Partition Strategy:
 
 import os
 import json
+import time
 import calendar
+from collections.abc import Callable
 from datetime import date, datetime, timedelta
 from typing import Any
 
@@ -64,11 +65,6 @@ from posthog.clickhouse.cluster import ClickhouseCluster, get_cluster
 from posthog.clickhouse.query_tagging import tags_context
 from posthog.cloud_utils import is_cloud
 from posthog.dags.common import JobOwners, dagster_tags, settings_with_log_comment
-from posthog.dags.events_backfill_to_ducklake import (
-    DEFAULT_CLICKHOUSE_SETTINGS,
-    EXPECTED_DUCKLAKE_COLUMNS,
-    MAX_RETRY_ATTEMPTS,
-)
 from posthog.ducklake.client import make_duckgres_conninfo
 from posthog.ducklake.common import get_duckgres_server_for_organization, get_ducklake_catalog_by_team_org
 from posthog.ducklake.models import DuckLakeBackfill, DuckLakeCatalog
@@ -80,36 +76,55 @@ logger = structlog.get_logger(__name__)
 # so the DAG can hardcode it everywhere instead of threading a config value.
 DUCKLAKE_ALIAS = "ducklake"
 
-# Duckgres connection timeouts: connect_timeout bounds the TCP+TLS handshake;
-# statement_timeout bounds query execution to prevent hung Dagster workers.
-# A backfill connection may have to wait for duckgres to spin up a fresh worker
-# (a cold worker can require provisioning a new node, which takes minutes), so
-# the handshake budget is generous and `_connect_duckgres` retries with backoff.
+MAX_RETRY_ATTEMPTS = 3
+
+ONE_HOUR_IN_SECONDS = 60 * 60
+ONE_GB_IN_BYTES = 1024 * 1024 * 1024
+
+DEFAULT_CLICKHOUSE_SETTINGS = {
+    "max_execution_time": 4 * ONE_HOUR_IN_SECONDS,
+    "max_memory_usage": 50 * ONE_GB_IN_BYTES,
+    "distributed_aggregation_memory_efficient": "1",
+}
+
+# Duckgres connect timeout bounds the TCP+TLS handshake only. A backfill
+# connection may have to wait for duckgres to spin up a fresh worker (a cold
+# worker can require provisioning a new node, which takes minutes), so the
+# handshake budget is generous and `_connect_duckgres` retries with backoff.
 # Must exceed the binding duckgres server-side wait, which is the OUTER
 # workerQueueTimeout (5m) — not warmAcquireTimeout (4m). On a warm-pool miss the
 # CP blocks the connect server-side waiting for a colocated worker (which may need
 # a cold node) instead of bouncing us with "no warm worker available"; that whole
 # block is bounded by workerQueueTimeout. 360s gives margin over the 300s server
 # block + TLS/handshake. Ladder: warmAcquire 4m < workerQueueTimeout 5m < 360s.
+#
+# We deliberately set NO statement_timeout. Duckling backfills are long-running
+# OLAP statements (a partition DELETE / file registration over an event-day) —
+# running long is the whole point of an OLAP engine, so capping them at 5 minutes
+# (or any value) is wrong. A worker that disappears mid-statement is handled by
+# reconnect-and-retry (`_DuckgresSession`), not by pre-emptively killing the query.
 DUCKGRES_CONNECT_TIMEOUT = 360  # seconds
-DUCKGRES_STATEMENT_TIMEOUT_MS = 300_000  # 5 minutes
 
-# Worker-profile opt-in. When enabled, a backfill connection asks duckgres for a
-# small COLOCATED (bin-packed) worker via libpq startup options, so it bursts
-# into a ready pod instead of contending for the big exclusive shared workers
-# (the cause of the backfill ConnectionTimeouts). Gated so it stays off until
-# duckgres has the colocated warm pool deployed and the server gate is on.
+# Worker-profile control. When enabled, a backfill connection asks duckgres for a
+# small COLOCATED (bin-packed) worker via libpq startup options, so it bursts into
+# a right-sized pod instead of contending for the big exclusive shared workers
+# (270GB / 46-thread). A metadata-only DuckLake register/DELETE has no use for
+# that much worker, and grabbing one made the backfill both wasteful and fragile —
+# a single shared worker dying mid-statement took out the partition. The server
+# gate (DUCKGRES_K8S_ALLOW_CLIENT_WORKER_PROFILE) is on in prod, so this defaults
+# ON; set DUCKGRES_WORKER_PROFILE_ENABLED=0 to put a deployment back on the big
+# exclusive workers.
 #
 # Evaluated once at process startup, not per connection/partition — toggling it
 # (including rollback) requires redeploying the Dagster code location so the
 # process restarts and re-reads the env, not just unsetting the variable.
-DUCKGRES_WORKER_PROFILE_ENABLED = os.environ.get("DUCKGRES_WORKER_PROFILE_ENABLED", "").strip().lower() in (
+DUCKGRES_WORKER_PROFILE_ENABLED = os.environ.get("DUCKGRES_WORKER_PROFILE_ENABLED", "true").strip().lower() in (
     "1",
     "true",
     "yes",
     "on",
 )
-# Colocated worker size for the metadata-only DuckLake register path.
+# Colocated worker size for the metadata-only DuckLake register/DELETE path.
 DUCKGRES_BACKFILL_COLOCATE_CPU = "4"
 DUCKGRES_BACKFILL_COLOCATE_MEMORY = "16Gi"
 
@@ -117,20 +132,23 @@ DUCKGRES_BACKFILL_COLOCATE_MEMORY = "16Gi"
 def _duckgres_backfill_options() -> str:
     """libpq startup `options` for a backfill connection.
 
-    Always bounds statement execution; when the worker-profile feature is
-    enabled, additionally requests a small colocated worker shape. Returns a
-    single space-joined `-c key=value` string — psycopg forwards it as the
-    startup `options` parameter, which duckgres parses to size/schedule the
-    worker.
+    When the worker-profile feature is enabled (the default), requests a small
+    colocated worker shape. Returns a single space-joined `-c key=value` string —
+    psycopg forwards it as the startup `options` parameter, which duckgres parses
+    to size/schedule the worker. No statement_timeout is set (see
+    DUCKGRES_CONNECT_TIMEOUT note above). Returns "" when the profile is disabled,
+    so the connection falls back to the default exclusive worker with no extra
+    startup options.
     """
-    opts = [f"-c statement_timeout={DUCKGRES_STATEMENT_TIMEOUT_MS}"]
-    if DUCKGRES_WORKER_PROFILE_ENABLED:
-        opts += [
+    if not DUCKGRES_WORKER_PROFILE_ENABLED:
+        return ""
+    return " ".join(
+        [
             "-c duckgres.colocate=true",
             f"-c duckgres.worker_cpu={DUCKGRES_BACKFILL_COLOCATE_CPU}",
             f"-c duckgres.worker_memory={DUCKGRES_BACKFILL_COLOCATE_MEMORY}",
         ]
-    return " ".join(opts)
+    )
 
 
 @retry(
@@ -157,7 +175,8 @@ def _get_cluster() -> ClickhouseCluster:
     # or the CP giving up after its block): the delay cap must exceed one full
     # attempt so a second one can actually run, hence 780s (~2 attempts) rather
     # than 360s (which a single 360s attempt would exhaust, making retries a no-op).
-    # statement_timeout (set per connection) is separate.
+    # This guards only the initial connect; a worker that drops mid-statement is
+    # handled separately by _DuckgresSession's reconnect-and-retry.
     stop=stop_after_delay(780) | stop_after_attempt(12),
     wait=wait_exponential(multiplier=1, min=5, max=60),
     retry=retry_if_exception_type((psycopg.OperationalError, OSError)),
@@ -196,6 +215,151 @@ def _connect_duckgres(catalog: DuckLakeCatalog) -> psycopg.Connection[Any]:
     )
 
 
+_CONNECTION_DROPPED_SQLSTATES = {
+    "57P01",  # admin_shutdown
+    "57P02",  # crash_shutdown
+    "57P03",  # cannot_connect_now
+}
+
+# Transport/connection-loss phrases ONLY. Deliberately NOT "flight execute":
+# duckgres prefixes essentially every worker-side SQL error with "flight execute"
+# (server/flightclient/flight_executor.go), so matching it would treat genuine,
+# non-retryable engine errors as recoverable — most dangerously a worker OOM
+# ("Out of Memory Error", mapped to XX000 → psycopg.InternalError), which is more
+# likely now that backfills run on small 16Gi colocated workers, and must NOT be
+# retried 4x. A real transport drop still carries one of these gRPC/libpq phrases
+# (e.g. the observed "flight execute update: rpc error: code = Unavailable desc =
+# error reading from server: EOF" matches on "code = unavailable" +
+# "error reading from server"), so dropping the prefix marker loses no coverage.
+_CONNECTION_DROPPED_MARKERS = (
+    "broken pipe",
+    "code = unavailable",
+    "code=unavailable",
+    "connection refused",
+    "connection reset",
+    "connection to server was closed",
+    "connection to server was lost",
+    "consuming input failed",
+    "eof detected",
+    "error reading from server",
+    "server closed the connection",
+    "terminating connection due to administrator command",
+    "transport:",
+)
+
+
+def _connection_dropped(exc: BaseException) -> bool:
+    """True when `exc` means the duckgres worker/connection went away mid-statement
+    (worker pod died, control plane lost the Flight stream), as opposed to a
+    SQL/logic error. Recoverable by reconnecting to a fresh worker and replaying
+    the (idempotent, transactional) duckgres metadata op.
+    """
+    msg = str(exc).lower()
+    if isinstance(exc, psycopg.errors.ConnectionException):
+        return True
+
+    sqlstate = getattr(exc, "sqlstate", None)
+    if isinstance(sqlstate, str) and (sqlstate.startswith("08") or sqlstate in _CONNECTION_DROPPED_SQLSTATES):
+        return True
+
+    # psycopg.OperationalError also covers permanent operational failures (for
+    # example SQLSTATE class 53 resource exhaustion), so only retry the message
+    # shapes that are clearly connection/transport loss.
+    if isinstance(exc, psycopg.OperationalError):
+        return any(marker in msg for marker in _CONNECTION_DROPPED_MARKERS)
+
+    # The control plane surfaces a worker-side Flight RPC failure — e.g. the
+    # worker pod dying mid-DELETE — back through the PG wire as InternalError
+    # wrapping transport-specific gRPC text ("code = Unavailable", "connection
+    # reset by peer", "transport: ...", "error reading from server").
+    if isinstance(exc, psycopg.InternalError):
+        return any(marker in msg for marker in _CONNECTION_DROPPED_MARKERS)
+    return False
+
+
+class _DuckgresSession:
+    """A duckgres connection that transparently reconnects to a fresh worker when
+    the current worker drops mid-statement.
+
+    A worker pod can disappear under a long-running statement for many reasons
+    (node consolidation, a control-plane rollout, an engine crash); the backfill
+    should survive that by re-acquiring a worker, not fail the whole partition on
+    the first blip. run() replays the op on a fresh connection when that happens.
+
+    Replay safety is the caller's responsibility — an op handed to run() MUST be
+    idempotent, because a worker can die in the at-least-once window (it COMMITTED
+    the DuckLake transaction, then the connection dropped before the client saw
+    the ack), in which case the replay re-runs an already-applied op. The backfill
+    ops satisfy this:
+      - the ranged partition DELETE is idempotent (re-deleting an emptied range
+        is a 0-row no-op);
+      - CREATE TABLE/SCHEMA IF NOT EXISTS, SET PARTITIONED BY, and the read-only
+        schema validation are idempotent;
+      - file registration via `ducklake_add_data_files` is NOT idempotent on its
+        own (it APPENDS a data-file entry with no dedup-by-path, so a replay would
+        double-register the file → duplicate rows). The register ops are therefore
+        wrapped so the replay unit is "DELETE the day's range, then add the file":
+        re-running that reproduces exactly the day's file regardless of where the
+        prior attempt died. Never hand a bare `ducklake_add_data_files` to run().
+    """
+
+    MAX_ATTEMPTS = 4
+
+    def __init__(self, context: AssetExecutionContext, catalog: DuckLakeCatalog) -> None:
+        self._context = context
+        self._catalog = catalog
+        self._conn = _connect_duckgres(catalog)
+
+    @property
+    def conn(self) -> psycopg.Connection[Any]:
+        return self._conn
+
+    def run(self, what: str, op: Callable[[psycopg.Connection[Any]], Any]) -> Any:
+        """Run `op(conn)`, reconnecting to a fresh worker and retrying if the
+        worker/connection drops mid-statement. Non-connection errors propagate
+        immediately (no retry); the last connection error is re-raised once the
+        attempt budget is exhausted.
+        """
+        last_exc: Exception | None = None
+        for attempt in range(1, self.MAX_ATTEMPTS + 1):
+            try:
+                return op(self._conn)
+            except Exception as exc:
+                if not _connection_dropped(exc):
+                    raise
+                last_exc = exc
+                if attempt == self.MAX_ATTEMPTS:
+                    break
+                self._context.log.warning(
+                    f"duckgres worker/connection dropped during {what} "
+                    f"(attempt {attempt}/{self.MAX_ATTEMPTS}); reconnecting to a fresh worker: {exc}"
+                )
+                logger.warning(
+                    "duckling_duckgres_reconnect",
+                    what=what,
+                    attempt=attempt,
+                    error=str(exc),
+                    error_type=type(exc).__name__,
+                )
+                self._reconnect()
+                time.sleep(min(2**attempt, 30))
+        assert last_exc is not None  # only reached after a connection-drop break
+        raise last_exc
+
+    def _reconnect(self) -> None:
+        try:
+            self._conn.close()
+        except Exception:
+            pass
+        self._conn = _connect_duckgres(self._catalog)
+
+    def close(self) -> None:
+        try:
+            self._conn.close()
+        except Exception:
+            pass
+
+
 # Columns to export from ClickHouse events table for duckling backfill.
 # ClickHouse exports DateTime64 as TIMESTAMP WITH TIME ZONE in Parquet.
 # DuckLake table uses TIMESTAMPTZ to match this format.
@@ -226,6 +390,35 @@ EVENTS_COLUMNS = """
     historical_migration,
     now64(6) as _inserted_at
 """
+
+# Expected columns in the duckling's events table for schema validation
+EXPECTED_DUCKLAKE_EVENTS_COLUMNS = {
+    "uuid",
+    "event",
+    "properties",
+    "timestamp",
+    "team_id",
+    "project_id",
+    "distinct_id",
+    "elements_chain",
+    "created_at",
+    "person_id",
+    "person_created_at",
+    "person_properties",
+    "group0_properties",
+    "group1_properties",
+    "group2_properties",
+    "group3_properties",
+    "group4_properties",
+    "group0_created_at",
+    "group1_created_at",
+    "group2_created_at",
+    "group3_created_at",
+    "group4_created_at",
+    "person_mode",
+    "historical_migration",
+    "_inserted_at",
+}
 
 BACKFILL_EVENTS_S3_PREFIX = "backfill/events"
 BACKFILL_PERSONS_S3_PREFIX = "backfill/persons"
@@ -734,7 +927,7 @@ def validate_duckling_schema(
         cur.execute(f"DESCRIBE {alias}.posthog.events")
         ducklake_columns = {row[0] for row in cur.fetchall()}
 
-    missing_in_ducklake = EXPECTED_DUCKLAKE_COLUMNS - ducklake_columns
+    missing_in_ducklake = EXPECTED_DUCKLAKE_EVENTS_COLUMNS - ducklake_columns
     if missing_in_ducklake:
         context.log.warning(
             f"Duckling events table is missing columns that we export: {missing_in_ducklake}. "
@@ -747,19 +940,19 @@ def validate_duckling_schema(
             missing_columns=list(missing_in_ducklake),
         )
 
-    extra_in_ducklake = ducklake_columns - EXPECTED_DUCKLAKE_COLUMNS
+    extra_in_ducklake = ducklake_columns - EXPECTED_DUCKLAKE_EVENTS_COLUMNS
     if extra_in_ducklake:
         context.log.info(f"Duckling has additional columns not in our export: {extra_in_ducklake}")
 
     context.log.info(
         f"Schema validation passed. Duckling has {len(ducklake_columns)} columns, "
-        f"we export {len(EXPECTED_DUCKLAKE_COLUMNS)} columns."
+        f"we export {len(EXPECTED_DUCKLAKE_EVENTS_COLUMNS)} columns."
     )
     logger.info(
         "duckling_schema_validation_passed",
         team_id=catalog.team_id,
         ducklake_columns=len(ducklake_columns),
-        export_columns=len(EXPECTED_DUCKLAKE_COLUMNS),
+        export_columns=len(EXPECTED_DUCKLAKE_EVENTS_COLUMNS),
     )
 
 
@@ -880,13 +1073,18 @@ def delete_events_partition_data(
     except (psycopg.errors.UndefinedTable, psycopg.errors.InvalidSchemaName):
         context.log.debug(f"Events table doesn't exist yet, nothing to delete for team_id={team_id}, date={date_str}")
         return 0
-    except Exception:
-        context.log.exception(f"Failed to delete events for team_id={team_id}, date={date_str}")
-        logger.exception(
-            "duckling_events_delete_failed",
-            team_id=team_id,
-            date=date_str,
-        )
+    except Exception as exc:
+        # A worker/connection drop here is transparently retried by the caller
+        # (_DuckgresSession.run reconnects + replays), so don't emit a loud
+        # ERROR/_failed log + false alert for a failure that will recover — let it
+        # propagate quietly. Only a genuine failure gets the loud log.
+        if not _connection_dropped(exc):
+            context.log.exception(f"Failed to delete events for team_id={team_id}, date={date_str}")
+            logger.exception(
+                "duckling_events_delete_failed",
+                team_id=team_id,
+                date=date_str,
+            )
         raise
 
 
@@ -948,13 +1146,16 @@ def delete_persons_partition_data(
     except (psycopg.errors.UndefinedTable, psycopg.errors.InvalidSchemaName):
         context.log.debug(f"Persons table doesn't exist yet, nothing to delete for team_id={team_id}")
         return 0
-    except Exception:
-        context.log.exception(f"Failed to delete persons for team_id={team_id}, date={date_label}")
-        logger.exception(
-            "duckling_persons_delete_failed",
-            team_id=team_id,
-            date=date_label,
-        )
+    except Exception as exc:
+        # Connection drops are retried by the caller (_DuckgresSession.run); only
+        # log loudly for genuine failures so a recovered drop doesn't false-alert.
+        if not _connection_dropped(exc):
+            context.log.exception(f"Failed to delete persons for team_id={team_id}, date={date_label}")
+            logger.exception(
+                "duckling_persons_delete_failed",
+                team_id=team_id,
+                date=date_label,
+            )
         raise
 
 
@@ -1089,13 +1290,16 @@ def register_file_with_duckling(
                 psql.Literal(s3_path),
             )
         )
-    except Exception:
-        context.log.exception(f"Failed to register file {s3_path}")
-        logger.exception(
-            "duckling_file_registration_failed",
-            s3_path=s3_path,
-            team_id=catalog.team_id,
-        )
+    except Exception as exc:
+        # Connection drops are retried by the caller (_DuckgresSession.run); only
+        # log loudly for genuine failures so a recovered drop doesn't false-alert.
+        if not _connection_dropped(exc):
+            context.log.exception(f"Failed to register file {s3_path}")
+            logger.exception(
+                "duckling_file_registration_failed",
+                s3_path=s3_path,
+                team_id=catalog.team_id,
+            )
         raise
 
     context.log.info(f"Successfully registered: {s3_path}")
@@ -1283,13 +1487,16 @@ def register_persons_file_with_duckling(
                 psql.Literal(s3_path),
             )
         )
-    except Exception:
-        context.log.exception(f"Failed to register persons file {s3_path}")
-        logger.exception(
-            "duckling_persons_file_registration_failed",
-            s3_path=s3_path,
-            team_id=catalog.team_id,
-        )
+    except Exception as exc:
+        # Connection drops are retried by the caller (_DuckgresSession.run); only
+        # log loudly for genuine failures so a recovered drop doesn't false-alert.
+        if not _connection_dropped(exc):
+            context.log.exception(f"Failed to register persons file {s3_path}")
+            logger.exception(
+                "duckling_persons_file_registration_failed",
+                s3_path=s3_path,
+                team_id=catalog.team_id,
+            )
         raise
 
     context.log.info(f"Successfully registered persons: {s3_path}")
@@ -1349,14 +1556,17 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
     # Open one duckgres connection for all metadata operations, but skip it
     # entirely when no duckgres-backed work will run (dry_run / skip_ducklake_registration).
     should_use_duckgres = not (config.dry_run or config.skip_ducklake_registration)
-    conn: psycopg.Connection[Any] | None = _connect_duckgres(catalog) if should_use_duckgres else None
+    session = _DuckgresSession(context, catalog) if should_use_duckgres else None
     try:
-        if conn is not None:
+        if session is not None:
             # Delete events table if requested (dangerous - loses all data)
             if config.delete_tables:
                 context.log.warning("delete_tables=True: Deleting events table...")
                 try:
-                    conn.execute(f"DROP TABLE IF EXISTS {DUCKLAKE_ALIAS}.posthog.events")
+                    session.run(
+                        "drop events table",
+                        lambda c: c.execute(f"DROP TABLE IF EXISTS {DUCKLAKE_ALIAS}.posthog.events"),
+                    )
                 except Exception:
                     context.log.exception(f"Failed to drop events table for team_id={team_id}")
                     logger.exception(
@@ -1369,12 +1579,12 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
             # Create events table if it doesn't exist
             if config.create_tables_if_missing:
                 context.log.info("Ensuring events table exists in duckling catalog...")
-                ensure_events_table_exists(context, catalog, conn)
+                session.run("ensure events table", lambda c: ensure_events_table_exists(context, catalog, c))
 
             # Validate schema before starting export
             if not config.skip_schema_validation:
                 context.log.info("Validating duckling schema compatibility...")
-                validate_duckling_schema(context, catalog, conn)
+                session.run("validate events schema", lambda c: validate_duckling_schema(context, catalog, c))
 
         # Prepare ClickHouse settings
         merged_settings = DEFAULT_CLICKHOUSE_SETTINGS.copy()
@@ -1397,8 +1607,12 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
             context.log.info(f"Processing date {date_str}...")
 
             # Delete existing DuckLake data for this partition before re-processing
-            if conn is not None and config.cleanup_existing_partition_data:
-                delete_events_partition_data(context, catalog, team_id, partition_date, conn=conn)
+            if session is not None and config.cleanup_existing_partition_data:
+
+                def delete_events_partition(conn: psycopg.Connection[Any], date: datetime = partition_date) -> None:
+                    delete_events_partition_data(context, catalog, team_id, date, conn=conn)
+
+                session.run(f"delete events partition {date_str}", delete_events_partition)
 
             def do_export(client: Client, date: datetime = partition_date) -> str | None:
                 with tags_context(kind="dagster", dagster=tags):
@@ -1423,8 +1637,24 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
             if s3_path:
                 total_exported += 1
                 s3_paths.append(s3_path)
-                if conn is not None and register_file_with_duckling(context, catalog, s3_path, config, conn):
-                    total_registered += 1
+                if session is not None:
+
+                    def register_events_file(
+                        conn: psycopg.Connection[Any],
+                        path: str = s3_path,
+                        date: datetime = partition_date,
+                    ) -> bool:
+                        # Idempotent replay unit: ducklake_add_data_files APPENDS with no
+                        # dedup-by-path, so if a prior attempt committed the registration
+                        # but the worker died before the client saw the ack, re-clear the
+                        # day's range first (idempotent DELETE) then re-add — the net state
+                        # is exactly this file for the day, wherever the prior attempt died.
+                        if config.cleanup_existing_partition_data:
+                            delete_events_partition_data(context, catalog, team_id, date, conn=conn)
+                        return register_file_with_duckling(context, catalog, path, config, conn)
+
+                    if session.run(f"register events file {date_str}", register_events_file):
+                        total_registered += 1
 
         context.add_output_metadata(
             {
@@ -1450,8 +1680,8 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
         )
 
     finally:
-        if conn is not None:
-            conn.close()
+        if session is not None:
+            session.close()
 
 
 @asset(
@@ -1512,14 +1742,17 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
     # Open one duckgres connection for all metadata operations, but skip it
     # entirely when no duckgres-backed work will run (dry_run / skip_ducklake_registration).
     should_use_duckgres = not (config.dry_run or config.skip_ducklake_registration)
-    conn: psycopg.Connection[Any] | None = _connect_duckgres(catalog) if should_use_duckgres else None
+    session = _DuckgresSession(context, catalog) if should_use_duckgres else None
     try:
-        if conn is not None:
+        if session is not None:
             # Delete persons table if requested (dangerous - loses all data)
             if config.delete_tables:
                 context.log.warning("delete_tables=True: Deleting persons table...")
                 try:
-                    conn.execute(f"DROP TABLE IF EXISTS {DUCKLAKE_ALIAS}.posthog.persons")
+                    session.run(
+                        "drop persons table",
+                        lambda c: c.execute(f"DROP TABLE IF EXISTS {DUCKLAKE_ALIAS}.posthog.persons"),
+                    )
                 except Exception:
                     context.log.exception(f"Failed to drop persons table for team_id={team_id}")
                     logger.exception(
@@ -1532,11 +1765,11 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
             # Create persons table if it doesn't exist
             if config.create_tables_if_missing:
                 context.log.info("Ensuring persons table exists in duckling catalog...")
-                ensure_persons_table_exists(context, catalog, conn)
+                session.run("ensure persons table", lambda c: ensure_persons_table_exists(context, catalog, c))
 
             if not config.skip_schema_validation:
                 context.log.info("Validating duckling persons schema compatibility...")
-                validate_duckling_persons_schema(context, catalog, conn)
+                session.run("validate persons schema", lambda c: validate_duckling_persons_schema(context, catalog, c))
 
         merged_settings = DEFAULT_CLICKHOUSE_SETTINGS.copy()
         merged_settings.update(settings_with_log_comment(context))
@@ -1553,8 +1786,11 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
             context.log.info(f"Full export mode: exporting all persons for team_id={team_id}")
 
             # Delete all existing persons data for this team before full re-export
-            if conn is not None and config.cleanup_existing_partition_data:
-                delete_persons_partition_data(context, catalog, team_id, partition_date=None, conn=conn)
+            if session is not None and config.cleanup_existing_partition_data:
+                session.run(
+                    "delete all persons",
+                    lambda c: delete_persons_partition_data(context, catalog, team_id, partition_date=None, conn=c),
+                )
 
             def do_full_export(client: Client) -> str | None:
                 with tags_context(kind="dagster", dagster=tags):
@@ -1576,8 +1812,17 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
 
             files_exported = 1 if s3_path else 0
             files_registered = 0
-            if s3_path and conn is not None:
-                if register_persons_file_with_duckling(context, catalog, s3_path, config, conn):
+            if s3_path and session is not None:
+
+                def register_full_persons_file(conn: psycopg.Connection[Any], path: str = s3_path) -> bool:
+                    # Idempotent replay unit (see _DuckgresSession): re-clear all of the
+                    # team's persons (idempotent DELETE) then re-add, so a replay after a
+                    # committed-but-unacked registration can't double-register the file.
+                    if config.cleanup_existing_partition_data:
+                        delete_persons_partition_data(context, catalog, team_id, partition_date=None, conn=conn)
+                    return register_persons_file_with_duckling(context, catalog, path, config, conn)
+
+                if session.run("register persons file (full)", register_full_persons_file):
                     files_registered = 1
 
             context.add_output_metadata(
@@ -1612,8 +1857,14 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
                 context.log.info(f"Processing persons for date {date_str}...")
 
                 # Delete existing DuckLake data for this partition before re-processing
-                if conn is not None and config.cleanup_existing_partition_data:
-                    delete_persons_partition_data(context, catalog, team_id, partition_date, conn=conn)
+                if session is not None and config.cleanup_existing_partition_data:
+
+                    def delete_persons_partition(
+                        conn: psycopg.Connection[Any], date: datetime = partition_date
+                    ) -> None:
+                        delete_persons_partition_data(context, catalog, team_id, date, conn=conn)
+
+                    session.run(f"delete persons partition {date_str}", delete_persons_partition)
 
                 def do_export(client: Client, date: datetime = partition_date) -> str | None:
                     with tags_context(kind="dagster", dagster=tags):
@@ -1636,10 +1887,22 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
 
                 if s3_path:
                     total_exported += 1
-                    if conn is not None and register_persons_file_with_duckling(
-                        context, catalog, s3_path, config, conn
-                    ):
-                        total_registered += 1
+                    if session is not None:
+
+                        def register_persons_file(
+                            conn: psycopg.Connection[Any],
+                            path: str = s3_path,
+                            date: datetime = partition_date,
+                        ) -> bool:
+                            # Idempotent replay unit (see _DuckgresSession): re-clear the
+                            # day's range (idempotent DELETE) then re-add, so a replay after
+                            # a committed-but-unacked registration can't double-register.
+                            if config.cleanup_existing_partition_data:
+                                delete_persons_partition_data(context, catalog, team_id, date, conn=conn)
+                            return register_persons_file_with_duckling(context, catalog, path, config, conn)
+
+                        if session.run(f"register persons file {date_str}", register_persons_file):
+                            total_registered += 1
 
             context.add_output_metadata(
                 {
@@ -1667,8 +1930,8 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
             )
 
     finally:
-        if conn is not None:
-            conn.close()
+        if session is not None:
+            session.close()
 
 
 @sensor(
