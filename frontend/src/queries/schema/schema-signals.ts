@@ -15,6 +15,7 @@ export enum SignalSourceProduct {
     SIGNALS_SCOUT = 'signals_scout',
     LOGS = 'logs',
     HEALTH_CHECKS = 'health_checks',
+    REPLAY_VISION = 'replay_vision',
 }
 
 export enum SignalSourceType {
@@ -32,6 +33,7 @@ export enum SignalSourceType {
     CROSS_SOURCE_ISSUE = 'cross_source_issue',
     ALERT_STATE_CHANGE = 'alert_state_change',
     HEALTH_ISSUE = 'health_issue',
+    SCANNER_FINDING = 'scanner_finding',
 }
 
 // ── Shared optional remediation ──────────────────────────────────────────────────
@@ -379,6 +381,26 @@ export interface LogsAlertStateChangeSignalInput extends SignalInputBase {
     extra: LogsAlertStateChangeSignalExtra
 }
 
+// Replay Vision scanner finding — the optional "side mission" finding a scanner's LLM pass
+// may attach to an observation when the scanner has `emits_signals` enabled.
+
+export interface ReplayVisionScannerFindingSignalExtra extends SignalExtraBase {
+    scanner_id: string
+    scanner_name: string
+    /** Replay Vision scanner type, e.g. 'monitor' / 'classifier' / 'scorer' / 'summarizer'. Kept open so new scanner types don't fail signal validation. */
+    scanner_type: string
+    observation_id: string
+    session_id: string
+    /** The model's self-reported confidence in the finding, in [0, 1]. Independent of `weight`. */
+    confidence: number
+}
+
+export interface ReplayVisionScannerFindingSignalInput extends SignalInputBase {
+    source_type: 'scanner_finding'
+    source_product: 'replay_vision'
+    extra: ReplayVisionScannerFindingSignalExtra
+}
+
 // Health-check issue (instrumentation problem detected by a HealthCheck)
 
 export type HealthCheckSeverity = 'critical' | 'warning' | 'info'
@@ -445,3 +467,4 @@ export type SignalInput =
     | SignalsScoutSignalInput
     | LogsAlertStateChangeSignalInput
     | HealthCheckSignalInput
+    | ReplayVisionScannerFindingSignalInput

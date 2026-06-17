@@ -10,7 +10,7 @@ import {
     fetchIngestionWarnings,
     waitForClickHouseKafkaConsumer,
 } from '~/tests/helpers/ingestion-e2e'
-import { resetKafka } from '~/tests/helpers/kafka'
+import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
 import { resetTestDatabase } from '~/tests/helpers/sql'
 
 import { getDefaultKafkaDownstreamProducerEnvConfig, getDefaultKafkaUpstreamProducerEnvConfig } from '../common/config'
@@ -109,7 +109,7 @@ describe('ClientWarnings consumer E2E', () => {
 
     beforeAll(async () => {
         clickhouse = Clickhouse.create()
-        await resetKafka()
+        await ensureKafkaTopics(TEST_KAFKA_TOPICS)
         await resetTestDatabase()
         await clickhouse.resetTestDatabase()
         await waitForClickHouseKafkaConsumer(clickhouse)

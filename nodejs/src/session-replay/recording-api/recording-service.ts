@@ -136,7 +136,7 @@ export class RecordingService {
             )
             return { ok: true, data: result }
         } catch (error) {
-            if (error instanceof NoSuchKey) {
+            if (error instanceof NoSuchKey || (error as Error)?.name === 'NoSuchKey') {
                 logger.warn('[RecordingService] S3 object not found (NoSuchKey)', {
                     key,
                     teamId,

@@ -55,6 +55,7 @@ from posthog.temporal.data_imports.sources.common.sql import (
 )
 from posthog.temporal.data_imports.sources.common.sql.base import SQLSource
 from posthog.temporal.data_imports.sources.custom.source import MAX_CUSTOM_SOURCES_PER_TEAM, manifest_request_hosts
+from posthog.temporal.data_imports.sources.mysql.source import MySQLSource
 from posthog.temporal.data_imports.sources.postgres.cdc.config import (
     DEFAULT_LAG_CRITICAL_THRESHOLD_MB,
     DEFAULT_LAG_WARNING_THRESHOLD_MB,
@@ -92,6 +93,7 @@ from products.data_warehouse.backend.data_load.service import (
     sync_external_data_job_workflow,
     trigger_external_data_source_workflow,
 )
+from products.data_warehouse.backend.direct_mysql import upsert_direct_mysql_table
 from products.data_warehouse.backend.direct_postgres import upsert_direct_postgres_table
 from products.data_warehouse.backend.external_data_source.webhooks import (
     create_and_register_webhook,
@@ -100,6 +102,7 @@ from products.data_warehouse.backend.external_data_source.webhooks import (
     get_webhook_url,
 )
 from products.data_warehouse.backend.models.revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
+from products.data_warehouse.backend.mysql_helpers import get_mysql_source_location, reconcile_mysql_schemas
 from products.data_warehouse.backend.postgres_helpers import get_postgres_source_location, reconcile_postgres_schemas
 from products.data_warehouse.backend.postgres_warehouse_migration import (
     reconcile_refresh_name_substitutions as reconcile_postgres_refresh_name_substitutions,
@@ -121,7 +124,11 @@ from products.warehouse_sources.backend.models.external_data_schema import (
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.pending_source_credential import PendingSourceCredential
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
-from products.warehouse_sources.backend.models.util import postgres_columns_to_dwh_columns, validate_source_prefix
+from products.warehouse_sources.backend.models.util import (
+    mysql_columns_to_dwh_columns,
+    postgres_columns_to_dwh_columns,
+    validate_source_prefix,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -353,7 +360,7 @@ def has_preserved_credentials(existing: dict[str, Any], incoming: dict[str, Any]
     return False
 
 
-def get_direct_postgres_connection_metadata(
+def get_direct_connection_metadata(
     *,
     source_impl: Any,
     source_config: Config,
@@ -386,6 +393,22 @@ def get_postgres_source_table_location(
         schema_name=schema_name,
         schema_metadata={
             "source_catalog": source_schema.source_catalog if source_schema else None,
+            "source_schema": source_schema.source_schema if source_schema else None,
+            "source_table_name": source_schema.source_table_name if source_schema else None,
+        },
+        default_schema=default_schema,
+    )
+
+
+def get_mysql_source_table_location(
+    *,
+    schema_name: str,
+    source_schema: SourceSchema | None,
+    default_schema: str | None,
+) -> tuple[str, str]:
+    return get_mysql_source_location(
+        schema_name=schema_name,
+        schema_metadata={
             "source_schema": source_schema.source_schema if source_schema else None,
             "source_table_name": source_schema.source_table_name if source_schema else None,
         },
@@ -427,7 +450,7 @@ class ExternalDataSourceConnectionMetadataSerializer(serializers.Serializer):
         read_only=True,
         required=False,
         allow_null=True,
-        choices=["duckdb", "postgres"],
+        choices=["duckdb", "postgres", "mysql"],
         help_text="Backend engine detected for the direct connection.",
     )
     function_source = serializers.CharField(
@@ -449,7 +472,7 @@ class ExternalDataSourceConnectionOptionSerializer(serializers.ModelSerializer):
         source="connection_metadata.engine",
         read_only=True,
         allow_null=True,
-        choices=["duckdb", "postgres"],
+        choices=["duckdb", "postgres", "mysql"],
         help_text="Backend engine detected for the direct connection.",
     )
 
@@ -612,7 +635,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         read_only=True,
         allow_null=True,
         required=False,
-        choices=["duckdb", "postgres"],
+        choices=["duckdb", "postgres", "mysql"],
         help_text="Backend engine detected for the direct connection.",
     )
     revenue_analytics_config = ExternalDataSourceRevenueAnalyticsConfigSerializer(
@@ -801,8 +824,8 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         validated_data.pop("created_via", None)
         incoming_prefix = validated_data.get("prefix", instance.prefix)
 
-        if instance.is_direct_postgres:
-            # For direct Postgres sources the prefix acts as the user-facing source name.
+        if instance.is_direct_query:
+            # For direct query sources the prefix acts as the user-facing source name.
             normalized_prefix = incoming_prefix.strip() if isinstance(incoming_prefix, str) else ""
             if not normalized_prefix:
                 raise ValidationError("Name is required for direct query sources")
@@ -943,7 +966,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         validated_data["job_inputs"] = source_config.to_dict()
 
         if job_inputs_were_submitted:
-            if instance.source_type == ExternalDataSourceType.POSTGRES and isinstance(source, PostgresSource):
+            if isinstance(source, (PostgresSource, MySQLSource)):
                 credentials_valid, credentials_error = source.validate_credentials_for_access_method(
                     cast(Any, source_config), instance.team_id, instance.access_method
                 )
@@ -951,9 +974,9 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                 credentials_valid, credentials_error = source.validate_credentials(source_config, instance.team_id)
             if not credentials_valid:
                 raise ValidationError(credentials_error or "Invalid credentials")
-            if instance.is_direct_postgres:
+            if instance.is_direct_query:
                 discovered_schemas = source.get_schemas(source_config, instance.team_id)
-                validated_data["connection_metadata"] = get_direct_postgres_connection_metadata(
+                validated_data["connection_metadata"] = get_direct_connection_metadata(
                     source_impl=source,
                     source_config=source_config,
                     team_id=instance.team_id,
@@ -963,17 +986,26 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
         updated_source: ExternalDataSource = super().update(instance, validated_data)
 
-        if updated_source.is_direct_postgres and discovered_schemas is not None:
+        if updated_source.is_direct_query and discovered_schemas is not None:
             schema_names = {schema.name: schema.label for schema in discovered_schemas}
             descriptions = {schema.name: schema.description for schema in discovered_schemas}
 
             with transaction.atomic():
                 ExternalDataSource._base_manager.filter(pk=updated_source.pk).select_for_update().get()
-                name_substitutions = reconcile_postgres_refresh_name_substitutions(
-                    source=updated_source,
-                    source_schemas=discovered_schemas,
-                    team_id=instance.team_id,
-                )
+                name_substitutions: dict[str, str] = {}
+                if updated_source.source_type == ExternalDataSourceType.POSTGRES:
+                    name_substitutions = reconcile_postgres_refresh_name_substitutions(
+                        source=updated_source,
+                        source_schemas=discovered_schemas,
+                        team_id=instance.team_id,
+                    )
+                elif source_namespace_is_blank(updated_source) and is_multi_schema_capable_sql_source(
+                    updated_source.source_type
+                ):
+                    name_substitutions = apply_sql_warehouse_refresh_migration(
+                        source=updated_source,
+                        team_id=instance.team_id,
+                    )
                 if name_substitutions:
                     schema_names = {name_substitutions.get(name, name): label for name, label in schema_names.items()}
                     descriptions = {
@@ -987,11 +1019,18 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                 )
                 # Direct call (not via hook) so tests mocking `SourceRegistry.get_source` still
                 # exercise the real direct-query DataWarehouseTable rebuild.
-                reconcile_postgres_schemas(
-                    source=updated_source,
-                    source_schemas=discovered_schemas,
-                    team_id=instance.team_id,
-                )
+                if updated_source.source_type == ExternalDataSourceType.POSTGRES:
+                    reconcile_postgres_schemas(
+                        source=updated_source,
+                        source_schemas=discovered_schemas,
+                        team_id=instance.team_id,
+                    )
+                else:
+                    reconcile_mysql_schemas(
+                        source=updated_source,
+                        source_schemas=discovered_schemas,
+                        team_id=instance.team_id,
+                    )
 
             schemas = list(
                 ExternalDataSchema.objects.filter(team_id=instance.team_id, source_id=updated_source.id)
@@ -1313,17 +1352,17 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         # full config + credential gate (including the SSRF host check) before discovering schemas.
         # It avoids a second live credential round-trip — and the confusing failure mode where the
         # first check passes but a transient blip fails the second, leaving nothing created.
-        is_direct_postgres = (
-            access_method == ExternalDataSource.AccessMethod.DIRECT and source_type == ExternalDataSourceType.POSTGRES
-        )
+        is_direct_query = access_method == ExternalDataSource.AccessMethod.DIRECT
+        is_direct_postgres = is_direct_query and source_type == ExternalDataSourceType.POSTGRES
+        is_direct_mysql = is_direct_query and source_type == ExternalDataSourceType.MYSQL
 
-        if access_method == ExternalDataSource.AccessMethod.DIRECT and source_type != ExternalDataSourceType.POSTGRES:
+        if is_direct_query and not (is_direct_postgres or is_direct_mysql):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": "Direct query mode is currently supported only for Postgres sources."},
+                data={"message": "Direct query mode is currently supported only for Postgres and MySQL sources."},
             )
 
-        if is_direct_postgres:
+        if is_direct_query:
             prefix = prefix.strip() if isinstance(prefix, str) else ""
             if not prefix:
                 return Response(
@@ -1403,8 +1442,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         )
 
         source_schemas = source.get_schemas(source_config, self.team_id)
-        if is_direct_postgres:
-            new_source_model.connection_metadata = get_direct_postgres_connection_metadata(
+        if is_direct_query:
+            new_source_model.connection_metadata = get_direct_connection_metadata(
                 source_impl=source,
                 source_config=source_config,
                 team_id=self.team_id,
@@ -1576,6 +1615,15 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                         default_schema=default_source_schema,
                     )
                 )
+            elif is_direct_mysql:
+                # Direct mode needs a resolved source location for the live-query table; warehouse
+                # mode keeps storing whatever the source reported to avoid changing sync routing.
+                metadata_source_catalog = None
+                metadata_source_schema, metadata_source_table_name = get_mysql_source_table_location(
+                    schema_name=schema_name,
+                    source_schema=source_schema,
+                    default_schema=default_source_schema or source_config.to_dict().get("database"),
+                )
             else:
                 metadata_source_catalog = source_schema.source_catalog if source_schema else None
                 metadata_source_schema = source_schema.source_schema if source_schema else None
@@ -1664,9 +1712,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 row_filters=row_filters,
             )
 
-            # CDC + direct-postgres paths are Postgres-only — `get_postgres_source_table_location`
-            # guarantees non-None schema/table in that branch above. `cast` narrows for mypy
-            # without a runtime check. The adapter no-ops for self-managed / no-publication.
+            # The CDC path is Postgres-only, and the direct paths are engine-specific —
+            # `get_postgres_source_table_location` / `get_mysql_source_table_location` guarantee
+            # non-None schema/table in their branches above. `cast` narrows for mypy without a
+            # runtime check. The adapter no-ops for self-managed / no-publication.
             if is_cdc_schema and should_sync and cdc_enabled and cdc_adapter is not None:
                 cdc_adapter.add_table(
                     new_source_model,
@@ -1691,6 +1740,23 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                         normalize=False,
                     ),
                     source_catalog=metadata_source_catalog,
+                    source_schema=cast(str, metadata_source_schema),
+                    source_table_name=cast(str, metadata_source_table_name),
+                )
+                schema_model.save(update_fields=["table"])
+            elif new_source_model.is_direct_mysql and should_sync:
+                schema_model.table = upsert_direct_mysql_table(
+                    None,
+                    schema_name=schema_name,
+                    source=new_source_model,
+                    columns=filter_dwh_columns_by_enabled_columns(
+                        mysql_columns_to_dwh_columns(source_schema.columns if source_schema else []),
+                        enabled_columns,
+                        source_schema.detected_primary_keys if source_schema else None,
+                        incremental_field,
+                        # Direct-mysql columns are keyed by raw, case-sensitive source names.
+                        normalize=False,
+                    ),
                     source_schema=cast(str, metadata_source_schema),
                     source_table_name=cast(str, metadata_source_table_name),
                 )
@@ -1959,14 +2025,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             # upstream resources (e.g. Slack channels) appear immediately.
             schemas = source.get_schemas(config, self.team_id, force_refresh=True)
             connection_metadata = (
-                get_direct_postgres_connection_metadata(
+                get_direct_connection_metadata(
                     source_impl=source,
                     source_config=config,
                     team_id=self.team_id,
                     source_model=instance,
                     fallback=instance.connection_metadata,
                 )
-                if instance.is_direct_postgres
+                if instance.is_direct_query
                 else instance.connection_metadata
             )
             schema_names = {s.name: s.label for s in schemas}
@@ -2005,7 +2071,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         descriptions = {s.name: s.description for s in schemas}
         with transaction.atomic():
             ExternalDataSource._base_manager.filter(pk=instance.pk).select_for_update().get()
-            if instance.is_direct_postgres and connection_metadata != instance.connection_metadata:
+            if instance.is_direct_query and connection_metadata != instance.connection_metadata:
                 instance.connection_metadata = connection_metadata
                 instance.save(update_fields=["connection_metadata", "updated_at"])
             # Migrate/dedupe legacy rows before sync_old_schemas; non-Postgres only once namespace cleared.
@@ -2033,6 +2099,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
             if instance.source_type == ExternalDataSourceType.POSTGRES:
                 reconciled_deleted_schemas = reconcile_postgres_schemas(
+                    source=instance,
+                    source_schemas=schemas,
+                    team_id=self.team_id,
+                )
+                if reconciled_deleted_schemas:
+                    schemas_deleted = list({*schemas_deleted, *reconciled_deleted_schemas})
+            elif instance.source_type == ExternalDataSourceType.MYSQL:
+                reconciled_deleted_schemas = reconcile_mysql_schemas(
                     source=instance,
                     source_schemas=schemas,
                     team_id=self.team_id,
@@ -2080,7 +2154,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         source_config: Config = source.parse_config(request.data)
 
         access_method = request.data.get("access_method", ExternalDataSource.AccessMethod.WAREHOUSE)
-        if source_type_model == ExternalDataSourceType.POSTGRES and isinstance(source, PostgresSource):
+        if isinstance(source, (PostgresSource, MySQLSource)):
             credentials_valid, credentials_error = source.validate_credentials_for_access_method(
                 cast(Any, source_config), self.team_id, access_method
             )
@@ -2330,7 +2404,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             )
         source_config: Config = source.parse_config(payload)
 
-        if source_type_model == ExternalDataSourceType.POSTGRES and isinstance(source, PostgresSource):
+        if isinstance(source, (PostgresSource, MySQLSource)):
             credentials_valid, credentials_error = source.validate_credentials_for_access_method(
                 cast(Any, source_config), self.team_id, access_method
             )
@@ -2884,10 +2958,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         access_method = request.data.get("access_method", ExternalDataSource.AccessMethod.WAREHOUSE)
 
         if access_method == ExternalDataSource.AccessMethod.DIRECT:
-            if source_type != ExternalDataSourceType.POSTGRES:
+            if source_type not in (ExternalDataSourceType.POSTGRES, ExternalDataSourceType.MYSQL):
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": "Direct query mode is currently supported only for Postgres sources."},
+                    data={"message": "Direct query mode is currently supported only for Postgres and MySQL sources."},
                 )
 
             normalized_prefix = prefix.strip() if isinstance(prefix, str) else ""
@@ -3047,7 +3121,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             ExternalDataSource._base_manager.filter(
                 team_id=self.team_id,
                 access_method=ExternalDataSource.AccessMethod.DIRECT,
-                source_type=ExternalDataSourceType.POSTGRES,
+                source_type__in=(ExternalDataSourceType.POSTGRES, ExternalDataSourceType.MYSQL),
             )
             .exclude(deleted=True)
             .only("id", "prefix", "connection_metadata")

@@ -7,7 +7,7 @@ class Migration(migrations.Migration):
     # Concurrent index builds cannot run inside a transaction. Lives in its own
     # migration per PostHog policy (don't mix CONCURRENTLY operations with regular DDL).
     atomic = False
-    dependencies = [("posthog", "1225_teamprovisioningconfig_application")]
+    dependencies = [("posthog", "1226_teamprovisioningconfig_application")]
 
     operations = [
         migrations.SeparateDatabaseAndState(
