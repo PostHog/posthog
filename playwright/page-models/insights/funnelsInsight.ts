@@ -117,6 +117,12 @@ export class FunnelsInsight {
         await input.press('Enter')
     }
 
+    async getConversionWindowInterval(): Promise<string> {
+        await this.expandFunnelSettings()
+        await expect(this.conversionWindowInput).toHaveValue(/\d+/)
+        return await this.conversionWindowInput.inputValue()
+    }
+
     async selectConversionWindowUnit(unit: string): Promise<void> {
         await this.expandFunnelSettings()
         await this.conversionWindowSection.getByTestId('funnel-conversion-window-unit').click()

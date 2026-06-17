@@ -2,12 +2,13 @@ import { actions, afterMount, kea, listeners, path, props, reducers, selectors }
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
+import { objectsEqual } from 'lib/utils/objects'
+
 import { ApiConfig } from '~/lib/api'
 import { Sorting } from '~/lib/lemon-ui/LemonTable'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
 import { PaginationManual } from '~/lib/lemon-ui/PaginationControl'
 import { trackedActionToUrl } from '~/lib/logic/scenes/trackedActionToUrl'
-import { objectsEqual } from '~/lib/utils'
 import { sceneLogic } from '~/scenes/sceneLogic'
 import { urls } from '~/scenes/urls'
 
@@ -15,11 +16,8 @@ import {
     llmSkillsList,
     llmSkillsNameArchiveCreate,
     llmSkillsNameDuplicateCreate,
-} from 'products/ai_observability/frontend/generated/api'
-import type {
-    LLMSkillListApi,
-    PaginatedLLMSkillListListApi,
-} from 'products/ai_observability/frontend/generated/api.schemas'
+} from 'products/skills/frontend/generated/api'
+import type { LLMSkillListApi, PaginatedLLMSkillListListApi } from 'products/skills/frontend/generated/api.schemas'
 
 import type { llmSkillsLogicType } from './llmSkillsLogicType'
 

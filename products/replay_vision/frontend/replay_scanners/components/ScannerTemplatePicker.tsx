@@ -14,13 +14,12 @@ import {
     IconThumbsDown,
     IconWarning,
 } from '@posthog/icons'
-import { LemonTag } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
+import { ScannerTypeBadge } from '../../components/ScannerTypeBadge'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { ScannerTemplate, ScannerTemplateIcon, defaultScannerTemplates, newScanner } from '../scannerTemplates'
-import { scannerTypeLabel } from '../types'
 
 function getTemplateIcon(icon: ScannerTemplateIcon): JSX.Element {
     const iconClass = 'w-6 h-6 text-primary-3000'
@@ -79,11 +78,7 @@ function TemplateCard({ template }: { template: ScannerTemplate | 'blank' }): JS
                         <h3 className="text-base font-semibold text-default mb-0">
                             {isBlank ? 'Create from scratch' : template.name}
                         </h3>
-                        {!isBlank && (
-                            <LemonTag type="option" size="small">
-                                {scannerTypeLabel(template.scanner_type)}
-                            </LemonTag>
-                        )}
+                        {!isBlank && <ScannerTypeBadge scannerType={template.scanner_type} size="small" />}
                     </div>
                     <p className="text-sm text-secondary leading-relaxed">
                         {isBlank

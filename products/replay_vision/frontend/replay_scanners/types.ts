@@ -196,6 +196,7 @@ export interface BaseReplayScanner {
     model: string
     emits_signals: boolean
     scanner_version: number
+    estimated_monthly_observations?: number | null
     last_swept_at: string
     created_at: string
     updated_at: string

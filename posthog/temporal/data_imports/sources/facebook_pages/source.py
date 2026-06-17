@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,7 @@ class FacebookPagesSource(SimpleSource[FacebookPagesSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.FACEBOOK_PAGES,
+            category=DataWarehouseSourceCategory.COMMUNICATION,
             label="Facebook Pages",
             iconPath="/static/services/facebook_pages.png",
             fields=cast(list[FieldType], []),

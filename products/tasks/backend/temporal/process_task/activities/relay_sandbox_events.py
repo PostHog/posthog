@@ -13,12 +13,15 @@ from temporalio import activity
 
 from posthog.temporal.common.utils import close_db_connections
 
-from products.tasks.backend.models import TaskRun as TaskRunModel
+from products.tasks.backend.models import (
+    Task as TaskModel,
+    TaskRun as TaskRunModel,
+)
 from products.tasks.backend.redis import run_uses_dedicated_stream
 from products.tasks.backend.services.agent_command import validate_sandbox_url
 from products.tasks.backend.services.connection_token import create_sandbox_connection_token
 from products.tasks.backend.stream.redis_stream import TaskRunRedisStream, get_task_run_stream_key
-from products.tasks.backend.temporal.constants import INACTIVITY_TIMEOUT
+from products.tasks.backend.temporal.constants import INACTIVITY_TIMEOUT_DEFAULT_SECONDS, resolve_inactivity_timeout
 
 from ee.hogai.sandbox import is_turn_complete
 
@@ -61,6 +64,14 @@ async def relay_sandbox_events(input: RelaySandboxEventsInput) -> None:
         raise ValueError(f"Invalid sandbox URL: {validation_error}")
 
     task_run = await TaskRunModel.objects.select_related("task__created_by").aget(id=input.run_id)
+
+    # Match the freshness window to the workflow's inactivity timeout for this run
+    # so the heartbeat suppression below never resets a timer it shouldn't.
+    origin_product = task_run.task.origin_product
+    is_user_origin = not origin_product or origin_product == TaskModel.OriginProduct.USER_CREATED.value
+    inactivity_timeout_seconds = resolve_inactivity_timeout(
+        is_user_origin=is_user_origin, state=task_run.state
+    ).total_seconds()
 
     stream_key = get_task_run_stream_key(input.run_id)
     redis_stream = TaskRunRedisStream(stream_key, run_uses_dedicated_stream(task_run.state))
@@ -106,6 +117,7 @@ async def relay_sandbox_events(input: RelaySandboxEventsInput) -> None:
             sandbox_id=input.sandbox_id,
             background_logs_enabled=background_logs_enabled,
             task_run=task_run,
+            inactivity_timeout_seconds=inactivity_timeout_seconds,
         )
     except asyncio.CancelledError:
         logger.info("relay_sandbox_events_cancelled", run_id=input.run_id)
@@ -182,6 +194,7 @@ async def _background_heartbeat(
     last_event_time: list[float] | None = None,
     last_workflow_signal: list[float] | None = None,
     agent_active: list[bool] | None = None,
+    inactivity_timeout_seconds: float = INACTIVITY_TIMEOUT_DEFAULT_SECONDS,
 ) -> None:
     """Heartbeat to Temporal periodically, independent of event flow.
 
@@ -200,7 +213,7 @@ async def _background_heartbeat(
                 workflow_handle is not None
                 and last_event_time is not None
                 and last_event_time[0] > 0
-                and (now - last_event_time[0]) < INACTIVITY_TIMEOUT.total_seconds()
+                and (now - last_event_time[0]) < inactivity_timeout_seconds
                 and (last_workflow_signal is None or (now - last_workflow_signal[0]) >= HEARTBEAT_INTERVAL_SECONDS)
                 and (agent_active is None or agent_active[0])
             ):
@@ -225,6 +238,7 @@ async def _relay_loop(
     sandbox_id: str | None = None,
     background_logs_enabled: bool = False,
     task_run: TaskRunModel | None = None,
+    inactivity_timeout_seconds: float = INACTIVITY_TIMEOUT_DEFAULT_SECONDS,
 ) -> None:
     """Connect to sandbox SSE and relay events to Redis. Reconnects on transient failures."""
     reconnect_count = 0
@@ -250,7 +264,14 @@ async def _relay_loop(
 
     stop_heartbeat = asyncio.Event()
     heartbeat_task = asyncio.create_task(
-        _background_heartbeat(stop_heartbeat, workflow_handle, last_event_time, last_workflow_signal, agent_active)
+        _background_heartbeat(
+            stop_heartbeat,
+            workflow_handle,
+            last_event_time,
+            last_workflow_signal,
+            agent_active,
+            inactivity_timeout_seconds=inactivity_timeout_seconds,
+        )
     )
 
     try:

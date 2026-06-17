@@ -1,5 +1,5 @@
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import { AnyPropertyFilter } from '~/types'
 

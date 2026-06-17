@@ -75,14 +75,19 @@ describe('DashboardHeader', () => {
     function renderHeader(opts: {
         dashboard?: DashboardType<QueryBasedInsightModel>
         dashboardMode?: DashboardMode | null
+        dashboardModeSource?: DashboardEventSource
     }): { logic: ReturnType<typeof dashboardLogic.build> } {
-        const { dashboard = MOCK_DASHBOARD, dashboardMode = null } = opts
+        const {
+            dashboard = MOCK_DASHBOARD,
+            dashboardMode = null,
+            dashboardModeSource = DashboardEventSource.Browser,
+        } = opts
 
         const logic = dashboardLogic({ id: dashboard.id, dashboard })
         logic.mount()
 
         if (dashboardMode) {
-            logic.actions.setDashboardMode(dashboardMode, DashboardEventSource.Browser)
+            logic.actions.setDashboardMode(dashboardMode, dashboardModeSource)
         }
 
         render(
@@ -110,8 +115,23 @@ describe('DashboardHeader', () => {
             notVisible: ['dashboard-edit-mode-discard', 'dashboard-edit-mode-save', 'dashboard-edit-mode-button'],
         },
         {
-            scenario: 'Edit mode',
+            scenario: 'Filter edit mode',
             dashboardMode: DashboardMode.Edit,
+            dashboardModeSource: DashboardEventSource.DashboardFilters,
+            canEdit: true,
+            visible: ['dashboard-add-tile'],
+            notVisible: [
+                'dashboard-edit-mode-discard',
+                'dashboard-edit-mode-save',
+                'dashboard-share-button',
+                'add-text-tile-to-dashboard',
+                'dashboard-add-graph-header',
+            ],
+        },
+        {
+            scenario: 'Layout edit mode',
+            dashboardMode: DashboardMode.Edit,
+            dashboardModeSource: DashboardEventSource.SceneCommonButtons,
             canEdit: true,
             visible: ['dashboard-edit-mode-discard', 'dashboard-edit-mode-save', 'dashboard-add-tile'],
             notVisible: ['dashboard-share-button', 'add-text-tile-to-dashboard', 'dashboard-add-graph-header'],
@@ -123,19 +143,22 @@ describe('DashboardHeader', () => {
             visible: ['dashboard-exit-presentation-mode'],
             notVisible: ['dashboard-share-button', 'dashboard-edit-mode-save'],
         },
-    ])('$scenario shows correct action buttons', ({ dashboardMode, canEdit, visible, notVisible }) => {
-        const dashboard = makeDashboard({
-            user_access_level: canEdit ? AccessControlLevel.Editor : AccessControlLevel.Viewer,
-        })
-        const { logic } = renderHeader({ dashboard, dashboardMode })
+    ])(
+        '$scenario shows correct action buttons',
+        ({ dashboardMode, dashboardModeSource, canEdit, visible, notVisible }) => {
+            const dashboard = makeDashboard({
+                user_access_level: canEdit ? AccessControlLevel.Editor : AccessControlLevel.Viewer,
+            })
+            const { logic } = renderHeader({ dashboard, dashboardMode, dashboardModeSource })
 
-        for (const attr of visible) {
-            expect(document.querySelector(`[data-attr="${attr}"]`)).toBeInTheDocument()
-        }
-        for (const attr of notVisible) {
-            expect(document.querySelector(`[data-attr="${attr}"]`)).not.toBeInTheDocument()
-        }
+            for (const attr of visible) {
+                expect(document.querySelector(`[data-attr="${attr}"]`)).toBeInTheDocument()
+            }
+            for (const attr of notVisible) {
+                expect(document.querySelector(`[data-attr="${attr}"]`)).not.toBeInTheDocument()
+            }
 
-        logic.unmount()
-    })
+            logic.unmount()
+        }
+    )
 })

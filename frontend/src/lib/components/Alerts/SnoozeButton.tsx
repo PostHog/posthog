@@ -1,5 +1,5 @@
 import { dayjs } from 'lib/dayjs'
-import { formatDate } from 'lib/utils'
+import { formatDate } from 'lib/utils/datetime'
 
 import { DateFilter } from '../DateFilter/DateFilter'
 

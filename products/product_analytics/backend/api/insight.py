@@ -612,6 +612,27 @@ class InsightSerializer(InsightBasicSerializer):
         created_by = validated_data.pop("created_by", request.user)
         dashboards = validated_data.pop("dashboards", None)
 
+        # Validate dashboard access before creating anything: create() runs in autocommit,
+        # so raising mid-way would otherwise leave an orphaned insight (and emit user actions
+        # for tiles that never persist on multi-dashboard requests).
+        target_dashboards: list[Dashboard] = []
+        if dashboards is not None:
+            # Per-dashboard limit (analytics.max_insights_per_dashboard) is enforced
+            # in validate(); see InsightSerializer.validate above.
+            # nosemgrep: idor-lookup-without-team
+            target_dashboards = list(Dashboard.objects.filter(id__in=[d.id for d in dashboards]))
+            for dashboard in target_dashboards:
+                # Mirror the update path: adding a tile is an edit of the dashboard, so a
+                # restricted dashboard the user can't edit must not be writable on create either.
+                if (
+                    self.user_permissions.dashboard(dashboard).effective_privilege_level
+                    != Dashboard.PrivilegeLevel.CAN_EDIT
+                ):
+                    raise PermissionDenied(f"You don't have permission to add insights to dashboard: {dashboard.id}")
+
+                if dashboard.team_id != team_id:
+                    raise serializers.ValidationError("Dashboard not found")
+
         insight = Insight.objects.create(
             team_id=team_id,
             created_by=created_by,
@@ -621,28 +642,21 @@ class InsightSerializer(InsightBasicSerializer):
 
         InsightViewed.objects.create(team_id=team_id, user=request.user, insight=insight, last_viewed_at=now())
 
-        if dashboards is not None:
-            # Per-dashboard limit (analytics.max_insights_per_dashboard) is enforced
-            # in validate(); see InsightSerializer.validate above.
-            # nosemgrep: idor-lookup-without-team
-            for dashboard in Dashboard.objects.filter(id__in=[d.id for d in dashboards]).all():
-                if dashboard.team != insight.team:
-                    raise serializers.ValidationError("Dashboard not found")
-
-                DashboardTile.objects.create(
-                    insight=insight, dashboard=dashboard, team_id=dashboard.team_id, last_refresh=now()
-                )
-                report_user_action(
-                    self.context["request"].user,
-                    "dashboard tile added",
-                    {
-                        "tile_type": "insight",
-                        "insight_type": _get_insight_type(insight),
-                        "dashboard_id": dashboard.id,
-                    },
-                    team=insight.team,
-                    request=self.context["request"],
-                )
+        for dashboard in target_dashboards:
+            DashboardTile.objects.create(
+                insight=insight, dashboard=dashboard, team_id=dashboard.team_id, last_refresh=now()
+            )
+            report_user_action(
+                self.context["request"].user,
+                "dashboard tile added",
+                {
+                    "tile_type": "insight",
+                    "insight_type": _get_insight_type(insight),
+                    "dashboard_id": dashboard.id,
+                },
+                team=insight.team,
+                request=self.context["request"],
+            )
 
         # Manual tag creation since this create method doesn't call super()
         self._attempt_set_tags(tags, insight)
@@ -825,7 +839,23 @@ class InsightSerializer(InsightBasicSerializer):
                         f"You don't have permission to remove insights from dashboard: {dashboard.id}"
                     )
 
+            # Capture the still-active tiles before soft-deleting so we report one
+            # "dashboard tile removed" per tile that is actually removed.
+            tiles_to_remove = list(DashboardTile.objects.filter(dashboard_id__in=ids_to_remove, insight=instance))
             DashboardTile.objects.filter(dashboard_id__in=ids_to_remove, insight=instance).update(deleted=True)
+
+            for tile in tiles_to_remove:
+                report_user_action(
+                    self.context["request"].user,
+                    "dashboard tile removed",
+                    {
+                        "tile_type": "insight",
+                        "insight_type": _get_insight_type(instance),
+                        "dashboard_id": tile.dashboard_id,
+                    },
+                    team=instance.team,
+                    request=self.context["request"],
+                )
 
         self.context["after_dashboard_changes"] = [describe_change(d) for d in dashboards if not d.deleted]
 
@@ -1067,13 +1097,19 @@ class InsightSerializer(InsightBasicSerializer):
                 # Shared rendering bypasses the FE scene-tag flow, so set product/feature
                 # tags here. No-op overwrite for authenticated paths (same values).
                 shared_tags = {"access_method": AccessMethod.SHARING_TOKEN} if is_shared else {}
+                request_user = None if self.context["request"].user.is_anonymous else self.context["request"].user
+                # Reuse the request's single UserAccessControl across all of a dashboard's insight
+                # runners, so the cache fingerprint resolves access once per request, not per tile.
+                view = self.context.get("view")
+                request_user_access_control = getattr(view, "user_access_control", None) if request_user else None
                 with tags_context(product=ProductKey.PRODUCT_ANALYTICS, feature=Feature.INSIGHT, **shared_tags):
                     return calculate_for_query_based_insight(
                         insight,
                         team=self.context["get_team"](),
                         dashboard=dashboard,
                         execution_mode=execution_mode,
-                        user=None if self.context["request"].user.is_anonymous else self.context["request"].user,
+                        user=request_user,
+                        user_access_control=request_user_access_control,
                         filters_override=filters_override,
                         variables_override=variables_override,
                         tile_filters_override=tile_filters_override,

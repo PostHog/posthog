@@ -312,7 +312,7 @@ def snowflake_type_to_data_type(type: SnowflakeType) -> pa.DataType:
             base_type = pa.bool_()
         case "VARIANT":
             base_type = JsonType()
-        case "TIMESTAMP" | "TIMESTAMP_NTZ" | "TIMESTAMP_LTZ":
+        case "TIMESTAMP" | "TIMESTAMP_NTZ" | "TIMESTAMP_LTZ" | "TIMESTAMP_TZ":
             base_type = pa.timestamp("ms", tz="UTC")
         case "FLOAT" | "FLOAT4" | "FLOAT8" | "DOUBLE PRECISION" | "REAL":
             base_type = pa.float64()
@@ -1018,8 +1018,9 @@ class SnowflakeClient:
             max_attempts=max_attempts,
             retryable_exceptions=(snowflake.connector.errors.ProgrammingError,),
             # 608 = Warehouse suspended error
-            is_exception_retryable=lambda e: isinstance(e, snowflake.connector.errors.ProgrammingError)
-            and (e.errno == 608 or e.errno == 90073),
+            is_exception_retryable=lambda e: (
+                isinstance(e, snowflake.connector.errors.ProgrammingError) and (e.errno == 608 or e.errno == 90073)
+            ),
         )
 
         # We need to explicitly catch exceptions here because otherwise they seem to be swallowed

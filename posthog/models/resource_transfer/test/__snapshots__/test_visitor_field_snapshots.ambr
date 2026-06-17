@@ -213,6 +213,7 @@
     'only_count_matured_users',
     'parameters',
     'primary_metrics_ordered_uuids',
+    'running_time_calculation',
     'scheduling_config',
     'secondary_metrics',
     'secondary_metrics_ordered_uuids',

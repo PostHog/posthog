@@ -1,7 +1,7 @@
 import './DateDisplay.scss'
 
 import { dayjs } from 'lib/dayjs'
-import { getConstrainedWeekRange } from 'lib/utils/dateTimeUtils'
+import { getConstrainedWeekRange } from 'lib/utils/datetime'
 
 import { ResolvedDateRangeResponse } from '~/queries/schema/schema-general'
 import { IntervalType } from '~/types'
