@@ -120,7 +120,14 @@ Examples:
 
 Both can reference the same event — the difference is whether you care about count/magnitude (mean) or yes/no conversion (funnel).
 
-See `references/metric-configuration.md` for the full rendered `ExperimentMetric` schema (all four metric types, with required fields per type) plus WRONG/RIGHT JSON pairs for the failure modes that come up most often (ratio with `is_set` filter instead of `math: "sum"` + `math_property`; retention without `retention_window_start` / `start_handling`). Read it before assembling a ratio or retention payload — the required fields are authoritative.
+**Retention: same vs different start/completion event**
+
+The retention window is measured from the start event, so the events you pick decide what's measured:
+
+- **Different** start and completion events → conversion-style retention ("did they reach the target action within the window?"). `retention_window_start: 0` is fine — same-day completions count.
+- **Same** start and completion event → repeat retention ("did they do it _again_ later?"). This **requires `retention_window_start` ≥ 1** with `start_handling: "first_seen"`. With `From 0` the start occurrence is its own completion, so the metric is always 100%. When a user says "retention of <event>" they usually mean repeat retention, so default to `From 1`.
+
+See `references/metric-configuration.md` for the full rendered `ExperimentMetric` schema (all four metric types, with required fields per type) plus WRONG/RIGHT JSON pairs for the failure modes that come up most often (ratio with `is_set` filter instead of `math: "sum"` + `math_property`; retention without `retention_window_start` / `start_handling`; retention with the same start and completion event and `retention_window_start: 0`, which always reads 100%). Read it before assembling a ratio or retention payload — the required fields are authoritative.
 
 ### Step 3: Primary vs secondary
 

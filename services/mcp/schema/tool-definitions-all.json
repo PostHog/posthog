@@ -8171,6 +8171,20 @@
             "readOnlyHint": false
         }
     },
+    "workflows-patch-graph": {
+        "description": "Surgically edit a draft workflow's graph by sending a small, ordered list of operations instead of resending every action and edge. Prefer this over workflows-update for any change to an existing draft — to tweak one node's config use update_action with a deep-merge patch (e.g. change just an email subject), and use add_action / remove_action / add_edge / remove_edge / replace_action_edges for structural changes. Reference nodes and edges by id. Operations apply atomically: the graph is read, the ops applied in order, the result fully validated (dangling edges, branch indexes, single trigger), and saved only if valid — otherwise nothing changes. Draft only — active workflows are read-only via MCP. The full updated workflow is returned, so you don't need to re-fetch before the next edit.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Patch workflow graph",
+        "title": "Patch workflow graph",
+        "required_scopes": ["hog_flow:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "workflows-run-batch": {
         "description": "Broadcast a batch workflow to its matching users NOW — sends real messages/webhooks, not a test. Workflow must be enabled. STOP before calling: show the user the audience size from workflows-blast-radius and get their explicit confirmation in a separate turn — never size and fire in one step. Requires acknowledged_affected_count from workflows-blast-radius; rejects on drift or over the cap.",
         "category": "Workflows",
