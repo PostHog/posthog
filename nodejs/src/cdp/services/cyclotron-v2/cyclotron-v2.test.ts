@@ -511,9 +511,7 @@ describe('Cyclotron V2', () => {
                 )
 
             it('clamps the batch to the granted limit', async () => {
-                for (let i = 0; i < 10; i++) {
-                    await manager.createJob({ teamId: 1, queueName: QUEUE })
-                }
+                await manager.bulkCreateJobs(Array.from({ length: 10 }, () => ({ teamId: 1, queueName: QUEUE })))
 
                 // eslint-disable-next-line @typescript-eslint/require-await
                 const worker = createRateLimitedWorker(async () => ({ limit: 3 }))
@@ -540,9 +538,7 @@ describe('Cyclotron V2', () => {
             })
 
             it('falls back to batchMaxSize when the hook returns undefined', async () => {
-                for (let i = 0; i < 5; i++) {
-                    await manager.createJob({ teamId: 1, queueName: QUEUE })
-                }
+                await manager.bulkCreateJobs(Array.from({ length: 5 }, () => ({ teamId: 1, queueName: QUEUE })))
 
                 // eslint-disable-next-line @typescript-eslint/require-await
                 const worker = createRateLimitedWorker(async () => undefined)
@@ -612,9 +608,7 @@ describe('Cyclotron V2', () => {
                 // Sparse-traffic regression guard. 3 ready rows + batchMaxSize=100
                 // → hook must be asked for 3 tokens, not 100. Without pre-sizing,
                 // a single trickle of jobs would drain the full bucket per send.
-                for (let i = 0; i < 3; i++) {
-                    await manager.createJob({ teamId: 1, queueName: QUEUE })
-                }
+                await manager.bulkCreateJobs(Array.from({ length: 3 }, () => ({ teamId: 1, queueName: QUEUE })))
 
                 const requestedHistory: number[] = []
                 const worker = createRateLimitedWorker((requested) => {
@@ -631,9 +625,7 @@ describe('Cyclotron V2', () => {
             it('caps the visible row count at batchMaxSize', async () => {
                 // Backlog of 10 rows with batchMaxSize=4 should ask for 4
                 // (the batch ceiling), not 10.
-                for (let i = 0; i < 10; i++) {
-                    await manager.createJob({ teamId: 1, queueName: QUEUE })
-                }
+                await manager.bulkCreateJobs(Array.from({ length: 10 }, () => ({ teamId: 1, queueName: QUEUE })))
 
                 const requestedHistory: number[] = []
                 const worker = createRateLimitedWorker(
