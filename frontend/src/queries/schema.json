@@ -11747,6 +11747,26 @@
             "required": ["bytes_read", "rows_read", "estimated_rows_total", "time_elapsed", "active_cpu_time"],
             "type": "object"
         },
+        "ClientToolResultPayload": {
+            "additionalProperties": false,
+            "properties": {
+                "action": {
+                    "const": "client_tool_result",
+                    "type": "string"
+                },
+                "result": {
+                    "additionalProperties": {},
+                    "description": "Result produced by the tool's client-side handler, returned verbatim to the tool awaiting it",
+                    "type": "object"
+                },
+                "tool_call_id": {
+                    "description": "Tool call id this result answers — echoed back so misdelivery fails loudly instead of silently",
+                    "type": "string"
+                }
+            },
+            "required": ["action", "result"],
+            "type": "object"
+        },
         "CohortPropertyFilter": {
             "additionalProperties": false,
             "description": "Sync with nodejs/src/types.ts",
@@ -37319,6 +37339,9 @@
                 },
                 {
                     "$ref": "#/definitions/FormDismissPayload"
+                },
+                {
+                    "$ref": "#/definitions/ClientToolResultPayload"
                 }
             ]
         },

@@ -818,6 +818,21 @@ class ChartSettingsFormatting(BaseModel):
     suffix: str | None = None
 
 
+class ClientToolResultPayload(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    action: Literal["client_tool_result"] = "client_tool_result"
+    result: dict[str, Any] = Field(
+        ...,
+        description=("Result produced by the tool's client-side handler, returned verbatim to the tool awaiting it"),
+    )
+    tool_call_id: str | None = Field(
+        default=None,
+        description=("Tool call id this result answers — echoed back so misdelivery fails loudly instead of silently"),
+    )
+
+
 class CompareFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5871,8 +5886,10 @@ class ResultCustomization(RootModel[ResultCustomizationByValue | ResultCustomiza
     root: ResultCustomizationByValue | ResultCustomizationByPosition
 
 
-class ResumePayload(RootModel[ApprovalResumePayload | FormResumePayload | FormDismissPayload]):
-    root: ApprovalResumePayload | FormResumePayload | FormDismissPayload
+class ResumePayload(
+    RootModel[ApprovalResumePayload | FormResumePayload | FormDismissPayload | ClientToolResultPayload]
+):
+    root: ApprovalResumePayload | FormResumePayload | FormDismissPayload | ClientToolResultPayload
 
 
 class RetentionResult(BaseModel):
