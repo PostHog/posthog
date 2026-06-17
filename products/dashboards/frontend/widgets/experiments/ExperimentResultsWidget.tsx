@@ -7,7 +7,6 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
 import { StatusTag } from 'scenes/experiments/ExperimentView/StatusTag'
-import { NotebookCompactTable } from 'scenes/experiments/notebook/NotebookCompactTable'
 import { urls } from 'scenes/urls'
 
 import type { ExperimentMetric, NewExperimentQueryResponse } from '~/queries/schema/schema-general'
@@ -15,6 +14,7 @@ import type { ExperimentStatus } from '~/types'
 
 import { WidgetCardBodyMessage, WidgetCardContent } from '../../components/WidgetCard'
 import type { DashboardWidgetComponentProps } from '../registry'
+import { NotebookCompactTable } from './LazyNotebookCompactTable'
 
 export type ExperimentResultsWidgetMetricEntry = {
     uuid: string | null
