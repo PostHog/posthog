@@ -5,17 +5,21 @@ import { CyclotronV2Worker, sleep } from './worker'
 
 /**
  * Variant of CyclotronV2Worker that consults a per-poll rate-limit hook before
- * dequeuing. Returning `{ limit: 0 }` skips the SQL entirely and sleeps;
- * returning `{ limit: N }` clamps the dequeue batch to `min(N, batchMaxSize)`.
+ * dequeuing. The hook receives the count of rows actually visible for this
+ * poll (capped at `batchMaxSize`); returning `{ limit: 0 }` skips the SQL
+ * entirely and sleeps, `{ limit: N }` clamps the dequeue batch to
+ * `min(N, batchMaxSize)`.
  *
  * Used by the email worker to gate SES sends behind a Valkey-backed token
- * bucket. Other consumers run the plain `CyclotronV2Worker` with no rate-limit
- * code in their poll loop.
+ * bucket. Sizing the claim to the visible row count is what keeps a sparse
+ * stream of email jobs (one ready row at a time) from draining the bucket's
+ * full capacity per send — see `countWork` on the base worker. Other consumers
+ * run the plain `CyclotronV2Worker` with no rate-limit code in their poll loop.
  */
 export class CyclotronV2RateLimitedWorker extends CyclotronV2Worker {
     constructor(
         config: CyclotronV2WorkerConfig,
-        private readonly getBatchLimit: () => Promise<CyclotronV2BatchLimit | undefined>
+        private readonly getBatchLimit: (requested: number) => Promise<CyclotronV2BatchLimit | undefined>
     ) {
         super(config)
     }
@@ -27,18 +31,20 @@ export class CyclotronV2RateLimitedWorker extends CyclotronV2Worker {
             try {
                 this.lastPollTime = new Date()
 
-                // Cheap pre-check: only claim tokens if there's actual work to
-                // dequeue. Skipping this on idle polls keeps the bucket at
-                // capacity (preserves burst), and keeps the limiter's metrics
-                // silent when there's nothing to send. The SELECT hits the
-                // same partial index as dequeueJobs — strictly cheaper than the
-                // UPDATE ... SKIP LOCKED we'd otherwise have run.
-                if (!(await this.hasWork())) {
+                // Pre-size the token-bucket claim to the number of rows actually
+                // available for this poll, capped at batchMaxSize. Idle polls
+                // (count === 0) skip the limiter entirely so the bucket stays
+                // at capacity for the next burst. Sparse polls (count < capacity)
+                // only consume what they'll send, fixing the "1 ready job drains
+                // the whole bucket" failure mode of asking for full capacity
+                // every time.
+                const visibleRows = await this.countWork(this.batchMaxSize)
+                if (visibleRows === 0) {
                     await sleep(this.pollDelayMs)
                     continue
                 }
 
-                const decision = await this.getBatchLimit()
+                const decision = await this.getBatchLimit(visibleRows)
                 // === 0 (not <=) so a future bug returning a negative limit
                 // surfaces as a SQL LIMIT error instead of silently sleeping.
                 if (decision && decision.limit === 0) {

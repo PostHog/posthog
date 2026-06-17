@@ -41,6 +41,7 @@ from posthog.temporal.data_imports.sources.common.mixins import open_ssh_tunnel
 from posthog.temporal.data_imports.sources.common.sql import (
     Column,
     Table,
+    ValidatedRowFilter,
     compute_projected_columns,
     project_arrow_columns,
 )
@@ -51,6 +52,10 @@ from posthog.temporal.data_imports.sources.common.sql.implementation import (
 )
 from posthog.temporal.data_imports.sources.common.sql.incremental import IncrementalFieldFilter
 from posthog.temporal.data_imports.sources.common.sql.location import normalize_namespace, resolve_source_location
+from posthog.temporal.data_imports.sources.common.sql.predicates_psycopg import (
+    and_join,
+    render_psycopg_row_filter_conditions,
+)
 from posthog.temporal.data_imports.sources.generated_configs import RedshiftSourceConfig
 
 from products.data_warehouse.backend.types import IncrementalFieldType
@@ -177,8 +182,12 @@ def _build_query(
     add_sampling: Optional[bool] = False,
     enabled_columns: Optional[list[str]] = None,
     primary_keys: Optional[list[str]] = None,
+    row_filters: Optional[list[ValidatedRowFilter]] = None,
 ) -> sql.Composed:
     select_clause = _redshift_select_clause(enabled_columns, primary_keys, incremental_field)
+    # Row filters apply only to the real data path; sampling/row-count queries stay unfiltered
+    # (an over-estimate is harmless).
+    row_filter_conditions = render_psycopg_row_filter_conditions(row_filters or [])
 
     if not should_use_incremental_field:
         if add_sampling:
@@ -186,15 +195,14 @@ def _build_query(
             query = sql.SQL("SELECT {cols} FROM {table} WHERE random() < 0.01").format(
                 cols=select_clause, table=sql.Identifier(schema, table_name)
             )
-        else:
-            query = sql.SQL("SELECT {cols} FROM {table}").format(
-                cols=select_clause, table=sql.Identifier(schema, table_name)
-            )
-
-        if add_sampling:
             query_with_limit = cast(LiteralString, f"{query.as_string()} LIMIT 1000")
             return sql.SQL(query_with_limit).format()
 
+        query = sql.SQL("SELECT {cols} FROM {table}").format(
+            cols=select_clause, table=sql.Identifier(schema, table_name)
+        )
+        if row_filter_conditions:
+            query = query + sql.SQL(" WHERE ") + and_join(row_filter_conditions)
         return query
 
     if incremental_field is None or incremental_field_type is None:
@@ -217,22 +225,21 @@ def _build_query(
             op=operator,
             last_value=sql.Literal(db_incremental_field_last_value),
         )
-    else:
-        query = sql.SQL("SELECT {cols} FROM {schema}.{table} WHERE {incremental_field} {op} {last_value}").format(
-            cols=select_clause,
-            schema=sql.Identifier(schema),
-            table=sql.Identifier(table_name),
-            incremental_field=sql.Identifier(incremental_field),
-            op=operator,
-            last_value=sql.Literal(db_incremental_field_last_value),
-        )
-
-    if add_sampling:
         query_with_limit = cast(LiteralString, f"{query.as_string()} LIMIT 1000")
         return sql.SQL(query_with_limit).format()
-    else:
-        query_str = cast(LiteralString, f"{query.as_string()} ORDER BY {{incremental_field}} ASC")
-        return sql.SQL(query_str).format(incremental_field=sql.Identifier(incremental_field))
+
+    query = sql.SQL("SELECT {cols} FROM {schema}.{table} WHERE {incremental_field} {op} {last_value}").format(
+        cols=select_clause,
+        schema=sql.Identifier(schema),
+        table=sql.Identifier(table_name),
+        incremental_field=sql.Identifier(incremental_field),
+        op=operator,
+        last_value=sql.Literal(db_incremental_field_last_value),
+    )
+    if row_filter_conditions:
+        query = query + sql.SQL(" AND ") + and_join(row_filter_conditions)
+    query_str = cast(LiteralString, f"{query.as_string()} ORDER BY {{incremental_field}} ASC")
+    return sql.SQL(query_str).format(incremental_field=sql.Identifier(incremental_field))
 
 
 def _explain_query(cursor: psycopg.Cursor, query: sql.Composed, logger: FilteringBoundLogger):
@@ -991,6 +998,7 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         incremental_field_type = inputs.incremental_field_type
         db_incremental_field_last_value = inputs.db_incremental_field_last_value
         enabled_columns = inputs.enabled_columns
+        row_filters = inputs.row_filters
 
         with self.connect(config) as connection:
             # Autocommit so each best-effort discovery probe runs in its own transaction. A probe
@@ -1043,6 +1051,7 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                         db_incremental_field_last_value,
                         enabled_columns=enabled_columns,
                         primary_keys=primary_keys,
+                        row_filters=row_filters,
                     )
                     logger.debug("Getting table chunk size...")
                     if chunk_size_override is not None:
@@ -1097,6 +1106,7 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                         db_incremental_field_last_value,
                         enabled_columns=enabled_columns,
                         primary_keys=primary_keys,
+                        row_filters=row_filters,
                     )
                     logger.debug(f"Redshift query: {query.as_string()}")
 

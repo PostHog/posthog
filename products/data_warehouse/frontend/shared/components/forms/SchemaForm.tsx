@@ -22,6 +22,7 @@ import { SyncTypeLabelMap } from 'products/data_warehouse/frontend/utils'
 
 import { sourceWizardLogic } from '../../../scenes/NewSourceScene/sourceWizardLogic'
 import { ColumnSelectionPicker } from '../../../scenes/SourceScene/tabs/ColumnSelectionModal'
+import { RowFilterEditor } from '../../../scenes/SourceScene/tabs/RowFilterEditor'
 import { splitQualifiedTableName } from './schemaGroupingUtils'
 import { SyncMethodForm } from './SyncMethodForm'
 
@@ -59,6 +60,7 @@ export default function SchemaForm(): JSX.Element {
         setExpandedSchemaGroupKeys,
         setSchemaNameFilter,
         setSchemaSyncedColumns,
+        setSchemaRowFilters,
     } = useActions(sourceWizardLogic)
     const [columnSelectionSchema, setColumnSelectionSchema] = useState<ExternalDataSourceSyncSchema | null>(null)
     const {
@@ -606,40 +608,74 @@ export default function SchemaForm(): JSX.Element {
                 title={
                     columnSelectionSchema ? (
                         <>
-                            Select columns for <span className="font-mono">{columnSelectionSchema.table}</span>
+                            Columns and row filters for <span className="font-mono">{columnSelectionSchema.table}</span>
                         </>
                     ) : null
                 }
-                description="Primary-key and incremental columns are always synced and cannot be unchecked."
+                description="Choose which columns to sync and add row filters to sync only matching rows. Primary-key and incremental columns are always synced."
                 isOpen={columnSelectionSchema !== null}
                 onClose={() => setColumnSelectionSchema(null)}
+                footer={
+                    <LemonButton type="primary" onClick={() => setColumnSelectionSchema(null)}>
+                        Done
+                    </LemonButton>
+                }
             >
-                <div className="min-w-[420px]">
-                    <ColumnSelectionPicker
-                        schema={
-                            columnSelectionSchema
-                                ? {
-                                      id: columnSelectionSchema.table,
-                                      name: columnSelectionSchema.table,
-                                      enabled_columns: columnSelectionSchema.enabled_columns,
-                                      primary_key_columns: columnSelectionSchema.primary_key_columns,
-                                      incremental_field: columnSelectionSchema.incremental_field,
-                                      available_columns: columnSelectionSchema.available_columns.map((c) => ({
-                                          name: c.field,
-                                          data_type: c.type,
-                                          is_nullable: c.nullable,
-                                      })),
-                                  }
-                                : null
-                        }
-                        onSave={(enabledColumns) => {
-                            if (columnSelectionSchema) {
-                                setSchemaSyncedColumns(columnSelectionSchema, enabledColumns)
+                <div className="min-w-[420px] flex flex-col gap-6">
+                    <div className="flex flex-col gap-2">
+                        <h4 className="font-semibold mb-0">Columns to sync</h4>
+                        <ColumnSelectionPicker
+                            hideActions
+                            schema={
+                                columnSelectionSchema
+                                    ? {
+                                          id: columnSelectionSchema.table,
+                                          name: columnSelectionSchema.table,
+                                          enabled_columns: columnSelectionSchema.enabled_columns,
+                                          primary_key_columns: columnSelectionSchema.primary_key_columns,
+                                          incremental_field: columnSelectionSchema.incremental_field,
+                                          available_columns: columnSelectionSchema.available_columns.map((c) => ({
+                                              name: c.field,
+                                              data_type: c.type,
+                                              is_nullable: c.nullable,
+                                          })),
+                                      }
+                                    : null
                             }
-                            setColumnSelectionSchema(null)
-                        }}
-                        onCancel={() => setColumnSelectionSchema(null)}
-                    />
+                            onChange={(enabledColumns) => {
+                                if (columnSelectionSchema) {
+                                    setSchemaSyncedColumns(columnSelectionSchema, enabledColumns)
+                                }
+                            }}
+                        />
+                    </div>
+                    {columnSelectionSchema?.sync_type !== 'cdc' && (
+                        <div className="flex flex-col gap-2">
+                            <h4 className="font-semibold mb-0">Row filters</h4>
+                            <RowFilterEditor
+                                hideActions
+                                schema={
+                                    columnSelectionSchema
+                                        ? {
+                                              id: columnSelectionSchema.table,
+                                              name: columnSelectionSchema.table,
+                                              row_filters: columnSelectionSchema.row_filters,
+                                              available_columns: columnSelectionSchema.available_columns.map((c) => ({
+                                                  name: c.field,
+                                                  data_type: c.type,
+                                                  is_nullable: c.nullable,
+                                              })),
+                                          }
+                                        : null
+                                }
+                                onChange={(rowFilters) => {
+                                    if (columnSelectionSchema) {
+                                        setSchemaRowFilters(columnSelectionSchema, rowFilters)
+                                    }
+                                }}
+                            />
+                        </div>
+                    )}
                 </div>
             </LemonModal>
         </>
