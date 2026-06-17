@@ -23,17 +23,19 @@ class SynthesizeGroupSummaryResult(BaseModel, frozen=True):
     observation_count: int = 0
 
 
-# --- engine (scheduling + per-action processing) ---
+# --- engine (per-scanner eligibility + per-action processing) ---
 
 
-class ScheduleAllVisionActionsInputs(BaseModel, frozen=True):
-    # Look-ahead so an action whose next_run_at falls within the next tick is picked up now.
-    buffer_seconds: int = 120
+class EvaluateDueVisionActionsInputs(BaseModel, frozen=True):
+    # Scoped to one scanner (the sweep already knows scanner + team) → no cross-team scan.
+    scanner_id: UUID
+    team_id: int
 
 
 class DueVisionAction(BaseModel, frozen=True):
     vision_action_id: UUID
     team_id: int
+    # The next_run_at that fired this action, captured before the claim advanced it.
     scheduled_at: datetime | None = None
 
 

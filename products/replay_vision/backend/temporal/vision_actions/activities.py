@@ -1,10 +1,10 @@
-"""Supporting activities for the vision-action engine: due scan, run lifecycle, advance, and emit."""
+"""Supporting activities for the vision-action engine: per-scanner eligibility/claim, run lifecycle, and emit."""
 
-import datetime as dt
 from datetime import UTC, datetime
 from uuid import UUID
 
 from django.conf import settings
+from django.db import transaction
 
 import structlog
 from temporalio import activity
@@ -24,7 +24,7 @@ from products.replay_vision.backend.temporal.vision_actions.types import (
     CreateVisionActionRunInputs,
     DueVisionAction,
     EmitActionReadyInputs,
-    ScheduleAllVisionActionsInputs,
+    EvaluateDueVisionActionsInputs,
     UpdateVisionActionRunInputs,
 )
 
@@ -36,20 +36,40 @@ _EVENT_SOURCE = "replay_vision"
 
 @activity.defn
 @track_activity()
-async def fetch_due_vision_actions_activity(inputs: ScheduleAllVisionActionsInputs) -> list[DueVisionAction]:
-    return await database_sync_to_async(_fetch_due, thread_sensitive=False)(inputs)
+async def evaluate_due_vision_actions_activity(inputs: EvaluateDueVisionActionsInputs) -> list[DueVisionAction]:
+    return await database_sync_to_async(_evaluate_due, thread_sensitive=False)(inputs)
 
 
-def _fetch_due(inputs: ScheduleAllVisionActionsInputs) -> list[DueVisionAction]:
-    cutoff = datetime.now(UTC) + dt.timedelta(seconds=inputs.buffer_seconds)
-    # nosemgrep: semgrep.rules.idor-lookup-without-team — internal scheduler scans all teams
-    rows = VisionAction.all_teams.filter(
-        enabled=True,
-        trigger_type=TriggerType.SCHEDULE,
-        next_run_at__isnull=False,
-        next_run_at__lte=cutoff,
-    ).values_list("id", "team_id", "next_run_at")
-    return [DueVisionAction(vision_action_id=row[0], team_id=row[1], scheduled_at=row[2]) for row in rows]
+def _evaluate_due(inputs: EvaluateDueVisionActionsInputs) -> list[DueVisionAction]:
+    """Return this scanner's due schedule actions, claiming each by advancing next_run_at.
+
+    The claim happens in the same transaction as the read so the next sweep can't re-fire an action
+    while its child is still running — advancing the cursor here (not in the child) is what prevents
+    a slow or failed child from hot-looping.
+    """
+    now = datetime.now(UTC)
+    due: list[DueVisionAction] = []
+    with transaction.atomic():
+        # for_team scopes the read to one team (no all_teams scan); select_for_update guards against
+        # a concurrent claim (belt-and-suspenders — per-scanner sweeps are already serialized).
+        actions = (
+            VisionAction.objects.for_team(inputs.team_id)
+            .select_for_update()
+            .filter(
+                scanner_id=inputs.scanner_id,
+                enabled=True,
+                trigger_type=TriggerType.SCHEDULE,
+                next_run_at__isnull=False,
+                next_run_at__lte=now,
+            )
+        )
+        for action in actions:
+            scheduled_at = action.next_run_at
+            action._recompute_next_run_at()
+            action.last_run_at = now
+            action.save(update_fields=["next_run_at", "last_run_at", "updated_at"])
+            due.append(DueVisionAction(vision_action_id=action.id, team_id=action.team_id, scheduled_at=scheduled_at))
+    return due
 
 
 @activity.defn
@@ -102,23 +122,6 @@ def _update_run(inputs: UpdateVisionActionRunInputs) -> None:
     VisionActionRun.all_teams.filter(pk=inputs.run_id).update(
         status=inputs.status, error=inputs.error, updated_at=datetime.now(UTC)
     )
-
-
-@activity.defn
-@track_activity()
-async def advance_next_run_at_activity(vision_action_id: UUID) -> None:
-    await database_sync_to_async(_advance_next_run, thread_sensitive=False)(vision_action_id)
-
-
-def _advance_next_run(vision_action_id: UUID) -> None:
-    action = VisionAction.all_teams.filter(pk=vision_action_id).first()
-    if action is None:
-        return
-    # Recompute to the next occurrence after now and stamp the run time. The save() guard won't
-    # re-touch next_run_at (rrule unchanged), so our computed value is what persists.
-    action._recompute_next_run_at()
-    action.last_run_at = datetime.now(UTC)
-    action.save(update_fields=["next_run_at", "last_run_at", "updated_at"])
 
 
 @activity.defn

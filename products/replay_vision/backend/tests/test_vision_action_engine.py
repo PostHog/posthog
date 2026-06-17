@@ -17,16 +17,13 @@ from products.replay_vision.backend.temporal.vision_actions.synthesis import syn
 from products.replay_vision.backend.temporal.vision_actions.types import (
     CreateVisionActionRunInputs,
     EmitActionReadyInputs,
+    EvaluateDueVisionActionsInputs,
     ProcessVisionActionInputs,
-    ScheduleAllVisionActionsInputs,
     SynthesisStatus,
     SynthesizeActionResult,
     UpdateVisionActionRunInputs,
 )
-from products.replay_vision.backend.temporal.vision_actions.workflows import (
-    ProcessVisionActionWorkflow,
-    ScheduleAllVisionActionsWorkflow,
-)
+from products.replay_vision.backend.temporal.vision_actions.workflows import ProcessVisionActionWorkflow
 
 DAILY = "FREQ=DAILY;BYHOUR=9"
 
@@ -47,23 +44,78 @@ def _action(team, **overrides) -> VisionAction:
     return a
 
 
-class TestEngineActivities(BaseTest):
-    def test_fetch_due_selects_only_due_enabled_schedule(self) -> None:
-        due = _action(self.team, name="due")
-        VisionAction.all_teams.filter(pk=due.pk).update(next_run_at=timezone.now() - timedelta(hours=1))
+def _scanner(team) -> ReplayScanner:
+    return ReplayScanner.objects.create(
+        team=team,
+        name=f"scanner-{uuid.uuid4().hex[:8]}",
+        scanner_type=ScannerType.SUMMARIZER,
+        scanner_config={"prompt": "x"},
+        model=ScannerModel.GEMINI_3_FLASH,
+    )
 
-        future = _action(self.team, name="future")
+
+def _make_due(action) -> None:
+    VisionAction.all_teams.filter(pk=action.pk).update(next_run_at=timezone.now() - timedelta(hours=1))
+
+
+class TestEvaluateDue(BaseTest):
+    def _inputs(self, scanner) -> EvaluateDueVisionActionsInputs:
+        return EvaluateDueVisionActionsInputs(scanner_id=scanner.id, team_id=self.team.id)
+
+    def test_selects_only_this_scanners_due_enabled_schedule(self) -> None:
+        scanner = _scanner(self.team)
+        due = _action(self.team, name="due", scanner=scanner)
+        _make_due(due)
+
+        future = _action(self.team, name="future", scanner=scanner)
         VisionAction.all_teams.filter(pk=future.pk).update(next_run_at=timezone.now() + timedelta(days=1))
 
-        _action(self.team, name="disabled", enabled=False)
-        VisionAction.all_teams.filter(name="disabled").update(next_run_at=timezone.now() - timedelta(hours=1))
+        disabled = _action(self.team, name="disabled", scanner=scanner, enabled=False)
+        _make_due(disabled)
 
-        _action(self.team, name="threshold", trigger_type=TriggerType.THRESHOLD, trigger_config={})
+        threshold = _action(self.team, name="threshold", scanner=scanner, trigger_type=TriggerType.THRESHOLD)
+        _make_due(threshold)
 
-        result = act._fetch_due(ScheduleAllVisionActionsInputs())
+        # Due action on a *different* scanner must not be picked up by this scanner's sweep.
+        other_scanner_action = _action(self.team, name="other-scanner")
+        _make_due(other_scanner_action)
+
+        result = act._evaluate_due(self._inputs(scanner))
         self.assertEqual([d.vision_action_id for d in result], [due.id])
         self.assertEqual(result[0].team_id, self.team.id)
 
+    def test_claims_by_advancing_next_run_at(self) -> None:
+        scanner = _scanner(self.team)
+        action = _action(self.team, scanner=scanner)
+        _make_due(action)
+        action.refresh_from_db()
+        fired_at = action.next_run_at
+
+        result = act._evaluate_due(self._inputs(scanner))
+
+        # The fired time is reported as scheduled_at, and the cursor is advanced past now so the next
+        # sweep won't re-fire while the child runs.
+        self.assertEqual(result[0].scheduled_at, fired_at)
+        action.refresh_from_db()
+        assert action.next_run_at is not None
+        self.assertGreater(action.next_run_at, timezone.now())
+        self.assertIsNotNone(action.last_run_at)
+
+        # A second eval finds nothing — the claim already moved the cursor.
+        self.assertEqual(act._evaluate_due(self._inputs(scanner)), [])
+
+    def test_scoped_to_team(self) -> None:
+        scanner = _scanner(self.team)
+        action = _action(self.team, scanner=scanner)
+        _make_due(action)
+        # Querying the same scanner id but a different (real) team returns nothing (for_team scoping).
+        other_team = self.organization.teams.create(name="other")
+        self.assertEqual(
+            act._evaluate_due(EvaluateDueVisionActionsInputs(scanner_id=scanner.id, team_id=other_team.id)), []
+        )
+
+
+class TestEngineActivities(BaseTest):
     def test_create_run_is_idempotent(self) -> None:
         action = _action(self.team)
         inputs = CreateVisionActionRunInputs(
@@ -103,16 +155,6 @@ class TestEngineActivities(BaseTest):
         self.assertEqual(run.status, VisionActionRunStatus.FAILED)
         self.assertEqual(run.error, {"message": "x"})
 
-    def test_advance_next_run(self) -> None:
-        action = _action(self.team)
-        VisionAction.all_teams.filter(pk=action.pk).update(next_run_at=timezone.now() - timedelta(days=2))
-        act._advance_next_run(action.id)
-        action.refresh_from_db()
-        self.assertIsNotNone(action.next_run_at)
-        assert action.next_run_at is not None
-        self.assertGreater(action.next_run_at, timezone.now())
-        self.assertIsNotNone(action.last_run_at)
-
     def test_emit_captures_event(self) -> None:
         action = _action(self.team)
         run = VisionActionRun(
@@ -139,25 +181,16 @@ class TestEngineActivities(BaseTest):
 
 
 class _Mocks:
-    def __init__(self, *, results=None, errors=None, child_errors=None):
+    def __init__(self, *, results=None, errors=None):
         self.results = results or {}
         self.errors = errors or {}
-        self.child_errors = child_errors or {}
         self.activity_calls: list = []
-        self.child_calls: list = []
 
     async def execute_activity(self, fn, arg=None, **_kwargs):
         self.activity_calls.append((fn, arg))
         if fn in self.errors:
             raise self.errors[fn]
         return self.results.get(fn)
-
-    async def execute_child_workflow(self, _run, arg=None, **kwargs):
-        cid = kwargs.get("id")
-        self.child_calls.append((cid, arg))
-        if cid in self.child_errors:
-            raise self.child_errors[cid]
-        return None
 
     def calls(self) -> list:
         return [fn for fn, _ in self.activity_calls]
@@ -213,8 +246,8 @@ async def test_process_maps_synthesis_status(
     assert synthesize_action_activity in call_fns
     assert (act.emit_action_ready_activity in call_fns) is expect_emit
     assert _final_status(mocks) == expected_final
-    # The schedule is always advanced, whatever the outcome — a stuck run must not hot-loop.
-    assert act.advance_next_run_at_activity in call_fns
+    # The schedule cursor is advanced by the eligibility claim, never by this workflow.
+    assert act.evaluate_due_vision_actions_activity not in call_fns
 
 
 @pytest.mark.asyncio
@@ -229,7 +262,6 @@ async def test_process_skips_when_validate_returns_reason() -> None:
 
     assert act.emit_action_ready_activity not in mocks.calls()
     assert _final_status(mocks) == VisionActionRunStatus.SKIPPED.value
-    assert act.advance_next_run_at_activity in mocks.calls()
 
 
 @pytest.mark.asyncio
@@ -244,19 +276,18 @@ async def test_process_synthesis_failure_records_failed_and_reraises() -> None:
     with pytest.raises(RuntimeError, match="llm exploded"):
         await _run_process(_process_inputs(), mocks)
 
-    # Even on failure: run is updated to FAILED and the schedule is advanced (no hot-loop).
+    # Even on failure the run is still updated to FAILED (the schedule was already advanced at claim).
     assert _final_status(mocks) == VisionActionRunStatus.FAILED.value
-    assert act.advance_next_run_at_activity in mocks.calls()
 
 
 @pytest.mark.asyncio
-async def test_advance_failure_does_not_mask_body_error() -> None:
-    # If both the body and the finally's advance raise, the original body error must win —
-    # the advance failure must not clobber it.
+async def test_update_run_failure_does_not_mask_body_error() -> None:
+    # If both the body and the finally's run-update raise, the original body error must win —
+    # the update failure must not clobber it.
     mocks = _Mocks(
         errors={
             synthesize_action_activity: RuntimeError("llm exploded"),
-            act.advance_next_run_at_activity: RuntimeError("advance boom"),
+            act.update_vision_action_run_activity: RuntimeError("update boom"),
         },
         results={
             act.create_vision_action_run_activity: uuid.uuid4(),
@@ -265,47 +296,3 @@ async def test_advance_failure_does_not_mask_body_error() -> None:
     )
     with pytest.raises(RuntimeError, match="llm exploded"):
         await _run_process(_process_inputs(), mocks)
-
-
-async def _run_schedule_all(due_list, mocks: _Mocks) -> None:
-    with (
-        patch("temporalio.workflow.execute_activity", side_effect=mocks.execute_activity),
-        patch("temporalio.workflow.execute_child_workflow", side_effect=mocks.execute_child_workflow),
-        patch("temporalio.workflow.logger", MagicMock()),
-    ):
-        mocks.results[act.fetch_due_vision_actions_activity] = due_list
-        await ScheduleAllVisionActionsWorkflow().run(ScheduleAllVisionActionsInputs())
-
-
-@pytest.mark.asyncio
-async def test_schedule_all_fans_out_one_child_per_due_action() -> None:
-    from products.replay_vision.backend.temporal.vision_actions.types import DueVisionAction
-
-    due = [DueVisionAction(vision_action_id=uuid.uuid4(), team_id=1) for _ in range(3)]
-    mocks = _Mocks()
-    await _run_schedule_all(due, mocks)
-
-    child_ids = {cid for cid, _ in mocks.child_calls}
-    assert child_ids == {f"process-vision-action-{d.vision_action_id}" for d in due}
-
-
-@pytest.mark.asyncio
-async def test_schedule_all_swallows_already_started() -> None:
-    from temporalio.exceptions import WorkflowAlreadyStartedError
-
-    from products.replay_vision.backend.temporal.vision_actions.types import DueVisionAction
-
-    d = DueVisionAction(vision_action_id=uuid.uuid4(), team_id=1)
-    cid = f"process-vision-action-{d.vision_action_id}"
-    mocks = _Mocks(
-        child_errors={cid: WorkflowAlreadyStartedError(workflow_id=cid, workflow_type="process-vision-action")}
-    )
-    # Should not raise — an already-running action is skipped, not a failure.
-    await _run_schedule_all([d], mocks)
-
-
-@pytest.mark.asyncio
-async def test_schedule_all_noop_when_nothing_due() -> None:
-    mocks = _Mocks()
-    await _run_schedule_all([], mocks)
-    assert mocks.child_calls == []
