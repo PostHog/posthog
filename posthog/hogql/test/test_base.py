@@ -57,9 +57,17 @@ def _assert_independent(original: Any, clone: Any, seen: set | None = None) -> N
         assert original is not clone, f"clone shares AST node {type(original).__name__} with the original"
         for f in dataclasses.fields(original):
             _assert_independent(getattr(original, f.name, None), getattr(clone, f.name, None), seen)
-    elif isinstance(original, list | tuple):
-        assert original is not clone, "clone shares a sequence with the original"
-        assert len(original) == len(clone), "clone changed a sequence's length"
+    elif isinstance(original, list):
+        assert original is not clone, "clone shares a list with the original"
+        assert len(original) == len(clone), "clone changed a list's length"
+        for x, y in zip(original, clone):
+            _assert_independent(x, y, seen)
+    elif isinstance(original, tuple):
+        # stdlib deepcopy shares an unchanged immutable tuple (every element identity-preserved);
+        # that is safe -- no mutable state is shared. If any element was cloned, the tuple is rebuilt.
+        if original is clone:
+            return
+        assert len(original) == len(clone), "clone changed a tuple's length"
         for x, y in zip(original, clone):
             _assert_independent(x, y, seen)
     elif isinstance(original, dict):
@@ -156,6 +164,20 @@ def test_deepcopy_handles_self_referential_container_value():
 
     assert clone.value is not value
     assert clone.value[1] is clone.value
+
+
+def test_deepcopy_handles_tuple_rooted_cycle_like_stdlib():
+    # A reference cycle that re-enters a tuple must preserve the tuple's identity, exactly as
+    # stdlib deepcopy does (it returns the in-progress copy, not a second tuple).
+    inner: list = []
+    cyclic_tuple = (inner,)
+    inner.append(cyclic_tuple)
+
+    clone = copy.deepcopy(ast.Constant(value=cyclic_tuple))
+
+    assert clone.value is not cyclic_tuple
+    assert clone.value[0][0] is clone.value  # back-reference resolves to the cloned tuple
+    assert clone.value[0] is not inner
 
 
 def test_deepcopy_deep_copies_dict_fields():

@@ -132,14 +132,12 @@ def _clone_value(value: Any, memo: dict[int, Any]) -> Any:
         for key, item in value.items():
             new_dict[_clone_value(key, memo)] = _clone_value(item, memo)  # keys too, like stdlib
         return new_dict
-    if cls is tuple:
-        # Registered after building: any cycle through a tuple must pass a mutable that already broke the loop, so recursion still terminates.
-        new_tuple = tuple(_clone_value(item, memo) for item in value)
-        memo[id(value)] = new_tuple
-        return new_tuple
     if isinstance(value, Enum):
         return value
-    # Sets and embedded non-AST objects (e.g. database Tables): defer to stdlib, sharing memo.
+    # Tuples, sets, and embedded non-AST objects (e.g. database Tables): defer to stdlib, sharing
+    # memo. A tuple can't be registered before its elements exist, so to preserve cycle identity
+    # (a cycle re-entering the tuple must resolve to the in-progress copy) we let stdlib's
+    # _deepcopy_tuple handle it exactly; AST elements inside still hit the fast path via the memo.
     return copy.deepcopy(value, memo)
 
 
