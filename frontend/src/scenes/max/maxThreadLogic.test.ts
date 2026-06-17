@@ -30,7 +30,7 @@ import {
 import { initKeaTests } from '~/test/init'
 import { Conversation, ConversationDetail, ConversationStatus, ConversationType } from '~/types'
 
-import { EnhancedToolCall } from './max-constants'
+import { EnhancedToolCall, TOOL_DEFINITIONS } from './max-constants'
 import { maxContextLogic } from './maxContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
@@ -917,6 +917,159 @@ describe('maxThreadLogic', () => {
                 }),
                 expect.any(Object)
             )
+        })
+    })
+
+    describe('client tool execution round trip', () => {
+        const pendingClientToolThread = (): any[] => [
+            {
+                type: AssistantMessageType.Human,
+                content: 'Do the thing',
+                id: 'human-1',
+                status: 'completed',
+            },
+            {
+                type: AssistantMessageType.Assistant,
+                content: '',
+                id: 'assistant-1',
+                status: 'completed',
+                tool_calls: [{ id: 'tc-1', name: 'search', args: { payload: 'data' } }],
+            },
+        ]
+
+        it('runs the registered handler and resumes with its result, even while conversationLoading is still true', async () => {
+            const streamSpy = mockStream()
+            const clientExecution = jest.fn().mockResolvedValue({ ok: true })
+            maxGlobalLogic().actions.registerTool({
+                identifier: 'search',
+                name: 'Search PostHog data',
+                clientExecution,
+            } as any)
+            // The round trip must fire even though conversationLoading is still true at this point
+            logic.actions.setConversation(MOCK_IN_PROGRESS_CONVERSATION)
+            logic.actions.setThread(pendingClientToolThread())
+
+            await expectLogic(logic, () => {
+                logic.actions.completeThreadGeneration()
+            }).toDispatchActions(['executePendingClientToolCall', 'continueWithClientToolResult', 'streamConversation'])
+
+            expect(clientExecution).toHaveBeenCalledWith({ payload: 'data' })
+            expect(streamSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    content: null,
+                    conversation: MOCK_CONVERSATION_ID,
+                    resume_payload: {
+                        action: 'client_tool_result',
+                        tool_call_id: 'tc-1',
+                        result: { ok: true },
+                    },
+                }),
+                expect.any(Object)
+            )
+        })
+
+        it('resumes with a refusal when a statically-marked client tool has no registered handler', async () => {
+            const streamSpy = mockStream()
+            logic.actions.setThread(pendingClientToolThread())
+
+            TOOL_DEFINITIONS['search'].clientExecuted = true
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.completeThreadGeneration()
+                }).toDispatchActions(['continueWithClientToolResult'])
+            } finally {
+                delete TOOL_DEFINITIONS['search'].clientExecuted
+            }
+
+            expect(streamSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    resume_payload: expect.objectContaining({
+                        action: 'client_tool_result',
+                        tool_call_id: 'tc-1',
+                        result: { client_execution_error: expect.stringContaining('no longer open') },
+                    }),
+                }),
+                expect.any(Object)
+            )
+        })
+
+        it('attempts the resume only once per tool call', async () => {
+            mockStream()
+            const clientExecution = jest.fn().mockResolvedValue({ ok: true })
+            maxGlobalLogic().actions.registerTool({
+                identifier: 'search',
+                name: 'Search PostHog data',
+                clientExecution,
+            } as any)
+            logic.actions.setThread(pendingClientToolThread())
+
+            await expectLogic(logic, () => {
+                logic.actions.completeThreadGeneration()
+            }).toDispatchActions(['continueWithClientToolResult'])
+            // A failing resume turn re-fires completeThreadGeneration with the same dangling call
+            await expectLogic(logic, () => {
+                logic.actions.completeThreadGeneration()
+            }).toDispatchActions(['executePendingClientToolCall'])
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(clientExecution).toHaveBeenCalledTimes(1)
+        })
+
+        it('drops the resume when a newer turn replaced the pending call while the handler ran', async () => {
+            const streamSpy = mockStream()
+            let resolveHandler: (value: Record<string, unknown>) => void = () => {}
+            const clientExecution = jest
+                .fn()
+                .mockImplementation(() => new Promise<Record<string, unknown>>((resolve) => (resolveHandler = resolve)))
+            maxGlobalLogic().actions.registerTool({
+                identifier: 'search',
+                name: 'Search PostHog data',
+                clientExecution,
+            } as any)
+            logic.actions.setThread(pendingClientToolThread())
+
+            await expectLogic(logic, () => {
+                logic.actions.completeThreadGeneration()
+            }).toDispatchActions(['executePendingClientToolCall'])
+            await new Promise((resolve) => setTimeout(resolve, 0))
+            expect(clientExecution).toHaveBeenCalled()
+
+            // A user message completes a whole new turn while the handler runs — resume must be dropped
+            logic.actions.setThread([
+                ...pendingClientToolThread(),
+                { type: AssistantMessageType.Human, content: 'Never mind', id: 'human-2', status: 'completed' },
+                { type: AssistantMessageType.Assistant, content: 'OK!', id: 'assistant-2', status: 'completed' },
+            ] as any)
+            resolveHandler({ ok: true })
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(streamSpy).not.toHaveBeenCalled()
+        })
+
+        it('does nothing when the turn has no pending client tool call', async () => {
+            const streamSpy = mockStream()
+            const clientExecution = jest.fn()
+            maxGlobalLogic().actions.registerTool({
+                identifier: 'search',
+                name: 'Search PostHog data',
+                clientExecution,
+            } as any)
+            logic.actions.setThread([
+                {
+                    type: AssistantMessageType.Assistant,
+                    content: 'All done!',
+                    id: 'assistant-1',
+                    status: 'completed',
+                } as any,
+            ])
+
+            await expectLogic(logic, () => {
+                logic.actions.completeThreadGeneration()
+            }).toDispatchActions(['executePendingClientToolCall'])
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(clientExecution).not.toHaveBeenCalled()
+            expect(streamSpy).not.toHaveBeenCalled()
         })
     })
 

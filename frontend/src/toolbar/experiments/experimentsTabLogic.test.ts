@@ -1,7 +1,7 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
-import { EXPERIMENT_TARGET_SELECTOR } from 'lib/actionUtils'
+import { EXPERIMENT_TARGET_SELECTOR } from 'lib/utils/actions'
 
 jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
     lemonToast: { success: jest.fn(), error: jest.fn() },

@@ -36,7 +36,7 @@ import { FilterLogicalOperator, InsightShortId, PendingApproval, PropertyFilterT
 
 import conversationList from './__mocks__/conversationList.json'
 import { MaxInstance, MaxInstanceProps } from './Max'
-import { AlertEntry, ChangelogEntry, maxChangelogLogic } from './maxChangelogLogic'
+import { ChangelogEntry, maxChangelogLogic } from './maxChangelogLogic'
 import { maxContextLogic } from './maxContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { QUESTION_SUGGESTIONS_DATA, maxLogic } from './maxLogic'
@@ -3125,18 +3125,6 @@ const SAMPLE_CHANGELOG_ENTRIES: ChangelogEntry[] = [
     },
 ]
 
-const SAMPLE_WARNING_ALERT: AlertEntry = {
-    title: 'Service degraded',
-    description: 'Some AI features may be slower than usual',
-    severity: 'warning',
-}
-
-const SAMPLE_OUTAGE_ALERT: AlertEntry = {
-    title: 'Service outage',
-    description: 'AI features are temporarily unavailable. We are working on a fix.',
-    severity: 'error',
-}
-
 export const ChangelogOnly: Story = {
     render: () => {
         const { setEntries, openChangelog } = useActions(maxChangelogLogic)
@@ -3150,104 +3138,6 @@ export const ChangelogOnly: Story = {
     },
     parameters: {
         featureFlags: ['posthog-ai-changelog'],
-        testOptions: {
-            waitForLoadersToDisappear: false,
-        },
-    },
-}
-
-export const AlertsOnly: Story = {
-    render: () => {
-        const { setAlerts, openChangelog } = useActions(maxChangelogLogic)
-
-        useEffect(() => {
-            setAlerts([SAMPLE_WARNING_ALERT])
-            setTimeout(() => openChangelog(), 100)
-        }, [setAlerts, openChangelog])
-
-        return <Template />
-    },
-    parameters: {
-        featureFlags: ['posthog-ai-alerts'],
-        testOptions: {
-            waitForLoadersToDisappear: false,
-        },
-    },
-}
-
-export const OutageAlert: Story = {
-    render: () => {
-        const { setAlerts, openChangelog } = useActions(maxChangelogLogic)
-
-        useEffect(() => {
-            setAlerts([SAMPLE_OUTAGE_ALERT])
-            setTimeout(() => openChangelog(), 100)
-        }, [setAlerts, openChangelog])
-
-        return <Template />
-    },
-    parameters: {
-        featureFlags: ['posthog-ai-alerts'],
-        testOptions: {
-            waitForLoadersToDisappear: false,
-        },
-    },
-}
-
-export const AlertsWithChangelog: Story = {
-    render: () => {
-        const { setEntries, setAlerts, openChangelog } = useActions(maxChangelogLogic)
-
-        useEffect(() => {
-            setEntries(SAMPLE_CHANGELOG_ENTRIES)
-            setAlerts([SAMPLE_WARNING_ALERT])
-            setTimeout(() => openChangelog(), 100)
-        }, [setEntries, setAlerts, openChangelog])
-
-        return <Template />
-    },
-    parameters: {
-        featureFlags: ['posthog-ai-changelog', 'posthog-ai-alerts'],
-        testOptions: {
-            waitForLoadersToDisappear: false,
-        },
-    },
-}
-
-export const OutageWithChangelog: Story = {
-    render: () => {
-        const { setEntries, setAlerts, openChangelog } = useActions(maxChangelogLogic)
-
-        useEffect(() => {
-            setEntries(SAMPLE_CHANGELOG_ENTRIES)
-            setAlerts([SAMPLE_OUTAGE_ALERT])
-            setTimeout(() => openChangelog(), 100)
-        }, [setEntries, setAlerts, openChangelog])
-
-        return <Template />
-    },
-    parameters: {
-        featureFlags: ['posthog-ai-changelog', 'posthog-ai-alerts'],
-        testOptions: {
-            waitForLoadersToDisappear: false,
-        },
-    },
-}
-
-export const MultipleAlerts: Story = {
-    render: () => {
-        const { setEntries, setAlerts, openChangelog } = useActions(maxChangelogLogic)
-
-        useEffect(() => {
-            setEntries(SAMPLE_CHANGELOG_ENTRIES)
-            setAlerts([SAMPLE_WARNING_ALERT, SAMPLE_OUTAGE_ALERT])
-            setTimeout(() => openChangelog(), 100)
-        }, [setEntries, setAlerts, openChangelog])
-
-        return <Template />
-    },
-    parameters: {
-        featureFlags: ['posthog-ai-changelog', 'posthog-ai-alerts'],
         testOptions: {
             waitForLoadersToDisappear: false,
         },

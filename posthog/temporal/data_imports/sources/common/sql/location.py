@@ -58,7 +58,7 @@ def resolve_source_location(
     """Resolve `(schema, table_name, response_name)` for one warehouse-import row.
 
     Namespace + table priority: per-schema `schema_metadata` → dotted `schema_name` self-heal →
-    `config_namespace` → `default`. `response_name` (the Delta subdir) uses `dwh_storage_key` when
+    `config_namespace` → `default`. `response_name` (the Delta subdir) uses `s3_folder_name` when
     present, so a migrated row keeps its legacy path — no S3 rewrite, no orphaned data.
     """
     metadata = inputs.schema_metadata if isinstance(inputs.schema_metadata, dict) else {}
@@ -71,7 +71,7 @@ def resolve_source_location(
     schema = source_schema or normalize_namespace(config_namespace) or default
     table_name = source_table_name or inputs.schema_name
 
-    storage_key = inputs.dwh_storage_key if isinstance(inputs.dwh_storage_key, str) and inputs.dwh_storage_key else None
+    storage_key = inputs.s3_folder_name if isinstance(inputs.s3_folder_name, str) and inputs.s3_folder_name else None
     response_name = NamingConvention.normalize_identifier(storage_key or inputs.schema_name)
 
     return ResolvedSourceLocation(schema=schema, table_name=table_name, response_name=response_name)

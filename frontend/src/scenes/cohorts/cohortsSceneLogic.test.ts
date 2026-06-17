@@ -188,5 +188,39 @@ describe('cohortsSceneLogic', () => {
                 expect(logic.values.shouldShowEmptyState).toBe(false)
             })
         })
+
+        describe('load errors', () => {
+            it.each([
+                ['detail from the error object', { detail: 'Unknown table `person`' }, 'Unknown table `person`'],
+                ['the error string when there is no detail', {}, 'Internal server error'],
+                ['the default message when detail is undefined', { detail: undefined }, 'Error loading cohorts'],
+            ])('tracks %s', async (_, errorObject, expected) => {
+                router.actions.push(urls.cohorts())
+                await expectLogic(logic).toDispatchActions(['loadCohortsSuccess'])
+                expect(logic.values.cohortsLoadError).toBe(null)
+
+                logic.actions.loadCohortsFailure('Internal server error', errorObject)
+                expect(logic.values.cohortsLoadError).toBe(expected)
+            })
+
+            it('suppresses the empty state while there is a load error', async () => {
+                router.actions.push(urls.cohorts())
+                await expectLogic(logic).toDispatchActions(['loadCohortsSuccess'])
+
+                logic.actions.loadCohortsFailure('Internal server error', { detail: 'Unknown table `person`' })
+                expect(logic.values.shouldShowEmptyState).toBe(false)
+            })
+
+            it('clears the error when retrying the load', async () => {
+                router.actions.push(urls.cohorts())
+                await expectLogic(logic).toDispatchActions(['loadCohortsSuccess'])
+
+                logic.actions.loadCohortsFailure('Internal server error', { detail: 'Unknown table `person`' })
+                expect(logic.values.cohortsLoadError).toBe('Unknown table `person`')
+
+                logic.actions.loadCohorts()
+                expect(logic.values.cohortsLoadError).toBe(null)
+            })
+        })
     })
 })

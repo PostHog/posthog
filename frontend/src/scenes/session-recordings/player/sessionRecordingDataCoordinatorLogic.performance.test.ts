@@ -3,7 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import { HttpResponse } from 'msw'
 import { join } from 'path'
 
-import { uuid } from 'lib/utils'
+import { uuid } from 'lib/utils/dom'
 import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
 
 import { setupSessionRecordingTest } from './__mocks__/test-setup'
