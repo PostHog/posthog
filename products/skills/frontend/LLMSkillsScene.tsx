@@ -1,11 +1,12 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
-import { useMemo } from 'react'
+import { useMemo, useRef } from 'react'
 
-import { IconPlusSmall } from '@posthog/icons'
-import { LemonSwitch, Link } from '@posthog/lemon-ui'
+import { IconDownload, IconPlusSmall, IconUpload } from '@posthog/icons'
+import { LemonDivider, LemonModal, LemonSwitch, Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -40,7 +41,8 @@ export const scene: SceneExport = {
 function buildSkillColumns(
     skillUrl: (name: string) => string,
     duplicateSkill: (name: string, newName: string) => void,
-    deleteSkill: (name: string) => void
+    deleteSkill: (name: string) => void,
+    downloadSkillZip: (name: string) => void
 ): LemonTableColumns<LLMSkillListApi> {
     return [
         {
@@ -101,6 +103,15 @@ function buildSkillColumns(
                             <>
                                 <LemonButton to={skillUrl(skill.name)} data-attr="llma-skill-dropdown-view" fullWidth>
                                     View
+                                </LemonButton>
+
+                                <LemonButton
+                                    icon={<IconDownload />}
+                                    onClick={() => downloadSkillZip(skill.name)}
+                                    data-attr="llma-skill-dropdown-download"
+                                    fullWidth
+                                >
+                                    Download .zip
                                 </LemonButton>
 
                                 <AccessControlAction
@@ -255,19 +266,95 @@ function GroupedSkillsView({
     )
 }
 
+function ConnectToClaudeCodeModal(): JSX.Element {
+    const { connectModalOpen, marketplaceCommand, marketplaceToken, generatingCredential } = useValues(llmSkillsLogic)
+    const { setConnectModalOpen, generateMarketplaceCredential } = useActions(llmSkillsLogic)
+
+    return (
+        <LemonModal
+            isOpen={connectModalOpen}
+            onClose={() => setConnectModalOpen(false)}
+            title="Connect to Claude Code"
+            description="Install your team's skills into Claude Code as a plugin marketplace — or let any MCP-connected agent load them directly."
+            width={640}
+        >
+            <div className="flex flex-col gap-4">
+                <section className="flex flex-col gap-2">
+                    <h4 className="m-0 font-semibold">Claude Code (plugin marketplace)</h4>
+                    {marketplaceToken ? (
+                        <LemonBanner type="warning" className="text-sm">
+                            This token is shown <b>once</b>. It is <b>read-only</b> and scoped to skills only (
+                            <code>llm_skill:read</code>) — it can't touch anything else. Manage or revoke it anytime in{' '}
+                            <Link to={urls.settings('environment-secret-api-keys')}>
+                                Settings → Project secret API keys
+                            </Link>
+                            .
+                        </LemonBanner>
+                    ) : (
+                        <p className="m-0 text-sm text-secondary">
+                            We'll mint a dedicated <b>read-only</b> credential (scope <code>llm_skill:read</code> only —
+                            it can read this project's skills and nothing else) and drop it straight into a
+                            ready-to-paste command.
+                        </p>
+                    )}
+                    <CodeSnippet language={Language.Bash} thing="marketplace command">
+                        {marketplaceCommand}
+                    </CodeSnippet>
+                    {!marketplaceToken && (
+                        <div>
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.LlmAnalytics}
+                                minAccessLevel={AccessControlLevel.Editor}
+                            >
+                                <LemonButton
+                                    type="primary"
+                                    onClick={generateMarketplaceCredential}
+                                    loading={generatingCredential}
+                                    data-attr="generate-marketplace-credential-button"
+                                >
+                                    Generate read-only credential & command
+                                </LemonButton>
+                            </AccessControlAction>
+                        </div>
+                    )}
+                    <p className="m-0 text-xs text-secondary">
+                        Then run <code>/plugin</code> in Claude Code, install <b>posthog-skills</b>, and your skills are
+                        available as <code>/posthog-skills:&lt;name&gt;</code> — auto-updating as you publish.
+                    </p>
+                </section>
+
+                <LemonDivider />
+
+                <section className="flex flex-col gap-2">
+                    <h4 className="m-0 font-semibold">Any agent (PostHog MCP)</h4>
+                    <p className="m-0 text-sm text-secondary">
+                        If the PostHog MCP is connected, an agent can list and load these skills directly via its{' '}
+                        <code>skill-*</code> tools — no marketplace needed. Just ask:
+                    </p>
+                    <CodeSnippet language={Language.Text} thing="agent prompt">
+                        List my PostHog skills, then load the one that fits this task.
+                    </CodeSnippet>
+                </section>
+            </div>
+        </LemonModal>
+    )
+}
+
 export function LLMSkillsScene(): JSX.Element {
-    const { setFilters, deleteSkill, duplicateSkill } = useActions(llmSkillsLogic)
-    const { skills, skillsLoading, sorting, pagination, filters, skillCountLabel, groupedSkills } =
+    const { setFilters, deleteSkill, duplicateSkill, downloadSkillZip, importSkill, setConnectModalOpen } =
+        useActions(llmSkillsLogic)
+    const { skills, skillsLoading, sorting, pagination, filters, skillCountLabel, groupedSkills, importing } =
         useValues(llmSkillsLogic)
     const { searchParams } = useValues(router)
     const skillUrl = (name: string): string => combineUrl(urls.skill(name), searchParams).url
+    const fileInputRef = useRef<HTMLInputElement | null>(null)
 
     // Memoize columns so the array reference doesn't change every render — otherwise every
     // nested LemonTable inside the grouped tree reconciles on each parent re-render.
     const columns = useMemo(
-        () => buildSkillColumns(skillUrl, duplicateSkill, deleteSkill),
+        () => buildSkillColumns(skillUrl, duplicateSkill, deleteSkill, downloadSkillZip),
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [searchParams, duplicateSkill, deleteSkill]
+        [searchParams, duplicateSkill, deleteSkill, downloadSkillZip]
     )
 
     const showGroupedView = filters.group_by_prefix && groupedSkills && !skillsLoading
@@ -276,24 +363,64 @@ export function LLMSkillsScene(): JSX.Element {
 
     return (
         <SceneContent>
+            <input
+                ref={fileInputRef}
+                type="file"
+                accept=".zip,application/zip"
+                className="hidden"
+                data-attr="import-skill-file-input"
+                onChange={(e) => {
+                    const file = e.currentTarget.files?.[0]
+                    if (file) {
+                        importSkill(file)
+                    }
+                    // Reset so selecting the same file again re-triggers onChange.
+                    e.currentTarget.value = ''
+                }}
+            />
+            <ConnectToClaudeCodeModal />
             <SceneTitleSection
                 name="Skills"
                 description="Manage versioned agent skills that any MCP-connected agent can discover and use."
                 resourceType={{ type: 'llm_analytics' }}
                 actions={
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.LlmAnalytics}
-                        minAccessLevel={AccessControlLevel.Editor}
-                    >
+                    <>
                         <LemonButton
-                            type="primary"
-                            to={skillUrl('new')}
-                            icon={<IconPlusSmall />}
-                            data-attr="new-skill-button"
+                            type="secondary"
+                            onClick={() => setConnectModalOpen(true)}
+                            data-attr="connect-claude-code-button"
                         >
-                            New skill
+                            Connect to Claude Code
                         </LemonButton>
-                    </AccessControlAction>
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.LlmAnalytics}
+                            minAccessLevel={AccessControlLevel.Editor}
+                        >
+                            <LemonButton
+                                type="secondary"
+                                icon={<IconUpload />}
+                                onClick={() => fileInputRef.current?.click()}
+                                loading={importing}
+                                data-attr="import-skill-button"
+                                tooltip="Import a skill from a spec-compliant .zip"
+                            >
+                                Import
+                            </LemonButton>
+                        </AccessControlAction>
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.LlmAnalytics}
+                            minAccessLevel={AccessControlLevel.Editor}
+                        >
+                            <LemonButton
+                                type="primary"
+                                to={skillUrl('new')}
+                                icon={<IconPlusSmall />}
+                                data-attr="new-skill-button"
+                            >
+                                New skill
+                            </LemonButton>
+                        </AccessControlAction>
+                    </>
                 }
             />
 

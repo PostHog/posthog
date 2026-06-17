@@ -2,7 +2,9 @@ import { actions, afterMount, kea, listeners, path, props, reducers, selectors }
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
-import { ApiConfig } from '~/lib/api'
+import { projectSecretApiKeysCreate } from '~/generated/core/api'
+import api, { ApiConfig } from '~/lib/api'
+import { downloadBlob } from '~/lib/components/ExportButton/exporter'
 import { Sorting } from '~/lib/lemon-ui/LemonTable'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
 import { PaginationManual } from '~/lib/lemon-ui/PaginationControl'
@@ -12,6 +14,8 @@ import { sceneLogic } from '~/scenes/sceneLogic'
 import { urls } from '~/scenes/urls'
 
 import {
+    getLlmSkillsNameExportRetrieveUrl,
+    llmSkillsImportCreate,
     llmSkillsList,
     llmSkillsNameArchiveCreate,
     llmSkillsNameDuplicateCreate,
@@ -19,6 +23,39 @@ import {
 import type { LLMSkillListApi, PaginatedLLMSkillListListApi } from 'products/skills/frontend/generated/api.schemas'
 
 import type { llmSkillsLogicType } from './llmSkillsLogicType'
+
+/** Builds the `/plugin marketplace add` command. The token is embedded once minted; until then
+ * a placeholder is shown. */
+export function buildMarketplaceCommand(token: string | null): string {
+    const teamId = ApiConfig.getCurrentTeamId()
+    const origin = window.location.origin
+    const scheme = origin.startsWith('https') ? 'https' : 'http'
+    const host = origin.replace(/^https?:\/\//, '')
+    return `/plugin marketplace add ${scheme}://x-access-token:${token ?? 'YOUR_PHS_TOKEN'}@${host}/api/projects/${teamId}/llm_skills/marketplace.git`
+}
+
+function errorDetail(error: unknown): string | undefined {
+    return error !== null && typeof error === 'object' && 'detail' in error
+        ? (error as { detail?: string }).detail
+        : undefined
+}
+
+/** Download a skill as a spec-compliant zip. The generated export client JSON-parses the
+ * binary response, so fetch the raw blob via the generated URL builder instead. */
+export async function exportAndDownloadSkill(skillName: string): Promise<void> {
+    const url = getLlmSkillsNameExportRetrieveUrl(String(ApiConfig.getCurrentTeamId()), skillName, {})
+    const response = await api.getResponse(url)
+    if (!response.ok) {
+        let detail = 'Failed to export skill'
+        try {
+            detail = (await response.json())?.detail || detail
+        } catch {
+            // non-JSON error body; keep the default message
+        }
+        throw new Error(detail)
+    }
+    downloadBlob(await response.blob(), `${skillName}.zip`)
+}
 
 export const SKILLS_PER_PAGE = 30
 // Hard upper bound for "group by prefix" mode — grouping is a client-side aggregation,
@@ -152,6 +189,13 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
         loadSkills: (debounce: boolean = true) => ({ debounce }),
         deleteSkill: (skillName: string) => ({ skillName }),
         duplicateSkill: (skillName: string, newName: string) => ({ skillName, newName }),
+        importSkill: (file: File) => ({ file }),
+        setImporting: (importing: boolean) => ({ importing }),
+        downloadSkillZip: (skillName: string) => ({ skillName }),
+        setConnectModalOpen: (open: boolean) => ({ open }),
+        generateMarketplaceCredential: true,
+        setMarketplaceToken: (token: string | null) => ({ token }),
+        setGeneratingCredential: (generating: boolean) => ({ generating }),
     }),
 
     reducers({
@@ -164,6 +208,32 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
                         ...filters,
                         ...('page' in filters ? {} : { page: 1 }),
                     }),
+            },
+        ],
+        importing: [
+            false,
+            {
+                setImporting: (_, { importing }) => importing,
+            },
+        ],
+        connectModalOpen: [
+            false,
+            {
+                setConnectModalOpen: (_, { open }) => open,
+            },
+        ],
+        // The minted phs_ token is shown once; clear it when the modal closes so it doesn't linger.
+        marketplaceToken: [
+            null as string | null,
+            {
+                setMarketplaceToken: (_, { token }) => token,
+                setConnectModalOpen: (state, { open }) => (open ? state : null),
+            },
+        ],
+        generatingCredential: [
+            false,
+            {
+                setGeneratingCredential: (_, { generating }) => generating,
             },
         ],
     }),
@@ -217,6 +287,11 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
         ],
 
         count: [(s) => [s.skills], (skills: PaginatedLLMSkillListListApi) => skills.count],
+
+        marketplaceCommand: [
+            (s) => [s.marketplaceToken],
+            (marketplaceToken: string | null): string => buildMarketplaceCommand(marketplaceToken),
+        ],
 
         sorting: [
             (s) => [s.filters],
@@ -277,7 +352,7 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
         ],
     }),
 
-    listeners(({ asyncActions, values, selectors }) => ({
+    listeners(({ actions, asyncActions, values, selectors }) => ({
         setFilters: async ({ debounce }, _, __, previousState) => {
             const oldFilters = selectors.filters(previousState)
             const { filters } = values
@@ -308,6 +383,52 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
             } catch (e) {
                 console.error('Failed to duplicate skill', e)
                 lemonToast.error('Failed to duplicate skill')
+            }
+        },
+
+        importSkill: async ({ file }) => {
+            actions.setImporting(true)
+            try {
+                // Orval types the FileField as string; the generated client appends the File to FormData.
+                const skill = await llmSkillsImportCreate(String(ApiConfig.getCurrentTeamId()), {
+                    file: file as unknown as string,
+                })
+                lemonToast.success(`Imported "${skill.name}".`)
+                actions.loadSkills(false)
+                router.actions.push(urls.skill(skill.name))
+            } catch (e) {
+                console.error('Failed to import skill', e)
+                lemonToast.error(errorDetail(e) || 'Failed to import skill — is it a valid skill zip?')
+            } finally {
+                actions.setImporting(false)
+            }
+        },
+
+        downloadSkillZip: async ({ skillName }) => {
+            try {
+                await exportAndDownloadSkill(skillName)
+            } catch (e) {
+                console.error('Failed to export skill', e)
+                lemonToast.error(errorDetail(e) || (e instanceof Error ? e.message : 'Failed to export skill'))
+            }
+        },
+
+        generateMarketplaceCredential: async () => {
+            actions.setGeneratingCredential(true)
+            try {
+                // A dedicated read-only credential (not the user's personal key) scoped to skills.
+                const key = await projectSecretApiKeysCreate(String(ApiConfig.getCurrentTeamId()), {
+                    label: `Claude Code skills ${Math.random().toString(36).slice(2, 8)}`,
+                    scopes: ['llm_skill:read'],
+                } as unknown as Parameters<typeof projectSecretApiKeysCreate>[1])
+                actions.setMarketplaceToken(key.value)
+            } catch (e) {
+                console.error('Failed to create marketplace credential', e)
+                lemonToast.error(
+                    errorDetail(e) || 'Failed to create credential. Do you have permission to manage API keys?'
+                )
+            } finally {
+                actions.setGeneratingCredential(false)
             }
         },
     })),

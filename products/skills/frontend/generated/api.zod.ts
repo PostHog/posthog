@@ -67,6 +67,14 @@ export const LlmSkillsCreateBody = /* @__PURE__ */ zod
     })
     .describe('Create serializer — accepts bundled files as write-only input on POST.')
 
+export const LlmSkillsImportCreateBody = /* @__PURE__ */ zod.object({
+    file: zod
+        .url()
+        .describe(
+            'A spec-compliant skill .zip (a SKILL.md plus optional bundled files under scripts\/, references\/, assets\/).'
+        ),
+})
+
 export const llmSkillsNamePartialUpdateBodyDescriptionMax = 4096
 
 export const llmSkillsNamePartialUpdateBodyLicenseMax = 255

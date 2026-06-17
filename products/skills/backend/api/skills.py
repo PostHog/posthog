@@ -11,6 +11,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -511,7 +512,13 @@ class LLMSkillViewSet(
         return response
 
     @extend_schema(request=LLMSkillImportSerializer, responses={201: LLMSkillSerializer})
-    @action(methods=["POST"], detail=False, url_path="import", required_scopes=["llm_skill:write"])
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path="import",
+        required_scopes=["llm_skill:write"],
+        parser_classes=[MultiPartParser, FormParser],
+    )
     @llma_track_latency("llma_skills_import")
     @monitor(feature=None, endpoint="llma_skills_import", method="POST")
     def import_skill(self, request: Request, **kwargs) -> Response:

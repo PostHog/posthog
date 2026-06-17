@@ -25528,6 +25528,11 @@ export namespace Schemas {
       base_version?: number;
     }
 
+    export interface LLMSkillImport {
+      /** A spec-compliant skill .zip (a SKILL.md plus optional bundled files under scripts/, references/, assets/). */
+      file: string;
+    }
+
     /**
      * Arbitrary key-value metadata.
      */
@@ -51568,6 +51573,14 @@ export namespace Schemas {
     version?: number;
     };
 
+    export type EnvironmentsLlmSkillsNameExportRetrieveParams = {
+    /**
+     * Specific skill version to fetch. If omitted, the latest version is returned.
+     * @minimum 1
+     */
+    version?: number;
+    };
+
     export type EnvironmentsLlmSkillsNameFilesRetrieveParams = {
     /**
      * Specific skill version to fetch. If omitted, the latest version is returned.
@@ -57751,6 +57764,14 @@ export namespace Schemas {
     };
 
     export type LlmSkillsNameRetrieveParams = {
+    /**
+     * Specific skill version to fetch. If omitted, the latest version is returned.
+     * @minimum 1
+     */
+    version?: number;
+    };
+
+    export type LlmSkillsNameExportRetrieveParams = {
     /**
      * Specific skill version to fetch. If omitted, the latest version is returned.
      * @minimum 1

@@ -3,7 +3,16 @@ import { Form } from 'kea-forms'
 import { combineUrl, router } from 'kea-router'
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 
-import { IconChevronRight, IconColumns, IconDocument, IconPencil, IconPlus, IconTrash, IconX } from '@posthog/icons'
+import {
+    IconChevronRight,
+    IconColumns,
+    IconDocument,
+    IconDownload,
+    IconPencil,
+    IconPlus,
+    IconTrash,
+    IconX,
+} from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSelect, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -62,10 +71,12 @@ export function LLMSkillScene(): JSX.Element {
         versions,
         canLoadMoreVersions,
         fileContentsLoading,
+        downloadingZip,
     } = useValues(llmSkillLogic)
     const { searchParams } = useValues(router)
 
-    const { submitSkillForm, deleteSkill, setMode, setSkillFormValues, loadMoreVersions } = useActions(llmSkillLogic)
+    const { submitSkillForm, deleteSkill, setMode, setSkillFormValues, loadMoreVersions, downloadSkill } =
+        useActions(llmSkillLogic)
 
     if (isSkillMissing) {
         return <NotFound object="skill" />
@@ -129,6 +140,20 @@ export function LLMSkillScene(): JSX.Element {
                                     Use as latest
                                 </LemonButton>
                             </AccessControlAction>
+                        )}
+
+                        {isSkill(skill) && (
+                            <LemonButton
+                                type="secondary"
+                                icon={<IconDownload />}
+                                onClick={downloadSkill}
+                                loading={downloadingZip}
+                                size="small"
+                                tooltip="Download this skill as a spec-compliant .zip (SKILL.md + bundled files)"
+                                data-attr="llma-skill-download-zip-button"
+                            >
+                                Download .zip
+                            </LemonButton>
                         )}
 
                         <AccessControlAction
