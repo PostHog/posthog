@@ -10,8 +10,6 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="team",
             name="llm_gateway_overspend_allowance_usd",
-            field=models.DecimalField(
-                blank=True, decimal_places=6, max_digits=20, null=True
-            ),
+            field=models.DecimalField(blank=True, decimal_places=6, max_digits=20, null=True),
         ),
     ]
