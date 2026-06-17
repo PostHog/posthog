@@ -1,6 +1,7 @@
+import { AI_EVENTS_OUTPUT, AiEventOutput, EventOutput } from '~/common/outputs'
+import { AI_EVENT_TYPES } from '~/ingestion/common/ai-event-types'
+
 import { ProcessedEvent } from '../../types'
-import { AI_EVENT_TYPES } from '../ai'
-import { AI_EVENTS_OUTPUT, AiEventOutput, EventOutput } from '../analytics/outputs'
 import { ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 import { EventToEmit } from './emit-event-step'

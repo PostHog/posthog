@@ -12,6 +12,7 @@ import {
     OverflowOutput,
     TophogOutput,
 } from '~/common/outputs'
+import { AiEventOutput, AsyncOutput, EventOutput, PersonDistinctIdsOutput, PersonsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { PersonRepository } from '~/common/persons/repositories/person-repository'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
@@ -45,7 +46,6 @@ import {
     JoinedIngestionPipelineInput,
     createJoinedIngestionPipeline,
 } from './analytics'
-import { AiEventOutput, AsyncOutput, EventOutput, PersonDistinctIdsOutput, PersonsOutput } from './analytics/outputs'
 import { EventFilterManager, EventFilterManagerComponent } from './common/event-filters'
 import { IngestionConsumerConfig } from './config'
 import { CookielessManager } from './cookieless/cookieless-manager'

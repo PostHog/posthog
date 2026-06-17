@@ -1,5 +1,6 @@
 import { DateTime } from 'luxon'
 
+import { AsyncOutput } from '~/common/outputs'
 import { PluginEvent } from '~/plugin-scaffold'
 
 import { Person, Team } from '../../types'
@@ -9,7 +10,6 @@ import { PersonMergeService } from '../../worker/ingestion/persons/person-merge-
 import { determineMergeMode } from '../../worker/ingestion/persons/person-merge-types'
 import { PersonPropertyService } from '../../worker/ingestion/persons/person-property-service'
 import { PersonsStoreForBatch } from '../../worker/ingestion/persons/persons-store-for-batch'
-import { AsyncOutput } from '../analytics/outputs'
 import { PipelineResult, isOkResult, ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 import { EventPipelineRunnerOptions } from './event-pipeline-options'

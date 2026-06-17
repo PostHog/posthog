@@ -7,6 +7,13 @@ import {
     OVERFLOW_OUTPUT,
     TOPHOG_OUTPUT,
 } from '~/common/outputs'
+import {
+    AI_EVENTS_OUTPUT,
+    ASYNC_OUTPUT,
+    EVENTS_OUTPUT,
+    PERSONS_OUTPUT,
+    PERSON_DISTINCT_IDS_OUTPUT,
+} from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
 
@@ -25,13 +32,6 @@ import {
     KAFKA_PERSON,
     KAFKA_PERSON_DISTINCT_ID,
 } from '../../src/config/kafka-topics'
-import {
-    AI_EVENTS_OUTPUT,
-    ASYNC_OUTPUT,
-    EVENTS_OUTPUT,
-    PERSONS_OUTPUT,
-    PERSON_DISTINCT_IDS_OUTPUT,
-} from '../../src/ingestion/analytics/outputs'
 import { HEATMAPS_OUTPUT } from '../../src/ingestion/heatmaps/outputs'
 import { KafkaProducerWrapper } from '../../src/kafka/producer'
 

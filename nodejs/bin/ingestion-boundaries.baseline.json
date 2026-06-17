@@ -1,16 +1,4 @@
 [
-  "src/ingestion/ai/pipelines/ai-event-subpipeline.integration.test.ts -> lane:analytics",
-  "src/ingestion/ai/pipelines/ai-event-subpipeline.ts -> lane:analytics",
   "src/ingestion/analytics/per-distinct-id-pipeline.ts -> lane:ai",
-  "src/ingestion/event-preprocessing/validate-ai-event-tokens.ts -> lane:ai",
-  "src/ingestion/event-processing/create-event-step.test.ts -> lane:analytics",
-  "src/ingestion/event-processing/emit-event-step.test.ts -> lane:analytics",
-  "src/ingestion/event-processing/flush-batch-stores-step.test.ts -> lane:analytics",
-  "src/ingestion/event-processing/process-personless-step.test.ts -> lane:analytics",
-  "src/ingestion/event-processing/process-persons-step.integration.test.ts -> lane:analytics",
-  "src/ingestion/event-processing/process-persons-step.ts -> lane:analytics",
-  "src/ingestion/event-processing/split-ai-events-step.test.ts -> lane:analytics",
-  "src/ingestion/event-processing/split-ai-events-step.ts -> lane:ai",
-  "src/ingestion/event-processing/split-ai-events-step.ts -> lane:analytics",
   "src/ingestion/ingestion-consumer.ts -> lane:analytics"
 ]

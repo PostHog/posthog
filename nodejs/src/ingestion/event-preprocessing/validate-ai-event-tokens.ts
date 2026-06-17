@@ -1,5 +1,6 @@
+import { AI_EVENT_TYPES } from '~/ingestion/common/ai-event-types'
+
 import { PipelineEvent } from '../../types'
-import { AI_EVENT_TYPES } from '../ai'
 import { PipelineWarning } from '../pipelines/pipeline.interface'
 import { ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'

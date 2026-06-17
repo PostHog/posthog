@@ -2,6 +2,7 @@ import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
 import { IngestionWarningsOutput } from '~/common/outputs'
+import { EVENTS_OUTPUT, EventOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 
 import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
@@ -11,7 +12,6 @@ import { ingestionLagGauge, ingestionLagHistogram } from '../../common/metrics'
 import { EventHeaders, ISOTimestamp, ProcessedEvent, ProjectId } from '../../types'
 import { MessageSizeTooLarge } from '../../utils/db/error'
 import { eventProcessedAndIngestedCounter } from '../../worker/ingestion/event-pipeline/metrics'
-import { EVENTS_OUTPUT, EventOutput } from '../analytics/outputs'
 import { emitIngestionWarning } from '../common/ingestion-warnings'
 import { isOkResult } from '../pipelines/results'
 import {

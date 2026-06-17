@@ -1,6 +1,6 @@
+import { ASYNC_OUTPUT, AsyncOutput } from '~/common/outputs'
 import { PluginEvent } from '~/plugin-scaffold'
 
-import { ASYNC_OUTPUT, AsyncOutput } from '../../../ingestion/analytics/outputs'
 import { PipelineResult, dlq, ok, redirect } from '../../../ingestion/pipelines/results'
 import { InternalPerson, Person } from '../../../types'
 import { logger } from '../../../utils/logger'

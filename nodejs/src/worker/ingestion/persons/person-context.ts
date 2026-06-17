@@ -1,11 +1,11 @@
 import { DateTime } from 'luxon'
 
 import { IngestionWarningsOutput } from '~/common/outputs'
+import { PersonDistinctIdsOutput, PersonsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { PersonMessage } from '~/common/persons/person-message'
 import { PluginEvent, Properties } from '~/plugin-scaffold'
 
-import { PersonDistinctIdsOutput, PersonsOutput } from '../../../ingestion/analytics/outputs'
 import { Team } from '../../../types'
 import { MergeMode } from './person-merge-types'
 import { PersonsStoreForBatch } from './persons-store-for-batch'

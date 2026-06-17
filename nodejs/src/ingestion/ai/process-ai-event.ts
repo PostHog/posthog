@@ -7,6 +7,7 @@
  * - Cost calculation (for generation/embedding/evaluation events)
  * - Model parameter extraction (for generation/embedding/evaluation events)
  */
+import { AI_EVENT_TYPES } from '~/ingestion/common/ai-event-types'
 import { PluginEvent } from '~/plugin-scaffold'
 
 import { logger } from '../../utils/logger'
@@ -20,17 +21,6 @@ export type { EventWithProperties } from './costs'
 const isEventWithProperties = (event: PluginEvent): event is EventWithProperties => {
     return event.properties !== undefined && event.properties !== null
 }
-
-// Canonical Node.js list. Python mirror: posthog/hogql_queries/ai/ai_table_resolver.py
-export const AI_EVENT_TYPES = new Set([
-    '$ai_generation',
-    '$ai_embedding',
-    '$ai_evaluation',
-    '$ai_span',
-    '$ai_trace',
-    '$ai_metric',
-    '$ai_feedback',
-])
 
 /**
  * Process an AI event through the enrichment pipeline.

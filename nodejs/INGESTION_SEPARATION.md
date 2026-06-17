@@ -145,10 +145,16 @@ on every iteration.
       (repositories + personhog + low-level deps); 18 higher-level person/group processing files
       stay in ingestion and import the core from common. Extracted `PERSONS_OUTPUT` /
       `PERSON_DISTINCT_IDS_OUTPUT` to `common/outputs/persons`. 208 imports rewritten across 82 files.
-- [ ] Group 4: invert `event-processing` / `event-preprocessing` shared->lane edges.
+- [x] Group 4 (mechanical part): extract shared output names (`ASYNC_OUTPUT`, `AI_EVENTS_OUTPUT`)
+      to `common/outputs` and `AI_EVENT_TYPES` to `ingestion/common/ai-event-types`; repoint the
+      shared `event-processing` / `event-preprocessing` steps and other cross-lane callers. Baseline
+      shrank 14 -> 2. The 2 remaining edges are deferred to Phase 2 (they are lane-structure
+      decisions, not output/constant sharing):
+  - `analytics/per-distinct-id-pipeline.ts -> ai` (analytics composes `createAiEventSubpipeline`)
+  - `ingestion-consumer.ts -> analytics` (composition root wiring the analytics pipeline)
 - [x] CDP no longer imports ingestion and vice versa (production): cdp->ingestion = 0,
       cdp->worker/ingestion = 0, ingestion->cdp = 0. Test-only edges remain (Phase 3). Intra-ingestion
-      shared->lane edges (14 baselined) remain for Group 4.
+      baseline now 2 (the ai<->analytics composition), to be resolved with lane structure in Phase 2.
 
 ### Phase 2 — consolidate into lanes
 
@@ -192,3 +198,9 @@ on every iteration.
   208 imports rewritten across 82 files; fixed a codemod file-mapping bug (importer extension).
   tsc no new errors; guard green. Milestone: production cdp<->ingestion fully decoupled (0 edges
   both directions). Remaining: Group 4 (intra-ingestion shared->lane inversions).
+- Phase 1 Group 4 (mechanical) complete: shared output names + `AI_EVENT_TYPES` extracted to common;
+  shared `event-processing`/`event-preprocessing` steps no longer import lanes. Intra-ingestion
+  boundary baseline shrank 14 -> 2. tsc no new errors; guard green. The last 2 edges (analytics
+  composing the ai sub-pipeline, and the consumer composition root) are lane-structure decisions
+  deferred to Phase 2. Phase 1 is effectively done: cdp<->ingestion decoupled and the shared/lane
+  output+constant tangles removed.

@@ -1,7 +1,15 @@
 // Output names shared across pipelines
 
+export * from './persons'
+
 export const EVENTS_OUTPUT = 'events' as const
 export type EventOutput = typeof EVENTS_OUTPUT
+
+export const AI_EVENTS_OUTPUT = 'ai_events' as const
+export type AiEventOutput = typeof AI_EVENTS_OUTPUT
+
+export const ASYNC_OUTPUT = 'async' as const
+export type AsyncOutput = typeof ASYNC_OUTPUT
 
 export const INGESTION_WARNINGS_OUTPUT = 'ingestion_warnings' as const
 export type IngestionWarningsOutput = typeof INGESTION_WARNINGS_OUTPUT
