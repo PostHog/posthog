@@ -1386,6 +1386,7 @@ export interface CredentialApi {
  * * `WikipediaPageviews` - WikipediaPageviews
  * * `YahooFinance` - YahooFinance
  * * `Clarifai` - Clarifai
+ * * `Adapty` - Adapty
  * * `Custom` - Custom
  */
 export type ExternalDataSourceTypeEnumApi =
@@ -2011,6 +2012,7 @@ export const ExternalDataSourceTypeEnumApi = {
     WikipediaPageviews: 'WikipediaPageviews',
     YahooFinance: 'YahooFinance',
     Clarifai: 'Clarifai',
+    Adapty: 'Adapty',
     Custom: 'Custom',
 } as const
 
