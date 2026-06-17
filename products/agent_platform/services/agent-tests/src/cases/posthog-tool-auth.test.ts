@@ -1,14 +1,16 @@
 /**
  * Auth methodology for the native `@posthog/*` data tools.
  *
- * These tools act **as the connected PostHog user**: they target the caller's
- * team (the incoming `posthog` principal's team) and carry the caller's bearer,
- * so the PostHog API enforces the caller's access. They must NEVER use the
- * agent's owning team — that would be ambient cross-tenant access (an agent
- * owned by team A could read team A's data for any caller who could reach it).
+ * These tools act **as the connected PostHog user**: they target an EXPLICIT
+ * `project_id` the agent passes (resolved via the `get_context` client tool or
+ * `@posthog/list-projects`) and carry the caller's bearer, so the PostHog API
+ * enforces the caller's access. They must NEVER inject the agent's owning team —
+ * that would be ambient cross-tenant access (an agent owned by team A could read
+ * team A's data for any caller who could reach it).
  *
- * Validated end to end here: an agent owned by one team, invoked by a user in
- * a different team, hits the *caller's* project — not the agent's.
+ * Validated end to end here: an agent owned by one team, invoked by a user who
+ * passes an explicit project_id, hits *that* project carrying the caller's
+ * bearer — never the agent's owning team.
  */
 
 import request from 'supertest'
@@ -64,8 +66,8 @@ describe('@posthog/* data tools: act as the calling user, not the agent team', (
         await closeSharedPool()
     })
 
-    it('targets the caller team, never the agent owning team', async () => {
-        c.setScript([fauxCallTool('@posthog/agent-applications-list', {}), fauxText('listed')])
+    it('targets the explicit project_id with the caller bearer, never the agent owning team', async () => {
+        c.setScript([fauxCallTool('@posthog/agent-applications-list', { project_id: CALLER_TEAM }), fauxText('listed')])
         await c.deployAgent({
             slug: 'whoami',
             teamId: AGENT_TEAM,

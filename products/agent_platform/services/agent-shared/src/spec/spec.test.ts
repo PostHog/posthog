@@ -589,7 +589,9 @@ describe('AgentSpecSchema', () => {
                 triggers: [{ type: 'chat', config: {}, auth: { modes: [{ type: 'posthog' }] } }],
             })
             const chat = parsed.triggers[0]
-            expect(chat.type === 'chat' && chat.auth.modes).toEqual([{ type: 'posthog', scopes: [] }])
+            expect(chat.type === 'chat' && chat.auth.modes).toEqual([
+                { type: 'posthog', scopes: [], audience: 'project' },
+            ])
         })
 
         it('rejects bare public — acknowledge_public_exposure: true is required', () => {

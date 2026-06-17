@@ -189,7 +189,7 @@ describe('approval-gated tools: real e2e', () => {
     it('case 1: queue → approve → real result → session completes', async () => {
         c.setScript([
             // Turn 1: model proposes the gated call.
-            fauxCallTool('@posthog/query', { query: 'select 1' }),
+            fauxCallTool('@posthog/query', { project_id: 1, query: 'select 1' }),
             // Turn 2: model reacts to the synthetic queued result (would
             // typically tell the user where to approve). Session ends here.
             fauxText('queued for approval'),
@@ -262,7 +262,7 @@ describe('approval-gated tools: real e2e', () => {
     it('case 2: reject → model sees rejection + reason, continues turn', async () => {
         c.setScript([
             // Turn 1: model proposes.
-            fauxCallTool('@posthog/query', { query: 'select 1' }),
+            fauxCallTool('@posthog/query', { project_id: 1, query: 'select 1' }),
             // Turn 2: pre-rejection reaction.
             fauxText('queued for approval'),
             // Turn 3: post-rejection reaction.
@@ -305,8 +305,8 @@ describe('approval-gated tools: real e2e', () => {
     it('case 3: two calls with same canonical args dedupe to one approval row', async () => {
         c.setScript([
             fauxToolUse([
-                fauxToolCall('@posthog/query', { query: 'select 1', limit: 5 }),
-                fauxToolCall('@posthog/query', { limit: 5, query: 'select 1' }),
+                fauxToolCall('@posthog/query', { project_id: 1, query: 'select 1', limit: 5 }),
+                fauxToolCall('@posthog/query', { limit: 5, query: 'select 1', project_id: 1 }),
             ]),
             fauxText('queued'),
         ])
@@ -325,11 +325,11 @@ describe('approval-gated tools: real e2e', () => {
     it('case 4: re-issue after rejection creates a fresh row with prior_decision', async () => {
         c.setScript([
             // Turn 1: initial gated call.
-            fauxCallTool('@posthog/query', { query: 'select 1' }),
+            fauxCallTool('@posthog/query', { project_id: 1, query: 'select 1' }),
             // Turn 2: pre-rejection reaction; session completes here.
             fauxText('queued, will share link'),
             // Turn 3: post-rejection re-try (same args; per plan §4.4).
-            fauxCallTool('@posthog/query', { query: 'select 1' }),
+            fauxCallTool('@posthog/query', { project_id: 1, query: 'select 1' }),
             // Turn 4: reaction to the new queued result.
             fauxText('ok'),
         ])
@@ -367,7 +367,7 @@ describe('approval-gated tools: real e2e', () => {
     it('case 5: janitor sweep expires queued rows past TTL', async () => {
         c.setScript([
             // Turn 1: gated call.
-            fauxCallTool('@posthog/query', { query: 'select 1' }),
+            fauxCallTool('@posthog/query', { project_id: 1, query: 'select 1' }),
             // Turn 2: pre-expiry reaction; session completes here.
             fauxText('queued for approval'),
             // Turn 3: post-expiry reaction.
@@ -407,7 +407,7 @@ describe('approval-gated tools: real e2e', () => {
     it('case 6: mixed turn — non-gated tool dispatches, gated tool queues', async () => {
         c.setScript([
             fauxToolUse([
-                fauxToolCall('@posthog/query', { query: 'gated-call' }),
+                fauxToolCall('@posthog/query', { project_id: 1, query: 'gated-call' }),
                 fauxToolCall('@posthog/memory-list', {}),
             ]),
             fauxText('mixed done'),
@@ -498,7 +498,10 @@ describe('approval-gated tools: real e2e', () => {
     // standalone console (port 3040) is going away.
     // ─────────────────────────────────────────────────────────────
     it('case 8: posthog-code client omits approval_url + approver_hint from the queued envelope', async () => {
-        c.setScript([fauxCallTool('@posthog/query', { query: 'select 1' }), fauxText('queued for approval')])
+        c.setScript([
+            fauxCallTool('@posthog/query', { project_id: 1, query: 'select 1' }),
+            fauxText('queued for approval'),
+        ])
         await deployGatedAgent({
             slug: 'gated-8',
             toolId: '@posthog/query',
@@ -627,7 +630,10 @@ describe('approval-gated tools: per-asker shortcut (#23 step 3)', () => {
     }
 
     it('non-admin: gated call queues an approval (B.2 v0 behaviour preserved)', async () => {
-        c.setScript([fauxCallTool('@posthog/query', { query: 'select 1' }), fauxText('queued for approval')])
+        c.setScript([
+            fauxCallTool('@posthog/query', { project_id: 1, query: 'select 1' }),
+            fauxText('queued for approval'),
+        ])
         const { application } = await c.deployAgent({
             slug: 'shortcut-noadmin',
             spec: {
@@ -654,7 +660,7 @@ describe('approval-gated tools: per-asker shortcut (#23 step 3)', () => {
     })
 
     it('admin: gated call dispatches directly, NO approval row, model sees real tool result', async () => {
-        c.setScript([fauxCallTool('@posthog/query', { query: 'select 1' }), fauxText('done')])
+        c.setScript([fauxCallTool('@posthog/query', { project_id: 1, query: 'select 1' }), fauxText('done')])
         const { application } = await c.deployAgent({
             slug: 'shortcut-admin',
             spec: {

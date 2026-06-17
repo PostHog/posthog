@@ -76,13 +76,14 @@ describe('listen SSE: real e2e', () => {
     })
 
     it('publishes tool_call + tool_result events when the model invokes a tool', async () => {
-        // @posthog/query reads the *calling* posthog user's team, so the run
-        // must authenticate as a posthog principal — otherwise the tool errors
-        // and tool_result.ok would be false.
+        // @posthog/query acts as the calling posthog user against an explicit
+        // project_id, so the run must authenticate as a posthog principal and
+        // pass a project_id — otherwise the tool errors and tool_result.ok
+        // would be false.
         const PAT = 'phx_listen_sse'
         await c.teardown()
         c = await buildCluster({ authProvider: fakeAuthProvider({ posthog: PAT }) })
-        c.setScript([fauxCallTool('@posthog/query', { query: 'select 1' }), fauxText('done')])
+        c.setScript([fauxCallTool('@posthog/query', { project_id: 1, query: 'select 1' }), fauxText('done')])
         await c.deployAgent({
             slug: 'ssee-2',
             spec: { tools: [{ kind: 'native', id: '@posthog/query' }], auth: { modes: [{ type: 'posthog' }] } },
