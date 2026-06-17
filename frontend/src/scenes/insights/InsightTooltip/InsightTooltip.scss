@@ -109,6 +109,20 @@
             min-width: 0;
         }
 
+        // Math tags like "Average of <property>" are white-space:nowrap, so their
+        // intrinsic width forces the auto-layout column wider and the badge spills
+        // into the next column. Let the block shrink and clip to its column, and
+        // let the long property part truncate with an ellipsis.
+        .insights-label__math {
+            overflow: hidden;
+
+            .PropertyKeyInfo__text {
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+        }
+
         // InsightLabel nests its text in fit-content flex wrappers that ignore
         // the label's max-width, so long names overflow and hard-clip at the
         // tooltip edge. Cap the wrappers at the label width so the label's

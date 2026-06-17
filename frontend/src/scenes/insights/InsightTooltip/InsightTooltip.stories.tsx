@@ -321,6 +321,61 @@ export const LongNames: Story = {
     },
 }
 
+// Math tags ("Average of <property>") are white-space:nowrap; without bounding
+// they force the column wider and the badge bleeds into the neighbouring column.
+// This exercises the column-per-entity layout so the badge stays clipped to its
+// column with the long property truncated.
+export const MathTags: Story = {
+    args: {
+        seriesData: [
+            {
+                id: 0,
+                dataIndex: 3,
+                datasetIndex: 0,
+                order: 0,
+                dotted: false,
+                breakdown_value: 'Chrome',
+                action: {
+                    id: '$pageview',
+                    type: 'events',
+                    order: 0,
+                    name: '$pageview',
+                    custom_name: null,
+                    math: 'avg',
+                    math_property: 'a_really_long_numeric_property_name_that_overflows',
+                    math_hogql: null,
+                    math_group_type_index: null,
+                },
+                label: '$pageview - Chrome',
+                color: '#1d4aff',
+                count: 1234,
+            },
+            {
+                id: 1,
+                dataIndex: 3,
+                datasetIndex: 1,
+                order: 1,
+                dotted: false,
+                breakdown_value: 'Safari',
+                action: {
+                    id: '$pageview',
+                    type: 'events',
+                    order: 1,
+                    name: '$pageview',
+                    custom_name: null,
+                    math: 'avg',
+                    math_property: 'a_really_long_numeric_property_name_that_overflows',
+                    math_hogql: null,
+                    math_group_type_index: null,
+                },
+                label: '$pageview - Safari',
+                color: '#621da6',
+                count: 56,
+            },
+        ] as any,
+    },
+}
+
 export function InWrapper(): JSX.Element {
     useMountedLogic(cohortsModel)
 
