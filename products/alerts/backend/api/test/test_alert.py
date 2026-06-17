@@ -678,6 +678,46 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             )
         assert self.client.get(f"/api/projects/{self.team.id}/alerts/{alert_id}").status_code == status.HTTP_200_OK
 
+    def test_funnel_flag_enforced_on_config_only_patch(self) -> None:
+        # Object-level enforcement for the funnel flag, mirroring the SQL gate: a config-only PATCH
+        # (no `insight`) skips the field-level validate_insight, so validate() must re-check the flag.
+        funnel_insight = self.client.post(
+            f"/api/projects/{self.team.id}/insights",
+            data={
+                "query": {
+                    "kind": "FunnelsQuery",
+                    "series": [
+                        {"kind": "EventsNode", "event": "$pageview"},
+                        {"kind": "EventsNode", "event": "$autocapture"},
+                    ],
+                }
+            },
+        ).json()
+        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=True):
+            alert = self.client.post(
+                f"/api/projects/{self.team.id}/alerts",
+                {
+                    "insight": funnel_insight["id"],
+                    "subscribed_users": [self.user.id],
+                    "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+                    "config": {"type": "FunnelsAlertConfig", "metric": "conversion_from_start", "funnel_step": None},
+                    "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 50}}},
+                    "name": "funnel alert",
+                },
+            )
+            assert alert.status_code == status.HTTP_201_CREATED, alert.content
+            alert_id = alert.json()["id"]
+
+        config_patch = {"config": {"type": "FunnelsAlertConfig", "metric": "conversion_from_previous", "funnel_step": 1}}
+        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=False):
+            blocked = self.client.patch(f"/api/projects/{self.team.id}/alerts/{alert_id}", config_patch)
+        assert blocked.status_code == status.HTTP_400_BAD_REQUEST, blocked.content
+        assert "Funnel insight alerts are not enabled" in str(blocked.content)
+
+        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=True):
+            allowed = self.client.patch(f"/api/projects/{self.team.id}/alerts/{alert_id}", config_patch)
+        assert allowed.status_code == status.HTTP_200_OK, allowed.content
+
     def test_alert_is_deleted_on_insight_soft_delete(self) -> None:
         another_insight = self.client.post(
             f"/api/projects/{self.team.id}/insights", data=self.default_insight_data
