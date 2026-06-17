@@ -90,8 +90,14 @@ const SubscribedCelebration = ({ product }: { product: BillingProductV2Type }): 
 }
 
 const PlatformPackagesUpsell = ({ platformProduct }: { platformProduct: BillingProductV2Type }): JSX.Element => {
-    // Trial length comes from the billing service; keep copy in sync with whichever package is trialable.
-    const trialLength = platformProduct.addons?.find((addon) => addon.trial)?.trial?.length ?? 14
+    // Only state a specific length in the header when every trialable package shares it; otherwise stay
+    // generic (each package card still shows its own exact trial length). Trial lengths come from billing.
+    const trialLengths = new Set(
+        (platformProduct.addons ?? [])
+            .map((addon) => addon.trial?.length)
+            .filter((length): length is number => length != null)
+    )
+    const sharedTrialLength = trialLengths.size === 1 ? [...trialLengths][0] : null
 
     return (
         <div className="relative flex flex-col items-center">
@@ -104,8 +110,8 @@ const PlatformPackagesUpsell = ({ platformProduct }: { platformProduct: BillingP
                 <div className="text-center mb-6">
                     <h3 className="text-xl font-bold mb-1">You're signed up! Now level up with a platform package</h3>
                     <p className="text-gray-700 dark:text-gray-400 mb-0">
-                        Start a free {trialLength}-day trial of any package — cancel anytime, with no charge until it
-                        ends.
+                        Start a free {sharedTrialLength ? `${sharedTrialLength}-day ` : ''}trial of any package — cancel
+                        anytime, with no charge until it ends.
                     </p>
                 </div>
                 <PlatformAddonComparison product={platformProduct} />
