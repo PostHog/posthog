@@ -31,12 +31,12 @@ them if they appear, but route them to the relevant team rather than diagnosing 
 
 ## Available tools
 
-| Tool                                          | Purpose                                                             |
-| --------------------------------------------- | ------------------------------------------------------------------- |
-| `data-warehouse-data-health-issues-retrieve`  | One-shot: all failed/degraded items across the whole pipeline       |
-| `external-data-sources-list`                  | All sources with status and latest error                            |
-| `external-data-schemas-list`                  | All schemas with status, last_synced_at, latest_error               |
-| `external-data-sources-webhook-info-retrieve` | Check per-source webhook state (not covered by data-health-issues)  |
+| Tool                                          | Purpose                                                            |
+| --------------------------------------------- | ------------------------------------------------------------------ |
+| `data-warehouse-data-health-issues-retrieve`  | One-shot: all failed/degraded items across the whole pipeline      |
+| `external-data-sources-list`                  | All sources with status and latest error                           |
+| `external-data-schemas-list`                  | All schemas with status, last_synced_at, latest_error              |
+| `external-data-sources-webhook-info-retrieve` | Check per-source webhook state (not covered by data-health-issues) |
 
 The `data-health-issues` endpoint aggregates across the whole pipeline — it's the fastest path to a summary. Filter
 its results to the `source` and `external_data_sync` types for this audit. Use the list endpoints when you need more

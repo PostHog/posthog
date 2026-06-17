@@ -27,11 +27,11 @@ relevant team rather than diagnosing here.
 
 ## Available tools
 
-| Tool                                          | Purpose                                                             |
-| --------------------------------------------- | ------------------------------------------------------------------- |
-| `data-warehouse-data-health-issues-retrieve`  | One-shot: all failed/degraded items across the whole pipeline       |
-| `view-list`                                   | All saved queries / materialized views with status and latest_error |
-| `view-run-history`                            | Run history for a specific materialized view                        |
+| Tool                                         | Purpose                                                             |
+| -------------------------------------------- | ------------------------------------------------------------------- |
+| `data-warehouse-data-health-issues-retrieve` | One-shot: all failed/degraded items across the whole pipeline       |
+| `view-list`                                  | All saved queries / materialized views with status and latest_error |
+| `view-run-history`                           | Run history for a specific materialized view                        |
 
 Filter the `data-health-issues` results to the `materialized_view` type for this audit. Use `view-list` when you need
 more than the active-failure summary (non-failing views, materialization flags, last-queried info) and
@@ -41,9 +41,9 @@ more than the active-failure summary (non-failing views, materialization flags, 
 
 From the data-health endpoint, this audit cares about one of the five categories:
 
-| `type`               | Trigger                                                          | Typical urgency |
-| -------------------- | --------------------------------------------------------------- | --------------- |
-| `materialized_view`  | `DataWarehouseSavedQuery.is_materialized=true, status=Failed`   | Medium          |
+| `type`              | Trigger                                                       | Typical urgency |
+| ------------------- | ------------------------------------------------------------- | --------------- |
+| `materialized_view` | `DataWarehouseSavedQuery.is_materialized=true, status=Failed` | Medium          |
 
 Each entry includes `id`, `name`, `type`, `status`, `error`, `failed_at`, and `url`.
 
