@@ -90,7 +90,7 @@ hogli test products/dashboards/backend/api/test/test_dashboard_widgets.py
 hogli test products/dashboards/frontend/widgets/registry.test.tsx
 ```
 
-**Ship (before PR):** [checklist §8](references/checklist-new-widget-type.md#8-tests) + `hogli build:openapi`.
+**Ship (before PR):** [checklist §8](references/checklist-new-widget-type.md#8-tests) + `hogli build:openapi` + dedicated Storybook stories per [checklist §5b](references/checklist-new-widget-type.md#5b-storybook) (component + edit modal — required, not just the catalog overview).
 
 **Config SSOT changes** (also run after `widget_specs/` edits):
 
