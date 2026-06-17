@@ -645,7 +645,8 @@ def forward_posthog_code_followup_activity(
     update_block: str | None = None
     new_watermark: str | None = None
     try:
-        our_bot_id = (slack.client.auth_test() or {}).get("bot_id")
+        auth_response = slack.client.auth_test()
+        our_bot_id = auth_response.get("bot_id") if auth_response else None
     except Exception:
         # `auth.test` is cheap and very reliable; fall back to no bot filter rather
         # than dropping the diff entirely. The agent already learns to ignore its own

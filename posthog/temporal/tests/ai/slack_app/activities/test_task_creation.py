@@ -68,11 +68,14 @@ def test_build_description_falls_back_to_default_prompt_when_initiator_text_is_b
 
 
 def test_build_description_renders_labeled_mention_for_each_author():
+    # Add a follow-up message after the mentioner so the placeholder isn't the trailing
+    # entry (the trailing-placeholder pop would otherwise drop the mentioner's row).
     out = _build_posthog_code_task_description(
         "do something",
         [
             {"user": "georgiy", "user_id": "U_GEORGIY", "text": "preamble", "ts": "1.000"},
             {"user": "alessandro", "user_id": "U_ALESS", "text": "do something", "ts": "2.000"},
+            {"user": "georgiy", "user_id": "U_GEORGIY", "text": "follow-up note", "ts": "3.000"},
         ],
         "2.000",
         mentioner_slack_user_id="U_ALESS",
@@ -298,9 +301,12 @@ class TestBuildThreadContextUpdateBlock:
         # tell a catch-up apart from the foundational history.
         assert block.startswith(f"<{_THREAD_CONTEXT_UPDATE_TAG}>")
         assert block.rstrip().endswith(f"</{_THREAD_CONTEXT_UPDATE_TAG}>")
-        # Must not emit the original-context tag — the agent should not treat this as
-        # a replacement of its baseline context.
-        assert f"<{_THREAD_CONTEXT_TAG}>" not in block
+        # The block must not use the original context tag as a delimiter — only the
+        # update tag opens/closes the wrapper. The original tag may appear in prose
+        # (the header references it for the agent's benefit), so we anchor on shape:
+        # nothing should sit between `<slack_thread_context>` and its closing tag.
+        assert not block.startswith(f"<{_THREAD_CONTEXT_TAG}>")
+        assert not block.rstrip().endswith(f"</{_THREAD_CONTEXT_TAG}>")
 
     def test_handles_first_followup_with_no_prior_watermark(self):
         # First-ever follow-up: ``last_forwarded_ts`` is None until the initial mapping

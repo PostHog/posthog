@@ -60,9 +60,9 @@ class TestCachedCollectThreadMessages:
 
         assert first == sentinel
         assert second == sentinel
-        # Cache returns *the same* underlying object reference — preserves identity
-        # so callers that mutate are immediately suspect, not silently weird.
-        assert first is second
+        # The contract worth pinning is "one underlying fetch" — not identity, since
+        # a serializing cache backend (Redis in CI) will hand back a deserialized
+        # copy on the hit.
         assert mock_fetch.call_count == 1
 
     def test_distinct_threads_have_distinct_cache_entries(self):
