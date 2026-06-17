@@ -514,8 +514,9 @@ fn apply_person_cohort_to_state(state: &mut FlagEvaluationState, result: PersonC
     // sentinel prefix to avoid colliding with user-set properties of the same name (e.g.
     // a customer setting `properties.created_at` for their own analytics). The matcher
     // applies the prefix when `filter.prop_type == PersonMetadata` — see `match_property`.
-    // The field list lives in `PERSON_METADATA_FIELDS`; the match arm maps each field to the
-    // persons-table column to read, so adding a field is a compile-time signal here.
+    // The field list lives in `PERSON_METADATA_FIELDS`; each field needs a match arm below
+    // mapping it to the persons-table column to read. A field added to that list without an arm
+    // here falls through `_ => continue` and is silently never injected, so keep the two in sync.
     if let Some(ref person) = result.person {
         for field in crate::properties::property_matching::PERSON_METADATA_FIELDS {
             let value = match *field {

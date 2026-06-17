@@ -71,7 +71,7 @@ export function useTaxonomicGroupsContext(input: UseTaxonomicGroupsContextInput)
     // does it.
     useValues(dataWarehouseSettingsSceneLogic)
     useValues(joinsLogic)
-    const { eventMetadataPropertyDefinitions } = useValues(propertyDefinitionsModel)
+    const { eventMetadataPropertyDefinitions, personMetadataPropertyDefinitions } = useValues(propertyDefinitionsModel)
     const { featureFlags } = useValues(featureFlagLogic)
 
     return useMemo<BuildTaxonomicGroupsContext>(() => {
@@ -112,6 +112,7 @@ export function useTaxonomicGroupsContext(input: UseTaxonomicGroupsContextInput)
             suggestedFiltersLabel: input.suggestedFiltersLabel,
             propertyFilters,
             eventMetadataPropertyDefinitions,
+            personMetadataPropertyDefinitions,
             maxContextOptions: input.maxContextOptions ?? (EMPTY_ARRAY as unknown as MaxContextTaxonomicFilterOption[]),
             hideBehavioralCohorts: input.hideBehavioralCohorts ?? false,
             endpointFilters: input.endpointFilters,
@@ -128,6 +129,7 @@ export function useTaxonomicGroupsContext(input: UseTaxonomicGroupsContextInput)
         groupTypes,
         aggregationLabel,
         eventMetadataPropertyDefinitions,
+        personMetadataPropertyDefinitions,
         featureFlags,
         input.eventNames,
         input.schemaColumns,

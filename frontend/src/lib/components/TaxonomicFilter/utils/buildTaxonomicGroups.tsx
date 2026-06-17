@@ -148,6 +148,7 @@ export interface BuildTaxonomicGroupsContext {
         propertyAllowList?: Partial<Record<TaxonomicFilterGroupType, (string | number | null)[]>>
     }
     eventMetadataPropertyDefinitions: PropertyDefinition[]
+    personMetadataPropertyDefinitions: PropertyDefinition[]
     maxContextOptions: MaxContextTaxonomicFilterOption[]
     hideBehavioralCohorts: boolean
     endpointFilters: Record<string, any> | undefined
@@ -172,6 +173,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
         suggestedFiltersLabel,
         propertyFilters,
         eventMetadataPropertyDefinitions,
+        personMetadataPropertyDefinitions,
         maxContextOptions,
         hideBehavioralCohorts,
         endpointFilters,
@@ -656,6 +658,19 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             getValue: (personProperty: PersonProperty) => personProperty.name,
             propertyAllowList: propertyAllowList?.[TaxonomicFilterGroupType.PersonProperties]?.filter(isString),
             ...propertyTaxonomicGroupProps(CORE_FILTER_DEFINITIONS_BY_GROUP.person_properties),
+        },
+        {
+            name: 'Person metadata',
+            searchPlaceholder: 'person metadata',
+            type: TaxonomicFilterGroupType.PersonMetadata,
+            options: personMetadataPropertyDefinitions,
+            getIcon: getPropertyDefinitionIcon,
+            getName: (option: PropertyDefinition) => {
+                const coreDefinition = getCoreFilterDefinition(option.id, TaxonomicFilterGroupType.PersonMetadata)
+                return coreDefinition ? coreDefinition.label : option.name
+            },
+            getValue: (option: PropertyDefinition) => option.id,
+            getPopoverHeader: () => 'Person metadata',
         },
         {
             name: 'Cohorts',

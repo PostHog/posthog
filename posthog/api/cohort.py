@@ -381,6 +381,12 @@ def _calculate_realtime_support(group: CohortFilterGroup) -> bool:
             if not _calculate_realtime_support(cast(CohortFilterGroup, value)):
                 return False
         else:  # It's a filter
+            # person_metadata reads top-level persons-table columns, which the realtime
+            # precalculated_person_properties table doesn't carry. Any cohort referencing one
+            # must use the standard (non-realtime) calculation path, so force the whole cohort
+            # non-realtime as soon as a person_metadata filter appears in any group.
+            if getattr(value, "type", None) == "person_metadata":
+                return False
             # Check if filter has FilterBytecodeMixin and valid bytecode
             if hasattr(value, "bytecode") and hasattr(value, "bytecode_error"):
                 if value.bytecode is None or value.bytecode_error is not None:
