@@ -66,6 +66,12 @@ export default defineConfig({
             { find: /^lucide-react$/, replacement: resolve(__dirname, 'node_modules/lucide-react') },
             { find: 'react', replacement: resolve(__dirname, 'node_modules/react') },
             { find: 'react-dom', replacement: resolve(__dirname, 'node_modules/react-dom') },
+            // @xyflow/react and elkjs are imported from products/data_modeling/mcp/apps
+            // (reached via the `products` alias, outside this package's node_modules tree),
+            // so pin them — and their subpath imports (style.css, elk.bundled.js) — to this
+            // package's copies.
+            { find: '@xyflow/react', replacement: resolve(__dirname, 'node_modules/@xyflow/react') },
+            { find: 'elkjs', replacement: resolve(__dirname, 'node_modules/elkjs') },
             { find: '@common', replacement: resolve(__dirname, '../../common') },
         ],
     },

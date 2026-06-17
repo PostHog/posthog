@@ -9,6 +9,8 @@ from django.db import models
 from django.db.models import OuterRef, Subquery
 
 import posthoganalytics
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
 from rest_framework import filters, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.pagination import PageNumberPagination
@@ -22,19 +24,33 @@ from posthog.temporal.data_modeling.run_workflow import RunWorkflowInputs, Selec
 from posthog.temporal.data_modeling.workflows.execute_dag import ExecuteDAGInputs
 from posthog.temporal.data_modeling.workflows.materialize_view import MaterializeViewWorkflowInputs
 
+from products.data_modeling.backend.api.edge import EdgeSerializer
 from products.data_modeling.backend.models import DAG, Edge, Node, NodeType
 from products.warehouse_sources.backend.models.external_data_schema import sync_frequency_interval_to_sync_frequency
 
 
 class NodeSerializer(serializers.ModelSerializer):
-    upstream_count = serializers.SerializerMethodField(read_only=True)
-    downstream_count = serializers.SerializerMethodField(read_only=True)
-    last_run_at = serializers.SerializerMethodField(read_only=True)
-    last_run_status = serializers.SerializerMethodField(read_only=True)
-    user_tag = serializers.SerializerMethodField(read_only=True)
-    sync_interval = serializers.SerializerMethodField(read_only=True)
-    dag_name = serializers.SerializerMethodField(read_only=True)
-    dag = TeamScopedPrimaryKeyRelatedField(queryset=DAG.objects.all())
+    upstream_count = serializers.SerializerMethodField(
+        read_only=True, help_text="Number of upstream (ancestor) nodes this node depends on, excluding raw table nodes."
+    )
+    downstream_count = serializers.SerializerMethodField(
+        read_only=True,
+        help_text="Number of downstream (descendant) nodes that depend on this node, excluding raw table nodes.",
+    )
+    last_run_at = serializers.SerializerMethodField(
+        read_only=True, help_text="ISO timestamp of this node's most recent successful run, or null if it never ran."
+    )
+    last_run_status = serializers.SerializerMethodField(
+        read_only=True, help_text="Status of this node's most recent run (e.g. Completed, Failed, Cancelled), or null."
+    )
+    user_tag = serializers.SerializerMethodField(
+        read_only=True, help_text="Optional user-assigned tag for grouping/labelling this node, or null."
+    )
+    sync_interval = serializers.SerializerMethodField(
+        read_only=True, help_text="Human-readable schedule on which this node materializes (e.g. '24hour'), or null."
+    )
+    dag_name = serializers.SerializerMethodField(read_only=True, help_text="Name of the DAG this node belongs to.")
+    dag = TeamScopedPrimaryKeyRelatedField(queryset=DAG.objects.all(), help_text="ID of the DAG this node belongs to.")
 
     class Meta:
         model = Node
@@ -65,35 +81,88 @@ class NodeSerializer(serializers.ModelSerializer):
             "dag_name",
             "saved_query_id",
         ]
+        extra_kwargs = {
+            "id": {"help_text": "Unique identifier of the node."},
+            "name": {"help_text": "Name of the data model node (matches the saved query / table name)."},
+            "type": {"help_text": "Node type: 'table' (raw source), 'view', 'matview' (materialized), or 'endpoint'."},
+            "description": {"help_text": "Optional description of the node."},
+            "saved_query_id": {
+                "help_text": "ID of the backing data warehouse saved query, or null for raw table nodes."
+            },
+            "created_at": {"help_text": "ISO timestamp when the node was created."},
+            "updated_at": {"help_text": "ISO timestamp when the node was last updated."},
+        }
 
+    @extend_schema_field(OpenApiTypes.INT)
     def get_upstream_count(self, node: Node) -> int:
         counts = self.context.get("node_counts")
         if counts and str(node.id) in counts:
             return counts[str(node.id)][0]
         return len(_get_upstream_nodes(node))
 
+    @extend_schema_field(OpenApiTypes.INT)
     def get_downstream_count(self, node: Node) -> int:
         counts = self.context.get("node_counts")
         if counts and str(node.id) in counts:
             return counts[str(node.id)][1]
         return len(_get_downstream_nodes(node))
 
+    @extend_schema_field(OpenApiTypes.STR)
     def get_last_run_at(self, node: Node) -> str | None:
         return node.properties.get("system", {}).get("last_run_at") or getattr(node, "_latest_job_run_at", None)
 
+    @extend_schema_field(OpenApiTypes.STR)
     def get_last_run_status(self, node: Node) -> str | None:
         return node.properties.get("system", {}).get("last_run_status") or getattr(node, "_latest_job_status", None)
 
+    @extend_schema_field(OpenApiTypes.STR)
     def get_user_tag(self, node: Node) -> str | None:
         return node.properties.get("user", {}).get("tag")
 
+    @extend_schema_field(OpenApiTypes.STR)
     def get_sync_interval(self, node: Node) -> str | None:
         if node.saved_query:
             return sync_frequency_interval_to_sync_frequency(node.saved_query.sync_frequency_interval)
         return None
 
+    @extend_schema_field(OpenApiTypes.STR)
     def get_dag_name(self, node: Node) -> str:
         return node.dag.name
+
+
+class LineageResponseSerializer(serializers.Serializer):
+    """Response shape for the `lineage` and `graph` actions: a subgraph of nodes + edges."""
+
+    nodes = NodeSerializer(many=True, read_only=True, help_text="Nodes in the returned subgraph.")
+    edges = EdgeSerializer(many=True, read_only=True, help_text="Directed dependency edges between the returned nodes.")
+    focal_id = serializers.UUIDField(
+        allow_null=True,
+        read_only=True,
+        help_text="ID of the focal node the lineage is centered on, or null for the whole-DAG graph view.",
+    )
+
+
+class RunRequestSerializer(serializers.Serializer):
+    direction = serializers.ChoiceField(
+        choices=["upstream", "downstream"],
+        help_text="'upstream' runs all ancestors plus this node; 'downstream' runs this node plus all descendants.",
+    )
+
+
+class RunResponseSerializer(serializers.Serializer):
+    node_ids = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="IDs of all nodes that were scheduled to run.",
+    )
+
+
+class DagRefSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="DAG ID.")
+    name = serializers.CharField(help_text="DAG name.")
+
+
+class DagIdsResponseSerializer(serializers.Serializer):
+    dag_ids = DagRefSerializer(many=True, help_text="All DAGs for the team.")
 
 
 class NodePagination(PageNumberPagination):
@@ -179,7 +248,7 @@ def _node_queryset_with_latest_job() -> models.QuerySet:
 
 
 class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    scope_object = "INTERNAL"
+    scope_object = "warehouse_view"
     queryset = Node.objects.select_related("saved_query", "dag").all()
     serializer_class = NodeSerializer
     pagination_class = NodePagination
@@ -190,6 +259,24 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def get_serializer_context(self) -> dict[str, Any]:
         return super().get_serializer_context()
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "search",
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
+                required=False,
+                description="Case-insensitive substring match on node name or DAG name.",
+            ),
+            OpenApiParameter(
+                "dag",
+                OpenApiTypes.UUID,
+                OpenApiParameter.QUERY,
+                required=False,
+                description="Restrict results to a single DAG by ID.",
+            ),
+        ],
+    )
     def list(self, request, *args, **kwargs):
         from products.data_modeling.backend.graph import Graph
 
@@ -225,6 +312,7 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             qs = qs.filter(dag_id=dag_id)
         return qs.order_by(self.ordering)
 
+    @extend_schema(request=RunRequestSerializer, responses=RunResponseSerializer)
     @action(methods=["POST"], detail=True)
     def run(self, req: request.Request, *args, **kwargs) -> response.Response:
         """
@@ -306,11 +394,24 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return response.Response({"node_ids": list(node_ids)}, status=status.HTTP_200_OK)
 
+    def _serialize_subgraph(self, nodes_qs, edges_qs, focal_id: str | None) -> dict[str, Any]:
+        """Serialize a node/edge subgraph with batched upstream/downstream counts."""
+        from products.data_modeling.backend.graph import Graph
+
+        graph = Graph(team_id=self.team_id)
+        counts = graph.batch_counts([str(n.id) for n in nodes_qs])
+        return {
+            "nodes": NodeSerializer(
+                nodes_qs, many=True, context={**self.get_serializer_context(), "node_counts": counts}
+            ).data,
+            "edges": EdgeSerializer(edges_qs, many=True).data,
+            "focal_id": focal_id,
+        }
+
+    @extend_schema(responses=LineageResponseSerializer)
     @action(methods=["GET"], detail=True)
     def lineage(self, req: request.Request, *args, **kwargs) -> response.Response:
         """Return the subgraph of nodes and edges reachable from this node (upstream + downstream)."""
-        from products.data_modeling.backend.api.edge import EdgeSerializer
-
         node = self.get_object()
         upstream_ids = _get_upstream_nodes(node, include_tables=True)
         downstream_ids = _get_downstream_nodes(node)
@@ -321,13 +422,34 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             team_id=self.team_id, source_id__in=all_ids, target_id__in=all_ids
         )
 
-        return response.Response(
-            {
-                "nodes": NodeSerializer(nodes, many=True, context=self.get_serializer_context()).data,
-                "edges": EdgeSerializer(edges, many=True).data,
-            }
-        )
+        return response.Response(self._serialize_subgraph(nodes, edges, focal_id=str(node.id)))
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "dag",
+                OpenApiTypes.UUID,
+                OpenApiParameter.QUERY,
+                required=False,
+                description="Restrict the graph to a single DAG by ID; otherwise returns the team's whole DAG.",
+            ),
+        ],
+        responses=LineageResponseSerializer,
+    )
+    @action(methods=["GET"], detail=False)
+    def graph(self, req: request.Request, *args, **kwargs) -> response.Response:
+        """Return the whole data modeling DAG (all nodes and edges) for the team, optionally scoped to one DAG."""
+        dag_id = self._get_dag_id_param()
+
+        nodes = _node_queryset_with_latest_job().filter(team_id=self.team_id)
+        edges = Edge.objects.select_related("source", "target", "dag").filter(team_id=self.team_id)
+        if dag_id:
+            nodes = nodes.filter(dag_id=dag_id)
+            edges = edges.filter(dag_id=dag_id)
+
+        return response.Response(self._serialize_subgraph(nodes, edges, focal_id=None))
+
+    @extend_schema(responses=DagIdsResponseSerializer)
     @action(methods=["GET"], detail=False)
     def dag_ids(self, req: request.Request, *args, **kwargs) -> response.Response:
         """Get all distinct DAGs for the team."""
@@ -335,6 +457,7 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         dag_ids = [{"id": str(dag["id"]), "name": dag["name"]} for dag in dags]
         return response.Response({"dag_ids": dag_ids}, status=status.HTTP_200_OK)
 
+    @extend_schema(request=None, responses={200: None})
     @action(methods=["POST"], detail=True)
     def materialize(self, req: request.Request, *args, **kwargs) -> response.Response:
         """Materialize just this single node."""

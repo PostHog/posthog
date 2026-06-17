@@ -5,6 +5,8 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Team
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.utils import generate_random_token_personal
 
 from products.data_modeling.backend.models import DAG, Edge, Node, NodeType
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
@@ -358,6 +360,45 @@ class TestNodeViewSet(APIBaseTest):
         self.assertNotIn(str(other_table.id), node_ids)
         self.assertNotIn(str(other_view.id), node_ids)
 
+    def test_lineage_includes_focal_id(self):
+        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/lineage/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["focal_id"], str(self.view_node.id))
+
+    def test_graph_returns_whole_dag(self):
+        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/graph/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertIsNone(body["focal_id"])
+        node_ids = {n["id"] for n in body["nodes"]}
+        self.assertEqual(node_ids, {str(self.table_node.id), str(self.view_node.id)})
+        self.assertEqual(len(body["edges"]), 1)
+        self.assertEqual(body["edges"][0]["source_id"], str(self.table_node.id))
+        self.assertEqual(body["edges"][0]["target_id"], str(self.view_node.id))
+
+    def test_graph_filters_by_dag(self):
+        another_dag = DAG.objects.create(team=self.team, name="another_dag")
+        Node.objects.create(team=self.team, dag=another_dag, name="another_table", type=NodeType.TABLE)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/graph/?dag={another_dag.id}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        node_names = {n["name"] for n in response.json()["nodes"]}
+        self.assertEqual(node_names, {"another_table"})
+
+    def test_graph_filters_by_team(self):
+        other_team = Team.objects.create(organization=self.organization)
+        other_dag = DAG.objects.create(team=other_team, name=f"posthog_{other_team.id}")
+        Node.objects.create(team=other_team, dag=other_dag, name="other_table", type=NodeType.TABLE)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/graph/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        node_names = {n["name"] for n in response.json()["nodes"]}
+        self.assertEqual(node_names, {"events", "test_view"})
+
     @parameterized.expand(["post", "put", "patch"])
     def test_dag_field_rejects_other_teams_dag(self, method):
         other_team = Team.objects.create(organization=self.organization)
@@ -521,3 +562,56 @@ class TestEdgeViewSet(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
+
+
+class TestNodeViewSetAPIKeyScopes(APIBaseTest):
+    def _make_api_key(self, scopes: list[str]) -> str:
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="test",
+            secure_value=hash_key_value(value),
+            scopes=scopes,
+        )
+        return value
+
+    def setUp(self):
+        super().setUp()
+        self.dag = DAG.objects.create(team=self.team, name=f"posthog_{self.team.id}")
+        self.saved_query = DataWarehouseSavedQuery.objects.create(
+            name="test_view", team=self.team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
+        )
+        self.view_node = Node.objects.create(
+            team=self.team, dag=self.dag, saved_query=self.saved_query, type=NodeType.VIEW
+        )
+        self.client.force_authenticate(None)
+
+    @parameterized.expand(
+        [
+            ("warehouse_view:read", "list", True),
+            ("warehouse_view:read", "lineage", True),
+            ("warehouse_view:read", "graph", True),
+            ("other_scope:read", "list", False),
+            ("other_scope:read", "lineage", False),
+            ("other_scope:read", "graph", False),
+        ]
+    )
+    def test_api_key_scope_gating(self, scope, action, should_have_access):
+        api_key = self._make_api_key([scope])
+        headers = {"authorization": f"Bearer {api_key}"}
+
+        if action == "list":
+            url = f"/api/environments/{self.team.pk}/data_modeling_nodes/"
+        elif action == "lineage":
+            url = f"/api/environments/{self.team.pk}/data_modeling_nodes/{self.view_node.id}/lineage/"
+        elif action == "graph":
+            url = f"/api/environments/{self.team.pk}/data_modeling_nodes/graph/"
+        else:
+            self.fail(f"Unknown action: {action}")
+
+        response = self.client.get(url, headers=headers)
+
+        if should_have_access:
+            self.assertNotEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        else:
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)

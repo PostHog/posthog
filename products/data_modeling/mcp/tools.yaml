@@ -1,0 +1,124 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Data modeling
+feature: data_modeling
+url_prefix: /models
+ui_apps:
+    data-model-graph:
+        type: custom
+        app_name: PostHog Data Model Lineage
+        description: Interactive data modeling DAG — visualize upstream dependencies and downstream impact of a model
+tools:
+    data-modeling-dags-create:
+        operation: data_modeling_dags_create
+        enabled: false
+    data-modeling-dags-destroy:
+        operation: data_modeling_dags_destroy
+        enabled: false
+    data-modeling-dags-list:
+        operation: data_modeling_dags_list
+        enabled: false
+    data-modeling-dags-partial-update:
+        operation: data_modeling_dags_partial_update
+        enabled: false
+    data-modeling-dags-retrieve:
+        operation: data_modeling_dags_retrieve
+        enabled: false
+    data-modeling-edges-create:
+        operation: data_modeling_edges_create
+        enabled: false
+    data-modeling-edges-destroy:
+        operation: data_modeling_edges_destroy
+        enabled: false
+    data-modeling-edges-list:
+        operation: data_modeling_edges_list
+        enabled: false
+    data-modeling-edges-partial-update:
+        operation: data_modeling_edges_partial_update
+        enabled: false
+    data-modeling-edges-retrieve:
+        operation: data_modeling_edges_retrieve
+        enabled: false
+    data-modeling-edges-update:
+        operation: data_modeling_edges_update
+        enabled: false
+    data-modeling-nodes-create:
+        operation: data_modeling_nodes_create
+        enabled: false
+    data-modeling-nodes-dag-ids-retrieve:
+        operation: data_modeling_nodes_dag_ids_retrieve
+        enabled: false
+    data-modeling-nodes-destroy:
+        operation: data_modeling_nodes_destroy
+        enabled: false
+    data-modeling-nodes-graph-retrieve:
+        operation: data_modeling_nodes_graph_retrieve
+        enabled: true
+        scopes:
+            - warehouse_view:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get the whole data modeling DAG
+        description: >
+            Return the entire data modeling DAG for the project (all nodes and edges), optionally scoped to a single
+            DAG via the `dag` query parameter. Returns `{nodes, edges, focal_id}` where `focal_id` is null, and renders
+            the full interactive graph. Use this for a bird's-eye view of every data model (views, materialized views,
+            endpoints, and raw source tables) and how they depend on each other. For one model's lineage instead, use
+            `data-modeling-nodes-lineage-retrieve`.
+        ui_app: data-model-graph
+    data-modeling-nodes-lineage-retrieve:
+        operation: data_modeling_nodes_lineage_retrieve
+        enabled: true
+        scopes:
+            - warehouse_view:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{focal_id}'
+        title: Get a data model's lineage
+        description: >
+            Return the dependency subgraph for a single data model node: all upstream dependencies (the ancestors it is
+            built from) and all downstream consumers (the descendants impacted if it changes). Requires the node `id` —
+            use `data-modeling-nodes-list` with the `search` parameter to resolve a model name to its id first. Returns
+            `{nodes, edges, focal_id}` and renders an interactive DAG centered on the focal model. Use this to answer
+            "what does this model depend on?" and "what breaks if I change it?".
+        ui_app: data-model-graph
+    data-modeling-nodes-list:
+        operation: data_modeling_nodes_list
+        enabled: true
+        scopes:
+            - warehouse_view:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        list: true
+        title: List data models
+        description: >
+            List data model nodes (data warehouse views, materialized views, endpoints, and raw source tables) in the
+            project's modeling DAG. Use the `search` query parameter to find a model by name and obtain its `id`, then
+            pass that id to `data-modeling-nodes-lineage-retrieve` to see its dependencies and downstream impact. Each
+            node includes id, name, type, upstream_count, downstream_count, last_run_status, and sync_interval.
+    data-modeling-nodes-materialize-create:
+        operation: data_modeling_nodes_materialize_create
+        enabled: false
+    data-modeling-nodes-partial-update:
+        operation: data_modeling_nodes_partial_update
+        enabled: false
+    data-modeling-nodes-retrieve:
+        operation: data_modeling_nodes_retrieve
+        enabled: false
+    data-modeling-nodes-run-create:
+        operation: data_modeling_nodes_run_create
+        enabled: false
+    data-modeling-nodes-update:
+        operation: data_modeling_nodes_update
+        enabled: false

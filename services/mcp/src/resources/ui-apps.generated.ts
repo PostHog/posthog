@@ -4,6 +4,7 @@ export const ACTION_RESOURCE_URI = 'ui://posthog/action.html'
 export const ACTION_LIST_RESOURCE_URI = 'ui://posthog/action-list.html'
 export const COHORT_RESOURCE_URI = 'ui://posthog/cohort.html'
 export const COHORT_LIST_RESOURCE_URI = 'ui://posthog/cohort-list.html'
+export const DATA_MODEL_GRAPH_RESOURCE_URI = 'ui://posthog/data-model-graph.html'
 export const DEBUG_RESOURCE_URI = 'ui://posthog/debug.html'
 export const EMAIL_TEMPLATE_RESOURCE_URI = 'ui://posthog/email-template.html'
 export const ERROR_DETAILS_RESOURCE_URI = 'ui://posthog/error-details.html'
@@ -37,6 +38,7 @@ export type UiAppKey =
     | 'action-list'
     | 'cohort'
     | 'cohort-list'
+    | 'data-model-graph'
     | 'debug'
     | 'email-template'
     | 'error-details'
@@ -70,6 +72,7 @@ export const URI_MAP: Record<UiAppKey, string> = {
     'action-list': ACTION_LIST_RESOURCE_URI,
     cohort: COHORT_RESOURCE_URI,
     'cohort-list': COHORT_LIST_RESOURCE_URI,
+    'data-model-graph': DATA_MODEL_GRAPH_RESOURCE_URI,
     debug: DEBUG_RESOURCE_URI,
     'email-template': EMAIL_TEMPLATE_RESOURCE_URI,
     'error-details': ERROR_DETAILS_RESOURCE_URI,
@@ -162,6 +165,12 @@ export const UI_APPS: Array<{
         uri: COHORT_LIST_RESOURCE_URI,
         description: 'Cohort List view',
         appDir: 'generated/cohort-list',
+    },
+    {
+        name: 'PostHog Data Model Lineage',
+        uri: DATA_MODEL_GRAPH_RESOURCE_URI,
+        description: 'Interactive data modeling DAG — visualize upstream dependencies and downstream impact of a model',
+        appDir: 'data-model-graph',
     },
     {
         name: 'MCP Apps Debug',

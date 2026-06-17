@@ -27,6 +27,8 @@
             "@posthog/quill": ["../../packages/quill/packages/quill/dist/index.d.ts"],
             "@posthog/quill-charts": ["../../packages/quill/packages/charts/dist/index.d.ts"],
             "lucide-react": ["./node_modules/lucide-react"],
+            "@xyflow/react": ["./node_modules/@xyflow/react"],
+            "elkjs/*": ["./node_modules/elkjs/*"],
             "@common/*": ["../../common/*"]
         }
     },
