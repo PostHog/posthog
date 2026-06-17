@@ -65,6 +65,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         SLACK = "slack", "Slack"
         SUPPORT_QUEUE = "support_queue", "Support Queue"
         SESSION_SUMMARIES = "session_summaries", "Session Summaries"
+        POSTHOG_AI = "posthog_ai", "PostHog AI"
         # Unlike the others (which indicate direct creation from that product, e.g. a "fix this error" button),
         # signal report tasks originate indirectly via signals from other products.
         SIGNAL_REPORT = "signal_report", "Signal Report"
@@ -318,20 +319,16 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         raise Exception("Cannot hard delete Task. Use soft_delete() instead.")
 
     @staticmethod
-    def create_and_run(
+    def _build_task(
         *,
         team: Team,
         title: str,
         description: str,
         origin_product: "Task.OriginProduct",
-        user_id: int,  # Will be used to validate the tasks feature flag and create a personal api key for interacting with PostHog.
-        repository: str | None = None,  # Format: "organization/repository", e.g. "posthog/posthog-js"
-        create_pr: bool = True,
-        mode: str = "background",
+        user_id: int,
+        repository: str | None = None,
         slack_thread_context: Optional["SlackThreadContext"] = None,
         slack_thread_url: str | None = None,
-        start_workflow: bool = True,
-        posthog_mcp_scopes: PosthogMcpScopes = "full",
         branch: str | None = None,
         signal_report_id: str | None = None,
         sandbox_environment_id: str | None = None,
@@ -343,9 +340,13 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         sandbox_resources: "SandboxResources | None" = None,
         sandbox_timeout_seconds: int | None = None,
         inactivity_timeout_seconds: int | None = None,
-    ) -> "Task":
-        from products.tasks.backend.temporal.client import execute_task_processing_workflow
+    ) -> tuple["Task", dict[str, Any]]:
+        """Create the Task row and assemble the initial run's `extra_state`.
 
+        Shared by `create_and_run` (which then creates and dispatches the run) and
+        `create_without_run` (which discards the run state). One path keeps the
+        GitHub-integration resolution and authorship logic from drifting between them.
+        """
         created_by = User.objects.get(id=user_id)
 
         from products.tasks.backend.services.sandbox import is_public_sandbox_repo
@@ -462,6 +463,105 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         # origin-aware default.
         if inactivity_timeout_seconds is not None:
             extra_state["inactivity_timeout_seconds"] = inactivity_timeout_seconds
+
+        return task, extra_state
+
+    @staticmethod
+    def create_without_run(
+        *,
+        team: Team,
+        title: str,
+        description: str,
+        origin_product: "Task.OriginProduct",
+        user_id: int,
+        repository: str | None = None,
+        slack_thread_context: Optional["SlackThreadContext"] = None,
+        slack_thread_url: str | None = None,
+        branch: str | None = None,
+        signal_report_id: str | None = None,
+        sandbox_environment_id: str | None = None,
+        internal: bool = False,
+        output_schema: type[BaseModel] | dict | None = None,
+        interaction_origin: str | None = None,
+        model: str | None = None,
+        initial_permission_mode: str | None = None,
+    ) -> "Task":
+        """Create the Task row without an initial run or workflow.
+
+        For callers that own run creation themselves — e.g. the sandbox warm path
+        (`products/tasks/backend/services/warm.py`), which creates the first run with its
+        own state. The run `extra_state` assembled by `_build_task` is discarded here.
+        """
+        task, _ = Task._build_task(
+            team=team,
+            title=title,
+            description=description,
+            origin_product=origin_product,
+            user_id=user_id,
+            repository=repository,
+            slack_thread_context=slack_thread_context,
+            slack_thread_url=slack_thread_url,
+            branch=branch,
+            signal_report_id=signal_report_id,
+            sandbox_environment_id=sandbox_environment_id,
+            internal=internal,
+            output_schema=output_schema,
+            interaction_origin=interaction_origin,
+            model=model,
+            initial_permission_mode=initial_permission_mode,
+        )
+        return task
+
+    @staticmethod
+    def create_and_run(
+        *,
+        team: Team,
+        title: str,
+        description: str,
+        origin_product: "Task.OriginProduct",
+        user_id: int,  # Will be used to validate the tasks feature flag and create a personal api key for interacting with PostHog.
+        repository: str | None = None,  # Format: "organization/repository", e.g. "posthog/posthog-js"
+        create_pr: bool = True,
+        mode: str = "background",
+        slack_thread_context: Optional["SlackThreadContext"] = None,
+        slack_thread_url: str | None = None,
+        start_workflow: bool = True,
+        posthog_mcp_scopes: PosthogMcpScopes = "full",
+        branch: str | None = None,
+        signal_report_id: str | None = None,
+        sandbox_environment_id: str | None = None,
+        internal: bool = False,
+        output_schema: type[BaseModel] | dict | None = None,
+        interaction_origin: str | None = None,
+        model: str | None = None,
+        initial_permission_mode: str | None = None,
+        sandbox_resources: "SandboxResources | None" = None,
+        sandbox_timeout_seconds: int | None = None,
+        inactivity_timeout_seconds: int | None = None,
+    ) -> "Task":
+        from products.tasks.backend.temporal.client import execute_task_processing_workflow
+
+        task, extra_state = Task._build_task(
+            team=team,
+            title=title,
+            description=description,
+            origin_product=origin_product,
+            user_id=user_id,
+            repository=repository,
+            slack_thread_context=slack_thread_context,
+            slack_thread_url=slack_thread_url,
+            branch=branch,
+            signal_report_id=signal_report_id,
+            sandbox_environment_id=sandbox_environment_id,
+            internal=internal,
+            output_schema=output_schema,
+            interaction_origin=interaction_origin,
+            model=model,
+            initial_permission_mode=initial_permission_mode,
+            sandbox_resources=sandbox_resources,
+            sandbox_timeout_seconds=sandbox_timeout_seconds,
+            inactivity_timeout_seconds=inactivity_timeout_seconds,
+        )
 
         task_run = task.create_run(mode=mode, extra_state=extra_state or None, branch=branch)
 
@@ -890,8 +990,18 @@ class TaskRun(models.Model):
         update = params.get("update", {}) if isinstance(params, dict) else {}
         return update.get("sessionUpdate") == "agent_message_chunk" if isinstance(update, dict) else False
 
-    def append_log(self, entries: list[dict]):
-        """Append log entries to S3 storage."""
+    # Default S3 retention for a freshly-created run log. Live runs auto-expire after a month;
+    # callers that must preserve a log indefinitely pass `ttl_days=None` so it is never tagged for
+    # expiry — user history must not silently vanish after 30 days.
+    DEFAULT_LOG_TTL_DAYS = 30
+
+    def append_log(self, entries: list[dict], *, ttl_days: int | None = DEFAULT_LOG_TTL_DAYS):
+        """Append log entries to S3 storage.
+
+        `ttl_days` tags a newly-created log file for expiry; pass `None` to write a log that is
+        never auto-expired. The tag is only applied on
+        first write — re-tagging an existing log would not change a TTL already in flight.
+        """
         entries = [e for e in entries if not self._is_agent_message_chunk(e)]
         if not entries:
             return
@@ -904,12 +1014,12 @@ class TaskRun(models.Model):
 
         object_storage.write(self.log_url, content)
 
-        if is_new_file:
+        if is_new_file and ttl_days is not None:
             try:
                 object_storage.tag(
                     self.log_url,
                     {
-                        "ttl_days": "30",
+                        "ttl_days": str(ttl_days),
                         "team_id": str(self.team_id),
                     },
                 )

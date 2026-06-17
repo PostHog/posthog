@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 import React from 'react'
 
@@ -10,6 +10,7 @@ import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopov
 import { IconAction, IconEvent } from 'lib/lemon-ui/icons'
 
 import { ModeSelector } from './components/ModeSelector'
+import { SandboxModeToggle } from './components/SandboxModeToggle'
 import { maxContextLogic } from './maxContextLogic'
 import { maxThreadLogic } from './maxThreadLogic'
 import {
@@ -19,6 +20,7 @@ import {
     MaxInsightContext,
     MaxNotebookContext,
 } from './maxTypes'
+import { posthogAiContextLogic } from './posthogAiContextLogic'
 
 function pluralize(count: number, word: string): string {
     return `${count} ${word}${count > 1 ? 's' : ''}`
@@ -330,12 +332,45 @@ export function ContextToolInfoTags({ size = 'default' }: { size?: 'small' | 'de
     )
 }
 
+/**
+ * Sandbox-runtime chips, rendered from the flat `posthogAiContextLogic.chipsForDisplay`. The X on
+ * each chip dispatches `detach(key)` — one removal path, no source distinction. Coexistence
+ * sibling to `ContextTags` (LangGraph).
+ */
+export function SandboxContextTags({ size = 'default' }: { size?: 'small' | 'default' }): JSX.Element | null {
+    const { chipsForDisplay } = useValues(posthogAiContextLogic)
+    const { detach } = useActions(posthogAiContextLogic)
+
+    if (chipsForDisplay.length === 0) {
+        return null
+    }
+
+    return (
+        <>
+            {chipsForDisplay.map((chip) => (
+                <Tooltip key={chip.key} title={chip.label}>
+                    <LemonTag
+                        icon={chip.icon as JSX.Element}
+                        onClose={() => detach(chip.key)}
+                        closable
+                        closeOnClick
+                        className={clsx('flex items-center text-secondary', size === 'small' ? 'max-w-20' : 'max-w-48')}
+                    >
+                        <span className="truncate min-w-0 flex-1">{chip.label}</span>
+                    </LemonTag>
+                </Tooltip>
+            ))}
+        </>
+    )
+}
+
 interface ContextDisplayProps {
     size?: 'small' | 'default'
 }
 
 export function ContextDisplay({ size = 'default' }: ContextDisplayProps): JSX.Element | null {
-    const { showContextUI, contextDisabledReason } = useValues(maxThreadLogic)
+    const { showContextUI, contextDisabledReason, conversation, sandboxConversationKey } = useValues(maxThreadLogic)
+    const isSandboxRuntime = conversation?.agent_runtime === 'sandbox'
     const { hasData, contextOptions, taxonomicGroupTypes, mainTaxonomicGroupType, toolContextItems } =
         useValues(maxContextLogic)
     const { handleTaxonomicFilterChange } = useActions(maxContextLogic)
@@ -350,6 +385,7 @@ export function ContextDisplay({ size = 'default' }: ContextDisplayProps): JSX.E
         <div className="px-2 w-full">
             <div className="flex flex-wrap items-start gap-1 w-full">
                 <ModeSelector />
+                <SandboxModeToggle />
                 <Tooltip title={contextDisabledReason ?? 'Add context to help PostHog AI answer your question'}>
                     {/* Wrapper span prevents Base UI's Tooltip.Trigger from merging
                         props into TaxonomicPopover. Without it, mergeProps treats
@@ -372,8 +408,19 @@ export function ContextDisplay({ size = 'default' }: ContextDisplayProps): JSX.E
                         />
                     </span>
                 </Tooltip>
-                <ContextToolInfoTags size={size} />
-                <ContextTags size={size} />
+                {isSandboxRuntime ? (
+                    sandboxConversationKey ? (
+                        // Same key maxThreadLogic's connect() uses, so both resolve the same instance
+                        <BindLogic logic={posthogAiContextLogic} props={{ conversationId: sandboxConversationKey }}>
+                            <SandboxContextTags size={size} />
+                        </BindLogic>
+                    ) : null
+                ) : (
+                    <>
+                        <ContextToolInfoTags size={size} />
+                        <ContextTags size={size} />
+                    </>
+                )}
             </div>
         </div>
     )

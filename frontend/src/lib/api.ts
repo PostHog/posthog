@@ -245,7 +245,7 @@ import type {
 } from 'products/workflows/frontend/Workflows/hogflows/types'
 
 import { AgentMode } from '../queries/schema'
-import type { MaxUIContext } from '../scenes/max/maxTypes'
+import type { AttachedContext, MaxUIContext } from '../scenes/max/maxTypes'
 import { AlertSimulationResult, AlertType, AlertTypeWrite } from './components/Alerts/types'
 import {
     ErrorTrackingFingerprint,
@@ -5130,6 +5130,29 @@ const api = {
                 }
                 return ''
             },
+            /**
+             * Fetch the assembled resume-chain ACP log for a run (the products/tasks `logs/`
+             * endpoint returns JSONL — one `StoredLogEntry` per line, concatenated server-side
+             * across the entire resume chain). Used to bootstrap the sandbox stream before
+             * opening SSE.
+             */
+            async getLogEntries(taskId: Task['id'], runId: TaskRun['id']): Promise<Record<string, any>[]> {
+                const response = await new ApiRequest().taskRun(taskId, runId).withAction('logs').getResponse()
+                const text = await response.text()
+                const entries: Record<string, any>[] = []
+                for (const line of text.split('\n')) {
+                    const trimmed = line.trim()
+                    if (!trimmed) {
+                        continue
+                    }
+                    try {
+                        entries.push(JSON.parse(trimmed))
+                    } catch {
+                        // Skip unparseable lines — the stream is best-effort historical replay.
+                    }
+                }
+                return entries
+            },
         },
     },
 
@@ -6544,6 +6567,40 @@ const api = {
             return api.createResponse(new ApiRequest().conversations().assembleFullUrl(), data, options)
         },
 
+        /**
+         * Single sandbox session opener (`agent_runtime === 'sandbox'`). Create-or-resume: the
+         * conversation row is created on first use from the client-minted id. With `content`,
+         * processes the turn (first message, in-progress follow-up, or terminal resume); with
+         * null/omitted `content`, warms a sandbox that idles awaiting the first message. Returns the
+         * `(task, run)` handle to open SSE against, or `null` on a 204 (a warm that provisioned
+         * nothing — the pool was full). Control verbs (cancel, permission reply, warm release) go
+         * through the generic `runs/{run}/command/` relay, not this endpoint.
+         */
+        async open(
+            conversationId: string,
+            data: {
+                content?: string | null
+                trace_id?: string
+                attached_context?: AttachedContext[]
+            }
+        ): Promise<{
+            task_id: string
+            run_id: string
+            trace_id: string | null
+            run_status: 'queued' | 'in_progress'
+            just_created_run: boolean
+        } | null> {
+            const response = await api.createResponse(
+                new ApiRequest().conversation(conversationId).withAction('open').assembleFullUrl(),
+                data
+            )
+            if (response.status === 204) {
+                return null
+            }
+            return response.json()
+        },
+
+        /** Cancel an in-progress LangGraph run. Sandbox runs cancel through the tasks relay. */
         cancel(conversationId: string): Promise<void> {
             return new ApiRequest().conversation(conversationId).withAction('cancel').update()
         },
