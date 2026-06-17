@@ -62,21 +62,18 @@ const reminderCreate = (): ToolBase<typeof ReminderCreateSchema, Schemas.Reminde
     },
 })
 
-const RemindersListSchema = RemindersListQueryParams
+const ReminderDeleteSchema = RemindersDestroyParams
 
-const remindersList = (): ToolBase<typeof RemindersListSchema, WithPostHogUrl<Schemas.PaginatedReminderList>> => ({
-    name: 'reminders-list',
-    schema: RemindersListSchema,
-    handler: async (context: Context, params: z.infer<typeof RemindersListSchema>) => {
-        const result = await context.api.request<Schemas.PaginatedReminderList>({
-            method: 'GET',
-            path: `/api/reminders/`,
-            query: {
-                limit: params.limit,
-                offset: params.offset,
-            },
+const reminderDelete = (): ToolBase<typeof ReminderDeleteSchema, Schemas.Reminder> => ({
+    name: 'reminder-delete',
+    schema: ReminderDeleteSchema,
+    handler: async (context: Context, params: z.infer<typeof ReminderDeleteSchema>) => {
+        const result = await context.api.request<Schemas.Reminder>({
+            method: 'PATCH',
+            path: `/api/reminders/${encodeURIComponent(String(params.id))}/`,
+            body: { deleted: true },
         })
-        return await withPostHogUrl(context, result, '/')
+        return result
     },
 })
 
@@ -143,25 +140,28 @@ const reminderUpdate = (): ToolBase<typeof ReminderUpdateSchema, Schemas.Reminde
     },
 })
 
-const ReminderDeleteSchema = RemindersDestroyParams
+const RemindersListSchema = RemindersListQueryParams
 
-const reminderDelete = (): ToolBase<typeof ReminderDeleteSchema, Schemas.Reminder> => ({
-    name: 'reminder-delete',
-    schema: ReminderDeleteSchema,
-    handler: async (context: Context, params: z.infer<typeof ReminderDeleteSchema>) => {
-        const result = await context.api.request<Schemas.Reminder>({
-            method: 'PATCH',
-            path: `/api/reminders/${encodeURIComponent(String(params.id))}/`,
-            body: { deleted: true },
+const remindersList = (): ToolBase<typeof RemindersListSchema, WithPostHogUrl<Schemas.PaginatedReminderList>> => ({
+    name: 'reminders-list',
+    schema: RemindersListSchema,
+    handler: async (context: Context, params: z.infer<typeof RemindersListSchema>) => {
+        const result = await context.api.request<Schemas.PaginatedReminderList>({
+            method: 'GET',
+            path: `/api/reminders/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
         })
-        return result
+        return await withPostHogUrl(context, result, '/')
     },
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'reminder-create': reminderCreate,
-    'reminders-list': remindersList,
+    'reminder-delete': reminderDelete,
     'reminder-get': reminderGet,
     'reminder-update': reminderUpdate,
-    'reminder-delete': reminderDelete,
+    'reminders-list': remindersList,
 }
