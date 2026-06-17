@@ -6934,3 +6934,101 @@ class TestExperimentRunningTimeCalculation(APILicensedTest):
             },
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class TestCalculateRunningTimeEndpoint(APILicensedTest):
+    def _calculate(self, payload: dict[str, Any]):
+        return self.client.post(
+            f"/api/projects/{self.team.id}/experiments/calculate_running_time/",
+            payload,
+            format="json",
+        )
+
+    @parameterized.expand(
+        [
+            ("mean_count", {"metric_type": "mean_count", "baseline_value": 4, "minimum_detectable_effect": 5}, 6400),
+            (
+                "mean_sum_or_avg",
+                {"metric_type": "mean_sum_or_avg", "baseline_value": 50, "minimum_detectable_effect": 5},
+                3200,
+            ),
+            ("funnel", {"metric_type": "funnel", "baseline_value": 0.1, "minimum_detectable_effect": 50}, 1152),
+        ]
+    )
+    def test_sample_size_from_baseline_value(self, _name: str, payload: dict, expected_sample_size: int):
+        response = self._calculate(payload)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.json()["recommended_sample_size"], expected_sample_size)
+
+    def test_includes_running_time_when_exposure_rate_given(self):
+        response = self._calculate(
+            {
+                "metric_type": "mean_count",
+                "baseline_value": 4,
+                "minimum_detectable_effect": 5,
+                "exposure_rate_per_day": 100,
+            }
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        body = response.json()
+        self.assertEqual(body["recommended_sample_size"], 6400)
+        self.assertEqual(body["recommended_running_time_days"], 64)
+
+    def test_running_time_is_null_without_exposure_rate(self):
+        response = self._calculate({"metric_type": "funnel", "baseline_value": 0.1, "minimum_detectable_effect": 50})
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertIsNone(response.json()["recommended_running_time_days"])
+
+    def test_ratio_from_baseline_stats(self):
+        response = self._calculate(
+            {
+                "metric_type": "ratio",
+                "minimum_detectable_effect": 10,
+                "baseline_stats": {
+                    "number_of_samples": 10000,
+                    "sum": 500000,
+                    "sum_squares": 30000000,
+                    "denominator_sum": 50000,
+                    "denominator_sum_squares": 300000,
+                    "numerator_denominator_sum_product": 2600000,
+                },
+            }
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        body = response.json()
+        self.assertAlmostEqual(body["baseline_value"], 10, places=4)
+        self.assertAlmostEqual(body["variance"], 32, places=1)
+        self.assertEqual(body["recommended_sample_size"], 1024)
+
+    def test_funnel_from_step_counts(self):
+        response = self._calculate(
+            {
+                "metric_type": "funnel",
+                "minimum_detectable_effect": 50,
+                "baseline_stats": {"number_of_samples": 1000, "sum": 100, "step_counts": [1000, 100]},
+            }
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        body = response.json()
+        self.assertAlmostEqual(body["baseline_value"], 0.1, places=4)
+        self.assertIsNone(body["variance"])
+        self.assertEqual(body["recommended_sample_size"], 1152)
+
+    @parameterized.expand(
+        [
+            ("missing_baseline", {"metric_type": "funnel", "minimum_detectable_effect": 5}),
+            ("zero_mde", {"metric_type": "funnel", "baseline_value": 0.1, "minimum_detectable_effect": 0}),
+            ("ratio_without_variance", {"metric_type": "ratio", "baseline_value": 10, "minimum_detectable_effect": 10}),
+            (
+                "ratio_stats_without_denominator_sum",
+                {
+                    "metric_type": "ratio",
+                    "minimum_detectable_effect": 10,
+                    "baseline_stats": {"number_of_samples": 10000, "sum": 500000, "sum_squares": 30000000},
+                },
+            ),
+        ]
+    )
+    def test_invalid_input_rejected(self, _name: str, payload: dict):
+        response = self._calculate(payload)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
