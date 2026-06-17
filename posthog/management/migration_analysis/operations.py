@@ -926,7 +926,7 @@ class _SafeConcurrentIndexAnalyzer(OperationAnalyzer):
     def analyze(self, op) -> OperationRisk:
         return OperationRisk(
             type=self.operation_type,
-            score=1,
+            score=self.default_score,
             reason=self.safe_reason,
             details={"model": getattr(op, "model_name", None), "index": self._index_name(op)},
         )

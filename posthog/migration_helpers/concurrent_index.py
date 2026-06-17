@@ -69,8 +69,8 @@ def _disable_timeouts(schema_editor) -> None:
     schema_editor.execute("SET statement_timeout = 0")
 
 
-def _index_is_valid(schema_editor, index_name: str) -> bool:
-    """True only if an index of this name exists AND indisvalid = true."""
+def _index_validity(schema_editor, index_name: str) -> str | None:
+    """None if no index of this name exists, else "valid" or "invalid" (indisvalid)."""
     with schema_editor.connection.cursor() as cursor:
         cursor.execute(
             """
@@ -82,41 +82,24 @@ def _index_is_valid(schema_editor, index_name: str) -> bool:
             [index_name],
         )
         row = cursor.fetchone()
-        return bool(row and row[0])
+        if row is None:
+            return None
+        return "valid" if row[0] else "invalid"
 
 
-def _index_exists(schema_editor, index_name: str) -> bool:
-    with schema_editor.connection.cursor() as cursor:
-        cursor.execute("SELECT 1 FROM pg_class WHERE relname = %s", [index_name])
-        return cursor.fetchone() is not None
+def _log_and_drop_invalid_index(schema_editor, index_name: str, op_name: str) -> None:
+    """Drop an index left invalid by a prior interrupted CONCURRENTLY build.
 
-
-def _drop_invalid_leftover(schema_editor, index_name: str, op_name: str) -> None:
-    """If `index_name` exists but is invalid, drop it.
-
-    Recovers from a prior CONCURRENTLY build that was cancelled mid-flight
-    (OOM, pod kill, lock_timeout, statement_timeout, etc.). Postgres leaves
-    the row in pg_class with indisvalid = false; a plain
-    `CREATE INDEX CONCURRENTLY IF NOT EXISTS` would silently skip and leave
-    the invalid index in place.
+    The caller has already established (via `_index_validity`) that the index
+    is invalid - Postgres left the row in pg_class with indisvalid = false after
+    a build was cancelled mid-flight (OOM, pod kill, lock_timeout, etc.), and a
+    plain `CREATE INDEX CONCURRENTLY IF NOT EXISTS` would silently skip past it.
 
     The recovery is intentionally noisy: a log line plus a migration stdout
     message, both tagged with the index name. Without this, the auto-recovery
     would mask repeated cancellations of the same index and we would never
     know a table has chronic lock contention or memory pressure during builds.
     """
-    with schema_editor.connection.cursor() as cursor:
-        cursor.execute(
-            """
-            SELECT 1
-            FROM pg_class c
-            JOIN pg_index i ON c.oid = i.indexrelid
-            WHERE c.relname = %s AND NOT i.indisvalid
-            """,
-            [index_name],
-        )
-        if cursor.fetchone() is None:
-            return
     logger.warning(
         "concurrent_index_recovering_from_invalid_leftover",
         index_name=index_name,
@@ -191,13 +174,6 @@ class _ConcurrentIndexOp(migrations.RunSQL):
             kwargs["where"] = self.where
         return (self.__class__.__qualname__, [], kwargs)
 
-    @staticmethod
-    def _disable_timeouts(schema_editor) -> None:
-        _disable_timeouts(schema_editor)
-
-    def _drop_if_invalid(self, schema_editor, index_name: str) -> None:
-        _drop_invalid_leftover(schema_editor, index_name, type(self).__name__)
-
 
 class CreateIndexConcurrently(_ConcurrentIndexOp):
     """Idempotent CREATE INDEX CONCURRENTLY with invalid-index recovery.
@@ -225,8 +201,8 @@ class CreateIndexConcurrently(_ConcurrentIndexOp):
         where: str = "",
     ) -> None:
         # All constructor args survive on the instance: index_name/table_name
-        # are read by `_drop_if_invalid` / `describe`, and every arg is needed
-        # by `deconstruct` so squashmigrations can rebuild the op.
+        # are read by `describe`, and every arg is needed by `deconstruct` so
+        # squashmigrations can rebuild the op.
         self.index_name = index_name
         self.table_name = table_name
         self.columns = columns
@@ -246,12 +222,13 @@ class CreateIndexConcurrently(_ConcurrentIndexOp):
         )
 
     def database_forwards(self, app_label, schema_editor, from_state, to_state) -> None:
-        self._disable_timeouts(schema_editor)
-        self._drop_if_invalid(schema_editor, self.index_name)
-        schema_editor.execute(self.sql)
+        _disable_timeouts(schema_editor)
+        if _index_validity(schema_editor, self.index_name) == "invalid":
+            _log_and_drop_invalid_index(schema_editor, self.index_name, type(self).__name__)
+        schema_editor.execute(self.sql)  # CREATE ... IF NOT EXISTS
 
     def database_backwards(self, app_label, schema_editor, from_state, to_state) -> None:
-        self._disable_timeouts(schema_editor)
+        _disable_timeouts(schema_editor)
         schema_editor.execute(self.reverse_sql)
 
     def describe(self) -> str:
@@ -288,8 +265,8 @@ class DropIndexConcurrently(_ConcurrentIndexOp):
         where: str = "",
     ) -> None:
         # All constructor args survive on the instance: index_name/table_name
-        # are read by `_drop_if_invalid` (on rollback) / `describe`, and every
-        # arg is needed by `deconstruct` so squashmigrations can rebuild the op.
+        # are read on rollback / by `describe`, and every arg is needed by
+        # `deconstruct` so squashmigrations can rebuild the op.
         self.index_name = index_name
         self.table_name = table_name
         self.columns = columns
@@ -309,13 +286,14 @@ class DropIndexConcurrently(_ConcurrentIndexOp):
         )
 
     def database_forwards(self, app_label, schema_editor, from_state, to_state) -> None:
-        self._disable_timeouts(schema_editor)
+        _disable_timeouts(schema_editor)
         schema_editor.execute(self.sql)
 
     def database_backwards(self, app_label, schema_editor, from_state, to_state) -> None:
-        self._disable_timeouts(schema_editor)
-        self._drop_if_invalid(schema_editor, self.index_name)
-        schema_editor.execute(self.reverse_sql)
+        _disable_timeouts(schema_editor)
+        if _index_validity(schema_editor, self.index_name) == "invalid":
+            _log_and_drop_invalid_index(schema_editor, self.index_name, type(self).__name__)
+        schema_editor.execute(self.reverse_sql)  # CREATE ... IF NOT EXISTS
 
     def describe(self) -> str:
         return f"Concurrently drop index {self.index_name} on {self.table_name}"
@@ -355,9 +333,11 @@ class SafeAddIndexConcurrently(AddIndexConcurrently):
         if not self.allow_migrate_model(schema_editor.connection.alias, model):
             return
         _disable_timeouts(schema_editor)
-        if _index_is_valid(schema_editor, self.index.name):
+        validity = _index_validity(schema_editor, self.index.name)
+        if validity == "valid":
             return  # already built; a bin/migrate retry is a no-op
-        _drop_invalid_leftover(schema_editor, self.index.name, type(self).__name__)
+        if validity == "invalid":
+            _log_and_drop_invalid_index(schema_editor, self.index.name, type(self).__name__)
         schema_editor.add_index(model, self.index, concurrently=True)
 
     def database_backwards(self, app_label, schema_editor, from_state, to_state) -> None:
@@ -366,7 +346,7 @@ class SafeAddIndexConcurrently(AddIndexConcurrently):
         if not self.allow_migrate_model(schema_editor.connection.alias, model):
             return
         _disable_timeouts(schema_editor)
-        if not _index_exists(schema_editor, self.index.name):
+        if _index_validity(schema_editor, self.index.name) is None:
             return  # already dropped; a bin/migrate retry is a no-op
         schema_editor.remove_index(model, self.index, concurrently=True)
 
@@ -386,7 +366,7 @@ class SafeRemoveIndexConcurrently(RemoveIndexConcurrently):
         if not self.allow_migrate_model(schema_editor.connection.alias, model):
             return
         _disable_timeouts(schema_editor)
-        if not _index_exists(schema_editor, self.name):
+        if _index_validity(schema_editor, self.name) is None:
             return  # already dropped; a bin/migrate retry is a no-op
         from_model_state = from_state.models[app_label, self.model_name_lower]
         index = from_model_state.get_index_by_name(self.name)
@@ -398,9 +378,11 @@ class SafeRemoveIndexConcurrently(RemoveIndexConcurrently):
         if not self.allow_migrate_model(schema_editor.connection.alias, model):
             return
         _disable_timeouts(schema_editor)
+        validity = _index_validity(schema_editor, self.name)
+        if validity == "valid":
+            return  # already rebuilt; a bin/migrate retry is a no-op
+        if validity == "invalid":
+            _log_and_drop_invalid_index(schema_editor, self.name, type(self).__name__)
         to_model_state = to_state.models[app_label, self.model_name_lower]
         index = to_model_state.get_index_by_name(self.name)
-        if _index_is_valid(schema_editor, self.name):
-            return  # already rebuilt; a bin/migrate retry is a no-op
-        _drop_invalid_leftover(schema_editor, self.name, type(self).__name__)
         schema_editor.add_index(model, index, concurrently=True)
