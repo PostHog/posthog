@@ -23,7 +23,9 @@ class TestBuildAccountDeeplink(TestCase):
         url = build_account_deeplink(account_id="acc-1", external_id="ext-1", name="Acme Corp", tab="usage")
         assert _decode_open(url) == {"id": "acc-1", "externalId": "ext-1", "name": "Acme Corp", "tab": "usage"}
 
-    @parameterized.expand([("external_id", None), ("name", ""), ("tab", None)])
+    @parameterized.expand(
+        [("external_id", None), ("external_id", ""), ("name", None), ("name", ""), ("tab", None), ("tab", "")]
+    )
     def test_falsy_optionals_are_omitted(self, field, value):
         url = build_account_deeplink(account_id="acc-1", **{field: value})
         assert _decode_open(url) == {"id": "acc-1"}
