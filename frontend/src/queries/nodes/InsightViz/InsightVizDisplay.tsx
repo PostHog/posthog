@@ -32,6 +32,8 @@ import { BoxPlotLegend } from 'scenes/insights/views/BoxPlot/BoxPlotLegend'
 import { BoxPlotResultsTable } from 'scenes/insights/views/BoxPlot/BoxPlotResultsTable'
 import { FunnelCorrelation } from 'scenes/insights/views/Funnels/FunnelCorrelation'
 import { FunnelStepsTable } from 'scenes/insights/views/Funnels/FunnelStepsTable'
+import { FunnelTimeToConvertTable } from 'scenes/insights/views/Funnels/FunnelTimeToConvertTable'
+import { FunnelTrendsTable } from 'scenes/insights/views/Funnels/FunnelTrendsTable'
 import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
 import { PathsV2 } from 'scenes/paths-v2/PathsV2'
 import { Paths } from 'scenes/paths/Paths'
@@ -352,6 +354,44 @@ export function InsightVizDisplay({
                     className="mt-4"
                 >
                     <FunnelStepsTable />
+                </SceneSection>
+            )
+        }
+
+        if (
+            isFunnels &&
+            erroredQueryId === null &&
+            timedOutQueryId === null &&
+            isFunnelWithEnoughSteps &&
+            hasFunnelResults &&
+            funnelsFilter?.funnelVizType === FunnelVizType.TimeToConvert &&
+            !disableTable
+        ) {
+            return (
+                <SceneSection
+                    title={<span className="font-semibold text-lg m-0">Detailed results</span>}
+                    className="mt-4"
+                >
+                    <FunnelTimeToConvertTable />
+                </SceneSection>
+            )
+        }
+
+        if (
+            isFunnels &&
+            erroredQueryId === null &&
+            timedOutQueryId === null &&
+            isFunnelWithEnoughSteps &&
+            hasFunnelResults &&
+            funnelsFilter?.funnelVizType === FunnelVizType.Trends &&
+            !disableTable
+        ) {
+            return (
+                <SceneSection
+                    title={<span className="font-semibold text-lg m-0">Detailed results</span>}
+                    className="mt-4"
+                >
+                    <FunnelTrendsTable />
                 </SceneSection>
             )
         }
