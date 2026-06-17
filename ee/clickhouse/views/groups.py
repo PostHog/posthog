@@ -37,12 +37,12 @@ from posthog.models.group_type_mapping import (
     GROUP_TYPE_MAPPING_SERIALIZER_FIELDS,
     GroupTypeMapping,
     delete_group_type_mapping,
+    get_group_type_mapping_instance,
     get_group_types_for_project,
     invalidate_group_types_cache,
     update_group_type_mapping_fields,
 )
 from posthog.models.user import User
-from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.personhog_client.converters import GroupTypeMappingResult
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.utils import str_to_bool
@@ -154,19 +154,13 @@ class GroupsTypesViewSet(TeamAndOrgViewSetMixin, mixins.DestroyModelMixin, views
 
     @extend_schema(responses={200: GroupTypeSerializer(many=True)})
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        # Served from the cached, personhog-routed helper instead of the persons DB
-        with personhog_caller_tag("groups/group-types-list"):
-            rows = get_group_types_for_project(self.team.project_id)
+        rows = get_group_types_for_project(self.team.project_id)
         return response.Response([_group_type_row_to_response(row) for row in rows])
 
     @action(detail=False, methods=["PATCH"], name="Update group types metadata")
     def update_metadata(self, request: request.Request, *args, **kwargs):
         for row in cast(list[dict], request.data):
-            instance = GroupTypeMapping.objects.get(  # nosemgrep: no-direct-persons-db-orm
-                project_id=self.team.project_id, group_type_index=row["group_type_index"]
-            )
-            # Pre-populate the team FK cache so serializer access control checks
-            instance.team = self.team
+            instance = get_group_type_mapping_instance(self.team.project_id, row["group_type_index"], team=self.team)
             serializer = self.get_serializer(instance, data=row)
             serializer.is_valid(raise_exception=True)
             fields: dict[str, Any] = {}
@@ -183,8 +177,8 @@ class GroupsTypesViewSet(TeamAndOrgViewSetMixin, mixins.DestroyModelMixin, views
     @action(methods=["PUT"], detail=False)
     def create_detail_dashboard(self, request: request.Request, **kw):
         try:
-            group_type_mapping = GroupTypeMapping.objects.get(  # nosemgrep: no-direct-persons-db-orm
-                project_id=self.team.project_id, group_type_index=request.data["group_type_index"]
+            group_type_mapping = get_group_type_mapping_instance(
+                self.team.project_id, request.data["group_type_index"], team=self.team
             )
         except GroupTypeMapping.DoesNotExist:
             raise NotFound(detail="Group type not found")
@@ -201,7 +195,6 @@ class GroupsTypesViewSet(TeamAndOrgViewSetMixin, mixins.DestroyModelMixin, views
             fields={"detail_dashboard_id": dashboard.id},
             operation="group_type_create_detail_dashboard",
         )
-        group_type_mapping.detail_dashboard_id = dashboard.id
         invalidate_group_types_cache(self.team.project_id)
         return response.Response(self.get_serializer(group_type_mapping).data)
 
@@ -212,8 +205,8 @@ class GroupsTypesViewSet(TeamAndOrgViewSetMixin, mixins.DestroyModelMixin, views
     @action(methods=["PUT"], detail=False)
     def set_default_columns(self, request: request.Request, **kw):
         try:
-            group_type_mapping = GroupTypeMapping.objects.get(  # nosemgrep: no-direct-persons-db-orm
-                project_id=self.team.project_id, group_type_index=request.data["group_type_index"]
+            group_type_mapping = get_group_type_mapping_instance(
+                self.team.project_id, request.data["group_type_index"], team=self.team
             )
         except GroupTypeMapping.DoesNotExist:
             raise NotFound(detail="Group type not found")
@@ -223,7 +216,6 @@ class GroupsTypesViewSet(TeamAndOrgViewSetMixin, mixins.DestroyModelMixin, views
             fields={"default_columns": request.data["default_columns"]},
             operation="group_type_set_default_columns",
         )
-        group_type_mapping.default_columns = request.data["default_columns"]
         invalidate_group_types_cache(self.team.project_id)
         return response.Response(self.get_serializer(group_type_mapping).data)
 
