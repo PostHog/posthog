@@ -266,25 +266,45 @@ export interface PosthogUsageTokens {
     cachedWriteTokens?: number
 }
 
-/** First of the two `usage_update` forms: cumulative token usage plus optional cost. */
-export interface PosthogUsageUpdateUsedParams {
+export interface PosthogUsageBreakdown {
+    systemPrompt?: number
+    tools?: number
+    rules?: number
+    skills?: number
+    mcp?: number
+    subagents?: number
+    conversation?: number
+}
+
+/**
+ * The `_posthog/usage_update` ext-notification. Permissive on purpose: the Codex adapter emits two
+ * separate frames (one carrying `used`+`cost: null`, one carrying `breakdown`), while the Claude
+ * adapter emits a single combined frame carrying `used`, `cost` (a bare number), AND `breakdown`
+ * together. `cost` therefore tolerates either the `{amount, currency}` object (Codex / the
+ * session/update aggregate) or a raw number (Claude). All fields optional so any adapter's framing
+ * folds in without dropping data.
+ */
+export interface PosthogUsageUpdateParams {
     sessionId?: string
-    used: PosthogUsageTokens
+    used?: PosthogUsageTokens
+    cost?: number | { amount?: number; currency?: string } | null
+    breakdown?: PosthogUsageBreakdown
+}
+
+/**
+ * The numeric `used`/`size` aggregate that drives the context-usage percentage ring. It does NOT
+ * arrive on the `_posthog/usage_update` ext-notification — it is a `session/update`-framed update
+ * (`sessionUpdate: 'usage_update'`) carrying flat numeric token counts plus cost.
+ */
+export interface SessionUpdateUsage {
+    sessionUpdate: 'usage_update'
+    used?: number
+    size?: number
     cost?: { amount?: number; currency?: string } | null
 }
 
-/** Second `usage_update` form: context-window composition breakdown. */
-export interface PosthogUsageUpdateBreakdownParams {
-    sessionId?: string
-    breakdown: {
-        systemPrompt?: number
-        tools?: number
-        rules?: number
-        skills?: number
-        mcp?: number
-        subagents?: number
-        conversation?: number
-    }
+export function isSessionUpdateUsage(update: unknown): update is SessionUpdateUsage {
+    return isRecord(update) && update.sessionUpdate === 'usage_update'
 }
 
 export interface PosthogStatusParams {
@@ -355,7 +375,7 @@ export interface PosthogNotificationParamsByMethod {
     '_posthog/progress': PosthogProgressParams
     '_posthog/sandbox_output': PosthogSandboxOutputParams
     '_posthog/user_message': PosthogUserMessageParams
-    '_posthog/usage_update': PosthogUsageUpdateUsedParams | PosthogUsageUpdateBreakdownParams
+    '_posthog/usage_update': PosthogUsageUpdateParams
     '_posthog/status': PosthogStatusParams
     '_posthog/compact_boundary': PosthogCompactBoundaryParams
     '_posthog/task_notification': PosthogTaskNotificationParams
@@ -379,14 +399,11 @@ export function isPosthogNotification<M extends keyof PosthogNotificationParamsB
     return notification.method === method
 }
 
-export function isUsageUpdateUsedParams(
-    params: PosthogUsageUpdateUsedParams | PosthogUsageUpdateBreakdownParams | undefined
-): params is PosthogUsageUpdateUsedParams {
-    return !!params && 'used' in params
+/** "Has field" checks rather than mutually exclusive — the Claude combined frame carries both. */
+export function hasUsageUsed(params: PosthogUsageUpdateParams | undefined): boolean {
+    return !!params && params.used != null
 }
 
-export function isUsageUpdateBreakdownParams(
-    params: PosthogUsageUpdateUsedParams | PosthogUsageUpdateBreakdownParams | undefined
-): params is PosthogUsageUpdateBreakdownParams {
-    return !!params && 'breakdown' in params
+export function hasUsageBreakdown(params: PosthogUsageUpdateParams | undefined): boolean {
+    return !!params && params.breakdown != null
 }

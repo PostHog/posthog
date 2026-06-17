@@ -56,11 +56,15 @@ export type ThreadItemType =
     | 'tool_invocation'
     | 'turn_separator'
     | 'error'
+    | 'status'
+    | 'compact_boundary'
+    | 'task_notification'
 
 /**
  * An ordered, append-only entry the renderer consumes. Human messages, text chunks, streamed
- * reasoning ("thoughts"), tool-invocation references, run-lifecycle markers, and inline errors all
- * flow through this list.
+ * reasoning ("thoughts"), tool-invocation references, run-lifecycle markers, inline errors, and
+ * inline `_posthog/*` notifications (status / compaction / task milestones) all flow through this
+ * list.
  */
 export interface ThreadItem {
     /** Stable id — message buffer id, tool call id, or a generated separator/error id. */
@@ -79,6 +83,63 @@ export interface ThreadItem {
      * raw error line (`error`, the default). Drives the copy/styling branch in the renderer.
      */
     variant?: 'error' | 'crash'
+    /** For `status` and `task_notification` items — the wire `status` string. */
+    status?: string
+    /** For `status` items — whether the status phase has completed. */
+    isComplete?: boolean
+    /** For `compact_boundary` items — what triggered the compaction (e.g. 'auto'). */
+    trigger?: string
+    /** For `compact_boundary` items — token count before compaction. */
+    preTokens?: number
+    /** For `compact_boundary` items — post-compaction context size. */
+    contextSize?: number
+    /** For `task_notification` items — the milestone summary. */
+    summary?: string
+}
+
+/** One PostHog product the agent grounded an answer in, accumulated across the whole session. */
+export interface ResourceProduct {
+    /** Wire product id, e.g. 'product_analytics'. The local taxonomy maps it to an icon + label. */
+    id: string
+    /** Wire-supplied label; falls back to the local taxonomy label when absent. */
+    label?: string
+}
+
+/**
+ * Latest-wins context-usage snapshot for the footer ring. `used`/`size` (numeric token counts)
+ * drive the percentage and arrive on the `session/update` aggregate; `tokens`/`cost`/`breakdown`
+ * arrive on the `_posthog/usage_update` ext-notification.
+ */
+export interface ContextUsage {
+    /** Numeric used-token count from the session/update aggregate (drives the ring). */
+    used?: number
+    /** Numeric context-window size from the session/update aggregate (drives the ring). */
+    size?: number
+    /** Cumulative token breakdown from the ext-notification. */
+    tokens?: {
+        inputTokens?: number
+        outputTokens?: number
+        cachedReadTokens?: number
+        cachedWriteTokens?: number
+    }
+    /** Cost in USD (normalized to a number from either wire cost shape). */
+    cost?: number
+    /** Context-window composition breakdown from the ext-notification. */
+    breakdown?: {
+        systemPrompt?: number
+        tools?: number
+        rules?: number
+        skills?: number
+        mcp?: number
+        subagents?: number
+        conversation?: number
+    }
+}
+
+/** Diagnostic resume plumbing — `taskRunId → sessionId / adapter`. No UI; kept for telemetry. */
+export interface SdkSession {
+    sessionId?: string
+    adapter?: string
 }
 
 /**
