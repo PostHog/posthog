@@ -97,3 +97,10 @@ class ErrorTrackingSettings:
     project_rate_limit_bucket_size_minutes: int | None
     per_issue_rate_limit_value: int | None
     per_issue_rate_limit_bucket_size_minutes: int | None
+
+
+@dataclass(frozen=True)
+class ErrorTrackingSpikeDetectionConfig:
+    snooze_duration_minutes: int
+    multiplier: int
+    threshold: int

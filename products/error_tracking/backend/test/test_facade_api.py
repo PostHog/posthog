@@ -186,3 +186,13 @@ class TestErrorTrackingFacadeAPI(BaseTest):
         api.update_settings(self.team.id, {"project_rate_limit_value": 42})
 
         assert api.get_settings(other_team.id).project_rate_limit_value is None
+
+    def test_spike_detection_config_get_and_update(self):
+        config = api.get_spike_detection_config(self.team.id)
+        assert isinstance(config, contracts.ErrorTrackingSpikeDetectionConfig)
+
+        updated = api.update_spike_detection_config(self.team.id, {"multiplier": 9, "threshold": 50})
+
+        assert updated.multiplier == 9
+        assert updated.threshold == 50
+        assert api.get_spike_detection_config(self.team.id) == updated

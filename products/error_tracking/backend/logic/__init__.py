@@ -18,6 +18,7 @@ from products.error_tracking.backend.models import (
     ErrorTrackingIssueAssignment,
     ErrorTrackingIssueFingerprintV2,
     ErrorTrackingSettings,
+    ErrorTrackingSpikeDetectionConfig,
     ErrorTrackingSymbolSet,
 )
 
@@ -26,6 +27,12 @@ SETTINGS_FIELDS = (
     "project_rate_limit_bucket_size_minutes",
     "per_issue_rate_limit_value",
     "per_issue_rate_limit_bucket_size_minutes",
+)
+
+SPIKE_DETECTION_CONFIG_FIELDS = (
+    "snooze_duration_minutes",
+    "multiplier",
+    "threshold",
 )
 
 
@@ -239,3 +246,18 @@ def update_settings(team_id: int, fields: dict[str, int | None]) -> ErrorTrackin
     if updates:
         settings.save(update_fields=list(updates))
     return settings
+
+
+def get_or_create_spike_detection_config(team_id: int) -> ErrorTrackingSpikeDetectionConfig:
+    config, _ = ErrorTrackingSpikeDetectionConfig.objects.get_or_create(team_id=team_id)
+    return config
+
+
+def update_spike_detection_config(team_id: int, fields: dict[str, int]) -> ErrorTrackingSpikeDetectionConfig:
+    config = get_or_create_spike_detection_config(team_id)
+    updates = {key: value for key, value in fields.items() if key in SPIKE_DETECTION_CONFIG_FIELDS}
+    for key, value in updates.items():
+        setattr(config, key, value)
+    if updates:
+        config.save(update_fields=list(updates))
+    return config

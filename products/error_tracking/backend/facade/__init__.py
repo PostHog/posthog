@@ -20,6 +20,7 @@ from .api import (
     get_new_issues_for_team,
     get_org_ids_with_exceptions,
     get_settings,
+    get_spike_detection_config,
     get_symbol_set_counts_by_team,
     get_top_issues_for_team,
     is_supported_external_issue_provider,
@@ -56,8 +57,10 @@ __all__ = [
     "get_top_issues_for_team",
     "is_supported_external_issue_provider",
     "issue_exists",
+    "get_spike_detection_config",
     "list_external_references",
     "list_fingerprints",
     "list_issues",
     "update_settings",
+    "update_spike_detection_config",
 ]

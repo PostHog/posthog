@@ -135,6 +135,22 @@ def update_settings(team_id: int, fields: dict[str, int | None]) -> contracts.Er
     return _to_settings(logic.update_settings(team_id=team_id, fields=fields))
 
 
+def _to_spike_detection_config(config) -> contracts.ErrorTrackingSpikeDetectionConfig:
+    return contracts.ErrorTrackingSpikeDetectionConfig(
+        snooze_duration_minutes=config.snooze_duration_minutes,
+        multiplier=config.multiplier,
+        threshold=config.threshold,
+    )
+
+
+def get_spike_detection_config(team_id: int) -> contracts.ErrorTrackingSpikeDetectionConfig:
+    return _to_spike_detection_config(logic.get_or_create_spike_detection_config(team_id))
+
+
+def update_spike_detection_config(team_id: int, fields: dict[str, int]) -> contracts.ErrorTrackingSpikeDetectionConfig:
+    return _to_spike_detection_config(logic.update_spike_detection_config(team_id=team_id, fields=fields))
+
+
 def get_issue_id_for_fingerprint(team_id: int, fingerprint: str) -> UUID | None:
     return logic.get_issue_id_for_fingerprint(team_id=team_id, fingerprint=fingerprint)
 
