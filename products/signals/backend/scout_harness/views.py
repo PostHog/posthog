@@ -201,7 +201,9 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "(`>= date_from`, `< date_to`); pass `date_to` on subsequent calls to walk past the "
             "100-row cap. Pass `emitted=true` to see only runs that surfaced at least one finding. "
             "Pass `skill_name` (optionally with `skill_version`) to scope to a single scout. "
-            "Results capped at 100."
+            "Pass `keys_only=true` to scan runs without pulling each `summary`, or `content_max_chars` "
+            "to cap each `summary` to a preview — both keep a bulk health-assessment scan from "
+            "returning every run's full close-out prose. Results capped at 100."
         ),
     )
     def list(self, request: Request, *args, **kwargs) -> Response:
@@ -213,6 +215,8 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         skill_name = validated.get("skill_name") or None
         skill_version = validated.get("skill_version")
         limit = validated.get("limit") or 20
+        keys_only = bool(validated.get("keys_only", False))
+        content_max_chars = validated.get("content_max_chars")
         rows = search_recent_runs(
             team_id=_canonical_team_id(self),
             date_from=date_from,
@@ -222,6 +226,8 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             skill_name=skill_name,
             skill_version=skill_version,
             limit=limit,
+            keys_only=keys_only,
+            content_max_chars=content_max_chars,
         )
         return Response(SignalScoutRunSummarySerializer([row.as_dict() for row in rows], many=True).data)
 

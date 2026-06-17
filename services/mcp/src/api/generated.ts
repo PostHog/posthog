@@ -44721,7 +44721,7 @@ export namespace Schemas {
          * @nullable
          */
       task_url?: string | null;
-      /** One-paragraph close-out the scout wrote at end-of-run. Empty string for runs that errored before close-out. The dedupe key for non-emitting runs. */
+      /** One-paragraph close-out the scout wrote at end-of-run. Empty string for runs that errored before close-out. The dedupe key for non-emitting runs. Blanked when the search projected it out (`keys_only=true`); truncated to a preview when `content_max_chars` was set. */
       summary: string;
       /**
          * Full `error_message` from the linked TaskRun, surfaced only for failed/cancelled runs (null otherwise, including on success). Use `failure_reason` for a concise scan-friendly summary.
@@ -44775,7 +44775,7 @@ export namespace Schemas {
          * @nullable
          */
       task_url?: string | null;
-      /** One-paragraph close-out the scout wrote at end-of-run. Empty string for runs that errored before close-out. The dedupe key for non-emitting runs. */
+      /** One-paragraph close-out the scout wrote at end-of-run. Empty string for runs that errored before close-out. The dedupe key for non-emitting runs. Blanked when the search projected it out (`keys_only=true`); truncated to a preview when `content_max_chars` was set. */
       summary: string;
       /**
          * Full `error_message` from the linked TaskRun, surfaced only for failed/cancelled runs (null otherwise, including on success). Use `failure_reason` for a concise scan-friendly summary.
@@ -60221,6 +60221,11 @@ export namespace Schemas {
 
     export type SignalsScoutRunsListParams = {
     /**
+     * Truncate each run's `summary` to the first N characters (a preview). Omit for the full close-out. Ignored when `keys_only=true`.
+     * @minimum 0
+     */
+    content_max_chars?: number;
+    /**
      * ISO-8601 inclusive lower bound on `created_at`. Omit to skip the lower bound.
      */
     date_from?: string;
@@ -60233,6 +60238,10 @@ export namespace Schemas {
      * @nullable
      */
     emitted?: boolean | null;
+    /**
+     * When true, blank each run's `summary` and return only the lightweight fields (`run_id`, `skill_name`, `status`, `failure_reason`, `emitted_count`, …). Use to scan what ran without pulling every run's full close-out prose, then re-query the ones worth a full read. Takes precedence over `content_max_chars`.
+     */
+    keys_only?: boolean;
     /**
      * Max rows to return (default 20, hard cap 100).
      * @minimum 1

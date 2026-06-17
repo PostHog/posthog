@@ -485,9 +485,11 @@ const signalsScoutRunsList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/`,
             query: {
+                content_max_chars: params.content_max_chars,
                 date_from: params.date_from,
                 date_to: params.date_to,
                 emitted: params.emitted,
+                keys_only: params.keys_only,
                 limit: params.limit,
                 skill_name: params.skill_name,
                 skill_version: params.skill_version,

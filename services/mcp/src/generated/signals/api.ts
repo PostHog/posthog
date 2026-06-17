@@ -245,7 +245,7 @@ export const SignalsScoutProjectProfileGetQueryParams = /* @__PURE__ */ zod.obje
 })
 
 /**
- * Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless scout to dedupe against work other runs already covered. ILIKE matches on `summary`. `date_from` / `date_to` are a half-open window on `created_at` (`>= date_from`, `< date_to`); pass `date_to` on subsequent calls to walk past the 100-row cap. Pass `emitted=true` to see only runs that surfaced at least one finding. Pass `skill_name` (optionally with `skill_version`) to scope to a single scout. Results capped at 100.
+ * Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless scout to dedupe against work other runs already covered. ILIKE matches on `summary`. `date_from` / `date_to` are a half-open window on `created_at` (`>= date_from`, `< date_to`); pass `date_to` on subsequent calls to walk past the 100-row cap. Pass `emitted=true` to see only runs that surfaced at least one finding. Pass `skill_name` (optionally with `skill_version`) to scope to a single scout. Pass `keys_only=true` to scan runs without pulling each `summary`, or `content_max_chars` to cap each `summary` to a preview — both keep a bulk health-assessment scan from returning every run's full close-out prose. Results capped at 100.
  * @summary Search recent agent runs
  */
 export const SignalsScoutRunsListParams = /* @__PURE__ */ zod.object({
@@ -256,9 +256,18 @@ export const SignalsScoutRunsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const signalsScoutRunsListQueryContentMaxCharsMin = 0
+
 export const signalsScoutRunsListQueryLimitMax = 100
 
 export const SignalsScoutRunsListQueryParams = /* @__PURE__ */ zod.object({
+    content_max_chars: zod
+        .number()
+        .min(signalsScoutRunsListQueryContentMaxCharsMin)
+        .optional()
+        .describe(
+            "Truncate each run's `summary` to the first N characters (a preview). Omit for the full close-out. Ignored when `keys_only=true`."
+        ),
     date_from: zod.iso
         .datetime({ offset: true })
         .optional()
@@ -274,6 +283,12 @@ export const SignalsScoutRunsListQueryParams = /* @__PURE__ */ zod.object({
         .nullish()
         .describe(
             'Filter by emit outcome. `true` returns only runs that emitted at least one finding (`emitted_count > 0`); `false` returns only runs that emitted nothing. Omit for both.'
+        ),
+    keys_only: zod
+        .boolean()
+        .optional()
+        .describe(
+            "When true, blank each run's `summary` and return only the lightweight fields (`run_id`, `skill_name`, `status`, `failure_reason`, `emitted_count`, …). Use to scan what ran without pulling every run's full close-out prose, then re-query the ones worth a full read. Takes precedence over `content_max_chars`."
         ),
     limit: zod
         .number()

@@ -321,7 +321,9 @@ tools:
             that emitted at least one finding (or `emitted=false` for runs that surfaced nothing). Pass `text` for a
             case-insensitive substring match on the run's `summary` (the primary dedupe key for runs that didn't emit
             findings). Pass `date_from` / `date_to` (ISO-8601, inclusive lower / exclusive upper bound on `created_at`)
-            to scope to a window. Results capped at 100.
+            to scope to a window. Pass `keys_only=true` to scan runs without pulling each `summary`, or
+            `content_max_chars` to cap each `summary` to a preview — both keep a bulk health-assessment scan from
+            returning every run's full close-out prose. Results capped at 100.
     signals-scout-runs-retrieve:
         operation: signals_scout_runs_retrieve
         enabled: true

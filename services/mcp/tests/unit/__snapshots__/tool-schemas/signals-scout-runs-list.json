@@ -1,6 +1,11 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "content_max_chars": {
+            "description": "Truncate each run's `summary` to the first N characters (a preview). Omit for the full close-out. Ignored when `keys_only=true`.",
+            "minimum": 0,
+            "type": "number"
+        },
         "date_from": {
             "description": "ISO-8601 inclusive lower bound on `created_at`. Omit to skip the lower bound.",
             "format": "date-time",
@@ -23,6 +28,10 @@
                 }
             ],
             "description": "Filter by emit outcome. `true` returns only runs that emitted at least one finding (`emitted_count > 0`); `false` returns only runs that emitted nothing. Omit for both."
+        },
+        "keys_only": {
+            "description": "When true, blank each run's `summary` and return only the lightweight fields (`run_id`, `skill_name`, `status`, `failure_reason`, `emitted_count`, …). Use to scan what ran without pulling every run's full close-out prose, then re-query the ones worth a full read. Takes precedence over `content_max_chars`.",
+            "type": "boolean"
         },
         "limit": {
             "description": "Max rows to return (default 20, hard cap 100).",

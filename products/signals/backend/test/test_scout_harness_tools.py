@@ -165,6 +165,42 @@ class TestSearchRecentRuns(BaseTest):
         assert detail is not None
         assert detail.summary == "emit-free run; only known-noise patterns"
 
+    def test_keys_only_blanks_summary_but_keeps_lightweight_fields(self) -> None:
+        run = _create_run(self.team, summary="a long close-out the caller doesn't need yet", emitted_count=2)
+
+        hits = search_recent_runs(team_id=self.team.id, keys_only=True, limit=1)
+
+        assert hits[0].run_id == str(run.id)
+        assert hits[0].summary == ""
+        # Lightweight scan fields still surface.
+        assert hits[0].skill_name == run.skill_name
+        assert hits[0].emitted_count == 2
+
+    def test_content_max_chars_truncates_summary_to_preview(self) -> None:
+        _create_run(self.team, summary="abcdefghij")
+
+        hits = search_recent_runs(team_id=self.team.id, content_max_chars=4, limit=1)
+
+        assert hits[0].summary == "abcd"
+
+    def test_keys_only_takes_precedence_over_content_max_chars(self) -> None:
+        _create_run(self.team, summary="abcdefghij")
+
+        hits = search_recent_runs(team_id=self.team.id, keys_only=True, content_max_chars=4, limit=1)
+
+        assert hits[0].summary == ""
+
+    def test_get_run_detail_keeps_full_summary_regardless_of_list_projection(self) -> None:
+        # Detail reads (`get_run`) are never projected — the projection lives only on the
+        # bulk list path, so a truncated list scan can always be followed by a full read.
+        run = _create_run(self.team, summary="abcdefghij")
+
+        search_recent_runs(team_id=self.team.id, keys_only=True, limit=1)
+        detail = get_run(team_id=self.team.id, run_id=str(run.id))
+
+        assert detail is not None
+        assert detail.summary == "abcdefghij"
+
     def test_emit_tally_round_trips_through_projection(self) -> None:
         run = _create_run(self.team, emitted_count=2, emitted_finding_ids=["f-a", "f-b"])
 

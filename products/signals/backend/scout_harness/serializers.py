@@ -64,7 +64,9 @@ class SignalScoutRunSummarySerializer(serializers.Serializer):
         allow_blank=True,
         help_text=(
             "One-paragraph close-out the scout wrote at end-of-run. Empty string for "
-            "runs that errored before close-out. The dedupe key for non-emitting runs."
+            "runs that errored before close-out. The dedupe key for non-emitting runs. "
+            "Blanked when the search projected it out (`keys_only=true`); truncated to a "
+            "preview when `content_max_chars` was set."
         ),
     )
     error = serializers.CharField(
@@ -232,6 +234,23 @@ class SearchRecentRunsQuerySerializer(serializers.Serializer):
         required=False,
         min_value=1,
         help_text="Exact-match filter on the skill version. Pair with `skill_name` to pin one version; omit for all.",
+    )
+    keys_only = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "When true, blank each run's `summary` and return only the lightweight fields "
+            "(`run_id`, `skill_name`, `status`, `failure_reason`, `emitted_count`, …). Use to scan "
+            "what ran without pulling every run's full close-out prose, then re-query the ones worth "
+            "a full read. Takes precedence over `content_max_chars`."
+        ),
+    )
+    content_max_chars = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        help_text=(
+            "Truncate each run's `summary` to the first N characters (a preview). Omit for the "
+            "full close-out. Ignored when `keys_only=true`."
+        ),
     )
     limit = serializers.IntegerField(
         required=False,

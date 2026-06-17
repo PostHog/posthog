@@ -164,6 +164,21 @@ class TestScoutHarnessRunsAPI(APIBaseTest):
         assert row["error"] == "boom: sandbox died\nstack line 2"
         assert row["failure_reason"] == "boom: sandbox died"
 
+    def test_list_keys_only_blanks_summary(self) -> None:
+        _make_run(self.team, summary="a long close-out", emitted_count=2)
+        response = self.client.get(f"{self._list_url()}?keys_only=true")
+        assert response.status_code == status.HTTP_200_OK
+        row = response.json()[0]
+        assert row["summary"] == ""
+        # Lightweight scan fields still surface.
+        assert row["emitted_count"] == 2
+
+    def test_list_content_max_chars_truncates_summary_preview(self) -> None:
+        _make_run(self.team, summary="abcdefghij")
+        response = self.client.get(f"{self._list_url()}?content_max_chars=4")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()[0]["summary"] == "abcd"
+
     def test_retrieve_returns_bridge_projection(self) -> None:
         run = _make_run(self.team, summary="looked at /checkout, nothing actionable")
         response = self.client.get(self._detail_url(str(run.id)))
