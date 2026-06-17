@@ -54401,6 +54401,7 @@ export namespace Schemas {
      * * `UserGroup` - UserGroup
      * * `BatchExport` - BatchExport
      * * `BatchImport` - BatchImport
+     * * `ExportedAsset` - ExportedAsset
      * * `Integration` - Integration
      * * `Annotation` - Annotation
      * * `Tag` - Tag
@@ -54481,6 +54482,7 @@ export namespace Schemas {
       UserGroup: 'UserGroup',
       BatchExport: 'BatchExport',
       BatchImport: 'BatchImport',
+      ExportedAsset: 'ExportedAsset',
       Integration: 'Integration',
       Annotation: 'Annotation',
       Tag: 'Tag',
@@ -54547,6 +54549,7 @@ export namespace Schemas {
      * * `UserGroup` - UserGroup
      * * `BatchExport` - BatchExport
      * * `BatchImport` - BatchImport
+     * * `ExportedAsset` - ExportedAsset
      * * `Integration` - Integration
      * * `Annotation` - Annotation
      * * `Tag` - Tag
@@ -54615,6 +54618,7 @@ export namespace Schemas {
       UserGroup: 'UserGroup',
       BatchExport: 'BatchExport',
       BatchImport: 'BatchImport',
+      ExportedAsset: 'ExportedAsset',
       Integration: 'Integration',
       Annotation: 'Annotation',
       Tag: 'Tag',
