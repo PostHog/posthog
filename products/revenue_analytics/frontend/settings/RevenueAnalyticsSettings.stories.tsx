@@ -66,8 +66,11 @@ const meta: Meta = {
                 },
             },
             post: {
-                '/api/environments/:team_id/query/:kind': (req) => {
-                    const queryKind = getEffectiveQueryKind(req)
+                '/api/environments/:team_id/query/:kind': async ({ request }) => {
+                    const body = (await request.json()) as {
+                        query?: { kind?: string; source?: { kind?: string } }
+                    }
+                    const queryKind = getEffectiveQueryKind({ body })
 
                     if (queryKind === 'DatabaseSchemaQuery') {
                         return [200, DatabaseSchemaQuery]
