@@ -543,14 +543,14 @@ def get_group_type_mapping_instance(
     """
     rows = get_group_types_for_project(project_id)
     for row in rows:
-        if row.get("group_type_index") == group_type_index:
+        if row["group_type_index"] == group_type_index:
             return _dict_to_group_type_mapping_model(row, project_id=project_id, team=team)
 
     # Cache may be stale — bust it and retry once via the full personhog/ORM chain.
     invalidate_group_types_cache(project_id)
     rows = get_group_types_for_project(project_id)
     for row in rows:
-        if row.get("group_type_index") == group_type_index:
+        if row["group_type_index"] == group_type_index:
             return _dict_to_group_type_mapping_model(row, project_id=project_id, team=team)
 
     raise GroupTypeMapping.DoesNotExist(
