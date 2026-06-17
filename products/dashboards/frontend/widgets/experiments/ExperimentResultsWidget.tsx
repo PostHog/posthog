@@ -6,6 +6,7 @@ import { ExperimentsHog } from 'lib/components/hedgehogs'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { StatusTag } from 'scenes/experiments/ExperimentView/StatusTag'
 import { urls } from 'scenes/urls'
 
@@ -40,6 +41,25 @@ export type ExperimentResultsWidgetResult = {
     hasExperiments?: boolean
     totalMetricsCount?: number
     totalSecondaryMetricsCount?: number
+}
+
+// Total exposed entities = baseline + every variant sample count, read off the first metric that
+// has results. number_of_samples is the exposed population, so this matches the table denominators.
+function getTotalExposures(metricGroups: ExperimentResultsWidgetMetricEntry[][]): number | null {
+    for (const metrics of metricGroups) {
+        for (const entry of metrics) {
+            const variantResults = entry.result?.variant_results
+            if (!variantResults?.length) {
+                continue
+            }
+            let total = entry.result?.baseline?.number_of_samples ?? 0
+            for (const variant of variantResults) {
+                total += variant.number_of_samples ?? 0
+            }
+            return total
+        }
+    }
+    return null
 }
 
 function ExperimentResultsWidgetMessage({
@@ -204,6 +224,7 @@ export function ExperimentResultsWidget({
     const { experiment, metrics } = payload
     const secondaryMetrics = payload.secondaryMetrics ?? []
     const isDraft = experiment.status === 'draft'
+    const totalExposures = getTotalExposures([metrics, secondaryMetrics])
 
     return (
         <WidgetCardContent>
@@ -219,6 +240,11 @@ export function ExperimentResultsWidget({
                     </Link>
                     <StatusTag status={experiment.status as ExperimentStatus} />
                 </div>
+                {totalExposures != null ? (
+                    <span className="text-xs text-muted">
+                        {humanFriendlyNumber(totalExposures)} total exposures
+                    </span>
+                ) : null}
                 {isDraft ? (
                     <LemonBanner type="info" className="text-sm">
                         This experiment has not launched yet. Results will appear once it is running.
