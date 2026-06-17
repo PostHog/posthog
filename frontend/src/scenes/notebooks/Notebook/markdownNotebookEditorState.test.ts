@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { NOTEBOOK_AI_AGENT_ID, NOTEBOOK_AI_AGENT_NAME } from 'lib/components/MarkdownNotebook/notebookAgents'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -137,5 +138,41 @@ describe('notebookLogic markdown editor state', () => {
         expect(appliedMarkdown).toContain(`<Chat id="${chatId}" />`)
         expect(logic.values.markdownEditorDraft).toBeNull()
         expect(logic.values.autosavePaused).toBe(false)
+    })
+
+    it('combines human and markdown agent presence participants', () => {
+        logic.actions.handleRemotePresence({
+            clientId: 'remote-client',
+            userId: 42,
+            userName: 'Remote User',
+            version: 1,
+            cursor: { node_index: 0 },
+        })
+
+        logic.actions.handleMarkdownEditorChange(
+            `${BASE_MARKDOWN}
+
+<Agent id="${NOTEBOOK_AI_AGENT_ID}" name="${NOTEBOOK_AI_AGENT_NAME}" />`
+        )
+
+        expect(logic.values.notebookPresenceParticipants).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    clientId: 'current-user',
+                    userName: 'You',
+                    isCurrentUser: true,
+                }),
+                expect.objectContaining({
+                    clientId: 'remote-client',
+                    userName: 'Remote User',
+                }),
+                expect.objectContaining({
+                    clientId: `agent-${NOTEBOOK_AI_AGENT_ID}`,
+                    userName: NOTEBOOK_AI_AGENT_NAME,
+                    isAgent: true,
+                    agentId: NOTEBOOK_AI_AGENT_ID,
+                }),
+            ])
+        )
     })
 })

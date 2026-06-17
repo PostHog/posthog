@@ -31,6 +31,8 @@ import {
 } from 'lib/components/MarkdownNotebook/collaboration'
 import type { TextChange } from 'lib/components/MarkdownNotebook/collaboration'
 import {
+    getNotebookAgentsFromMarkdown,
+    getNotebookAgentSyntheticUserId,
     normalizeNotebookAIAgentArtifactMarkdown,
     preserveNotebookAIAgentNode,
     stripNotebookAgentsFromMarkdown,
@@ -49,6 +51,7 @@ import { objectsEqual } from 'lib/utils/objects'
 import { slugify } from 'lib/utils/strings'
 import { commentsLogic } from 'scenes/comments/commentsLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
@@ -117,7 +120,9 @@ import { notebookKernelInfoLogic } from './notebookKernelInfoLogic'
 import type { notebookLogicType } from './notebookLogicType'
 import {
     getNotebookMarkdownClientId,
+    getNotebookPresenceParticipants,
     getNotebookRemoteParticipants,
+    type NotebookPresenceParticipant,
     type NotebookPresenceState,
     type NotebookRemoteParticipant,
     pruneNotebookRemotePresence,
@@ -283,7 +288,9 @@ export const notebookLogic = kea<notebookLogicType>([
             notebookSettingsLogic,
             ['showKernelInfo', 'showTableOfContents'],
             notebookCollabLogic({ shortId: props.shortId }),
-            ['ttEditor'],
+            ['ttEditor', 'remoteParticipants'],
+            userLogic,
+            ['user'],
         ],
         actions: [
             notebooksModel,
@@ -981,6 +988,31 @@ export const notebookLogic = kea<notebookLogicType>([
             (s) => [s.markdownRemotePresence],
             (markdownRemotePresence): NotebookRemoteParticipant[] =>
                 getNotebookRemoteParticipants(markdownRemotePresence),
+        ],
+        notebookPresenceParticipants: [
+            (s) => [s.user, s.markdownRemoteParticipants, s.remoteParticipants, s.markdownEditorValue],
+            (
+                user,
+                markdownRemoteParticipants: NotebookRemoteParticipant[],
+                remoteParticipants: NotebookRemoteParticipant[],
+                markdownEditorValue: string
+            ): NotebookPresenceParticipant[] => {
+                const humanParticipants = getNotebookPresenceParticipants(
+                    user,
+                    markdownRemoteParticipants.length > 0 ? markdownRemoteParticipants : remoteParticipants
+                )
+                const agentParticipants: NotebookPresenceParticipant[] = getNotebookAgentsFromMarkdown(
+                    markdownEditorValue
+                ).map((agent) => ({
+                    clientId: `agent-${agent.id}`,
+                    userId: getNotebookAgentSyntheticUserId(agent),
+                    userName: agent.name,
+                    lastSeenAt: Date.now(),
+                    isAgent: true,
+                    agentId: agent.id,
+                }))
+                return [...humanParticipants, ...agentParticipants]
+            },
         ],
         content: [
             (s) => [s.notebook, s.localContent, s.previewContent],

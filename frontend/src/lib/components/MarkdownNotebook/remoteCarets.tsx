@@ -219,14 +219,12 @@ export function RemoteCaretOverlay({
     blockRefs,
     listItemRefs,
     containerRef,
-    onAgentCaretDismiss,
 }: {
     carets: RemoteNotebookCaret[]
     nodes: NotebookBlockNode[]
     blockRefs: MutableRefObject<Record<string, HTMLElement | null>>
     listItemRefs: MutableRefObject<Record<string, HTMLElement | null>>
     containerRef: RefObject<HTMLElement | null>
-    onAgentCaretDismiss?: (caret: RemoteNotebookCaret) => void
 }): JSX.Element | null {
     const [layouts, setLayouts] = useState<Record<string, RemoteCaretLayout>>({})
 
@@ -269,27 +267,14 @@ export function RemoteCaretOverlay({
     }
 
     return (
-        <div className="MarkdownNotebook__remote-carets" aria-hidden={onAgentCaretDismiss ? undefined : true}>
+        <div className="MarkdownNotebook__remote-carets" aria-hidden={true}>
             {carets.map((caret) => {
                 const layout = layouts[caret.clientId]
                 if (!layout) {
                     return null
                 }
-                const isClickable = caret.kind === 'agent' && !!onAgentCaretDismiss
-                const handleMouseDown = (event: React.MouseEvent): void => {
-                    event.preventDefault()
-                    event.stopPropagation()
-                }
-                const handleClick = (event: React.MouseEvent): void => {
-                    event.preventDefault()
-                    event.stopPropagation()
-                    onAgentCaretDismiss?.(caret)
-                }
                 if (layout.width !== undefined) {
                     // Block-level presence: the user is on a component/table, not at a text offset.
-                    const className = `MarkdownNotebook__remote-block${
-                        isClickable ? ' MarkdownNotebook__remote-block--clickable' : ''
-                    }`
                     const style = {
                         top: layout.top,
                         left: layout.left,
@@ -297,55 +282,20 @@ export function RemoteCaretOverlay({
                         height: layout.height,
                         '--remote-presence-color': caret.color,
                     } as React.CSSProperties
-                    if (isClickable) {
-                        return (
-                            <button
-                                key={caret.clientId}
-                                type="button"
-                                className={className}
-                                style={style}
-                                title={`Dismiss ${caret.userName}`}
-                                aria-label={`Dismiss ${caret.userName}`}
-                                onMouseDown={handleMouseDown}
-                                onClick={handleClick}
-                            >
-                                <span className="MarkdownNotebook__remote-caret-flag">{caret.userName}</span>
-                            </button>
-                        )
-                    }
                     return (
-                        <div key={caret.clientId} className={className} style={style}>
+                        <div key={caret.clientId} className="MarkdownNotebook__remote-block" style={style}>
                             <span className="MarkdownNotebook__remote-caret-flag">{caret.userName}</span>
                         </div>
                     )
                 }
-                const className = `MarkdownNotebook__remote-caret${
-                    isClickable ? ' MarkdownNotebook__remote-caret--clickable' : ''
-                }`
                 const style = {
                     top: layout.top,
                     left: layout.left,
                     height: layout.height,
                     '--remote-presence-color': caret.color,
                 } as React.CSSProperties
-                if (isClickable) {
-                    return (
-                        <button
-                            key={caret.clientId}
-                            type="button"
-                            className={className}
-                            style={style}
-                            title={`Dismiss ${caret.userName}`}
-                            aria-label={`Dismiss ${caret.userName}`}
-                            onMouseDown={handleMouseDown}
-                            onClick={handleClick}
-                        >
-                            <span className="MarkdownNotebook__remote-caret-flag">{caret.userName}</span>
-                        </button>
-                    )
-                }
                 return (
-                    <div key={caret.clientId} className={className} style={style}>
+                    <div key={caret.clientId} className="MarkdownNotebook__remote-caret" style={style}>
                         <span className="MarkdownNotebook__remote-caret-flag">{caret.userName}</span>
                     </div>
                 )

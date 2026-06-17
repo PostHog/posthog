@@ -5,12 +5,7 @@ import { IconBook, IconTerminal, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonTag } from '@posthog/lemon-ui'
 
 import { getSeriesColor } from 'lib/colors'
-import {
-    getNotebookAgentAvatarLabel,
-    getNotebookAgentColorIndex,
-    getNotebookAgentSyntheticUserId,
-    getNotebookAgentsFromMarkdown,
-} from 'lib/components/MarkdownNotebook/notebookAgents'
+import { getNotebookAgentAvatarLabel, getNotebookAgentColorIndex } from 'lib/components/MarkdownNotebook/notebookAgents'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconDocumentExpand } from 'lib/lemon-ui/icons'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
@@ -18,16 +13,11 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { userLogic } from 'scenes/userLogic'
 
 import { NotebookSyncStatus } from '../types'
 import { notebookCollabLogic } from './notebookCollabLogic'
 import { NotebookLogicProps, notebookLogic } from './notebookLogic'
-import {
-    getNotebookPresenceParticipants,
-    type NotebookPresenceParticipant,
-    type NotebookRemoteParticipant,
-} from './notebookPresence'
+import { type NotebookPresenceParticipant } from './notebookPresence'
 import { notebookSettingsLogic } from './notebookSettingsLogic'
 
 const MAX_PRESENCE_BUBBLES = 6
@@ -149,28 +139,7 @@ function formatNotebookPresenceNames(names: string[]): string {
 }
 
 export const NotebookPresence = (props: NotebookLogicProps): JSX.Element | null => {
-    const { user } = useValues(userLogic)
-    const { markdownEditorValue, markdownRemoteParticipants } = useValues(notebookLogic(props)) as unknown as {
-        markdownEditorValue: string
-        markdownRemoteParticipants: NotebookRemoteParticipant[]
-    }
-    const { remoteParticipants } = useValues(notebookCollabLogic({ shortId: props.shortId })) as unknown as {
-        remoteParticipants: NotebookRemoteParticipant[]
-    }
-    const humanParticipants = getNotebookPresenceParticipants(
-        user,
-        markdownRemoteParticipants.length > 0 ? markdownRemoteParticipants : remoteParticipants
-    )
-    const notebookAgents = getNotebookAgentsFromMarkdown(markdownEditorValue)
-    const agentParticipants: NotebookPresenceParticipant[] = notebookAgents.map((agent) => ({
-        clientId: `agent-${agent.id}`,
-        userId: getNotebookAgentSyntheticUserId(agent),
-        userName: agent.name,
-        lastSeenAt: Date.now(),
-        isAgent: true,
-        agentId: agent.id,
-    }))
-    const participants = [...humanParticipants, ...agentParticipants]
+    const { notebookPresenceParticipants: participants } = useValues(notebookLogic(props))
 
     if (!participants.length) {
         return null

@@ -140,19 +140,6 @@ export function MarkdownNotebookV2(): JSX.Element {
 
     useEffect(() => clearAIAgentDepartureTimeout, [clearAIAgentDepartureTimeout])
 
-    const handleAgentCaretDismiss = useCallback(
-        (caret: RemoteNotebookCaret): void => {
-            const agentId = caret.agentId
-            if (caret.kind !== 'agent' || !agentId) {
-                return
-            }
-
-            clearAIAgentDepartureTimeout()
-            updateMarkdownEditorValue((currentMarkdown) => removeNotebookAgentFromMarkdown(currentMarkdown, agentId))
-        },
-        [clearAIAgentDepartureTimeout, updateMarkdownEditorValue]
-    )
-
     const handleAskAI = useCallback(
         ({
             chatId,
@@ -380,7 +367,6 @@ export function MarkdownNotebookV2(): JSX.Element {
                 onChange={isEditable ? handleMarkdownEditorChange : undefined}
                 onConflict={reportMarkdownMergeConflicts}
                 remoteCarets={remoteCarets}
-                onAgentCaretDismiss={isEditable ? handleAgentCaretDismiss : undefined}
                 onCaretChange={isEditable ? publishMarkdownCaret : undefined}
                 onAskAI={isEditable ? handleAskAI : undefined}
                 createAIChatId={uuid}

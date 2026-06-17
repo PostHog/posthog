@@ -238,8 +238,6 @@ export type MarkdownNotebookProps = {
     onInteractionStateChange?: (isInteractionActive: boolean) => void
     /** Carets of other clients editing this notebook, rendered as a positioned overlay. */
     remoteCarets?: RemoteNotebookCaret[]
-    /** Called when a persisted notebook agent caret is dismissed. */
-    onAgentCaretDismiss?: (caret: RemoteNotebookCaret) => void
     /** Reports the local caret whenever it moves; null when the selection leaves the notebook. */
     onCaretChange?: (position: MarkdownNotebookCaretPosition | null) => void
     initialInsertMenu?: { nodeIndex?: number; query?: string }
@@ -453,7 +451,6 @@ export function MarkdownNotebook({
     onConflict,
     onInteractionStateChange,
     remoteCarets,
-    onAgentCaretDismiss,
     onCaretChange,
     initialInsertMenu,
     focusAIPromptRequest,
@@ -5382,7 +5379,6 @@ export function MarkdownNotebook({
                             blockRefs={blockRefs}
                             listItemRefs={listItemRefs}
                             containerRef={mainRef}
-                            onAgentCaretDismiss={onAgentCaretDismiss}
                         />
                     ) : null}
                     {floatingToolbar && mode === 'edit' ? (
