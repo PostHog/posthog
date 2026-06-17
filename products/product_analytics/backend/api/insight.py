@@ -1095,13 +1095,19 @@ class InsightSerializer(InsightBasicSerializer):
                 # Shared rendering bypasses the FE scene-tag flow, so set product/feature
                 # tags here. No-op overwrite for authenticated paths (same values).
                 shared_tags = {"access_method": AccessMethod.SHARING_TOKEN} if is_shared else {}
+                request_user = None if self.context["request"].user.is_anonymous else self.context["request"].user
+                # Reuse the request's single UserAccessControl across all of a dashboard's insight
+                # runners, so the cache fingerprint resolves access once per request, not per tile.
+                view = self.context.get("view")
+                request_user_access_control = getattr(view, "user_access_control", None) if request_user else None
                 with tags_context(product=ProductKey.PRODUCT_ANALYTICS, feature=Feature.INSIGHT, **shared_tags):
                     return calculate_for_query_based_insight(
                         insight,
                         team=self.context["get_team"](),
                         dashboard=dashboard,
                         execution_mode=execution_mode,
-                        user=None if self.context["request"].user.is_anonymous else self.context["request"].user,
+                        user=request_user,
+                        user_access_control=request_user_access_control,
                         filters_override=filters_override,
                         variables_override=variables_override,
                         tile_filters_override=tile_filters_override,

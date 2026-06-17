@@ -5,7 +5,7 @@ import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCalendarSelect, LemonCalendarSelectProps } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
-import { formatDate } from 'lib/utils'
+import { formatDate } from 'lib/utils/datetime'
 
 type Story = StoryObj<LemonCalendarSelectProps>
 const meta: Meta<LemonCalendarSelectProps> = {

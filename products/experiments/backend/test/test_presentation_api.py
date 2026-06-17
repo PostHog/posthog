@@ -2329,7 +2329,7 @@ class TestExperimentCRUD(APILicensedTest):
 
         # TODO: Make sure permission bool doesn't cause n + 1
         # +1 query for survey internal flag IDs lookup
-        with self.assertNumQueries(24):
+        with self.assertNumQueries(22):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             result = response.json()
@@ -6700,3 +6700,173 @@ class TestExperimentParametersFieldMutation(APILicensedTest):
                 {"key": "test", "rollout_percentage": 50},
             ]
         }
+
+
+class TestExperimentRunningTimeCalculation(APILicensedTest):
+    EXPOSURE_ESTIMATE_CONFIG = {
+        "conversionRateInputType": "manual",
+        "manualMetricType": "funnel",
+        "manualBaselineValue": 5,
+        "manualExposureRate": 100,
+    }
+
+    def _create_experiment(self, **overrides: Any) -> dict:
+        payload: dict[str, Any] = {
+            "name": "Running time experiment",
+            "feature_flag_key": "running-time-flag",
+            "filters": {"events": [{"order": 0, "id": "$pageview"}], "properties": []},
+            **overrides,
+        }
+        response = self.client.post(f"/api/projects/{self.team.id}/experiments/", payload)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        return response.json()
+
+    def test_create_with_legacy_parameters_populates_running_time_calculation(self):
+        created = self._create_experiment(
+            parameters={
+                "minimum_detectable_effect": 25,
+                "recommended_running_time": 14,
+                "recommended_sample_size": 5000,
+                "exposure_estimate_config": self.EXPOSURE_ESTIMATE_CONFIG,
+            }
+        )
+
+        expected = {
+            "minimum_detectable_effect": 25,
+            "recommended_running_time": 14,
+            "recommended_sample_size": 5000,
+            "exposure_estimate_config": self.EXPOSURE_ESTIMATE_CONFIG,
+        }
+        self.assertEqual(created["running_time_calculation"], expected)
+        self.assertEqual(created["parameters"]["minimum_detectable_effect"], 25)
+
+        experiment = Experiment.objects.get(pk=created["id"])
+        self.assertEqual(experiment.running_time_calculation, expected)
+
+    def test_create_with_running_time_calculation_mirrors_into_parameters(self):
+        created = self._create_experiment(
+            running_time_calculation={
+                "minimum_detectable_effect": 20,
+                "exposure_estimate_config": self.EXPOSURE_ESTIMATE_CONFIG,
+            }
+        )
+
+        self.assertEqual(
+            created["running_time_calculation"],
+            {"minimum_detectable_effect": 20, "exposure_estimate_config": self.EXPOSURE_ESTIMATE_CONFIG},
+        )
+        self.assertEqual(created["parameters"]["minimum_detectable_effect"], 20)
+        self.assertEqual(created["parameters"]["exposure_estimate_config"], self.EXPOSURE_ESTIMATE_CONFIG)
+
+        experiment = Experiment.objects.get(pk=created["id"])
+        assert experiment.parameters is not None
+        self.assertEqual(experiment.parameters["minimum_detectable_effect"], 20)
+
+    def test_update_running_time_calculation_merges_into_parameters(self):
+        created = self._create_experiment(
+            parameters={
+                "feature_flag_variants": [
+                    {"key": "control", "rollout_percentage": 50},
+                    {"key": "test", "rollout_percentage": 50},
+                ],
+                "minimum_detectable_effect": 25,
+                "recommended_sample_size": 5000,
+            }
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{created['id']}/",
+            {"running_time_calculation": {"minimum_detectable_effect": 10, "recommended_running_time": 7}},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        experiment = Experiment.objects.get(pk=created["id"])
+        self.assertEqual(
+            experiment.running_time_calculation,
+            {"minimum_detectable_effect": 10, "recommended_running_time": 7},
+        )
+        # Other parameters keys survive; calculator keys are replaced wholesale
+        assert experiment.parameters is not None
+        self.assertEqual(len(experiment.parameters["feature_flag_variants"]), 2)
+        self.assertEqual(experiment.parameters["minimum_detectable_effect"], 10)
+        self.assertEqual(experiment.parameters["recommended_running_time"], 7)
+        self.assertNotIn("recommended_sample_size", experiment.parameters)
+
+    def test_update_running_time_calculation_does_not_touch_feature_flag(self):
+        variants = [
+            {"key": "control", "rollout_percentage": 34},
+            {"key": "test_a", "rollout_percentage": 33},
+            {"key": "test_b", "rollout_percentage": 33},
+        ]
+        created = self._create_experiment(parameters={"feature_flag_variants": variants})
+        flag = FeatureFlag.objects.get(key="running-time-flag")
+        self.assertEqual(len(flag.filters["multivariate"]["variants"]), 3)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{created['id']}/",
+            {"running_time_calculation": {"minimum_detectable_effect": 15}},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        flag.refresh_from_db()
+        self.assertEqual(len(flag.filters["multivariate"]["variants"]), 3)
+
+    def test_update_parameters_derives_running_time_calculation(self):
+        created = self._create_experiment()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{created['id']}/",
+            {"parameters": {"minimum_detectable_effect": 30, "recommended_sample_size": 1000}},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        experiment = Experiment.objects.get(pk=created["id"])
+        self.assertEqual(
+            experiment.running_time_calculation,
+            {"minimum_detectable_effect": 30, "recommended_sample_size": 1000},
+        )
+
+        # parameters replaces wholesale, so dropping the keys clears the canonical field too
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{created['id']}/",
+            {"parameters": {}},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        experiment.refresh_from_db()
+        self.assertEqual(experiment.running_time_calculation, {})
+
+    def test_running_time_calculation_wins_when_both_sent(self):
+        created = self._create_experiment()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{created['id']}/",
+            {
+                "parameters": {"minimum_detectable_effect": 99},
+                "running_time_calculation": {"minimum_detectable_effect": 11},
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        experiment = Experiment.objects.get(pk=created["id"])
+        self.assertEqual(experiment.running_time_calculation, {"minimum_detectable_effect": 11})
+        assert experiment.parameters is not None
+        self.assertEqual(experiment.parameters["minimum_detectable_effect"], 11)
+
+    @parameterized.expand(
+        [
+            ("unknown_key", {"not_a_real_key": 1}),
+            ("non_numeric_mde", {"minimum_detectable_effect": "twenty"}),
+            ("boolean_running_time", {"recommended_running_time": True}),
+            ("non_object_exposure_config", {"exposure_estimate_config": "manual"}),
+        ]
+    )
+    def test_invalid_running_time_calculation_rejected(self, _name: str, value: dict):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Invalid running time",
+                "feature_flag_key": "invalid-running-time-flag",
+                "running_time_calculation": value,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
