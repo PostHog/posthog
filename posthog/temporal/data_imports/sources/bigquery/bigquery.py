@@ -244,6 +244,17 @@ def _resolve_auth_from_key_file(config: BigQuerySourceConfig) -> BigQueryAuthInf
     token_uri = config.key_file.token_uri
     if not project_id or not private_key or not private_key_id or not client_email or not token_uri:
         raise ValueError("Missing required fields in BigQuery key_file configuration")
+     credentials = service_account.Credentials.from_service_account_info(
+        {
+            "private_key": private_key,
+            "private_key_id": private_key_id,
+            "token_uri": token_uri,
+            "client_email": client_email,
+            "project_id": project_id,
+        },
+        scopes=BIGQUERY_SCOPES,
+    )
+    return BigQueryAuthInfo(project_id=project_id, credentials=credentials)
 
 def _resolve_query_project(config: BigQuerySourceConfig) -> str:
     """Project used to run INFORMATION_SCHEMA discovery queries.
