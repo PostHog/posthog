@@ -17,15 +17,7 @@ import type { inboxSceneLogicType } from './inboxSceneLogicType'
 import { INBOX_PIPELINE_STATUS_FILTERS } from './logics/inboxFiltersLogic'
 import { INBOX_FLAT_TAB_LIST_PARAMS, reportListLogic } from './logics/reportListLogic'
 import { signalSourcesLogic } from './signalSourcesLogic'
-import {
-    InboxFlatListTabKey,
-    INBOX_STAFF_ONLY_TAB_KEYS,
-    INBOX_TAB_KEYS,
-    INBOX_TAB_LABEL,
-    InboxTabKey,
-    SignalReport,
-} from './types'
-import { displayConventionalCommitTitle } from './utils/reportPresentation'
+import { InboxFlatListTabKey, INBOX_STAFF_ONLY_TAB_KEYS, INBOX_TAB_KEYS, InboxTabKey, SignalReport } from './types'
 
 const RUNS_PAGE_SIZE = 200
 
@@ -142,29 +134,14 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
 
     selectors({
         breadcrumbs: [
-            (s) => [s.selectedReportId, s.selectedReport, s.activeTab],
-            (selectedReportId, selectedReport, activeTab): Breadcrumb[] => {
-                // List view: the product root is the current page, so it carries no link.
-                if (!selectedReportId) {
-                    return [{ key: 'inbox', name: sceneConfigurations[Scene.Inbox].name, iconType: 'inbox' }]
-                }
-                // Detail view: root → active tab (the canonical "back" link) → this report's title.
-                return [
-                    {
-                        key: 'inbox',
-                        name: sceneConfigurations[Scene.Inbox].name,
-                        path: urls.inbox(),
-                        iconType: 'inbox',
-                    },
-                    { key: [Scene.Inbox, activeTab], name: INBOX_TAB_LABEL[activeTab], path: urls.inbox(activeTab) },
-                    {
-                        key: [Scene.Inbox, selectedReportId],
-                        name: selectedReport
-                            ? displayConventionalCommitTitle(selectedReport.title, 'Untitled report')
-                            : null,
-                    },
-                ]
-            },
+            () => [],
+            (): Breadcrumb[] => [
+                {
+                    key: 'inbox',
+                    name: sceneConfigurations[Scene.Inbox].name,
+                    iconType: 'inbox',
+                },
+            ],
         ],
         isStaff: [() => [userLogic.selectors.user], (user): boolean => user?.is_staff ?? false],
         runsTabReports: [

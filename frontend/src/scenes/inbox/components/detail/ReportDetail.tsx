@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import { ReactNode } from 'react'
 
-import { IconCode, IconDocument, IconExternal, IconPullRequest, IconSearch } from '@posthog/icons'
+import { IconArrowLeft, IconCode, IconDocument, IconExternal, IconPullRequest, IconSearch } from '@posthog/icons'
 import { LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -13,11 +13,9 @@ import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { SignalNode } from 'scenes/debug/signals/types'
 import { urls } from 'scenes/urls'
 
-import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
-
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalCard } from '../../SignalCard'
-import { InboxTabKey, SignalReport, SignalReportStatus } from '../../types'
+import { InboxTabKey, INBOX_TAB_LABEL, SignalReport, SignalReportStatus } from '../../types'
 import {
     displayConventionalCommitTitle,
     ParsedPrUrlParts,
@@ -132,7 +130,7 @@ function ReportDetailMeta({
     )
 }
 
-/** Source-product icon stack, prefixed with "agent ·", reused inside the detail meta row. */
+/** Source-product icon stack reused inside the detail meta row. */
 function MetaSourceStack({ sourceProducts }: { sourceProducts?: string[] | null }): JSX.Element | null {
     const [primary, ...overflow] = knownSourceProductEntries(sourceProducts)
     if (!primary) {
@@ -140,7 +138,6 @@ function MetaSourceStack({ sourceProducts }: { sourceProducts?: string[] | null 
     }
     return (
         <span className="inline-flex items-center gap-1.5 min-w-0">
-            <span>agent ·</span>
             <SourceProductIconRow
                 entries={[primary, ...overflow]}
                 className="inline-flex items-center gap-1 shrink-0"
@@ -259,35 +256,41 @@ export function InboxDetailFrame({
     return (
         <div className="@container w-full max-w-[calc(160ch+5rem)] mx-auto px-6 py-5 text-sm">
             <div className="flex flex-col gap-3.5 mb-6 pb-5 border-b border-primary">
+                <LemonButton
+                    type="tertiary"
+                    size="small"
+                    icon={<IconArrowLeft />}
+                    to={urls.inbox(tab)}
+                    className="-ml-2 w-fit"
+                >
+                    {INBOX_TAB_LABEL[tab]}
+                </LemonButton>
                 <div className="flex items-start justify-between gap-4 flex-wrap">
-                    {/* Back arrow + priority square anchor the title; everything else collapses into the meta line. */}
-                    <div className="flex items-start gap-2 min-w-0 flex-1 -ml-[var(--button-padding-x-base)]">
-                        <SceneBreadcrumbBackButton className="mt-0.5 shrink-0" />
-                        <div className="flex items-start gap-3 min-w-0 flex-1">
-                            {report.priority && (
-                                <div className="shrink-0 mt-0.5">
-                                    <SignalReportPriorityBadge
-                                        priority={report.priority}
-                                        explanation={priorityExplanation}
-                                    />
-                                </div>
-                            )}
-                            <div className="flex flex-col gap-2 min-w-0">
-                                <h1 className="min-w-0 m-0 break-words text-xl font-bold leading-tight tracking-tight">
-                                    {conventionalTitle && (
-                                        <ConventionalCommitScopeTag
-                                            type={conventionalTitle.type}
-                                            scope={conventionalTitle.scope}
-                                        />
-                                    )}
-                                    {displayTitle}
-                                </h1>
-                                <ReportDetailMeta
-                                    report={report}
-                                    evidenceCount={evidenceCount}
-                                    actionabilityExplanation={actionabilityExplanation}
+                    {/* Priority square anchors the title; everything else collapses into the meta line. */}
+                    <div className="flex items-start gap-3 min-w-0 flex-1">
+                        {report.priority && (
+                            <div className="shrink-0 mt-0.5">
+                                <SignalReportPriorityBadge
+                                    priority={report.priority}
+                                    explanation={priorityExplanation}
                                 />
                             </div>
+                        )}
+                        <div className="flex flex-col gap-2 min-w-0">
+                            <h1 className="min-w-0 m-0 break-words text-xl font-bold leading-tight tracking-tight">
+                                {conventionalTitle && (
+                                    <ConventionalCommitScopeTag
+                                        type={conventionalTitle.type}
+                                        scope={conventionalTitle.scope}
+                                    />
+                                )}
+                                {displayTitle}
+                            </h1>
+                            <ReportDetailMeta
+                                report={report}
+                                evidenceCount={evidenceCount}
+                                actionabilityExplanation={actionabilityExplanation}
+                            />
                         </div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">

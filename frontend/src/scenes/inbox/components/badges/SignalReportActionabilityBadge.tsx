@@ -52,25 +52,23 @@ export function SignalReportActionabilityBadge({
         return null
     }
 
-    const tag = (
-        <LemonTag size="small" type={style.type} className="cursor-help select-none">
-            {style.label}
-        </LemonTag>
-    )
-
-    if (!explanation?.trim()) {
-        return <Tooltip title={style.tooltip}>{tag}</Tooltip>
-    }
-    // Icon center sits on the (rounded) top-right corner; its own bg keeps it legible over the tag edge.
+    const hasWhy = !!explanation?.trim()
+    // Always trigger off the wrapping span (matching the priority badge), rather than handing the bare
+    // LemonTag to Base UI as the trigger. When a rationale exists the help icon overlays the (rounded)
+    // top-right corner and the tooltip carries the rationale; otherwise it's the generic category blurb.
     return (
-        <Tooltip title={explanation}>
+        <Tooltip title={hasWhy ? explanation : style.tooltip}>
             <span className="relative inline-flex cursor-help">
-                {tag}
-                <IconQuestion
-                    className="absolute right-0 top-0 size-3 -translate-y-1/2 translate-x-1/2 rounded-full bg-surface-primary"
-                    // eslint-disable-next-line react/forbid-dom-props
-                    style={{ color: style.textColor }}
-                />
+                <LemonTag size="small" type={style.type} className="select-none">
+                    {style.label}
+                </LemonTag>
+                {hasWhy && (
+                    <IconQuestion
+                        className="absolute right-0 top-0 size-3 -translate-y-1/2 translate-x-1/2 rounded-full bg-surface-primary"
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{ color: style.textColor }}
+                    />
+                )}
             </span>
         </Tooltip>
     )
