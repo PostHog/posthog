@@ -115,8 +115,29 @@ The baseline only ever shrinks. An empty baseline means the intra-ingestion DAG 
 4. Affected unit tests (the touched lane/shared area).
 5. Diff is moves-only except for the allowlisted change reasons above.
 
-The full e2e/integration suite needs the Kafka/ClickHouse/Postgres/Redis stack and is a
-**CI-only** final gate — not part of the per-iteration loop gate in this sandbox.
+### Running the full test suite
+
+The full jest suite needs the Kafka/ClickHouse/Postgres/Redis stack, so it requires a working
+Docker daemon. In any docker-capable environment (CI, a devbox, or local dev):
+
+```bash
+# one command (from nodejs/):
+pnpm test:full
+# which is equivalent to:
+docker compose -f ../docker-compose.dev.yml up -d   # start the stack
+pnpm setup:test                                     # Django setup_test_environment + rust migrations
+pnpm test                                           # all jest tests except postgres-parity + service-e2e
+pnpm test:postgres-parity                           # the postgres-parity suite
+pnpm test:rust-ingestion-e2e                        # the rust ingestion e2e suite
+```
+
+Shard with `SHARD_INDEX` / `SHARD_COUNT` to parallelise `pnpm test` (CI runs 3 shards).
+
+This is the **phase-completion / final gate** — run it before finishing a phase, not on every
+iteration. The fast per-iteration gate above (boundaries + typecheck + lint + affected unit tests)
+is what runs each loop step. NOTE: the agent sandbox has the Docker **client** but no daemon
+(`/var/run/docker.sock` absent), so `pnpm test:full` cannot run there — it runs in CI on push, or
+locally / on a devbox.
 
 Guardrails: work on `claude/affectionate-ritchie-6jh88d`; commit locally per step; do not push
 on every iteration.

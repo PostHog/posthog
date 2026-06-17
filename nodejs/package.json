@@ -32,6 +32,7 @@
         "prepublishOnly": "pnpm build",
         "setup:dev:clickhouse": "cd .. && DEBUG=1 python manage.py migrate_clickhouse",
         "setup:test": "cd .. && TEST=1 python manage.py setup_test_environment && cd nodejs && pnpm run setup:test:rust",
+        "test:full": "docker compose -f ../docker-compose.dev.yml up -d && pnpm setup:test && pnpm test && pnpm test:postgres-parity && pnpm test:rust-ingestion-e2e",
         "setup:test:rust": "CYCLOTRON_DATABASE_NAME=test_cyclotron CYCLOTRON_NODE_DATABASE_NAME=test_cyclotron_node PERSONS_DATABASE_NAME=test_persons BEHAVIORAL_COHORTS_DATABASE_NAME=test_behavioral_cohorts ../rust/bin/migrate-entry all --fresh",
         "setup:test:persons-parity": "PERSONS_DATABASE_NAME=test_persons_parity ../rust/bin/migrate-entry persons --fresh",
         "migrate:persons": "../rust/bin/migrate-persons",
