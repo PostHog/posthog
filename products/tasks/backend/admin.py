@@ -58,7 +58,11 @@ class TaskRunAdmin(admin.ModelAdmin):
         if run is None:
             raise Http404("Task run not found")
         if object_storage.head_object(run.log_url) is None:
-            self.message_user(request, "No log file found for this run.", level=messages.WARNING)
+            self.message_user(
+                request,
+                "No logs available for this run — they may not have been written yet, or object storage is unreachable.",
+                level=messages.WARNING,
+            )
             return redirect(reverse("admin:tasks_taskrun_change", args=[run_id]))
         filename = f"run_{run.id}.jsonl"
         url = object_storage.get_presigned_url(

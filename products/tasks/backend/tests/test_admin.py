@@ -21,15 +21,15 @@ class TestTaskRunAdminDownloadLogs(BaseTest):
             origin_product=Task.OriginProduct.USER_CREATED,
             created_by=self.user,
         )
-        self.run = TaskRun.objects.create(task=self.task, team=self.team)
+        self.task_run = TaskRun.objects.create(task=self.task, team=self.team)
 
     @property
     def url(self) -> str:
-        return reverse("admin:tasks_taskrun_download_logs", args=[self.run.id])
+        return reverse("admin:tasks_taskrun_download_logs", args=[self.task_run.id])
 
     @property
     def change_url(self) -> str:
-        return reverse("admin:tasks_taskrun_change", args=[self.run.id])
+        return reverse("admin:tasks_taskrun_change", args=[self.task_run.id])
 
     @patch("products.tasks.backend.admin.object_storage.get_presigned_url")
     @patch("products.tasks.backend.admin.object_storage.head_object")
@@ -42,8 +42,8 @@ class TestTaskRunAdminDownloadLogs(BaseTest):
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(resp["Location"], "https://s3.example.test/presigned-link")
         args, kwargs = mock_presigned.call_args
-        self.assertEqual(args[0], self.run.log_url)
-        self.assertEqual(kwargs["content_disposition"], f'attachment; filename="run_{self.run.id}.jsonl"')
+        self.assertEqual(args[0], self.task_run.log_url)
+        self.assertEqual(kwargs["content_disposition"], f'attachment; filename="run_{self.task_run.id}.jsonl"')
 
     @patch("products.tasks.backend.admin.object_storage.get_presigned_url")
     @patch("products.tasks.backend.admin.object_storage.head_object")
