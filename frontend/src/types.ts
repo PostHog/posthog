@@ -737,6 +737,14 @@ export interface ConversationsSettings {
     teams_team_name?: string | null
     teams_channel_id?: string | null
     teams_channel_name?: string | null
+    teams_channels?:
+        | {
+              team_id: string
+              team_name?: string | null
+              channel_id: string
+              channel_name?: string | null
+          }[]
+        | null
     github_enabled?: boolean
     github_integration_id?: number | null
     github_repos?: string[] | null
