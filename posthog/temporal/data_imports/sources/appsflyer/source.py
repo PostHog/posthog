@@ -3,6 +3,7 @@ from typing import Optional, cast
 import requests
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -12,6 +13,7 @@ from posthog.schema import (
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.appsflyer.appsflyer import (
+    AppsFlyerCredentialsError,
     AppsFlyerRetryableError,
     appsflyer_source,
     validate_credentials as validate_appsflyer_credentials,
@@ -48,6 +50,7 @@ class AppsFlyerSource(SimpleSource[AppsFlyerSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.APPS_FLYER,
+            category=DataWarehouseSourceCategory.ADVERTISING,
             label="AppsFlyer",
             caption="""Enter your AppsFlyer credentials to pull aggregate performance reports into the PostHog Data warehouse.
 
@@ -108,6 +111,9 @@ You can find your API token (V2) in AppsFlyer under your account menu > Security
         try:
             if validate_appsflyer_credentials(config.api_token, config.app_id):
                 return True, None
+        except AppsFlyerCredentialsError as e:
+            # The token or app id was rejected — surface which one rather than a conflated message.
+            return False, str(e)
         except (AppsFlyerRetryableError, requests.RequestException):
             # A rate-limit, 5xx, or network blip isn't a bad credential — don't mislabel it.
             return (

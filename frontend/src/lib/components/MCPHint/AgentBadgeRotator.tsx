@@ -5,8 +5,8 @@ import { Link } from '@posthog/lemon-ui'
 
 import { useInterval } from 'lib/hooks/useInterval'
 import { IconSlack } from 'lib/lemon-ui/icons'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
+import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 
 import { AgentLogo, claudeLogo, cursorLogo, geminiLogo, openaiLogo } from '../AgentPromptButton/AgentLogo'
 

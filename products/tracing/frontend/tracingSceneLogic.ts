@@ -5,7 +5,7 @@ import posthog from 'posthog-js'
 
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
-import { parseTagsFilter } from 'lib/utils'
+import { parseTagsFilter } from 'lib/utils/url'
 import { Params } from 'scenes/sceneTypes'
 
 import { Breadcrumb } from '~/types'
@@ -38,6 +38,8 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
                 'totalSpansMatchingFilters',
                 'traceSpans',
                 'traceSpansLoading',
+                'traceSpansLoadingMore',
+                'traceSpansHasMore',
                 'aggregation',
                 'aggregationLoading',
                 'spanTree',
@@ -53,7 +55,15 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
         ],
         actions: [
             tracingDataLogic(),
-            ['runQuery', 'fetchNextPage', 'loadTraceSpans', 'fetchAggregation', 'fetchSpanTree', 'setVisibleRowRange'],
+            [
+                'runQuery',
+                'fetchNextPage',
+                'loadTraceSpans',
+                'loadMoreTraceSpans',
+                'fetchAggregation',
+                'fetchSpanTree',
+                'setVisibleRowRange',
+            ],
             tracingFiltersLogic(),
             [
                 'setDateRange',
@@ -157,7 +167,22 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
                 return spans.filter((s) => s.trace_id === selectedTraceId)
             },
         ],
-        isLoadingFullTrace: [(s) => [s.traceSpansLoading], (traceSpansLoading: boolean): boolean => traceSpansLoading],
+        // The drawer's full-trace overlay should only show on the initial fetch — paging in more
+        // spans (loadMoreTraceSpans) keeps the waterfall visible with its own bottom spinner.
+        isLoadingFullTrace: [
+            (s) => [s.traceSpansLoading, s.traceSpansLoadingMore],
+            (traceSpansLoading: boolean, traceSpansLoadingMore: boolean): boolean =>
+                traceSpansLoading && !traceSpansLoadingMore,
+        ],
+        // Only offer "load more" when the full-fetched spans for the open trace are what's displayed
+        // — never for the small prefetch fallback, which is already the trace's complete span set.
+        canLoadMoreTraceSpans: [
+            (s) => [s.traceSpansHasMore, s.traceSpans, s.selectedTraceId],
+            (traceSpansHasMore: boolean, traceSpans: Span[], selectedTraceId: string | null): boolean =>
+                traceSpansHasMore &&
+                !!selectedTraceId &&
+                traceSpans.some((span: Span) => span.trace_id === selectedTraceId),
+        ],
         breadcrumbs: [
             () => [],
             (): Breadcrumb[] => [

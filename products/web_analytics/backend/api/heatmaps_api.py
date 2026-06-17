@@ -16,7 +16,7 @@ from posthog.schema import DateRange, HogQLFilters, HogQLQueryResponse, ProductK
 from posthog.hogql import ast
 from posthog.hogql.ast import Constant
 from posthog.hogql.base import Expr
-from posthog.hogql.constants import LimitContext
+from posthog.hogql.constants import MAX_SELECT_HEATMAPS_LIMIT, LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.parser import parse_expr, parse_select
@@ -82,6 +82,9 @@ DEFAULT_QUERY = """
                      where {predicates}
                 )
             group by `pointer_target_fixed`, pointer_relative_x, client_y
+            order by cnt desc
+            limit {limit}
+            offset {offset}
             """
 
 SCROLL_DEPTH_QUERY = """
@@ -210,6 +213,23 @@ class HeatmapsRequestSerializer(serializers.Serializer):
         help_text="JSON array of cohort IDs (e.g. '[123, 456]') to restrict results to people in those cohorts. "
         "Feature-flagged; ignored when the cohort filter is not enabled for the caller.",
     )
+    limit = serializers.IntegerField(
+        required=False,
+        default=500,
+        min_value=0,
+        max_value=MAX_SELECT_HEATMAPS_LIMIT,
+        help_text="Maximum number of coordinate points to return, ordered hottest-first by count. Defaults to 500. "
+        "Pass 0 to fetch the full set (every coordinate) needed to render a complete heatmap overlay. "
+        "Ignored for the 'scrolldepth' type, which always returns every bucket.",
+    )
+    offset = serializers.IntegerField(
+        required=False,
+        default=0,
+        min_value=0,
+        max_value=MAX_SELECT_HEATMAPS_LIMIT,
+        help_text="Number of hottest-first points to skip, for paging through cooler coordinates. "
+        "Ignored for the 'scrolldepth' type.",
+    )
 
     def validate_cohort_ids(self, value: str | None) -> list[int]:
         if value is None or value == "":
@@ -329,6 +349,12 @@ class HeatmapsResponseSerializer(serializers.Serializer):
         help_text="Above/below-the-fold summary for the returned interactions. Present for "
         "click/rageclick/mousemove; omitted for scrolldepth.",
     )
+    has_more = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="True when more coordinate points exist beyond the returned page. Raise 'limit' or page with "
+        "'offset' to fetch them. Always false for scrolldepth, which returns every bucket.",
+    )
 
 
 class HeatmapScrollDepthResponseItemSerializer(serializers.Serializer):
@@ -410,6 +436,8 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         aggregation = request_serializer.validated_data.pop("aggregation")
         hide_zero_coordinates = request_serializer.validated_data.pop("hide_zero_coordinates", True)
+        limit = request_serializer.validated_data.pop("limit")
+        offset = request_serializer.validated_data.pop("offset")
         if request_serializer.validated_data.get("cohort_ids") and not _heatmaps_cohort_filter_enabled(
             cast(User, request.user), self.team
         ):
@@ -430,7 +458,19 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             date_to: date | None = request_serializer.validated_data.get("date_to", None)
             exprs.append(self._build_test_accounts_filter(date_from, date_to))
 
-        stmt = parse_select(raw_query, {"aggregation_count": aggregation_count, "predicates": ast.And(exprs=exprs)})
+        unbounded = limit == 0
+        query_placeholders: dict[str, Expr] = {
+            "aggregation_count": aggregation_count,
+            "predicates": ast.And(exprs=exprs),
+        }
+        if not is_scrolldepth_query:
+            # Unbounded fetches everything up to the hard cap; otherwise fetch one extra row so we can
+            # report has_more without a second count query.
+            fetch_limit = MAX_SELECT_HEATMAPS_LIMIT if unbounded else limit + 1
+            query_placeholders["limit"] = Constant(value=fetch_limit)
+            query_placeholders["offset"] = Constant(value=offset)
+
+        stmt = parse_select(raw_query, query_placeholders)
         context = HogQLContext(team_id=self.team.pk, limit_top_select=False)
         tag_queries(product=ProductKey.HEATMAPS, feature=Feature.QUERY)
         results = execute_hogql_query(query=stmt, team=self.team, limit_context=LimitContext.HEATMAPS, context=context)
@@ -438,8 +478,12 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if is_scrolldepth_query:
             return self._return_scroll_depth_response(results)
 
+        has_more = not unbounded and len(results.results or []) > limit
+        if not unbounded:
+            results.results = (results.results or [])[:limit]
+
         fold = self._compute_fold_summary(exprs)
-        return self._return_heatmap_coordinates_response(results, fold)
+        return self._return_heatmap_coordinates_response(results, fold, has_more)
 
     def _compute_fold_summary(self, exprs: List[ast.Expr]) -> dict[str, Any]:  # noqa: UP006
         stmt = parse_select(FOLD_SUMMARY_QUERY, {"predicates": ast.And(exprs=exprs)})
@@ -533,7 +577,7 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @staticmethod
     def _return_heatmap_coordinates_response(
-        query_response: HogQLQueryResponse, fold: dict[str, Any]
+        query_response: HogQLQueryResponse, fold: dict[str, Any], has_more: bool
     ) -> response.Response:
         data = [
             {
@@ -545,7 +589,7 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             for item in query_response.results or []
         ]
 
-        response_serializer = HeatmapsResponseSerializer(data={"results": data, "fold": fold})
+        response_serializer = HeatmapsResponseSerializer(data={"results": data, "fold": fold, "has_more": has_more})
         response_serializer.is_valid(raise_exception=True)
 
         resp = response.Response(response_serializer.data, status=status.HTTP_200_OK)
@@ -1023,7 +1067,7 @@ class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
         description="Re-run screenshot generation for a saved heatmap of type 'screenshot'. Clears existing renders "
         "and re-renders at every target width; status returns to 'processing'.",
     )
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=True, required_scopes=["heatmap:write"])
     def regenerate(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         obj = self.get_object()
         if obj.type != SavedHeatmap.Type.SCREENSHOT:

@@ -57,16 +57,12 @@ export const ExitConditionEnumApi = {
 /**
  * * `continue` - continue
  * * `abort` - abort
- * * `complete` - complete
- * * `branch` - branch
  */
 export type OnErrorEnumApi = (typeof OnErrorEnumApi)[keyof typeof OnErrorEnumApi]
 
 export const OnErrorEnumApi = {
     Continue: 'continue',
     Abort: 'abort',
-    Complete: 'complete',
-    Branch: 'branch',
 } as const
 
 /**
@@ -112,6 +108,10 @@ export interface HogFlowTemplateActionApi {
     /** @maxLength 400 */
     name: string
     description?: string
+    /** On failure: continue (skip the action and proceed) or abort (stop the run).
+     *
+     * * `continue` - continue
+     * * `abort` - abort */
     on_error?: OnErrorEnumApi | null
     created_at?: number
     updated_at?: number
@@ -358,12 +358,10 @@ export interface HogFlowActionApi {
     name: string
     /** Optional description. */
     description?: string
-    /** On failure: continue (skip), abort (stop), complete (mark done), branch (follow error edge).
+    /** On failure: continue (skip the action and proceed) or abort (stop the run).
      *
      * * `continue` - continue
-     * * `abort` - abort
-     * * `complete` - complete
-     * * `branch` - branch */
+     * * `abort` - abort */
     on_error?: OnErrorEnumApi | null
     /** Created at (epoch ms). Frontend-managed. */
     created_at?: number
@@ -372,7 +370,7 @@ export interface HogFlowActionApi {
     /** Property filters gating this action. */
     filters?: HogFunctionFiltersApi | null
     /**
-     * trigger | function | function_email | function_sms | function_push | delay | conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit.
+     * trigger | function | function_email | function_sms | delay | conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit.
      * @maxLength 100
      */
     type: string
@@ -561,6 +559,53 @@ export interface HogFlowBatchJobApi {
     readonly updated_at: string
 }
 
+/**
+ * * `update_action` - update_action
+ * * `add_action` - add_action
+ * * `remove_action` - remove_action
+ * * `add_edge` - add_edge
+ * * `remove_edge` - remove_edge
+ * * `replace_action_edges` - replace_action_edges
+ */
+export type HogFlowGraphOperationOpEnumApi =
+    (typeof HogFlowGraphOperationOpEnumApi)[keyof typeof HogFlowGraphOperationOpEnumApi]
+
+export const HogFlowGraphOperationOpEnumApi = {
+    UpdateAction: 'update_action',
+    AddAction: 'add_action',
+    RemoveAction: 'remove_action',
+    AddEdge: 'add_edge',
+    RemoveEdge: 'remove_edge',
+    ReplaceActionEdges: 'replace_action_edges',
+} as const
+
+export interface HogFlowGraphOperationApi {
+    /** Graph edit. update_action {id, patch}: deep-merge patch into the action's fields (a null leaf deletes that key) — the surgical path for tweaking one config value. add_action {action}: append a full action node. remove_action {id}: delete a node and reconnect its incoming edges to its first outgoer. add_edge {edge} / remove_edge {edge}: add or delete one edge. replace_action_edges {id, edges}: replace this action's outgoing edges with the given set (use when adding/removing branch conditions); incoming edges are left intact.
+     *
+     * * `update_action` - update_action
+     * * `add_action` - add_action
+     * * `remove_action` - remove_action
+     * * `add_edge` - add_edge
+     * * `remove_edge` - remove_edge
+     * * `replace_action_edges` - replace_action_edges */
+    op: HogFlowGraphOperationOpEnumApi
+    /** Action id. Required for update_action, remove_action, replace_action_edges. */
+    id?: string
+    /** update_action only. Partial action fields, deep-merged into the existing action; a null leaf deletes that key. e.g. {config: {inputs: {subject: {value: 'Hi'}}}} changes only that input. */
+    patch?: unknown
+    /** add_action only. A full action node {id, name, type, config, ...}; same shape as in actions. */
+    action?: unknown
+    /** add_edge / remove_edge only. The edge {from, to, type, index?}. */
+    edge?: HogFlowEdgeApi
+    /** replace_action_edges only. The complete set of the action's outgoing edges; incoming edges are preserved. */
+    edges?: HogFlowEdgeApi[]
+}
+
+export interface PatchedHogFlowGraphUpdateApi {
+    /** Ordered graph edits applied atomically to a draft workflow: the stored graph is read, the ops are applied in order, the result is fully validated, and it's saved only if valid — otherwise the workflow is unchanged. Reference nodes/edges by id so you never resend the whole graph. The full updated workflow is returned. */
+    operations?: HogFlowGraphOperationApi[]
+}
+
 export interface HogInvocationResultApi {
     invocation_id: string
     status: string
@@ -616,7 +661,7 @@ export interface HogFlowInvocationApi {
     globals?: HogFlowInvocationApiGlobals
     /** True (default) mocks HTTP/email/SMS. False fires real side effects. */
     mock_async_functions?: boolean
-    /** Start from this action ID instead of the trigger. */
+    /** Start execution from this action ID instead of the trigger. Each test run executes a single node and returns the next action id. */
     current_action_id?: string
 }
 

@@ -190,6 +190,21 @@ product_routes = load_product_db_routes(Path(__file__).resolve().parents[2])
 configured_product_databases: set[str] = set()
 PRODUCT_DB_WRITER_URLS: dict[str, str] = {}
 
+
+# Per-product SSL for the migration DIRECT_URL only. Runtime writer/reader route
+# through PgBouncer (in-cluster, plaintext, no SSL); only the direct migration
+# connection reaches Aurora, whose pg_hba requires SSL (hostssl). dj_database_url
+# sets only connect_timeout, so set sslmode here. Scoped per product (e.g.
+# PRODUCT_DB_AGENT_PLATFORM_SSL_MODE); unset for local dev/test (plain Postgres).
+def _apply_product_db_ssl_options(db: str, options: dict) -> None:
+    ssl_mode = os.getenv(f"PRODUCT_DB_{db.upper()}_SSL_MODE")
+    ssl_root_cert = os.getenv(f"PRODUCT_DB_{db.upper()}_SSL_ROOT_CERT")
+    if ssl_mode:
+        options["sslmode"] = ssl_mode
+    if ssl_root_cert:
+        options["sslrootcert"] = ssl_root_cert
+
+
 # Fail-fast circuit breaker for product databases. When a product DB is
 # unreachable, the custom backend raises immediately on connect instead of
 # blocking the worker on `connect_timeout`, so one product's outage can't
@@ -273,6 +288,7 @@ for route in product_routes:
         direct_alias = f"{db}_db_direct"
         DATABASES[direct_alias] = dict(dj_database_url.parse(direct_url, conn_max_age=0))
         DATABASES[direct_alias].setdefault("OPTIONS", {})["connect_timeout"] = 10
+        _apply_product_db_ssl_options(db, DATABASES[direct_alias]["OPTIONS"])
         if DISABLE_SERVER_SIDE_CURSORS:
             DATABASES[direct_alias]["DISABLE_SERVER_SIDE_CURSORS"] = True
 
