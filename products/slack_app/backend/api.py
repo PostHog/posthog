@@ -1495,7 +1495,7 @@ def _start_posthog_code_workflow(
             workflow_cls.run,
             workflow_inputs,
             id=workflow_id,
-            task_queue=settings.MAX_AI_TASK_QUEUE,
+            task_queue=settings.TASKS_TASK_QUEUE,
             id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
             id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
         )
@@ -3236,7 +3236,7 @@ def _handle_terminate_task_submit(payload: dict) -> HttpResponse:
                 PostHogCodeSlackTerminateTaskWorkflow.run,
                 PostHogCodeSlackInteractivityInputs(payload=payload),
                 id=workflow_id,
-                task_queue=settings.MAX_AI_TASK_QUEUE,
+                task_queue=settings.TASKS_TASK_QUEUE,
                 id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
             )
