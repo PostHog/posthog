@@ -316,10 +316,10 @@ def test_emit_shard_span_uses_stored_test_windows(monkeypatch: pytest.MonkeyPatc
     tracer = _FakeTracer()
     monkeypatch.setattr(report_test_timings.trace, "use_span", _noop_use_span)
 
-    has_error = report_test_timings._emit_shard_span(tracer, shard)
+    has_error = report_test_timings._emit_shard_span(tracer, shard, "Backend CI / core (1)")
 
     assert has_error is True
-    assert [span.name for span in tracer.spans] == ["core-1", "m::slow", "m::fail"]
+    assert [span.name for span in tracer.spans] == ["Backend CI / core (1)", "m::slow", "m::fail"]
     assert tracer.spans[0].attributes["shard.setup_seconds"] == 0.0
     assert tracer.spans[1].start_time == report_test_timings._to_ns(start + timedelta(seconds=0.1))
     assert tracer.spans[1].end_time == report_test_timings._to_ns(start + timedelta(seconds=2.1))
@@ -353,9 +353,9 @@ def test_emit_shard_span_emits_setup_span_when_setup_seconds_positive(monkeypatc
     tracer = _FakeTracer()
     monkeypatch.setattr(report_test_timings.trace, "use_span", _noop_use_span)
 
-    report_test_timings._emit_shard_span(tracer, shard)
+    report_test_timings._emit_shard_span(tracer, shard, "Backend CI / core (1)")
 
-    assert [span.name for span in tracer.spans] == ["core-1", "setup", "m::slow"]
+    assert [span.name for span in tracer.spans] == ["Backend CI / core (1)", "setup", "m::slow"]
     setup_span = tracer.spans[1]
     assert setup_span.start_time == report_test_timings._to_ns(start)
     assert setup_span.end_time == report_test_timings._to_ns(start + timedelta(seconds=3.5))
@@ -392,10 +392,40 @@ def test_workflow_resource_attributes_includes_query_and_drilldown_fields(
 
 
 def test_deterministic_trace_id_is_stable_across_processes() -> None:
-    a = report_test_timings.deterministic_trace_id("25218527467", "1")
-    b = report_test_timings.deterministic_trace_id("25218527467", "1")
+    a = report_test_timings.deterministic_trace_id("25218527467", "1", "backend:core:1")
+    b = report_test_timings.deterministic_trace_id("25218527467", "1", "backend:core:1")
     assert a == b
     # Different attempt -> different trace id (so reruns of the same workflow run id are isolated).
-    assert report_test_timings.deterministic_trace_id("25218527467", "2") != a
+    assert report_test_timings.deterministic_trace_id("25218527467", "2", "backend:core:1") != a
+    # Different job -> different trace id (so each job in a run is its own trace).
+    assert report_test_timings.deterministic_trace_id("25218527467", "1", "backend:core:2") != a
     # Result fits in 128 bits.
     assert 0 <= a < 2**128
+
+
+# ---------- per-job trace naming ----------
+
+
+def _artifact(suite: str, segment: str, group: int | None) -> report_test_timings.ArtifactInfo:  # type: ignore[name-defined]
+    return report_test_timings.ArtifactInfo(
+        path=Path(f"junit-results-{suite}"), suite=suite, segment=segment, group=group, total=None
+    )
+
+
+@pytest.mark.parametrize(
+    "suite,segment,group,expected",
+    [
+        ("backend", "core", 29, "Backend CI / core (29)"),
+        ("backend", "temporal", 1, "Backend CI / temporal (1)"),
+        ("async-migrations", "async-migrations", None, "Backend CI / async-migrations"),
+    ],
+)
+def test_job_trace_name(suite: str, segment: str, group: int | None, expected: str) -> None:
+    assert report_test_timings.job_trace_name("Backend CI", _artifact(suite, segment, group)) == expected
+
+
+def test_job_trace_key_distinguishes_jobs() -> None:
+    key = report_test_timings.job_trace_key
+    assert key(_artifact("backend", "core", 1)) != key(_artifact("backend", "core", 2))
+    assert key(_artifact("backend", "core", 1)) != key(_artifact("backend", "temporal", 1))
+    assert key(_artifact("backend", "core", 1)) == key(_artifact("backend", "core", 1))
