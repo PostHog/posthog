@@ -402,7 +402,7 @@ pub fn assert_round_trip(
 
     let buf = wrapped.serialize(ctx).expect("serialize failed");
     let captured: common_types::CapturedEvent =
-        serde_json::from_str(&buf).expect("v1 output must deserialize as CapturedEvent");
+        serde_json::from_slice(&buf).expect("v1 output must deserialize as CapturedEvent");
     let data: common_types::RawEvent =
         serde_json::from_str(&captured.data).expect("data field must deserialize as RawEvent");
 

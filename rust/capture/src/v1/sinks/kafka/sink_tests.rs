@@ -113,9 +113,9 @@ impl Event for FakeEvent {
         self.partition_key.clone().unwrap_or_default()
     }
 
-    fn serialize(&self, _ctx: &RequestContext) -> anyhow::Result<String> {
+    fn serialize(&self, _ctx: &RequestContext) -> anyhow::Result<bytes::Bytes> {
         match &self.payload {
-            Ok(p) => Ok(p.clone()),
+            Ok(p) => Ok(bytes::Bytes::from(p.clone())),
             Err(e) => Err(anyhow::anyhow!(e.clone())),
         }
     }

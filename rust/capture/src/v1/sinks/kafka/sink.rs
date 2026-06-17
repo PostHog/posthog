@@ -230,7 +230,7 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
             let record = ProduceRecord {
                 topic,
                 key: key.as_deref(),
-                payload: &payload,
+                payload: payload.as_ref(),
                 headers,
             };
 

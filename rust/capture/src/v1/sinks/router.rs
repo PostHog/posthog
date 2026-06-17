@@ -182,8 +182,8 @@ mod tests {
         fn partition_key(&self, _ctx: &RequestContext) -> String {
             format!("key:{}", self.uuid())
         }
-        fn serialize(&self, _ctx: &RequestContext) -> anyhow::Result<String> {
-            Ok(r#"{"event":"test"}"#.to_string())
+        fn serialize(&self, _ctx: &RequestContext) -> anyhow::Result<bytes::Bytes> {
+            Ok(bytes::Bytes::from(r#"{"event":"test"}"#.to_string()))
         }
     }
 
