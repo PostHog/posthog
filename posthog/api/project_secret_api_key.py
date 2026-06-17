@@ -4,6 +4,7 @@ from django.db import IntegrityError
 from django.db.models import QuerySet
 from django.utils import timezone
 
+import posthoganalytics
 from rest_framework import response, serializers, status, viewsets
 from rest_framework.exceptions import ValidationError
 
@@ -89,7 +90,32 @@ class ProjectSecretAPIKeySerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(
                     f"Scope '{scope}' can not be assigned to a project secret API key. Allowed scopes: {allowed_scopes}"
                 )
+
+            # llm_gateway scope is gated behind the ai-gateway flag, checked only when newly adding it
+            # so a flag rollback never makes existing keys unsaveable.
+            if scope_parts[0] == "llm_gateway":
+                existing_has_llm_gateway = self.instance is not None and any(
+                    s.startswith("llm_gateway:") for s in self.instance.scopes
+                )
+                if not existing_has_llm_gateway and not self._ai_gateway_enabled():
+                    raise serializers.ValidationError(
+                        "LLM gateway scope is not available for this project. Contact support to enable this feature."
+                    )
         return scopes
+
+    def _ai_gateway_enabled(self) -> bool:
+        team = self.context["view"].team
+        user = self.context["request"].user
+        return bool(
+            posthoganalytics.feature_enabled(
+                "ai-gateway",
+                str(user.distinct_id),
+                groups={"organization": str(team.organization_id), "project": str(team.id)},
+                group_properties={"organization": {"id": str(team.organization_id)}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
 
     def to_representation(self, instance):
         ret = super().to_representation(instance)
