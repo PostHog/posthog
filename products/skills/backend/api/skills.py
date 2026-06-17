@@ -35,7 +35,6 @@ from products.ai_observability.backend.api.metrics import llma_track_latency
 
 from ..marketplace.adapters import MARKETPLACE_NAME, PLUGIN_NAME, load_skill_export
 from ..marketplace.credentials import (
-    MarketplaceCredentialLimitError,
     build_codex_install_command,
     build_install_command,
     get_marketplace_credential,
@@ -652,26 +651,20 @@ class LLMSkillViewSet(
     def _marketplace_command_payload(self, request: Request, key, token: str | None, status_str: str) -> dict[str, Any]:
         """Shape the marketplace-command response from a credential (or absence of one)."""
         team_id = self.team.id
-        host = request.get_host()
-        scheme = request.scheme
 
         def claude(tok: str | None) -> str:
-            return build_install_command(
-                team_id, host, scheme, tok, plugin_name=PLUGIN_NAME, marketplace_name=MARKETPLACE_NAME
-            )
+            return build_install_command(team_id, tok, plugin_name=PLUGIN_NAME, marketplace_name=MARKETPLACE_NAME)
 
         def codex(tok: str | None) -> str:
-            return build_codex_install_command(
-                team_id, host, scheme, tok, plugin_name=PLUGIN_NAME, marketplace_name=MARKETPLACE_NAME
-            )
+            return build_codex_install_command(team_id, tok, plugin_name=PLUGIN_NAME, marketplace_name=MARKETPLACE_NAME)
 
         return {
             "status": status_str,
             "connected": key is not None,
             "plugin_name": PLUGIN_NAME,
             "marketplace_name": MARKETPLACE_NAME,
-            "label": marketplace_credential_label(cast(User, request.user).id),
-            "repo_url": marketplace_repo_url(team_id, host, scheme),
+            "label": marketplace_credential_label(team_id),
+            "repo_url": marketplace_repo_url(team_id),
             "command": claude(token) if token else None,
             "command_template": claude(None),
             "codex_command": codex(token) if token else None,
@@ -716,12 +709,9 @@ class LLMSkillViewSet(
         payload = LLMSkillMarketplaceIssueSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
 
-        try:
-            issued = issue_marketplace_credential(
-                self.team, cast(User, request.user), rotate=payload.validated_data["rotate"]
-            )
-        except MarketplaceCredentialLimitError as err:
-            return Response({"detail": str(err)}, status=status.HTTP_400_BAD_REQUEST)
+        issued = issue_marketplace_credential(
+            self.team, cast(User, request.user), rotate=payload.validated_data["rotate"]
+        )
 
         if issued.status in ("created", "rotated"):
             props = {"status": issued.status, "plugin_name": PLUGIN_NAME}

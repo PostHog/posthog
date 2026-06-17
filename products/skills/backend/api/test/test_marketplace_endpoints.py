@@ -14,9 +14,8 @@ from django.utils import timezone
 
 from rest_framework import serializers, status
 
-from posthog.models import User
-from posthog.models.organization import Organization, OrganizationMembership
-from posthog.models.project_secret_api_key import ProjectSecretAPIKey
+from posthog.models import PersonalAPIKey, User
+from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.utils import hash_key_value
 
@@ -28,22 +27,24 @@ from ...marketplace.credentials import issue_marketplace_credential
 from ...marketplace.packaging import SkillExport, build_skill_zip
 from ...models.skills import LLMSkill, LLMSkillFile
 
-# Real PSAK tokens are alphanumeric after the phs_ prefix (no underscores/hyphens).
-_PSAK_TOKEN = "phs_marketplacetoken123"
+_PAK_TOKEN = "phx_marketplacetoken123"
 
 
 def _basic_header(token: str) -> str:
-    raw = base64.b64encode(f"marketplace:{token}".encode()).decode()
+    raw = base64.b64encode(f"x-access-token:{token}".encode()).decode()
     return f"Basic {raw}"
 
 
-def _mint_psak(team: Team, *, scopes: list[str], token: str = _PSAK_TOKEN) -> ProjectSecretAPIKey:
-    return ProjectSecretAPIKey.objects.create(
-        team=team,
-        label="marketplace",
+def _mint_pak(
+    user: User, *, scopes: list[str], scoped_teams: list[int] | None = None, token: str = _PAK_TOKEN
+) -> PersonalAPIKey:
+    return PersonalAPIKey.objects.create(
+        user=user,
+        label="marketplace-test",
         secure_value=hash_key_value(token),
-        mask_value="phs...key",
+        mask_value="phx...key",
         scopes=scopes,
+        scoped_teams=scoped_teams,
     )
 
 
@@ -180,19 +181,19 @@ class TestSkillMarketplaceGit(APIBaseTest):
         )
 
     def test_info_refs_requires_credentials(self):
-        # No PSAK → 401 with a Basic challenge (git can't complete a Bearer/OAuth flow, so the
+        # No credential → 401 with a Basic challenge (git can't complete a Bearer/OAuth flow, so the
         # view pins WWW-Authenticate to Basic via the global 401 handler).
         response = self.client.get(self._info_refs_url(), {"service": "git-upload-pack"})
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
         assert response.get("WWW-Authenticate", "").startswith("Basic")
 
-    def test_info_refs_with_psak_advertises_refs(self):
+    def test_info_refs_with_pak_advertises_refs(self):
         self._create_skill()
-        _mint_psak(self.team, scopes=["llm_skill:read"])
+        _mint_pak(self.user, scopes=["llm_skill:read"], scoped_teams=[self.team.id])
         response = self.client.get(
             self._info_refs_url(),
             {"service": "git-upload-pack"},
-            HTTP_AUTHORIZATION=_basic_header(_PSAK_TOKEN),
+            HTTP_AUTHORIZATION=_basic_header(_PAK_TOKEN),
         )
         assert response.status_code == status.HTTP_200_OK
         assert response["Content-Type"] == "application/x-git-upload-pack-advertisement"
@@ -200,38 +201,50 @@ class TestSkillMarketplaceGit(APIBaseTest):
         assert b"refs/heads/main" in response.content
 
     def test_info_refs_rejects_unknown_service(self):
-        _mint_psak(self.team, scopes=["llm_skill:read"])
+        _mint_pak(self.user, scopes=["llm_skill:read"], scoped_teams=[self.team.id])
         response = self.client.get(
             self._info_refs_url(),
             {"service": "git-receive-pack"},
-            HTTP_AUTHORIZATION=_basic_header(_PSAK_TOKEN),
+            HTTP_AUTHORIZATION=_basic_header(_PAK_TOKEN),
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
-    def test_psak_without_scope_is_denied(self):
-        _mint_psak(self.team, scopes=["dashboard:read"])  # unrelated scope, lacks llm_skill access
+    def test_pak_without_scope_is_denied(self):
+        _mint_pak(self.user, scopes=["dashboard:read"], scoped_teams=[self.team.id])  # lacks llm_skill access
         response = self.client.get(
             self._info_refs_url(),
             {"service": "git-upload-pack"},
-            HTTP_AUTHORIZATION=_basic_header(_PSAK_TOKEN),
+            HTTP_AUTHORIZATION=_basic_header(_PAK_TOKEN),
         )
         assert response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
 
-    def test_psak_from_other_team_is_denied(self):
+    def test_pak_scoped_to_other_team_is_denied(self):
+        # A key scoped to a different team can't clone this team's marketplace (team scoping).
         other_org = Organization.objects.create(name="other")
         other_team = Team.objects.create(organization=other_org, name="other")
-        OrganizationMembership.objects.create(organization=other_org, user=self.user)
-        _mint_psak(other_team, scopes=["llm_skill:read"])
+        _mint_pak(self.user, scopes=["llm_skill:read"], scoped_teams=[other_team.id])
         response = self.client.get(
             self._info_refs_url(),
             {"service": "git-upload-pack"},
-            HTTP_AUTHORIZATION=_basic_header(_PSAK_TOKEN),
+            HTTP_AUTHORIZATION=_basic_header(_PAK_TOKEN),
         )
         assert response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
 
-    def test_upload_pack_with_psak_returns_packfile_result(self):
+    def test_non_member_credential_is_denied(self):
+        # The point of using a user-tied Personal API Key: when the owner is not (or no longer) a
+        # member of the team, their credential stops working — no manual revocation needed.
+        outsider = User.objects.create_user("outsider@example.com", "pw", first_name="Out")
+        _mint_pak(outsider, scopes=["llm_skill:read"], scoped_teams=[self.team.id])
+        response = self.client.get(
+            self._info_refs_url(),
+            {"service": "git-upload-pack"},
+            HTTP_AUTHORIZATION=_basic_header(_PAK_TOKEN),
+        )
+        assert response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
+
+    def test_upload_pack_with_pak_returns_packfile_result(self):
         self._create_skill()
-        _mint_psak(self.team, scopes=["llm_skill:read"])
+        _mint_pak(self.user, scopes=["llm_skill:read"], scoped_teams=[self.team.id])
         response = self.client.post(
             self._upload_pack_url(),
             # A valid pkt-line "done" command (0009 = length 9, payload "done\n") after a flush-pkt.
@@ -239,7 +252,7 @@ class TestSkillMarketplaceGit(APIBaseTest):
             content_type="application/x-git-upload-pack-request",
             # git sends this Accept; the passthrough renderer must satisfy content negotiation (no 406).
             HTTP_ACCEPT="application/x-git-upload-pack-result",
-            HTTP_AUTHORIZATION=_basic_header(_PSAK_TOKEN),
+            HTTP_AUTHORIZATION=_basic_header(_PAK_TOKEN),
         )
         assert response.status_code == status.HTTP_200_OK
         assert response["Content-Type"] == "application/x-git-upload-pack-result"
@@ -336,8 +349,11 @@ class TestMarketplaceInstallCommand(APIBaseTest):
     def _url(self) -> str:
         return f"/api/environments/{self.team.id}/llm_skills/marketplace/install-command"
 
-    def _credential(self) -> ProjectSecretAPIKey | None:
-        return ProjectSecretAPIKey.objects.filter(team=self.team, label=f"Skill store · {self.user.id}").first()
+    def _label(self) -> str:
+        return f"Skill store · team {self.team.id}"
+
+    def _credential(self) -> PersonalAPIKey | None:
+        return PersonalAPIKey.objects.filter(user=self.user, label=self._label()).first()
 
     def test_get_reports_absent_when_no_credential(self, _mock_flag):
         response = self.client.get(self._url())
@@ -348,20 +364,20 @@ class TestMarketplaceInstallCommand(APIBaseTest):
         assert body["token"] is None
         assert body["command"] is None
         assert body["plugin_name"] == "posthog-skill-store"
-        assert "YOUR_PHS_TOKEN" in body["command_template"]
+        assert "YOUR_PHX_TOKEN" in body["command_template"]
         assert self._credential() is None
 
     def test_get_does_not_mint(self, _mock_flag):
         self.client.get(self._url())
-        assert ProjectSecretAPIKey.objects.filter(team=self.team).count() == 0
+        assert PersonalAPIKey.objects.filter(user=self.user).count() == 0
 
-    def test_post_mints_read_only_per_user_credential(self, _mock_flag):
+    def test_post_mints_read_only_team_scoped_credential(self, _mock_flag):
         response = self.client.post(self._url())
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
         assert body["status"] == "created"
         assert body["connected"] is True
-        assert body["token"].startswith("phs_")
+        assert body["token"].startswith("phx_")
         assert body["token"] in body["command"]
         assert "x-access-token:" in body["command"]
         assert f"/api/projects/{self.team.id}/llm_skills/marketplace.git" in body["command"]
@@ -377,8 +393,9 @@ class TestMarketplaceInstallCommand(APIBaseTest):
         key = self._credential()
         assert key is not None
         assert key.scopes == ["llm_skill:read"]
-        assert key.label == f"Skill store · {self.user.id}"
-        assert ProjectSecretAPIKey.objects.filter(team=self.team).count() == 1
+        assert key.scoped_teams == [self.team.id]  # locked to this team
+        assert key.label == self._label()
+        assert PersonalAPIKey.objects.filter(user=self.user).count() == 1
 
     def test_post_again_without_rotate_reuses_and_returns_no_token(self, _mock_flag):
         self.client.post(self._url())
@@ -393,7 +410,7 @@ class TestMarketplaceInstallCommand(APIBaseTest):
         assert body["mask_value"] == original.mask_value
 
         # No new key, and the stored secret is untouched — existing setups keep working.
-        assert ProjectSecretAPIKey.objects.filter(team=self.team).count() == 1
+        assert PersonalAPIKey.objects.filter(user=self.user).count() == 1
         original.refresh_from_db()
         assert self._credential().secure_value == original.secure_value
 
@@ -406,33 +423,19 @@ class TestMarketplaceInstallCommand(APIBaseTest):
         response = self.client.post(self._url(), {"rotate": True}, format="json")
         body = response.json()
         assert body["status"] == "rotated"
-        assert body["token"].startswith("phs_")
+        assert body["token"].startswith("phx_")
 
-        # Same record (no sprawl), new secret, rotation timestamp set.
-        assert ProjectSecretAPIKey.objects.filter(team=self.team).count() == 1
+        # Same record (no sprawl), new secret, rotation timestamp set, and crucially the returned
+        # token matches the stored hash (the rotate is atomic — no lost update).
+        assert PersonalAPIKey.objects.filter(user=self.user).count() == 1
         rolled = self._credential()
         assert rolled.id == original.id
         assert rolled.secure_value != old_secure
         assert rolled.last_rolled_at is not None
-
-    def test_mint_race_resolves_to_exists_on_conflict(self, _mock_flag):
-        # Simulate a concurrent first-connect: the existing-check sees no key (so we take the create
-        # branch), but the row already exists, so create() hits the (team, label) unique constraint.
-        # The IntegrityError must resolve to "exists", not a 500.
-        first = issue_marketplace_credential(self.team, self.user, rotate=False)
-        assert first.status == "created"
-        with patch(
-            "products.skills.backend.marketplace.credentials.get_marketplace_credential",
-            side_effect=[None, first.key],
-        ):
-            raced = issue_marketplace_credential(self.team, self.user, rotate=False)
-        assert raced.status == "exists"
-        assert raced.token is None
-        assert raced.key.id == first.key.id
-        assert ProjectSecretAPIKey.objects.filter(team=self.team).count() == 1
+        assert hash_key_value(body["token"]) == rolled.secure_value
 
     def test_one_user_connecting_does_not_roll_another_users_credential(self, _mock_flag):
-        # This is the whole point of per-user keying: a teammate connecting must not break mine.
+        # Per-user keying: a teammate connecting must not touch mine.
         mine = issue_marketplace_credential(self.team, self.user, rotate=False)
         my_secure = mine.key.secure_value
 
@@ -441,7 +444,8 @@ class TestMarketplaceInstallCommand(APIBaseTest):
 
         assert theirs.status == "created"
         assert theirs.key.id != mine.key.id
-        assert ProjectSecretAPIKey.objects.filter(team=self.team).count() == 2
+        assert PersonalAPIKey.objects.filter(user=self.user).count() == 1
+        assert PersonalAPIKey.objects.filter(user=teammate).count() == 1
         mine.key.refresh_from_db()
         assert mine.key.secure_value == my_secure  # untouched
 

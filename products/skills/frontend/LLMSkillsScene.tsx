@@ -289,9 +289,9 @@ function MarketplaceCredentialSection(): JSX.Element {
             {justIssued ? (
                 <LemonBanner type="warning" className="text-sm">
                     This token is shown <b>once</b>. It is <b>read-only</b> and scoped to skills only (
-                    <code>llm_skill:read</code>) — it can't touch anything else. It belongs to you alone, so rotating it
-                    never affects a teammate. Manage or revoke it anytime in{' '}
-                    <Link to={urls.settings('environment-secret-api-keys')}>Settings → Project secret API keys</Link>.
+                    <code>llm_skill:read</code>) — it can't touch anything else. It's tied to your account and
+                    automatically stops working if you lose access to this project. Manage or revoke it anytime in{' '}
+                    <Link to={urls.settings('user-api-keys')}>Settings → Personal API keys</Link>.
                 </LemonBanner>
             ) : alreadyConnected ? (
                 <LemonBanner type="info" className="text-sm">

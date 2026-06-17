@@ -19,12 +19,12 @@ from drf_spectacular.utils import extend_schema
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.parsers import BaseParser
-from rest_framework.permissions import BasePermission
+from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.renderers import BaseRenderer
 from rest_framework.request import Request
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.permissions import APIScopePermission, is_authenticated_via_project_secret_api_key
+from posthog.permissions import APIScopePermission, TeamMemberAccessPermission
 
 from ..marketplace import git_smart_http as git
 from ..marketplace.adapters import synthesize_team_marketplace_repo
@@ -61,25 +61,13 @@ class GitProtocolRenderer(BaseRenderer):
         return data
 
 
-class IsProjectSecretAPIKeyAuth(BasePermission):
-    """Require Project Secret API Key auth. Deterministically rejects anonymous/session/other
-    principals so the marketplace is strictly PSAK-gated (no reliance on lazy IsAuthenticated)."""
-
-    message = "This endpoint requires a project secret API key."
-
-    def has_permission(self, request: Request, view) -> bool:
-        return is_authenticated_via_project_secret_api_key(request)
-
-
 class LLMSkillMarketplaceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "llm_skill"
     # git clients can't complete a Bearer/OAuth flow — make the 401 advertise Basic so the
-    # credential helper (or token-in-URL) supplies the Project Secret API Key.
+    # credential helper (or token-in-URL) supplies the Personal API Key.
     www_authenticate_challenge = 'Basic realm="PostHog Skills Marketplace"'
     # Git fetch is a read even though upload-pack is a POST — force read scope for both actions.
     required_scopes = ["llm_skill:read"]
-    # Default-deny: only these git actions accept a Project Secret API Key.
-    psak_allowed_actions = ["marketplace_info_refs", "marketplace_upload_pack"]
     authentication_classes = [MarketplaceGitBasicAuthentication]
     parser_classes = [GitProtocolParser]
     renderer_classes = [GitProtocolRenderer]
@@ -89,12 +77,13 @@ class LLMSkillMarketplaceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         return LLMSkill.objects.none()
 
     def dangerously_get_permissions(self) -> list[BasePermission]:
-        # The only principal here is a user-less Project Secret API Key, so the default
-        # object-level RBAC checks (AccessControlPermission / TeamMemberAccessPermission)
-        # don't apply and would crash querying membership for a synthetic user. Require PSAK
-        # auth explicitly, then let APIScopePermission enforce the llm_skill:read scope,
-        # psak_allowed_actions, and key.team == view.team.
-        return [IsProjectSecretAPIKeyAuth(), APIScopePermission()]
+        # The credential is a real (scoped, read-only) Personal API Key, so the standard checks
+        # apply to its owner: APIScopePermission enforces the llm_skill:read scope + team scoping,
+        # and TeamMemberAccessPermission re-checks current membership on every request — so the
+        # clone stops working the moment the user is offboarded or loses team access, with no
+        # manual revocation. (We set the list explicitly rather than via the default stack only to
+        # skip AccessControlPermission, which expects the AccessControlViewSetMixin this view omits.)
+        return [IsAuthenticated(), APIScopePermission(), TeamMemberAccessPermission()]
 
     def _synthesize(self) -> git.SynthesizedRepo:
         # Cached on the content version, so info/refs polling and the two-request clone reuse

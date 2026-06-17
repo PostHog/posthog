@@ -599,7 +599,7 @@ class LLMSkillMarketplaceCommandSerializer(serializers.Serializer):
     )
     plugin_name = serializers.CharField(help_text="The plugin name the command installs (Claude Code and Codex).")
     marketplace_name = serializers.CharField(help_text="The marketplace name, used by the Codex install command.")
-    label = serializers.CharField(help_text="Label of this user's marketplace credential (Project Secret API Key).")
+    label = serializers.CharField(help_text="Label of this user's marketplace credential (a scoped Personal API Key).")
     repo_url = serializers.CharField(help_text="The marketplace git repository URL, with no credential embedded.")
     command = serializers.CharField(
         allow_null=True,
@@ -624,12 +624,12 @@ class LLMSkillMarketplaceCommandSerializer(serializers.Serializer):
     token = serializers.CharField(
         allow_null=True,
         help_text=(
-            "The raw read-only `phs_` credential. Returned once, only when minted or rotated; "
+            "The raw read-only `phx_` credential. Returned once, only when minted or rotated; "
             "it cannot be retrieved again afterwards."
         ),
     )
     mask_value = serializers.CharField(
-        allow_null=True, help_text="Masked preview of the existing credential (e.g. phs_...abcd)."
+        allow_null=True, help_text="Masked preview of the existing credential (e.g. phx_...abcd)."
     )
     created_at = serializers.DateTimeField(allow_null=True, help_text="When the credential was created.")
     last_rolled_at = serializers.DateTimeField(allow_null=True, help_text="When the credential was last rotated.")

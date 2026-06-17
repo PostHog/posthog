@@ -339,8 +339,10 @@ function SkillViewDetails(): JSX.Element {
             <div>
                 <label className="text-xs font-semibold uppercase text-secondary">Frontmatter</label>
                 <div className="mt-1 grid grid-cols-[max-content_1fr] gap-x-4 gap-y-0.5 font-mono text-xs">
-                    {frontmatterRows.map(([key, value]) => (
-                        <Fragment key={key}>
+                    {frontmatterRows.map(([key, value], index) => (
+                        // Composite key: a metadata entry could share a name with a reserved
+                        // frontmatter field (license/compatibility/allowed-tools), so `key` alone isn't unique.
+                        <Fragment key={`${index}-${key}`}>
                             <span className="text-muted">{key}</span>
                             <span className="text-secondary whitespace-pre-wrap break-words">{value}</span>
                         </Fragment>

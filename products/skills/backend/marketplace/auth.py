@@ -1,64 +1,45 @@
-"""HTTP Basic -> Project Secret API Key bridge for the git marketplace endpoints.
+"""HTTP Basic -> Personal API Key bridge for the git marketplace endpoints.
 
-``git clone`` (and therefore Claude Code's ``/plugin marketplace add``) only speaks HTTP
-Basic auth via git credential helpers — it never sends a Bearer header. PSAK auth is
-Bearer-only, so this authenticator pulls the ``phs_`` token out of the Basic credential
-and validates it exactly like ``ProjectSecretAPIKeyAuthentication`` does, returning the
-same synthetic ``ProjectSecretAPIKeyUser`` so ``APIScopePermission`` enforces scopes and
-team binding (``view.team == key.team``) unchanged.
+``git clone`` (and therefore Claude Code's ``/plugin marketplace add`` / Codex's ``codex plugin
+marketplace add``) only speaks HTTP Basic auth via git credential helpers — it never sends a
+Bearer header. Personal API Key auth normally reads a Bearer header / body / query param, so this
+authenticator pulls the ``phx_`` token out of the Basic credential and otherwise reuses the whole
+standard Personal API Key flow.
 
-The token may arrive in either Basic field — git credential helpers vary in whether they
-put it in the username or password — so both are tried.
+Because it's a real Personal API Key, the credential is tied to the user: the standard permission
+stack on the viewset (``APIScopePermission`` + ``TeamMemberAccessPermission``) re-checks the user's
+``llm_skill:read`` scope, team scoping, and current membership on every request — so the credential
+stops working automatically when the user is offboarded or loses team access. No manual revocation.
+
+The token may arrive in either Basic field — git credential helpers vary in whether they put it in
+the username or password — so both are tried.
 """
 
 import base64
 import binascii
-from datetime import timedelta
 from typing import Optional, Union
 
 from django.http import HttpRequest
-from django.utils import timezone
 
 from rest_framework import authentication
 from rest_framework.request import Request
 
-from posthog.auth import _SECRET_API_KEY_RE, ProjectSecretAPIKeyAuthentication, ProjectSecretAPIKeyUser
-from posthog.clickhouse.query_tagging import AccessMethod, tag_authentication
-from posthog.models.project_secret_api_key import ProjectSecretAPIKey, find_project_secret_api_key
+from posthog.auth import PersonalAPIKeyAuthentication
 
 
-class MarketplaceGitBasicAuthentication(ProjectSecretAPIKeyAuthentication):
-    # Subclasses ProjectSecretAPIKeyAuthentication so APIScopePermission's
-    # isinstance(...) check treats it as PSAK auth and enforces scope, team binding,
-    # and psak_allowed_actions — we only swap the transport from Bearer to Basic.
+class MarketplaceGitBasicAuthentication(PersonalAPIKeyAuthentication):
+    # Subclasses PersonalAPIKeyAuthentication so APIScopePermission treats it as PAK auth (reads
+    # the key's scopes + team scoping) — we only swap the transport from Bearer to Basic by
+    # overriding where the token is read from. Everything else (hash lookup, user__is_active check,
+    # last_used bookkeeping, returning the real user) is inherited unchanged.
     keyword = "Basic"
 
-    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[object, None]]:
-        token = self._extract_basic_token(request)
-        if not token:
+    @classmethod
+    def find_key_with_source(cls, request, request_data=None, extra_data=None) -> Optional[tuple[str, str]]:
+        token = cls._extract_basic_token(request)
+        if token is None:
             return None
-
-        psak = find_project_secret_api_key(token)
-        if psak is None:
-            # Return None rather than raising so the 401 carries a Basic challenge and the
-            # git credential helper is prompted to supply (different) credentials.
-            return None
-
-        now = timezone.now()
-        if psak.last_used_at is None or (now - psak.last_used_at > timedelta(hours=1)):
-            ProjectSecretAPIKey.objects.filter(pk=psak.pk).update(last_used_at=now)
-
-        self.project_secret_api_key = psak
-
-        tag_authentication(
-            user_id=None,
-            team_id=psak.team_id,
-            access_method=AccessMethod.PROJECT_SECRET_API_KEY,
-            api_key_mask=psak.mask_value,
-            api_key_label=psak.label,
-        )
-
-        return (ProjectSecretAPIKeyUser(psak), None)
+        return token, cls.SOURCE_HEADER
 
     @staticmethod
     def _extract_basic_token(request: Union[HttpRequest, Request]) -> Optional[str]:
@@ -72,9 +53,8 @@ class MarketplaceGitBasicAuthentication(ProjectSecretAPIKeyAuthentication):
         username, _, password = decoded.partition(":")
         # Prefer the password field (the credential-helper convention), fall back to username.
         token = password or username
-        # Only attempt a lookup for values shaped like a PSAK token, reusing the same regex as the
-        # Bearer path's `_extract_phs_token` — avoids hashing arbitrary Basic credentials.
-        if token and _SECRET_API_KEY_RE.match(token):
+        # Only treat phx_-shaped values as a candidate, so arbitrary Basic creds aren't hashed/looked up.
+        if token and token.startswith("phx_"):
             return token
         return None
 

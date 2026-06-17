@@ -285,7 +285,7 @@ export interface LLMSkillMarketplaceCommandApi {
     plugin_name: string
     /** The marketplace name, used by the Codex install command. */
     marketplace_name: string
-    /** Label of this user's marketplace credential (Project Secret API Key). */
+    /** Label of this user's marketplace credential (a scoped Personal API Key). */
     label: string
     /** The marketplace git repository URL, with no credential embedded. */
     repo_url: string
@@ -304,12 +304,12 @@ export interface LLMSkillMarketplaceCommandApi {
     /** Codex install command with a YOUR_PHS_TOKEN placeholder instead of a live token; always present. */
     codex_command_template: string
     /**
-     * The raw read-only `phs_` credential. Returned once, only when minted or rotated; it cannot be retrieved again afterwards.
+     * The raw read-only `phx_` credential. Returned once, only when minted or rotated; it cannot be retrieved again afterwards.
      * @nullable
      */
     token: string | null
     /**
-     * Masked preview of the existing credential (e.g. phs_...abcd).
+     * Masked preview of the existing credential (e.g. phx_...abcd).
      * @nullable
      */
     mask_value: string | null
