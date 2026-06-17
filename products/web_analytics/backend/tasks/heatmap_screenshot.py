@@ -407,7 +407,7 @@ def _browserless_screenshot(endpoint_url: str, page_url: str, width: int) -> byt
         except Exception as e:
             elapsed = time.monotonic() - started
             HEATMAP_BROWSERLESS_REQUEST_SECONDS.labels(outcome="error", width_bucket=width_bucket).observe(elapsed)
-            err = BrowserlessTransientError(
+            err: BrowserlessError = BrowserlessTransientError(
                 f"Browserless screenshot request failed for {_redact_browserless_url(endpoint_url)}: "
                 f"{_sanitize_browserless_error(str(e))}",
                 cause="request_exception",
