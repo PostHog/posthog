@@ -658,14 +658,23 @@ function verifyUiHostReachability(
             }
         })
         .catch((error: unknown) => {
+            const errorType = classifyFetchError(error)
             actions.setAuthStatus('error')
-            captureToolbarException(error, 'ui_host_check', {
-                error_type: classifyFetchError(error),
-            })
+            // A non-ok HTTP response is an expected "uiHost not reachable" outcome — e.g. a
+            // customer reverse-proxy that forwards ingestion paths but not /toolbar_oauth/check
+            // answers this probe with a 404. The toolbar already degrades gracefully via the
+            // 'error' status and config modal, so don't report these as exceptions; doing so
+            // floods error tracking with noise that indicates no broken user flow. Genuinely
+            // unexpected failures (timeouts, network/CORS errors) are still worth surfacing.
+            if (errorType !== 'http_error') {
+                captureToolbarException(error, 'ui_host_check', {
+                    error_type: errorType,
+                })
+            }
             toolbarPosthogJS.capture('toolbar ui host check', {
                 ...checkBaseProps,
                 status: 'error',
-                error_type: classifyFetchError(error),
+                error_type: errorType,
                 duration_ms: Date.now() - checkStart,
             })
 

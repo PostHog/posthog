@@ -35,6 +35,8 @@ Fired after the CORS reachability check to the PostHog app.
 | `error_type`       | `string`          | Only on error: `timeout`, `network_or_cors`, `http_error`, `unknown` |
 | `duration_ms`      | `number`          | Time taken for the check                                             |
 
+A `http_error` (non-ok HTTP response, e.g. a reverse proxy that doesn't forward `/toolbar_oauth/check` returning 404) is an expected "uiHost not reachable" outcome and is **not** reported via `captureToolbarException` — the toolbar degrades gracefully via the `error` auth status and config modal. Other failures (`timeout`, `network_or_cors`, `unknown`) are still captured as exceptions.
+
 **File:** `toolbarConfigLogic.ts`
 
 ## Authentication
