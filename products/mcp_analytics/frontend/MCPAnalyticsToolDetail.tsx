@@ -28,7 +28,7 @@ import {
 import { buildTheme } from 'lib/charts/utils/theme'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { humanFriendlyNumber } from 'lib/utils'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -376,7 +376,7 @@ function DescriptionBlock({
     return (
         <div className="flex flex-col gap-1 max-w-3xl">
             <span className="text-[11px] uppercase tracking-wider text-secondary">Description</span>
-            <LemonMarkdown className="text-sm leading-snug" lowKeyHeadings>
+            <LemonMarkdown className="text-sm leading-snug line-clamp-3" lowKeyHeadings>
                 {latest.description}
             </LemonMarkdown>
             {older.length > 0 ? (

@@ -12,7 +12,7 @@ import {
     PendingAlertNotification,
     buildAlertFilterConfig,
     buildHogFunctionPayload,
-} from 'lib/utils/alertUtils'
+} from 'lib/utils/alerts'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { projectLogic } from 'scenes/projectLogic'
 

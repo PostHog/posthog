@@ -5,7 +5,7 @@ import { TaskItem, TaskList } from '@tiptap/extension-list'
 import { MarkdownManager } from '@tiptap/markdown'
 import StarterKit from '@tiptap/starter-kit'
 
-import { expandFlattenedMarkdownTables } from 'lib/utils/expandFlattenedMarkdownTables'
+import { expandFlattenedMarkdownTables } from 'lib/utils/markdown'
 
 function escapeHtmlAttribute(value: string): string {
     return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;')

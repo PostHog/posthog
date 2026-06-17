@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -40,6 +41,7 @@ class PingdomSource(ResumableSource[PingdomSourceConfig, PingdomResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.PINGDOM,
+            category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Pingdom",
             caption="""Enter your Pingdom API token to pull your Pingdom uptime monitoring data into the PostHog Data warehouse.
 

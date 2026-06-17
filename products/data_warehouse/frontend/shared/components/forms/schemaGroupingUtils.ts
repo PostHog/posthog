@@ -1,4 +1,4 @@
-import { groupBy } from 'lib/utils'
+import { groupBy } from 'lib/utils/arrays'
 
 export function splitQualifiedTableName(
     table: string,

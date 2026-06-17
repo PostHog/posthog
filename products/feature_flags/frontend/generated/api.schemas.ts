@@ -701,6 +701,22 @@ export interface FeatureFlagCreateRequestSchemaApi {
      * @nullable
      */
     is_remote_configuration?: boolean | null
+    /**
+     * Whether to persist a user's flag value across the anonymous-to-identified transition (the 'persist across authentication steps' option). Incompatible with device_id bucketing.
+     * @nullable
+     */
+    ensure_experience_continuity?: boolean | null
+    /** Where this flag is allowed to evaluate: 'server' (server-side SDKs only), 'client' (client-side SDKs only), or 'all' (both). Defaults to 'all'.
+     *
+     * * `server` - Server
+     * * `client` - Client
+     * * `all` - All */
+    evaluation_runtime?: EvaluationRuntimeEnumApi | null
+    /** Identifier used to bucket users into rollout percentages and variants: 'distinct_id' (user ID, the default) or 'device_id'. Using 'device_id' is incompatible with ensure_experience_continuity=True.
+     *
+     * * `distinct_id` - User ID (default)
+     * * `device_id` - Device ID */
+    bucketing_identifier?: BucketingIdentifierEnumApi | null
 }
 
 export interface PatchedFeatureFlagPartialUpdateRequestSchemaApi {
@@ -721,6 +737,22 @@ export interface PatchedFeatureFlagPartialUpdateRequestSchemaApi {
      * @nullable
      */
     is_remote_configuration?: boolean | null
+    /**
+     * Whether to persist a user's flag value across the anonymous-to-identified transition (the 'persist across authentication steps' option). Incompatible with device_id bucketing.
+     * @nullable
+     */
+    ensure_experience_continuity?: boolean | null
+    /** Where this flag is allowed to evaluate: 'server' (server-side SDKs only), 'client' (client-side SDKs only), or 'all' (both). Defaults to 'all'.
+     *
+     * * `server` - Server
+     * * `client` - Client
+     * * `all` - All */
+    evaluation_runtime?: EvaluationRuntimeEnumApi | null
+    /** Identifier used to bucket users into rollout percentages and variants: 'distinct_id' (user ID, the default) or 'device_id'. Using 'device_id' is incompatible with ensure_experience_continuity=True.
+     *
+     * * `distinct_id` - User ID (default)
+     * * `device_id` - Device ID */
+    bucketing_identifier?: BucketingIdentifierEnumApi | null
 }
 
 export interface ChangeApi {
@@ -1339,6 +1371,13 @@ export interface PatchedScheduledChangeApi {
     readonly timezone?: string | null
 }
 
+export type OrganizationsProjectsEvaluationContextSuggestionsDestroyParams = {
+    /**
+     * Name of the evaluation context to restore to suggestions.
+     */
+    context_name: string
+}
+
 export type EnvironmentsEvaluationContextSuggestionsDestroyParams = {
     /**
      * Name of the evaluation context to restore to suggestions.
@@ -1349,7 +1388,7 @@ export type EnvironmentsEvaluationContextSuggestionsDestroyParams = {
 export type FeatureFlagsListParams = {
     active?: FeatureFlagsListActive
     /**
-     * The User ID which initially created the feature flag.
+     * Filter by the user(s) who created the feature flag. Accepts a single user ID, or a JSON-encoded / comma-separated list of user IDs to match any of them.
      */
     created_by_id?: string
     /**
@@ -1395,7 +1434,7 @@ export type FeatureFlagsListEvaluationRuntime =
     (typeof FeatureFlagsListEvaluationRuntime)[keyof typeof FeatureFlagsListEvaluationRuntime]
 
 export const FeatureFlagsListEvaluationRuntime = {
-    Both: 'both',
+    All: 'all',
     Client: 'client',
     Server: 'server',
 } as const

@@ -12,7 +12,8 @@ import type {
     TooltipContext,
     ValueDomain,
 } from '../../core/types'
-import { FONT_FAMILY, measureLabelWidth } from '../../utils/text-measure'
+import { DefaultTooltip } from '../../overlays/DefaultTooltip'
+import { AXIS_LABEL_FONT, FONT_FAMILY, measureLabelWidth } from '../../utils/text-measure'
 import { LineChart } from '../LineChart/LineChart'
 import {
     defaultDeltaFormatter,
@@ -20,6 +21,7 @@ import {
     slopeEnd,
     slopeLabelVisible,
     slopeStart,
+    sortSlopeTooltipRows,
     type SlopeSeriesMeta,
 } from './slope-data'
 import { slopeLegendItems } from './slope-legend'
@@ -32,7 +34,7 @@ const LABEL_FONT = `600 12px ${FONT_FAMILY}`
 const VALUE_GAP = 8
 const NAME_GAP = 8
 const EDGE_PAD = 8
-const DEFAULT_ENDPOINT_RADIUS = 4
+const DEFAULT_POINT_RADIUS = 4
 
 export interface SlopeChartLegendConfig {
     /** Show the legend. Default false. */
@@ -43,7 +45,7 @@ export interface SlopeChartLegendConfig {
 }
 
 export interface SlopeChartConfig extends ChartConfig {
-    /** Show the series name labels beside each end point. Default true. */
+    /** Show the series name labels beside each series' last point. Default true. */
     showSeriesLabels?: boolean
     /** Default for the start (left) value labels; per-series `meta.showStartLabel` overrides. Default true. */
     showStartLabels?: boolean
@@ -55,8 +57,8 @@ export interface SlopeChartConfig extends ChartConfig {
     valueFormatter?: (value: number) => string
     /** Formats the per-series change shown in the legend. Defaults to a signed `toLocaleString`. */
     deltaFormatter?: (delta: number) => string
-    /** Radius of the endpoint dots in px. Default 4. */
-    endpointRadius?: number
+    /** Radius of the point markers in px. Default 4. */
+    pointRadius?: number
     /** Value-axis domain control — omit for data-derived auto-scaling. */
     valueDomain?: ValueDomain
 }
@@ -105,7 +107,7 @@ function SlopeChartInner<Meta = SlopeSeriesMeta>({
         legend,
         valueFormatter = defaultValueFormatter,
         deltaFormatter = defaultDeltaFormatter,
-        endpointRadius = DEFAULT_ENDPOINT_RADIUS,
+        pointRadius = DEFAULT_POINT_RADIUS,
         valueDomain,
     } = config ?? {}
 
@@ -117,6 +119,11 @@ function SlopeChartInner<Meta = SlopeSeriesMeta>({
         (s: Series<Meta>): boolean => slopeLabelVisible(s, 'end', showEndLabels),
         [showEndLabels]
     )
+
+    // A slope plots only its two ends, so reduce any-length labels to [first, last] to match — this
+    // lets a caller hand over a full time-series (data + labels) and have the chart slope it, so the
+    // first/last reduction lives here once rather than in every caller.
+    const slopeLabels = useMemo(() => (labels.length > 2 ? [labels[0], labels[labels.length - 1]] : labels), [labels])
 
     // Reserve left/right gutters for the value/name labels, which sit in the margins beyond the plot.
     const { margins, nameOffsetX } = useMemo(() => {
@@ -130,35 +137,64 @@ function SlopeChartInner<Meta = SlopeSeriesMeta>({
               )
             : 0
 
-        const left = startWidth > 0 ? startWidth + VALUE_GAP + EDGE_PAD : EDGE_PAD
+        // The x-axis labels sit centred under the two points, so half of the first/last label
+        // overhangs the side gutter — reserve room for it too, else a wide label (e.g. a date) clips.
+        const firstAxisHalf = slopeLabels.length > 0 ? measureLabelWidth(slopeLabels[0], AXIS_LABEL_FONT) / 2 : 0
+        const lastAxisHalf =
+            slopeLabels.length > 1 ? measureLabelWidth(slopeLabels[slopeLabels.length - 1], AXIS_LABEL_FONT) / 2 : 0
+
+        const left = Math.max(startWidth > 0 ? startWidth + VALUE_GAP + EDGE_PAD : EDGE_PAD, firstAxisHalf + EDGE_PAD)
         const endGutter = endWidth > 0 ? VALUE_GAP + endWidth : 0
         const nameGutter = nameWidth > 0 ? NAME_GAP + nameWidth : 0
-        const right = endGutter || nameGutter ? endGutter + nameGutter + EDGE_PAD : EDGE_PAD
+        const right = Math.max(
+            endGutter || nameGutter ? endGutter + nameGutter + EDGE_PAD : EDGE_PAD,
+            lastAxisHalf + EDGE_PAD
+        )
 
         // Names start just past the end value column.
         const offset = (endWidth > 0 ? VALUE_GAP + endWidth : 0) + NAME_GAP
 
         const base: Partial<ChartMargins> = { left, right }
         return { margins: { ...base, ...config?.margins }, nameOffsetX: offset }
-    }, [series, showsStart, showsEnd, showSeriesLabels, valueFormatter, config?.margins])
+    }, [series, slopeLabels, showsStart, showsEnd, showSeriesLabels, valueFormatter, config?.margins])
 
-    // A slope is a two-point line — collapse each series to its endpoints, with a dot at each.
+    // When the last point is the current incomplete period, dash only the *second half* of the
+    // connector so it reads as "the end is provisional", not the whole comparison.
+    const dashEnd = useMemo(() => series.some((s) => (s.meta as SlopeSeriesMeta | undefined)?.incompleteEnd), [series])
+
+    // A slope is a two-point line — collapse each series to its two points, with a dot at each. A
+    // dashed end splits the single segment at its midpoint (renderer-side, no phantom point).
     const slopeSeries = useMemo<Series<Meta>[]>(
         () =>
             series.map((s) => ({
                 ...s,
                 data: [slopeStart(s), slopeEnd(s)],
-                points: { ...s.points, radius: endpointRadius },
+                points: { ...s.points, radius: pointRadius },
+                ...(dashEnd ? { stroke: { ...s.stroke, partial: { ...s.stroke?.partial, fromFraction: 0.5 } } } : {}),
             })),
-        [series, endpointRadius]
+        [series, pointRadius, dashEnd]
     )
 
     const lineConfig = useMemo<LineChartConfig>(
-        () => ({ ...config, hideYAxis: config?.hideYAxis ?? true, showGrid: false, margins, valueDomain }),
+        () => ({
+            ...config,
+            hideYAxis: config?.hideYAxis ?? true,
+            showGrid: false,
+            margins,
+            valueDomain,
+        }),
         [config, margins, valueDomain]
     )
 
     const legendItems = useMemo(() => slopeLegendItems(series, theme, deltaFormatter), [series, theme, deltaFormatter])
+
+    // A caller-supplied tooltip takes precedence; otherwise sort the default rows (see helper).
+    const sortedTooltip = useCallback(
+        (ctx: TooltipContext<Meta>): React.ReactNode => (
+            <DefaultTooltip {...ctx} seriesData={sortSlopeTooltipRows(ctx.seriesData)} />
+        ),
+        []
+    )
 
     return (
         <ChartLegend
@@ -171,10 +207,10 @@ function SlopeChartInner<Meta = SlopeSeriesMeta>({
         >
             <LineChart<Meta>
                 series={slopeSeries}
-                labels={labels}
+                labels={slopeLabels}
                 config={lineConfig}
                 theme={theme}
-                tooltip={tooltip}
+                tooltip={tooltip ?? sortedTooltip}
                 onPointClick={onPointClick}
                 className={className}
                 dataAttr={dataAttr}

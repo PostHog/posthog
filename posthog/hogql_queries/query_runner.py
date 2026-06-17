@@ -362,6 +362,18 @@ def get_query_runner(
                 user=user,
             )
 
+        if display_type == ChartDisplayType.SLOPE_GRAPH:
+            from .insights.trends.slope_graph_trends_query_runner import SlopeGraphTrendsQueryRunner
+
+            return SlopeGraphTrendsQueryRunner(
+                query=query_obj,
+                team=team,
+                timings=timings,
+                limit_context=limit_context,
+                modifiers=modifiers,
+                user=user,
+            )
+
         from .insights.trends.trends_query_runner import TrendsQueryRunner
 
         return TrendsQueryRunner(
@@ -2110,7 +2122,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         dashboard_breakdown_filter = dashboard_filter.breakdown_filter
 
-        should_ignore_dashboard_breakdown = (
+        should_ignore_dashboard_breakdown = not hasattr(self.query, "breakdownFilter") or (
             isinstance(self.query, TrendsQuery)
             and has_data_warehouse_series
             and (
@@ -2161,14 +2173,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 date_range.explicitDate = dashboard_filter.explicitDate
 
         if dashboard_filter.breakdown_filter and not should_ignore_dashboard_breakdown:
-            if hasattr(self.query, "breakdownFilter"):
+            if hasattr(self.query, "breakdownFilter"):  # redundant, but required for mypy
                 self.query.breakdownFilter = dashboard_filter.breakdown_filter
-            else:
-                capture_exception(
-                    NotImplementedError(
-                        f"{self.query.__class__.__name__} does not support breakdown filters out of the box"
-                    )
-                )
         self.__post_init__()
 
 
