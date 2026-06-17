@@ -45,8 +45,17 @@ class _NestedPropertyKeyResolver(CloningVisitor):
         return field
 
 
-def _targets_internal_nested_event(filters: dict) -> bool:
-    return any(event.get("id") in INTERNAL_NESTED_PROPERTY_EVENTS for event in filters.get("events", []))
+def _only_targets_internal_nested_events(filters: dict) -> bool:
+    """True only when every targeted event/action is an internal nested event.
+
+    Global property filters apply across all event branches, so a dotted key there can only be
+    resolved into a nested chain when *every* targeted event carries nested JSON. If an internal
+    event is mixed with an analytics event (e.g. `$pageview`), the same global key may be a flat
+    property on that branch — so leave it untouched and let per-branch resolution handle the
+    internal event's own properties.
+    """
+    all_filters = filters.get("events", []) + filters.get("actions", [])
+    return bool(all_filters) and all(f.get("id") in INTERNAL_NESTED_PROPERTY_EVENTS for f in all_filters)
 
 
 class CohortInlineError(Exception):
@@ -262,8 +271,9 @@ def hog_function_filters_to_expr(filters: dict, team: Team, actions: dict[int, A
     event_action_exprs = [_build_single_filter_expr(filter, actions, team) for filter in all_filters]
 
     # Global property filters apply across all branches; the activity log UI stores `detail.name`
-    # here, so resolve dotted keys when an internal nested event is targeted.
-    if _targets_internal_nested_event(filters):
+    # here, so resolve dotted keys only when every targeted event is an internal nested event —
+    # never when a sibling analytics event could read the same key as a flat property.
+    if _only_targets_internal_nested_events(filters):
         resolver = _NestedPropertyKeyResolver()
         global_property_filters = [resolver.visit(expr) for expr in global_property_filters]
 

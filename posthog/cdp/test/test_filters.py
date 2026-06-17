@@ -341,6 +341,21 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
                 {"event": "$pageview", "properties": {"foo": {"bar": "baz"}}},
                 False,
             ),
+            # A global property filter applies to every event branch, so when an internal event is
+            # mixed with an analytics event the dotted key must stay flat — resolving it would break
+            # the `$pageview` branch that reads `sdk.version` as a literal flat property.
+            (
+                "mixed_events_global_dotted_key_stays_flat",
+                {
+                    "events": [
+                        {"id": "$activity_log_entry_created", "type": "events", "order": 0},
+                        {"id": "$pageview", "type": "events", "order": 1},
+                    ],
+                    "properties": [{"key": "sdk.version", "value": "1.2", "operator": "exact", "type": "event"}],
+                },
+                {"event": "$pageview", "properties": {"sdk.version": "1.2"}},
+                True,
+            ),
         ]
     )
     def test_dotted_property_key_resolution(self, _name: str, filters: dict, hog_globals: dict, expected: bool):
