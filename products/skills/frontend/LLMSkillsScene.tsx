@@ -8,11 +8,13 @@ import { LemonDivider, LemonModal, LemonSwitch, Link } from '@posthog/lemon-ui'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
 import { MemberSelect } from 'lib/components/MemberSelect'
+import { dayjs } from 'lib/dayjs'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -266,9 +268,83 @@ function GroupedSkillsView({
     )
 }
 
+function MarketplaceCredentialSection(): JSX.Element {
+    const { marketplaceCommand, marketplaceState, marketplaceLoading, issuingCredential } = useValues(llmSkillsLogic)
+    const { issueMarketplaceCommand } = useActions(llmSkillsLogic)
+
+    if (marketplaceLoading && !marketplaceState) {
+        return (
+            <div className="flex items-center gap-2 text-sm text-secondary">
+                <Spinner /> Checking your skill store connection…
+            </div>
+        )
+    }
+
+    const justIssued = !!marketplaceState?.token
+    const alreadyConnected = !!marketplaceState?.connected && !justIssued
+
+    return (
+        <>
+            {justIssued ? (
+                <LemonBanner type="warning" className="text-sm">
+                    This token is shown <b>once</b>. It is <b>read-only</b> and scoped to skills only (
+                    <code>llm_skill:read</code>) — it can't touch anything else. It belongs to you alone, so rotating it
+                    never affects a teammate. Manage or revoke it anytime in{' '}
+                    <Link to={urls.settings('environment-secret-api-keys')}>Settings → Project secret API keys</Link>.
+                </LemonBanner>
+            ) : alreadyConnected ? (
+                <LemonBanner type="info" className="text-sm">
+                    You already have a skill store credential
+                    {marketplaceState?.mask_value ? (
+                        <>
+                            {' '}
+                            (<code>{marketplaceState.mask_value}</code>)
+                        </>
+                    ) : null}
+                    {marketplaceState?.created_at ? <> from {dayjs(marketplaceState.created_at).fromNow()}</> : null}.
+                    Existing setups keep working — the token can't be shown again. Setting up a new machine? Issue a
+                    fresh command below; it replaces your old token but doesn't touch anyone else's.
+                </LemonBanner>
+            ) : (
+                <p className="m-0 text-sm text-secondary">
+                    We'll mint a dedicated <b>read-only</b> credential (scope <code>llm_skill:read</code> only — it can
+                    read this project's skills and nothing else), just for you, and drop it straight into a
+                    ready-to-paste command.
+                </p>
+            )}
+            <CodeSnippet language={Language.Bash} thing="marketplace command">
+                {marketplaceCommand}
+            </CodeSnippet>
+            {!justIssued && (
+                <div>
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.LlmAnalytics}
+                        minAccessLevel={AccessControlLevel.Editor}
+                    >
+                        <LemonButton
+                            type="primary"
+                            onClick={() => issueMarketplaceCommand(alreadyConnected)}
+                            loading={issuingCredential}
+                            data-attr="generate-marketplace-credential-button"
+                        >
+                            {alreadyConnected
+                                ? 'Issue a fresh command (replaces your old token)'
+                                : 'Generate read-only credential & command'}
+                        </LemonButton>
+                    </AccessControlAction>
+                </div>
+            )}
+            <p className="m-0 text-xs text-secondary">
+                Then run <code>/plugin</code> in Claude Code, install <b>posthog-skill-store</b>, and your skills are
+                available as <code>/posthog-skill-store:&lt;name&gt;</code> — auto-updating as you publish.
+            </p>
+        </>
+    )
+}
+
 function ConnectToClaudeCodeModal(): JSX.Element {
-    const { connectModalOpen, marketplaceCommand, marketplaceToken, generatingCredential } = useValues(llmSkillsLogic)
-    const { setConnectModalOpen, generateMarketplaceCredential } = useActions(llmSkillsLogic)
+    const { connectModalOpen } = useValues(llmSkillsLogic)
+    const { setConnectModalOpen } = useActions(llmSkillsLogic)
 
     return (
         <LemonModal
@@ -281,46 +357,7 @@ function ConnectToClaudeCodeModal(): JSX.Element {
             <div className="flex flex-col gap-4">
                 <section className="flex flex-col gap-2">
                     <h4 className="m-0 font-semibold">Claude Code (plugin marketplace)</h4>
-                    {marketplaceToken ? (
-                        <LemonBanner type="warning" className="text-sm">
-                            This token is shown <b>once</b>. It is <b>read-only</b> and scoped to skills only (
-                            <code>llm_skill:read</code>) — it can't touch anything else. Manage or revoke it anytime in{' '}
-                            <Link to={urls.settings('environment-secret-api-keys')}>
-                                Settings → Project secret API keys
-                            </Link>
-                            .
-                        </LemonBanner>
-                    ) : (
-                        <p className="m-0 text-sm text-secondary">
-                            We'll mint a dedicated <b>read-only</b> credential (scope <code>llm_skill:read</code> only —
-                            it can read this project's skills and nothing else) and drop it straight into a
-                            ready-to-paste command.
-                        </p>
-                    )}
-                    <CodeSnippet language={Language.Bash} thing="marketplace command">
-                        {marketplaceCommand}
-                    </CodeSnippet>
-                    {!marketplaceToken && (
-                        <div>
-                            <AccessControlAction
-                                resourceType={AccessControlResourceType.LlmAnalytics}
-                                minAccessLevel={AccessControlLevel.Editor}
-                            >
-                                <LemonButton
-                                    type="primary"
-                                    onClick={generateMarketplaceCredential}
-                                    loading={generatingCredential}
-                                    data-attr="generate-marketplace-credential-button"
-                                >
-                                    Generate read-only credential & command
-                                </LemonButton>
-                            </AccessControlAction>
-                        </div>
-                    )}
-                    <p className="m-0 text-xs text-secondary">
-                        Then run <code>/plugin</code> in Claude Code, install <b>posthog-skills</b>, and your skills are
-                        available as <code>/posthog-skills:&lt;name&gt;</code> — auto-updating as you publish.
-                    </p>
+                    <MarketplaceCredentialSection />
                 </section>
 
                 <LemonDivider />

@@ -16,6 +16,8 @@ import type {
     LLMSkillFileCreateApi,
     LLMSkillFileRenameApi,
     LLMSkillImportApi,
+    LLMSkillMarketplaceCommandApi,
+    LLMSkillMarketplaceIssueApi,
     LLMSkillResolveResponseApi,
     LlmSkillsListParams,
     LlmSkillsNameExportRetrieveParams,
@@ -104,6 +106,48 @@ export const llmSkillsImportCreate = async (
         ...options,
         method: 'POST',
         body: formData,
+    })
+}
+
+export const getLlmSkillsMarketplaceInstallCommandRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/llm_skills/marketplace/install-command/`
+}
+
+/**
+ * Report whether the user already has a marketplace credential, without minting one.
+ *
+ * The token is unrecoverable, so an existing credential returns its mask only — the UI shows
+ * "already connected, existing setups keep working" and offers an explicit rotate.
+ */
+export const llmSkillsMarketplaceInstallCommandRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<LLMSkillMarketplaceCommandApi> => {
+    return apiMutator<LLMSkillMarketplaceCommandApi>(getLlmSkillsMarketplaceInstallCommandRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLlmSkillsMarketplaceInstallCommandCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/llm_skills/marketplace/install-command/`
+}
+
+/**
+ * Mint the user's read-only marketplace credential (or rotate it) and return the install command.
+ *
+ * Per-user: rotating only ever invalidates this user's own credential, never a teammate's.
+ */
+export const llmSkillsMarketplaceInstallCommandCreate = async (
+    projectId: string,
+    lLMSkillMarketplaceIssueApi?: LLMSkillMarketplaceIssueApi,
+    options?: RequestInit
+): Promise<LLMSkillMarketplaceCommandApi> => {
+    return apiMutator<LLMSkillMarketplaceCommandApi>(getLlmSkillsMarketplaceInstallCommandCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(lLMSkillMarketplaceIssueApi),
     })
 }
 

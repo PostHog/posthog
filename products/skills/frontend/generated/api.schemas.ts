@@ -256,6 +256,72 @@ export interface LLMSkillApi {
 }
 
 /**
+ * * `absent` - absent
+ * * `exists` - exists
+ * * `created` - created
+ * * `rotated` - rotated
+ */
+export type LLMSkillMarketplaceCommandStatusEnumApi =
+    (typeof LLMSkillMarketplaceCommandStatusEnumApi)[keyof typeof LLMSkillMarketplaceCommandStatusEnumApi]
+
+export const LLMSkillMarketplaceCommandStatusEnumApi = {
+    Absent: 'absent',
+    Exists: 'exists',
+    Created: 'created',
+    Rotated: 'rotated',
+} as const
+
+export interface LLMSkillMarketplaceCommandApi {
+    /** absent: no credential yet. exists: one already exists (no token returned). created: a new credential was just minted. rotated: the existing credential was rolled.
+     *
+     * * `absent` - absent
+     * * `exists` - exists
+     * * `created` - created
+     * * `rotated` - rotated */
+    status: LLMSkillMarketplaceCommandStatusEnumApi
+    /** Whether this user already has a marketplace credential for the team's skill store. */
+    connected: boolean
+    /** The Claude Code plugin name the command installs. */
+    plugin_name: string
+    /** Label of this user's marketplace credential (Project Secret API Key). */
+    label: string
+    /** The marketplace git repository URL, with no credential embedded. */
+    repo_url: string
+    /**
+     * Ready-to-paste `/plugin marketplace add` command with the live token embedded. Returned only when a token was just issued (status created/rotated); null otherwise.
+     * @nullable
+     */
+    command: string | null
+    /** The install command with a YOUR_PHS_TOKEN placeholder instead of a live token; always present. */
+    command_template: string
+    /**
+     * The raw read-only `phs_` credential. Returned once, only when minted or rotated; it cannot be retrieved again afterwards.
+     * @nullable
+     */
+    token: string | null
+    /**
+     * Masked preview of the existing credential (e.g. phs_...abcd).
+     * @nullable
+     */
+    mask_value: string | null
+    /**
+     * When the credential was created.
+     * @nullable
+     */
+    created_at: string | null
+    /**
+     * When the credential was last rotated.
+     * @nullable
+     */
+    last_rolled_at: string | null
+}
+
+export interface LLMSkillMarketplaceIssueApi {
+    /** Roll the existing marketplace credential to issue a fresh token, replacing the old one (this invalidates any setup using the previous token). Ignored when no credential exists yet — the first call always mints one. Only affects this user's own credential. */
+    rotate?: boolean
+}
+
+/**
  * Arbitrary key-value metadata.
  */
 export type PatchedLLMSkillPublishApiMetadata = { [key: string]: unknown }

@@ -153,6 +153,32 @@ tools:
     skill-resolve:
         operation: llm_skills_resolve_name_retrieve
         enabled: false
+    skill-store-install-command:
+        operation: llm_skills_marketplace_install_command_create
+        enabled: true
+        scopes:
+            - llm_skill:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Get skill store install command
+        description: >
+            Get a ready-to-paste command that installs this team's skill store into Claude Code as an
+            auto-updating plugin marketplace. On first use it mints a dedicated, read-only credential
+            (scoped to skills only, scope llm_skill:read) for the calling user and returns the full command with
+            the token embedded. If the user is already connected it returns the existing connection masked, with
+            no token — pass rotate=true to issue a fresh token. The credential is per-user, so rotating only ever
+            replaces the caller's own token and never breaks a teammate's setup. Only call this when the user asks
+            to connect or install their skills into Claude Code.
+        include_params:
+            - rotate
+        param_overrides:
+            rotate:
+                description: >
+                    Set true only when the user explicitly wants a fresh token (e.g. setting up a new machine):
+                    it rolls the caller's existing credential, invalidating their previous token. Leave false
+                    (default) to reuse the existing credential — the first call always mints one regardless.
     skill-update:
         operation: llm_skills_name_partial_update
         enabled: true

@@ -564,3 +564,53 @@ class LLMSkillFileDeleteQuerySerializer(serializers.Serializer):
             "when another write has landed in the meantime."
         ),
     )
+
+
+class LLMSkillMarketplaceIssueSerializer(serializers.Serializer):
+    rotate = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Roll the existing marketplace credential to issue a fresh token, replacing the old one "
+            "(this invalidates any setup using the previous token). Ignored when no credential exists yet — "
+            "the first call always mints one. Only affects this user's own credential."
+        ),
+    )
+
+
+class LLMSkillMarketplaceCommandSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(
+        choices=["absent", "exists", "created", "rotated"],
+        help_text=(
+            "absent: no credential yet. exists: one already exists (no token returned). "
+            "created: a new credential was just minted. rotated: the existing credential was rolled."
+        ),
+    )
+    connected = serializers.BooleanField(
+        help_text="Whether this user already has a marketplace credential for the team's skill store."
+    )
+    plugin_name = serializers.CharField(help_text="The Claude Code plugin name the command installs.")
+    label = serializers.CharField(help_text="Label of this user's marketplace credential (Project Secret API Key).")
+    repo_url = serializers.CharField(help_text="The marketplace git repository URL, with no credential embedded.")
+    command = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "Ready-to-paste `/plugin marketplace add` command with the live token embedded. "
+            "Returned only when a token was just issued (status created/rotated); null otherwise."
+        ),
+    )
+    command_template = serializers.CharField(
+        help_text="The install command with a YOUR_PHS_TOKEN placeholder instead of a live token; always present."
+    )
+    token = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "The raw read-only `phs_` credential. Returned once, only when minted or rotated; "
+            "it cannot be retrieved again afterwards."
+        ),
+    )
+    mask_value = serializers.CharField(
+        allow_null=True, help_text="Masked preview of the existing credential (e.g. phs_...abcd)."
+    )
+    created_at = serializers.DateTimeField(allow_null=True, help_text="When the credential was created.")
+    last_rolled_at = serializers.DateTimeField(allow_null=True, help_text="When the credential was last rotated.")

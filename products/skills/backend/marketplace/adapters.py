@@ -20,9 +20,9 @@ from .packaging import SkillExport, SkillFileExport, build_marketplace_tree, com
 logger = structlog.get_logger(__name__)
 
 # One plugin per team (the agreed grouping). Stable, predictable names so skills are
-# invocable as ``/posthog-skills:<name>`` once installed.
-PLUGIN_NAME = "posthog-skills"
-MARKETPLACE_NAME = "posthog-skills-marketplace"
+# invocable as ``/posthog-skill-store:<name>`` once installed.
+PLUGIN_NAME = "posthog-skill-store"
+MARKETPLACE_NAME = "posthog-skill-store-marketplace"
 
 _MARKETPLACE_AUTHOR = "PostHog"
 _MARKETPLACE_COMMIT_MESSAGE = "PostHog skills marketplace"

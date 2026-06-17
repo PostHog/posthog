@@ -2,7 +2,6 @@ import { actions, afterMount, kea, listeners, path, props, reducers, selectors }
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
-import { projectSecretApiKeysCreate } from '~/generated/core/api'
 import api, { ApiConfig } from '~/lib/api'
 import { downloadBlob } from '~/lib/components/ExportButton/exporter'
 import { Sorting } from '~/lib/lemon-ui/LemonTable'
@@ -17,10 +16,16 @@ import {
     getLlmSkillsNameExportRetrieveUrl,
     llmSkillsImportCreate,
     llmSkillsList,
+    llmSkillsMarketplaceInstallCommandCreate,
+    llmSkillsMarketplaceInstallCommandRetrieve,
     llmSkillsNameArchiveCreate,
     llmSkillsNameDuplicateCreate,
 } from 'products/skills/frontend/generated/api'
-import type { LLMSkillListApi, PaginatedLLMSkillListListApi } from 'products/skills/frontend/generated/api.schemas'
+import type {
+    LLMSkillListApi,
+    LLMSkillMarketplaceCommandApi,
+    PaginatedLLMSkillListListApi,
+} from 'products/skills/frontend/generated/api.schemas'
 
 import type { llmSkillsLogicType } from './llmSkillsLogicType'
 
@@ -193,9 +198,12 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
         setImporting: (importing: boolean) => ({ importing }),
         downloadSkillZip: (skillName: string) => ({ skillName }),
         setConnectModalOpen: (open: boolean) => ({ open }),
-        generateMarketplaceCredential: true,
-        setMarketplaceToken: (token: string | null) => ({ token }),
-        setGeneratingCredential: (generating: boolean) => ({ generating }),
+        loadMarketplaceState: true,
+        // rotate=false mints when absent / returns the masked existing key; rotate=true rolls it.
+        issueMarketplaceCommand: (rotate: boolean = false) => ({ rotate }),
+        setMarketplaceState: (state: LLMSkillMarketplaceCommandApi | null) => ({ state }),
+        setMarketplaceLoading: (loading: boolean) => ({ loading }),
+        setIssuingCredential: (issuing: boolean) => ({ issuing }),
     }),
 
     reducers({
@@ -222,18 +230,25 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
                 setConnectModalOpen: (_, { open }) => open,
             },
         ],
-        // The minted phs_ token is shown once; clear it when the modal closes so it doesn't linger.
-        marketplaceToken: [
-            null as string | null,
+        // The full server response (status, command, command_template, token, mask). The live phs_
+        // token only ever lives here and only on create/rotate; clear it when the modal closes.
+        marketplaceState: [
+            null as LLMSkillMarketplaceCommandApi | null,
             {
-                setMarketplaceToken: (_, { token }) => token,
+                setMarketplaceState: (_, { state }) => state,
                 setConnectModalOpen: (state, { open }) => (open ? state : null),
             },
         ],
-        generatingCredential: [
+        marketplaceLoading: [
             false,
             {
-                setGeneratingCredential: (_, { generating }) => generating,
+                setMarketplaceLoading: (_, { loading }) => loading,
+            },
+        ],
+        issuingCredential: [
+            false,
+            {
+                setIssuingCredential: (_, { issuing }) => issuing,
             },
         ],
     }),
@@ -289,8 +304,11 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
         count: [(s) => [s.skills], (skills: PaginatedLLMSkillListListApi) => skills.count],
 
         marketplaceCommand: [
-            (s) => [s.marketplaceToken],
-            (marketplaceToken: string | null): string => buildMarketplaceCommand(marketplaceToken),
+            (s) => [s.marketplaceState],
+            (marketplaceState: LLMSkillMarketplaceCommandApi | null): string =>
+                // Live command (token embedded) once issued, else the server placeholder template,
+                // else a locally-built placeholder before the state has loaded.
+                marketplaceState?.command ?? marketplaceState?.command_template ?? buildMarketplaceCommand(null),
         ],
 
         sorting: [
@@ -413,22 +431,42 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
             }
         },
 
-        generateMarketplaceCredential: async () => {
-            actions.setGeneratingCredential(true)
+        setConnectModalOpen: ({ open }) => {
+            // Reload the (token-less) connection state each time the modal opens so we never
+            // re-surface a previously minted token and always reflect the current credential.
+            if (open) {
+                actions.loadMarketplaceState()
+            }
+        },
+
+        loadMarketplaceState: async () => {
+            actions.setMarketplaceLoading(true)
             try {
-                // A dedicated read-only credential (not the user's personal key) scoped to skills.
-                const key = await projectSecretApiKeysCreate(String(ApiConfig.getCurrentTeamId()), {
-                    label: `Claude Code skills ${Math.random().toString(36).slice(2, 8)}`,
-                    scopes: ['llm_skill:read'],
-                } as unknown as Parameters<typeof projectSecretApiKeysCreate>[1])
-                actions.setMarketplaceToken(key.value)
+                const state = await llmSkillsMarketplaceInstallCommandRetrieve(String(ApiConfig.getCurrentTeamId()))
+                actions.setMarketplaceState(state)
             } catch (e) {
-                console.error('Failed to create marketplace credential', e)
+                console.error('Failed to load marketplace connection state', e)
+                lemonToast.error(errorDetail(e) || 'Failed to check your skill store connection.')
+            } finally {
+                actions.setMarketplaceLoading(false)
+            }
+        },
+
+        issueMarketplaceCommand: async ({ rotate }) => {
+            actions.setIssuingCredential(true)
+            try {
+                // Per-user read-only credential: mints if absent, rolls (rotate=true) only this user's own key.
+                const state = await llmSkillsMarketplaceInstallCommandCreate(String(ApiConfig.getCurrentTeamId()), {
+                    rotate,
+                })
+                actions.setMarketplaceState(state)
+            } catch (e) {
+                console.error('Failed to issue marketplace credential', e)
                 lemonToast.error(
-                    errorDetail(e) || 'Failed to create credential. Do you have permission to manage API keys?'
+                    errorDetail(e) || 'Failed to issue credential. Do you have permission to manage API keys?'
                 )
             } finally {
-                actions.setGeneratingCredential(false)
+                actions.setIssuingCredential(false)
             }
         },
     })),

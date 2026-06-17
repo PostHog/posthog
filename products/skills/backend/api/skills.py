@@ -33,7 +33,15 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
 from products.ai_observability.backend.api.metrics import llma_track_latency
 
-from ..marketplace.adapters import load_skill_export
+from ..marketplace.adapters import PLUGIN_NAME, load_skill_export
+from ..marketplace.credentials import (
+    MarketplaceCredentialLimitError,
+    build_install_command,
+    get_marketplace_credential,
+    issue_marketplace_credential,
+    marketplace_credential_label,
+    marketplace_repo_url,
+)
 from ..marketplace.packaging import SkillImportError, build_skill_zip, parse_skill_zip, validate_for_export
 from ..models.skills import LLMSkill, LLMSkillFile
 from .skill_serializers import (
@@ -47,6 +55,8 @@ from .skill_serializers import (
     LLMSkillImportSerializer,
     LLMSkillListQuerySerializer,
     LLMSkillListSerializer,
+    LLMSkillMarketplaceCommandSerializer,
+    LLMSkillMarketplaceIssueSerializer,
     LLMSkillPublishSerializer,
     LLMSkillResolveQuerySerializer,
     LLMSkillResolveResponseSerializer,
@@ -199,6 +209,10 @@ class LLMSkillViewSet(
                 return ["llm_skill:write"]
             if request.method in ("GET", "HEAD"):
                 return ["llm_skill:read"]
+        # marketplace_command (GET, read state) and issue_marketplace_command (POST, mint/rotate the
+        # credential) share a URL via @marketplace_command.mapping.post. Resolve per-method.
+        if view.action in ["marketplace_command", "issue_marketplace_command"]:
+            return ["llm_skill:write"] if request.method == "POST" else ["llm_skill:read"]
         return None
 
     def _ensure_web_authenticated(self, request: Request) -> Response | None:
@@ -608,6 +622,85 @@ class LLMSkillViewSet(
         if isinstance(detail, list) and detail:
             return str(detail[0])
         return str(detail)
+
+    def _marketplace_command_payload(self, request: Request, key, token: str | None, status_str: str) -> dict[str, Any]:
+        """Shape the marketplace-command response from a credential (or absence of one)."""
+        team_id = self.team.id
+        host = request.get_host()
+        scheme = request.scheme
+        return {
+            "status": status_str,
+            "connected": key is not None,
+            "plugin_name": PLUGIN_NAME,
+            "label": marketplace_credential_label(cast(User, request.user).id),
+            "repo_url": marketplace_repo_url(team_id, host, scheme),
+            "command": build_install_command(team_id, host, scheme, token) if token else None,
+            "command_template": build_install_command(team_id, host, scheme, None),
+            "token": token,
+            "mask_value": key.mask_value if key is not None else None,
+            "created_at": key.created_at if key is not None else None,
+            "last_rolled_at": key.last_rolled_at if key is not None else None,
+        }
+
+    @extend_schema(responses={200: LLMSkillMarketplaceCommandSerializer})
+    @action(methods=["GET"], detail=False, url_path="marketplace/install-command")
+    @llma_track_latency("llma_skills_marketplace_command")
+    @monitor(feature=None, endpoint="llma_skills_marketplace_command", method="GET")
+    def marketplace_command(self, request: Request, **kwargs) -> Response:
+        """Report whether the user already has a marketplace credential, without minting one.
+
+        The token is unrecoverable, so an existing credential returns its mask only — the UI shows
+        "already connected, existing setups keep working" and offers an explicit rotate.
+        """
+        auth_error = self._ensure_web_authenticated(request)
+        if auth_error is not None:
+            return auth_error
+
+        key = get_marketplace_credential(self.team, cast(User, request.user))
+        payload = self._marketplace_command_payload(request, key, None, "exists" if key is not None else "absent")
+        return Response(LLMSkillMarketplaceCommandSerializer(payload).data)
+
+    @extend_schema(request=LLMSkillMarketplaceIssueSerializer, responses={200: LLMSkillMarketplaceCommandSerializer})
+    @marketplace_command.mapping.post
+    @llma_track_latency("llma_skills_marketplace_issue")
+    @monitor(feature=None, endpoint="llma_skills_marketplace_issue", method="POST")
+    def issue_marketplace_command(self, request: Request, **kwargs) -> Response:
+        """Mint the user's read-only marketplace credential (or rotate it) and return the install command.
+
+        Per-user: rotating only ever invalidates this user's own credential, never a teammate's.
+        """
+        auth_error = self._ensure_web_authenticated(request)
+        if auth_error is not None:
+            return auth_error
+
+        payload = LLMSkillMarketplaceIssueSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+
+        try:
+            issued = issue_marketplace_credential(
+                self.team, cast(User, request.user), rotate=payload.validated_data["rotate"]
+            )
+        except MarketplaceCredentialLimitError as err:
+            return Response({"detail": str(err)}, status=status.HTTP_400_BAD_REQUEST)
+
+        if issued.status in ("created", "rotated"):
+            props = {"status": issued.status, "plugin_name": PLUGIN_NAME}
+            logger.info(
+                "llma_skill_marketplace_credential_issued",
+                team_id=self.team.id,
+                user_id=cast(User, request.user).id,
+                **props,
+            )
+            report_user_action(
+                cast(User, request.user),
+                "llma skill marketplace credential issued",
+                props,
+                team=self.team,
+                request=request,
+            )
+
+        result = self._marketplace_command_payload(request, issued.key, issued.token, issued.status)
+        return Response(LLMSkillMarketplaceCommandSerializer(result).data)
 
     @extend_schema(request=None, responses={204: None})
     @action(

@@ -32,11 +32,11 @@ def _marketplace_tree(epoch: int) -> dict[str, str]:
         files=[SkillFileExport(path="scripts/mandelbrot.py", content="print('hi')\n", content_type="text/x-python")],
     )
     return build_marketplace_tree(
-        plugin_name="posthog-skills",
+        plugin_name="posthog-skill-store",
         plugin_description="Team skills",
         plugin_version=compute_plugin_version(epoch),
         owner_name="PostHog",
-        marketplace_name="posthog-skills-marketplace",
+        marketplace_name="posthog-skill-store-marketplace",
         skills=[skill],
     )
 
@@ -121,8 +121,10 @@ def test_full_clone_yields_spec_marketplace_tree(git_server):
         result = _clone(git_server.url, dest)
         assert result.returncode == 0, result.stderr
 
-        skill_md = os.path.join(dest, "plugins", "posthog-skills", "skills", "make-fractals", "SKILL.md")
-        script = os.path.join(dest, "plugins", "posthog-skills", "skills", "make-fractals", "scripts", "mandelbrot.py")
+        skill_md = os.path.join(dest, "plugins", "posthog-skill-store", "skills", "make-fractals", "SKILL.md")
+        script = os.path.join(
+            dest, "plugins", "posthog-skill-store", "skills", "make-fractals", "scripts", "mandelbrot.py"
+        )
         assert os.path.exists(skill_md)
         assert os.path.exists(script)
         assert "allowed-tools: Bash Write" in open(skill_md).read()

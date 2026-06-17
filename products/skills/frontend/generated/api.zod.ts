@@ -75,6 +75,22 @@ export const LlmSkillsImportCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Mint the user's read-only marketplace credential (or rotate it) and return the install command.
+ *
+ * Per-user: rotating only ever invalidates this user's own credential, never a teammate's.
+ */
+export const llmSkillsMarketplaceInstallCommandCreateBodyRotateDefault = false
+
+export const LlmSkillsMarketplaceInstallCommandCreateBody = /* @__PURE__ */ zod.object({
+    rotate: zod
+        .boolean()
+        .default(llmSkillsMarketplaceInstallCommandCreateBodyRotateDefault)
+        .describe(
+            "Roll the existing marketplace credential to issue a fresh token, replacing the old one (this invalidates any setup using the previous token). Ignored when no credential exists yet — the first call always mints one. Only affects this user's own credential."
+        ),
+})
+
 export const llmSkillsNamePartialUpdateBodyDescriptionMax = 4096
 
 export const llmSkillsNamePartialUpdateBodyLicenseMax = 255

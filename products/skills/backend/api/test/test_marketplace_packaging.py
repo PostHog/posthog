@@ -106,36 +106,36 @@ class TestSkillTreeAndZip:
 class TestMarketplaceTree:
     def _tree(self, skills=None):
         return build_marketplace_tree(
-            plugin_name="posthog-skills",
+            plugin_name="posthog-skill-store",
             plugin_description="Team skills",
             plugin_version="1.0.42",
             owner_name="PostHog",
-            marketplace_name="posthog-skills-marketplace",
+            marketplace_name="posthog-skill-store-marketplace",
             skills=skills if skills is not None else [_skill()],
         )
 
     def test_marketplace_json_lists_the_plugin_with_version(self):
         manifest = json.loads(self._tree()[".claude-plugin/marketplace.json"])
-        assert manifest["name"] == "posthog-skills-marketplace"
+        assert manifest["name"] == "posthog-skill-store-marketplace"
         assert manifest["owner"]["name"] == "PostHog"
         plugin = manifest["plugins"][0]
-        assert plugin["name"] == "posthog-skills"
-        assert plugin["source"] == "./plugins/posthog-skills"
+        assert plugin["name"] == "posthog-skill-store"
+        assert plugin["source"] == "./plugins/posthog-skill-store"
         assert plugin["version"] == "1.0.42"
 
     def test_plugin_json_present_and_versioned(self):
-        plugin = json.loads(self._tree()["plugins/posthog-skills/.claude-plugin/plugin.json"])
-        assert plugin["name"] == "posthog-skills"
+        plugin = json.loads(self._tree()["plugins/posthog-skill-store/.claude-plugin/plugin.json"])
+        assert plugin["name"] == "posthog-skill-store"
         assert plugin["version"] == "1.0.42"
 
     def test_skill_files_nested_under_plugin_skill_dir(self):
         tree = self._tree()
-        assert "plugins/posthog-skills/skills/make-fractals/SKILL.md" in tree
-        assert "plugins/posthog-skills/skills/make-fractals/scripts/mandelbrot.py" in tree
+        assert "plugins/posthog-skill-store/skills/make-fractals/SKILL.md" in tree
+        assert "plugins/posthog-skill-store/skills/make-fractals/scripts/mandelbrot.py" in tree
 
     def test_empty_team_still_produces_a_valid_marketplace(self):
         manifest = json.loads(self._tree(skills=[])[".claude-plugin/marketplace.json"])
-        assert manifest["plugins"][0]["name"] == "posthog-skills"
+        assert manifest["plugins"][0]["name"] == "posthog-skill-store"
 
 
 class TestPluginVersion:

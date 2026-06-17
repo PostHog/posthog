@@ -14,6 +14,7 @@ from django.utils import timezone
 
 from rest_framework import serializers, status
 
+from posthog.models import User
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team import Team
@@ -22,6 +23,7 @@ from posthog.models.utils import hash_key_value
 from ...api.skill_serializers import validate_skill_file_path
 from ...api.skill_services import archive_skill
 from ...marketplace.adapters import build_team_marketplace_tree
+from ...marketplace.credentials import issue_marketplace_credential
 from ...marketplace.packaging import SkillExport, build_skill_zip
 from ...models.skills import LLMSkill, LLMSkillFile
 
@@ -273,8 +275,8 @@ class TestMarketplaceResilience(APIBaseTest):
         LLMSkillFile.objects.create(skill=bad, path="A.md", content="y", content_type="text/markdown")
 
         tree = build_team_marketplace_tree(self.team)
-        assert "plugins/posthog-skills/skills/good/SKILL.md" in tree
-        assert "plugins/posthog-skills/skills/bad/SKILL.md" not in tree
+        assert "plugins/posthog-skill-store/skills/good/SKILL.md" in tree
+        assert "plugins/posthog-skill-store/skills/bad/SKILL.md" not in tree
 
 
 class TestMarketplaceVersion(APIBaseTest):
@@ -314,3 +316,94 @@ class TestMarketplaceVersion(APIBaseTest):
         # Without the archive bumping updated_at, the version would drop back to the older
         # skill's timestamp; with the fix it advances (archive is itself a change).
         assert after >= before
+
+
+@patch("products.skills.backend.api.skills.posthoganalytics.feature_enabled", return_value=True)
+class TestMarketplaceInstallCommand(APIBaseTest):
+    def _url(self) -> str:
+        return f"/api/environments/{self.team.id}/llm_skills/marketplace/install-command"
+
+    def _credential(self) -> ProjectSecretAPIKey | None:
+        return ProjectSecretAPIKey.objects.filter(team=self.team, label=f"Skill store · {self.user.id}").first()
+
+    def test_get_reports_absent_when_no_credential(self, _mock_flag):
+        response = self.client.get(self._url())
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["status"] == "absent"
+        assert body["connected"] is False
+        assert body["token"] is None
+        assert body["command"] is None
+        assert body["plugin_name"] == "posthog-skill-store"
+        assert "YOUR_PHS_TOKEN" in body["command_template"]
+        assert self._credential() is None
+
+    def test_get_does_not_mint(self, _mock_flag):
+        self.client.get(self._url())
+        assert ProjectSecretAPIKey.objects.filter(team=self.team).count() == 0
+
+    def test_post_mints_read_only_per_user_credential(self, _mock_flag):
+        response = self.client.post(self._url())
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["status"] == "created"
+        assert body["connected"] is True
+        assert body["token"].startswith("phs_")
+        assert body["token"] in body["command"]
+        assert "x-access-token:" in body["command"]
+        assert f"/api/projects/{self.team.id}/llm_skills/marketplace.git" in body["command"]
+
+        key = self._credential()
+        assert key is not None
+        assert key.scopes == ["llm_skill:read"]
+        assert key.label == f"Skill store · {self.user.id}"
+        assert ProjectSecretAPIKey.objects.filter(team=self.team).count() == 1
+
+    def test_post_again_without_rotate_reuses_and_returns_no_token(self, _mock_flag):
+        self.client.post(self._url())
+        original = self._credential()
+        assert original is not None
+
+        response = self.client.post(self._url())
+        body = response.json()
+        assert body["status"] == "exists"
+        assert body["token"] is None
+        assert body["command"] is None
+        assert body["mask_value"] == original.mask_value
+
+        # No new key, and the stored secret is untouched — existing setups keep working.
+        assert ProjectSecretAPIKey.objects.filter(team=self.team).count() == 1
+        original.refresh_from_db()
+        assert self._credential().secure_value == original.secure_value
+
+    def test_post_with_rotate_rolls_same_key_and_issues_fresh_token(self, _mock_flag):
+        self.client.post(self._url())
+        original = self._credential()
+        assert original is not None
+        old_secure = original.secure_value
+
+        response = self.client.post(self._url(), {"rotate": True}, format="json")
+        body = response.json()
+        assert body["status"] == "rotated"
+        assert body["token"].startswith("phs_")
+
+        # Same record (no sprawl), new secret, rotation timestamp set.
+        assert ProjectSecretAPIKey.objects.filter(team=self.team).count() == 1
+        rolled = self._credential()
+        assert rolled.id == original.id
+        assert rolled.secure_value != old_secure
+        assert rolled.last_rolled_at is not None
+
+    def test_one_user_connecting_does_not_roll_another_users_credential(self, _mock_flag):
+        # This is the whole point of per-user keying: a teammate connecting must not break mine.
+        mine = issue_marketplace_credential(self.team, self.user, rotate=False)
+        my_secure = mine.key.secure_value
+
+        teammate = User.objects.create_and_join(self.organization, "teammate@posthog.com", "pw")
+        theirs = issue_marketplace_credential(self.team, teammate, rotate=False)
+
+        assert theirs.status == "created"
+        assert theirs.key.id != mine.key.id
+        assert ProjectSecretAPIKey.objects.filter(team=self.team).count() == 2
+        mine.key.refresh_from_db()
+        assert mine.key.secure_value == my_secure  # untouched
