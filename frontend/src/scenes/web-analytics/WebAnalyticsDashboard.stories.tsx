@@ -30,6 +30,9 @@ const meta: Meta = {
             includeNavigationInSnapshot: true,
             waitForLoadersToDisappear: true,
             waitForSelector: '[data-attr=trend-line-graph] > canvas',
+            // Chart pixels are covered by the isolated chart stories; suppress this full-scene
+            // story's async canvas paint so the snapshot is deterministic instead of flaky.
+            skipCanvasDraw: true,
         },
     },
     decorators: [

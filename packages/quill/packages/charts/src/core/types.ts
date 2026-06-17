@@ -8,6 +8,10 @@ export interface ChartTheme {
     tooltipBackground?: string
     tooltipColor?: string
     tooltipZIndex?: number | string
+    /** Skip all canvas painting (static layer + hover overlay). The canvas element still mounts,
+     *  so layout and DOM selectors are unaffected — only the pixels are suppressed. Intended for
+     *  deterministic visual-snapshot tests where async canvas drawing causes flakiness. */
+    skipDraw?: boolean
 }
 
 /** Default axis id used when a series doesn't specify one. */

@@ -15,6 +15,9 @@ export function buildTheme(overrides?: Partial<ChartTheme>): ChartTheme {
         tooltipBackground: graphColors.tooltipBackground ?? undefined,
         tooltipColor: graphColors.tooltipTitle ?? undefined,
         tooltipZIndex: 'var(--z-chart-tooltip)',
+        // Visual-snapshot stories that aren't testing chart pixels opt out of async canvas
+        // drawing (set via the withChartCanvasSnapshot decorator) to avoid render-timing flake.
+        skipDraw: document.body.classList.contains('storybook-skip-chart-canvas'),
     }
 
     if (!overrides) {

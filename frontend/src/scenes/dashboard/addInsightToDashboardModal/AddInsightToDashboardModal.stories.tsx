@@ -61,7 +61,9 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-02-01',
-        testOptions: { waitForSelector: '.LemonModal' },
+        // The modal previews insight charts that paint asynchronously — suppress their canvas draw
+        // so the snapshot is deterministic. Chart pixels are covered by the isolated chart stories.
+        testOptions: { waitForSelector: '.LemonModal', skipCanvasDraw: true },
     },
 }
 export default meta
