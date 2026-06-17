@@ -37,7 +37,11 @@ import {
 import { EncryptedFields } from '../cdp/utils/encryption-utils'
 import { CommonConfig } from '../common/config'
 import { defaultConfig, overrideConfigWithEnv } from '../config/config'
-import { createCookielessRedisConnectionConfig, createIngestionRedisConnectionConfig } from '../config/redis-pools'
+import {
+    createCookielessRedisConnectionConfig,
+    createFeatureFlagCalledDedupRedisConnectionConfig,
+    createIngestionRedisConnectionConfig,
+} from '../config/redis-pools'
 import { deserializeKafkaMessage } from '../ingestion/api/kafka-message-converter'
 import { IngestBatchRequest, IngestBatchResponse } from '../ingestion/api/types'
 import {
@@ -156,6 +160,7 @@ export class IngestionApiServer implements NodeServer {
     private ingestionProducerRegistry?: KafkaProducerRegistry<ProducerName>
     private redisPool?: RedisPool
     private cookielessRedisPool?: RedisPool
+    private featureFlagCalledDedupRedisPool?: RedisPool
     private cookielessManager?: CookielessManager
     private pubsub?: PubSub
     private personsStore?: BatchWritingPersonsStore
@@ -259,6 +264,14 @@ export class IngestionApiServer implements NodeServer {
         logger.info('👍', 'Cookieless Redis ready')
 
         this.cookielessManager = new CookielessManager(this.config, this.cookielessRedisPool)
+
+        // Dedicated $feature_flag_called dedup Redis; falls back to ingestion until the host is set.
+        this.featureFlagCalledDedupRedisPool = createRedisPoolFromConfig({
+            connection: createFeatureFlagCalledDedupRedisConnectionConfig(this.config),
+            poolMinSize: this.config.REDIS_POOL_MIN_SIZE,
+            poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
+        })
+
         const groupTypeManager = new GroupTypeManager(groupRepository, teamManager)
 
         // 4. Kafka producers for pipeline outputs (not consuming from Kafka)
@@ -370,7 +383,10 @@ export class IngestionApiServer implements NodeServer {
             concurrentBatches: this.config.INGESTION_WORKER_CONCURRENT_BATCHES,
         }
         const eventFilterManagerStarted = await new EventFilterManagerComponent(this.postgres).start()
-        const featureFlagCalledDedupService = createFeatureFlagCalledDedupService(this.redisPool, this.config)
+        const featureFlagCalledDedupService = createFeatureFlagCalledDedupService(
+            this.featureFlagCalledDedupRedisPool,
+            this.config
+        )
 
         const joinedPipelineDeps: JoinedIngestionPipelineDeps = {
             personsStore,
@@ -523,7 +539,9 @@ export class IngestionApiServer implements NodeServer {
     private getCleanupResources(): CleanupResources {
         return {
             kafkaProducers: [],
-            redisPools: [this.redisPool, this.cookielessRedisPool].filter(Boolean) as RedisPool[],
+            redisPools: [this.redisPool, this.cookielessRedisPool, this.featureFlagCalledDedupRedisPool].filter(
+                Boolean
+            ) as RedisPool[],
             postgres: this.postgres,
             pubsub: this.pubsub,
             additionalCleanup: async () => {

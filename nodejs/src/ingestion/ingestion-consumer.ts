@@ -62,6 +62,8 @@ export type IngestionConsumerFullConfig = IngestionConsumerConfig &
 export interface IngestionConsumerDeps {
     postgres: PostgresRouter
     redisPool: RedisPool
+    /** Dedicated pool for $feature_flag_called dedup claims; reuses redisPool when unset */
+    featureFlagCalledDedupRedisPool?: RedisPool
     outputs: IngestionOutputs<
         | EventOutput
         | AiEventOutput
@@ -193,7 +195,10 @@ export class IngestionConsumer {
             })
         }
 
-        this.featureFlagCalledDedupService = createFeatureFlagCalledDedupService(this.deps.redisPool, this.config)
+        this.featureFlagCalledDedupService = createFeatureFlagCalledDedupService(
+            this.deps.featureFlagCalledDedupRedisPool ?? this.deps.redisPool,
+            this.config
+        )
 
         this.hogTransformer = deps.hogTransformer
 

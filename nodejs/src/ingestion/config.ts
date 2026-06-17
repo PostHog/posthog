@@ -175,6 +175,9 @@ export type IngestionConsumerConfig = {
     INGESTION_FEATURE_FLAG_CALLED_DEDUP_EXCLUDED_TEAMS: string
     /** Claim TTL: the keep-first dedup window */
     INGESTION_FEATURE_FLAG_CALLED_DEDUP_TTL_SECONDS: number
+    /** Dedicated Redis host for dedup claims; empty reuses the ingestion Redis */
+    INGESTION_FEATURE_FLAG_CALLED_DEDUP_REDIS_HOST: string
+    INGESTION_FEATURE_FLAG_CALLED_DEDUP_REDIS_PORT: number
 
     // AI event splitting config
     INGESTION_AI_EVENT_SPLITTING_ENABLED: boolean
@@ -295,6 +298,8 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
 
         INGESTION_FEATURE_FLAG_CALLED_DEDUP_EXCLUDED_TEAMS: '',
         INGESTION_FEATURE_FLAG_CALLED_DEDUP_TTL_SECONDS: 60 * 60,
+        INGESTION_FEATURE_FLAG_CALLED_DEDUP_REDIS_HOST: '',
+        INGESTION_FEATURE_FLAG_CALLED_DEDUP_REDIS_PORT: 6379,
 
         // AI event splitting config
         INGESTION_AI_EVENT_SPLITTING_ENABLED: false,
