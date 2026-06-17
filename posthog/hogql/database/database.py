@@ -411,11 +411,15 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
 
 
 def _compute_system_table_access_decision(
-    team: "Team", user: Optional["User | SyntheticUser"]
+    team: "Team",
+    user: Optional["User | SyntheticUser"],
+    user_access_control: Optional["UserAccessControl"] = None,
 ) -> tuple[Optional["UserAccessControl"], set[str]]:
     """Decide which scoped system tables to hide, doing the access-control I/O here so the build phase
-    can apply the result without querying. Returns the warmed UserAccessControl (whose membership/role/
-    access-control caches make later reads query-free) and the system-node table names to remove."""
+    can apply the result without querying. Returns the warmed UserAccessControl (preloaded, so later
+    reads are query-free) and the system-node table names to remove.
+
+    Pass user_access_control when it's already preloaded to reuse the instance and avoid an extra query."""
     system_children = SystemTables().children
 
     # Anonymous or synthetic principal: keep only access-controlled tables its scopes cover (none for anonymous / team token).
@@ -429,7 +433,7 @@ def _compute_system_table_access_decision(
             and table_node.table.access_scope not in readable_scopes
         }
 
-    user_access_control = UserAccessControl(user=user, team=team)
+    user_access_control = user_access_control or UserAccessControl(user=user, team=team)
 
     org_membership = user_access_control._organization_membership
     if org_membership and org_membership.level >= OrganizationMembership.Level.ADMIN:
@@ -978,6 +982,7 @@ class Database(BaseModel):
         *,
         team: Optional["Team"] = None,
         user: Optional["User | SyntheticUser"] = None,
+        user_access_control: Optional["UserAccessControl"] = None,
         modifiers: "HogQLQueryModifiers | None" = None,
         timings: HogQLTimings | None = None,
         connection_id: str | None = None,
@@ -989,6 +994,7 @@ class Database(BaseModel):
             team_id,
             team=team,
             user=user,
+            preloaded_user_access_control=user_access_control,
             modifiers=modifiers,
             timings=timings,
             connection_id=connection_id,
@@ -1001,6 +1007,7 @@ class Database(BaseModel):
         *,
         team: Optional["Team"] = None,
         user: Optional["User | SyntheticUser"] = None,
+        preloaded_user_access_control: Optional["UserAccessControl"] = None,
         modifiers: "HogQLQueryModifiers | None" = None,
         timings: HogQLTimings | None = None,
         connection_id: str | None = None,
@@ -1083,7 +1090,11 @@ class Database(BaseModel):
             user_access_control: Optional[UserAccessControl] = None
             denied_system_table_names: set[str] = set()
             if is_hogql_access_control_enabled:
-                user_access_control, denied_system_table_names = _compute_system_table_access_decision(team, user)
+                # Reuse the caller's preloaded user_access_control when given,
+                # so the bulk access-control fetch happens once per run
+                user_access_control, denied_system_table_names = _compute_system_table_access_decision(
+                    team, user, preloaded_user_access_control
+                )
 
         with timings.measure("modifiers", emit_span=True):
             modifiers = create_default_modifiers_for_team(team, modifiers)
