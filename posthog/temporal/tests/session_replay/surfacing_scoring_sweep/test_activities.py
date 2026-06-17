@@ -11,6 +11,7 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
 from posthog.temporal.session_replay.surfacing_scoring_sweep.activities import (
+    _build_features_dataframe,
     _build_partial_row,
     list_chunks_activity,
     score_chunk_activity,
@@ -21,7 +22,11 @@ from posthog.temporal.session_replay.surfacing_scoring_sweep.constants import (
     SCORE_CHUNK_HEARTBEAT_TIMEOUT,
     TARGET_CHUNK_SIZE,
 )
-from posthog.temporal.session_replay.surfacing_scoring_sweep.features import FeatureValidationError
+from posthog.temporal.session_replay.surfacing_scoring_sweep.features import (
+    ID_COLUMNS,
+    FeatureValidationError,
+    validate_features,
+)
 from posthog.temporal.session_replay.surfacing_scoring_sweep.types import ChunkSpec, ScoreSessionsBatchInputs
 
 ACTIVITIES_MODULE = "posthog.temporal.session_replay.surfacing_scoring_sweep.activities"
@@ -60,6 +65,54 @@ class TestBuildPartialRow:
         )
         assert row["first_timestamp"] == "2026-05-07 10:00:00.000001"
         assert row["last_timestamp"] == "2026-05-07 10:00:00.000001"
+
+
+class TestBuildFeaturesDataframe:
+    def _rows(self, feature_names: tuple[str, ...], null_feature: str | None) -> tuple[list[tuple], list[str]]:
+        columns = [*ID_COLUMNS, *feature_names]
+        rows = [
+            (
+                1,
+                f"sess-{i}",
+                f"user-{i}",
+                datetime(2026, 5, 7, 10, 0, 0),
+                *(None if name == null_feature else 0.1 for name in feature_names),
+            )
+            for i in range(2)
+        ]
+        return rows, columns
+
+    def test_all_null_feature_column_is_coerced_to_float_and_validates(
+        self, feature_names_for_tests: tuple[str, ...]
+    ) -> None:
+        # Reproduces the production failure: a `x / nullIf(denom, 0)` feature is
+        # NULL for every row in a chunk of simple sessions. The driver returns
+        # all-None, which pandas infers as object dtype unless we coerce.
+        rows, columns = self._rows(feature_names_for_tests, null_feature="inter_action_gap_mean_ms")
+
+        df = _build_features_dataframe(rows, columns)
+
+        assert df["inter_action_gap_mean_ms"].dtype.kind == "f"
+        assert df["inter_action_gap_mean_ms"].isna().all()
+        validate_features(df, feature_names=feature_names_for_tests)
+
+    def test_id_columns_keep_native_dtypes(self, feature_names_for_tests: tuple[str, ...]) -> None:
+        rows, columns = self._rows(feature_names_for_tests, null_feature=None)
+
+        df = _build_features_dataframe(rows, columns)
+
+        assert df["session_id"].dtype.kind == "O"
+        assert df["min_first_timestamp"].dtype.kind == "M"
+
+    def test_non_numeric_feature_value_still_raises(self, feature_names_for_tests: tuple[str, ...]) -> None:
+        # Coercion must not mask genuine SQL drift — a non-numeric feature value
+        # is a wiring bug and should fail loudly, not become NaN.
+        rows, columns = self._rows(feature_names_for_tests, null_feature=None)
+        bad = list(rows[0])
+        bad[len(ID_COLUMNS)] = "not-a-number"  # first feature column
+
+        with pytest.raises((ValueError, TypeError)):
+            _build_features_dataframe([tuple(bad)], columns)
 
 
 class TestScoreChunkActivity:

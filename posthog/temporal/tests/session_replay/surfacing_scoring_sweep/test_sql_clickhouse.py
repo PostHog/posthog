@@ -51,6 +51,12 @@ class TestFetchFeaturesSqlShape:
         assert "AND min_first_timestamp >= now() - toIntervalDay(%(lookback_days)s + 1)" in sql
         assert "AND started_at >= now() - toIntervalDay(%(lookback_days)s)" in sql
 
+    def test_eligible_sessions_excludes_eventless_sessions(self) -> None:
+        assert "AND sum(event_count) > 0" in fetch_features_sql()
+
+    def test_count_unscored_excludes_eventless_sessions(self) -> None:
+        assert "AND sum(event_count) > 0" in count_unscored_sql()
+
     def test_count_unscored_has_raw_row_prefilter(self) -> None:
         sql = count_unscored_sql()
         assert "AND min_first_timestamp >= now() - toIntervalDay(%(lookback_days)s + 1)" in sql

@@ -53,6 +53,7 @@ from posthog.temporal.session_replay.surfacing_scoring_sweep.constants import (
     TARGET_CHUNK_SIZE,
 )
 from posthog.temporal.session_replay.surfacing_scoring_sweep.features import (
+    ID_COLUMNS,
     MODEL_FEATURE_SCHEMA_VERSION,
     FeatureValidationError,
     out_of_contract_row_mask,
@@ -121,6 +122,14 @@ async def list_chunks_activity(_inputs: ScoreSessionsBatchInputs) -> ListChunksR
 # --------------------------------------------------------------------------- #
 
 
+def _build_features_dataframe(rows: list[tuple], columns: list[str]) -> pd.DataFrame:
+    """Coerce feature columns to numeric so an all-NULL column (driver returns all-`None`, which pandas infers as `object`) doesn't fail `validate_features`."""
+    df = pd.DataFrame(rows, columns=pd.Index(columns))
+    feature_cols = [c for c in df.columns if c not in ID_COLUMNS]
+    df[feature_cols] = df[feature_cols].astype(float)
+    return df
+
+
 def _fetch_features_dataframe(spec: ChunkSpec) -> pd.DataFrame:
     """Run the feature SELECT and return a pandas DataFrame."""
     result = cast(
@@ -142,7 +151,7 @@ def _fetch_features_dataframe(spec: ChunkSpec) -> pd.DataFrame:
     )
     rows, column_metadata = result
     columns = [name for name, _type in column_metadata]
-    return pd.DataFrame(rows, columns=pd.Index(columns))
+    return _build_features_dataframe(rows, columns)
 
 
 def _build_partial_row(
