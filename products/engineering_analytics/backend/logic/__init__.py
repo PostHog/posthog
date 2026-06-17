@@ -1,9 +1,10 @@
 """Orchestration for engineering_analytics.
 
-Resolves caller inputs (PostHog-convention date strings, ``owner/name`` repo) into
-the values the query layer needs and returns canonical contract types. The curated
-query builders (``backend/logic/views``) own all GitHub-shaped mapping and domain
-rules; this layer deals only in canonical types.
+Resolves caller inputs (PostHog-convention date strings, ``owner/name`` repo) and binds the
+team to its curated GitHub read layer (``CuratedGitHubSource``, which resolves the warehouse
+table names), then returns canonical contract types. The curated query builders
+(``backend/logic/views``) own all GitHub-shaped mapping and domain rules; this layer deals
+only in canonical types.
 """
 
 from datetime import datetime
@@ -17,6 +18,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     PullRequestList,
     WorkflowHealthItem,
 )
+from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries.ci_cards import query_ci_cards
 from products.engineering_analytics.backend.logic.queries.pr_lifecycle import query_pr_lifecycle
 from products.engineering_analytics.backend.logic.queries.pull_request_list import query_pull_request_list
@@ -31,31 +33,32 @@ _DEFAULT_WINDOW = "-30d"
 _MAX_WINDOW_DAYS = 366
 
 
-def build_pr_lifecycle(*, team: Team, pr_number: int, repo: str | None) -> PRLifecycle | None:
+# Each builder operates on an already-resolved CuratedGitHubSource: source selection and per-source
+# warehouse access control happen once at the facade, which hands these builders the authorized
+# handle. They validate their own inputs (dates, repo) and read PR/CI data through the handle.
+def build_pr_lifecycle(*, curated: CuratedGitHubSource, pr_number: int, repo: str | None) -> PRLifecycle | None:
     owner, name = _split_repo(repo)
-    return query_pr_lifecycle(team=team, pr_number=pr_number, repo_owner=owner, repo_name=name)
+    return query_pr_lifecycle(curated=curated, pr_number=pr_number, repo_owner=owner, repo_name=name)
 
 
-def build_ci_cards(*, team: Team) -> CICardSummary:
-    return query_ci_cards(team=team)
+def build_ci_cards(*, curated: CuratedGitHubSource) -> CICardSummary:
+    return query_ci_cards(curated=curated)
 
 
-def build_pull_request_list(*, team: Team, date_from: str | None = None) -> PullRequestList:
-    return query_pull_request_list(team=team, date_from=_parse_date(team, date_from or _DEFAULT_WINDOW))
+def build_pull_request_list(*, curated: CuratedGitHubSource, date_from: str | None = None) -> PullRequestList:
+    parsed_from = _parse_date(curated.team, date_from or _DEFAULT_WINDOW)
+    return query_pull_request_list(curated=curated, date_from=parsed_from)
 
 
 def build_workflow_health(
-    *,
-    team: Team,
-    date_from: str | None = None,
-    date_to: str | None = None,
+    *, curated: CuratedGitHubSource, date_from: str | None = None, date_to: str | None = None
 ) -> list[WorkflowHealthItem]:
-    parsed_from = _parse_date(team, date_from or _DEFAULT_WINDOW)
-    parsed_to = _parse_date(team, date_to) if date_to else None
+    parsed_from = _parse_date(curated.team, date_from or _DEFAULT_WINDOW)
+    parsed_to = _parse_date(curated.team, date_to) if date_to else None
     span_days = ((parsed_to or datetime.now(tz=parsed_from.tzinfo)) - parsed_from).days
     if span_days > _MAX_WINDOW_DAYS:
         raise ValueError(f"date window spans {span_days} days; the maximum is {_MAX_WINDOW_DAYS}")
-    return query_workflow_health(team=team, date_from=parsed_from, date_to=parsed_to)
+    return query_workflow_health(curated=curated, date_from=parsed_from, date_to=parsed_to)
 
 
 def _parse_date(team: Team, value: str) -> datetime:

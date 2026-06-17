@@ -30,6 +30,7 @@ const prLifecycle = (): ToolBase<typeof PrLifecycleSchema, Schemas.PRLifecycle> 
             query: {
                 pr_number: params.pr_number,
                 repo: params.repo,
+                source_id: params.source_id,
             },
         })
         return result
@@ -52,6 +53,7 @@ const pullRequests = (): ToolBase<typeof PullRequestsSchema, WithPostHogUrl<Sche
             path: `/api/projects/${encodeURIComponent(String(projectId))}/engineering_analytics/pull_requests/`,
             query: {
                 date_from: params.date_from,
+                source_id: params.source_id,
             },
         })
         return await withPostHogUrl(context, result, '/engineering-analytics')
@@ -78,6 +80,7 @@ const workflowHealth = (): ToolBase<typeof WorkflowHealthSchema, WithPostHogUrl<
             query: {
                 date_from: params.date_from,
                 date_to: params.date_to,
+                source_id: params.source_id,
             },
         })
         return await withPostHogUrl(context, result, '/engineering-analytics/workflows')

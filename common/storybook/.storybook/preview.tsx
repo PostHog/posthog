@@ -24,8 +24,9 @@ const setupMsw = (): void => {
         onUnhandledRequest(request, print) {
             // MSW warns on all unhandled requests, but we don't necessarily care
             const pathAllowList = ['/images/']
+            const { pathname } = new URL(request.url)
 
-            if (pathAllowList.some((path) => request.url.pathname.startsWith(path))) {
+            if (pathAllowList.some((path) => pathname.startsWith(path))) {
                 return
             }
 

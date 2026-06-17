@@ -20,6 +20,9 @@ import { AnnotationScope, ChartDisplayType } from '~/types'
 // The full InsightViz tree is heavy to mount under jsdom; on contended CI shards
 // the default 1s waitFor / findBy timeout is too tight and flakes randomly.
 configure({ asyncUtilTimeout: 5000 })
+// With asyncUtilTimeout at 5s, a single legitimate waitFor can exhaust Jest's default
+// 5s per-test budget — the first test in the file (which also pays chart init) hits this.
+jest.setTimeout(15000)
 
 let cleanupJsdom: () => void
 let cleanupRaf: () => void
