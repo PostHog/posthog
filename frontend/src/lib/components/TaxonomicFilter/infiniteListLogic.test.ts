@@ -126,6 +126,14 @@ describe('infiniteListLogic', () => {
                 })
         })
 
+        it('stamps the remote load duration so callers can report search latency', async () => {
+            await expectLogic(logic)
+                .toDispatchActions(['loadRemoteItemsSuccess'])
+                .toMatchValues({
+                    remoteItems: partial({ loadDurationMs: expect.any(Number) }),
+                })
+        })
+
         it('can set the index', async () => {
             await expectLogic(logic).toDispatchActions(['loadRemoteItemsSuccess']) // wait for data
             expectLogic(logic).toMatchValues({ index: 0, remoteItems: partial({ count: 156 }) })

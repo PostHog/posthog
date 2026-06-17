@@ -16,7 +16,8 @@
  *
  * Open follow-ups (not implemented in v1):
  *   - DataWarehouse pinned-row detail-pane state
- *   - performance instrumentation (`captureTimeToSeeData`)
+ *   - search-latency telemetry (legacy stamps `time_to_see_data_ms` on
+ *     `taxonomic_filter_search_query`; the rebuild emits its own menu events)
  *   - the GroupNamesPrefix clickhouse fast path (still goes through generic
  *     endpoint fetcher; behaviour identical, just slower for large groups)
  */
