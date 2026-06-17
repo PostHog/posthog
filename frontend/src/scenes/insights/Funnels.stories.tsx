@@ -147,7 +147,9 @@ export const FunnelTimeToConvertEdit: Story = createInsightStory(
     require('../../mocks/fixtures/api/projects/team_id/insights/funnelTimeToConvert.json'),
     'edit'
 )
-FunnelTimeToConvertEdit.parameters = { testOptions: { waitForSelector: '[data-attr=funnel-histogram] canvas[role="img"]' } }
+FunnelTimeToConvertEdit.parameters = {
+    testOptions: { waitForSelector: '[data-attr=funnel-histogram] canvas[role="img"]' },
+}
 
 export const FunnelWithInlineEventsEdit: Story = createInsightStory(
     require('../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRightWithInlineEvents.json'),
