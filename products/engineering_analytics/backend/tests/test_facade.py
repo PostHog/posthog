@@ -73,3 +73,10 @@ class TestEngineeringAnalyticsFacade(BaseTest):
         assert result is mock.sentinel.result
         for_team.assert_called_once_with(self.team, **expected_for_team)
         build.assert_called_once_with(curated=mock.sentinel.curated, **expected_build)
+
+    def test_list_github_sources_delegates_with_access(self) -> None:
+        with mock.patch(f"{_LOGIC}.build_github_sources", return_value=mock.sentinel.result) as build:
+            result = api.list_github_sources(team=self.team, user_access_control=mock.sentinel.uac)
+
+        assert result is mock.sentinel.result
+        build.assert_called_once_with(team=self.team, user_access_control=mock.sentinel.uac)

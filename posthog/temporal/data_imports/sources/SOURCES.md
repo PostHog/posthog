@@ -273,6 +273,7 @@ doesn't conflict with concurrent PRs.
 - bluetally
 - boldsign
 - box
+- braintrust
 - branch
 - breezometer
 - breezy_hr

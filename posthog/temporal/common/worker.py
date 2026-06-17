@@ -51,6 +51,11 @@ from posthog.temporal.session_replay.delete_recordings.metrics import (
     DELETE_RECORDINGS_LATENCY_HISTOGRAM_METRICS,
     DeleteRecordingsMetricsInterceptor,
 )
+from posthog.temporal.session_replay.surfacing_scoring_sweep.metrics import (
+    SURFACING_SCORING_LATENCY_HISTOGRAM_BUCKETS,
+    SURFACING_SCORING_LATENCY_HISTOGRAM_METRICS,
+    SurfacingScoringMetricsInterceptor,
+)
 
 from products.batch_exports.backend.temporal.metrics import BatchExportsMetricsInterceptor
 from products.experiments.backend.temporal.recalculation_metrics import (
@@ -134,6 +139,7 @@ ALL_INTERCEPTOR_CLASSES = [
     SloInterceptor,
     BatchExportsMetricsInterceptor,
     DeleteRecordingsMetricsInterceptor,
+    SurfacingScoringMetricsInterceptor,
     EvalsMetricsInterceptor,
     SummarizationMetricsInterceptor,
     ClusteringMetricsInterceptor,
@@ -268,6 +274,12 @@ async def create_worker(
             zip(
                 DELETE_RECORDINGS_LATENCY_HISTOGRAM_METRICS,
                 itertools.repeat(DELETE_RECORDINGS_LATENCY_HISTOGRAM_BUCKETS),
+            )
+        )
+        | dict(
+            zip(
+                SURFACING_SCORING_LATENCY_HISTOGRAM_METRICS,
+                itertools.repeat(SURFACING_SCORING_LATENCY_HISTOGRAM_BUCKETS),
             )
         )
         | dict(zip(LOGS_ALERTING_LATENCY_HISTOGRAM_METRICS, itertools.repeat(LOGS_ALERTING_LATENCY_HISTOGRAM_BUCKETS)))

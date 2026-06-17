@@ -908,10 +908,24 @@ def get_schemas(
     names: list[str] | None = None,
 ) -> dict[str, PostgresDiscoveredSchema]:
     """Get all tables from PostgreSQL source schemas to sync."""
-    with pg_connection(
-        host=host, port=port, database=database, user=user, password=password, require_ssl=require_ssl
-    ) as connection:
+    # Schema discovery opens a fresh connection on its own periodic cadence. A momentary drop on
+    # connect — "server closed the connection unexpectedly" / an SSL EOF from a pooler, firewall,
+    # or SSH-tunnel hiccup — is transient and recovers on a retry, exactly like the drops the
+    # import read path already retries via `_connect_with_dropped_retry`. Without an in-process
+    # retry here that blip fails the whole discovery activity and surfaces as captured
+    # error-tracking noise even though the next attempt would succeed. Permanent errors (auth
+    # failures, SSL-required) re-raise immediately because `_is_connection_dropped_error` only
+    # matches transient drops.
+    connection = _connect_with_dropped_retry(
+        lambda: _connect_to_postgres(
+            host=host, port=port, database=database, user=user, password=password, require_ssl=require_ssl
+        ),
+        structlog.get_logger(),
+    )
+    try:
         return _schemas_from_conn(connection, schema, names)
+    finally:
+        connection.close()
 
 
 def get_primary_keys_for_schemas(
@@ -1547,9 +1561,11 @@ def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, log
     # transaction (e.g. tests or future callers), wrap in a SAVEPOINT so that a
     # QueryCanceled doesn't abort the surrounding transaction.
     use_savepoint = not cursor.connection.autocommit
+    savepoint_active = False
     try:
         if use_savepoint:
             cursor.execute("SAVEPOINT _chunk_size_probe")
+            savepoint_active = True
 
         query = sql.SQL("""
             SELECT percentile_cont(0.95) within group (order by subquery.row_size) FROM (
@@ -1563,18 +1579,19 @@ def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, log
         cursor.execute(query)
         row = cursor.fetchone()
 
-        if use_savepoint:
+        if savepoint_active:
             cursor.execute("RELEASE SAVEPOINT _chunk_size_probe")
+            savepoint_active = False
 
         if row is None:
             logger.debug(f"_get_table_chunk_size: No results returned. Using DEFAULT_CHUNK_SIZE={DEFAULT_CHUNK_SIZE}")
-            return DEFAULT_CHUNK_SIZE
-
-        row_size_bytes = row[0] or 1
-        chunk_size = int(DEFAULT_TABLE_SIZE_BYTES / row_size_bytes)
-        logger.debug(
-            f"_get_table_chunk_size: row_size_bytes={row_size_bytes}. DEFAULT_TABLE_SIZE_BYTES={DEFAULT_TABLE_SIZE_BYTES}. Using CHUNK_SIZE={chunk_size}"
-        )
+            chunk_size = DEFAULT_CHUNK_SIZE
+        else:
+            row_size_bytes = row[0] or 1
+            chunk_size = int(DEFAULT_TABLE_SIZE_BYTES / row_size_bytes)
+            logger.debug(
+                f"_get_table_chunk_size: row_size_bytes={row_size_bytes}. DEFAULT_TABLE_SIZE_BYTES={DEFAULT_TABLE_SIZE_BYTES}. Using CHUNK_SIZE={chunk_size}"
+            )
 
         return chunk_size
     except Exception as e:
@@ -1587,11 +1604,12 @@ def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, log
         # its own dedicated QueryCanceled handling (`_statement_timeout_as_non_retryable`), so
         # re-raising the cancellation here would only bypass that path and leak a raw, retryable
         # QueryCanceled that Temporal re-attempts forever on tables this query can never complete on.
-        if use_savepoint:
+        if savepoint_active:
             try:
                 cursor.execute("ROLLBACK TO SAVEPOINT _chunk_size_probe")
-            except Exception:
-                pass
+                cursor.execute("RELEASE SAVEPOINT _chunk_size_probe")
+            except Exception as rollback_error:
+                logger.debug(f"_get_table_chunk_size: Failed to rollback savepoint: {rollback_error}")
         logger.debug(f"_get_table_chunk_size: Error: {e}. Using DEFAULT_CHUNK_SIZE={DEFAULT_CHUNK_SIZE}", exc_info=e)
 
         return DEFAULT_CHUNK_SIZE
