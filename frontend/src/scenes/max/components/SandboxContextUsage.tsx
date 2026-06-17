@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 
 import { Tooltip } from '@posthog/lemon-ui'
 
-import { humanFriendlyNumber } from 'lib/utils'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { sandboxStreamLogic } from '../sandboxStreamLogic'
 
