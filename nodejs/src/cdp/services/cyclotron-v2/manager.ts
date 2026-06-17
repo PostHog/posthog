@@ -27,13 +27,19 @@ export const EMAIL_DEQUEUE_BLOCK_SIZE = BigInt(16_777_216)
  * `NULL dequeue_seq` and bypass the per-team interleave (`NULLS FIRST` would
  * drain them ahead of any fair-ordered rows).
  *
+ * A team's *first ever* email starts at `MAX(counter) + 1` across the table
+ * (Hatchet's `p_max_assigned` pattern), so a brand-new tenant can't enqueue a
+ * burst that gets free priority over established tenants' in-flight emails.
+ * Continuing tenants just increment their own counter as before. `COALESCE`
+ * handles the empty-table cold-start (`MAX = NULL` → starting point of 0).
+ *
  * For bulk inserts of multiple email jobs at once, `bulkCreateJobs` uses its
  * own batched UPSERT for efficiency rather than calling this in a loop.
  */
 export async function assignEmailDequeueSeq(pool: Pool, teamId: number): Promise<string> {
     const result = await pool.query<{ counter: string }>(
         `INSERT INTO cyclotron_email_team_seq (team_id, counter)
-         VALUES ($1, 1)
+         VALUES ($1, COALESCE((SELECT MAX(counter) FROM cyclotron_email_team_seq), 0) + 1)
          ON CONFLICT (team_id) DO UPDATE
             SET counter = cyclotron_email_team_seq.counter + 1
          RETURNING counter`,
@@ -310,6 +316,13 @@ export class CyclotronV2Manager {
      * One UPSERT for the whole batch regardless of job count — per-team
      * counters bump by the count of email jobs from that team in this batch,
      * and we derive each job's individual counter value in memory.
+     *
+     * A team's first-ever email starts at `MAX(counter) + 1` across the table
+     * (Hatchet's `p_max_assigned` pattern), so a new tenant joining the
+     * system can't enqueue a burst that gets free priority over established
+     * tenants — established tenants are already at `MAX`, so a new tenant's
+     * batch slots in at the same level and the round-robin interleaves them
+     * by team_id from there. Continuing teams just keep incrementing.
      */
     private async computeEmailDequeueSeqs(jobs: CyclotronV2JobInit[]): Promise<(string | null)[]> {
         const indicesByTeam = new Map<number, number[]>()
@@ -337,11 +350,21 @@ export class CyclotronV2Manager {
         // contend; same-team inserts serialize briefly on the row. Returns the
         // new counter value per team — we then derive individual job counters
         // by subtracting back through the batch.
+        //
+        // Hatchet `p_max_assigned`: new-team rows insert at `MAX + increment`
+        // so they slot in next to established teams. Existing-team rows still
+        // add just `increment` (we subtract the MAX shift back out in the ON
+        // CONFLICT branch). MAX is computed once per batch via the CTE.
         const upsertResult = await this.pool.query<{ team_id: number; counter: string }>(
-            `INSERT INTO cyclotron_email_team_seq (team_id, counter)
-             SELECT unnest($1::int[]), unnest($2::bigint[])
+            `WITH max_counter AS (
+                 SELECT COALESCE(MAX(counter), 0) AS m FROM cyclotron_email_team_seq
+             )
+             INSERT INTO cyclotron_email_team_seq (team_id, counter)
+             SELECT team_id, increment + (SELECT m FROM max_counter)
+             FROM unnest($1::int[], $2::bigint[]) AS t(team_id, increment)
              ON CONFLICT (team_id) DO UPDATE
-                SET counter = cyclotron_email_team_seq.counter + EXCLUDED.counter
+                SET counter = cyclotron_email_team_seq.counter
+                            + (EXCLUDED.counter - (SELECT m FROM max_counter))
              RETURNING team_id, counter`,
             [teamIds, increments]
         )

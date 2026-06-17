@@ -859,13 +859,56 @@ describe('Cyclotron V2', () => {
                 expect(await readTeamCounter(teamId)).toBe(3n)
             })
 
-            it('keeps per-team counters independent', async () => {
+            it("starts a new team's counter at the existing max (Hatchet p_max_assigned)", async () => {
+                // Without this, a brand-new tenant's burst would slot in at
+                // counter=1 and cut ahead of every established team's
+                // in-flight emails. Hatchet's pattern: first-ever insert for
+                // a team starts at `MAX(counter) + 1` across the table, so
+                // they line up *next to* existing teams instead of jumping
+                // the queue. Subsequent emails for that team keep
+                // incrementing normally.
                 await manager.bulkCreateJobs([{ teamId: 1, queueName: EMAIL_QUEUE }])
                 await manager.bulkCreateJobs([{ teamId: 1, queueName: EMAIL_QUEUE }])
+                // Team 2's first ever email → counter = max(2) + 1 = 3, not 1.
                 await manager.bulkCreateJobs([{ teamId: 2, queueName: EMAIL_QUEUE }])
 
                 expect(await readTeamCounter(1)).toBe(2n)
-                expect(await readTeamCounter(2)).toBe(1n)
+                expect(await readTeamCounter(2)).toBe(3n)
+            })
+
+            it("doesn't let a new team's batch cut ahead of an established team's in-flight email", async () => {
+                // The inversion scenario the Hatchet pattern is designed to fix:
+                //   - Established tenant has been sending for a while → high counter.
+                //   - Newcomer tenant enqueues their first big batch.
+                // The established tenant's next email should still sort *before*
+                // the newcomer's batch — without Hatchet, the newcomer would
+                // land at counter=1 and bury every established email behind
+                // their burst.
+                const established = 100
+                const newcomer = 200
+
+                // Established tenant builds up a counter via prior activity.
+                await manager.bulkCreateJobs(
+                    Array.from({ length: 10 }, () => ({ teamId: established, queueName: EMAIL_QUEUE }))
+                )
+                // Established tenant's 11th email.
+                const [establishedNewId] = await manager.bulkCreateJobs([
+                    { teamId: established, queueName: EMAIL_QUEUE },
+                ])
+                // Newcomer's first-ever batch.
+                await manager.bulkCreateJobs(
+                    Array.from({ length: 50 }, () => ({ teamId: newcomer, queueName: EMAIL_QUEUE }))
+                )
+
+                const establishedSeq = await readDequeueSeq(establishedNewId)
+                const newcomerRows = await assertPool.query<{ dequeue_seq: string }>(
+                    'SELECT dequeue_seq FROM cyclotron_jobs WHERE team_id = $1 ORDER BY dequeue_seq ASC LIMIT 1',
+                    [newcomer]
+                )
+                const newcomerMinSeq = BigInt(newcomerRows.rows[0].dequeue_seq)
+
+                expect(establishedSeq).not.toBeNull()
+                expect(establishedSeq!).toBeLessThan(newcomerMinSeq)
             })
 
             it('assigns sequential dequeue_seq within a bulk batch for the same team', async () => {
@@ -925,14 +968,17 @@ describe('Cyclotron V2', () => {
             it('picks small-tenant jobs into the same batch as big-tenant jobs', async () => {
                 // The 2M-vs-1 scenario at a smaller scale: team A enqueues 5,
                 // team B enqueues 1. With strict FIFO, B's 1 sits behind A's 5.
-                // With fair dequeue, B's 1 is in the very first batch of 2
-                // (the CTE picks the lowest dequeue_seq per team first).
+                // With fair dequeue, B's 1 is in the very first batch of 2.
+                //
+                // Both teams in a single bulkCreateJobs call — this mirrors
+                // the prod path where cdp-events-consumer batches emails from
+                // many teams into one INSERT.
                 const teamA = 100
                 const teamB = 200
-                await manager.bulkCreateJobs(
-                    Array.from({ length: 5 }, () => ({ teamId: teamA, queueName: EMAIL_QUEUE }))
-                )
-                await manager.bulkCreateJobs([{ teamId: teamB, queueName: EMAIL_QUEUE }])
+                await manager.bulkCreateJobs([
+                    ...Array.from({ length: 5 }, () => ({ teamId: teamA, queueName: EMAIL_QUEUE })),
+                    { teamId: teamB, queueName: EMAIL_QUEUE },
+                ])
 
                 const worker = createFairWorker({ batchMaxSize: 2 })
                 const jobs = await dequeueOneBatch(worker)
@@ -945,19 +991,18 @@ describe('Cyclotron V2', () => {
                 // Mixed-volume scenario:
                 //   team A enqueues 20 emails, team B enqueues 10, team C enqueues 1.
                 //
-                // Dequeue one row at a time — each call's pick is deterministic
-                // (lowest dequeue_seq remaining). Strict order matters here
-                // because we're testing the algorithm's invariant directly.
+                // All three teams in a single bulkCreateJobs call — mirrors
+                // the prod path (cdp-events-consumer batches multi-team emails
+                // into one INSERT). Dequeue one row at a time so each call's
+                // pick is deterministic (lowest dequeue_seq remaining).
                 const teamA = 100
                 const teamB = 200
                 const teamC = 300
-                await manager.bulkCreateJobs(
-                    Array.from({ length: 20 }, () => ({ teamId: teamA, queueName: EMAIL_QUEUE }))
-                )
-                await manager.bulkCreateJobs(
-                    Array.from({ length: 10 }, () => ({ teamId: teamB, queueName: EMAIL_QUEUE }))
-                )
-                await manager.bulkCreateJobs([{ teamId: teamC, queueName: EMAIL_QUEUE }])
+                await manager.bulkCreateJobs([
+                    ...Array.from({ length: 20 }, () => ({ teamId: teamA, queueName: EMAIL_QUEUE })),
+                    ...Array.from({ length: 10 }, () => ({ teamId: teamB, queueName: EMAIL_QUEUE })),
+                    { teamId: teamC, queueName: EMAIL_QUEUE },
+                ])
 
                 const drained: number[] = []
                 for (let i = 0; i < 31; i++) {
@@ -983,25 +1028,27 @@ describe('Cyclotron V2', () => {
                 expect(drained).toEqual(expected)
             })
 
-            it('keeps interleaving when the same teams enqueue across multiple waves', async () => {
-                // Per-team counters don't reset across enqueue calls. So jobs
-                // from later waves slot into the global fair order at the
-                // counter values they happen to take.
+            it('keeps interleaving across waves once both teams are established', async () => {
+                // Per-team counters don't reset across enqueue calls — once
+                // a team has any history, later waves continue from where
+                // they left off and interleave with other established teams.
                 //
-                //   A1, A2, A3 (wave 1)         → counter 1, 2, 3
-                //   B1, B2, B3 (wave 1)         → counter 1, 2, 3
-                //   B4, B5     (wave 2)         → counter 4, 5
-                //   A4, A5     (wave 3)         → counter 4, 5
+                // We pre-establish both teams with a single multi-team batch
+                // (matches the prod cdp-events-consumer pattern), then run
+                // subsequent waves for each team separately to prove the
+                // round-robin survives wave boundaries:
+                //
+                //   Pre-establish: A, A, A, B, B, B (one batch) → A,B counter 1..3 each
+                //   Wave 2:        B, B             (separate)  → B counter 4, 5
+                //   Wave 3:        A, A             (separate)  → A counter 4, 5
                 //
                 // Dequeue order: A1,B1, A2,B2, A3,B3, A4,B4, A5,B5.
                 const teamA = 100
                 const teamB = 200
-                await manager.bulkCreateJobs(
-                    Array.from({ length: 3 }, () => ({ teamId: teamA, queueName: EMAIL_QUEUE }))
-                )
-                await manager.bulkCreateJobs(
-                    Array.from({ length: 3 }, () => ({ teamId: teamB, queueName: EMAIL_QUEUE }))
-                )
+                await manager.bulkCreateJobs([
+                    ...Array.from({ length: 3 }, () => ({ teamId: teamA, queueName: EMAIL_QUEUE })),
+                    ...Array.from({ length: 3 }, () => ({ teamId: teamB, queueName: EMAIL_QUEUE })),
+                ])
                 await manager.bulkCreateJobs(
                     Array.from({ length: 2 }, () => ({ teamId: teamB, queueName: EMAIL_QUEUE }))
                 )
@@ -1027,18 +1074,17 @@ describe('Cyclotron V2', () => {
                 // the CTE's ORDER BY), only that the *composition* of each
                 // batch is what the algorithm guarantees: the lowest-counter
                 // rows across all teams, regardless of who has more backlog.
+                //
+                // All three teams in one bulkCreateJobs call — matches the
+                // prod path (cdp-events-consumer batches multi-team emails).
                 const teamA = 100
                 const teamB = 200
                 const teamC = 300
-                await manager.bulkCreateJobs(
-                    Array.from({ length: 10 }, () => ({ teamId: teamA, queueName: EMAIL_QUEUE }))
-                )
-                await manager.bulkCreateJobs(
-                    Array.from({ length: 5 }, () => ({ teamId: teamB, queueName: EMAIL_QUEUE }))
-                )
-                await manager.bulkCreateJobs(
-                    Array.from({ length: 2 }, () => ({ teamId: teamC, queueName: EMAIL_QUEUE }))
-                )
+                await manager.bulkCreateJobs([
+                    ...Array.from({ length: 10 }, () => ({ teamId: teamA, queueName: EMAIL_QUEUE })),
+                    ...Array.from({ length: 5 }, () => ({ teamId: teamB, queueName: EMAIL_QUEUE })),
+                    ...Array.from({ length: 2 }, () => ({ teamId: teamC, queueName: EMAIL_QUEUE })),
+                ])
 
                 const batches: number[][] = []
                 for (let i = 0; i < 6; i++) {
