@@ -236,6 +236,11 @@ class _TracingServiceNamesQuerySerializer(serializers.Serializer):
 
 class _TracingAttributesQuerySerializer(serializers.Serializer):
     search = serializers.CharField(required=False, help_text="Search filter for attribute names.")
+    search_values = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="When true, the search query also matches attribute values (not just keys), so a value such as a trace_id finds the key holding it.",
+    )
     attribute_type = serializers.ChoiceField(
         choices=["span_attribute", "span_resource_attribute"],
         required=False,
@@ -245,6 +250,27 @@ class _TracingAttributesQuerySerializer(serializers.Serializer):
         required=False, min_value=1, max_value=100, help_text="Max results (default: 100)."
     )
     offset = serializers.IntegerField(required=False, min_value=0, help_text="Pagination offset (default: 0).")
+
+
+class _TracingAttributeEntrySerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="Attribute key name.")
+    propertyFilterType = serializers.CharField(
+        help_text='Property filter type: "span_attribute" or "span_resource_attribute". Use this as the `type` field when filtering.',
+    )
+    matchedOn = serializers.ChoiceField(
+        choices=["key", "value"],
+        help_text='How the search query matched this row: "key" if the attribute key matched, "value" if a value matched.',
+    )
+    matchedValue = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text='Sample matching value — only set when matchedOn is "value".',
+    )
+
+
+class _TracingAttributesResponseSerializer(serializers.Serializer):
+    results = _TracingAttributeEntrySerializer(many=True, help_text="Available attribute keys matching the filters.")
+    count = serializers.IntegerField(help_text="Total attribute keys matched (lower bound when searching values).")
 
 
 class _TracingValuesQuerySerializer(serializers.Serializer):
@@ -1060,11 +1086,15 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             status=status.HTTP_200_OK,
         )
 
-    @extend_schema(parameters=[_TracingAttributesQuerySerializer])
+    @extend_schema(
+        parameters=[_TracingAttributesQuerySerializer],
+        responses={200: _TracingAttributesResponseSerializer},
+    )
     @action(detail=False, methods=["get"], required_scopes=["tracing:read"])
     def attributes(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
         search = request.GET.get("search", "")
+        search_values = request.GET.get("search_values", "false").lower() == "true"
         limit = int(request.GET.get("limit", "100"))
         offset = int(request.GET.get("offset", "0"))
 
@@ -1082,6 +1112,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             date_range=date_range,
             attribute_type=attribute_type,
             search=search,
+            search_values=search_values,
             limit=limit,
             offset=offset,
         )
