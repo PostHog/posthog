@@ -6,8 +6,25 @@ use bytes::{BufMut, Bytes, BytesMut};
 use futures::StreamExt;
 use tokio::io::AsyncReadExt;
 
-use crate::v1::constants::CAPTURE_V1_BODY_READ_TIMEOUT;
+use crate::v1::constants::{CAPTURE_V1_BODY_READ_TIMEOUT, CAPTURE_V1_DECOMPRESSION_ERRORS};
 use crate::v1::Error;
+
+/// Map a validated Content-Encoding value to a static metric label value.
+///
+/// Mirrors `SUPPORTED_ENCODINGS` (gzip, deflate, br, zstd). `None` means no
+/// Content-Encoding header was sent ("identity"). `Context::new` already
+/// rejects unsupported encodings, so the "other" fallback is a defensive
+/// branch that is unreachable in practice.
+pub fn encoding_tag(enc: Option<&str>) -> &'static str {
+    match enc {
+        None => "identity",
+        Some("gzip") => "gzip",
+        Some("deflate") => "deflate",
+        Some("br") => "br",
+        Some("zstd") => "zstd",
+        Some(_) => "other",
+    }
+}
 
 /// Extract body bytes from a streaming Body with a per-chunk timeout.
 ///
@@ -171,6 +188,8 @@ async fn read_decompressed(
         let to_read = std::cmp::min(remaining, chunk_size);
         buf.reserve(to_read);
         let n = reader.read_buf(&mut buf).await.map_err(|e| {
+            metrics::counter!(CAPTURE_V1_DECOMPRESSION_ERRORS, "encoding" => encoding_tag(Some(encoding)))
+                .increment(1);
             Error::RequestDecodingError(format!("{encoding} decompression failed: {e:#}"))
         })?;
         if n == 0 {
@@ -192,6 +211,20 @@ mod tests {
     use std::time::Duration;
 
     const TEST_CHUNK_SIZE_KB: usize = 256;
+
+    #[test]
+    fn encoding_tag_covers_supported_encodings_and_identity() {
+        // Keep in lockstep with SUPPORTED_ENCODINGS.
+        for enc in crate::v1::analytics::constants::SUPPORTED_ENCODINGS {
+            assert_eq!(
+                encoding_tag(Some(enc)),
+                *enc,
+                "supported encoding {enc} must map to itself"
+            );
+        }
+        assert_eq!(encoding_tag(None), "identity");
+        assert_eq!(encoding_tag(Some("lz4")), "other");
+    }
 
     #[tokio::test]
     async fn extract_body_no_timeout() {

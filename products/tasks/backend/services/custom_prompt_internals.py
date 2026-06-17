@@ -20,6 +20,8 @@ from products.tasks.backend.models import Task, TaskRun
 if TYPE_CHECKING:
     from temporalio.client import WorkflowHandle
 
+    from products.tasks.backend.services.sandbox import SandboxResources
+
 logger = logging.getLogger(__name__)
 
 # Type for an optional output callback (e.g. management command's self.stdout.write)
@@ -90,6 +92,11 @@ class CustomPromptSandboxContext:
     """Override the agent model (e.g. ``"claude-opus-4-8"``). Falls back to the
     agent server's default when ``None``. Used by evals to pin a specific
     model so cross-run comparisons are stable."""
+    sandbox_resources: SandboxResources | None = None
+    """Override the sandbox's compute (CPU / memory). Unset fields keep the
+    SandboxConfig defaults (4 cores / 16 GB)."""
+    sandbox_timeout_seconds: int | None = None
+    """Override the sandbox's max lifetime (Modal TTL). Falls back to SANDBOX_TTL_SECONDS."""
 
 
 class EmptyAgentTurnError(RuntimeError):
@@ -132,6 +139,8 @@ async def create_task_and_trigger(
         sandbox_environment_id=context.sandbox_environment_id,
         model=context.model,
         internal=internal,
+        sandbox_resources=context.sandbox_resources,
+        sandbox_timeout_seconds=context.sandbox_timeout_seconds,
     )
     # lambda wrap: task.latest_run is a lazy ORM property; sync_to_async needs a callable
     task_run = await sync_to_async(lambda: task.latest_run)()

@@ -13,7 +13,12 @@ from pydantic import RootModel as PydanticRootModel
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
 
-from posthog.schema import ExperimentApiExposureCriteria, ExperimentApiMetric, ExperimentParameters
+from posthog.schema import (
+    ExperimentApiExposureCriteria,
+    ExperimentApiMetric,
+    ExperimentParameters,
+    ExperimentRunningTimeCalculation,
+)
 
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
@@ -28,6 +33,7 @@ from products.experiments.backend.hogql_queries.utils import get_experiment_stat
 from products.experiments.backend.llm_metric_templates import TEMPLATE_NAMES
 from products.experiments.backend.metric_utils import refresh_action_names_in_metric
 from products.experiments.backend.models.experiment import Experiment, ExperimentHoldout, ExperimentMetricsRecalculation
+from products.experiments.backend.running_time_calculator import METRIC_TYPE_CHOICES
 from products.feature_flags.backend.api.feature_flag import MinimalFeatureFlagSerializer
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -95,6 +101,11 @@ class ExperimentExposureCriteriaField(serializers.JSONField):
     pass
 
 
+@extend_schema_field(ExperimentRunningTimeCalculation)  # type: ignore[arg-type]
+class ExperimentRunningTimeCalculationField(serializers.JSONField):
+    pass
+
+
 class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     feature_flag_key = serializers.CharField(
         source="get_feature_flag_key",
@@ -153,7 +164,20 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "`recommended_running_time`, `recommended_sample_size`, "
             "`custom_exposure_filter`, and `excluded_variants` "
             "(list of variant keys to drop from statistical analysis; "
-            "the baseline variant and holdout pseudo-variants cannot be excluded)."
+            "the baseline variant and holdout pseudo-variants cannot be excluded). "
+            "The running-time calculator keys (`minimum_detectable_effect`, "
+            "`recommended_running_time`, `recommended_sample_size`, `exposure_estimate_config`) "
+            "are deprecated here — prefer `running_time_calculation`."
+        ),
+    )
+    running_time_calculation = ExperimentRunningTimeCalculationField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, "
+            "`recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, "
+            "which historically lived in `parameters`; values are kept in sync with `parameters` "
+            "during the deprecation window."
         ),
     )
     metrics = ExperimentMetricsField(
@@ -241,6 +265,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "holdout_id",
             "exposure_cohort",
             "parameters",
+            "running_time_calculation",
             "secondary_metrics",
             "saved_metrics",
             "saved_metrics_ids",
@@ -352,6 +377,10 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         ExperimentService.validate_experiment_parameters(value)
         return value
 
+    def validate_running_time_calculation(self, value):
+        ExperimentService.validate_running_time_calculation(value)
+        return value
+
     def validate_exposure_criteria(self, exposure_criteria: dict | None):
         ExperimentService.validate_experiment_exposure_criteria(exposure_criteria)
         return exposure_criteria
@@ -383,6 +412,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             description=self.validated_data.get("description", ""),
             type=self.validated_data.get("type", "product"),
             parameters=self.validated_data.get("parameters"),
+            running_time_calculation=self.validated_data.get("running_time_calculation"),
             metrics=self.validated_data.get("metrics"),
             metrics_secondary=self.validated_data.get("metrics_secondary"),
             secondary_metrics=self.validated_data.get("secondary_metrics"),
@@ -420,6 +450,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "description",
             "type",
             "parameters",
+            "running_time_calculation",
             "metrics",
             "metrics_secondary",
             "secondary_metrics",
@@ -602,6 +633,38 @@ class CreateFromPromptInputSerializer(serializers.Serializer):
         return attrs
 
 
+class MetricRecalculationResultSerializer(serializers.Serializer):
+    """One metric's recalculated result row, read back from ExperimentMetricResult."""
+
+    metric_uuid = serializers.CharField(read_only=True, help_text="UUID of the metric this result belongs to")
+    status = serializers.ChoiceField(
+        choices=["pending", "completed", "failed"],
+        read_only=True,
+        help_text="Status of this metric's calculation in the run",
+    )
+    # JSONField mirrors the ExperimentMetricResult.result column; concrete shape comes from
+    # posthog.schema.ExperimentQueryResponse (variants/baseline/credible intervals/etc., depending on metric type).
+    result = serializers.JSONField(
+        read_only=True,
+        allow_null=True,
+        help_text="The computed metric result (ExperimentQueryResponse shape); null when status is pending or failed",
+    )
+    error_message = serializers.CharField(
+        read_only=True, allow_null=True, help_text="Error message when status is failed; otherwise null"
+    )
+
+
+class RecalculateMetricsRequestSerializer(serializers.Serializer):
+    """Request body for triggering a metrics recalculation."""
+
+    trigger = serializers.ChoiceField(
+        choices=["manual", "experiment_launch", "experiment_stop", "experiment_update"],
+        required=False,
+        default="manual",
+        help_text="What triggered this recalculation (manual is the default for user-initiated runs)",
+    )
+
+
 class ExperimentMetricsRecalculationSerializer(serializers.Serializer):
     """Serializer for metrics recalculation status responses."""
 
@@ -613,6 +676,17 @@ class ExperimentMetricsRecalculationSerializer(serializers.Serializer):
         help_text="Current status of the recalculation job",
     )
     total_metrics = serializers.IntegerField(read_only=True, help_text="Total number of metrics to recalculate")
+    completed_metrics = serializers.IntegerField(
+        read_only=True,
+        help_text="Number of metrics with a COMPLETED result row in this run (derived, not stored)",
+    )
+    failed_metrics = serializers.IntegerField(
+        read_only=True,
+        help_text=(
+            "Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures "
+            "that never made it to a result row"
+        ),
+    )
     # Named metric_errors (not errors) to avoid shadowing DRF's reserved Serializer.errors property.
     metric_errors = serializers.JSONField(read_only=True, help_text="Map of metric_uuid to error details")
     trigger = serializers.ChoiceField(
@@ -625,4 +699,143 @@ class ExperimentMetricsRecalculationSerializer(serializers.Serializer):
     completed_at = serializers.DateTimeField(read_only=True, allow_null=True, help_text="When processing completed")
     is_existing = serializers.BooleanField(
         read_only=True, required=False, help_text="True if returning an existing job rather than a newly created one"
+    )
+    # Populated by the GET endpoints (latest / by-id). Omitted from the POST response payload (which doesn't carry
+    # per-metric results yet — the workflow has just started).
+    results = MetricRecalculationResultSerializer(
+        many=True,
+        read_only=True,
+        required=False,
+        help_text="Per-metric results computed by this run, scoped by the run's recalc fingerprint",
+    )
+
+
+class RunningTimeBaselineStatsSerializer(serializers.Serializer):
+    """Raw control-group statistics the calculator uses to derive a baseline value and variance.
+
+    Supply this when you want the server to compute the baseline value and (for ratio/retention)
+    the delta-method variance, instead of passing `baseline_value`/`variance` directly.
+    """
+
+    number_of_samples = serializers.IntegerField(
+        min_value=0, help_text="Number of control-group samples (users/units) observed."
+    )
+    sum = serializers.FloatField(
+        help_text="Sum of the metric values across the control group (for funnels, the numerator/conversions)."
+    )
+    sum_squares = serializers.FloatField(
+        required=False, default=0.0, help_text="Sum of squared metric values. Required for ratio/retention variance."
+    )
+    denominator_sum = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        help_text="Sum of the denominator values. Required for ratio/retention metrics.",
+    )
+    denominator_sum_squares = serializers.FloatField(
+        required=False, allow_null=True, help_text="Sum of squared denominator values (ratio/retention variance)."
+    )
+    numerator_denominator_sum_product = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        help_text="Sum of numerator×denominator products, used for the delta-method covariance term.",
+    )
+    step_counts = serializers.ListField(
+        child=serializers.FloatField(),
+        required=False,
+        help_text="Per-step counts for funnel metrics; the last entry is the final-step count.",
+    )
+
+
+class RunningTimeCalculationInputSerializer(serializers.Serializer):
+    """Inputs for estimating the recommended sample size and running time of an experiment."""
+
+    metric_type = serializers.ChoiceField(
+        choices=METRIC_TYPE_CHOICES,
+        help_text=(
+            "Metric type to size for. 'funnel' for conversion rates, 'mean_count' for event counts per user, "
+            "'mean_sum_or_avg' for summed property values per user, 'ratio' and 'retention' for ratio-style metrics "
+            "(both require baseline_stats or an explicit variance)."
+        ),
+    )
+    minimum_detectable_effect = serializers.FloatField(
+        min_value=0,
+        help_text="Smallest relative change to detect, as a percentage (e.g. 5 means a 5% lift). Must be > 0.",
+    )
+    number_of_variants = serializers.IntegerField(
+        required=False,
+        default=2,
+        min_value=2,
+        help_text="Total number of variants including control (default 2).",
+    )
+    exposure_rate_per_day = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        min_value=0,
+        help_text="Expected exposures per day. When provided, the response includes the recommended running time.",
+    )
+    baseline_value = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Baseline metric value: conversion rate as a fraction 0-1 (funnel), average per user (mean), or the ratio "
+            "(ratio/retention). Provide this or baseline_stats."
+        ),
+    )
+    variance = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Pre-computed variance for ratio/retention metrics. Provide this or baseline_stats when metric_type is "
+            "ratio/retention and baseline_value is given directly."
+        ),
+    )
+    baseline_stats = RunningTimeBaselineStatsSerializer(
+        required=False,
+        allow_null=True,
+        help_text="Raw control-group statistics. When provided, the server derives baseline_value and variance.",
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if attrs.get("minimum_detectable_effect", 0) <= 0:
+            raise ValidationError({"minimum_detectable_effect": "Must be greater than 0."})
+
+        has_baseline_value = attrs.get("baseline_value") is not None
+        has_baseline_stats = attrs.get("baseline_stats") is not None
+        if not has_baseline_value and not has_baseline_stats:
+            raise ValidationError("Provide either baseline_value or baseline_stats.")
+
+        if attrs["metric_type"] in ("ratio", "retention"):
+            # A baseline value and variance must both be available. Pass them directly, or supply
+            # baseline_stats with denominator_sum so the server can derive them — without it both
+            # derivations return None and the endpoint silently responds with all-null results.
+            has_variance = attrs.get("variance") is not None
+            if not (has_baseline_value and has_variance):
+                stats = attrs.get("baseline_stats")
+                if not stats:
+                    raise ValidationError(
+                        "Ratio and retention metrics require baseline_stats, or both baseline_value and variance."
+                    )
+                if not stats.get("denominator_sum"):
+                    raise ValidationError(
+                        {"baseline_stats": {"denominator_sum": "Required to size ratio and retention metrics."}}
+                    )
+
+        return attrs
+
+
+class RunningTimeCalculationResultSerializer(serializers.Serializer):
+    """Estimated sample size and running time for the given inputs."""
+
+    baseline_value = serializers.FloatField(
+        allow_null=True, help_text="Baseline metric value used in the calculation (echoed or derived from stats)."
+    )
+    variance = serializers.FloatField(
+        allow_null=True, help_text="Variance used in the calculation; null for funnel metrics (implicit in p(1-p))."
+    )
+    recommended_sample_size = serializers.IntegerField(
+        allow_null=True, help_text="Total recommended sample size across all variants. Null if inputs are insufficient."
+    )
+    recommended_running_time_days = serializers.IntegerField(
+        allow_null=True,
+        help_text="Estimated days to reach the recommended sample size. Null when exposure_rate_per_day is omitted.",
     )

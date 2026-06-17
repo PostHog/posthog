@@ -1,0 +1,120 @@
+#!/usr/bin/env bash
+#
+# Catch .dockerignore changes that silently drop non-test files from the image build context.
+#
+# The production Dockerfile copies whole directories (e.g. `COPY products/ products/`), so any file
+# the .dockerignore excludes never reaches the image — the build still succeeds, then prod breaks at
+# runtime. This builds the post-.dockerignore build context two ways (current vs a base ref's
+# .dockerignore, same working tree) and lists files the change removes.
+#
+# Routine exclusions (tests, stories, specs) drop hundreds of files and are expected, so they're
+# filtered out — only "anomalies" (files that don't look like test/dev artifacts) fail the check.
+# A test-named file that's actually imported at runtime won't be caught here; the image boot check
+# (manage.py check on the built image) is the net for that.
+#
+# Usage: bin/dockerignore-drop-check <base-ref>
+#   <base-ref>  git ref to compare against (e.g. origin/master, or a merge-base SHA)
+#
+# Extra safe-to-drop patterns (ERE, one per line, # comments ok) can live in
+# .github/dockerignore-drop-allowlist.txt — adding to it is the reviewed escape hatch for an
+# intentional non-test exclusion.
+
+set -euo pipefail
+
+# Manifests are sorted with `LC_ALL=C sort` inside the container; pin the host side to the same
+# collation so `comm` agrees and doesn't choke on "input is not sorted".
+export LC_ALL=C
+
+base_ref="${1:?usage: bin/dockerignore-drop-check <base-ref>}"
+
+# Files that are always fine to drop from the image — never loaded at runtime.
+SAFE_PATTERN='(\.test\.|\.spec\.|\.stories\.|(^|/)test_[^/]*\.py$|_test\.py$|/tests?/|/__tests__/|/__mocks__/|/e2e/|/cypress/|/\.storybook/|\.mock\.|/fixtures?/|/__snapshots__/|/snapshots?/)'
+allowlist_file=".github/dockerignore-drop-allowlist.txt"
+
+workdir="$(mktemp -d)"
+dockerfile="$workdir/Dockerfile.context-lister"
+base_ignore="$workdir/base.dockerignore"
+backup_ignore="$workdir/head.dockerignore"
+head_manifest="$workdir/head.txt"
+base_manifest="$workdir/base.txt"
+img="dockerignore-context-lister:$$"
+
+# shellcheck disable=SC2329  # invoked indirectly via `trap ... EXIT`
+cleanup() {
+    # Always restore the real .dockerignore, even if the build is interrupted.
+    [ -f "$backup_ignore" ] && cp "$backup_ignore" .dockerignore
+    docker image rm -f "$img" >/dev/null 2>&1 || true
+    rm -rf "$workdir"
+}
+trap cleanup EXIT
+
+# Lists every file the build context contains after .dockerignore filtering, mirroring `COPY . .`.
+cat > "$dockerfile" <<'DOCKERFILE'
+FROM busybox
+COPY . /ctx
+RUN find /ctx -type f | sed 's#^/ctx/##' | LC_ALL=C sort > /manifest.txt
+CMD ["cat", "/manifest.txt"]
+DOCKERFILE
+
+build_manifest() {
+    local out="$1"
+    DOCKER_BUILDKIT=1 docker build --quiet -f "$dockerfile" -t "$img" . >/dev/null
+    docker run --rm "$img" > "$out"
+}
+
+# Filter stdin through grep, keeping lines that do NOT match (-v). grep exit 1 ("no matches") means
+# everything got filtered out — a valid result, not a failure. But grep exit >=2 is a real error
+# (e.g. a malformed regex in the allowlist); fail loud instead of letting a blanket `|| true` swallow
+# it and wave dropped runtime files through as a false "OK".
+filter_drops() {
+    local status=0
+    grep "$@" || status=$?
+    if [ "$status" -ge 2 ]; then
+        echo "error: grep exited $status while filtering dropped files (check $allowlist_file for an invalid regex)" >&2
+        return "$status"
+    fi
+    return 0
+}
+
+# Base .dockerignore from the ref we compare against. If the ref never had one, there's nothing to
+# regress against — every file was already included, so any current exclusion is intentional.
+if ! git show "$base_ref:.dockerignore" > "$base_ignore" 2>/dev/null; then
+    echo "No .dockerignore at $base_ref — nothing to compare, skipping."
+    exit 0
+fi
+
+cp .dockerignore "$backup_ignore"
+
+# Same working tree, two .dockerignore files: the delta is purely the .dockerignore change.
+build_manifest "$head_manifest"
+cp "$base_ignore" .dockerignore
+build_manifest "$base_manifest"
+cp "$backup_ignore" .dockerignore
+
+# Files in the base context but not the head context = dropped by this .dockerignore change.
+dropped="$(comm -23 "$base_manifest" "$head_manifest" || true)"
+
+if [ -z "$dropped" ]; then
+    echo "OK — .dockerignore change drops no files from the image build context."
+    exit 0
+fi
+
+# Filter out files that are never needed at runtime (tests, stories, fixtures, plus team allowlist).
+anomalies="$(printf '%s\n' "$dropped" | filter_drops -vE "$SAFE_PATTERN")"
+if [ -f "$allowlist_file" ]; then
+    anomalies="$(printf '%s\n' "$anomalies" | filter_drops -vEf <(grep -vE '^\s*(#|$)' "$allowlist_file"))"
+fi
+
+if [ -z "$anomalies" ]; then
+    echo "OK — drops $(printf '%s\n' "$dropped" | grep -c .) file(s), all match test/dev patterns (not shipped at runtime)."
+    exit 0
+fi
+
+echo "This .dockerignore change removes $(printf '%s\n' "$anomalies" | grep -c .) non-test file(s) from the production image:"
+echo
+printf '%s\n' "$anomalies" | sed 's/^/  - /'
+echo
+echo "These are in the repo but won't ship in the image — the build will pass, then prod may break"
+echo "at runtime. Narrow the .dockerignore pattern, or, if a drop is intentional, add a pattern to"
+echo "$allowlist_file (reviewed) to acknowledge it."
+exit 1
