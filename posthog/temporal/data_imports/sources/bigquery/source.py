@@ -86,6 +86,16 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # proxy). Authentication can't succeed until the key file is fixed, so retrying just
             # hammers the endpoint and spams error tracking.
             BIGQUERY_TOKEN_RESPONSE_ERROR: "We couldn't authenticate with BigQuery — Google's OAuth token endpoint returned an unexpected response. Please re-upload your service account key file and verify its token_uri.",
+            # Raised as a `Forbidden` (403, reason `quotaExceeded`) when the customer's BigQuery
+            # project hits an administrator-configured custom cost control, e.g. "Custom quota
+            # exceeded: Your usage exceeded the custom quota for QueryUsagePerDay, which is set by
+            # your administrator.". This is a deliberate spend cap on the customer's GCP project,
+            # not a transient limit — retrying within the sync's retry window can't recover it (the
+            # cap resets on Google's daily schedule), so it just hammers the endpoint and spams
+            # error tracking. We match the stable "Custom quota exceeded" wording, which is distinct
+            # from transient rate-limit quota errors ("Quota exceeded: ..." / reason
+            # `rateLimitExceeded`) that must stay retryable.
+            "Custom quota exceeded": "Your BigQuery project hit a custom usage quota set by your administrator (for example QueryUsagePerDay). Raise the custom cost-control quota in Google Cloud, or reduce how much data you're syncing, then re-enable the source.",
         }
 
     def validate_credentials(
