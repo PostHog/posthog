@@ -1,5 +1,5 @@
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { COUNTRY_CODE_TO_LONG_NAME } from 'lib/utils/geography/country'
+import { COUNTRY_CODE_TO_LONG_NAME } from 'lib/utils/country'
 import { IndexedTrendResult } from 'scenes/trends/types'
 
 export function WorldMapColumnTitle(): JSX.Element {

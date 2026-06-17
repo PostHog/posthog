@@ -63,6 +63,7 @@ from posthog.models.person.util import (
     get_persons_by_uuids,
     get_persons_mapped_by_distinct_id,
 )
+from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.queries.actor_base_query import ActorBaseQuery, get_serialized_people
 from posthog.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTrendsActors
 from posthog.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
@@ -239,7 +240,8 @@ class PersonSplitRequestSerializer(serializers.Serializer):
         help_text=(
             "The distinct_id to **keep** on this person; every *other* distinct_id is moved "
             "to its own new single-id person. If omitted, the first distinct_id on the person "
-            "is used and the person's properties are wiped. "
+            "is kept. The original person always retains its properties; to clear individual "
+            "properties afterward, use the delete_property endpoint. "
             "To surgically *remove* one or more distinct_ids while leaving the merge intact, "
             "use `distinct_ids_to_split` instead — these parameters are inverses of each other "
             "and cannot be combined."
@@ -421,6 +423,22 @@ _PERSON_ID_PARAMETER = OpenApiParameter(
 _id_schema = extend_schema(parameters=[_PERSON_ID_PARAMETER])
 
 
+# Per-action distinct-id fetch caps for the person loaded by ``safely_get_object``. Listed actions
+# read only one distinct_id (property updates) or none (``destroy``/``activity`` use the uuid/pk;
+# ``properties_timeline``/``delete_events`` don't read distinct_ids), so the fetch is capped here.
+# Any action not listed falls back to an unbounded fetch — the same default as the underlying client
+# — which is what the full-set actions (``retrieve``, ``split``, ``delete_recordings``) need.
+_GET_OBJECT_DISTINCT_ID_LIMITS: dict[str, int] = {
+    "destroy": 0,
+    "activity": 0,
+    "properties_timeline": 0,
+    "delete_events": 0,
+    "update": 1,
+    "partial_update": 1,
+    "update_property": 1,
+}
+
+
 @extend_schema(extensions={"x-product": ProductKey.PERSONS})
 @extend_schema_view(
     retrieve=_id_schema,
@@ -486,7 +504,10 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     f"The ID provided does not look like a personID. If you are using a distinctId, please use /persons?distinct_id={person_id} instead."
                 )
 
-        return get_person_by_pk_or_uuid(self.team_id, str(person_id))
+        with personhog_caller_tag(f"persons/{self.action.replace('_', '-')}"):
+            return get_person_by_pk_or_uuid(
+                self.team_id, str(person_id), distinct_id_limit=_GET_OBJECT_DISTINCT_ID_LIMITS.get(self.action)
+            )
 
     @extend_schema(
         parameters=[
@@ -534,7 +555,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # workload=Workload.OFFLINE,  # this endpoint is only used by external API requests
         )
         actor_ids = [row[0] for row in raw_paginated_result]
-        serialized_actors = get_serialized_people(team, actor_ids)
+        with personhog_caller_tag("persons/list"):
+            serialized_actors = get_serialized_people(team, actor_ids)
 
         restricted_person_properties = self.get_serializer_context().get("restricted_person_properties")
         if restricted_person_properties:
@@ -826,10 +848,11 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "- **`distinct_ids_to_split`** (recommended for surgical edits): moves only the "
             "listed distinct_ids off this person onto new single-id persons. The original "
             "person keeps every other distinct_id and its properties.\n"
-            "- **`main_distinct_id`** (legacy semantics): keeps only the specified distinct_id "
+            "- **`main_distinct_id`**: keeps only the specified distinct_id "
             "on this person; moves every *other* distinct_id off onto its own new person. If "
-            "omitted, the person's properties are wiped and the first distinct_id is treated "
-            "as the one to keep.\n\n"
+            "omitted, the first distinct_id is kept.\n\n"
+            "The original person always retains its properties. To clear individual "
+            "properties afterward, use the `delete_property` endpoint.\n\n"
             "The split runs asynchronously: a 201 response means the task was enqueued. "
             "Newly-created split-off persons get a deterministic UUID derived from "
             "`(team_id, distinct_id)`, so they can be located client-side without polling. "
@@ -929,7 +952,9 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @extend_schema(request=PersonDeletePropertyRequestSerializer, parameters=[_PERSON_ID_PARAMETER])
     @action(methods=["POST"], detail=True, required_scopes=["person:write"])
     def delete_property(self, request: request.Request, pk=None, **kwargs) -> response.Response:
-        person = get_person_by_pk_or_uuid(self.team_id, pk)
+        # Only distinct_ids[0] is used (to attribute the property-update event), so bound the fetch to one.
+        with personhog_caller_tag("persons/delete-property"):
+            person = get_person_by_pk_or_uuid(self.team_id, pk, distinct_id_limit=1)
         if person is None:
             raise Person.DoesNotExist
 
@@ -1026,7 +1051,9 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 status=400,
             )
 
-        person = get_person_by_pk_or_uuid(self.team_id, request.GET["person_id"])
+        # Only person.uuid is used below, so skip the distinct-id fetch entirely.
+        with personhog_caller_tag("persons/cohorts"):
+            person = get_person_by_pk_or_uuid(self.team_id, request.GET["person_id"], distinct_id_limit=0)
         if person is None:
             raise NotFound()
         cohort_ids = get_all_cohort_ids_by_person_uuid(str(person.uuid), team.pk)
@@ -1273,10 +1300,11 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         filter = LifecycleFilter(request=request, data=request.GET.dict(), team=self.team)
         filter = prepare_actor_query_filter(filter)
 
-        people = self.lifecycle_class().get_people(
-            filter=filter,
-            team=team,
-        )
+        with personhog_caller_tag("persons/lifecycle"):
+            people = self.lifecycle_class().get_people(
+                filter=filter,
+                team=team,
+            )
         next_url = paginated_result(request, len(people), filter.offset, filter.limit)
         return response.Response({"results": [{"people": people, "count": len(people)}], "next": next_url})
 
@@ -1336,7 +1364,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         MAX_BATCH_SIZE = 200
         distinct_ids = distinct_ids[:MAX_BATCH_SIZE]
 
-        persons_by_distinct_id = get_persons_mapped_by_distinct_id(self.team_id, distinct_ids)
+        with personhog_caller_tag("persons/batch-by-distinct-ids"):
+            persons_by_distinct_id = get_persons_mapped_by_distinct_id(self.team_id, distinct_ids)
 
         # The mapped lookup carries only the matched distinct_id; fetch up to 10
         # per person with a bounded follow-up for display, rather than the
@@ -1346,9 +1375,10 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         for person in persons_by_distinct_id.values():
             persons_by_id.setdefault(person.id, []).append(person)
         if persons_by_id:
-            distinct_ids_by_person = get_distinct_ids_for_persons(
-                self.team_id, list(persons_by_id.keys()), limit_per_person=10
-            )
+            with personhog_caller_tag("persons/batch-by-distinct-ids"):
+                distinct_ids_by_person = get_distinct_ids_for_persons(
+                    self.team_id, list(persons_by_id.keys()), limit_per_person=10
+                )
             for person_id, persons in persons_by_id.items():
                 ids = distinct_ids_by_person.get(person_id)
                 if ids is not None:
@@ -1377,7 +1407,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise ValidationError("One or more UUIDs are invalid.")
 
         # MinimalPersonSerializer only renders 10 distinct_ids, so bound the fetch to match.
-        persons = get_persons_by_uuids(self.team_id, uuids, distinct_id_limit=10)
+        with personhog_caller_tag("persons/batch-by-uuids"):
+            persons = get_persons_by_uuids(self.team_id, uuids, distinct_id_limit=10)
 
         results: dict[str, Any] = {}
         for person in persons:

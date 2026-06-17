@@ -9,6 +9,7 @@ Kept out of ``sources/__init__.py`` so that importing a leaf (e.g.
 
 from .active_campaign.source import ActiveCampaignSource
 from .acuity_scheduling.source import AcuitySchedulingSource
+from .adapty.source import AdaptySource
 from .adjust.source import AdjustSource
 from .adobe_analytics.source import AdobeAnalyticsSource
 from .adobe_commerce.source import AdobeCommerceSource
@@ -67,6 +68,7 @@ from .bluetally.source import BluetallySource
 from .boldsign.source import BoldSignSource
 from .box.source import BoxSource
 from .braintree.source import BraintreeSource
+from .braintrust.source import BraintrustSource
 from .branch.source import BranchSource
 from .braze.source import BrazeSource
 from .breezometer.source import BreezometerSource
@@ -532,6 +534,8 @@ from .statuspage.source import StatuspageSource
 from .stigg.source import StiggSource
 from .stockdata.source import StockDataSource
 from .strava.source import StravaSource
+from .streamelements.source import StreamElementsSource
+from .streamlabs.source import StreamlabsSource
 from .stripe.source import StripeSource
 from .supabase.source import SupabaseSource
 from .surveymonkey.source import SurveyMonkeySource

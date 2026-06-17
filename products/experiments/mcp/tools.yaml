@@ -405,8 +405,6 @@ tools:
                 cast: string-int
             offset:
                 cast: string-int
-            created_by_id:
-                cast: string-int
             feature_flag_id:
                 cast: string-int
         ui_app: experiment-list
@@ -839,6 +837,9 @@ tools:
                 - metrics_secondary
                 - conclusion
                 - conclusion_comment
+    experiments-calculate-running-time-create:
+        operation: experiments_calculate_running_time_create
+        enabled: false
     experiments-create-exposure-cohort:
         operation: experiments_create_exposure_cohort_for_experiment_create
         enabled: false

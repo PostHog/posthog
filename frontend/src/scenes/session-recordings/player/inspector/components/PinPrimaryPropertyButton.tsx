@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconPin, IconPinFilled } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { getPrimaryPropertyForEvent, hasTaxonomyPrimaryProperty } from 'lib/utils/primaryEventProperty'
+import { getPrimaryPropertyForEvent, hasTaxonomyPrimaryProperty } from 'lib/utils/events'
 
 import { primaryEventPropertiesModel } from '~/models/primaryEventPropertiesModel'
 

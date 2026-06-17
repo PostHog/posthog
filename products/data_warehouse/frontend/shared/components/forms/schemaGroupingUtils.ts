@@ -1,4 +1,11 @@
-import { groupBy } from 'lib/utils'
+import { groupBy } from 'lib/utils/arrays'
+
+/** Source types that support `access_method: 'direct'` (live querying without syncing to the warehouse). */
+export const DIRECT_QUERY_SOURCE_TYPES = ['Postgres', 'MySQL'] as const
+
+export function supportsDirectQuery(sourceType: string | null | undefined): boolean {
+    return !!sourceType && DIRECT_QUERY_SOURCE_TYPES.includes(sourceType as (typeof DIRECT_QUERY_SOURCE_TYPES)[number])
+}
 
 export function splitQualifiedTableName(
     table: string,

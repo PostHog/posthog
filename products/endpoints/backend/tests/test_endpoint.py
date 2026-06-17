@@ -3,7 +3,7 @@ from typing import Any
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
-from unittest import TestCase
+from unittest import TestCase, mock
 
 from parameterized import parameterized
 from rest_framework import status
@@ -435,6 +435,19 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", data, format="json")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
         self.assertEqual(response.json()["name"], "reusable_name")
+
+    def test_create_rolls_back_endpoint_when_version_creation_fails(self):
+        payload = {"name": "rollback-endpoint", "query": {"kind": "HogQLQuery", "query": "SELECT 1"}}
+
+        with mock.patch.object(EndpointVersion.objects, "create", side_effect=RuntimeError("boom")):
+            response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(Endpoint.objects.filter(team=self.team, name="rollback-endpoint", deleted=False).count(), 0)
+
+        # The name must be reusable after the failed create
+        response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
 
     def test_soft_deleted_endpoint_not_runnable(self):
         create_endpoint_with_version(
@@ -1454,7 +1467,7 @@ class TestMaterializationPreview(ClickhouseTestMixin, APIBaseTest):
         assert version.bucket_overrides == {"timestamp": "week"}
 
         # Change bucket_overrides — should trigger an immediate refresh
-        with mock.patch("products.endpoints.backend.api.trigger_saved_query_schedule") as mock_trigger:
+        with mock.patch("products.endpoints.backend.services.crud.trigger_saved_query_schedule") as mock_trigger:
             response = self.client.patch(
                 f"/api/environments/{self.team.id}/endpoints/trigger-bucket/",
                 {"bucket_overrides": {"timestamp": "hour"}},
