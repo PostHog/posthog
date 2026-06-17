@@ -522,7 +522,6 @@ depends_on = [
     "products.cohorts",
     "posthog",
     "products.actions",
-    "products.ai_observability",
     "products.alerts",
     "products.cdp",
     "products.dashboards",
@@ -810,7 +809,7 @@ from = [
 
 [[modules]]
 path = "products.business_knowledge"
-depends_on = ["posthog"]
+depends_on = ["posthog", "ee"]
 layer = "modules"
 
 [[interfaces]]

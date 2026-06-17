@@ -4,7 +4,8 @@ import posthog from 'posthog-js'
 
 import { Dayjs, dayjsUtcToTimezone } from 'lib/dayjs'
 import { apiGetWithTimeToSeeDataTracking } from 'lib/internalMetrics'
-import { toParams, uuid } from 'lib/utils'
+import { uuid } from 'lib/utils/dom'
+import { toParams } from 'lib/utils/url'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { Properties } from '~/legacy-plugin-scaffold'

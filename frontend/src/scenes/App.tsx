@@ -9,6 +9,8 @@ import { KeaDevtools } from 'lib/KeaDevTools'
 import { ToastCloseButton } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { autofillReleaseLogic } from 'lib/memory/autofillReleaseLogic'
+import { OAuthCallback } from 'lib/oauth/OAuthCallback'
+import { oauthLogic } from 'lib/oauth/oauthLogic'
 import { appLogic } from 'scenes/appLogic'
 import { appScenes } from 'scenes/appScenes'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -51,8 +53,17 @@ export function App(): JSX.Element | null {
 
     useMountedLogic(sceneLogic({ scenes: appScenes }))
     useMountedLogic(autofillReleaseLogic)
+    // Unconditional so /oauth/callback's urlToAction is registered before routing. Inert in prod
+    // (OAuth UI gated on preflight.is_debug); no timers/listeners, so cheap to always mount.
+    useMountedLogic(oauthLogic)
 
     useThemedHtml()
+
+    // A cloud OAuth redirect lands at /oauth/callback on the local origin. Render the exchange
+    // screen here (oauthLogic's urlToAction performs the token exchange), before normal routing.
+    if (window.location.pathname === '/oauth/callback') {
+        return <OAuthCallback />
+    }
 
     if (showApp) {
         return (
