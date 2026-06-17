@@ -1768,6 +1768,7 @@ class ExternalDataSourceType(StrEnum):
     YAHOO_FINANCE = "YahooFinance"
     CLARIFAI = "Clarifai"
     ADAPTY = "Adapty"
+    BRAINTRUST = "Braintrust"
     CUSTOM = "Custom"
 
 

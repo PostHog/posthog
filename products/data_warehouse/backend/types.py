@@ -660,6 +660,7 @@ class ExternalDataSourceType(models.TextChoices):
     YAHOOFINANCE = "YahooFinance", "YahooFinance"
     CLARIFAI = "Clarifai", "Clarifai"
     ADAPTY = "Adapty", "Adapty"
+    BRAINTRUST = "Braintrust", "Braintrust"
     CUSTOM = "Custom", "Custom"
 
 
