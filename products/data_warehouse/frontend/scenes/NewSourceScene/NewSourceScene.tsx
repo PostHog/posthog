@@ -28,6 +28,7 @@ import { ExternalDataSourceType, SourceConfig } from '~/queries/schema/schema-ge
 import { AccessControlLevel, AccessControlResourceType, Breadcrumb } from '~/types'
 
 import SchemaForm from '../../shared/components/forms/SchemaForm'
+import { supportsDirectQuery } from '../../shared/components/forms/schemaGroupingUtils'
 import SourceForm, { SourceAccessMethodSelector } from '../../shared/components/forms/SourceForm'
 import { SyncProgressStep } from '../../shared/components/forms/SyncProgressStep'
 import { WebhookSetupForm } from '../../shared/components/forms/WebhookSetupForm'
@@ -186,7 +187,7 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
         sourceConnectionDetails?.access_method,
         source.access_method
     )
-    const showAccessMethodSelector = currentStep === 2 && selectedConnector?.name === 'Postgres'
+    const showAccessMethodSelector = currentStep === 2 && supportsDirectQuery(selectedConnector?.name)
     const { tableLoading: manualLinkIsLoading } = useValues(selfManagedSourceLogic)
 
     const mainContainer = useFloatingContainer()

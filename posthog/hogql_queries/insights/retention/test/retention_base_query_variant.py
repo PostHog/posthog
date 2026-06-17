@@ -53,12 +53,6 @@ class RetentionBaseQueryVariantComparisonMixin:
         return not self._query_uses_known_retention_base_query_variant_gap(query)
 
     def _query_uses_known_retention_base_query_variant_gap(self, query: dict[str, Any]) -> bool:
-        retention_filter = cast(dict[str, Any], query.get("retentionFilter") or {})
-
-        minimum_occurrences = retention_filter.get("minimumOccurrences") or 1
-        if minimum_occurrences > 1:
-            return True
-
         if query.get("breakdownFilter"):
             return True
 

@@ -1741,10 +1741,9 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'organization-security',
                 title: 'Security',
-                description:
-                    'Configure organization-wide security policies including public sharing, session timeouts, and password requirements.',
+                description: 'Configure organization-wide security policies.',
                 component: <OrganizationSecuritySettings />,
-                keywords: ['password', 'session', 'timeout', 'compliance', 'sharing', 'public'],
+                keywords: ['compliance', 'sharing', 'public'],
             },
             {
                 id: 'organization-personal-api-keys',

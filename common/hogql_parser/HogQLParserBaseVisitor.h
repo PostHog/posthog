@@ -439,6 +439,10 @@ public:
     return visitChildren(ctx);
   }
 
+  virtual std::any visitColumnExprNullSafeEq(HogQLParser::ColumnExprNullSafeEqContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
   virtual std::any visitColumnExprPrecedence3(HogQLParser::ColumnExprPrecedence3Context *ctx) override {
     return visitChildren(ctx);
   }
