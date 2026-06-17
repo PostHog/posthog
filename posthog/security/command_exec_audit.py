@@ -6,11 +6,21 @@ import uuid
 import shlex
 import subprocess
 import contextvars
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
+from types import ModuleType
 from typing import Any, Optional
 
 import wrapt
 import structlog
+
+# C exec primitive under subprocess.Popen; absent on some platforms (Windows/wasm).
+_posixsubprocess: ModuleType | None = None
+try:
+    import _posixsubprocess as _posixsubprocess_module
+
+    _posixsubprocess = _posixsubprocess_module
+except ImportError:  # pragma: no cover
+    pass
 
 logger = structlog.get_logger(__name__)
 
@@ -227,7 +237,7 @@ def _arg(args: tuple, kwargs: dict, index: int, name: str, default: Any = None) 
     return kwargs.get(name, default)
 
 
-def _popen_wrapper(wrapped, instance, args, kwargs):  # type: ignore[no-untyped-def]
+def _popen_wrapper(wrapped: Any, instance: Any, args: tuple, kwargs: dict) -> Any:
     # wrapt strips `self`, so the first positional is Popen's `args` (the command).
     try:
         # When `executable` is given it, not args[0], is the program actually run.
@@ -246,7 +256,23 @@ def _popen_wrapper(wrapped, instance, args, kwargs):  # type: ignore[no-untyped-
     return wrapped(*args, **kwargs)
 
 
-def _system_wrapper(wrapped, instance, args, kwargs):  # type: ignore[no-untyped-def]
+def _fork_exec_wrapper(wrapped: Any, instance: Any, args: tuple, kwargs: dict) -> Any:
+    # The C exec primitive beneath subprocess.Popen. Popen calls its own cached reference,
+    # so this only fires for code invoking fork_exec directly — i.e. bypassing the Popen hook.
+    try:
+        argv = args[0] if args else None
+        _emit(
+            component="subprocess",
+            sink="_posixsubprocess.fork_exec",
+            command=list(argv) if isinstance(argv, (list, tuple)) else argv,
+            shell=False,
+        )
+    except Exception:
+        pass
+    return wrapped(*args, **kwargs)
+
+
+def _system_wrapper(wrapped: Any, instance: Any, args: tuple, kwargs: dict) -> Any:
     try:
         _emit(component="os", sink="os.system", command=_arg(args, kwargs, 0, "command"), shell=True)
     except Exception:
@@ -254,7 +280,7 @@ def _system_wrapper(wrapped, instance, args, kwargs):  # type: ignore[no-untyped
     return wrapped(*args, **kwargs)
 
 
-def _spawnvef_wrapper(wrapped, instance, args, kwargs):  # type: ignore[no-untyped-def]
+def _spawnvef_wrapper(wrapped: Any, instance: Any, args: tuple, kwargs: dict) -> Any:
     # _spawnvef(mode, file, args, env, func) — the funnel for every os.spawn* alias.
     try:
         file = _arg(args, kwargs, 1, "file")
@@ -274,8 +300,8 @@ def _spawnvef_wrapper(wrapped, instance, args, kwargs):  # type: ignore[no-untyp
     return wrapped(*args, **kwargs)
 
 
-def _make_posix_spawn_wrapper(sink: str):  # type: ignore[no-untyped-def]
-    def wrapper(wrapped, instance, args, kwargs):  # type: ignore[no-untyped-def]
+def _make_posix_spawn_wrapper(sink: str) -> Callable[..., Any]:
+    def wrapper(wrapped: Any, instance: Any, args: tuple, kwargs: dict) -> Any:
         # posix_spawn(path, argv, env, ...)
         try:
             path = _arg(args, kwargs, 0, "path")
@@ -294,8 +320,8 @@ def _make_posix_spawn_wrapper(sink: str):  # type: ignore[no-untyped-def]
     return wrapper
 
 
-def _make_exec_wrapper(sink: str, *, takes_env: bool):  # type: ignore[no-untyped-def]
-    def wrapper(wrapped, instance, args, kwargs):  # type: ignore[no-untyped-def]
+def _make_exec_wrapper(sink: str, *, takes_env: bool) -> Callable[..., Any]:
+    def wrapper(wrapped: Any, instance: Any, args: tuple, kwargs: dict) -> Any:
         # execv(path, args) / execve(path, args, env) — every os.exec* alias funnels here.
         try:
             path = _arg(args, kwargs, 0, "path")
@@ -343,6 +369,9 @@ def install() -> None:
         return
 
     _wrap(subprocess, "Popen.__init__", _popen_wrapper)
+    # The C exec primitive under Popen — wrapped to catch direct callers that bypass Popen.
+    if _posixsubprocess is not None:
+        _wrap(_posixsubprocess, "fork_exec", _fork_exec_wrapper)
     _wrap(os, "system", _system_wrapper)
     # All os.spawn* aliases funnel through this private helper.
     _wrap(os, "_spawnvef", _spawnvef_wrapper)

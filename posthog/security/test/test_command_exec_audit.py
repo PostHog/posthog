@@ -2,6 +2,8 @@ import os
 import uuid
 import shutil
 import subprocess
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 from posthog.test.base import APIBaseTest
 from unittest import TestCase, mock, skipUnless
@@ -95,7 +97,7 @@ class TestCommandExecAuditPatching(TestCase):
         # install() is idempotent and audit-only, so patching the process-global sinks here is safe.
         install()
 
-    def _find(self, logs: list[dict], sink: str) -> dict | None:
+    def _find(self, logs: Sequence[Mapping[str, Any]], sink: str) -> Mapping[str, Any] | None:
         return next((log for log in logs if log.get("event") == "command_execution" and log.get("sink") == sink), None)
 
     def test_subprocess_run_is_logged(self) -> None:
@@ -242,6 +244,32 @@ class TestCommandExecAuditPatching(TestCase):
         assert entry is not None
         self.assertEqual(entry["binary"], true_path)
 
+    def test_fork_exec_wrapper_logs_and_passes_through(self) -> None:
+        # fork_exec is the raw C exec primitive — exercise the wrapper directly rather than forking.
+        received = {}
+
+        def fake_fork_exec(*args, **kwargs):
+            received["called"] = True
+            return 4321
+
+        with structlog.testing.capture_logs() as logs:
+            result = command_exec_audit._fork_exec_wrapper(fake_fork_exec, None, ([b"/bin/ls", b"-la"],), {})
+        self.assertEqual(result, 4321)
+        self.assertTrue(received.get("called"))
+        entry = self._find(logs, "_posixsubprocess.fork_exec")
+        assert entry is not None
+        self.assertEqual(entry["command"], ["/bin/ls", "-la"])
+
+    def test_install_wraps_fork_exec(self) -> None:
+        # Direct callers of the C primitive (bypassing Popen) must still be audited.
+        try:
+            import _posixsubprocess
+        except ImportError:
+            self.skipTest("_posixsubprocess unavailable on this platform")
+        import wrapt
+
+        self.assertIsInstance(_posixsubprocess.fork_exec, wrapt.ObjectProxy)
+
 
 @override_settings(ROOT_URLCONF="posthog.security.test.test_command_exec_audit")
 class TestCommandExecAuditRequestCycle(APIBaseTest):
@@ -251,7 +279,7 @@ class TestCommandExecAuditRequestCycle(APIBaseTest):
         super().setUp()
         install()
 
-    def _probe_log(self, logs: list[dict]) -> dict | None:
+    def _probe_log(self, logs: Sequence[Mapping[str, Any]]) -> Mapping[str, Any] | None:
         return next(
             (log for log in logs if log.get("event") == "command_execution" and log.get("sink") == "subprocess.Popen"),
             None,
