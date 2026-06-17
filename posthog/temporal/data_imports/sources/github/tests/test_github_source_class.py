@@ -53,10 +53,10 @@ class TestGithubSource:
             repository="owner/repo",
         )
 
-        with pytest.raises(ValueError, match=expected_error) as exc_info:
+        with pytest.raises(ValueError, match=expected_error):
             self.source._get_access_token(config, self.team_id)
 
-        assert any(key in str(exc_info.value) for key in self.source.get_non_retryable_errors())
+        assert expected_error in self.source.get_non_retryable_errors()
 
     def test_get_access_token_returns_pat(self):
         config = GithubSourceConfig(
@@ -92,7 +92,7 @@ class TestGithubSource:
         integration.access_token = None
         with mock.patch.object(self.source, "get_oauth_integration", return_value=integration):
             mock_github_integration.return_value.access_token_expired.return_value = False
-            with pytest.raises(ValueError, match="GitHub access token not found") as exc_info:
+            with pytest.raises(ValueError, match="GitHub access token not found"):
                 self.source._get_access_token(config, self.team_id)
 
-        assert any(key in str(exc_info.value) for key in self.source.get_non_retryable_errors())
+        assert "GitHub access token not found" in self.source.get_non_retryable_errors()
