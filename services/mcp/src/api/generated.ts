@@ -16536,6 +16536,59 @@ export namespace Schemas {
       Text: 'text',
     } as const;
 
+    /**
+     * * `update_content` - update_content
+     * * `update_column` - update_column
+     * * `update_row` - update_row
+     * * `update_body` - update_body
+     * * `add_content` - add_content
+     * * `remove_content` - remove_content
+     * * `move_content` - move_content
+     * * `add_row` - add_row
+     * * `remove_row` - remove_row
+     */
+    export type EmailTemplateDesignOperationEnum = typeof EmailTemplateDesignOperationEnum[keyof typeof EmailTemplateDesignOperationEnum];
+
+
+    export const EmailTemplateDesignOperationEnum = {
+      UpdateContent: 'update_content',
+      UpdateColumn: 'update_column',
+      UpdateRow: 'update_row',
+      UpdateBody: 'update_body',
+      AddContent: 'add_content',
+      RemoveContent: 'remove_content',
+      MoveContent: 'move_content',
+      AddRow: 'add_row',
+      RemoveRow: 'remove_row',
+    } as const;
+
+    export interface DesignOperation {
+      /** Design edit. update_content {id, patch}: deep-merge patch into the content block's fields (a null leaf deletes that key) — the surgical path, e.g. change just values.text. update_row / update_column {id, patch} and update_body {patch}: same deep-merge for row/column/body-level settings. add_content {column_id, content, index?}: insert a content block into a column (id and Unlayer numbering are filled in for you). remove_content {id} / move_content {id, column_id, index?}: delete or relocate a block. add_row {row, index?} / remove_row {id}: add or delete a row.
+       *
+       * * `update_content` - update_content
+       * * `update_column` - update_column
+       * * `update_row` - update_row
+       * * `update_body` - update_body
+       * * `add_content` - add_content
+       * * `remove_content` - remove_content
+       * * `move_content` - move_content
+       * * `add_row` - add_row
+       * * `remove_row` - remove_row */
+      op: EmailTemplateDesignOperationEnum;
+      /** Target node id. Required for update_content/column/row, remove_content, remove_row, move_content. */
+      id?: string;
+      /** Target column id. Required for add_content and move_content. */
+      column_id?: string;
+      /** update_* only. Partial fields deep-merged into the existing node; a null leaf deletes that key. e.g. {values: {text: '<p>Hi</p>'}} changes only the block's text. */
+      patch?: unknown;
+      /** add_content only. A content block {type, values: {...}}; omit id and values._meta — they're assigned server-side. type is one of text, heading, button, image, divider, html, etc. */
+      content?: unknown;
+      /** add_row only. A full row {cells, columns: [{contents: [...], values}], values}; ids and Unlayer numbering are assigned server-side for the row and everything nested in it. */
+      row?: unknown;
+      /** add_*\/move_content only. 0-based insert position; omit to append to the end. */
+      index?: number;
+    }
+
     export interface DesktopRecording {
       readonly id: string;
       readonly team: number;
@@ -23182,6 +23235,48 @@ export namespace Schemas {
     }
 
     /**
+     * * `update_action` - update_action
+     * * `add_action` - add_action
+     * * `remove_action` - remove_action
+     * * `add_edge` - add_edge
+     * * `remove_edge` - remove_edge
+     * * `replace_action_edges` - replace_action_edges
+     */
+    export type HogFlowGraphOperationOpEnum = typeof HogFlowGraphOperationOpEnum[keyof typeof HogFlowGraphOperationOpEnum];
+
+
+    export const HogFlowGraphOperationOpEnum = {
+      UpdateAction: 'update_action',
+      AddAction: 'add_action',
+      RemoveAction: 'remove_action',
+      AddEdge: 'add_edge',
+      RemoveEdge: 'remove_edge',
+      ReplaceActionEdges: 'replace_action_edges',
+    } as const;
+
+    export interface HogFlowGraphOperation {
+      /** Graph edit. update_action {id, patch}: deep-merge patch into the action's fields (a null leaf deletes that key) — the surgical path for tweaking one config value. add_action {action}: append a full action node. remove_action {id}: delete a node and reconnect its incoming edges to its first outgoer. add_edge {edge} / remove_edge {edge}: add or delete one edge. replace_action_edges {id, edges}: replace this action's outgoing edges with the given set (use when adding/removing branch conditions); incoming edges are left intact.
+       *
+       * * `update_action` - update_action
+       * * `add_action` - add_action
+       * * `remove_action` - remove_action
+       * * `add_edge` - add_edge
+       * * `remove_edge` - remove_edge
+       * * `replace_action_edges` - replace_action_edges */
+      op: HogFlowGraphOperationOpEnum;
+      /** Action id. Required for update_action, remove_action, replace_action_edges. */
+      id?: string;
+      /** update_action only. Partial action fields, deep-merged into the existing action; a null leaf deletes that key. e.g. {config: {inputs: {subject: {value: 'Hi'}}}} changes only that input. */
+      patch?: unknown;
+      /** add_action only. A full action node {id, name, type, config, ...}; same shape as in actions. */
+      action?: unknown;
+      /** add_edge / remove_edge only. The edge {from, to, type, index?}. */
+      edge?: HogFlowEdge;
+      /** replace_action_edges only. The complete set of the action's outgoing edges; incoming edges are preserved. */
+      edges?: HogFlowEdge[];
+    }
+
+    /**
      * Test trigger payload, typically {event, person, groups}.
      */
     export type HogFlowInvocationGlobals = { [key: string]: unknown };
@@ -23193,7 +23288,7 @@ export namespace Schemas {
       globals?: HogFlowInvocationGlobals;
       /** True (default) mocks HTTP/email/SMS. False fires real side effects. */
       mock_async_functions?: boolean;
-      /** Start from this action ID instead of the trigger. */
+      /** Start execution from this action ID instead of the trigger. Each test run executes a single node and returns the next action id. */
       current_action_id?: string;
     }
 
@@ -30091,6 +30186,16 @@ export namespace Schemas {
          * @nullable
          */
       readonly already_addressed: boolean | null;
+      /**
+         * Reason code from the latest dismissal artefact, set when the report was suppressed (when present).
+         * @nullable
+         */
+      readonly dismissal_reason: string | null;
+      /**
+         * Free-form note captured alongside the dismissal reason (when present).
+         * @nullable
+         */
+      readonly dismissal_note: string | null;
       readonly is_suggested_reviewer: boolean;
       /** Distinct source products contributing signals to this report (from ClickHouse). */
       readonly source_products: readonly string[];
@@ -33336,6 +33441,11 @@ export namespace Schemas {
       readonly team?: number;
     }
 
+    export interface PatchedDesignPatch {
+      /** Ordered edits applied atomically to a template's Unlayer design: the stored design is read, the ops are applied in order, the result is validated and re-rendered to HTML, and it's saved only if valid — otherwise the template is unchanged. Reference blocks by id so you never resend the whole design. */
+      operations?: DesignOperation[];
+    }
+
     export interface PatchedDesktopRecording {
       readonly id?: string;
       readonly team?: number;
@@ -34584,6 +34694,11 @@ export namespace Schemas {
       readonly billable_action_types?: unknown;
       /** Recurring schedules attached to this workflow (read-only here; manage via the schedules sub-resource). A batch/schedule workflow only fires when it's active AND has an active schedule. Empty for non-scheduled workflows. */
       readonly schedules?: readonly HogFlowSchedule[];
+    }
+
+    export interface PatchedHogFlowGraphUpdate {
+      /** Ordered graph edits applied atomically to a draft workflow: the stored graph is read, the ops are applied in order, the result is fully validated, and it's saved only if valid — otherwise the workflow is unchanged. Reference nodes/edges by id so you never resend the whole graph. The full updated workflow is returned. */
+      operations?: HogFlowGraphOperation[];
     }
 
     export interface PatchedHogFlowSchedule {
@@ -48949,6 +49064,11 @@ export namespace Schemas {
       dateRange?: _TracingDateRange;
       /** Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false. */
       excludeAttributes?: boolean;
+      /**
+         * Pagination offset into the trace's spans (ordered by start time ascending). Each page returns up to 2000 spans; pass the response's `nextOffset` to load the next page. Defaults to 0.
+         * @minimum 0
+         */
+      offset?: number;
     }
 
     export interface _TracingTreeQueryBody {
