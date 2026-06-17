@@ -361,6 +361,16 @@ If automatic creation failed due to a permissions error and you're using a restr
             if e.missing_permissions:
                 message += f". Additionally lacks permissions for {', '.join(e.missing_permissions.keys())}"
             return False, message
+        except ValueError as e:
+            # `_get_api_key` raises ValueError for deterministic config problems (missing API key,
+            # missing integration ID, missing access token). The user-facing wording already lives
+            # in `get_non_retryable_errors`; reuse it so this path doesn't leak the internal
+            # "Missing Stripe integration ID" string. Fall back to the raw message if unmapped.
+            raw = str(e)
+            for pattern, friendly in self.get_non_retryable_errors().items():
+                if friendly and pattern in raw:
+                    return False, friendly
+            return False, raw
         except Exception as e:
             return False, str(e)
 
