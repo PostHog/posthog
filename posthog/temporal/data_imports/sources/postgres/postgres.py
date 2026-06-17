@@ -137,6 +137,10 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     "consuming input failed",
     "no connection to the server",
     "terminating connection due to",
+    # psycopg's own message when libpq finds the socket already gone (PGconn.socket
+    # raises this from inside a wait, e.g. the commit at the end of get_connection).
+    # Same transient dead-socket class as the libpq drops above — recover by reconnecting.
+    "the connection is lost",
 )
 
 # Supavisor (Supabase's connection pooler) doesn't surface a dropped upstream connection with a
