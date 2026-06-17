@@ -89,25 +89,33 @@ export class CyclotronV2Worker {
     }
 
     /**
-     * Cheap pre-check that returns true iff any job is currently dequeueable
-     * from this worker's queue. Used by rate-limited subclasses to skip the
-     * token-bucket claim entirely on idle polls, so the limiter stays silent
-     * when there's nothing to send.
+     * Cheap pre-check that returns how many jobs are currently dequeueable from
+     * this worker's queue, capped at `limit`. Used by rate-limited subclasses
+     * to size their token-bucket claim to "exactly what we plan to dequeue"
+     * instead of always claiming the bucket's full capacity — keeps unused
+     * tokens in the bucket when traffic is sparse and a single job per poll is
+     * what we end up dequeuing.
      *
      * Hits the same partial index as `dequeueJobs` (`idx_cyclotron_jobs_dequeue`,
      * filtered on `status = 'available'`), so the query is sub-millisecond and
      * strictly cheaper than the `UPDATE ... SKIP LOCKED` we'd otherwise run.
+     * A short race exists between this count and the subsequent dequeue —
+     * concurrent pods may grab some rows in the gap via `SKIP LOCKED` — so
+     * `dequeueJobs` can return fewer rows than counted. That's bounded by
+     * concurrency × poll rate and rate-limiter refill absorbs the slack.
      */
-    protected async hasWork(): Promise<boolean> {
-        const result = await this.pool.query(
-            `SELECT 1 FROM cyclotron_jobs
-             WHERE status = 'available'
-               AND queue_name = $1
-               AND scheduled <= NOW()
-             LIMIT 1`,
-            [this.config.queueName]
+    protected async countWork(limit: number): Promise<number> {
+        const result = await this.pool.query<{ n: number }>(
+            `SELECT COUNT(*)::int AS n FROM (
+                 SELECT 1 FROM cyclotron_jobs
+                 WHERE status = 'available'
+                   AND queue_name = $1
+                   AND scheduled <= NOW()
+                 LIMIT $2
+             ) sub`,
+            [this.config.queueName, limit]
         )
-        return result.rowCount !== null && result.rowCount > 0
+        return result.rows[0].n
     }
 
     protected async dequeueJobs(limit: number = this.batchMaxSize): Promise<RawJobRow[]> {

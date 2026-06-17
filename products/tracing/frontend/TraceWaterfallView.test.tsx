@@ -71,4 +71,37 @@ describe('TraceWaterfallView', () => {
         expect(onSpanSelect).toHaveBeenNthCalledWith(1, 'span-child')
         expect(onSpanSelect).toHaveBeenNthCalledWith(2, null)
     })
+
+    it('collapses a span subtree, hiding descendants without selecting the row', () => {
+        const onSpanSelect = jest.fn()
+        const { container } = render(<TraceWaterfallView spans={[root, child]} onSpanSelect={onSpanSelect} />)
+
+        expect(within(container).queryAllByText('child-operation').length).toBeGreaterThan(0)
+
+        fireEvent.click(within(container).getByLabelText('Collapse child spans'))
+
+        expect(within(container).queryByText('child-operation')).toBeNull()
+        // Toggling collapse must not double as selecting the row.
+        expect(onSpanSelect).not.toHaveBeenCalled()
+        // Re-expanding brings the child back.
+        fireEvent.click(within(container).getByLabelText('Expand child spans'))
+        expect(within(container).queryAllByText('child-operation').length).toBeGreaterThan(0)
+    })
+
+    it('collapses and expands every span via the header toggle', () => {
+        const { container } = render(<TraceWaterfallView spans={[root, child]} />)
+
+        fireEvent.click(within(container).getByLabelText('Collapse all spans'))
+        expect(within(container).queryByText('child-operation')).toBeNull()
+
+        fireEvent.click(within(container).getByLabelText('Expand all spans'))
+        expect(within(container).queryAllByText('child-operation').length).toBeGreaterThan(0)
+    })
+
+    it('does not render a collapse toggle for leaf spans', () => {
+        const { container } = render(<TraceWaterfallView spans={[child]} />)
+
+        expect(within(container).queryByLabelText('Collapse child spans')).toBeNull()
+        expect(within(container).queryByLabelText('Collapse all spans')).toBeNull()
+    })
 })
