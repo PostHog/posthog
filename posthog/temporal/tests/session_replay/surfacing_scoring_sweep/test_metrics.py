@@ -19,6 +19,8 @@ from posthog.temporal.session_replay.surfacing_scoring_sweep.metrics import (
     SCORE_CHUNK_LATENCY_HISTOGRAM,
     SURFACING_SCORING_LATENCY_HISTOGRAM_BUCKETS,
     SURFACING_SCORING_LATENCY_HISTOGRAM_METRICS,
+    TOTAL_FETCHED_COUNTER,
+    TOTAL_FETCHED_DESCRIPTION,
     TOTAL_SCORED_COUNTER,
     TOTAL_SCORED_DESCRIPTION,
     SurfacingScoringMetricsInterceptor,
@@ -60,14 +62,16 @@ class TestSurfacingScoringMetricsInterceptor:
 class TestRecordTickSummary:
     @parameterized.expand(
         [
-            ("scored", 42, 0, TOTAL_SCORED_COUNTER, TOTAL_SCORED_DESCRIPTION, 42),
-            ("failed", 0, 3, CHUNKS_FAILED_COUNTER, CHUNKS_FAILED_DESCRIPTION, 3),
+            ("fetched", 0, 99, 0, TOTAL_FETCHED_COUNTER, TOTAL_FETCHED_DESCRIPTION, 99),
+            ("scored", 42, 0, 0, TOTAL_SCORED_COUNTER, TOTAL_SCORED_DESCRIPTION, 42),
+            ("failed", 0, 0, 3, CHUNKS_FAILED_COUNTER, CHUNKS_FAILED_DESCRIPTION, 3),
         ]
     )
     def test_emits_counter(
         self,
         _name: str,
         total_scored: int,
+        total_fetched: int,
         chunks_failed: int,
         counter_name: str,
         counter_description: str,
@@ -81,49 +85,55 @@ class TestRecordTickSummary:
             "posthog.temporal.session_replay.surfacing_scoring_sweep.metrics.get_metric_meter",
             return_value=mock_meter,
         ):
-            record_tick_summary(total_scored=total_scored, chunks_failed=chunks_failed)
+            record_tick_summary(total_scored=total_scored, total_fetched=total_fetched, chunks_failed=chunks_failed)
 
         mock_meter.create_counter.assert_called_once_with(counter_name, counter_description)
         mock_counter.add.assert_called_once_with(expected_count)
 
-    def test_emits_both_counters(self) -> None:
+    def test_emits_all_counters(self) -> None:
         mock_meter = MagicMock()
         with patch(
             "posthog.temporal.session_replay.surfacing_scoring_sweep.metrics.get_metric_meter",
             return_value=mock_meter,
         ):
-            record_tick_summary(total_scored=10, chunks_failed=2)
+            record_tick_summary(total_scored=10, total_fetched=100, chunks_failed=2)
 
         names = [call.args[0] for call in mock_meter.create_counter.call_args_list]
-        assert names == [TOTAL_SCORED_COUNTER, CHUNKS_FAILED_COUNTER]
+        assert names == [TOTAL_FETCHED_COUNTER, TOTAL_SCORED_COUNTER, CHUNKS_FAILED_COUNTER]
 
     @parameterized.expand(
         [
-            ("both_zero", 0, 0),
-            ("negative_scored", -1, 0),
-            ("negative_failed", 0, -1),
-            ("both_negative", -5, -2),
+            ("all_zero", 0, 0, 0),
+            ("negative_scored", -1, 0, 0),
+            ("negative_fetched", 0, -1, 0),
+            ("negative_failed", 0, 0, -1),
+            ("all_negative", -5, -3, -2),
         ]
     )
-    def test_noops_for_non_positive_counts(self, _name: str, total_scored: int, chunks_failed: int) -> None:
+    def test_noops_for_non_positive_counts(
+        self, _name: str, total_scored: int, total_fetched: int, chunks_failed: int
+    ) -> None:
         with patch(
             "posthog.temporal.session_replay.surfacing_scoring_sweep.metrics.get_metric_meter",
         ) as mock_get_meter:
-            record_tick_summary(total_scored=total_scored, chunks_failed=chunks_failed)
+            record_tick_summary(total_scored=total_scored, total_fetched=total_fetched, chunks_failed=chunks_failed)
             mock_get_meter.assert_not_called()
 
     @parameterized.expand(
         [
-            ("negative_scored_positive_failed", -1, 2, CHUNKS_FAILED_COUNTER, 2),
-            ("positive_scored_negative_failed", 7, -1, TOTAL_SCORED_COUNTER, 7),
+            ("only_fetched", -1, 5, 0, TOTAL_FETCHED_COUNTER, TOTAL_FETCHED_DESCRIPTION, 5),
+            ("only_failed", 0, -1, 2, CHUNKS_FAILED_COUNTER, CHUNKS_FAILED_DESCRIPTION, 2),
+            ("only_scored", 7, -1, 0, TOTAL_SCORED_COUNTER, TOTAL_SCORED_DESCRIPTION, 7),
         ]
     )
     def test_emits_only_positive_dimension(
         self,
         _name: str,
         total_scored: int,
+        total_fetched: int,
         chunks_failed: int,
         counter_name: str,
+        counter_description: str,
         expected_count: int,
     ) -> None:
         mock_meter = MagicMock()
@@ -134,12 +144,9 @@ class TestRecordTickSummary:
             "posthog.temporal.session_replay.surfacing_scoring_sweep.metrics.get_metric_meter",
             return_value=mock_meter,
         ):
-            record_tick_summary(total_scored=total_scored, chunks_failed=chunks_failed)
+            record_tick_summary(total_scored=total_scored, total_fetched=total_fetched, chunks_failed=chunks_failed)
 
-        expected_description = (
-            TOTAL_SCORED_DESCRIPTION if counter_name == TOTAL_SCORED_COUNTER else CHUNKS_FAILED_DESCRIPTION
-        )
-        mock_meter.create_counter.assert_called_once_with(counter_name, expected_description)
+        mock_meter.create_counter.assert_called_once_with(counter_name, counter_description)
         mock_counter.add.assert_called_once_with(expected_count)
 
 

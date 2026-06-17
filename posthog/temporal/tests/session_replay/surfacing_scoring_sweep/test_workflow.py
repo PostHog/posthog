@@ -39,9 +39,9 @@ class TestSummarize:
     def test_aggregates_scored_and_failed_chunks(self) -> None:
         chunks = [_chunk(0), _chunk(1), _chunk(2)]
         results: list[ChunkResult | BaseException] = [
-            ChunkResult(chunk_id=0, scored=3),
+            ChunkResult(chunk_id=0, scored=3, fetched=4),
             RuntimeError("ch timeout"),
-            ChunkResult(chunk_id=2, scored=7),
+            ChunkResult(chunk_id=2, scored=7, fetched=9),
         ]
         with (
             mock.patch("posthog.temporal.session_replay.surfacing_scoring_sweep.workflow.workflow.logger"),
@@ -50,14 +50,16 @@ class TestSummarize:
             ) as mock_record_tick_summary,
         ):
             summary = _summarize(chunks, results)
-        assert summary == ScoreSessionsBatchResult(total_scored=10, chunks_dispatched=3, chunks_failed=1)
-        mock_record_tick_summary.assert_called_once_with(total_scored=10, chunks_failed=1)
+        assert summary == ScoreSessionsBatchResult(
+            total_scored=10, total_fetched=13, chunks_dispatched=3, chunks_failed=1
+        )
+        mock_record_tick_summary.assert_called_once_with(total_scored=10, total_fetched=13, chunks_failed=1)
 
     def test_record_tick_summary_noops_when_tick_has_no_positive_counts(self) -> None:
         chunks = [_chunk(0), _chunk(1)]
         results: list[ChunkResult | BaseException] = [
-            ChunkResult(chunk_id=0, scored=0),
-            ChunkResult(chunk_id=1, scored=0),
+            ChunkResult(chunk_id=0, scored=0, fetched=0),
+            ChunkResult(chunk_id=1, scored=0, fetched=0),
         ]
         with (
             mock.patch("posthog.temporal.session_replay.surfacing_scoring_sweep.workflow.workflow.logger"),
@@ -66,8 +68,10 @@ class TestSummarize:
             ) as mock_record_tick_summary,
         ):
             summary = _summarize(chunks, results)
-        assert summary == ScoreSessionsBatchResult(total_scored=0, chunks_dispatched=2, chunks_failed=0)
-        mock_record_tick_summary.assert_called_once_with(total_scored=0, chunks_failed=0)
+        assert summary == ScoreSessionsBatchResult(
+            total_scored=0, total_fetched=0, chunks_dispatched=2, chunks_failed=0
+        )
+        mock_record_tick_summary.assert_called_once_with(total_scored=0, total_fetched=0, chunks_failed=0)
 
 
 @pytest.mark.asyncio
@@ -108,7 +112,7 @@ async def test_workflow_fans_out_chunks_and_aggregates_scores() -> None:
 
     @activity.defn(name="score_chunk_activity")
     async def score_chunk_mocked(spec: ChunkSpec) -> ChunkResult:
-        return ChunkResult(chunk_id=spec.chunk_id, scored=spec.chunk_id + 1)
+        return ChunkResult(chunk_id=spec.chunk_id, scored=spec.chunk_id + 1, fetched=(spec.chunk_id + 1) * 2)
 
     task_queue = str(uuid.uuid4())
     async with await WorkflowEnvironment.start_time_skipping() as env:
@@ -130,6 +134,7 @@ async def test_workflow_fans_out_chunks_and_aggregates_scores() -> None:
     assert parsed.chunks_dispatched == 4
     assert parsed.chunks_failed == 0
     assert parsed.total_scored == 1 + 2 + 3 + 4
+    assert parsed.total_fetched == (1 + 2 + 3 + 4) * 2
 
 
 @pytest.mark.asyncio

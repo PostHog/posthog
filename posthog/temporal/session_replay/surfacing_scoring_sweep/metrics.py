@@ -22,6 +22,9 @@ SURFACING_SCORING_LATENCY_HISTOGRAM_BUCKETS = [
     240_000.0,  # 4 minutes (SCORE_CHUNK_ACTIVITY_TIMEOUT)
 ]
 
+TOTAL_FETCHED_COUNTER = "surfacing_scoring_total_fetched"
+TOTAL_FETCHED_DESCRIPTION = "Sessions fetched from ClickHouse in a surfacing scoring sweep tick"
+
 TOTAL_SCORED_COUNTER = "surfacing_scoring_total_scored"
 TOTAL_SCORED_DESCRIPTION = "Sessions scored in a surfacing scoring sweep tick"
 
@@ -29,10 +32,12 @@ CHUNKS_FAILED_COUNTER = "surfacing_scoring_chunks_failed"
 CHUNKS_FAILED_DESCRIPTION = "Hash-partitioned chunks that failed in a surfacing scoring sweep tick"
 
 
-def record_tick_summary(*, total_scored: int, chunks_failed: int) -> None:
-    if total_scored <= 0 and chunks_failed <= 0:
+def record_tick_summary(*, total_scored: int, total_fetched: int, chunks_failed: int) -> None:
+    if total_scored <= 0 and total_fetched <= 0 and chunks_failed <= 0:
         return
     meter = get_metric_meter()
+    if total_fetched > 0:
+        meter.create_counter(TOTAL_FETCHED_COUNTER, TOTAL_FETCHED_DESCRIPTION).add(total_fetched)
     if total_scored > 0:
         meter.create_counter(TOTAL_SCORED_COUNTER, TOTAL_SCORED_DESCRIPTION).add(total_scored)
     if chunks_failed > 0:

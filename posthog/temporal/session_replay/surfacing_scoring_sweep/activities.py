@@ -261,8 +261,11 @@ async def score_chunk_activity(spec: ChunkSpec) -> ChunkResult:
     activity.heartbeat({"phase": "fetch", "chunk_id": spec.chunk_id})
     df = await sync_to_async(_fetch_features_dataframe, thread_sensitive=False)(spec)
 
+    # Sessions pulled from ClickHouse for this chunk, before any out-of-contract drop.
+    fetched = len(df)
+
     if df.empty:
-        return ChunkResult(chunk_id=spec.chunk_id, scored=0)
+        return ChunkResult(chunk_id=spec.chunk_id, scored=0, fetched=fetched)
 
     feature_names = await sync_to_async(get_feature_names, thread_sensitive=False)()
 
@@ -296,7 +299,7 @@ async def score_chunk_activity(spec: ChunkSpec) -> ChunkResult:
         )
         df = df.loc[~bad_rows]
         if df.empty:
-            return ChunkResult(chunk_id=spec.chunk_id, scored=0)
+            return ChunkResult(chunk_id=spec.chunk_id, scored=0, fetched=fetched)
 
     activity.heartbeat({"phase": "predict", "chunk_id": spec.chunk_id, "rows": len(df)})
     scores = await sync_to_async(predict, thread_sensitive=False)(df)
@@ -308,6 +311,7 @@ async def score_chunk_activity(spec: ChunkSpec) -> ChunkResult:
         "surfacing_scoring_sweep.chunk_done",
         chunk_id=spec.chunk_id,
         scored=published,
+        fetched=fetched,
         feature_count=len(feature_names),
     )
-    return ChunkResult(chunk_id=spec.chunk_id, scored=published)
+    return ChunkResult(chunk_id=spec.chunk_id, scored=published, fetched=fetched)

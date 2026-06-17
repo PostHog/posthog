@@ -280,9 +280,16 @@ Temporal SDK metrics (Prometheus on the worker metrics port):
 
 | Metric                                                     | Type      | When                                   |
 | ---------------------------------------------------------- | --------- | -------------------------------------- |
+| `surfacing_scoring_total_fetched`                          | counter   | end of each tick (`total_fetched > 0`) |
 | `surfacing_scoring_total_scored`                           | counter   | end of each tick (`total_scored > 0`)  |
 | `surfacing_scoring_chunks_failed`                          | counter   | end of each tick (`chunks_failed > 0`) |
 | `surfacing_scoring_score_chunk_activity_execution_latency` | histogram | each `score_chunk_activity` run        |
+
+`total_fetched` is rows the feature SELECT returned from ClickHouse;
+`total_scored` is rows published to Kafka after dropping out-of-contract rows.
+The gap between them is the out-of-contract drop; `total_fetched` near the
+`TARGET_SESSIONS_PER_TICK` cap means the backlog exceeds one tick's budget and
+will drain across several ticks.
 
 Emitted via `SurfacingScoringMetricsInterceptor` on `SURFACING_SCORING_SWEEP_TASK_QUEUE`.
 

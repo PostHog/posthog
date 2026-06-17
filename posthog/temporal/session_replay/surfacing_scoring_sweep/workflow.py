@@ -110,11 +110,17 @@ def _summarize(chunks: list[ChunkSpec], results: list[ChunkResult | BaseExceptio
                 )
             continue
         summary.total_scored += r.scored
+        summary.total_fetched += r.fetched
     workflow.logger.info(
         "surfacing_scoring_sweep.tick_done",
         chunks_dispatched=summary.chunks_dispatched,
         chunks_failed=summary.chunks_failed,
         total_scored=summary.total_scored,
+        total_fetched=summary.total_fetched,
     )
-    record_tick_summary(total_scored=summary.total_scored, chunks_failed=summary.chunks_failed)
+    record_tick_summary(
+        total_scored=summary.total_scored,
+        total_fetched=summary.total_fetched,
+        chunks_failed=summary.chunks_failed,
+    )
     return summary
