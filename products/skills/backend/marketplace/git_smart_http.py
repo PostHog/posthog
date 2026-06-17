@@ -44,6 +44,10 @@ class GitObject:
 class SynthesizedRepo:
     objects: list[GitObject]
     head_sha: str
+    # The finished (zlib-compressed) packfile, computed once at synthesis. Carried on the repo so
+    # the team+version cache memoizes it — otherwise every clone / auto-update poll would recompress
+    # the whole corpus (the dominant CPU cost), which the cache otherwise wouldn't avoid.
+    packfile: bytes
 
 
 def _git_hash(obj_type: str, data: bytes) -> str:
@@ -145,7 +149,7 @@ def synthesize_repo(files: FileTree, *, author: str, message: str) -> Synthesize
     root_sha = build_tree(root)
     commit = _create_commit(root_sha, message=message, author=author)
     objects.append(commit)
-    return SynthesizedRepo(objects=objects, head_sha=commit.sha)
+    return SynthesizedRepo(objects=objects, head_sha=commit.sha, packfile=build_packfile(objects))
 
 
 def _encode_obj_header(obj_type: int, size: int) -> bytes:
@@ -247,6 +251,6 @@ def build_upload_pack(request_body: bytes, repo: SynthesizedRepo) -> bytes:
         out += _FLUSH_PKT
     if is_done:
         out += _pkt_line("NAK\n")
-        out += _side_band_chunks(1, build_packfile(repo.objects))
+        out += _side_band_chunks(1, repo.packfile)  # precomputed at synthesis (cached), not recompressed here
         out += _FLUSH_PKT
     return bytes(out)

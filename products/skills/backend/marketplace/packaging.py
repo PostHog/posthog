@@ -27,6 +27,14 @@ from .git_smart_http import FileTree
 # but stored at 4096 today — export validates rather than silently truncating.
 SPEC_DESCRIPTION_MAX_LENGTH = 1024
 
+# Zip-bomb defense for import: bound member count and per-member *decompressed* read so a small
+# zip can't inflate into GBs of memory. These are coarse hard stops — the precise per-field/per-file
+# size caps are enforced downstream by the import validator. Kept comfortably above legit limits
+# (a SKILL.md body / bundled file is capped at ~1 MB each, ≤50 files).
+_MAX_ZIP_MEMBERS = 200
+_MAX_ZIP_MEMBER_BYTES = 2_000_000
+_MAX_ZIP_TOTAL_UNCOMPRESSED_BYTES = 80_000_000
+
 # Matches a leading YAML frontmatter block: ``---`` line, body until a closing ``---`` line.
 _FRONTMATTER_RE = re.compile(r"\A---[^\n]*\n(.*?)\n---[^\n]*\n?(.*)\Z", re.DOTALL)
 
@@ -204,6 +212,14 @@ def parse_skill_zip(data: bytes) -> SkillExport:
         raise SkillImportError("The uploaded file is not a valid zip archive.")
 
     with archive:
+        infos = archive.infolist()
+        # Reject zip-bombs up front using the archive's declared sizes (no decompression yet):
+        # too many members, or a total uncompressed size that would blow up memory.
+        if len(infos) > _MAX_ZIP_MEMBERS:
+            raise SkillImportError(f"The zip contains too many files (max {_MAX_ZIP_MEMBERS}).")
+        if sum(info.file_size for info in infos) > _MAX_ZIP_TOTAL_UNCOMPRESSED_BYTES:
+            raise SkillImportError("The zip's uncompressed contents are too large.")
+
         members = [n for n in archive.namelist() if not n.endswith("/")]
         skill_md_members = [n for n in members if n.rsplit("/", 1)[-1] == "SKILL.md"]
         if not skill_md_members:
@@ -231,8 +247,14 @@ def parse_skill_zip(data: bytes) -> SkillExport:
 
 
 def _read_zip_text(archive: zipfile.ZipFile, member: str, label: str) -> str:
+    # Bounded decompression: read one byte past the cap so an over-large (or size-spoofed,
+    # decompress-bomb) member is rejected without materializing its full inflated content.
+    with archive.open(member) as handle:
+        raw = handle.read(_MAX_ZIP_MEMBER_BYTES + 1)
+    if len(raw) > _MAX_ZIP_MEMBER_BYTES:
+        raise SkillImportError(f"'{label}' is too large.")
     try:
-        return archive.read(member).decode("utf-8")
+        return raw.decode("utf-8")
     except UnicodeDecodeError:
         raise SkillImportError(f"'{label}' must be UTF-8 text; binary files are not supported.")
 

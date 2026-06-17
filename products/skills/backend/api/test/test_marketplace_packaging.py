@@ -6,6 +6,7 @@ import pytest
 
 import yaml
 
+from products.skills.backend.marketplace import packaging as pkg
 from products.skills.backend.marketplace.git_smart_http import GitSynthesisError, synthesize_repo
 from products.skills.backend.marketplace.packaging import (
     CODEX_METADATA_PATH,
@@ -206,3 +207,35 @@ class TestGitTreeSafety:
         # A bad path must raise rather than emit a corrupt tree that breaks the whole team's clone.
         with pytest.raises(GitSynthesisError):
             self._synth(files)
+
+
+class TestZipBombDefense:
+    def _zip(self, members: dict[str, str]) -> bytes:
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as archive:
+            for name, content in members.items():
+                archive.writestr(name, content)
+        return buffer.getvalue()
+
+    def test_too_many_members_rejected(self):
+        members = {"s/SKILL.md": "---\nname: s\ndescription: d\n---\nb"}
+        members.update({f"s/scripts/f{i}.txt": "x" for i in range(pkg._MAX_ZIP_MEMBERS + 1)})
+        with pytest.raises(SkillImportError):
+            parse_skill_zip(self._zip(members))
+
+    def test_oversize_member_rejected_without_full_inflation(self):
+        data = self._zip(
+            {
+                "s/SKILL.md": "---\nname: s\ndescription: d\n---\nb",
+                "s/big.txt": "x" * (pkg._MAX_ZIP_MEMBER_BYTES + 10),
+            }
+        )
+        with pytest.raises(SkillImportError):
+            parse_skill_zip(data)
+
+
+class TestSynthesizedPackfile:
+    def test_repo_carries_a_packfile(self):
+        repo = synthesize_repo({"SKILL.md": "a", "scripts/x.sh": "b"}, author="PostHog", message="m")
+        assert repo.packfile.startswith(b"PACK")
+        assert len(repo.packfile) > 12  # header + at least one object + trailer

@@ -103,7 +103,7 @@ export interface LLMSkillListApi {
      * @maxLength 500
      */
     compatibility?: string
-    /** List of pre-approved tools the skill may use. */
+    /** List of pre-approved tools the skill may use. Tool names cannot contain whitespace. */
     allowed_tools?: string[]
     /** Arbitrary key-value metadata. */
     metadata?: LLMSkillListApiMetadata
@@ -176,7 +176,7 @@ export interface LLMSkillCreateApi {
      * @maxLength 500
      */
     compatibility?: string
-    /** List of pre-approved tools the skill may use. */
+    /** List of pre-approved tools the skill may use. Tool names cannot contain whitespace. */
     allowed_tools?: string[]
     /** Arbitrary key-value metadata. */
     metadata?: LLMSkillCreateApiMetadata
@@ -236,7 +236,7 @@ export interface LLMSkillApi {
      * @maxLength 500
      */
     compatibility?: string
-    /** List of pre-approved tools the skill may use. */
+    /** List of pre-approved tools the skill may use. Tool names cannot contain whitespace. */
     allowed_tools?: string[]
     /** Arbitrary key-value metadata. */
     metadata?: LLMSkillApiMetadata
@@ -372,7 +372,7 @@ export interface PatchedLLMSkillPublishApi {
      * @maxLength 500
      */
     compatibility?: string
-    /** List of pre-approved tools the skill may use. */
+    /** List of pre-approved tools the skill may use. Tool names cannot contain whitespace. */
     allowed_tools?: string[]
     /** Arbitrary key-value metadata. */
     metadata?: PatchedLLMSkillPublishApiMetadata

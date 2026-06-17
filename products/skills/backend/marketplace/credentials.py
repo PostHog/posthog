@@ -14,6 +14,7 @@ key is absent (create) or the caller explicitly asks to rotate (roll).
 
 from dataclasses import dataclass
 
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from posthog.api.project_secret_api_key import MAX_PROJECT_SECRET_API_KEYS_PER_TEAM
@@ -62,14 +63,27 @@ def issue_marketplace_credential(team: Team, user: User, *, rotate: bool) -> Iss
                 f"This project already has the maximum of {MAX_PROJECT_SECRET_API_KEYS_PER_TEAM} secret API keys. "
                 "Remove an unused key before connecting."
             )
-        key = ProjectSecretAPIKey.objects.create(
-            team=team,
-            secure_value=hash_key_value(raw_token),
-            mask_value=mask_key_value(raw_token),
-            created_by=user,
-            label=marketplace_credential_label(user.id),
-            scopes=list(MARKETPLACE_CREDENTIAL_SCOPES),
-        )
+        try:
+            # Savepoint so a unique-constraint violation rolls back just this insert, leaving any
+            # surrounding transaction usable for the re-fetch below (and not poisoned).
+            with transaction.atomic():
+                key = ProjectSecretAPIKey.objects.create(
+                    team=team,
+                    secure_value=hash_key_value(raw_token),
+                    mask_value=mask_key_value(raw_token),
+                    created_by=user,
+                    label=marketplace_credential_label(user.id),
+                    scopes=list(MARKETPLACE_CREDENTIAL_SCOPES),
+                )
+        except IntegrityError:
+            # Lost a concurrent first-connect race (a double-click, or web + MCP at once): the other
+            # request created the key via the (team, label) unique constraint. Its token is
+            # unrecoverable here, so return the now-existing key as "exists" rather than 500-ing —
+            # the caller can rotate if they need a fresh token.
+            raced = get_marketplace_credential(team, user)
+            if raced is None:
+                raise
+            return IssuedMarketplaceCredential(key=raced, token=None, status="exists")
         return IssuedMarketplaceCredential(key=key, token=raw_token, status="created")
 
     existing.secure_value = hash_key_value(raw_token)

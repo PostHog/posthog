@@ -30,6 +30,13 @@ _MARKETPLACE_COMMIT_MESSAGE = "PostHog skills marketplace"
 # the current content. The TTL just bounds memory for superseded versions.
 _MARKETPLACE_REPO_CACHE_TTL_SECONDS = 300
 
+# Bound the in-memory/cached footprint of a team's marketplace so an outlier team with very many
+# (or very large) skills can't OOM the web worker on clone. Past this cumulative content size we
+# skip the remaining skills (logged) rather than synthesize an unbounded tree.
+_MAX_MARKETPLACE_TREE_BYTES = 64_000_000
+# Don't pickle a very large synthesized repo into the shared cache — serve it uncached instead.
+_MAX_CACHEABLE_PACKFILE_BYTES = 16_000_000
+
 
 def skill_to_export(skill: LLMSkill, files: list[LLMSkillFile]) -> SkillExport:
     return SkillExport(
@@ -66,7 +73,8 @@ def synthesize_team_marketplace_repo(team: Team) -> SynthesizedRepo:
 
     tree = build_team_marketplace_tree(team, version=version)
     repo = synthesize_repo(tree, author=_MARKETPLACE_AUTHOR, message=_MARKETPLACE_COMMIT_MESSAGE)
-    cache.set(cache_key, repo, timeout=_MARKETPLACE_REPO_CACHE_TTL_SECONDS)
+    if len(repo.packfile) <= _MAX_CACHEABLE_PACKFILE_BYTES:
+        cache.set(cache_key, repo, timeout=_MARKETPLACE_REPO_CACHE_TTL_SECONDS)
     return repo
 
 
@@ -83,17 +91,37 @@ def build_team_marketplace_tree(team: Team, version: str | None = None) -> FileT
 
     # Drop any skill whose bundled-file paths would synthesize a corrupt/uncloneable git tree
     # (e.g. legacy rows that predate the stricter path validation, or case-only collisions). One
-    # bad skill is skipped rather than 500-ing the whole team's marketplace clone.
+    # bad skill is skipped rather than 500-ing the whole team's marketplace clone. We also cap the
+    # cumulative content size: past the ceiling, remaining skills are skipped so a pathological team
+    # can't OOM the clone.
     exports: list[SkillExport] = []
-    skipped: list[str] = []
+    skipped_unsafe: list[str] = []
+    skipped_oversize: list[str] = []
+    total_bytes = 0
     for skill in skills:
         files = files_by_skill.get(skill.id, [])
-        if _skill_files_are_tree_safe(files):
-            exports.append(skill_to_export(skill, files))
-        else:
-            skipped.append(skill.name)
-    if skipped:
-        logger.warning("skills_marketplace_skipped_unsafe_skills", team_id=team.id, skills=skipped)
+        if not _skill_files_are_tree_safe(files):
+            skipped_unsafe.append(skill.name)
+            continue
+        skill_bytes = len((skill.body or "").encode("utf-8")) + sum(
+            len((f.content or "").encode("utf-8")) for f in files
+        )
+        # Always include at least one skill (per-skill content is already bounded); skip the rest
+        # once we'd cross the team ceiling.
+        if exports and total_bytes + skill_bytes > _MAX_MARKETPLACE_TREE_BYTES:
+            skipped_oversize.append(skill.name)
+            continue
+        total_bytes += skill_bytes
+        exports.append(skill_to_export(skill, files))
+    if skipped_unsafe:
+        logger.warning("skills_marketplace_skipped_unsafe_skills", team_id=team.id, skills=skipped_unsafe)
+    if skipped_oversize:
+        logger.warning(
+            "skills_marketplace_skipped_oversize",
+            team_id=team.id,
+            skipped_count=len(skipped_oversize),
+            included_bytes=total_bytes,
+        )
 
     return build_marketplace_tree(
         plugin_name=PLUGIN_NAME,

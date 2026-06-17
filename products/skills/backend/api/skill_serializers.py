@@ -90,6 +90,14 @@ def validate_skill_body_size(body: str) -> str:
     return body
 
 
+def validate_allowed_tool(value: str) -> str:
+    # The Agent Skills spec serializes allowed-tools as a single space-separated string, so a tool
+    # name containing whitespace would silently fracture into multiple tools on export/round-trip.
+    if any(ch.isspace() for ch in value):
+        raise serializers.ValidationError("Tool names cannot contain whitespace.")
+    return value
+
+
 class LLMSkillFetchQuerySerializer(serializers.Serializer):
     version = serializers.IntegerField(
         min_value=1,
@@ -246,9 +254,9 @@ class LLMSkillPublishSerializer(serializers.Serializer):
         help_text="Environment requirements.",
     )
     allowed_tools = serializers.ListField(
-        child=serializers.CharField(),
+        child=serializers.CharField(validators=[validate_allowed_tool]),
         required=False,
-        help_text="List of pre-approved tools the skill may use.",
+        help_text="List of pre-approved tools the skill may use. Tool names cannot contain whitespace.",
     )
     metadata = serializers.DictField(
         required=False,
@@ -310,10 +318,10 @@ class LLMSkillSerializer(serializers.ModelSerializer):
     version_count = serializers.SerializerMethodField()
     first_version_created_at = serializers.SerializerMethodField()
     allowed_tools = serializers.ListField(
-        child=serializers.CharField(),
+        child=serializers.CharField(validators=[validate_allowed_tool]),
         required=False,
         default=list,
-        help_text="List of pre-approved tools the skill may use.",
+        help_text="List of pre-approved tools the skill may use. Tool names cannot contain whitespace.",
     )
     metadata = serializers.DictField(
         required=False,

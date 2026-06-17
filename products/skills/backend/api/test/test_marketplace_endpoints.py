@@ -22,6 +22,7 @@ from posthog.models.utils import hash_key_value
 
 from ...api.skill_serializers import validate_skill_file_path
 from ...api.skill_services import archive_skill
+from ...marketplace import adapters
 from ...marketplace.adapters import build_team_marketplace_tree
 from ...marketplace.credentials import issue_marketplace_credential
 from ...marketplace.packaging import SkillExport, build_skill_zip
@@ -402,6 +403,22 @@ class TestMarketplaceInstallCommand(APIBaseTest):
         assert rolled.secure_value != old_secure
         assert rolled.last_rolled_at is not None
 
+    def test_mint_race_resolves_to_exists_on_conflict(self, _mock_flag):
+        # Simulate a concurrent first-connect: the existing-check sees no key (so we take the create
+        # branch), but the row already exists, so create() hits the (team, label) unique constraint.
+        # The IntegrityError must resolve to "exists", not a 500.
+        first = issue_marketplace_credential(self.team, self.user, rotate=False)
+        assert first.status == "created"
+        with patch(
+            "products.skills.backend.marketplace.credentials.get_marketplace_credential",
+            side_effect=[None, first.key],
+        ):
+            raced = issue_marketplace_credential(self.team, self.user, rotate=False)
+        assert raced.status == "exists"
+        assert raced.token is None
+        assert raced.key.id == first.key.id
+        assert ProjectSecretAPIKey.objects.filter(team=self.team).count() == 1
+
     def test_one_user_connecting_does_not_roll_another_users_credential(self, _mock_flag):
         # This is the whole point of per-user keying: a teammate connecting must not break mine.
         mine = issue_marketplace_credential(self.team, self.user, rotate=False)
@@ -415,3 +432,40 @@ class TestMarketplaceInstallCommand(APIBaseTest):
         assert ProjectSecretAPIKey.objects.filter(team=self.team).count() == 2
         mine.key.refresh_from_db()
         assert mine.key.secure_value == my_secure  # untouched
+
+
+@patch("products.skills.backend.api.skills.posthoganalytics.feature_enabled", return_value=True)
+class TestImportAndCreateValidation(APIBaseTest):
+    def _import_url(self) -> str:
+        return f"/api/environments/{self.team.id}/llm_skills/import"
+
+    def test_import_rejects_oversized_body(self, _mock_flag):
+        # A spec-valid zip (short description) must still be rejected when its SKILL.md body exceeds
+        # the same byte cap the create/edit paths enforce — the import path used to skip that check.
+        export = SkillExport(name="big-skill", description="Big skill.", body="x" * 1_000_001, version=1)
+        upload = SimpleUploadedFile("big.zip", build_skill_zip(export), content_type="application/zip")
+        response = self.client.post(self._import_url(), {"file": upload}, format="multipart")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "body" in str(response.json()).lower()
+
+    def test_create_rejects_whitespace_allowed_tool(self, _mock_flag):
+        # A tool name with a space would fracture the spec's space-delimited allowed-tools string.
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_skills/",
+            {"name": "ws-tool-skill", "description": "d", "body": "b", "allowed_tools": ["Bash Write"]},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_oversize_skills_skipped_from_marketplace_tree(self, _mock_flag):
+        LLMSkill.objects.create(
+            team=self.team, name="aaa", description="d", body="x" * 100, version=1, is_latest=True, created_by=self.user
+        )
+        LLMSkill.objects.create(
+            team=self.team, name="zzz", description="d", body="y" * 100, version=1, is_latest=True, created_by=self.user
+        )
+        with patch.object(adapters, "_MAX_MARKETPLACE_TREE_BYTES", 150):
+            tree = build_team_marketplace_tree(self.team)
+        # First skill fits the (patched) ceiling; the second crosses it and is skipped rather than OOM.
+        assert "plugins/posthog-skill-store/skills/aaa/SKILL.md" in tree
+        assert "plugins/posthog-skill-store/skills/zzz/SKILL.md" not in tree

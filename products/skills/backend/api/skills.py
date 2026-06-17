@@ -46,6 +46,7 @@ from ..marketplace.credentials import (
 from ..marketplace.packaging import SkillImportError, build_skill_zip, parse_skill_zip, validate_for_export
 from ..models.skills import LLMSkill, LLMSkillFile
 from .skill_serializers import (
+    MAX_SKILL_FILE_BYTES,
     LLMSkillCreateSerializer,
     LLMSkillDuplicateSerializer,
     LLMSkillFetchQuerySerializer,
@@ -63,6 +64,8 @@ from .skill_serializers import (
     LLMSkillResolveResponseSerializer,
     LLMSkillSerializer,
     LLMSkillVersionSummarySerializer,
+    validate_allowed_tool,
+    validate_skill_body_size,
     validate_skill_file_path,
     validate_skill_name_value,
 )
@@ -547,14 +550,17 @@ class LLMSkillViewSet(
                 {"detail": "Attach the skill .zip as multipart form field 'file'."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        if upload.size and upload.size > MAX_IMPORT_ZIP_BYTES:
+        # Bound the read by bytes (read one past the cap) — upload.size is not always reliable, so
+        # don't trust it as the only guard against buffering an oversized body into memory.
+        raw = upload.read(MAX_IMPORT_ZIP_BYTES + 1)
+        if len(raw) > MAX_IMPORT_ZIP_BYTES:
             return Response(
                 {"detail": f"Zip must be {MAX_IMPORT_ZIP_BYTES} bytes or fewer."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         try:
-            skill_export = parse_skill_zip(upload.read())
+            skill_export = parse_skill_zip(raw)
         except SkillImportError as err:
             return Response({"detail": str(err)}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -599,11 +605,28 @@ class LLMSkillViewSet(
         return Response(self._serialize_skill(skill), status=status.HTTP_201_CREATED)
 
     def _import_problems(self, skill_export) -> list[str]:
+        # The import path calls create_skill directly, so it must re-apply the same size/shape limits
+        # the create/edit serializers enforce — otherwise a spec-valid zip could persist content
+        # (oversized body/files, whitespace-bearing tools) the rest of the system assumes is bounded.
+        # validate_for_export already covers the description (non-empty, ≤ spec limit).
         problems: list[str] = list(validate_for_export(skill_export))
         try:
             validate_skill_name_value(skill_export.name)
         except serializers.ValidationError as err:
             problems.append(f"name: {self._first_error(err)}")
+        try:
+            validate_skill_body_size(skill_export.body)
+        except serializers.ValidationError as err:
+            problems.append(f"body: {self._first_error(err)}")
+        for tool in skill_export.allowed_tools:
+            try:
+                validate_allowed_tool(tool)
+            except serializers.ValidationError as err:
+                problems.append(f"allowed-tools '{tool}': {self._first_error(err)}")
+        if len(skill_export.license) > 255:
+            problems.append("license must be 255 characters or fewer")
+        if len(skill_export.compatibility) > 500:
+            problems.append("compatibility must be 500 characters or fewer")
 
         seen_lower: set[str] = set()
         for skill_file in skill_export.files:
@@ -611,6 +634,8 @@ class LLMSkillViewSet(
                 validate_skill_file_path(skill_file.path)
             except serializers.ValidationError as err:
                 problems.append(f"file '{skill_file.path}': {self._first_error(err)}")
+            if len(skill_file.content.encode("utf-8")) > MAX_SKILL_FILE_BYTES:
+                problems.append(f"file '{skill_file.path}': content must be {MAX_SKILL_FILE_BYTES} bytes or fewer")
             lowered = skill_file.path.lower()
             if lowered in seen_lower:
                 problems.append(f"file '{skill_file.path}': collides with another file (case-insensitive)")
