@@ -4,8 +4,6 @@ import { cleanup, configure, screen, waitFor } from '@testing-library/react'
 
 import { ensureJsdom, waitForHogChartTooltip } from '@posthog/quill-charts/testing'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-
 import { buildFunnelsQuery, chart, getHogChart, personsModal, renderInsight } from '~/test/insight-testing'
 import { buildAnnotation } from '~/test/insight-testing/test-data'
 import { AnnotationScope } from '~/types'
@@ -21,12 +19,10 @@ afterEach(() => {
     cleanup()
 })
 
-const HOG_CHARTS_FUNNEL_FLAG = { [FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_FUNNEL]: true }
-
 describe('FunnelLineChart', () => {
     describe('series rendering', () => {
         it('renders a single conversion series with percentage values in the tooltip', async () => {
-            renderInsight({ query: buildFunnelsQuery(), featureFlags: HOG_CHARTS_FUNNEL_FLAG })
+            renderInsight({ query: buildFunnelsQuery() })
 
             const tooltip = await chart.hoverTooltip(2)
 
@@ -40,7 +36,6 @@ describe('FunnelLineChart', () => {
                 query: buildFunnelsQuery({
                     breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
                 }),
-                featureFlags: HOG_CHARTS_FUNNEL_FLAG,
             })
 
             await waitFor(() => {
@@ -53,7 +48,6 @@ describe('FunnelLineChart', () => {
                 query: buildFunnelsQuery({
                     breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
                 }),
-                featureFlags: HOG_CHARTS_FUNNEL_FLAG,
             })
 
             await chart.clickAtIndex(2)
@@ -133,7 +127,7 @@ describe('FunnelLineChart', () => {
 
     describe('click → persons modal', () => {
         it('opens the persons modal with the day-scoped actors for a single-series chart', async () => {
-            renderInsight({ query: buildFunnelsQuery(), featureFlags: HOG_CHARTS_FUNNEL_FLAG })
+            renderInsight({ query: buildFunnelsQuery() })
 
             await chart.clickAtIndex(2)
 
@@ -148,7 +142,6 @@ describe('FunnelLineChart', () => {
                 query: buildFunnelsQuery({
                     breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
                 }),
-                featureFlags: HOG_CHARTS_FUNNEL_FLAG,
             })
 
             await chart.clickAtIndex(2)
@@ -164,7 +157,6 @@ describe('FunnelLineChart', () => {
         it('renders percentage value labels when showValuesOnSeries is enabled', async () => {
             renderInsight({
                 query: buildFunnelsQuery({ funnelsFilter: { showValuesOnSeries: true } }),
-                featureFlags: HOG_CHARTS_FUNNEL_FLAG,
             })
 
             await screen.findByRole('img', { name: /chart with/i })
@@ -184,7 +176,6 @@ describe('FunnelLineChart', () => {
                 query: buildFunnelsQuery({
                     funnelsFilter: { goalLines: [{ label: 'Target', value: 30, displayIfCrossed: true }] },
                 }),
-                featureFlags: HOG_CHARTS_FUNNEL_FLAG,
             })
 
             await screen.findByRole('img', { name: /chart with/i })
@@ -207,7 +198,6 @@ describe('FunnelLineChart', () => {
         it('adds a trend-line overlay when showTrendLines is enabled', async () => {
             renderInsight({
                 query: buildFunnelsQuery({ funnelsFilter: { showTrendLines: true, showValuesOnSeries: true } }),
-                featureFlags: HOG_CHARTS_FUNNEL_FLAG,
             })
 
             // main series + trend-line series = 2 rendered series
@@ -230,7 +220,6 @@ describe('FunnelLineChart', () => {
                     breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
                     funnelsFilter: { showLegend: true },
                 }),
-                featureFlags: HOG_CHARTS_FUNNEL_FLAG,
             })
 
             await screen.findByRole('img', { name: /chart with/i })
@@ -258,7 +247,7 @@ describe('FunnelLineChart', () => {
                 query: buildFunnelsQuery({ funnelsFilter: { showLegend: true } }),
             },
         ])('omits the legend when $desc', async ({ query }) => {
-            renderInsight({ query, featureFlags: HOG_CHARTS_FUNNEL_FLAG })
+            renderInsight({ query })
 
             await screen.findByRole('img', { name: /chart with/i })
             expect(screen.queryByTestId('funnel-line-legend')).not.toBeInTheDocument()
@@ -270,7 +259,6 @@ describe('FunnelLineChart', () => {
                     breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
                     funnelsFilter: { showLegend: true },
                 }),
-                featureFlags: HOG_CHARTS_FUNNEL_FLAG,
             })
 
             await screen.findByRole('img', { name: /chart with/i })
@@ -292,7 +280,6 @@ describe('FunnelLineChart', () => {
             async ({ inSharedMode, expectsBadges }) => {
                 renderInsight({
                     query: buildFunnelsQuery(),
-                    featureFlags: HOG_CHARTS_FUNNEL_FLAG,
                     inSharedMode,
                     mocks: {
                         annotations: [
