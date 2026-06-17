@@ -125,6 +125,7 @@ class TestCalculateVarianceFromStats:
             numerator_denominator_sum_product=product,
         )
         baseline_value = calculate_baseline_value(baseline, "retention")
+        assert baseline_value is not None
         variance = calculate_variance_from_stats(baseline_value, "retention", baseline)
         assert variance is not None
         assert math.isclose(variance, 0, abs_tol=1e-9)
