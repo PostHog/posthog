@@ -441,7 +441,7 @@ export function LLMSkillsScene(): JSX.Element {
                             onClick={() => setConnectModalOpen(true)}
                             data-attr="connect-coding-agent-button"
                         >
-                            Connect agent
+                            Load skills in your agent
                         </LemonButton>
                         <AccessControlAction
                             resourceType={AccessControlResourceType.LlmAnalytics}
