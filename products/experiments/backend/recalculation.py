@@ -104,6 +104,7 @@ def build_job_payload(
         "created_at": recalc.created_at,
         "started_at": recalc.started_at,
         "completed_at": recalc.completed_at,
+        "query_to": recalc.query_to,
     }
     if is_existing is not None:
         payload["is_existing"] = is_existing

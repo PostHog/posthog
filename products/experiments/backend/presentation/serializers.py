@@ -695,6 +695,14 @@ class ExperimentMetricsRecalculationSerializer(serializers.Serializer):
     created_at = serializers.DateTimeField(read_only=True, help_text="When the job was created")
     started_at = serializers.DateTimeField(read_only=True, allow_null=True, help_text="When processing started")
     completed_at = serializers.DateTimeField(read_only=True, allow_null=True, help_text="When processing completed")
+    query_to = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Upper time bound the metrics in this run were calculated against (the data freshness cutoff). "
+            "Shared by every metric in the run; null until processing starts"
+        ),
+    )
     is_existing = serializers.BooleanField(
         read_only=True, required=False, help_text="True if returning an existing job rather than a newly created one"
     )

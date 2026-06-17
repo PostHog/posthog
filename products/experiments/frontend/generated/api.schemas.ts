@@ -897,6 +897,11 @@ export interface ExperimentMetricsRecalculationApi {
      * @nullable
      */
     readonly completed_at: string | null
+    /**
+     * Upper time bound the metrics in this run were calculated against (the data freshness cutoff). Shared by every metric in the run; null until processing starts
+     * @nullable
+     */
+    readonly query_to: string | null
     /** True if returning an existing job rather than a newly created one */
     readonly is_existing: boolean
     /** Per-metric results computed by this run, scoped by the run's recalc fingerprint */
