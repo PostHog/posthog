@@ -17,8 +17,7 @@ from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
 from products.error_tracking.backend.models import ErrorTrackingIssue, resolve_fingerprints_for_issues
-
-from .query_serializers import (
+from products.error_tracking.backend.presentation.views.query_serializers import (
     ErrorTrackingIssueDetailSerializer,
     ErrorTrackingIssueEventsQueryRequestSerializer,
     ErrorTrackingIssueEventsResponseSerializer,
@@ -26,7 +25,7 @@ from .query_serializers import (
     ErrorTrackingIssuesListQueryRequestSerializer,
     ErrorTrackingIssuesListResponseSerializer,
 )
-from .query_utils import (
+from products.error_tracking.backend.presentation.views.query_utils import (
     CONTEXT_EVENT_SELECTS,
     EVENT_SELECTS,
     ISSUE_FIELDS,

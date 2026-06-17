@@ -766,7 +766,7 @@ def get_query_runner(
         )
 
     if kind == "ErrorTrackingQuery":
-        from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
+        from products.error_tracking.backend.facade.queries import ErrorTrackingQueryRunner
 
         return ErrorTrackingQueryRunner(
             query=query,
@@ -790,9 +790,7 @@ def get_query_runner(
         )
 
     if kind == "ErrorTrackingIssueCorrelationQuery":
-        from products.error_tracking.backend.hogql_queries.error_tracking_issue_correlation_query_runner import (
-            ErrorTrackingIssueCorrelationQueryRunner,
-        )
+        from products.error_tracking.backend.facade.queries import ErrorTrackingIssueCorrelationQueryRunner
 
         return ErrorTrackingIssueCorrelationQueryRunner(
             query=query,
@@ -804,9 +802,7 @@ def get_query_runner(
         )
 
     if kind == "ErrorTrackingSimilarIssuesQuery":
-        from products.error_tracking.backend.hogql_queries.error_tracking_similar_issues_query_runner import (
-            ErrorTrackingSimilarIssuesQueryRunner,
-        )
+        from products.error_tracking.backend.facade.queries import ErrorTrackingSimilarIssuesQueryRunner
 
         return ErrorTrackingSimilarIssuesQueryRunner(
             query=query,
@@ -818,9 +814,7 @@ def get_query_runner(
         )
 
     if kind == "ErrorTrackingBreakdownsQuery":
-        from products.error_tracking.backend.hogql_queries.error_tracking_breakdowns_query_runner import (
-            ErrorTrackingBreakdownsQueryRunner,
-        )
+        from products.error_tracking.backend.facade.queries import ErrorTrackingBreakdownsQueryRunner
 
         return ErrorTrackingBreakdownsQueryRunner(
             query=query,

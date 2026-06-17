@@ -491,7 +491,7 @@ class TestErrorTracking(APIBaseTest):
         symbol_set.refresh_from_db()
         self.assertEqual(symbol_set.storage_ptr, "symbolsets/source_1")
 
-    @patch("products.error_tracking.backend.api.symbol_sets.object_storage.get_presigned_url")
+    @patch("products.error_tracking.backend.presentation.views.symbol_sets.object_storage.get_presigned_url")
     def test_download_symbol_set(self, patched_get_presigned_url: Mock) -> None:
         patched_get_presigned_url.return_value = "https://example.com/source.map"
         symbol_set = ErrorTrackingSymbolSet.objects.create(
@@ -606,8 +606,8 @@ class TestErrorTracking(APIBaseTest):
         # cannot assign issues from other teams
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    @patch("products.error_tracking.backend.api.issues.dispatch_issue_assigned_realtime")
-    @patch("products.error_tracking.backend.api.issues.send_error_tracking_issue_assigned")
+    @patch("products.error_tracking.backend.presentation.views.issues.dispatch_issue_assigned_realtime")
+    @patch("products.error_tracking.backend.presentation.views.issues.send_error_tracking_issue_assigned")
     def test_assign_issue_dispatches_realtime_after_assignment(self, _send_email, mock_realtime):
         issue = self.create_issue()
         other_user = User.objects.create_and_join(self.organization, "other@test.com", "password")
@@ -1025,7 +1025,7 @@ class TestErrorTracking(APIBaseTest):
         assert ErrorTrackingSymbolSet.objects.get(id=symbol_set_one.id).content_hash == "hash_one"
         assert ErrorTrackingSymbolSet.objects.get(id=symbol_set_two.id).content_hash == "hash_two"
 
-    @patch("products.error_tracking.backend.api.symbol_sets.posthoganalytics.capture")
+    @patch("products.error_tracking.backend.presentation.views.symbol_sets.posthoganalytics.capture")
     def test_bulk_finish_upload_rejects_unknown_symbol_set_ids(self, patched_capture: Mock) -> None:
         response = self.client.post(
             f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_finish_upload",
@@ -1044,7 +1044,7 @@ class TestErrorTracking(APIBaseTest):
             "failure_code": "symbol_set_not_found",
         }
 
-    @patch("products.error_tracking.backend.api.symbol_sets.posthoganalytics.capture")
+    @patch("products.error_tracking.backend.presentation.views.symbol_sets.posthoganalytics.capture")
     @patch("posthog.storage.object_storage.head_object")
     def test_bulk_finish_upload_preserves_pending_symbol_set_when_file_is_not_found(
         self, patched_object_storage, patched_capture: Mock

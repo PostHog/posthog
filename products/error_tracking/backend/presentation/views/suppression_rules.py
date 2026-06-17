@@ -15,8 +15,12 @@ from posthog.event_usage import groups
 from posthog.models.team.team import Team
 
 from products.error_tracking.backend.models import ErrorTrackingSuppressionRule
-
-from .utils import RuleReorderingMixin, generate_byte_code, generate_match_all_bytecode, has_filter_values
+from products.error_tracking.backend.presentation.views.utils import (
+    RuleReorderingMixin,
+    generate_byte_code,
+    generate_match_all_bytecode,
+    has_filter_values,
+)
 
 logger = structlog.get_logger(__name__)
 

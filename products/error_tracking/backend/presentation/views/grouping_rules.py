@@ -15,8 +15,11 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import groups
 
 from products.error_tracking.backend.models import ErrorTrackingGroupingRule, ErrorTrackingIssueFingerprintV2
-
-from .utils import RuleReorderingMixin, generate_byte_code, has_filter_values
+from products.error_tracking.backend.presentation.views.utils import (
+    RuleReorderingMixin,
+    generate_byte_code,
+    has_filter_values,
+)
 
 logger = structlog.get_logger(__name__)
 

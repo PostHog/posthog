@@ -10,8 +10,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 
 from products.error_tracking.backend.models import ErrorTrackingStackFrame
-
-from .releases import ErrorTrackingReleaseSerializer
+from products.error_tracking.backend.presentation.views.releases import ErrorTrackingReleaseSerializer
 
 logger = structlog.get_logger(__name__)
 

@@ -14,15 +14,15 @@ from products.dashboards.backend.widget_specs.registry import validate_widget_co
 from products.dashboards.backend.widgets.config import resolve_filter_test_accounts
 from products.dashboards.backend.widgets.list_widget import ListWidgetPage, run_list_widget
 from products.dashboards.backend.widgets.widget_filters import build_property_group_filter_from_widget_filters
-from products.error_tracking.backend.api.query import normalize_volume_resolution
-from products.error_tracking.backend.api.query_utils import (
+from products.error_tracking.backend.facade.queries import ErrorTrackingQueryRunner
+from products.error_tracking.backend.presentation.views.query import normalize_volume_resolution
+from products.error_tracking.backend.presentation.views.query_utils import (
     ERROR_TRACKING_LISTING_VOLUME_RESOLUTION,
     LIST_ISSUE_FIELDS,
     build_date_range,
     get_page_info,
     pick_fields,
 )
-from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
 
 ValidatedErrorTrackingListWidgetConfig = dict[str, Any]
 

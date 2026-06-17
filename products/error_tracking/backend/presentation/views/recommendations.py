@@ -10,13 +10,13 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
-from products.error_tracking.backend.models import ErrorTrackingRecommendation
-from products.error_tracking.backend.recommendations import RECOMMENDATIONS_BY_TYPE
-from products.error_tracking.backend.recommendations.refresh import (
+from products.error_tracking.backend.logic.recommendations import RECOMMENDATIONS_BY_TYPE
+from products.error_tracking.backend.logic.recommendations.refresh import (
     claim_for_compute,
     refresh_team_recommendations,
     revert_to_ready,
 )
+from products.error_tracking.backend.models import ErrorTrackingRecommendation
 from products.error_tracking.backend.tasks import compute_error_tracking_recommendation
 
 

@@ -6,13 +6,17 @@ from posthoganalytics import capture_exception
 
 from posthog.models.scoping import with_team_scope
 
+from products.error_tracking.backend.logic.recommendations import RECOMMENDATIONS_BY_TYPE
 from products.error_tracking.backend.models import ErrorTrackingRecommendation
-from products.error_tracking.backend.recommendations import RECOMMENDATIONS_BY_TYPE
 
 logger = structlog.get_logger(__name__)
 
 
-@shared_task(ignore_result=True, max_retries=0)
+@shared_task(
+    name="products.error_tracking.backend.tasks.compute_error_tracking_recommendation",
+    ignore_result=True,
+    max_retries=0,
+)
 @with_team_scope()
 def compute_error_tracking_recommendation(recommendation_id: str, team_id: int) -> None:
     try:

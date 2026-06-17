@@ -1,12 +1,19 @@
-"""Transitional contract types for error tracking facade.
+"""Contract types for error tracking.
 
-These dataclasses are framework-free and represent the facade boundary.
-They will move to contracts.py when the product structure migration is complete.
+Stable, framework-free frozen dataclasses that define what this product
+exposes to the rest of the codebase. No Django imports.
+
+These use ``pydantic.dataclasses.dataclass`` rather than the stdlib variant — same
+syntax, same ``is_dataclass()`` compatibility, but with runtime validation on
+construction so structural mistakes from mappers or internal callers surface at the
+facade boundary instead of producing a malformed payload further downstream.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import field
 from datetime import datetime
 from uuid import UUID
+
+from pydantic.dataclasses import dataclass
 
 
 @dataclass(frozen=True)

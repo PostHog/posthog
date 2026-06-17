@@ -47,7 +47,7 @@ from products.dashboards.backend.widgets.activity_events_list import (
 )
 from products.dashboards.backend.widgets.error_tracking_list import run_error_tracking_list_widget
 from products.dashboards.backend.widgets.session_replay_list import run_session_replay_list_widget
-from products.error_tracking.backend.api.query_utils import ERROR_TRACKING_LISTING_VOLUME_RESOLUTION
+from products.error_tracking.backend.presentation.views.query_utils import ERROR_TRACKING_LISTING_VOLUME_RESOLUTION
 
 
 class TestWidgetRegistry(APIBaseTest):

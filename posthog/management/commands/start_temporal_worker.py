@@ -179,7 +179,7 @@ from products.business_knowledge.backend.temporal import (
     ACTIVITIES as BUSINESS_KNOWLEDGE_ACTIVITIES,
     WORKFLOWS as BUSINESS_KNOWLEDGE_WORKFLOWS,
 )
-from products.error_tracking.backend.temporal import (
+from products.error_tracking.backend.facade.temporal import (
     ACTIVITIES as ERROR_TRACKING_ACTIVITIES,
     WORKFLOWS as ERROR_TRACKING_WORKFLOWS,
 )
