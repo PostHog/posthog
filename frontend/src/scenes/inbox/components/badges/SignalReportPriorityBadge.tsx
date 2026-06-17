@@ -1,7 +1,7 @@
+import { IconQuestion } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
 import { SignalReportPriority } from '../../types'
-import { JudgmentWhyLabel } from './JudgmentWhyLabel'
 
 /**
  * Per-priority color, mirroring `PRIORITY_TAG_TYPE`'s LemonTag semantics but as raw CSS vars
@@ -23,33 +23,27 @@ const PRIORITY_COLOR: Record<SignalReportPriority, string> = {
 export function SignalReportPriorityBadge({
     priority,
     explanation,
-    explanationDisplay = 'why-label',
 }: {
     priority: SignalReportPriority | null | undefined
-    /** When set, this report's priority rationale is surfaced via `explanationDisplay`. */
-    explanation?: string | null
     /**
-     * How to surface `explanation`: a "Why?" label beside the chip (default), or a tooltip on the
-     * chip itself for compact contexts like list cards, where an affix would change the chip's width.
+     * When set, a circled help icon overlays the chip's top-right corner and the whole chip is
+     * hoverable, surfacing this rationale. The icon is out of flow, so the chip stays a square.
      */
-    explanationDisplay?: 'why-label' | 'tooltip'
+    explanation?: string | null
 }): JSX.Element | null {
     if (priority == null) {
         return null
     }
 
     const color = PRIORITY_COLOR[priority]
-    const hasExplanation = !!explanation?.trim()
-    const asTooltip = hasExplanation && explanationDisplay === 'tooltip'
+    const borderColor = `color-mix(in srgb, ${color} 40%, transparent)`
     const chip = (
         <span
-            className={`inline-flex size-6 items-center justify-center rounded-sm border text-[10px] font-semibold tabular-nums select-none${
-                asTooltip ? ' cursor-help' : ''
-            }`}
+            className="inline-flex size-6 shrink-0 items-center justify-center rounded-sm border text-[10px] font-semibold tabular-nums select-none"
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 color,
-                borderColor: `color-mix(in srgb, ${color} 40%, transparent)`,
+                borderColor,
                 backgroundColor: `color-mix(in srgb, ${color} 14%, transparent)`,
             }}
         >
@@ -57,16 +51,20 @@ export function SignalReportPriorityBadge({
         </span>
     )
 
-    if (!hasExplanation) {
+    if (!explanation?.trim()) {
         return chip
     }
-    if (explanationDisplay === 'tooltip') {
-        return <Tooltip title={explanation}>{chip}</Tooltip>
-    }
+    // Icon center sits on the (rounded) top-right corner; matches the chip's text color, with its own bg to stay legible.
     return (
-        <span className="inline-flex items-center gap-1">
-            {chip}
-            <JudgmentWhyLabel explanation={explanation} />
-        </span>
+        <Tooltip title={explanation}>
+            <span className="relative inline-flex cursor-help">
+                {chip}
+                <IconQuestion
+                    className="absolute right-0 top-0 size-3 -translate-y-1/2 translate-x-1/2 rounded-full bg-surface-primary"
+                    // eslint-disable-next-line react/forbid-dom-props
+                    style={{ color }}
+                />
+            </span>
+        </Tooltip>
     )
 }

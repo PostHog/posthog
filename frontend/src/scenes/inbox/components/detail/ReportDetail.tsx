@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import { ReactNode } from 'react'
 
-import { IconArrowLeft, IconCode, IconDocument, IconExternal, IconPullRequest, IconSearch } from '@posthog/icons'
+import { IconCode, IconDocument, IconExternal, IconPullRequest, IconSearch } from '@posthog/icons'
 import { LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -13,9 +13,11 @@ import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { SignalNode } from 'scenes/debug/signals/types'
 import { urls } from 'scenes/urls'
 
+import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
+
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalCard } from '../../SignalCard'
-import { InboxTabKey, INBOX_TAB_LABEL, SignalReport, SignalReportStatus } from '../../types'
+import { InboxTabKey, SignalReport, SignalReportStatus } from '../../types'
 import {
     displayConventionalCommitTitle,
     ParsedPrUrlParts,
@@ -34,16 +36,28 @@ import { ReportDetailActions } from './ReportDetailActions'
 import { ReportTasksSection } from './ReportTasksSection'
 import { SuggestedReviewersSection } from './SuggestedReviewersSection'
 
-/** Status / priority / actionability badges for a report's detail header. Mirrors desktop `InboxDetailFrame`. */
-export function ReportDetailBadges({ report }: { report: SignalReport }): JSX.Element {
+/**
+ * Status / priority / actionability badges for a report's detail header. Mirrors desktop `InboxDetailFrame`.
+ * The judgment rationale (when present) is sourced from the detail logic's loaded artefacts and surfaced by
+ * a circled help icon overlaying the chip's top-right corner; the chip is then hoverable for the rationale.
+ */
+export function ReportDetailBadges({
+    report,
+    priorityExplanation,
+    actionabilityExplanation,
+}: {
+    report: SignalReport
+    priorityExplanation?: string | null
+    actionabilityExplanation?: string | null
+}): JSX.Element {
     return (
         <>
-            <SignalReportPriorityBadge priority={report.priority} explanation={report.priority_explanation} />
+            <SignalReportPriorityBadge priority={report.priority} explanation={priorityExplanation} />
             {/* "Ready" is the default terminal state; once actionability is known, surface that instead. */}
             {(report.status !== 'ready' || !report.actionability) && <SignalReportStatusBadge status={report.status} />}
             <SignalReportActionabilityBadge
                 actionability={report.actionability}
-                explanation={report.actionability_explanation}
+                explanation={actionabilityExplanation}
             />
             {report.is_suggested_reviewer && <ForYouBadge />}
         </>
@@ -56,7 +70,15 @@ export function ReportDetailBadges({ report }: { report: SignalReport }): JSX.El
  * it meaningfully differs from created. `evidenceCount` switches to the live signal count once
  * findings load, so the row reads the same before and after the query resolves.
  */
-function ReportDetailMeta({ report, evidenceCount }: { report: SignalReport; evidenceCount: number }): JSX.Element {
+function ReportDetailMeta({
+    report,
+    evidenceCount,
+    actionabilityExplanation,
+}: {
+    report: SignalReport
+    evidenceCount: number
+    actionabilityExplanation?: string | null
+}): JSX.Element {
     const hasSource = hasKnownSourceProduct(report.source_products)
     // "Ready" is the default terminal state; surface the status chip only until actionability is known.
     const showStatus = report.status !== 'ready' || !report.actionability
@@ -95,7 +117,7 @@ function ReportDetailMeta({ report, evidenceCount }: { report: SignalReport; evi
             {showStatus && <SignalReportStatusBadge status={report.status} />}
             <SignalReportActionabilityBadge
                 actionability={report.actionability}
-                explanation={report.actionability_explanation}
+                explanation={actionabilityExplanation}
             />
             {report.is_suggested_reviewer && <ForYouBadge />}
             <span className="flex items-center gap-2 flex-wrap min-w-0">
@@ -197,7 +219,7 @@ export function ReportDetailSkeleton(): JSX.Element {
 
 interface InboxDetailFrameProps {
     report: SignalReport
-    /** Active inbox tab — drives the back link + copy-link target in the merged header. */
+    /** Active inbox tab — drives the copy-link target in the merged header. */
     tab: InboxTabKey
     /** Summary section heading icon + title. */
     summary: { icon: ReactNode; title: string }
@@ -209,7 +231,7 @@ interface InboxDetailFrameProps {
 
 /**
  * Shared chrome for the Report and Pull request detail bodies. Owns the full page header
- * (back link, title, copy link) merged with the badges/meta/actions, then summary on the left
+ * (title, copy link) merged with the badges/meta/actions, then summary on the left
  * and supporting sections (Evidence, Runs, Reviewers) on the right. Mirrors desktop
  * `InboxDetailFrame`. AgentRunDetail keeps its own layout + shell header.
  */
@@ -220,7 +242,9 @@ export function InboxDetailFrame({
     primaryAction,
     children,
 }: InboxDetailFrameProps): JSX.Element {
-    const { reportSignals, reportSignalsLoading } = useValues(inboxReportDetailLogic({ reportId: report.id, report }))
+    const { reportSignals, reportSignalsLoading, priorityExplanation, actionabilityExplanation } = useValues(
+        inboxReportDetailLogic({ reportId: report.id, report })
+    )
     const signals = reportSignals ?? []
     const evidenceCount = reportSignals !== null ? signals.length : report.signal_count
     const hasEvidence = evidenceCount > 0
@@ -235,35 +259,35 @@ export function InboxDetailFrame({
     return (
         <div className="@container w-full max-w-[calc(160ch+5rem)] mx-auto px-6 py-5 text-sm">
             <div className="flex flex-col gap-3.5 mb-6 pb-5 border-b border-primary">
-                <Link
-                    to={urls.inbox(tab)}
-                    className="inline-flex w-fit items-center gap-1.5 text-[12.5px] text-secondary hover:text-default no-underline"
-                >
-                    <IconArrowLeft className="text-sm" />
-                    {INBOX_TAB_LABEL[tab]}
-                </Link>
                 <div className="flex items-start justify-between gap-4 flex-wrap">
-                    {/* Priority square anchors the title; everything else collapses into the meta line. */}
-                    <div className="flex items-start gap-3 min-w-0 flex-1">
-                        {report.priority && (
-                            <div className="shrink-0 mt-0.5">
-                                <SignalReportPriorityBadge
-                                    priority={report.priority}
-                                    explanation={report.priority_explanation}
+                    {/* Back arrow + priority square anchor the title; everything else collapses into the meta line. */}
+                    <div className="flex items-start gap-2 min-w-0 flex-1 -ml-[var(--button-padding-x-base)]">
+                        <SceneBreadcrumbBackButton className="mt-0.5 shrink-0" />
+                        <div className="flex items-start gap-3 min-w-0 flex-1">
+                            {report.priority && (
+                                <div className="shrink-0 mt-0.5">
+                                    <SignalReportPriorityBadge
+                                        priority={report.priority}
+                                        explanation={priorityExplanation}
+                                    />
+                                </div>
+                            )}
+                            <div className="flex flex-col gap-2 min-w-0">
+                                <h1 className="min-w-0 m-0 break-words text-xl font-bold leading-tight tracking-tight">
+                                    {conventionalTitle && (
+                                        <ConventionalCommitScopeTag
+                                            type={conventionalTitle.type}
+                                            scope={conventionalTitle.scope}
+                                        />
+                                    )}
+                                    {displayTitle}
+                                </h1>
+                                <ReportDetailMeta
+                                    report={report}
+                                    evidenceCount={evidenceCount}
+                                    actionabilityExplanation={actionabilityExplanation}
                                 />
                             </div>
-                        )}
-                        <div className="flex flex-col gap-2 min-w-0">
-                            <h1 className="min-w-0 m-0 break-words text-xl font-bold leading-tight tracking-tight">
-                                {conventionalTitle && (
-                                    <ConventionalCommitScopeTag
-                                        type={conventionalTitle.type}
-                                        scope={conventionalTitle.scope}
-                                    />
-                                )}
-                                {displayTitle}
-                            </h1>
-                            <ReportDetailMeta report={report} evidenceCount={evidenceCount} />
                         </div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">

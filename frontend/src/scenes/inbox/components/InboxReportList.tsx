@@ -79,7 +79,7 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
             <InboxBulkSelectionBar />
 
             {showSkeleton ? (
-                <CardSkeleton count={Math.min(count ?? 4, 6)} variant="cards" />
+                <CardSkeleton count={Math.min(count ?? 4, 6)} variant="cards" dashed={tabKey !== 'pulls'} />
             ) : reports.length === 0 ? (
                 <div className="mx-auto max-w-md flex flex-col items-center text-center py-12 gap-2">
                     <div className="flex items-center justify-center h-12 w-12 rounded-full bg-fill-primary text-secondary mb-1">
@@ -101,7 +101,9 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
                             />
                         ))}
                         {/* Skeleton cards continue the list while the next page loads – sleeker than a spinner. */}
-                        {isLoaded && reportsResponseLoading && <CardSkeleton count={2} variant="cards" />}
+                        {isLoaded && reportsResponseLoading && (
+                            <CardSkeleton count={2} variant="cards" dashed={tabKey !== 'pulls'} />
+                        )}
                     </div>
                     {hasMore && <div ref={sentinelRef} className="h-1" aria-hidden />}
                 </>

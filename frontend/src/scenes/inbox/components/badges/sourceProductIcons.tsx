@@ -5,6 +5,7 @@ import {
     IconCompass,
     IconDatabase,
     IconGithub,
+    IconHeartPlus,
     IconList,
     IconRewindPlay,
     IconStack,
@@ -85,6 +86,11 @@ export const SOURCE_PRODUCT_META: Partial<Record<SignalSourceProduct, SourceProd
         Icon: IconList,
         color: 'var(--text-secondary)',
         label: 'Logs',
+    },
+    [SignalSourceProduct.HEALTH_CHECKS]: {
+        Icon: IconHeartPlus,
+        color: 'var(--danger)',
+        label: 'Health checks',
     },
 }
 

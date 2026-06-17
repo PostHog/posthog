@@ -60,6 +60,23 @@ export function getTaskPrUrl(task: Task): string | null {
 }
 
 /**
+ * `explanation` text from the latest judgment artefact of `type`, or null. The priority/actionability
+ * judgment artefacts already carry the agent's rationale — surfaced in the detail view without any extra fetch.
+ */
+function latestJudgmentExplanation(
+    artefacts: SignalReportArtefact[] | null,
+    type: 'priority_judgment' | 'actionability_judgment'
+): string | null {
+    const matching = (artefacts ?? []).filter((a) => a.type === type)
+    if (matching.length === 0) {
+        return null
+    }
+    const latest = matching.reduce((a, b) => (b.created_at > a.created_at ? b : a))
+    const explanation = latest.content?.explanation
+    return typeof explanation === 'string' && explanation.trim() ? explanation : null
+}
+
+/**
  * Per-selected-report detail logic: artefacts, contributing signals, suggested reviewers, and linked tasks.
  * Keyed by `reportId` so each open report gets its own mounted instance. Does NOT import `inboxSceneLogic`
  * (the report id is passed in as a prop) to avoid a logic cycle.
@@ -173,6 +190,17 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         isReportActive: [
             (s) => [s.report],
             (report: SignalReport | null): boolean => (report ? ACTIVE_STATUSES.includes(report.status) : false),
+        ],
+        // Rationale behind the priority / actionability judgments, pulled from the already-loaded artefacts.
+        priorityExplanation: [
+            (s) => [s.reportArtefacts],
+            (reportArtefacts: SignalReportArtefact[] | null): string | null =>
+                latestJudgmentExplanation(reportArtefacts, 'priority_judgment'),
+        ],
+        actionabilityExplanation: [
+            (s) => [s.reportArtefacts],
+            (reportArtefacts: SignalReportArtefact[] | null): string | null =>
+                latestJudgmentExplanation(reportArtefacts, 'actionability_judgment'),
         ],
         // The reviewer list to render: optimistic override (if any) wins over the artefact-derived list,
         // then the current user is pinned to the top. Mirrors desktop `displayReviewers`.

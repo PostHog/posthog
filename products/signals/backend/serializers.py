@@ -273,12 +273,6 @@ class SignalReportSerializer(serializers.ModelSerializer):
     actionability = serializers.SerializerMethodField(
         help_text="Actionability choice from the latest actionability judgment artefact (when present).",
     )
-    priority_explanation = serializers.SerializerMethodField(
-        help_text="Short rationale for the assigned priority, from the latest priority judgment artefact (when present).",
-    )
-    actionability_explanation = serializers.SerializerMethodField(
-        help_text="Short rationale for the actionability assessment, from the latest actionability judgment artefact (when present).",
-    )
     already_addressed = serializers.SerializerMethodField(
         help_text="Whether the issue appears already fixed, from the actionability judgment artefact.",
     )
@@ -305,8 +299,6 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "artefact_count",
             "priority",
             "actionability",
-            "priority_explanation",
-            "actionability_explanation",
             "already_addressed",
             "is_suggested_reviewer",
             "source_products",
@@ -332,7 +324,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             return None
         return data if isinstance(data, dict) else None
 
-    def _get_priority_artefact_data(self, obj: SignalReport) -> dict | None:
+    def get_priority(self, obj: SignalReport) -> str | None:
         prefetched = getattr(obj, "prefetched_priority_artefacts", None)
         if prefetched is not None:
             art = prefetched[0] if prefetched else None
@@ -348,11 +340,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             data = json.loads(art.content)
         except (json.JSONDecodeError, TypeError, ValueError):
             return None
-        return data if isinstance(data, dict) else None
-
-    def get_priority(self, obj: SignalReport) -> str | None:
-        data = self._get_priority_artefact_data(obj)
-        if data is None:
+        if not isinstance(data, dict):
             return None
         p = data.get("priority")
         return p if isinstance(p, str) else None
@@ -362,20 +350,6 @@ class SignalReportSerializer(serializers.ModelSerializer):
         if data is None:
             return None
         value = data.get("actionability")
-        return value if isinstance(value, str) else None
-
-    def get_priority_explanation(self, obj: SignalReport) -> str | None:
-        data = self._get_priority_artefact_data(obj)
-        if data is None:
-            return None
-        value = data.get("explanation")
-        return value if isinstance(value, str) else None
-
-    def get_actionability_explanation(self, obj: SignalReport) -> str | None:
-        data = self._get_actionability_artefact_data(obj)
-        if data is None:
-            return None
-        value = data.get("explanation")
         return value if isinstance(value, str) else None
 
     def get_already_addressed(self, obj: SignalReport) -> bool | None:

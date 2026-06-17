@@ -99,7 +99,9 @@ export const ReportCardStates: Story = {
 export const Skeleton: Story = {
     render: () => (
         <Stack>
-            <CardSkeleton count={5} />
+            {/* Dashed report/not-actionable card skeletons, then solid PR card skeletons – matching the live tabs. */}
+            <CardSkeleton count={3} variant="cards" />
+            <CardSkeleton count={2} variant="cards" dashed={false} />
         </Stack>
     ),
 }

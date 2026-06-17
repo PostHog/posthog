@@ -162,16 +162,19 @@ function RunStateStrip({ report }: { report: SignalReport }): JSX.Element {
  * Mirrors desktop `AgentRunDetail`'s intent with cloud's existing task-detail run log.
  */
 export function AgentRunDetail({ report }: { report: SignalReport }): JSX.Element {
-    const { reportSignals, reportSignalsLoading, isReResearch } = useValues(
-        inboxReportDetailLogic({ reportId: report.id, report })
-    )
+    const { reportSignals, reportSignalsLoading, isReResearch, priorityExplanation, actionabilityExplanation } =
+        useValues(inboxReportDetailLogic({ reportId: report.id, report }))
     const signals = reportSignals ?? []
     const evidenceCount = reportSignals !== null ? signals.length : report.signal_count
 
     return (
         <div className="@container w-full max-w-[calc(160ch+5rem)] mx-auto px-6 py-5 text-sm">
             <div className="flex items-center gap-2 flex-wrap mb-4">
-                <ReportDetailBadges report={report} />
+                <ReportDetailBadges
+                    report={report}
+                    priorityExplanation={priorityExplanation}
+                    actionabilityExplanation={actionabilityExplanation}
+                />
                 {isReResearch && (
                     <Tooltip title="A prior research run on this report already completed – this is a re-attempt.">
                         <LemonTag size="small" type="warning" className="cursor-help select-none">

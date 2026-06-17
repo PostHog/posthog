@@ -104,13 +104,13 @@ function PrBadge({
     }
 
     return (
-        <Tooltip title={`Open pull request #${prNumber} on GitHub`}>
+        <Tooltip title={`Open pull request #${prNumber} (${label}) on GitHub`}>
             <Link
                 to={prUrl}
                 target="_blank"
                 disableClientSideRouting
                 onClick={(e) => e.stopPropagation()}
-                aria-label={`Open pull request #${prNumber} on GitHub`}
+                aria-label={`Open pull request #${prNumber} (${label}) on GitHub`}
             >
                 {badge}
             </Link>
@@ -176,11 +176,7 @@ export function ReportCard({
             <Link to={detailUrl} className="flex min-w-0 flex-1 items-start gap-3 text-left text-inherit no-underline">
                 {report.priority && (
                     <div className="shrink-0">
-                        <SignalReportPriorityBadge
-                            priority={report.priority}
-                            explanation={report.priority_explanation}
-                            explanationDisplay="tooltip"
-                        />
+                        <SignalReportPriorityBadge priority={report.priority} />
                     </div>
                 )}
 
@@ -214,10 +210,7 @@ export function ReportCard({
                                 <SignalReportStatusBadge status={report.status} />
                             )}
                             {!hasPr && report.actionability && (
-                                <SignalReportActionabilityBadge
-                                    actionability={report.actionability}
-                                    explanation={report.actionability_explanation}
-                                />
+                                <SignalReportActionabilityBadge actionability={report.actionability} />
                             )}
                         </div>
                     ) : null}
