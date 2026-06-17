@@ -26,6 +26,7 @@ import { ENTITY_MATCH_TYPE } from 'lib/constants'
 import { scrollToFormError } from 'lib/forms/scrollToFormError'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { objectsEqual } from 'lib/utils/objects'
 import { isOperatorDate } from 'lib/utils/operators'
 import { NEW_COHORT, NEW_CRITERIA, NEW_CRITERIA_GROUP } from 'scenes/cohorts/CohortFilters/constants'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
@@ -264,6 +265,24 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                             select: source.select ?? defaultSelect,
                         },
                     }
+                },
+            },
+        ],
+        // User's column selection for this cohort's persons table, persisted per-cohort in
+        // localStorage (the logic is keyed by cohort id). Lets a refresh restore the columns
+        // even when the user hasn't saved them as a team-wide default.
+        persistedColumns: [
+            null as string[] | null,
+            { persist: true },
+            {
+                setQuery: (state, { query }) => {
+                    if (isDataTableNode(query)) {
+                        const select = (query.source as ActorsQuery).select
+                        if (select) {
+                            return select
+                        }
+                    }
+                    return state
                 },
             },
         ],
@@ -617,6 +636,17 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         ],
     })),
     listeners(({ actions, values }) => ({
+        setCohort: () => {
+            // Restore the user's persisted column selection, overriding the defaults the
+            // setCohort reducer just applied to the persons query.
+            const { persistedColumns, query } = values
+            if (persistedColumns && isDataTableNode(query)) {
+                const source = query.source as ActorsQuery
+                if (!objectsEqual(source.select, persistedColumns)) {
+                    actions.setQuery({ ...query, source: { ...source, select: persistedColumns } })
+                }
+            }
+        },
         setCriteria: ({ newCriteria, groupIndex, criteriaIndex }) => {
             // When the person property key changes, auto-reset the operator to match the
             // property type (DateTime → "on the date", non-DateTime → "equals").

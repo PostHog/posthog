@@ -73,6 +73,9 @@ describe('cohortEditLogic', () => {
     }
 
     beforeEach(async () => {
+        // Persisted column selection lives in localStorage keyed by cohort id — clear it so
+        // column state doesn't leak between tests that reuse the same cohort id.
+        window.localStorage.clear()
         useMocks({
             get: {
                 '/api/projects/:team_id/cohorts/': toPaginatedResponse([mockCohort]),
@@ -1083,6 +1086,29 @@ describe('cohortEditLogic', () => {
             }).toDispatchActions(['setCohort'])
 
             // Custom columns should still be preserved after save
+            expect((logic.values.query.source as ActorsQuery).select).toEqual(customColumns)
+        })
+
+        it('restores persisted columns after a page refresh (remount)', async () => {
+            await initCohortLogic({ id: 1 })
+            await expectLogic(logic).toFinishAllListeners()
+
+            const customColumns = ['person_display_name -- Person', 'id', 'created_at', 'properties.$browser']
+            await expectLogic(logic, () => {
+                logic.actions.setQuery({
+                    ...logic.values.query,
+                    source: { ...(logic.values.query.source as ActorsQuery), select: customColumns },
+                } as DataTableNode)
+            }).toDispatchActions(['setQuery'])
+            expect(logic.values.persistedColumns).toEqual(customColumns)
+
+            // Simulate a refresh: tear down and rebuild the logic for the same cohort
+            logic.unmount()
+            logic = cohortEditLogic({ id: 1 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            // Columns should come back from localStorage instead of resetting to defaults
             expect((logic.values.query.source as ActorsQuery).select).toEqual(customColumns)
         })
     })
