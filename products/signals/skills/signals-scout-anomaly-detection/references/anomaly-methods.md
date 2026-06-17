@@ -230,14 +230,39 @@ mix shift), and they don't tell you _where_ a drift started. A two-sample
 in the explore phase when a watched series looks fine on the mean but you suspect a shape/mix
 change, or to pin the onset of a drift a level detector already flagged.
 
-**The tool.** `scripts/ks2.py` is bundled with this skill (pure stdlib — no numpy/scipy, which
-aren't in the sandbox). Run it via `Bash`, JSON on stdin → JSON verdict:
+**Running it.** A scheduled run has `Bash` + `python3` but **no repo and no bundled file on
+disk** — skill files arrive via `llma-skill-file-get`, not the filesystem — so don't assume
+`scripts/ks2.py` is on a path. Two ways to run KS (no numpy/scipy needed; neither is in the
+sandbox):
 
-- `{"a": [...], "b": [...]}` — two raw samples → `{"d", "p", ...}`.
-- `{"a_hist": [[value, count], ...], "b_hist": [...]}` — the **cheap path**: two histograms
-  instead of raw values.
-- `{"mode": "changepoint", "series": [...ordered...], "min_seg": 24}` → the split index whose
-  left/right distributions differ most.
+- **Inline** (zero dependencies) — paste a self-contained heredoc for a quick two-sample check:
+
+  ```bash
+  python3 - <<'PY'
+  import json, math
+  def ks(a, b):
+      a = sorted(a); b = sorted(b); n, m = len(a), len(b)
+      i = j = 0; d = 0.0
+      while i < n and j < m:
+          x = a[i] if a[i] <= b[j] else b[j]
+          while i < n and a[i] <= x: i += 1
+          while j < m and b[j] <= x: j += 1
+          d = max(d, abs(i/n - j/m))
+      en = math.sqrt(n*m/(n+m)); t = (en + 0.12 + 0.11/en)*d
+      p = sum(2*(-1)**(k-1)*math.exp(-2*k*k*t*t) for k in range(1, 101))
+      return d, max(0.0, min(1.0, p))
+  a = []   # window A (seasonality-matched to B)
+  b = []   # window B
+  d, p = ks(a, b); print(json.dumps({"d": round(d, 4), "p": p}))
+  PY
+  ```
+
+- **Full helper** — the tested implementation (raw + binned two-sample, and the changepoint
+  sweep with a multiple-comparisons `p_adj`) is bundled at `scripts/ks2.py`. Fetch it with
+  `llma-skill-file-get` (`file_path: scripts/ks2.py`), write it to `/tmp/ks2.py`, then pipe
+  JSON in: `echo '{"mode":"changepoint","series":[...]}' | python3 /tmp/ks2.py`. Request
+  shapes: `{"a": [...], "b": [...]}`; `{"a_hist": [[value, count], ...], "b_hist": [...]}`
+  (the cheap path); `{"mode": "changepoint", "series": [...ordered...], "min_seg": 24}`.
 
 **Pull histograms, not raw rows.** `execute-sql` caps at 500 rows, and raw samples are
 token-heavy. Instead `GROUP BY` a value-bucket expression (e.g.
@@ -258,14 +283,19 @@ because it's so sensitive.
 size** `D` (the max CDF gap — a real separation, not a hair), and a move not explained by
 seasonality or a pipeline gap. On large samples p goes tiny on trivial differences, so `D` and
 the windows compared are the real evidence — put both in the finding, plus the changepoint
-timestamp when you have one.
+timestamp when you have one. For a **changepoint**, the returned `p` is a **scan minimum**: the
+sweep picked the split that maximized `D` over many candidates, so `p` is biased low by
+multiple comparisons. Use `p_adj` (the Bonferroni-corrected value the helper returns), and
+confirm the chosen split with a direct two-sample KS on seasonality-matched windows before
+treating it as emit evidence — never emit on the raw scan `p` alone.
 
-**Worked example (real, project 2).** Hourly `$rageclick / $pageview` rate, 480 buckets: the
-changepoint sweep located the regression at **2026-06-08 02:00** (`D ≈ 0.86`, `p ≈ 7e-16`);
-the pre-week vs the regression day gave `D ≈ 0.76`; two ordinary weeks compared against each
-other gave `D ≈ 0.06`, `p ≈ 0.92` (silent — no false positive). The level detectors saw a
-~30% rate drop; KS additionally pinned _when_ it broke and confirmed it as a genuine
-distribution shift, not noise.
+**Worked example.** A high-volume hourly rate metric (~480 hourly buckets) with a genuine level
+shift partway through the window: the changepoint sweep located the break at the shift hour
+(`D ≈ 0.86`, corrected `p_adj` tiny); a clean prior week vs the shifted day gave `D ≈ 0.76`;
+two ordinary like-for-like weeks compared against each other gave `D ≈ 0.06`, `p ≈ 0.92`
+(silent — no false positive). The level detectors saw the drop in magnitude; KS additionally
+pinned _when_ it broke and confirmed a genuine distribution shift, not noise — while staying
+quiet on seasonality-matched windows.
 
 ## Per-insight-type recipes (all insight types are in scope)
 

@@ -80,19 +80,30 @@ def ks_2samp_binned(a_hist: list[list[float]], b_hist: list[list[float]]) -> tup
 
 
 def changepoint(series: list[float], min_seg: int = 8) -> dict:
-    """Find the split index whose left/right value distributions differ most (max D)."""
+    """Find the split index whose left/right value distributions differ most (max D).
+
+    The sweep picks the split that maximizes D over many candidates, so the winning
+    `p` is a **scan minimum** — biased low by multiple comparisons and NOT a
+    single-hypothesis p-value. Use `p_adj` (Bonferroni over `tests`) as the calibrated
+    figure, and confirm the chosen split with a direct two-sample KS on
+    seasonality-matched windows before treating it as emit evidence.
+    """
     n = len(series)
     if n < 2 * min_seg:
         return {"changepoint": None, "reason": f"need >= {2 * min_seg} points, got {n}"}
     best = {"index": None, "d": 0.0, "p": 1.0}
+    tests = 0
     for c in range(min_seg, n - min_seg + 1):
+        tests += 1
         d, p = ks_2samp(series[:c], series[c:])
         if d > best["d"]:
             best = {"index": c, "d": d, "p": p}
     return {
         "changepoint": best["index"],
         "d": round(best["d"], 4),
-        "p": best["p"],
+        "p": best["p"],  # scan minimum — uncorrected; see p_adj
+        "p_adj": min(1.0, best["p"] * tests),  # Bonferroni over the scan
+        "tests": tests,
         "n": n,
     }
 
@@ -102,9 +113,12 @@ def main() -> None:
     mode = req.get("mode", "two_sample")
     if mode == "changepoint":
         out = changepoint(req["series"], min_seg=req.get("min_seg", 8))
-    elif "a_hist" in req:
-        d, p = ks_2samp_binned(req["a_hist"], req["b_hist"])
-        out = {"d": round(d, 4), "p": p, "na": sum(c for _, c in req["a_hist"]), "nb": sum(c for _, c in req["b_hist"])}
+    elif "a_hist" in req or "b_hist" in req:
+        if "a_hist" not in req or "b_hist" not in req:
+            out = {"error": "binned mode needs both a_hist and b_hist"}
+        else:
+            d, p = ks_2samp_binned(req["a_hist"], req["b_hist"])
+            out = {"d": round(d, 4), "p": p, "na": sum(c for _, c in req["a_hist"]), "nb": sum(c for _, c in req["b_hist"])}
     else:
         d, p = ks_2samp(req["a"], req["b"])
         out = {"d": round(d, 4), "p": p, "n": len(req["a"]), "m": len(req["b"])}
