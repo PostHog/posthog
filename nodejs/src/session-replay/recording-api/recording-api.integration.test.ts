@@ -492,13 +492,10 @@ describe('Recording API encryption integration', () => {
 
         async function setupDynamoDBTable(): Promise<void> {
             try {
-                await dynamoDBClient.send(new DescribeTableCommand({ TableName: KEYS_TABLE_NAME }))
                 await dynamoDBClient.send(new DeleteTableCommand({ TableName: KEYS_TABLE_NAME }))
                 await waitForTableDeletion()
-            } catch (error) {
-                if (!isResourceNotFoundException(error)) {
-                    throw error
-                }
+            } catch {
+                // Best-effort cleanup: table absence and Localstack's modeled errors vary in CI.
             }
 
             await dynamoDBClient.send(
