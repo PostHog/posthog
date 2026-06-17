@@ -164,6 +164,11 @@ on every iteration.
 - [ ] Move `clientwarnings` -> `ingestionwarnings` lane dir.
 - [ ] Place each shared module in its correct common tier.
 - [ ] Add moved lanes to the guard's `LANES` set.
+- [ ] Resolve the 2 deferred intra-ingestion edges (`analytics` -> `ai` via `createAiEventSubpipeline`,
+      and `ingestion-consumer` -> `analytics`). Intent (per product owner): AI and analytics are
+      separate lanes in the long run, but the split is still mid-migration so the boundary is blurry
+      today — lean toward separation (e.g. wire the AI sub-pipeline at the composition root rather
+      than the analytics lane importing it) without forcing a premature clean break.
 
 ### Phase 3 — split mixed tests
 
