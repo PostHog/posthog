@@ -46,7 +46,7 @@ class GitProtocolParser(BaseParser):
 
     media_type = "*/*"
 
-    def parse(self, stream, media_type=None, parser_context=None) -> str:
+    def parse(self, stream, media_type=None, parser_context=None) -> str:  # type: ignore[override]  # passthrough returns a str, not the base Mapping/DataAndFiles
         return stream.read(_MAX_GIT_REQUEST_BYTES).decode("latin-1")
 
 
@@ -111,7 +111,7 @@ class LLMSkillMarketplaceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     def marketplace_upload_pack(self, request: Request, **kwargs: Any) -> HttpResponse:
         # GitProtocolParser consumed the stream into request.data (a latin-1 str), so request.body
         # is no longer readable — recover the raw bytes from the parsed value.
-        parsed = request.data
+        parsed: Any = request.data
         body = parsed.encode("latin-1") if isinstance(parsed, str) else bytes(parsed or b"")
         repo = self._synthesize()
         return HttpResponse(

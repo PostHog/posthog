@@ -420,7 +420,9 @@ class TestMarketplaceInstallCommand(APIBaseTest):
         # No new key, and the stored secret is untouched — existing setups keep working.
         assert PersonalAPIKey.objects.filter(user=self.user).count() == 1
         original.refresh_from_db()
-        assert self._credential().secure_value == original.secure_value
+        reloaded = self._credential()
+        assert reloaded is not None
+        assert reloaded.secure_value == original.secure_value
 
     def test_post_with_rotate_rolls_same_key_and_issues_fresh_token(self, _mock_flag):
         self.client.post(self._url())
@@ -437,6 +439,7 @@ class TestMarketplaceInstallCommand(APIBaseTest):
         # token matches the stored hash (the rotate is atomic — no lost update).
         assert PersonalAPIKey.objects.filter(user=self.user).count() == 1
         rolled = self._credential()
+        assert rolled is not None
         assert rolled.id == original.id
         assert rolled.secure_value != old_secure
         assert rolled.last_rolled_at is not None

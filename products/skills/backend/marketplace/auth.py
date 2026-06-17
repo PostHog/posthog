@@ -21,7 +21,6 @@ from typing import Optional, Union
 
 from django.http import HttpRequest
 
-from rest_framework import authentication
 from rest_framework.request import Request
 
 from posthog.auth import PersonalAPIKeyAuthentication
@@ -43,7 +42,9 @@ class MarketplaceGitBasicAuthentication(PersonalAPIKeyAuthentication):
 
     @staticmethod
     def _extract_basic_token(request: Union[HttpRequest, Request]) -> Optional[str]:
-        header = authentication.get_authorization_header(request).decode("latin1")
+        header = request.META.get("HTTP_AUTHORIZATION", "")
+        if isinstance(header, bytes):
+            header = header.decode("latin1")
         if not header.lower().startswith("basic "):
             return None
         try:
@@ -58,6 +59,7 @@ class MarketplaceGitBasicAuthentication(PersonalAPIKeyAuthentication):
             return token
         return None
 
-    def authenticate_header(self, request: Union[HttpRequest, Request]) -> str:
+    @classmethod
+    def authenticate_header(cls, request) -> str:
         # A Basic challenge makes git retry through its credential helper instead of failing hard.
         return 'Basic realm="PostHog Skills Marketplace"'

@@ -93,12 +93,12 @@ def validate_skill_body_size(body: str) -> str:
     return body
 
 
-def validate_allowed_tool(value: str) -> str:
+def validate_allowed_tool(value: str) -> None:
     # The Agent Skills spec serializes allowed-tools as a single space-separated string, so a tool
     # name containing whitespace would silently fracture into multiple tools on export/round-trip.
+    # Returns None (raise-only) so it fits a DRF `validators=[...]` list.
     if any(ch.isspace() for ch in value):
         raise serializers.ValidationError("Tool names cannot contain whitespace.")
-    return value
 
 
 class LLMSkillFetchQuerySerializer(serializers.Serializer):
@@ -602,7 +602,9 @@ class LLMSkillMarketplaceCommandSerializer(serializers.Serializer):
     )
     plugin_name = serializers.CharField(help_text="The plugin name the command installs (Claude Code and Codex).")
     marketplace_name = serializers.CharField(help_text="The marketplace name, used by the Codex install command.")
-    label = serializers.CharField(help_text="Label of this user's marketplace credential (a scoped Personal API Key).")
+    label = serializers.CharField(  # type: ignore[assignment]  # field name shadows Field.label (str); intentional
+        help_text="Label of this user's marketplace credential (a scoped Personal API Key)."
+    )
     repo_url = serializers.CharField(help_text="The marketplace git repository URL, with no credential embedded.")
     command = serializers.CharField(
         allow_null=True,

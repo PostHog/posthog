@@ -4,6 +4,8 @@ Everything that touches the database for export/marketplace lives here, so the
 serialization and git synthesis stay unit-testable without booting the app.
 """
 
+from typing import Any
+
 from django.core.cache import cache
 from django.db.models import Max
 
@@ -154,8 +156,8 @@ def _skill_files_are_tree_safe(files: list[LLMSkillFile]) -> bool:
     return True
 
 
-def _files_by_skill_id(skills: list[LLMSkill]) -> dict[str, list[LLMSkillFile]]:
-    grouped: dict[str, list[LLMSkillFile]] = {}
+def _files_by_skill_id(skills: list[LLMSkill]) -> dict[Any, list[LLMSkillFile]]:
+    grouped: dict[Any, list[LLMSkillFile]] = {}  # keyed by skill UUID (matches skill.id lookups)
     if not skills:
         return grouped
     for skill_file in LLMSkillFile.objects.filter(skill__in=skills).order_by("path"):
