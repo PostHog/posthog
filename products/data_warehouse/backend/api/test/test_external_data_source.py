@@ -15,6 +15,7 @@ from django.utils import timezone
 import psycopg
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     SourceFieldFileUploadConfig,
@@ -451,14 +452,33 @@ class TestExternalDataSource(APIBaseTest):
         assert mock_sync_external_data_job_workflow.call_args.kwargs == {"create": False, "should_sync": True}
         assert mock_sync_external_data_job_workflow.call_args.args[0].id == schema.id
 
+    @parameterized.expand(
+        [
+            (
+                "db_error",
+                psycopg.OperationalError("the connection is closed"),
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "database",
+            ),
+            (
+                "validation_error",
+                ValidationError("Table1 cannot be changed"),
+                status.HTTP_400_BAD_REQUEST,
+                "cannot be changed",
+            ),
+        ]
+    )
     @patch(
         "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
         return_value=False,
     )
-    def test_bulk_update_schemas_db_failure_does_not_roll_back_other_schemas(self, _mock_workflow_exists):
-        # Each schema is committed in its own transaction. A database error on one schema (e.g. a
-        # dropped connection mid-save) must not roll back the schemas that already saved, and must
-        # be reported instead of 500ing the whole request with nothing applied.
+    def test_bulk_update_schemas_one_schema_failing_does_not_block_others(
+        self, _name, raised_exception, expected_status, expected_detail_substring, _mock_workflow_exists
+    ):
+        # Each schema commits in its own transaction. A failure on one schema — a database error
+        # mid-save, or a validation error raised inside update() — must not roll back or block the
+        # others: every schema is attempted, and the failures are reported per schema (503 for a
+        # database error, 400 when it is only validation) instead of 500ing the whole batch.
         from products.data_warehouse.backend.api.external_data_schema import ExternalDataSchemaSerializer
 
         source = self._create_external_data_source()
@@ -481,7 +501,7 @@ class TestExternalDataSource(APIBaseTest):
             nonlocal attempted
             attempted += 1
             if attempted == 2:
-                raise psycopg.OperationalError("the connection is closed")
+                raise raised_exception
             return original_update(serializer_self, instance, validated_data)
 
         with (
@@ -494,81 +514,64 @@ class TestExternalDataSource(APIBaseTest):
                 format="json",
             )
 
-        # Every schema save was attempted despite the second one failing.
+        # Every schema is attempted despite the second one failing.
         assert attempted == 3
-        # The failure is surfaced and names only the schema that didn't save.
-        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        # The failure is surfaced with the right status and names only the schema that failed.
+        assert response.status_code == expected_status
         detail = response.json()["detail"]
         assert "Table1" in detail
+        assert expected_detail_substring in detail
         assert "Table0" not in detail
         assert "Table2" not in detail
 
         for schema in schemas:
             schema.refresh_from_db()
-        # The schemas that saved before and after the failure are committed...
+        # The schemas before and after the failure are committed...
         assert sync_frequency_interval_to_sync_frequency(schemas[0].sync_frequency_interval) == "7day"
         assert sync_frequency_interval_to_sync_frequency(schemas[2].sync_frequency_interval) == "7day"
-        # ...and the one that hit the database error keeps its original frequency.
+        # ...and the one that failed keeps its original frequency.
         assert schemas[1].sync_frequency_interval == original_interval
 
-    @patch(
-        "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
-        return_value=False,
-    )
-    def test_bulk_update_schemas_validation_error_during_save_does_not_block_later_schemas(self, _mock_workflow_exists):
-        # Some validation runs inside update() (during save()), not the preflight is_valid(). Such a
-        # failure must not abort the batch: later schemas are still attempted and saved, and the
-        # failure is reported per schema with a 400 rather than silently committing some and 500ing.
-        from rest_framework.exceptions import ValidationError as DRFValidationError
-
-        from products.data_warehouse.backend.api.external_data_schema import ExternalDataSchemaSerializer
-
+    def test_bulk_update_schemas_invalid_payload_rejected_before_any_write(self):
+        # The batch is validated up front (per-schema is_valid), so an invalid payload rejects the
+        # whole request with nothing written — even the valid schema listed alongside it is not
+        # committed. With per-schema commits, this preflight is what keeps a bad batch all-or-nothing.
         source = self._create_external_data_source()
-        schemas = [
-            ExternalDataSchema.objects.create(
-                name=f"Table{i}",
-                team_id=self.team.pk,
-                source=source,
-                should_sync=True,
-                sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
-            )
-            for i in range(3)
-        ]
-        original_interval = schemas[1].sync_frequency_interval
+        valid_schema = ExternalDataSchema.objects.create(
+            name="Valid",
+            team_id=self.team.pk,
+            source=source,
+            should_sync=True,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+        invalid_schema = ExternalDataSchema.objects.create(
+            name="Invalid",
+            team_id=self.team.pk,
+            source=source,
+            should_sync=True,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+        valid_original = valid_schema.sync_frequency_interval
+        invalid_original = invalid_schema.sync_frequency_interval
 
-        original_update = ExternalDataSchemaSerializer.update
-        attempted = 0
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/bulk_update_schemas",
+            data={
+                "schemas": [
+                    {"id": str(valid_schema.id), "sync_frequency": "7day"},
+                    {"id": str(invalid_schema.id), "sync_frequency": "not_a_real_frequency"},
+                ]
+            },
+            format="json",
+        )
 
-        def _maybe_failing_update(serializer_self, instance, validated_data):
-            nonlocal attempted
-            attempted += 1
-            if attempted == 2:
-                raise DRFValidationError("Table1 cannot be changed")
-            return original_update(serializer_self, instance, validated_data)
-
-        with (
-            patch.object(ExternalDataSchemaSerializer, "update", _maybe_failing_update),
-            patch("products.data_warehouse.backend.api.external_data_schema.sync_external_data_job_workflow"),
-        ):
-            response = self.client.patch(
-                f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/bulk_update_schemas",
-                data={"schemas": [{"id": str(s.id), "sync_frequency": "7day"} for s in schemas]},
-                format="json",
-            )
-
-        # Every schema is attempted; the validation error does not stop the schema after it.
-        assert attempted == 3
-        # A batch of only validation failures is a client error, and the failing schema is named.
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        detail = response.json()["detail"]
-        assert "Table1" in detail
-        assert "cannot be changed" in detail
 
-        for schema in schemas:
-            schema.refresh_from_db()
-        assert sync_frequency_interval_to_sync_frequency(schemas[0].sync_frequency_interval) == "7day"
-        assert sync_frequency_interval_to_sync_frequency(schemas[2].sync_frequency_interval) == "7day"
-        assert schemas[1].sync_frequency_interval == original_interval
+        valid_schema.refresh_from_db()
+        invalid_schema.refresh_from_db()
+        # Nothing was persisted — the valid schema, listed first, was not committed.
+        assert valid_schema.sync_frequency_interval == valid_original
+        assert invalid_schema.sync_frequency_interval == invalid_original
 
     @patch(
         "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
