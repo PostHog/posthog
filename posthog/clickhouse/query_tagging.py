@@ -52,6 +52,7 @@ class Product(StrEnum):
     COHORTS = "cohorts"
     CONVERSATIONS = "conversations"
     ENDPOINTS = "endpoints"
+    ENGINEERING_ANALYTICS = "engineering_analytics"
     ERROR_TRACKING = "error_tracking"
     EXPERIMENTS = "experiments"
     FEATURE_FLAGS = "feature_flags"
@@ -232,6 +233,7 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.TRACE_SPANS_AGGREGATION_QUERY
             | NodeKind.TRACE_SPANS_TREE_QUERY
             | NodeKind.TRACE_SPANS_ATTRIBUTE_BREAKDOWN_QUERY
+            | NodeKind.TRACE_SPANS_SYMBOL_STATS_QUERY
         ):
             return {"product": Product.LLM_ANALYTICS}
         case (

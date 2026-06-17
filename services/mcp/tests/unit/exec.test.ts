@@ -126,14 +126,49 @@ describe('exec tool', () => {
         it('throws usage error for bare call', async () => {
             const exec = createExec()
             await expect(exec.handler(mockContext, { command: 'call' })).rejects.toThrow(
-                'Usage: call [--json] <tool_name> <json_input>'
+                'Usage: call [--json] [--confirm] <tool_name> <json_input>'
             )
         })
 
         it('throws usage error for call --json with no tool name', async () => {
             const exec = createExec()
             await expect(exec.handler(mockContext, { command: 'call --json' })).rejects.toThrow(
-                'Usage: call [--json] <tool_name> <json_input>'
+                'Usage: call [--json] [--confirm] <tool_name> <json_input>'
+            )
+        })
+
+        it('allows --confirm before --json when dispatching a call', async () => {
+            const exec = createExec()
+            const result = await exec.handler(mockContext, { command: 'call --confirm --json mock-tool' })
+            const parsed = JSON.parse(result as string)
+            expect(parsed).toEqual({ id: 1, name: 'test', items: [{ a: 1 }, { a: 2 }] })
+        })
+
+        it('requires --confirm for destructive tools when enabled', async () => {
+            const destructive = makeMockTool({
+                annotations: {
+                    destructiveHint: true,
+                    idempotentHint: true,
+                    openWorldHint: false,
+                    readOnlyHint: false,
+                },
+            })
+            const exec = createExecTool(
+                [destructive],
+                mockContext,
+                'test description',
+                'test command reference',
+                undefined,
+                undefined,
+                [],
+                { requireDestructiveConfirmation: true }
+            )
+
+            await expect(exec.handler(mockContext, { command: 'call mock-tool' })).rejects.toThrow(
+                'Tool "mock-tool" is destructive'
+            )
+            await expect(exec.handler(mockContext, { command: 'call --confirm --json mock-tool' })).resolves.toEqual(
+                JSON.stringify({ id: 1, name: 'test', items: [{ a: 1 }, { a: 2 }] })
             )
         })
 
@@ -774,6 +809,8 @@ describe('exec tool', () => {
             ['call my-tool {}', 'my-tool'],
             ['call my-tool', 'my-tool'],
             ['call --json my-tool {}', 'my-tool'],
+            ['call --confirm my-tool {}', 'my-tool'],
+            ['call --json --confirm my-tool {}', 'my-tool'],
             ['  call   my-tool   {}  ', 'my-tool'],
         ])('extracts inner tool name from "%s"', (command, expected) => {
             expect(parseExecCallInnerToolName(command)).toBe(expected)

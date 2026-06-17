@@ -7,7 +7,9 @@ from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_
 from unittest import mock
 from unittest.mock import MagicMock, patch
 
-from django.db import transaction
+from django.core.cache import cache
+from django.db import connection, transaction
+from django.test.utils import CaptureQueriesContext
 
 from boto3 import resource
 from botocore.config import Config
@@ -33,6 +35,7 @@ from posthog.session_recordings.session_recording_playlist_api import (
     _empty_saved_filters_counts,
     precompute_recordings_counts,
 )
+from posthog.session_recordings.synthetic_playlists import ExpiringPlaylistSource
 from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
     OBJECT_STORAGE_BUCKET,
@@ -221,6 +224,26 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
                 "type": "collection",
             },
         ]
+
+    def test_list_does_not_issue_redundant_db_count(self) -> None:
+        self._create_playlist({"name": "test", "type": "collection"})
+
+        with CaptureQueriesContext(connection) as ctx:
+            response = self.client.get(f"/api/projects/{self.team.id}/session_recording_playlists")
+
+        assert response.status_code == status.HTTP_200_OK
+
+        playlist_count_queries = [
+            q
+            for q in ctx.captured_queries
+            if "count(" in q["sql"].lower()
+            and "posthog_sessionrecordingplaylist" in q["sql"].lower()
+            and "posthog_sessionrecordingplaylistitem" not in q["sql"].lower()
+        ]
+        assert len(playlist_count_queries) == 1, (
+            f"expected a single COUNT on the playlists table, saw {len(playlist_count_queries)}: "
+            f"{[q['sql'] for q in playlist_count_queries]}"
+        )
 
     @parameterized.expand(
         [
@@ -883,6 +906,13 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
     @snapshot_postgres_queries
     @freeze_time("2025-01-01T12:00:00Z")
     def test_filters_playlist_by_type(self):
+        # Prime the expiring-playlist cache so its cold-start scan (which builds the
+        # warehouse HogQL Database and emits a DataWarehouseSavedQuery lookup) stays
+        # out of this query snapshot. The scan runs once per hour in production; left
+        # to LocMemCache state it fires or not depending on test order, making the
+        # captured query set flaky.
+        cache.set(ExpiringPlaylistSource._get_cache_key(self.team.pk), [], ExpiringPlaylistSource.CACHE_TTL)
+
         # Setup playlists with different types and conditions
         p_filters_explicit = SessionRecordingPlaylist.objects.create(
             team=self.team,

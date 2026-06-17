@@ -4,6 +4,7 @@ import { useState } from 'react'
 
 import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__mocks__/taxonomicFilterMocksDecorator'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 import { actionsModel } from '~/models/actionsModel'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
@@ -296,6 +297,11 @@ function DwhConfigContainer(): JSX.Element {
 export const DataWarehouseConfig: Story = {
     render: () => <DwhConfigContainer />,
     parameters: {
+        featureFlags: { [FEATURE_FLAGS.TAXONOMIC_FILTER_MENU_REBUILD]: true },
+        testOptions: {
+            waitForSelector: '[data-attr="dwh-config-back"]',
+            snapshotTargetSelector: '[data-slot="dialog-content"]',
+        },
         docs: {
             description: {
                 story: 'DataWarehouse config form rendered standalone so it lands on the DWH interface immediately. Wide table with mixed types (string / integer / decimal / datetime / boolean / lazy_table / view) exercises every column-type filter in the dropdowns plus the linked-tables hint in the HogQL fallback. Tabs are configured to mirror the funnel popover (Aggregation target / Timestamp / Unique ID).',

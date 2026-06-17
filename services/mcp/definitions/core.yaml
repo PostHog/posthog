@@ -85,7 +85,7 @@ tools:
         description: >
             Create a new channel (folder) on the desktop surface. Pass a slash-delimited `path` (parent folders are
             created automatically) and `type: folder`. A blank instruction set is created for the channel automatically;
-            use the update-instructions tool to fill it in.
+            use the desktop-file-system-instructions-partial-update tool to fill it in.
         param_overrides:
             path:
                 description: >

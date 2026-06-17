@@ -12,8 +12,9 @@ import { dayjs } from 'lib/dayjs'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { retryWithBackoff, toParams } from 'lib/utils'
 import { liveEventsHostOrigin } from 'lib/utils/apiHost'
+import { retryWithBackoff } from 'lib/utils/async'
+import { toParams } from 'lib/utils/url'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -21,7 +22,7 @@ import { urls } from 'scenes/urls'
 
 import { connectToNotificationsSSE } from '~/layout/navigation-3000/sidepanel/panels/activity/notificationsSSE'
 import { ChangesResponse } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelActivityLogic'
-import { InAppNotification, InsightShortId } from '~/types'
+import { InAppNotification, InsightShortId, SidePanelTab, WebAnalyticsDigestMetadata } from '~/types'
 
 import {
     notificationsList,
@@ -84,6 +85,21 @@ export function buildNotificationSourcePath(notification: InAppNotification): st
     return notification.source_url || null
 }
 
+export function buildWebAnalyticsDigestMaxPrompt(metadata: WebAnalyticsDigestMetadata | null): string {
+    if (!metadata) {
+        return '!Summarize my web analytics for the last 7 days and tell me what changed and why.'
+    }
+    const metricsLine = metadata.metrics
+        .map((metric) => {
+            const change = metric.change
+                ? ` (${metric.change.direction === 'Up' ? 'up' : 'down'} ${metric.change.percent}%)`
+                : ''
+            return `${metric.label} ${metric.value}${change}`
+        })
+        .join(', ')
+    return `!Here's my web analytics digest for ${metadata.period_label.toLowerCase()} on ${metadata.project_name}: ${metricsLine}. What are the most important changes, and what should I dig into?`
+}
+
 export interface ChangelogFlagPayload {
     notificationDate: dayjs.Dayjs
     markdown: string
@@ -127,6 +143,8 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
         markAsRead: (id: string) => ({ id }),
         toggleRead: (id: string) => ({ id }),
         navigateToNotification: (notification: InAppNotification) => ({ notification }),
+        viewWebAnalyticsFromDigest: (notification: InAppNotification) => ({ notification }),
+        askMaxAboutDigest: (notification: InAppNotification) => ({ notification }),
         loadMoreNotifications: true,
         loadMoreNotificationsSuccess: (count: number) => ({ count }),
         loadGroupChildren: (group: NotificationGroup) => ({ group }),
@@ -554,6 +572,25 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                         children: 'Stay here',
                     },
                 })
+            },
+            viewWebAnalyticsFromDigest: ({ notification }) => {
+                posthog.capture('web_analytics_digest_notification_clicked', {
+                    cta: 'view_web_analytics',
+                    notification_id: notification.id,
+                    team_id: notification.team_id,
+                })
+                actions.navigateToNotification(notification)
+            },
+            askMaxAboutDigest: ({ notification }) => {
+                posthog.capture('web_analytics_digest_notification_clicked', {
+                    cta: 'ask_max',
+                    notification_id: notification.id,
+                    team_id: notification.team_id,
+                })
+                if (!notification.read) {
+                    actions.markAsRead(notification.id)
+                }
+                actions.openSidePanel(SidePanelTab.Max, buildWebAnalyticsDigestMaxPrompt(notification.metadata))
             },
             markAsRead: async ({ id }) => {
                 try {
