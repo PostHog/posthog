@@ -508,6 +508,7 @@ describe('janitor HTTP', () => {
             requeued: 0,
             poisoned: 0,
             closed: 0,
+            woken: 0,
             expired_approvals: 0,
             cleared_idempotency_keys: 0,
             reaped_sandboxes: 0,

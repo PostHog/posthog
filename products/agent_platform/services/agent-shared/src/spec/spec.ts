@@ -1005,6 +1005,12 @@ export interface AgentSession {
      *   completed — agent finished its turn, session is OPEN. /send
      *               re-queues. Default end-of-turn state (natural stop,
      *               meta-end-turn).
+     *   waiting   — parked by `meta-sleep` until `wake_at`. Live, not
+     *               terminal: the janitor sweep flips it back to `queued`
+     *               once `wake_at <= now`, and an inbound /send wakes it
+     *               immediately (same resume path as `completed`). The
+     *               sandbox is released while waiting; only the conversation
+     *               survives. See docs/session-sleep.md.
      *   closed    — sealed by `meta-end-session`. Terminal. /send returns
      *               410 unless the trigger config sets `allow_restart`.
      *   cancelled — user invoked `/cancel`. Terminal. Same lifecycle
@@ -1014,7 +1020,7 @@ export interface AgentSession {
      *               confused with a runtime error.
      *   failed    — error state. Terminal regardless of `allow_restart`.
      */
-    state: 'queued' | 'running' | 'completed' | 'closed' | 'cancelled' | 'failed'
+    state: 'queued' | 'running' | 'completed' | 'waiting' | 'closed' | 'cancelled' | 'failed'
     /**
      * Principal that authenticated `/run`. Subsequent `/send` calls must
      * carry a principal that matches (same kind + id). Null for sessions
@@ -1058,6 +1064,24 @@ export interface AgentSession {
      * surfaces them in the chat UI / Slack thread.
      */
     pending_elevation_requests: PendingElevationRequest[]
+    /**
+     * When a `waiting` (slept) session becomes eligible to resume. Set by
+     * `meta-sleep` to `slept_at + duration`; the janitor sweep re-queues the
+     * session once `wake_at <= now`. Cleared (to null) on claim — the runner
+     * reads the pre-claim value to build the wake notice, and a terminal
+     * transition leaves it null. Null/absent for sessions that have never
+     * slept — optional so the many non-sleep session constructors (and rows
+     * predating the column) don't have to spell it out; the PG layer always
+     * populates it.
+     */
+    wake_at?: string | null
+    /**
+     * When the current `meta-sleep` began. Paired with `wake_at` so the
+     * resumed turn can tell the model how long it requested vs. how long it
+     * actually slept (e.g. when a /send woke it early). Cleared on claim
+     * alongside `wake_at`. Null/absent when not resuming from a sleep.
+     */
+    slept_at?: string | null
     created_at: string
     updated_at: string
 }

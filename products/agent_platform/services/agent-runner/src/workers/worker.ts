@@ -549,16 +549,23 @@ export class Worker {
                     case 'suspended':
                         // Re-queue: a sibling worker will resume from PG.
                         return 'queued'
+                    case 'waiting':
+                        // Parked by meta-sleep: the janitor sweep re-queues it
+                        // when wake_at passes, or a /send wakes it sooner.
+                        return 'waiting'
                     case 'failed':
                         return 'failed'
                 }
             })()
             sLog.debug({ outcome: outcome.state, turns: outcome.turns, newState }, 'session.done')
             // pending_inputs intentionally omitted — see onTurnPersist above.
+            // Sleep markers are written only for a `waiting` outcome; every other
+            // terminal/open state leaves them null (the claim already cleared them).
             await this.deps.queue.update(session.id, {
                 state: newState,
                 conversation: session.conversation,
                 usage_total: session.usage_total,
+                ...(outcome.state === 'waiting' ? { wake_at: outcome.wakeAt, slept_at: outcome.sleptAt } : {}),
             })
         } catch (err) {
             // Pre-runSession failures (revision load, secrets, sandbox acquire,

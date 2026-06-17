@@ -21,7 +21,9 @@ import {
     memoryUpdateV1,
     memoryWriteV1,
 } from './tools/memory'
-import { endSessionTool, endTurnTool, emitEventTool } from './tools/meta'
+import { endSessionTool, endTurnTool, emitEventTool, sleepTool } from './tools/meta'
+
+export { MAX_SLEEP_MINUTES } from './tools/meta'
 import {
     posthogAgentApplicationsCreateV1,
     posthogAgentApplicationsEnvKeysGetV1,
@@ -155,6 +157,7 @@ export const ALL_TOOLS: NativeTool[] = [
     httpRequestV1,
     endTurnTool,
     endSessionTool,
+    sleepTool,
     emitEventTool,
     loadSkill,
     memoryListV1,
