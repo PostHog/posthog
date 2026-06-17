@@ -81,6 +81,10 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # build `project.project.dataset.table` and the client rejects it. It's a deterministic
             # config error, so retrying never succeeds.
             "table_id must be a fully-qualified ID in standard SQL format": "Your BigQuery Dataset ID looks misconfigured — it should be just the dataset name (for example `analytics`), not `project.dataset`. Please update the Dataset ID in your source configuration.",
+            # Forbidden 403 with `reason: billingNotEnabled` — the customer's Google Cloud project
+            # has billing disabled (BigQuery sandbox mode), so any query job is rejected before it
+            # runs. There's nothing we can do but stop retrying until they enable billing.
+            "Billing has not been enabled for this project": "BigQuery billing is not enabled for your Google Cloud project. Enable billing in the Google Cloud console (https://console.cloud.google.com/billing), then resume this source.",
             # Raised from the shared `evolve_pyarrow_schema` in `pipelines/pipeline/utils.py`
             # when an integer column's source type was widened (e.g. `INT64` widened from a
             # narrower numeric type) after the destination table was created with the narrower
