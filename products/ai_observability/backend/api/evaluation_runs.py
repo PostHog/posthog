@@ -30,13 +30,18 @@ from ..models.evaluations import Evaluation
 
 logger = structlog.get_logger(__name__)
 
+EVALUATION_WORKFLOW_PREFIXES = {
+    "hog": "llma-hog-eval",
+    "llm_judge": "llma-llm-eval",
+    "sentiment": "llma-sentiment-eval",
+}
+
 
 def _evaluation_workflow_prefix(evaluation_type: str) -> str:
-    if evaluation_type == "hog":
-        return "llma-hog-eval"
-    if evaluation_type == "sentiment":
-        return "llma-sentiment-eval"
-    return "llma-llm-eval"
+    try:
+        return EVALUATION_WORKFLOW_PREFIXES[evaluation_type]
+    except KeyError:
+        raise ValueError(f"Unsupported evaluation type for workflow prefix: {evaluation_type}") from None
 
 
 class EvaluationRunRequestSerializer(serializers.Serializer):

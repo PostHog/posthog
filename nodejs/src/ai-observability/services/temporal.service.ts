@@ -23,10 +23,19 @@ export type TemporalServiceConfig = Pick<
 
 const EVALUATION_TASK_QUEUE = isDevEnv() ? 'development-task-queue' : 'llm-analytics-evals-task-queue'
 
-const EVALUATION_WORKFLOW_PREFIXES: Record<string, string> = {
+const EVALUATION_WORKFLOW_PREFIXES = {
     hog: 'llma-hog-eval',
     llm_judge: 'llma-llm-eval',
     sentiment: 'llma-sentiment-eval',
+} as const
+
+type EvaluationWorkflowRuntime = keyof typeof EVALUATION_WORKFLOW_PREFIXES
+
+function getEvaluationWorkflowPrefix(evaluationRuntime: string): string {
+    if (evaluationRuntime in EVALUATION_WORKFLOW_PREFIXES) {
+        return EVALUATION_WORKFLOW_PREFIXES[evaluationRuntime as EvaluationWorkflowRuntime]
+    }
+    throw new Error(`Unsupported evaluation runtime: ${evaluationRuntime}`)
 }
 
 const temporalWorkflowsStarted = new Counter({
@@ -137,11 +146,11 @@ export class TemporalService {
     async startEvaluationRunWorkflow(
         evaluationId: string,
         event: RawKafkaEvent,
-        evaluationRuntime: string = 'llm_judge'
+        evaluationRuntime: string
     ): Promise<WorkflowHandle> {
         const client = await this.ensureConnected()
 
-        const prefix = EVALUATION_WORKFLOW_PREFIXES[evaluationRuntime] ?? EVALUATION_WORKFLOW_PREFIXES.llm_judge
+        const prefix = getEvaluationWorkflowPrefix(evaluationRuntime)
         const workflowId = `${prefix}-${evaluationId}-${event.uuid}-ingestion`
 
         const handle = await client.workflow.start('run-evaluation', {
