@@ -84,21 +84,6 @@ def _telemetry_props_from_extra(extra: dict | None) -> dict:
     return props
 
 
-def ensure_source_enabled(team: Team, source_product: str, source_type: str) -> bool:
-    """Idempotently enable a signal source for a team when a user opts in from the producing product's UI.
-
-    A pre-existing row is left untouched, so an explicit disable in Signals settings is never overridden.
-    Returns whether the source ends up enabled, so callers can tell their opt-in is being honored.
-    """
-    config, _ = SignalSourceConfig.objects.get_or_create(
-        team=team,
-        source_product=source_product,
-        source_type=source_type,
-        defaults={"enabled": True},
-    )
-    return config.enabled
-
-
 async def emit_signal(
     team: Team,
     source_product: str,

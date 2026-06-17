@@ -679,33 +679,20 @@ class TestScannerSignalSourceEnablement(_VisionAPITestCase):
         payload.update(overrides)
         return payload
 
-    def _source_config(self) -> SignalSourceConfig | None:
-        return SignalSourceConfig.objects.filter(
-            team=self.team, source_product="replay_vision", source_type="scanner_finding"
-        ).first()
+    def _has_source_config(self) -> bool:
+        return SignalSourceConfig.objects.filter(team=self.team, source_product="replay_vision").exists()
 
-    def test_saving_with_emits_signals_enables_the_source(self) -> None:
+    def test_creating_with_emits_signals_writes_no_source_config(self) -> None:
+        # Scanner findings are self-authorizing — the scanner is the config, so no SignalSourceConfig row is created.
         resp = self.client.post(self.scanners_url, data=self._payload(emits_signals=True), format="json")
         self.assertEqual(resp.status_code, 201, resp.json())
-        config = self._source_config()
-        assert config is not None and config.enabled
+        assert not self._has_source_config()
 
-    def test_saving_without_emits_signals_creates_no_source_config(self) -> None:
-        resp = self.client.post(self.scanners_url, data=self._payload(), format="json")
-        self.assertEqual(resp.status_code, 201, resp.json())
-        assert self._source_config() is None
-
-    def test_does_not_override_an_explicit_disable(self) -> None:
-        SignalSourceConfig.objects.create(
-            team=self.team, source_product="replay_vision", source_type="scanner_finding", enabled=False
-        )
+    def test_enabling_emits_signals_on_update_writes_no_source_config(self) -> None:
         scanner = self._create_scanner()
-
         resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", data={"emits_signals": True}, format="json")
-
         self.assertEqual(resp.status_code, 200, resp.json())
-        config = self._source_config()
-        assert config is not None and not config.enabled
+        assert not self._has_source_config()
 
 
 class TestReplayScannerViewSetFeatureFlag(APIBaseTest):

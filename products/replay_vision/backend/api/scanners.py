@@ -60,24 +60,15 @@ from products.replay_vision.backend.quota import compute_quota_snapshot
 from products.replay_vision.backend.temporal.constants import (
     APPLY_SCANNER_WORKFLOW_NAME,
     MAX_SESSION_ID_LENGTH,
-    SIGNALS_SOURCE_PRODUCT,
-    SIGNALS_SOURCE_TYPE,
     build_apply_scanner_workflow_id,
 )
 from products.replay_vision.backend.temporal.scanners import validate_scanner_config
 from products.replay_vision.backend.temporal.types import ApplyScannerInputs
-from products.signals.backend.facade.api import ensure_source_enabled
 
 # Date is set by the schedule at trigger time, not by the user — strip on save.
 _QUERY_FIELDS_TO_STRIP = ("date_from", "date_to")
 
 logger = structlog.get_logger(__name__)
-
-
-def _ensure_signals_source_enabled(scanner: ReplayScanner) -> None:
-    # Turning on `emits_signals` is the team's opt-in; register the source so emissions aren't silently gated.
-    if scanner.emits_signals:
-        ensure_source_enabled(team=scanner.team, source_product=SIGNALS_SOURCE_PRODUCT, source_type=SIGNALS_SOURCE_TYPE)
 
 
 def _refresh_estimate_fail_soft(scanner: ReplayScanner) -> None:
@@ -285,7 +276,6 @@ class ReplayScannerSerializer(serializers.ModelSerializer):
             scanner = ReplayScanner.objects.create(team=team, created_by=user, **validated_data)
         except IntegrityError as e:
             self._reraise_unique_name_violation(e)
-        _ensure_signals_source_enabled(scanner)
         _refresh_estimate_fail_soft(scanner)
         return scanner
 
@@ -302,7 +292,6 @@ class ReplayScannerSerializer(serializers.ModelSerializer):
         )
         if needs_refresh:
             _refresh_estimate_fail_soft(scanner)
-        _ensure_signals_source_enabled(scanner)
         return scanner
 
     @staticmethod

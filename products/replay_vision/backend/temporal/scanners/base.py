@@ -35,7 +35,8 @@ class SignalFinding(BaseModel, frozen=True):
     description: str = Field(
         description=(
             "Self-contained prose a reader with no session context can act on: what happened, where in the "
-            "product (page or feature), and the user impact. Plain text only — no event citations."
+            "product, and the user impact — concrete, per the side-mission instructions. "
+            "Plain prose, no `(event_uuid …)` citation markers."
         )
     )
     confidence: float = Field(

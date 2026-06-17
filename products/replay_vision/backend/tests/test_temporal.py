@@ -2074,30 +2074,16 @@ class TestEmitObservationSignalActivity:
             assert emit_observation_signal_activity(self._inputs(observation)) == 0
         mock_emit.assert_awaited_once()
 
-    def test_self_heals_a_missing_source_config(self) -> None:
+    def test_emits_without_any_source_config(self) -> None:
+        # Scanner findings are self-authorizing via the snapshot flag — no SignalSourceConfig is read or written.
         scanner = _make_scanner(emits_signals=True)
         observation = _make_observation(scanner)
-        assert not SignalSourceConfig.objects.filter(team=scanner.team).exists()
 
         with patch(_EMIT_SIGNAL_PATCH, new_callable=AsyncMock) as mock_emit:
             assert emit_observation_signal_activity(self._inputs(observation)) == 1
 
         mock_emit.assert_awaited_once()
-        config = SignalSourceConfig.objects.get(
-            team=scanner.team, source_product="replay_vision", source_type="scanner_finding"
-        )
-        assert config.enabled
-
-    def test_skips_when_the_source_is_explicitly_disabled(self) -> None:
-        scanner = _make_scanner(emits_signals=True)
-        observation = _make_observation(scanner)
-        SignalSourceConfig.objects.create(
-            team=scanner.team, source_product="replay_vision", source_type="scanner_finding", enabled=False
-        )
-
-        with patch(_EMIT_SIGNAL_PATCH, new_callable=AsyncMock) as mock_emit:
-            assert emit_observation_signal_activity(self._inputs(observation)) == 0
-        mock_emit.assert_not_awaited()
+        assert not SignalSourceConfig.objects.filter(team=scanner.team).exists()
 
 
 @pytest.mark.asyncio

@@ -45,8 +45,9 @@ MAX_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S = 3600
 
 
 # Signals source identity — must match the registered (SourceProduct, SourceType) pair and schema variant.
-SIGNALS_SOURCE_PRODUCT = "replay_vision"
-SIGNALS_SOURCE_TYPE = "scanner_finding"
+# Prefixed so it stays unambiguous when imported alongside other products' signal-source constants.
+VISION_SIGNALS_SOURCE_PRODUCT = "replay_vision"
+VISION_SIGNALS_SOURCE_TYPE = "scanner_finding"
 
 
 # Hard ceiling on a single scanner's concurrently-running apply-scanner workflows. Bounds one bad config

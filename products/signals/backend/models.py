@@ -61,6 +61,11 @@ class SignalSourceConfig(UUIDModel):
         if source_product == cls.SourceProduct.LLM_ANALYTICS:
             return True
 
+        # Replay Vision scanners are self-authorizing: the scanner's `emits_signals` flag is the
+        # per-source config, so there's no separate SignalSourceConfig row to gate against.
+        if source_product == cls.SourceProduct.REPLAY_VISION and source_type == cls.SourceType.SCANNER_FINDING:
+            return True
+
         # Session problem signals are emitted as part of session analysis,
         # so they're gated by the pre-existing session_analysis_cluster config
         if source_product == cls.SourceProduct.SESSION_REPLAY and source_type == "session_problem":
