@@ -5,7 +5,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import type { Dayjs } from 'lib/dayjs'
 import { now } from 'lib/dayjs'
 import { TimeToSeeDataPayload } from 'lib/internalMetrics'
-import { objectClean } from 'lib/utils'
+import { objectClean } from 'lib/utils/objects'
 import { BillingUsageInteractionProps } from 'scenes/billing/types'
 import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -96,6 +96,8 @@ export enum DashboardEventSource {
     DashboardInsightColorsModal = 'dashboard_insight_colors_modal',
     DashboardVariableOverride = 'dashboard_variable_override',
 }
+
+export type DashboardFilterChangeType = 'date' | 'properties' | 'breakdown' | 'variable' | 'quick_filters'
 
 export enum InsightEventSource {
     LongPress = 'long_press',
@@ -337,6 +339,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         // timing
         reportTimeToSeeData: (payload: TimeToSeeDataPayload) => ({ payload }),
         reportGroupTypeDetailDashboardCreated: () => ({}),
+        reportIntegrationConnectClicked: (integration: string, kind: string) => ({ integration, kind }),
         reportGroupPropertyUpdated: (
             action: 'added' | 'updated' | 'removed',
             totalProperties: number,
@@ -444,8 +447,19 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             dashboard: DashboardType<QueryBasedInsightModel> | null,
             mode: DashboardMode | null,
             source: DashboardEventSource | null,
+            layoutZoom: number | null,
+            layoutEditMode?: boolean
+        ) => ({ dashboard, mode, source, layoutZoom, layoutEditMode }),
+        reportDashboardLayoutEditModeEntered: (
+            dashboard: DashboardType<QueryBasedInsightModel> | null,
+            source: DashboardEventSource,
             layoutZoom: number | null
-        ) => ({ dashboard, mode, source, layoutZoom }),
+        ) => ({ dashboard, source, layoutZoom }),
+        reportDashboardFiltersChanged: (
+            dashboard: DashboardType<QueryBasedInsightModel> | null,
+            changeType: DashboardFilterChangeType,
+            properties: Record<string, string | number | boolean | null | undefined>
+        ) => ({ dashboard, changeType, properties }),
         reportDashboardLayoutZoomChanged: (
             dashboard: DashboardType<QueryBasedInsightModel> | null,
             layoutZoom: number,
@@ -506,17 +520,25 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             dateTo,
         }),
         reportDashboardPropertiesChanged: (dashboard: DashboardType<QueryBasedInsightModel> | null) => ({ dashboard }),
-        reportDashboardPinToggled: (pinned: boolean, source: DashboardEventSource) => ({
+        reportDashboardPinToggled: (dashboardId: number, pinned: boolean, source: DashboardEventSource) => ({
+            dashboardId,
             pinned,
             source,
         }),
         reportDashboardFrontEndUpdate: (
+            dashboardId: number | undefined,
             attribute: 'name' | 'description' | 'tags',
             originalLength: number,
             newLength: number
-        ) => ({ attribute, originalLength, newLength }),
-        reportDashboardShareToggled: (isShared: boolean) => ({ isShared }),
-        reportDashboardWhitelabelToggled: (isWhiteLabelled: boolean) => ({ isWhiteLabelled }),
+        ) => ({ dashboardId, attribute, originalLength, newLength }),
+        reportDashboardShareToggled: (dashboardId: number | undefined, isShared: boolean) => ({
+            dashboardId,
+            isShared,
+        }),
+        reportDashboardWhitelabelToggled: (dashboardId: number | undefined, isWhiteLabelled: boolean) => ({
+            dashboardId,
+            isWhiteLabelled,
+        }),
         reportDashboardTileRepositioned: (dashboardId: number, action: 'moved' | 'resized', layoutZoom: number) => ({
             dashboardId,
             action,
@@ -761,6 +783,23 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             teamId,
             context,
         }),
+        // Single event for the whole recalc lifecycle — see docs/superpowers/specs/2026-06-04-experiment-metric-
+        // recalculation-events.md. status discriminates the moment ('triggered' / 'completed' / 'failed' —
+        // 'polled' is deliberately not emitted); the property bag carries the fields relevant to that moment.
+        reportExperimentMetricRecalculation: (
+            status: 'triggered' | 'completed' | 'failed',
+            properties: {
+                experiment_id: number
+                recalculation_id: string | null
+                trigger?: 'manual' | 'experiment_launch' | 'experiment_stop' | 'experiment_update'
+                is_existing?: boolean
+                total_metrics?: number
+                succeeded?: number
+                failed?: number
+                duration_ms?: number
+                poll_count?: number
+            }
+        ) => ({ status, properties }),
         reportExperimentFeatureFlagModalOpened: () => ({}),
         reportExperimentFeatureFlagSelected: (featureFlagKey: string) => ({ featureFlagKey }),
         reportExperimentTimeseriesViewed: (experimentId: ExperimentIdType, metric: ExperimentMetric) => ({
@@ -1121,6 +1160,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportInstanceSettingChange: ({ name, value }) => {
             posthog.capture('instance setting change', { name, value })
         },
+        reportIntegrationConnectClicked: ({ integration, kind }) => {
+            posthog.capture('integration_connect_clicked', { integration, integration_kind: kind })
+        },
         reportDashboardLoadingTime: async ({ loadingMilliseconds, dashboardId }) => {
             posthog.capture('dashboard loading time', { loadingMilliseconds, dashboardId })
         },
@@ -1310,13 +1352,29 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 total_properties: totalProperties,
             })
         },
-        reportDashboardModeToggled: async ({ dashboard, mode, source, layoutZoom }) => {
+        reportDashboardModeToggled: async ({ dashboard, mode, source, layoutZoom, layoutEditMode }) => {
             posthog.capture('dashboard mode toggled', {
                 dashboard_id: dashboard?.id,
                 dashboard: sanitizeDashboard(dashboard),
                 mode,
                 source,
                 layout_zoom: layoutZoom ?? undefined,
+                layout_edit_mode: layoutEditMode ?? undefined,
+            })
+        },
+        reportDashboardLayoutEditModeEntered: async ({ dashboard, source, layoutZoom }) => {
+            posthog.capture('dashboard layout edit mode entered', {
+                dashboard_id: dashboard?.id,
+                dashboard: sanitizeDashboard(dashboard),
+                source,
+                layout_zoom: layoutZoom ?? undefined,
+            })
+        },
+        reportDashboardFiltersChanged: async ({ dashboard, changeType, properties }) => {
+            posthog.capture('dashboard filters changed', {
+                dashboard_id: dashboard?.id,
+                change_type: changeType,
+                ...properties,
             })
         },
         reportDashboardLayoutZoomChanged: async ({ dashboard, layoutZoom, source }) => {
@@ -1401,21 +1459,29 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 dashboard: sanitizeDashboard(dashboard),
             })
         },
-        reportDashboardPinToggled: async (payload) => {
-            posthog.capture(`dashboard pin toggled`, payload)
+        reportDashboardPinToggled: async ({ dashboardId, pinned, source }) => {
+            posthog.capture(`dashboard pin toggled`, {
+                dashboard_id: dashboardId,
+                pinned,
+                source,
+            })
         },
-        reportDashboardFrontEndUpdate: async ({ attribute, originalLength, newLength }) => {
+        reportDashboardFrontEndUpdate: async ({ dashboardId, attribute, originalLength, newLength }) => {
             posthog.capture(`dashboard frontend updated`, {
+                dashboard_id: dashboardId,
                 attribute,
                 original_length: originalLength,
                 new_length: newLength,
             })
         },
-        reportDashboardShareToggled: async ({ isShared }) => {
-            posthog.capture(`dashboard share toggled`, { is_shared: isShared })
+        reportDashboardShareToggled: async ({ dashboardId, isShared }) => {
+            posthog.capture(`dashboard share toggled`, { dashboard_id: dashboardId, is_shared: isShared })
         },
-        reportDashboardWhitelabelToggled: async ({ isWhiteLabelled }) => {
-            posthog.capture(`dashboard whitelabel toggled`, { is_whitelabelled: isWhiteLabelled })
+        reportDashboardWhitelabelToggled: async ({ dashboardId, isWhiteLabelled }) => {
+            posthog.capture(`dashboard whitelabel toggled`, {
+                dashboard_id: dashboardId,
+                is_whitelabelled: isWhiteLabelled,
+            })
         },
         reportDashboardTileRepositioned: async ({ dashboardId, action, layoutZoom }) => {
             posthog.capture('dashboard tile repositioned', {
@@ -1760,6 +1826,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 team_id: teamId,
                 ...context,
             })
+        },
+        reportExperimentMetricRecalculation: ({ status, properties }) => {
+            posthog.capture('experiment metric recalculation', { status, ...properties })
         },
         reportExperimentFeatureFlagModalOpened: () => {
             posthog.capture('experiment feature flag modal opened')

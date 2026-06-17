@@ -162,7 +162,7 @@ class TestVercelIntegration(TestCase):
     def test_update_installation_not_found(self):
         VercelIntegration.update_installation(self.NONEXISTENT_INSTALLATION_ID, "pro200")
 
-    @patch("ee.vercel.integration.BillingManager")
+    @patch("ee.billing.billing_manager.BillingManager")
     @patch("ee.vercel.integration.get_cached_instance_license")
     def test_delete_installation(self, mock_license, mock_billing_manager):
         mock_license.return_value = Mock()
@@ -182,7 +182,7 @@ class TestVercelIntegration(TestCase):
 
         assert OrganizationIntegration.objects.filter(integration_id=self.installation_id).exists()
 
-    @patch("ee.vercel.integration.BillingManager")
+    @patch("ee.billing.billing_manager.BillingManager")
     @patch("ee.vercel.integration.get_cached_instance_license")
     def test_delete_installation_calls_billing_deauthorize(self, mock_license, mock_billing_manager):
         """Deleting installation should notify billing service to cancel subscription."""
@@ -200,7 +200,7 @@ class TestVercelIntegration(TestCase):
             self.organization, billing_provider=BillingProvider.VERCEL
         )
 
-    @patch("ee.vercel.integration.BillingManager")
+    @patch("ee.billing.billing_manager.BillingManager")
     @patch("ee.vercel.integration.get_cached_instance_license")
     def test_delete_installation_aborts_on_billing_failure(self, mock_license, mock_billing_manager):
         """Deletion should not proceed if billing deauthorization fails, so Vercel retries the webhook."""
@@ -215,7 +215,7 @@ class TestVercelIntegration(TestCase):
 
         assert OrganizationIntegration.objects.filter(integration_id=self.installation_id).exists()
 
-    @patch("ee.vercel.integration.BillingManager")
+    @patch("ee.billing.billing_manager.BillingManager")
     @patch("ee.vercel.integration.get_cached_instance_license")
     def test_delete_installation_blocked_by_open_invoices(self, mock_license, mock_billing_manager):
         from ee.billing.billing_manager import BillingServiceOpenInvoicesError
@@ -413,7 +413,7 @@ class TestVercelIntegration(TestCase):
             self.fail("SSO should NOT require login for trusted Vercel user")
 
     @patch("ee.vercel.integration.report_user_signed_up")
-    @patch("ee.vercel.integration.BillingManager")
+    @patch("ee.billing.billing_manager.BillingManager")
     @patch("ee.vercel.integration.get_cached_instance_license")
     def test_billing_failure_does_not_delete_existing_user(self, mock_license, mock_billing, mock_report):
         """Billing failure should NOT delete existing users (only newly created ones)."""

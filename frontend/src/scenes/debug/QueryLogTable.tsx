@@ -7,8 +7,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-
-import { humanFriendlyNumber } from '~/lib/utils'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { queryLogTableLogic } from './queryLogTableLogic'
 

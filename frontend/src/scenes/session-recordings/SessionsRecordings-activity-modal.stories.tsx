@@ -90,6 +90,9 @@ export const EventExplorerWithModalNotFound: Story = {
             get: {
                 '/api/environments/:team_id/session_recordings/:id': () => [404, { detail: 'Not found.' }],
                 '/api/environments/:team_id/session_recordings/:id/snapshots': () => [404, { detail: 'Not found.' }],
+                '/api/environments/:team_id/session_recordings/:id/capture_diagnostics': {
+                    properties: (eventsQuery.results[0][0] as Record<string, any>).properties,
+                },
             },
             post: {
                 '/api/environments/:team_id/query/:kind': eventsQuery,

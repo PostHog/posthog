@@ -48,6 +48,7 @@ function parseWith(schema: z.ZodTypeAny, input: unknown): Record<string, unknown
  */
 const LIFECYCLE_TOOLS_WITH_ID_CAST = [
     ['experiment-archive', {}],
+    ['experiment-copy-to-project', { target_team_id: 5 }],
     ['experiment-delete', {}],
     ['experiment-duplicate', { name: 'A duplicate', feature_flag_key: 'duplicated-flag' }],
     ['experiment-end', {}],
@@ -98,11 +99,21 @@ describe('experiment-list — query-param casts', () => {
     it.each([
         ['limit', '50', 50],
         ['offset', '100', 100],
-        ['created_by_id', '42', 42],
         ['feature_flag_id', '7', 7],
     ] as const)('casts stringified %s', (field, raw, expected) => {
         const parsed = parseWith(schema, { [field]: raw })
         expect(parsed[field]).toBe(expected)
         expect(typeof parsed[field]).toBe('number')
+    })
+
+    // `created_by_id` accepts a single user ID or a comma-separated / JSON-encoded
+    // list, so it stays a string rather than casting to a number.
+    it.each([
+        ['single id', '42'],
+        ['comma-separated list', '42,7'],
+    ] as const)('passes through created_by_id as a string: %s', (_label, raw) => {
+        const parsed = parseWith(schema, { created_by_id: raw })
+        expect(parsed.created_by_id).toBe(raw)
+        expect(typeof parsed.created_by_id).toBe('string')
     })
 })
