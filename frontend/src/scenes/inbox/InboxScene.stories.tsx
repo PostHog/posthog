@@ -46,7 +46,13 @@ const sceneMocks = mswDecorator({
 const meta: Meta = {
     title: 'Scenes-App/Inbox/Scene',
     component: InboxScene,
-    parameters: { layout: 'fullscreen', viewMode: 'story', mockDate: '2026-06-11' },
+    parameters: {
+        layout: 'fullscreen',
+        viewMode: 'story',
+        mockDate: '2026-06-11',
+        // The scene shell keeps a loader element mounted past the VR wait window, so don't block on it.
+        testOptions: { waitForLoadersToDisappear: false },
+    },
     decorators: [sceneMocks],
 }
 export default meta
