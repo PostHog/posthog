@@ -79,7 +79,7 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
             )
 
     def test_retrieve_entity_properties(self):
-        toolkit = DummyToolkit(self.team)
+        toolkit = DummyToolkit(self.team, self.user)
 
         PropertyDefinition.objects.create(
             team=self.team, type=PropertyDefinition.Type.PERSON, name="test", property_type="String"
@@ -97,7 +97,7 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
         PropertyDefinition.objects.create(
             team=self.team, type=PropertyDefinition.Type.GROUP, group_type_index=0, name="test", property_type="Numeric"
         )
-        toolkit = DummyToolkit(self.team)
+        toolkit = DummyToolkit(self.team, self.user)
         result = toolkit.retrieve_entity_properties("group")
         self.assertIn("The data format is as follows:", result)
         self.assertIn("<Numeric>", result)
@@ -112,13 +112,13 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_retrieve_entity_properties_lists_virtual_properties_without_stored_definitions(self):
-        toolkit = DummyToolkit(self.team)
+        toolkit = DummyToolkit(self.team, self.user)
         result = toolkit.retrieve_entity_properties("person")
         self.assertIn("$virt_initial_channel_type", result)
         self.assertIn("$virt_revenue", result)
 
     def test_retrieve_entity_property_values(self):
-        toolkit = DummyToolkit(self.team)
+        toolkit = DummyToolkit(self.team, self.user)
         self.assertEqual(
             toolkit.retrieve_entity_property_values("session", "$session_duration"),
             "30, 146, 2 and many more distinct values.",
@@ -166,7 +166,7 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
             team=self.team, project_id=self.team.project_id, group_type_index=1, group_type="org"
         )
         invalidate_group_types_cache(self.team.project_id)
-        toolkit = DummyToolkit(self.team)
+        toolkit = DummyToolkit(self.team, self.user)
         PropertyDefinition.objects.create(
             team=self.team, type=PropertyDefinition.Type.GROUP, group_type_index=0, name="test", property_type="Numeric"
         )
@@ -198,7 +198,7 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(toolkit.retrieve_entity_property_values("org", "test"), '"7"')
 
     def test_retrieve_entity_property_values_virtual_person_property_with_examples(self):
-        toolkit = DummyToolkit(self.team)
+        toolkit = DummyToolkit(self.team, self.user)
         self.assertEqual(
             toolkit.retrieve_entity_property_values("person", "$virt_initial_channel_type"),
             '"Paid Search", "Organic Video", "Direct" and many more distinct values.',
@@ -209,7 +209,7 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
             team=self.team, project_id=self.team.project_id, group_type_index=0, group_type="proj"
         )
         invalidate_group_types_cache(self.team.project_id)
-        toolkit = DummyToolkit(self.team)
+        toolkit = DummyToolkit(self.team, self.user)
         for entity in ("person", "proj"):
             self.assertEqual(
                 toolkit.retrieve_entity_property_values(entity, "$virt_mrr"),
@@ -228,7 +228,7 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
             results=[],
             timezone="UTC",
         )
-        toolkit = DummyToolkit(self.team)
+        toolkit = DummyToolkit(self.team, self.user)
         self.assertEqual(
             toolkit.retrieve_entity_property_values("person", "$virt_initial_channel_type"),
             '"Paid Search", "Organic Video", "Direct" and many more distinct values.',
@@ -245,7 +245,7 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
             results=[],
             timezone="UTC",
         )
-        toolkit = DummyToolkit(self.team)
+        toolkit = DummyToolkit(self.team, self.user)
         # Bypass the personhog-backed _groups lookup so the group entity is recognized.
         toolkit.__dict__["_groups"] = [{"group_type": "proj", "group_type_index": 0}]
         self.assertEqual(
@@ -262,18 +262,18 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
             team=self.team, project_id=self.team.project_id, group_type_index=1, group_type="org"
         )
         invalidate_group_types_cache(self.team.project_id)
-        toolkit = DummyToolkit(self.team)
+        toolkit = DummyToolkit(self.team, self.user)
         self.assertEqual(toolkit._entity_names, ["person", "session", "proj", "org"])
 
     def test_retrieve_event_properties_returns_descriptive_feedback_without_properties(self):
-        toolkit = DummyToolkit(self.team)
+        toolkit = DummyToolkit(self.team, self.user)
         self.assertEqual(
             toolkit.retrieve_event_or_action_properties("pageview"),
             "Properties do not exist in the taxonomy for the event pageview.",
         )
 
     def test_empty_events(self):
-        toolkit = DummyToolkit(self.team)
+        toolkit = DummyToolkit(self.team, self.user)
         self.assertEqual(
             toolkit.retrieve_event_or_action_properties("test"),
             "Properties do not exist in the taxonomy for the event test.",
@@ -291,7 +291,7 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
         )
 
-        toolkit = DummyToolkit(self.team)
+        toolkit = DummyToolkit(self.team, self.user)
         self.assertEqual(
             toolkit.retrieve_event_or_action_properties("event1"),
             "Properties do not exist in the taxonomy for the event event1.",
@@ -299,7 +299,7 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
 
     def test_retrieve_event_or_action_properties(self):
         self._create_taxonomy()
-        toolkit = DummyToolkit(self.team)
+        toolkit = DummyToolkit(self.team, self.user)
         for item in ("event1", self.action.id):
             prompt = toolkit.retrieve_event_or_action_properties(item)
             self.assertIn("The data format is as follows:", prompt)
@@ -320,7 +320,7 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
 
     def test_retrieve_event_or_action_property_values(self):
         self._create_taxonomy()
-        toolkit = DummyToolkit(self.team)
+        toolkit = DummyToolkit(self.team, self.user)
 
         for item in ("event1", self.action.id):
             self.assertIn('"Chrome"', toolkit.retrieve_event_or_action_property_values(item, "$browser"))
@@ -336,7 +336,7 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
 
     @patch.object(DummyToolkit, "_retrieve_event_or_action_taxonomy")
     def test_retrieve_event_or_action_property_values_accepts_virtual_event_properties(self, mock_retrieve):
-        toolkit = DummyToolkit(self.team)
+        toolkit = DummyToolkit(self.team, self.user)
         now = datetime(2024, 1, 1, tzinfo=UTC)
         mock_retrieve.return_value = (
             CachedEventTaxonomyQueryResponse(
@@ -353,7 +353,7 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
         assert toolkit.retrieve_event_or_action_property_values("event1", "$virt_is_bot") == "true, false"
 
     def test_retrieve_event_or_action_properties_when_actions_exist_but_action_id_incorrect(self):
-        toolkit = DummyToolkit(self.team)
+        toolkit = DummyToolkit(self.team, self.user)
         incorrect_action_id = self.action.id + 999  # Ensure it doesn't exist
 
         result = toolkit.retrieve_event_or_action_properties(incorrect_action_id)
@@ -365,14 +365,14 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
     def test_retrieve_event_or_action_properties_when_no_actions_exist_and_action_id_incorrect(self):
         Action.objects.all().delete()
 
-        toolkit = DummyToolkit(self.team)
+        toolkit = DummyToolkit(self.team, self.user)
         incorrect_action_id = 9999
 
         result = toolkit.retrieve_event_or_action_properties(incorrect_action_id)
         self.assertEqual(result, "No actions exist in the project.")
 
     def test_enrich_props_with_descriptions(self):
-        toolkit = DummyToolkit(self.team)
+        toolkit = DummyToolkit(self.team, self.user)
         res = toolkit._enrich_props_with_descriptions("event", [("$geoip_city_name", "String")])
         self.assertEqual(len(res), 1)
         prop, type, description = res[0]
@@ -381,13 +381,45 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
         self.assertIsNotNone(description)
 
     def test_generate_properties_output_replaces_newlines_in_descriptions(self):
-        toolkit = DummyToolkit(self.team)
+        toolkit = DummyToolkit(self.team, self.user)
         props: list[tuple[str, str | None, str | None]] = [
             ("test_prop", "String", "This is a description\nwith multiple\nlines")
         ]
         output = toolkit._generate_properties_output(props)
         self.assertIn("- test_prop – This is a description with multiple lines", output)
         self.assertNotIn("description\nwith", output)
+
+    @patch("ee.hogai.chat_agent.query_planner.toolkit.restricted_property_names")
+    def test_retrieve_entity_properties_excludes_restricted_properties(self, mock_restricted):
+        mock_restricted.return_value = {"secret"}
+        PropertyDefinition.objects.create(
+            team=self.team, type=PropertyDefinition.Type.PERSON, name="secret", property_type="String"
+        )
+        PropertyDefinition.objects.create(
+            team=self.team, type=PropertyDefinition.Type.PERSON, name="visible", property_type="String"
+        )
+        toolkit = DummyToolkit(self.team, self.user)
+        result = toolkit.retrieve_entity_properties("person")
+        self.assertIn("- visible", result)
+        self.assertNotIn("- secret", result)
+
+    @patch("ee.hogai.chat_agent.query_planner.toolkit.restricted_property_names")
+    def test_retrieve_entity_property_values_hides_restricted_property(self, mock_restricted):
+        mock_restricted.return_value = {"secret"}
+        PropertyDefinition.objects.create(
+            team=self.team, type=PropertyDefinition.Type.PERSON, name="secret", property_type="String"
+        )
+        toolkit = DummyToolkit(self.team, self.user)
+        result = toolkit.retrieve_entity_property_values("person", "secret")
+        self.assertIn("does not exist", result)
+
+    @patch("ee.hogai.chat_agent.query_planner.toolkit.restricted_property_names")
+    def test_retrieve_event_property_values_hides_restricted_property(self, mock_restricted):
+        mock_restricted.return_value = {"$browser"}
+        # The restriction guard short-circuits before any taxonomy query, so no stored data is needed.
+        toolkit = DummyToolkit(self.team, self.user)
+        result = toolkit.retrieve_event_or_action_property_values("event1", "$browser")
+        self.assertIn("does not exist", result)
 
 
 class TestFinalAnswerTool(BaseTest):
