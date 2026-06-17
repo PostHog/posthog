@@ -581,8 +581,7 @@ export const productConfiguration: Record<string, any> = {
         name: 'Data ops',
         projectBased: true,
         activityScope: 'DataWarehouse',
-        description:
-            'Manage your data warehouse sources and queries. New source syncs are always free for the first 7 days',
+        description: "Manage your organization's shared data warehouse.",
         iconType: 'data_warehouse',
     },
     Models: {
