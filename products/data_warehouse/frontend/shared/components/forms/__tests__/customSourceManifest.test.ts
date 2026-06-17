@@ -540,7 +540,7 @@ describe('fan-out (parent/child)', () => {
         const state = childState()
         state.tables.push(makeTable({ id: 'table-forms-2', name: 'forms', path: '/forms-v2' }))
         const tables = removeTableFromList(state.tables, 0)
-        expect(tables.find((s) => s.name === 'responses')?.parent_table).toBe('forms')
+        expect(tables.find((table) => table.name === 'responses')?.parent_table).toBe('forms')
     })
 
     it('rename to a colliding name still cascades — the backend rejects the duplicate at save', () => {
