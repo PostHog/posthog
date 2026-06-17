@@ -78,6 +78,15 @@ SYSTEM_POSTGRES_SCHEMAS = ["information_schema", "pg_catalog", "pg_toast"]
 # default statement_timeout on the source role.
 SYNC_STATEMENT_TIMEOUT_MS = 1000 * 60 * 10  # 10 mins
 
+# Statement timeout scoped to the schema-discovery metadata query in `_get_table`.
+# `information_schema.columns` computes `numeric_precision`/`numeric_scale` via the per-column
+# `_pg_numeric_*` SQL functions, which can be slow on large catalogs. The setup connection has no
+# statement_timeout we control until `postgres_source` sets one *after* `_get_table` returns, so
+# the query would otherwise inherit whatever (possibly very short) default the source role/server
+# imposes and get cancelled mid-discovery. Scope a generous-but-bounded budget so a too-short
+# default can't kill it.
+METADATA_STATEMENT_TIMEOUT_MS = 1000 * 60 * 10  # 10 mins
+
 # How many times the metadata-gathering phase reconnects and retries when a hot-standby
 # recovery conflict terminates the setup connection. Past this the conflict is treated as
 # sustained and surfaced as the non-retryable "successive SerializationFailure errors" abort.
@@ -1880,10 +1889,25 @@ def _get_table(
 
     _explain_query(cursor, query, logger)
     logger.debug(f"Running query: {query.as_string()}")
-    cursor.execute(query)
+    # Scope a generous statement_timeout to the schema-discovery query. On regular tables it reads
+    # `information_schema.columns`, whose `numeric_precision`/`numeric_scale` columns invoke the
+    # per-column `_pg_numeric_*` SQL functions — slow enough on large catalogs that a short
+    # role/server default `statement_timeout` (some hosted/pooled Postgres set one) cancels the
+    # query with QueryCanceled before discovery finishes. The outer 10-minute setup timeout isn't
+    # set until `postgres_source` continues after `_get_table` returns, so without this the query
+    # inherits that short default. Own transaction so the `SET LOCAL` scopes to this query and
+    # auto-resets (the connection is autocommit, so this is a self-contained BEGIN/COMMIT) without
+    # leaking onto the numeric probe below, which deliberately bounds itself tighter.
+    with cursor.connection.transaction():
+        cursor.execute(
+            sql.SQL("SET LOCAL statement_timeout = {timeout}").format(
+                timeout=sql.Literal(METADATA_STATEMENT_TIMEOUT_MS)
+            )
+        )
+        cursor.execute(query)
+        metadata_rows = cursor.fetchall()
 
     numeric_data_types = {"numeric", "decimal"}
-    metadata_rows = cursor.fetchall()
 
     # For unconstrained numeric columns (declared as `numeric` with no precision/scale),
     # postgres returns NULL for numeric_precision/numeric_scale in information_schema. Falling
