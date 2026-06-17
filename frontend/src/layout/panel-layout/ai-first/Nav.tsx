@@ -180,9 +180,9 @@ export function Nav(): JSX.Element {
                             iconOnly
                             data-attr="nav-search"
                             tooltip={
-                                <>
+                                <div className="flex items-center gap-2">
                                     <span>Search</span> <RenderKeybind keybind={[keyBinds.search]} />
-                                </>
+                                </div>
                             }
                             tooltipPlacement={isLayoutNavCollapsed ? 'right' : undefined}
                             onClick={() => {
