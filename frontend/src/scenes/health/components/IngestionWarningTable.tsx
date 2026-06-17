@@ -1,6 +1,6 @@
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { humanFriendlyNumber } from 'lib/utils'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { WARNING_TYPE_TO_DESCRIPTION } from 'scenes/data-management/ingestion-warnings/IngestionWarningsView'
 
 import type { HealthIssue } from '../types'

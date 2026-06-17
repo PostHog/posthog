@@ -165,12 +165,28 @@ jobs:
             - name: Build API CLI release bundle
               run: pnpm --dir services/mcp run build:cli:release
             - name: Verify API CLI release bundle
-              run: node -e "const { statSync } = require('node:fs'); if (statSync('cli/lib/posthog-api-cli.mjs').size <= 0) process.exit(1)"
+              run: |
+                  node -e "const { existsSync, statSync } = require('node:fs'); const path = 'cli/lib/posthog-api-cli.mjs'; if (!existsSync(path) || statSync(path).size <= 0) { console.error('::error::API CLI bundle is missing or empty: ' + path); process.exit(1); }"
             - name: Build artifacts
               run: |
                   # Actually do builds and make zips and whatnot
                   dist build ${{ needs.plan.outputs.tag-flag }} --print=linkage --output-format=json ${{ matrix.dist_args }} > dist-manifest.json
                   echo "dist ran successfully"
+            - name: Verify API CLI bundle in local artifacts
+              shell: bash
+              run: |
+                  shopt -s nullglob
+                  bundles=(target/distrib/posthog-cli-*/lib/posthog-api-cli.mjs)
+                  if [ "${#bundles[@]}" -eq 0 ]; then
+                      echo "::error::No API CLI bundle found in cargo-dist local artifacts"
+                      exit 1
+                  fi
+                  for bundle in "${bundles[@]}"; do
+                      if [ ! -s "$bundle" ]; then
+                          echo "::error::API CLI bundle is empty: $bundle"
+                          exit 1
+                      fi
+                  done
             - id: cargo-dist
               name: Post-build
               # We force bash here just because github makes it really hard to get values up
@@ -232,7 +248,8 @@ jobs:
             - name: Build API CLI release bundle
               run: pnpm --dir services/mcp run build:cli:release
             - name: Verify API CLI release bundle
-              run: node -e "const { statSync } = require('node:fs'); if (statSync('cli/lib/posthog-api-cli.mjs').size <= 0) process.exit(1)"
+              run: |
+                  node -e "const { existsSync, statSync } = require('node:fs'); const path = 'cli/lib/posthog-api-cli.mjs'; if (!existsSync(path) || statSync(path).size <= 0) { console.error('::error::API CLI bundle is missing or empty: ' + path); process.exit(1); }"
             - id: cargo-dist
               shell: bash
               run: |

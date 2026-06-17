@@ -238,7 +238,8 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
 
                 async def _start():
                     client = await async_connect()
-                    await client.execute_workflow(
+                    # Fire-and-forget: the render can take minutes, so don't block the request on it; the frontend polls.
+                    await client.start_workflow(
                         "rasterize-recording",
                         RasterizeRecordingInputs(exported_asset_id=instance.id),
                         id=f"export-video-{instance.id}",

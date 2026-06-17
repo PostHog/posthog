@@ -1,13 +1,9 @@
 import { FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import {
-    autoCaptureEventToDescription,
-    capitalizeFirstLetter,
-    clamp,
-    humanFriendlyDuration,
-    percentage,
-    pluralize,
-} from 'lib/utils'
+import { humanFriendlyDuration } from 'lib/utils/durations'
+import { autoCaptureEventToDescription } from 'lib/utils/events'
+import { clamp, percentage } from 'lib/utils/numbers'
+import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'
 import { elementsToAction } from 'scenes/activity/explore/createActionFromEvent'
 import { teamLogic } from 'scenes/teamLogic'
 

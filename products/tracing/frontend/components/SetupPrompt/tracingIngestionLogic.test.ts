@@ -5,8 +5,8 @@ import { initKeaTests } from '~/test/init'
 
 import { tracingIngestionLogic } from './tracingIngestionLogic'
 
-jest.mock('lib/utils', () => {
-    const actual = jest.requireActual<typeof import('lib/utils')>('lib/utils')
+jest.mock('lib/utils/async', () => {
+    const actual = jest.requireActual<typeof import('lib/utils/async')>('lib/utils/async')
     return {
         ...actual,
         // Run the real retry loop with no inter-attempt backoff. Otherwise the 1000ms + 1500ms

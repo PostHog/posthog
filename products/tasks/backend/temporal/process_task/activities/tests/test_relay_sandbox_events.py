@@ -213,7 +213,9 @@ class TestRelaySandboxEventsCancellation:
                 return self
 
             async def aget(self, id: str) -> SimpleNamespace:
-                return SimpleNamespace(task=SimpleNamespace(created_by=SimpleNamespace(id=123)), state={})
+                return SimpleNamespace(
+                    task=SimpleNamespace(created_by=SimpleNamespace(id=123), origin_product=None), state={}
+                )
 
         async def fake_relay_loop(**_kwargs: object) -> None:
             raise asyncio.CancelledError
@@ -527,7 +529,9 @@ class TestRelaySandboxEventsErrorHandling:
                 return self
 
             async def aget(self, id: str) -> SimpleNamespace:
-                return SimpleNamespace(task=SimpleNamespace(created_by=SimpleNamespace(id=123)), state={})
+                return SimpleNamespace(
+                    task=SimpleNamespace(created_by=SimpleNamespace(id=123), origin_product=None), state={}
+                )
 
         async def fake_relay_loop(**_kwargs: object) -> None:
             raise RuntimeError("relay error")

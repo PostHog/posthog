@@ -25,8 +25,8 @@ export const Persons: Story = {
     decorators: [
         mswDecorator({
             post: {
-                '/api/environments/:team_id/query/:kind/': (req) => {
-                    const query = (req.body as any)?.query
+                '/api/environments/:team_id/query/:kind/': async ({ request }) => {
+                    const query = ((await request.json()) as any)?.query
                     // Check if it's a DataTableNode query, which is used for Events/Exceptions tabs
                     if (query && query.kind === 'ActorsQuery') {
                         return [

@@ -1,7 +1,7 @@
 import { kea, key, path, props } from 'kea'
 import { forms } from 'kea-forms'
 
-import { isNumber } from 'lib/utils'
+import { isNumber } from 'lib/utils/guards'
 import { AsyncMigrationModalProps, asyncMigrationsLogic } from 'scenes/instance/AsyncMigrations/asyncMigrationsLogic'
 
 import type { asyncMigrationParameterFormLogicType } from './asyncMigrationParameterFormLogicType'

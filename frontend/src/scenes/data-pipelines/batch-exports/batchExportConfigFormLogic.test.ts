@@ -5,6 +5,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
+import { MockResolverInfo } from '~/mocks/utils'
 import { initKeaTests } from '~/test/init'
 import { BatchExportConfiguration } from '~/types'
 
@@ -106,6 +107,24 @@ const BIGQUERY_BATCH_EXPORT = fixture('test-bq-id', 'BigQuery Export', {
         include_events: [],
         use_json_type: false,
     },
+})
+
+// A BigQuery export whose stored config still carries pre-Integration leftovers: the frontend-only
+// `json_config_file` and credentials that now live on the integration. These must be stripped on
+// save — the backend rejects any config key not on the destination's allowlist.
+const BIGQUERY_STALE_BATCH_EXPORT = fixture('test-bq-stale-id', 'BigQuery Stale Export', {
+    type: 'BigQuery',
+    integration: 7,
+    config: {
+        dataset_id: 'test_dataset',
+        table_id: 'events',
+        use_json_type: false,
+        exclude_events: [],
+        include_events: [],
+        json_config_file: [{}],
+        private_key: 'stale-private-key',
+        project_id: 'stale-project',
+    } as any,
 })
 
 const POSTGRES_BATCH_EXPORT = fixture('fixture-postgres', 'Postgres Export', {
@@ -287,6 +306,7 @@ const ALL_BATCH_EXPORTS: BatchExportConfiguration[] = [
     AWS_S3_BATCH_EXPORT,
     S3_COMPATIBLE_BATCH_EXPORT,
     BIGQUERY_BATCH_EXPORT,
+    BIGQUERY_STALE_BATCH_EXPORT,
     POSTGRES_BATCH_EXPORT,
     SNOWFLAKE_PASSWORD_BATCH_EXPORT,
     SNOWFLAKE_KEYPAIR_BATCH_EXPORT,
@@ -324,11 +344,11 @@ describe('batchExportConfigFormLogic', () => {
         // Register a GET + PATCH mock for every fixture so any round-trip test can load its
         // own fixture by id and look up the captured request body via patchBodiesById[fx.id].
         const getMocks: Record<string, BatchExportConfiguration> = {}
-        const patchMocks: Record<string, (req: any) => Promise<[number, BatchExportConfiguration]>> = {}
+        const patchMocks: Record<string, (info: MockResolverInfo) => Promise<[number, BatchExportConfiguration]>> = {}
         for (const fx of ALL_BATCH_EXPORTS) {
             getMocks[`/api/environments/:team_id/batch_exports/${fx.id}`] = fx
-            patchMocks[`/api/environments/:team_id/batch_exports/${fx.id}/`] = async (req) => {
-                const body = await req.json()
+            patchMocks[`/api/environments/:team_id/batch_exports/${fx.id}/`] = async ({ request }) => {
+                const body = (await request.json()) as Record<string, any>
                 lastPatchBody = body
                 patchBodiesById[fx.id] = body
                 return [200, fx]
@@ -340,8 +360,8 @@ describe('batchExportConfigFormLogic', () => {
                 '/api/environments/:team_id/batch_exports/test': { steps: [] },
             },
             post: {
-                '/api/environments/:team_id/batch_exports/': async (req) => {
-                    lastPostBody = await req.json()
+                '/api/environments/:team_id/batch_exports/': async ({ request }) => {
+                    lastPostBody = (await request.json()) as Record<string, any>
                     return [200, { ...S3_BATCH_EXPORT, id: 'new-export-id' }]
                 },
             },
@@ -991,6 +1011,31 @@ describe('batchExportConfigFormLogic', () => {
             const body = patchBodiesById[fixture.id]
             expect(body).not.toBeUndefined()
             expect(body.destination).toEqual(fixture.destination)
+        })
+    })
+
+    describe('strips stale/legacy config fields not in the destination allowlist', () => {
+        // Pre-Integration BigQuery configs can still hold json_config_file + credential fields.
+        // Editing such an export must not re-send them, or the backend rejects the PATCH with
+        // "Configuration has unknown field/s".
+        it('drops pre-Integration BigQuery fields from the PATCH payload', async () => {
+            await initLogic({ service: null, id: BIGQUERY_STALE_BATCH_EXPORT.id })
+
+            await expectLogic(logic, () => {
+                logic.actions.submitConfiguration()
+            })
+                .toDispatchActions(['submitConfiguration', 'updateBatchExportConfigSuccess'])
+                .toFinishAllListeners()
+
+            const body = patchBodiesById[BIGQUERY_STALE_BATCH_EXPORT.id]
+            expect(body).not.toBeUndefined()
+            expect(body.destination.config).toEqual({
+                dataset_id: 'test_dataset',
+                table_id: 'events',
+                use_json_type: false,
+                exclude_events: [],
+                include_events: [],
+            })
         })
     })
 })
