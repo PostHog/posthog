@@ -8,15 +8,13 @@ from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from celery.exceptions import SoftTimeLimitExceeded
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import SimpleSpanProcessor
-from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
-from opentelemetry.trace import StatusCode
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 
 from products.web_analytics.backend.api.heatmaps_utils import MAX_TARGET_WIDTHS
 from products.web_analytics.backend.models import HeatmapSnapshot, SavedHeatmap
 from products.web_analytics.backend.tasks.heatmap_screenshot import (
+    HEATMAP_SCREENSHOT_STUCK_SAMPLE_SIZE,
     HEATMAP_SCREENSHOT_STUCK_THRESHOLD_SECONDS,
     BrowserlessError,
     BrowserlessPermanentError,
@@ -389,32 +387,6 @@ class TestClassifyFailure(SimpleTestCase):
         assert _classify_failure(exc) == expected
 
 
-class TestBrowserlessScreenshotTracing(SimpleTestCase):
-    @override_settings(HEATMAP_BROWSERLESS_TIMEOUT_MS=180000, HEATMAP_BROWSERLESS_CONNECT_TIMEOUT_MS=30000)
-    def test_browserless_failure_marks_span_error_with_attributes(self) -> None:
-        exporter = InMemorySpanExporter()
-        provider = TracerProvider()
-        provider.add_span_processor(SimpleSpanProcessor(exporter))
-
-        with (
-            patch("products.web_analytics.backend.tasks.heatmap_screenshot.tracer", provider.get_tracer("test")),
-            patch("products.web_analytics.backend.tasks.heatmap_screenshot.requests") as mock_requests,
-        ):
-            mock_requests.post.return_value = _make_response(b"", status=500, text="boom")
-            with self.assertRaises(BrowserlessError):
-                _browserless_screenshot("https://host/screenshot?token=t", "https://example.com", 1024)
-
-        spans = exporter.get_finished_spans()
-        assert len(spans) == 1
-        span = spans[0]
-        assert span.name == "heatmap.browserless_screenshot"
-        assert span.status.status_code == StatusCode.ERROR
-        assert span.attributes is not None
-        assert span.attributes["heatmap.width"] == 1024
-        assert span.attributes["heatmap.width_bucket"] == "desktop"
-        assert span.attributes["heatmap.browserless_status"] == 500
-
-
 class TestReportStuckHeatmapScreenshots(APIBaseTest):
     def _make(
         self, *, status: str, type_: str = SavedHeatmap.Type.SCREENSHOT, age_seconds: int | None = None
@@ -449,3 +421,33 @@ class TestReportStuckHeatmapScreenshots(APIBaseTest):
         assert fresh.status == SavedHeatmap.Status.PROCESSING
         assert completed.status == SavedHeatmap.Status.COMPLETED
         assert iframe.status == SavedHeatmap.Status.PROCESSING
+
+    def test_gauge_reflects_count_and_resets_when_clear(self) -> None:
+        def _gauge() -> float:
+            return REGISTRY.get_sample_value("heatmap_screenshot_stuck_processing") or 0.0
+
+        old = HEATMAP_SCREENSHOT_STUCK_THRESHOLD_SECONDS + 60
+        self._make(status=SavedHeatmap.Status.PROCESSING, age_seconds=old)
+        self._make(status=SavedHeatmap.Status.PROCESSING, age_seconds=old)
+
+        assert report_stuck_heatmap_screenshots() == 2
+        assert _gauge() == 2
+
+        SavedHeatmap.objects.update(status=SavedHeatmap.Status.COMPLETED)
+
+        assert report_stuck_heatmap_screenshots() == 0
+        assert _gauge() == 0
+
+    def test_logs_full_count_but_caps_the_sample(self) -> None:
+        old = HEATMAP_SCREENSHOT_STUCK_THRESHOLD_SECONDS + 60
+        over_cap = HEATMAP_SCREENSHOT_STUCK_SAMPLE_SIZE + 5
+        for _ in range(over_cap):
+            self._make(status=SavedHeatmap.Status.PROCESSING, age_seconds=old)
+
+        with patch("products.web_analytics.backend.tasks.heatmap_screenshot.logger") as mock_logger:
+            count = report_stuck_heatmap_screenshots()
+
+        assert count == over_cap
+        _args, kwargs = mock_logger.warning.call_args
+        assert kwargs["stuck_count"] == over_cap
+        assert len(kwargs["sample"]) == HEATMAP_SCREENSHOT_STUCK_SAMPLE_SIZE

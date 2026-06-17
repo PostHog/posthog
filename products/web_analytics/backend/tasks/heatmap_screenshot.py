@@ -11,12 +11,11 @@ import structlog
 import posthoganalytics
 from celery import Task, shared_task
 from celery.exceptions import SoftTimeLimitExceeded
-from opentelemetry import trace
-from opentelemetry.trace import Status, StatusCode
 from prometheus_client import Counter, Gauge, Histogram
 
 from posthog.exceptions_capture import capture_exception
 from posthog.ph_client import ph_scoped_capture
+from posthog.scoping_audit import skip_team_scope_audit
 from posthog.security.url_validation import is_url_allowed
 from posthog.tasks.utils import CeleryQueue
 
@@ -24,7 +23,6 @@ from products.web_analytics.backend.api.heatmaps_utils import DEFAULT_TARGET_WID
 from products.web_analytics.backend.models import HeatmapSnapshot, SavedHeatmap
 
 logger = structlog.get_logger(__name__)
-tracer = trace.get_tracer(__name__)
 
 # Reclaim a hung worker rather than letting a stuck render hold an EXPORTS slot for the full retry budget.
 HEATMAP_SCREENSHOT_SOFT_TIME_LIMIT = 600  # seconds
@@ -32,6 +30,7 @@ HEATMAP_SCREENSHOT_TIME_LIMIT = HEATMAP_SCREENSHOT_SOFT_TIME_LIMIT + 30
 # Reject implausibly large Browserless responses before they reach worker memory / Postgres.
 HEATMAP_SCREENSHOT_MAX_BYTES = 20 * 1024 * 1024
 HEATMAP_SCREENSHOT_STUCK_THRESHOLD_SECONDS = HEATMAP_SCREENSHOT_TIME_LIMIT + 60
+HEATMAP_SCREENSHOT_STUCK_SAMPLE_SIZE = 20
 
 HEATMAP_SCREENSHOT_SUCCEEDED = Counter(
     "heatmap_screenshot_task_succeeded",
@@ -53,11 +52,6 @@ HEATMAP_BROWSERLESS_REQUEST_SECONDS = Histogram(
     "Latency of a single Browserless /screenshot call",
     labelnames=["outcome", "width_bucket"],
     buckets=(0.5, 1, 2, 5, 10, 20, 30, 60, 120, float("inf")),
-)
-HEATMAP_SCREENSHOT_QUEUE_WAIT_SECONDS = Histogram(
-    "heatmap_screenshot_queue_wait_seconds",
-    "Enqueue-to-start latency for the heatmap screenshot task (EXPORTS queue contention proxy)",
-    buckets=(0.5, 1, 5, 10, 30, 60, 120, 300, 600, float("inf")),
 )
 HEATMAP_SCREENSHOT_STUCK_PROCESSING = Gauge(
     "heatmap_screenshot_stuck_processing",
@@ -155,11 +149,6 @@ def _record_failure(screenshot: SavedHeatmap, e: Exception, *, started_at: float
     if started_at is not None:
         HEATMAP_SCREENSHOT_TIMER.labels(outcome="failed").observe(time.monotonic() - started_at)
 
-    span = trace.get_current_span()
-    span.set_attribute("heatmap.failure_type", failure_type)
-    span.record_exception(e)
-    span.set_status(Status(StatusCode.ERROR))
-
     _capture_mode_usage(screenshot, success=False, error_type=type(e).__name__, failure_type=failure_type)
 
     logger.exception(
@@ -197,15 +186,7 @@ def generate_heatmap_screenshot(self: Task, screenshot_id: str) -> None:
         logger.exception("heatmap_screenshot.not_found", screenshot_id=screenshot_id)
         return
 
-    span = trace.get_current_span()
-    span.set_attribute("heatmap.screenshot_id", str(screenshot.id))
-    span.set_attribute("team_id", screenshot.team_id)
-    span.set_attribute("heatmap.url", screenshot.url)
-
     queue_wait_seconds = max((timezone.now() - screenshot.updated_at).total_seconds(), 0.0)
-    HEATMAP_SCREENSHOT_QUEUE_WAIT_SECONDS.observe(queue_wait_seconds)
-    span.set_attribute("heatmap.queue_wait_seconds", round(queue_wait_seconds, 2))
-
     logger.info(
         "heatmap_screenshot.started",
         screenshot_id=screenshot.id,
@@ -229,8 +210,6 @@ def generate_heatmap_screenshot(self: Task, screenshot_id: str) -> None:
                 screenshot.save(update_fields=["status", "exception"])
                 HEATMAP_SCREENSHOT_FAILED.labels(failure_type="ssrf_blocked").inc()
                 HEATMAP_SCREENSHOT_TIMER.labels(outcome="failed").observe(time.monotonic() - started_at)
-                span.set_attribute("heatmap.failure_type", "ssrf_blocked")
-                span.set_status(Status(StatusCode.ERROR))
                 logger.warning(
                     "heatmap_screenshot.ssrf_blocked",
                     screenshot_id=screenshot.id,
@@ -248,7 +227,6 @@ def generate_heatmap_screenshot(self: Task, screenshot_id: str) -> None:
 
             HEATMAP_SCREENSHOT_SUCCEEDED.inc()
             HEATMAP_SCREENSHOT_TIMER.labels(outcome="succeeded").observe(duration_seconds)
-            span.set_attribute("heatmap.width_count", width_count)
 
             _capture_mode_usage(
                 screenshot,
@@ -398,85 +376,73 @@ def _browserless_screenshot(endpoint_url: str, page_url: str, width: int) -> byt
         settings.HEATMAP_BROWSERLESS_TIMEOUT_MS / 1000 + 30,
     )
     width_bucket = _width_bucket(width)
-    with tracer.start_as_current_span("heatmap.browserless_screenshot") as span:
-        span.set_attribute("heatmap.width", width)
-        span.set_attribute("heatmap.width_bucket", width_bucket)
-        started = time.monotonic()
-        try:
-            response = requests.post(endpoint_url, json=body, timeout=timeout)
-        except Exception as e:
-            elapsed = time.monotonic() - started
-            HEATMAP_BROWSERLESS_REQUEST_SECONDS.labels(outcome="error", width_bucket=width_bucket).observe(elapsed)
-            err: BrowserlessError = BrowserlessTransientError(
-                f"Browserless screenshot request failed for {_redact_browserless_url(endpoint_url)}: "
-                f"{_sanitize_browserless_error(str(e))}",
-                cause="request_exception",
-            )
-            span.record_exception(err)
-            span.set_status(Status(StatusCode.ERROR))
-            logger.warning(
-                "heatmap_screenshot.browserless_request",
-                width=width,
-                outcome="error",
-                cause="request_exception",
-                latency_ms=round(elapsed * 1000),
-            )
-            raise err from None
-
+    started = time.monotonic()
+    try:
+        response = requests.post(endpoint_url, json=body, timeout=timeout)
+    except Exception as e:
         elapsed = time.monotonic() - started
-        status_code = response.status_code
-        byte_size = len(response.content or b"")
-        span.set_attribute("heatmap.browserless_status", status_code)
-        span.set_attribute("heatmap.latency_ms", round(elapsed * 1000))
-        span.set_attribute("heatmap.bytes", byte_size)
+        HEATMAP_BROWSERLESS_REQUEST_SECONDS.labels(outcome="error", width_bucket=width_bucket).observe(elapsed)
+        err: BrowserlessError = BrowserlessTransientError(
+            f"Browserless screenshot request failed for {_redact_browserless_url(endpoint_url)}: "
+            f"{_sanitize_browserless_error(str(e))}",
+            cause="request_exception",
+        )
+        logger.warning(
+            "heatmap_screenshot.browserless_request",
+            width=width,
+            outcome="error",
+            cause="request_exception",
+            latency_ms=round(elapsed * 1000),
+        )
+        raise err from None
 
-        if status_code != 200:
-            HEATMAP_BROWSERLESS_REQUEST_SECONDS.labels(outcome="error", width_bucket=width_bucket).observe(elapsed)
-            message = (
-                f"Browserless screenshot failed ({status_code}) for "
-                f"{_redact_browserless_url(endpoint_url)}: {_sanitize_browserless_error(response.text[:500])}"
-            )
-            error_cls = BrowserlessPermanentError if _is_permanent_status(status_code) else BrowserlessTransientError
-            err = error_cls(message, status_code=status_code, cause="http_status")
-            span.record_exception(err)
-            span.set_status(Status(StatusCode.ERROR))
-            logger.warning(
-                "heatmap_screenshot.browserless_request",
-                width=width,
-                browserless_status=status_code,
-                latency_ms=round(elapsed * 1000),
-                bytes=byte_size,
-                outcome="error",
-            )
-            raise err
+    elapsed = time.monotonic() - started
+    status_code = response.status_code
+    byte_size = len(response.content or b"")
 
-        try:
-            content = _validate_screenshot_response(response, endpoint_url)
-        except BrowserlessError as err:
-            HEATMAP_BROWSERLESS_REQUEST_SECONDS.labels(outcome="error", width_bucket=width_bucket).observe(elapsed)
-            span.record_exception(err)
-            span.set_status(Status(StatusCode.ERROR))
-            logger.warning(
-                "heatmap_screenshot.browserless_request",
-                width=width,
-                browserless_status=status_code,
-                latency_ms=round(elapsed * 1000),
-                bytes=byte_size,
-                outcome="error",
-                cause=err.cause,
-            )
-            raise
-
-        HEATMAP_BROWSERLESS_REQUEST_SECONDS.labels(outcome="ok", width_bucket=width_bucket).observe(elapsed)
-        logger.info(
+    if status_code != 200:
+        HEATMAP_BROWSERLESS_REQUEST_SECONDS.labels(outcome="error", width_bucket=width_bucket).observe(elapsed)
+        message = (
+            f"Browserless screenshot failed ({status_code}) for "
+            f"{_redact_browserless_url(endpoint_url)}: {_sanitize_browserless_error(response.text[:500])}"
+        )
+        error_cls = BrowserlessPermanentError if _is_permanent_status(status_code) else BrowserlessTransientError
+        err = error_cls(message, status_code=status_code, cause="http_status")
+        logger.warning(
             "heatmap_screenshot.browserless_request",
             width=width,
             browserless_status=status_code,
             latency_ms=round(elapsed * 1000),
-            bytes=len(content),
-            outcome="ok",
+            bytes=byte_size,
+            outcome="error",
         )
-        return content
+        raise err
+
+    try:
+        content = _validate_screenshot_response(response, endpoint_url)
+    except BrowserlessError as err:
+        HEATMAP_BROWSERLESS_REQUEST_SECONDS.labels(outcome="error", width_bucket=width_bucket).observe(elapsed)
+        logger.warning(
+            "heatmap_screenshot.browserless_request",
+            width=width,
+            browserless_status=status_code,
+            latency_ms=round(elapsed * 1000),
+            bytes=byte_size,
+            outcome="error",
+            cause=err.cause,
+        )
+        raise
+
+    HEATMAP_BROWSERLESS_REQUEST_SECONDS.labels(outcome="ok", width_bucket=width_bucket).observe(elapsed)
+    logger.info(
+        "heatmap_screenshot.browserless_request",
+        width=width,
+        browserless_status=status_code,
+        latency_ms=round(elapsed * 1000),
+        bytes=len(content),
+        outcome="ok",
+    )
+    return content
 
 
 def _resolve_widths(screenshot: SavedHeatmap) -> list[int]:
@@ -509,18 +475,10 @@ def _resolve_widths(screenshot: SavedHeatmap) -> list[int]:
 
 
 def _persist_snapshot(screenshot: SavedHeatmap, width: int, image_data: bytes) -> None:
-    snapshot, created = HeatmapSnapshot.objects.get_or_create(heatmap=screenshot, width=width)
+    snapshot, _ = HeatmapSnapshot.objects.get_or_create(heatmap=screenshot, width=width)
     snapshot.content = image_data
     snapshot.content_location = None
     snapshot.save()
-    logger.info(
-        "heatmap_screenshot.snapshot_persisted",
-        screenshot_id=screenshot.id,
-        team_id=screenshot.team_id,
-        width=width,
-        bytes=len(image_data),
-        created=created,
-    )
 
 
 def _generate_screenshots(screenshot: SavedHeatmap) -> int:
@@ -550,28 +508,30 @@ def _generate_browserless_screenshots(screenshot: SavedHeatmap, widths: list[int
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.EXPORTS.value)
+@skip_team_scope_audit
 def report_stuck_heatmap_screenshots() -> int:
-    cutoff = timezone.now() - timedelta(seconds=HEATMAP_SCREENSHOT_STUCK_THRESHOLD_SECONDS)
     now = timezone.now()
+    cutoff = now - timedelta(seconds=HEATMAP_SCREENSHOT_STUCK_THRESHOLD_SECONDS)
     stuck = SavedHeatmap.objects.filter(
         type=SavedHeatmap.Type.SCREENSHOT,
         status=SavedHeatmap.Status.PROCESSING,
         updated_at__lt=cutoff,
-    ).only("id", "team_id", "updated_at")
-    count = 0
-    for screenshot in stuck:
-        logger.warning(
-            "heatmap_screenshot.stuck_processing",
-            screenshot_id=screenshot.id,
-            team_id=screenshot.team_id,
-            age_seconds=round((now - screenshot.updated_at).total_seconds()),
-        )
-        count += 1
+    )
+    count = stuck.count()
     HEATMAP_SCREENSHOT_STUCK_PROCESSING.set(count)
     if count:
+        sample = stuck.order_by("updated_at").only("id", "team_id", "updated_at")[:HEATMAP_SCREENSHOT_STUCK_SAMPLE_SIZE]
         logger.warning(
-            "heatmap_screenshot.stuck_sweep_found",
+            "heatmap_screenshot.stuck_processing",
             stuck_count=count,
             threshold_seconds=HEATMAP_SCREENSHOT_STUCK_THRESHOLD_SECONDS,
+            sample=[
+                {
+                    "screenshot_id": str(s.id),
+                    "team_id": s.team_id,
+                    "age_seconds": round((now - s.updated_at).total_seconds()),
+                }
+                for s in sample
+            ],
         )
     return count
