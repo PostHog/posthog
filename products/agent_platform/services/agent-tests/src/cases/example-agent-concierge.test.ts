@@ -167,9 +167,11 @@ describe('example: agent-concierge bundle', () => {
         ]) {
             expect(gated.has(required), `${required} should be gated`).toBe(true)
         }
-        // session_principal — the concierge wires every gated tool to the
-        // session owner via the per-asker fast-path, so the user who asked can
-        // approve their own destructive call without a team-admin round-trip.
+        // session_principal — the concierge scopes its destructive tools to the
+        // session owner as approver. This is NOT a self-authorising fast-path:
+        // the call still queues for an explicit human decision (so a prompt
+        // injection the owner unwittingly relays can't auto-promote/-archive).
+        // The scope marks who the queued approval is for; it never auto-runs.
         for (const [, t] of gated) {
             expect(t.approval_policy?.approvers).toEqual(['session_principal'])
         }

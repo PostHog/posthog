@@ -24,7 +24,6 @@ import {
     newTestPrefix,
     PgApprovalStore,
     PgSessionQueue,
-    principalsMatch,
     RedisSessionEventBus,
     S3BundleStore,
     SessionPrincipal,
@@ -37,7 +36,7 @@ const KAFKA_HOSTS = process.env.KAFKA_HOSTS ?? 'localhost:9092'
 import { buildApprovalDecidedMarker } from './approval-marker'
 import { runSession } from './driver'
 import type { OpenedMcp, RemoteMcpTool } from './mcp-clients'
-import { findLastUserSender, type IsAskerInApproverScope } from './per-asker-auth'
+import type { IsAskerInApproverScope } from './per-asker-auth'
 
 const FAUX_MODEL_ID = 'faux/test'
 // Realistic UUID — PG's `uuid` columns (approvals.session_id, etc.) reject
@@ -358,8 +357,8 @@ describe('driver runSession', () => {
      * so they never appear in `spec.tools[]` and the native/custom approval
      * lookup misses them. PR 7 added a fallback that decomposes
      * `<prefix>__<remoteName>` against `spec.mcps[].tools[]` — these tests pin
-     * the wrap path for the MCP variant + the `session_principal` per-asker
-     * fast-path that the concierge case relies on.
+     * the wrap path for the MCP variant + the `session_principal` gate the
+     * concierge relies on (which always queues — it never fast-paths).
      */
     describe('MCP tool approval gating', () => {
         // Minimal `OpenedMcp` stub — same shape as `build-agent-tools.test.ts`'s
@@ -589,12 +588,15 @@ describe('driver runSession', () => {
             expect(out.state).not.toBe('failed')
         })
 
-        it('session_principal per-asker fast-path: dispatches directly when last sender matches session.principal', async () => {
-            // Alice authed the session (`session.principal === alice`) and
-            // is the one driving this turn (`conversation[last].sender === alice`).
-            // The per-asker check returns true on the `session_principal`
-            // branch (no DB roundtrip), the wrap runs the real tool, and no
-            // approval row is created.
+        it('session_principal does NOT fast-path: queues even when the last sender matches session.principal (injection guard)', async () => {
+            // Alice authed the session (`session.principal === alice`) and is
+            // the one driving this turn (`conversation[last].sender === alice`).
+            // Even so, a `session_principal`-gated call must NOT auto-dispatch:
+            // the owner being the asker is not consent to the specific gated
+            // call the model emitted (which a prompt injection in content the
+            // agent read could have steered). The wrap queues; the real remote
+            // tool is never hit. Regression guard for the "approval bypass for
+            // session-principal tools" finding.
             const mcp = makeFakeMcp('posthog', POSTHOG_REF, {
                 'agent-applications-revisions-promote-create': { description: 'd', result: { promoted: true } },
             })
@@ -603,8 +605,10 @@ describe('driver runSession', () => {
                 principal: principalAlice,
                 conversation: [{ role: 'user', content: 'promote it', sender: principalAlice, timestamp: Date.now() }],
             })
-            // Direct stub — same contract as `makePerAskerAuth` returns. We
-            // route through `principalsMatch` to mirror the production check.
+            // Faithful stub of the production `makePerAskerAuth`: `team_admins`
+            // is the only self-authorising fast-path scope. `session_principal`
+            // never clears the gate, so the concierge's `['session_principal']`
+            // policy resolves to false here.
             const out = await run(makeRev({ mcps: [POSTHOG_REF as never] }), session, {
                 script: [
                     toolUse([
@@ -612,25 +616,21 @@ describe('driver runSession', () => {
                             application_id: 'app',
                         }),
                     ]),
-                    stop('done'),
+                    stop('queued'),
                 ],
                 approvals,
                 mcpClients: [mcp],
-                isAskerInApproverScope: (async (conversation, _teamId, scope, sessionPrincipal) => {
-                    if (!scope.includes('session_principal')) {
-                        return false
-                    }
-                    const sender = findLastUserSender(conversation)
-                    return Boolean(sender && principalsMatch(sessionPrincipal, sender))
-                }) satisfies IsAskerInApproverScope,
+                isAskerInApproverScope: (async (_conversation, _teamId, scope) =>
+                    scope.includes('team_admins')) satisfies IsAskerInApproverScope,
             })
             expect(out.state).toBe('completed')
-            // Fast-path ran the real remote tool exactly once.
-            expect(mcp.calls).toEqual([
-                { name: 'agent-applications-revisions-promote-create', args: { application_id: 'app' } },
-            ])
-            // No approval row queued — that's the whole point of the fast-path.
-            expect(await approvals.listBySession(TEST_SESSION_ID)).toHaveLength(0)
+            // The real remote tool was NEVER called — the gate held.
+            expect(mcp.calls).toEqual([])
+            // Exactly one approval row queued for the gated call.
+            const rows = await approvals.listBySession(TEST_SESSION_ID)
+            expect(rows).toHaveLength(1)
+            expect(rows[0].tool_name).toBe('posthog__agent-applications-revisions-promote-create')
+            expect(rows[0].state).toBe('queued')
         })
     })
 

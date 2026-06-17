@@ -5,7 +5,7 @@
  * can dispatch the tool directly instead of queueing for someone else to
  * approve.
  *
- * Scopes supported in v0:
+ * Fast-path scopes (skip the queue, run the real tool):
  *   - `team_admins` — the original B.2 v0 scope. Resolution:
  *     - `sender.kind === 'slack'`: `sender.id` is an `agent_user.id`. Look
  *       up the row, read its `posthog_user_id`, check OrganizationMembership
@@ -14,35 +14,41 @@
  *       (chat /run with an admin's token) is a sensible follow-up but adds
  *       a second resolution path that step 3 doesn't need to demo the
  *       Slack scenario.
- *   - `session_principal` (PR 7) — the session-owner-self-authorise case.
- *     Matches the most-recent user-turn sender against `session.principal`
- *     (auth-time identity stored on the session row) using the same strict
- *     `principalsMatch` comparison the trigger edge uses for /send. Stable
- *     across resume — a second user posting to a resumed session can't
- *     bypass the gate by being whoever-spoke-last. Per-asker fast-path
- *     only; queued-approval routing to the session principal widens later.
+ *
+ * NOT a fast-path scope:
+ *   - `session_principal` — marks "the session owner is the approver", but
+ *     the owner being the *asker* is NOT evidence they consented to the
+ *     specific gated call the model emitted. Content the agent reads (fetched
+ *     docs, MCP/tool output, another agent's bundle) can carry a prompt
+ *     injection that steers the model into a destructive gated call while the
+ *     most-recent user-turn sender is still the legitimate owner — so a
+ *     sender↔principal match would silently auto-execute an action the human
+ *     never decided on. `session_principal` therefore always queues for an
+ *     explicit, out-of-band human decision; it never short-circuits `real(...)`.
+ *     The scope is still persisted on the queued row (`approver_scope`) so
+ *     decision-side routing — letting the session owner, not only a team
+ *     admin, clear the queued approval — can land as a follow-up.
+ *     (Fixes the "approval bypass for session-principal tools" review finding.)
  */
 
 import type { Pool } from 'pg'
 
-import { ConversationMessage, IdentityStore, principalsMatch, SessionPrincipal } from '@posthog/agent-shared'
+import { ConversationMessage, IdentityStore, SessionPrincipal } from '@posthog/agent-shared'
 
 /** PostHog's `OrganizationMembership.Level` values — keep in sync with the Django enum. */
 const ADMIN_LEVEL = 8
 
 /**
  * The check the dispatcher runs against the active session conversation.
- * Returns true when the most-recent user turn's sender satisfies one of the
- * scopes in `approverScope`. Returning false defers to the normal queue
- * path; the model never sees the difference.
+ * Returns true when the most-recent user turn's sender satisfies a fast-path
+ * scope in `approverScope` (today: `team_admins` only). Returning false
+ * defers to the normal queue path; the model never sees the difference.
  *
- * `sessionPrincipal` is the auth-time identity persisted on the session row
- * — used for the `session_principal` scope match. Anonymous principals
- * (public agents) are explicitly excluded: the public verifier stores
- * `{ kind: 'anonymous' }` — not null — in the session row, and
- * `principalsMatch` returns true for any two anonymous principals, which
- * would let every caller bypass the gate. The `session_principal` scope is
- * only meaningful for authenticated sessions with a unique identity.
+ * `sessionPrincipal` (the auth-time identity persisted on the session row) is
+ * accepted for forward compatibility with decision-side approver routing but
+ * is NOT consumed by the v0 check: `session_principal` is deliberately not a
+ * self-authorising fast-path scope (see the module doc), so a sender↔principal
+ * match never clears the gate here.
  */
 export type IsAskerInApproverScope = (
     conversation: ConversationMessage[],
@@ -58,22 +64,16 @@ export interface MakePerAskerAuthDeps {
 
 /** Production factory — closes over the identity store + posthog DB pool. */
 export function makePerAskerAuth(deps: MakePerAskerAuthDeps): IsAskerInApproverScope {
-    return async (conversation, teamId, approverScope, sessionPrincipal) => {
-        const sender = findLastUserSender(conversation)
-        // `session_principal` is a pure equality check against the
-        // auth-time principal on the session row — no DB roundtrip. Cheap;
-        // check first so we don't burn a posthog DB query on every gated
-        // call for a concierge-style spec. Anonymous principals are excluded:
-        // `principalsMatch` treats any two anonymous principals as equal, so on
-        // a public agent every caller would self-authorise the gate.
-        if (approverScope.includes('session_principal') && sessionPrincipal && sessionPrincipal.kind !== 'anonymous') {
-            if (sender && principalsMatch(sessionPrincipal, sender)) {
-                return true
-            }
-        }
+    // `sessionPrincipal` (4th arg) is intentionally not destructured: the only
+    // fast-path scope is `team_admins`. `session_principal` is NOT a
+    // self-authorising fast-path — it always defers to the queue so a prompt
+    // injection that the session owner unwittingly relays can't auto-execute a
+    // gated call. See the module doc.
+    return async (conversation, teamId, approverScope) => {
         if (!approverScope.includes('team_admins')) {
             return false
         }
+        const sender = findLastUserSender(conversation)
         if (!sender) {
             return false
         }
