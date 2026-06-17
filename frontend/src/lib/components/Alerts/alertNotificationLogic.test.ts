@@ -1,7 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
-import { ALERT_NOTIFICATION_TYPE_DISCORD } from 'lib/utils/alertUtils'
+import { ALERT_NOTIFICATION_TYPE_DISCORD } from 'lib/utils/alerts'
 
 import { initKeaTests } from '~/test/init'
 import { HogFunctionType } from '~/types'
