@@ -850,6 +850,11 @@ class DatascopeSourceConfig(config.Config):
 
 
 @config.config
+class DatoramaSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class Db2SourceConfig(config.Config):
     pass
 
@@ -3564,6 +3569,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.DATABRICKS: DatabricksSourceConfig,
         ExternalDataSourceType.DATADOG: DatadogSourceConfig,
         ExternalDataSourceType.DATASCOPE: DatascopeSourceConfig,
+        ExternalDataSourceType.DATORAMA: DatoramaSourceConfig,
         ExternalDataSourceType.DB2: Db2SourceConfig,
         ExternalDataSourceType.DBT: DbtSourceConfig,
         ExternalDataSourceType.DEEL: DeelSourceConfig,

@@ -1772,6 +1772,7 @@ class ExternalDataSourceType(StrEnum):
     BRAINTRUST = "Braintrust"
     STREAM_ELEMENTS = "StreamElements"
     STREAMLABS = "Streamlabs"
+    DATORAMA = "Datorama"
     CUSTOM = "Custom"
 
 

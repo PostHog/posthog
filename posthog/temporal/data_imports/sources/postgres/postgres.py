@@ -87,19 +87,14 @@ SYSTEM_POSTGRES_SCHEMAS = ["information_schema", "pg_catalog", "pg_toast"]
 # default statement_timeout on the source role.
 SYNC_STATEMENT_TIMEOUT_MS = 1000 * 60 * 10  # 10 mins
 
-# Statement timeout scoped to the schema-discovery metadata query in `_get_table`.
-# `information_schema.columns` computes `numeric_precision`/`numeric_scale` via the per-column
-# `_pg_numeric_*` SQL functions, which can be slow on large catalogs. The setup connection has no
-# statement_timeout we control until `postgres_source` sets one *after* `_get_table` returns, so
-# the query would otherwise inherit whatever (possibly very short) default the source role/server
-# imposes and get cancelled mid-discovery. Scope a generous-but-bounded budget so a too-short
-# default can't kill it.
 METADATA_STATEMENT_TIMEOUT_MS = 1000 * 60 * 10  # 10 mins
 
-# How many times the metadata-gathering phase reconnects and retries when a hot-standby
-# recovery conflict terminates the setup connection. Past this the conflict is treated as
-# sustained and surfaced as the non-retryable "successive SerializationFailure errors" abort.
+# In-process retries for a recovery conflict before the abort (non-retryable, see source.py). The
+# read path counts these only once the chunk has shrunk to the floor.
 _MAX_SETUP_RECOVERY_CONFLICT_RETRIES = 10
+_MAX_READ_RECOVERY_CONFLICT_RETRIES = 10
+# A shorter query holds its snapshot for less time, lowering the odds the replica cancels it.
+_MIN_RECOVERY_CONFLICT_CHUNK_SIZE = 100
 
 # Bounded in-process retries for a transient connection drop hit *during* the setup metadata
 # probes (not just the initial connect). Mirrors `_connect_with_dropped_retry`'s default; past
@@ -278,6 +273,23 @@ def _connect_with_dropped_retry(
                 raise
             logger.debug(f"Connection attempt failed ({e}). Retrying (attempt {attempt}/{max_attempts})")
             time.sleep(min(2 * attempt, 30))
+
+
+def _next_recovery_conflict_chunk_size(chunk_size: int, successive_errors: int) -> int:
+    # Only shrink on a sustained conflict — successive_errors resets on a yielded chunk.
+    if successive_errors >= 5 and chunk_size > _MIN_RECOVERY_CONFLICT_CHUNK_SIZE:
+        return max(int(chunk_size / 1.5), _MIN_RECOVERY_CONFLICT_CHUNK_SIZE)
+    return chunk_size
+
+
+def _recovery_conflict_abort_error(retries: int) -> Exception:
+    # Non-retryable (see source.py): once in-process retries are exhausted the conflict is sustained,
+    # and a whole-activity retry just re-reads from offset 0 into the same wall.
+    return Exception(
+        f"Read replica kept canceling reads due to conflict with recovery after {retries} retries. "
+        f"Increase max_standby_streaming_delay or enable hot_standby_feedback on the replica, or sync "
+        f"from the primary database instead of the read replica."
+    )
 
 
 def _statement_timeout_as_non_retryable(
@@ -2380,9 +2392,7 @@ def postgres_source(
                 _safe_close_connection(connection)
                 setup_recovery_conflicts += 1
                 if setup_recovery_conflicts >= _MAX_SETUP_RECOVERY_CONFLICT_RETRIES:
-                    raise Exception(
-                        f"Hit {setup_recovery_conflicts} successive SerializationFailure errors. Aborting."
-                    ) from e
+                    raise _recovery_conflict_abort_error(setup_recovery_conflicts) from e
                 logger.debug(
                     f"SerializationFailure during table setup ({e}). Reconnecting and retrying "
                     f"(attempt {setup_recovery_conflicts}/{_MAX_SETUP_RECOVERY_CONFLICT_RETRIES})"
@@ -2501,6 +2511,7 @@ def postgres_source(
 
                 successive_errors = 0
                 successive_conn_errors = 0
+                floor_retries = 0
                 connection = _connect_with_dropped_retry(get_connection, logger)
                 # Autocommit so each LIMIT/OFFSET query runs as its own statement
                 # and no transaction stays open across the slow delta-merge that
@@ -2542,28 +2553,27 @@ def postgres_source(
 
                             successive_errors = 0
                             successive_conn_errors = 0
+                            floor_retries = 0
                     except psycopg.errors.SerializationFailure as e:
                         if "due to conflict with recovery" not in "".join(e.args):
                             raise
 
-                        # This error happens when the read replica is out of sync with the primary
                         logger.debug(f"SerializationFailure error: {e}. Retrying chunk at offset {offset}")
 
                         successive_errors += 1
-                        if successive_errors >= 30:
-                            # The connection should be closed here, but want to double check to make sure
-                            _safe_close_connection(connection)
-
-                            raise Exception(
-                                f"Hit {successive_errors} successive SerializationFailure errors. Aborting."
-                            ) from e
-                        elif successive_errors >= 5:
-                            chunk_size = max(int(chunk_size / 1.5), 100)
+                        # Shrink toward the floor first; only once stuck at the floor do we count down to
+                        # the abort.
+                        reduced_chunk_size = _next_recovery_conflict_chunk_size(chunk_size, successive_errors)
+                        if reduced_chunk_size < chunk_size:
+                            chunk_size = reduced_chunk_size
                             logger.debug(f"Reducing chunk size to {chunk_size} to reduce load on read replica")
-                            time.sleep(2 * successive_errors)
-                        else:
-                            # Linear backoff on successive errors to make sure we give the read replica time to catch up
-                            time.sleep(2 * successive_errors)
+                            floor_retries = 0
+                        elif chunk_size <= _MIN_RECOVERY_CONFLICT_CHUNK_SIZE:
+                            floor_retries += 1
+                            if floor_retries >= _MAX_READ_RECOVERY_CONFLICT_RETRIES:
+                                _safe_close_connection(connection)
+                                raise _recovery_conflict_abort_error(floor_retries) from e
+                        time.sleep(min(2 * successive_errors, 30))
                     except psycopg.errors.QueryCanceled as e:
                         # A chunk hit the 10-min statement_timeout. QueryCanceled
                         # subclasses OperationalError, so this clause must precede the

@@ -21252,6 +21252,7 @@
                 "Braintrust",
                 "StreamElements",
                 "Streamlabs",
+                "Datorama",
                 "Custom"
             ],
             "type": "string"

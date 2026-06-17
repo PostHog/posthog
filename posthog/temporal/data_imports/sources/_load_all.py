@@ -144,6 +144,7 @@ from .customerly.source import CustomerlySource
 from .databricks.source import DatabricksSource
 from .datadog.source import DatadogSource
 from .datascope.source import DatascopeSource
+from .datorama.source import DatoramaSource
 from .db2.source import Db2Source
 from .dbt.source import DbtSource
 from .deel.source import DeelSource
