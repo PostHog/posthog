@@ -6,7 +6,7 @@ import { IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonDialog, LemonMenu, LemonTag } from '@posthog/lemon-ui'
 
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { hogFunctionConfigurationLogic } from '../configuration/hogFunctionConfigurationLogic'

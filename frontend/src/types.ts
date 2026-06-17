@@ -4682,6 +4682,20 @@ export enum ExperimentStatsMethod {
     Frequentist = 'frequentist',
 }
 
+export interface ExperimentExposureEstimateConfig {
+    conversionRateInputType: ConversionRateInputType
+    manualMetricType?: 'funnel' | 'mean_count' | 'mean_sum_or_avg'
+    manualBaselineValue?: number
+    manualExposureRate?: number
+}
+
+export interface ExperimentRunningTimeCalculationConfig {
+    minimum_detectable_effect?: number
+    recommended_running_time?: number
+    recommended_sample_size?: number
+    exposure_estimate_config?: ExperimentExposureEstimateConfig | null
+}
+
 export interface Experiment {
     id: ExperimentIdType
     name: string
@@ -4702,15 +4716,6 @@ export interface Experiment {
     }[]
     saved_metrics: any[]
     parameters: {
-        exposure_estimate_config?: {
-            conversionRateInputType: ConversionRateInputType
-            manualMetricType?: 'funnel' | 'mean_count' | 'mean_sum_or_avg'
-            manualBaselineValue?: number
-            manualExposureRate?: number
-        } | null
-        minimum_detectable_effect?: number
-        recommended_running_time?: number
-        recommended_sample_size?: number
         feature_flag_variants: MultivariateFlagVariant[]
         custom_exposure_filter?: FilterType
         aggregation_group_type_index?: integer
@@ -4724,6 +4729,7 @@ export interface Experiment {
             versions: number[]
         }
     }
+    running_time_calculation?: ExperimentRunningTimeCalculationConfig
     start_date?: string | null
     end_date?: string | null
     status?: ExperimentStatus | null
@@ -7366,28 +7372,6 @@ export interface DataWarehouseActivityRecord {
     latest_error: string | null
     workflow_run_id?: string
     origin?: DataWarehouseSavedQueryOrigin | null
-}
-
-export type DataWarehouseProvisioningState = 'pending' | 'provisioning' | 'ready' | 'failed' | 'deleting' | 'deleted'
-
-export interface DataWarehouseProvisioningConnection {
-    host: string
-    port: number
-    database: string
-    username: string
-}
-
-export interface DataWarehouseProvisioningStatus {
-    org_id: string
-    state: DataWarehouseProvisioningState
-    status_message: string
-    s3_state: DataWarehouseProvisioningState
-    metadata_store_state: DataWarehouseProvisioningState
-    identity_state: DataWarehouseProvisioningState
-    secrets_state: DataWarehouseProvisioningState
-    ready_at: string | null
-    failed_at: string | null
-    connection: DataWarehouseProvisioningConnection | null
 }
 
 export type HeatmapType = 'screenshot' | 'iframe' | 'recording'

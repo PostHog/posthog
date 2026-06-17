@@ -120,7 +120,12 @@ export const ExperimentsListParams = /* @__PURE__ */ zod.object({
 
 export const ExperimentsListQueryParams = /* @__PURE__ */ zod.object({
     archived: zod.boolean().optional().describe('Filter by archived state. Defaults to non-archived experiments only.'),
-    created_by_id: zod.number().optional().describe('Filter to experiments created by the given user ID.'),
+    created_by_id: zod
+        .string()
+        .optional()
+        .describe(
+            'Filter to experiments created by the given user(s). Accepts a single user ID, or a JSON-encoded / comma-separated list of user IDs to match any of them.'
+        ),
     event: zod
         .string()
         .optional()

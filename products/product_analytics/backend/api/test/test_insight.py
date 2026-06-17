@@ -523,6 +523,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 execution_mode=ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE,
                 team=self.team,
                 user=mock.ANY,
+                user_access_control=mock.ANY,
                 filters_override={},
                 variables_override={},
                 tile_filters_override={},
@@ -542,6 +543,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
                 team=self.team,
                 user=mock.ANY,
+                user_access_control=mock.ANY,
                 filters_override={},
                 variables_override={},
                 tile_filters_override={},
@@ -977,7 +979,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # adding more insights doesn't change the query count
         self.assertEqual(
-            [13, 13, 13, 13, 13],
+            [12, 12, 12, 12, 12],
             query_counts,
             f"received query counts\n\n{query_counts}",
         )

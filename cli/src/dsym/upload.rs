@@ -32,7 +32,7 @@ pub struct Args {
     /// Include source code files in the dSYM upload.
     /// When enabled, source files referenced by DWARF debug info are bundled into the upload,
     /// allowing PostHog to display source code context around crash locations.
-    /// Implies --force unless --skip-on-conflict is set.
+    /// Implies --force unless --skip-on-conflict is set. [default: false]
     #[arg(long, default_value_t = false)]
     pub include_source: bool,
 }

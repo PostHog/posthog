@@ -14,7 +14,7 @@ import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 import { Link } from 'lib/lemon-ui/Link'
-import { pluralize } from 'lib/utils'
+import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import {

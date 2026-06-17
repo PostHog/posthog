@@ -1,13 +1,13 @@
 import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { isKeyOf } from 'lib/utils/guards'
 import {
     allOperatorsMapping,
-    capitalizeFirstLetter,
     cohortOperatorMap,
     isOperatorCohort,
     isOperatorFlag,
     isOperatorMulti,
-    isKeyOf,
-} from 'lib/utils'
+} from 'lib/utils/operators'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import { propertyDefinitionsModelType } from '~/models/propertyDefinitionsModelType'
 import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'

@@ -207,6 +207,28 @@ describe('flagMatchesFilters', () => {
     })
 })
 
+describe('flagMatchesFilters creator filter', () => {
+    const flagByUser = (id: number | null): FeatureFlagType =>
+        ({
+            ...NEW_FLAG,
+            id: 1,
+            key: 'test',
+            created_by: id == null ? null : ({ id } as FeatureFlagType['created_by']),
+        }) as FeatureFlagType
+
+    it.each<[string, number | null, number[] | undefined, boolean]>([
+        ['no filter set matches any flag', 7, undefined, true],
+        ['no filter set matches a creatorless flag', null, undefined, true],
+        ['no filter set matches a creatorless flag with empty list', null, [], true],
+        ['author in the list matches', 7, [7], true],
+        ['author in a multi-id list matches', 7, [3, 7], true],
+        ['author absent from the list does not match', 7, [3, 5], false],
+        ['creatorless flag is excluded once a filter is set', null, [7], false],
+    ])('%s', (_name, createdById, createdByIdFilter, expected) => {
+        expect(flagMatchesFilters(flagByUser(createdById), { created_by_id: createdByIdFilter })).toBe(expected)
+    })
+})
+
 describe('the feature flags logic', () => {
     let logic: ReturnType<typeof featureFlagsLogic.build>
 

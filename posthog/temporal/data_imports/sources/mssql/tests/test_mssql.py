@@ -498,3 +498,35 @@ class TestMSSQLSourceNonRetryableErrors:
     def test_permission_denied_errors_are_non_retryable(self, error_msg):
         non_retryable = MSSQLSource().get_non_retryable_errors()
         assert any(pattern in error_msg for pattern in non_retryable.keys()), error_msg
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Real pymssql MSSQLDatabaseException for SQL Server error 208 raised mid-sync when the
+            # view being selected references an object the login can't resolve.
+            "SQL Server message 208, severity 16, state 1, procedure b'VentasAsesorMes', line 8: "
+            "b\"Invalid object name 'Imagiq.dbo.inv_cuedoc'.DB-Lib error message 20018, severity 16:\\n"
+            'General SQL Server error: Check messages from the SQL Server\\n"',
+            # The table being synced was dropped/renamed after schema discovery.
+            "Invalid object name 'dbo.orders'.",
+        ],
+    )
+    def test_invalid_object_name_is_non_retryable(self, error_msg):
+        non_retryable = MSSQLSource().get_non_retryable_errors()
+        assert any(pattern in error_msg for pattern in non_retryable.keys()), error_msg
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # SQL Server error 207 — a referenced column no longer exists (dropped/renamed at the
+            # source, or a view body that selects a column that's gone). Real pymssql message.
+            "SQL Server message 207, severity 16, state 1, procedure b'\\xb0z\\x16,\\xff\\xff', line 39:\n"
+            "Invalid column name 'usr_modelo'.DB-Lib error message 20018, severity 16:\n"
+            "General SQL Server error: Check messages from the SQL Server",
+            # Different column name must still match the stable substring.
+            "Invalid column name 'created_at'.",
+        ],
+    )
+    def test_invalid_column_name_is_non_retryable(self, error_msg):
+        non_retryable = MSSQLSource().get_non_retryable_errors()
+        assert any(pattern in error_msg for pattern in non_retryable.keys()), error_msg

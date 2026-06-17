@@ -79,11 +79,9 @@ from posthog.temporal.warehouse_sources_queue_partition_management.schedule impo
 from posthog.temporal.weekly_digest.types import WeeklyDigestInput
 
 from products.business_knowledge.backend.temporal.schedule import create_business_knowledge_refresh_coordinator_schedule
-from products.error_tracking.backend.temporal.recommendations_refresh.types import RecommendationsRefreshInputs
-from products.error_tracking.backend.temporal.spike_event_cleanup.schedule import (
+from products.error_tracking.backend.facade.temporal import (
+    RecommendationsRefreshInputs,
     create_error_tracking_spike_event_cleanup_schedule,
-)
-from products.error_tracking.backend.temporal.symbol_set_cleanup.schedule import (
     create_error_tracking_symbol_set_cleanup_schedule,
 )
 from products.experiments.backend.temporal.schedule import create_experiment_precompute_canary_schedule

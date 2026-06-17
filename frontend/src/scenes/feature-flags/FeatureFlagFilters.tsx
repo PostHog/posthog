@@ -1,6 +1,6 @@
 import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
-import { MemberSelect } from 'lib/components/MemberSelect'
+import { MemberMultiSelect } from 'lib/components/MemberMultiSelect'
 import { TagSelect } from 'lib/components/TagSelect'
 
 import { FeatureFlagEvaluationRuntime } from '~/types'
@@ -142,17 +142,15 @@ export function FeatureFlagFiltersSection({
                             <span className="ml-1">
                                 <b>Created by</b>
                             </span>
-                            <MemberSelect
+                            <MemberMultiSelect
                                 defaultLabel="Any user"
-                                value={filters.created_by_id ?? null}
-                                onChange={(user) => {
-                                    if (!user) {
-                                        if (filters) {
-                                            const { created_by_id, ...restFilters } = filters
-                                            setFeatureFlagsFilters({ ...restFilters, page: 1 }, true)
-                                        }
+                                value={filters.created_by_id ?? []}
+                                onChange={(userIds) => {
+                                    if (!userIds.length) {
+                                        const { created_by_id, ...restFilters } = filters
+                                        setFeatureFlagsFilters({ ...restFilters, page: 1 }, true)
                                     } else {
-                                        setFeatureFlagsFilters({ created_by_id: user.id, page: 1 })
+                                        setFeatureFlagsFilters({ created_by_id: userIds, page: 1 })
                                     }
                                 }}
                                 data-attr="feature-flag-select-created-by"

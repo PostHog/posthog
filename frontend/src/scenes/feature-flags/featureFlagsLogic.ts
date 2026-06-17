@@ -6,7 +6,8 @@ import { PaginationManual } from '@posthog/lemon-ui'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
-import { objectsEqual, parseTagsFilter, toParams } from 'lib/utils'
+import { objectsEqual } from 'lib/utils/objects'
+import { parseNumericArrayFilter, parseTagsFilter, toParams } from 'lib/utils/url'
 import { showApprovalRequiredToast } from 'scenes/approvals/ApprovalRequiredBanner'
 import { dispatchChangeRequestCreated } from 'scenes/approvals/utils'
 import { projectLogic } from 'scenes/projectLogic'
@@ -97,7 +98,8 @@ export function flagMatchesFilters(flag: FeatureFlagType, filters: FeatureFlagsF
         flagMatchesType(flag, filters.type) &&
         // Archived flags are hidden unless explicitly filtered for, mirroring the API default
         (filters.archived === 'true' ? !!flag.archived : !flag.archived) &&
-        (!filters.created_by_id || flag.created_by?.id === filters.created_by_id) &&
+        (!filters.created_by_id?.length ||
+            (flag.created_by != null && filters.created_by_id.includes(flag.created_by.id))) &&
         (!filters.tags?.length || filters.tags.some((tag) => flag.tags?.includes(tag))) &&
         // excluded_tags wins over tags on conflict (AND semantics)
         (!filters.excluded_tags?.length || !filters.excluded_tags.some((tag) => flag.tags?.includes(tag))) &&
@@ -130,7 +132,7 @@ export interface FeatureFlagsFilters {
     active?: string
     /** 'true' shows only archived flags; when unset, archived flags are excluded */
     archived?: string
-    created_by_id?: number
+    created_by_id?: number[]
     type?: string
     search?: string
     order?: string
@@ -389,7 +391,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                   },
               ]
             | void => {
-            const searchParams: Record<string, string | number | string[]> = {
+            const searchParams: Record<string, string | number | string[] | number[]> = {
                 ...values.filters,
             }
 
@@ -429,7 +431,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
             const { page, created_by_id, active, archived, type, search, order, evaluation_runtime, tags } =
                 searchParams
             const pageFiltersFromUrl: Partial<FeatureFlagsFilters> = {
-                created_by_id,
+                created_by_id: parseNumericArrayFilter(created_by_id),
                 type,
                 order,
                 evaluation_runtime,

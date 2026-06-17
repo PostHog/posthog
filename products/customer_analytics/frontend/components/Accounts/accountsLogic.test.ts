@@ -76,9 +76,7 @@ describe('accountsLogic', () => {
         expect(logic.values.searchQuery).toBe('')
         expect(logic.values.tagsFilter).toEqual([])
         expect(logic.values.allRolesUnassigned).toBe(false)
-        expect(logic.values.csmFilter).toEqual([])
-        expect(logic.values.accountExecutiveFilter).toEqual([])
-        expect(logic.values.accountOwnerFilter).toEqual([])
+        expect(logic.values.assignedToFilter).toEqual([])
     })
 
     it('setTagsFilter updates the reducer', () => {
@@ -106,37 +104,6 @@ describe('accountsLogic', () => {
     it('setAllRolesUnassigned toggles the flag', () => {
         logic.actions.setAllRolesUnassigned(true)
         expect(logic.values.allRolesUnassigned).toBe(true)
-    })
-
-    it('setCsmFilter accepts a list of user ids and clears with an empty list', () => {
-        logic.actions.setCsmFilter([42])
-        expect(logic.values.csmFilter).toEqual([42])
-        logic.actions.setCsmFilter([42, 43])
-        expect(logic.values.csmFilter).toEqual([42, 43])
-        logic.actions.setCsmFilter([])
-        expect(logic.values.csmFilter).toEqual([])
-    })
-
-    it('setting a role filter clears the all_roles_unassigned flag', async () => {
-        logic.actions.setAllRolesUnassigned(true)
-        logic.actions.setCsmFilter([7])
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(logic.values.allRolesUnassigned).toBe(false)
-        expect(logic.values.csmFilter).toEqual([7])
-    })
-
-    it('enabling all_roles_unassigned clears any active role filters', async () => {
-        logic.actions.setCsmFilter([7])
-        logic.actions.setAccountExecutiveFilter([9])
-        logic.actions.setAccountOwnerFilter([11])
-        logic.actions.setAllRolesUnassigned(true)
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(logic.values.allRolesUnassigned).toBe(true)
-        expect(logic.values.csmFilter).toEqual([])
-        expect(logic.values.accountExecutiveFilter).toEqual([])
-        expect(logic.values.accountOwnerFilter).toEqual([])
     })
 
     describe('assignedTo filter and "my accounts" shortcut', () => {
@@ -196,19 +163,6 @@ describe('accountsLogic', () => {
             expect(logic.values.allRolesUnassigned).toBe(false)
         })
 
-        it('enabling it clears the CSM and AE pickers but keeps the owner filter', async () => {
-            logic.actions.setCsmFilter([7])
-            logic.actions.setAccountExecutiveFilter([8])
-            logic.actions.setAccountOwnerFilter([9])
-            logic.actions.setAssignedToFilter([CURRENT_USER_ID])
-            await expectLogic(logic).toFinishAllListeners()
-
-            expect(logic.values.assignedToFilter).toEqual([CURRENT_USER_ID])
-            expect(logic.values.csmFilter).toEqual([])
-            expect(logic.values.accountExecutiveFilter).toEqual([])
-            expect(logic.values.accountOwnerFilter).toEqual([9])
-        })
-
         it('enabling the unassigned flag clears the assigned-to filter', async () => {
             logic.actions.setAssignedToFilter([7])
             logic.actions.setAllRolesUnassigned(true)
@@ -216,33 +170,6 @@ describe('accountsLogic', () => {
 
             expect(logic.values.allRolesUnassigned).toBe(true)
             expect(logic.values.assignedToFilter).toEqual([])
-        })
-
-        it('selecting a CSM clears the assigned-to filter', async () => {
-            logic.actions.setAssignedToFilter([CURRENT_USER_ID])
-            logic.actions.setCsmFilter([7])
-            await expectLogic(logic).toFinishAllListeners()
-
-            expect(logic.values.csmFilter).toEqual([7])
-            expect(logic.values.assignedToFilter).toEqual([])
-        })
-
-        it('selecting an AE clears the assigned-to filter', async () => {
-            logic.actions.setAssignedToFilter([CURRENT_USER_ID])
-            logic.actions.setAccountExecutiveFilter([8])
-            await expectLogic(logic).toFinishAllListeners()
-
-            expect(logic.values.accountExecutiveFilter).toEqual([8])
-            expect(logic.values.assignedToFilter).toEqual([])
-        })
-
-        it('selecting an owner leaves the assigned-to filter intact', async () => {
-            logic.actions.setAssignedToFilter([CURRENT_USER_ID])
-            logic.actions.setAccountOwnerFilter([9])
-            await expectLogic(logic).toFinishAllListeners()
-
-            expect(logic.values.accountOwnerFilter).toEqual([9])
-            expect(logic.values.assignedToFilter).toEqual([CURRENT_USER_ID])
         })
 
         it('persists concrete ids in the view hash (shareable, not viewer-relative)', async () => {
@@ -364,7 +291,7 @@ describe('accountsLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.setSearchQuery('acme')
                 logic.actions.setTagsFilter(['enterprise'])
-                logic.actions.setCsmFilter([7])
+                logic.actions.setAssignedToFilter([7])
                 logic.actions.setSortOrder({ column: 'name', direction: 'desc' })
                 logic.actions.setTileFilter({ tileId: 'tile-1', expression: 'count() > 5' })
             }).toFinishAllListeners()
@@ -372,7 +299,7 @@ describe('accountsLogic', () => {
             expect(router.values.hashParams.view).toEqual({
                 search: 'acme',
                 tags: ['enterprise'],
-                csm: [7],
+                assignedTo: [7],
                 sort: { column: 'name', direction: 'desc' },
                 tileFilter: { tileId: 'tile-1', expression: 'count() > 5' },
             })
@@ -393,28 +320,28 @@ describe('accountsLogic', () => {
                 urls.customerAnalyticsAccounts(),
                 {},
                 {
-                    view: { search: 'beta', csm: [7], sort: { column: 'name', direction: 'desc' }, tileFilter },
+                    view: { search: 'beta', assignedTo: [7], sort: { column: 'name', direction: 'desc' }, tileFilter },
                 }
             )
             await expectLogic(logic).toFinishAllListeners()
 
             expect(logic.values.searchQuery).toBe('beta')
             expect(logic.values.searchInput).toBe('beta')
-            expect(logic.values.csmFilter).toEqual([7])
+            expect(logic.values.assignedToFilter).toEqual([7])
             expect(logic.values.sortOrder).toEqual({ column: 'name', direction: 'desc' })
             expect(logic.values.tileFilter).toEqual(tileFilter)
         })
 
-        it('coerces a legacy single-number role id from an old shared URL into an array', async () => {
-            // URLs shared before the filters became multi-select stored e.g. `csm: 7`.
-            router.actions.push(urls.customerAnalyticsAccounts(), {}, { view: { csm: 7, accountExecutive: 9 } })
+        it('coerces a malformed scalar assignedTo from the view hash into an array', async () => {
+            // normalizeRoleFilter defends the array-shaped filter against a stray
+            // scalar in the hash (hand-edited or stale link) so .length/.map stay safe.
+            router.actions.push(urls.customerAnalyticsAccounts(), {}, { view: { assignedTo: 7 } })
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(logic.values.csmFilter).toEqual([7])
-            expect(logic.values.accountExecutiveFilter).toEqual([9])
+            expect(logic.values.assignedToFilter).toEqual([7])
         })
 
-        it('restores columns and shields them from a late saved column config', async () => {
+        it('restores columns from the view hash param', async () => {
             router.actions.push(
                 urls.customerAnalyticsAccounts(),
                 {},
@@ -426,27 +353,6 @@ describe('accountsLogic', () => {
 
             const config = accountsColumnConfigLogic.findMounted()
             expect(config?.values.selectColumns).toEqual([ACCOUNTS_NAME_COLUMN, 'csm'])
-
-            // A saved config arriving after the URL was applied must not clobber the shared view.
-            config?.actions.loadSavedColumnConfigurationSuccess({
-                id: 'saved-1',
-                columns: [ACCOUNTS_NAME_COLUMN, 'account_owner'],
-            })
-            await expectLogic(config!).toFinishAllListeners()
-            expect(config?.values.selectColumns).toEqual([ACCOUNTS_NAME_COLUMN, 'csm'])
-        })
-
-        it('applies the saved column config when the URL has no columns', async () => {
-            router.actions.push(urls.customerAnalyticsAccounts(), {}, {})
-            await expectLogic(logic).toFinishAllListeners()
-
-            const config = accountsColumnConfigLogic.findMounted()
-            config?.actions.loadSavedColumnConfigurationSuccess({
-                id: 'saved-1',
-                columns: [ACCOUNTS_NAME_COLUMN, 'account_owner'],
-            })
-            await expectLogic(config!).toFinishAllListeners()
-            expect(config?.values.selectColumns).toEqual([ACCOUNTS_NAME_COLUMN, 'account_owner'])
         })
     })
 

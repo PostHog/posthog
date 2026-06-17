@@ -1,4 +1,4 @@
-import { objectCleanWithEmpty, objectsEqual, removeUndefinedAndNull } from 'lib/utils'
+import { objectCleanWithEmpty, objectsEqual, removeUndefinedAndNull } from 'lib/utils/objects'
 import { isValidRE2 } from 'lib/utils/regexp'
 import { isFunnelWithEnoughSteps, isFunnelWithIncompleteDataWarehouseStep } from 'scenes/funnels/funnelUtils'
 

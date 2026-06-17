@@ -39,6 +39,15 @@ const CreateFeatureFlagSchema = FeatureFlagsCreateBody.extend({
     is_remote_configuration: FeatureFlagsCreateBody.shape['is_remote_configuration'].describe(
         'Whether this flag delivers a payload instead of gating a feature (Remote Config mode). When true, set the delivered payload through the `filters` param under `filters.payloads.true` as a JSON-encoded string. There is no dedicated payload parameter.'
     ),
+    ensure_experience_continuity: FeatureFlagsCreateBody.shape['ensure_experience_continuity'].describe(
+        'Whether to persist the flag\'s value for a user across the anonymous-to-identified transition (the "persist across authentication steps" option in the UI). Keeps a user\'s evaluated value stable once they log in. Incompatible with `device_id` bucketing.'
+    ),
+    evaluation_runtime: FeatureFlagsCreateBody.shape['evaluation_runtime'].describe(
+        'Where this flag is allowed to evaluate — `server` (server-side SDKs only), `client` (client-side SDKs only), or `all` (both). Defaults to `all`.'
+    ),
+    bucketing_identifier: FeatureFlagsCreateBody.shape['bucketing_identifier'].describe(
+        'Identifier used to bucket users into rollout percentages and variants — `distinct_id` (user ID, the default) or `device_id`. Using `device_id` is incompatible with `ensure_experience_continuity=true`.'
+    ),
 })
 
 const createFeatureFlag = (): ToolBase<typeof CreateFeatureFlagSchema, WithPostHogUrl<Schemas.FeatureFlag>> => ({
@@ -67,6 +76,15 @@ const createFeatureFlag = (): ToolBase<typeof CreateFeatureFlagSchema, WithPostH
         }
         if (params.is_remote_configuration !== undefined) {
             body['is_remote_configuration'] = params.is_remote_configuration
+        }
+        if (params.ensure_experience_continuity !== undefined) {
+            body['ensure_experience_continuity'] = params.ensure_experience_continuity
+        }
+        if (params.evaluation_runtime !== undefined) {
+            body['evaluation_runtime'] = params.evaluation_runtime
+        }
+        if (params.bucketing_identifier !== undefined) {
+            body['bucketing_identifier'] = params.bucketing_identifier
         }
         const result = await context.api.request<Schemas.FeatureFlag>({
             method: 'POST',
@@ -602,6 +620,15 @@ const UpdateFeatureFlagSchema = FeatureFlagsPartialUpdateParams.omit({ project_i
         is_remote_configuration: FeatureFlagsPartialUpdateBody.shape['is_remote_configuration'].describe(
             'Whether this flag delivers a payload instead of gating a feature (Remote Config mode). When true, set the delivered payload through the `filters` param under `filters.payloads.true` as a JSON-encoded string. There is no dedicated payload parameter.'
         ),
+        ensure_experience_continuity: FeatureFlagsPartialUpdateBody.shape['ensure_experience_continuity'].describe(
+            'Whether to persist the flag\'s value for a user across the anonymous-to-identified transition (the "persist across authentication steps" option in the UI). Keeps a user\'s evaluated value stable once they log in. Incompatible with `device_id` bucketing.'
+        ),
+        evaluation_runtime: FeatureFlagsPartialUpdateBody.shape['evaluation_runtime'].describe(
+            'Where this flag is allowed to evaluate — `server` (server-side SDKs only), `client` (client-side SDKs only), or `all` (both). Defaults to `all`.'
+        ),
+        bucketing_identifier: FeatureFlagsPartialUpdateBody.shape['bucketing_identifier'].describe(
+            'Identifier used to bucket users into rollout percentages and variants — `distinct_id` (user ID, the default) or `device_id`. Using `device_id` is incompatible with `ensure_experience_continuity=true`.'
+        ),
     })
 
 const updateFeatureFlag = (): ToolBase<typeof UpdateFeatureFlagSchema, WithPostHogUrl<Schemas.FeatureFlag>> => ({
@@ -630,6 +657,15 @@ const updateFeatureFlag = (): ToolBase<typeof UpdateFeatureFlagSchema, WithPostH
         }
         if (params.is_remote_configuration !== undefined) {
             body['is_remote_configuration'] = params.is_remote_configuration
+        }
+        if (params.ensure_experience_continuity !== undefined) {
+            body['ensure_experience_continuity'] = params.ensure_experience_continuity
+        }
+        if (params.evaluation_runtime !== undefined) {
+            body['evaluation_runtime'] = params.evaluation_runtime
+        }
+        if (params.bucketing_identifier !== undefined) {
+            body['bucketing_identifier'] = params.bucketing_identifier
         }
         const result = await context.api.request<Schemas.FeatureFlag>({
             method: 'PATCH',
