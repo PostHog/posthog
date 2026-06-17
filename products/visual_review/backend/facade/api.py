@@ -19,6 +19,8 @@ from uuid import UUID
 
 from django.contrib.auth import get_user_model
 
+from posthog.helpers.trigram_search import search_match_type_from_instance
+
 from .. import logic
 from ..diff_metadata import DiffMetadata
 from . import contracts
@@ -188,6 +190,8 @@ def _to_run(run, user_basic_infos: dict[int, contracts.UserBasicInfo] | None = N
         superseded_by_id=run.superseded_by_id,
         approved_by=approved_by,
         metadata=run.metadata or {},
+        # Present only when the queryset came from a trigram search (annotation absent otherwise).
+        search_match_type=search_match_type_from_instance(run),
     )
 
 

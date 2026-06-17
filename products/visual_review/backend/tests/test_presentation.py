@@ -537,18 +537,34 @@ class TestRepoRunsSearch(VisualReviewTeamScopedTestMixin, APIBaseTest):
             return base
         return f"{base}?{urlencode(params)}"
 
+    def _team_runs_url(self, **params: str) -> str:
+        base = f"/api/projects/{self.team.id}/visual_review/runs/"
+        if not params:
+            return base
+        return f"{base}?{urlencode(params)}"
+
     def _branches(self, response_json: dict) -> set[str]:
         return {run["branch"] for run in response_json["results"]}
 
     @parameterized.expand(
         [
-            ("branch_substring", "login", {"feature/login"}),
-            ("branch_other", "logout", {"fix/logout"}),
-            ("commit_sha_prefix", "abc1234", {"feature/login"}),
+            # Exact substring on branch ("feature" stays below the fuzzy threshold for fix/logout).
+            ("branch_substring", "feature", {"feature/login"}),
+            # Exact substring on run type.
             ("run_type", "playwright", {"fix/logout"}),
+            # Commit SHA matches by prefix.
+            ("commit_sha_prefix", "abc1234", {"feature/login"}),
+            # A substring that is not a prefix of the SHA must not match (prefix, not substring).
+            ("commit_sha_mid_substring_excluded", "deadbeef", set()),
+            # PR number matches exactly.
             ("pr_number", "101", {"feature/login"}),
+            # Case-insensitive.
             ("case_insensitive", "FEATURE", {"feature/login"}),
-            ("no_match", "nonexistent", set()),
+            # A typo in the branch still matches via trigram similarity.
+            ("fuzzy_branch_typo", "featuer", {"feature/login"}),
+            # A typo in the run type still matches via trigram similarity.
+            ("fuzzy_run_type_typo", "storybok", {"feature/login"}),
+            ("no_match", "zzzznomatch", set()),
         ]
     )
     def test_search_filters_runs(self, _name: str, search: str, expected_branches: set[str]):
@@ -556,6 +572,19 @@ class TestRepoRunsSearch(VisualReviewTeamScopedTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(self._branches(response.json()), expected_branches)
+
+    def test_exact_matches_rank_before_fuzzy_and_set_match_type(self):
+        # "login" is a substring of feature/login (exact) and a fuzzy match for fix/logout (similar).
+        results = self.client.get(self._runs_url(search="login")).json()["results"]
+
+        self.assertEqual([run["branch"] for run in results], ["feature/login", "fix/logout"])
+        self.assertEqual([run["search_match_type"] for run in results], ["exact", "similar"])
+
+    def test_match_type_is_null_without_search(self):
+        results = self.client.get(self._runs_url()).json()["results"]
+
+        self.assertTrue(results)
+        self.assertTrue(all(run["search_match_type"] is None for run in results))
 
     def test_blank_search_returns_all_runs(self):
         response = self.client.get(self._runs_url(search=""))
@@ -568,13 +597,20 @@ class TestRepoRunsSearch(VisualReviewTeamScopedTestMixin, APIBaseTest):
         both = self.client.get(self._runs_url(review_state="clean"))
         self.assertEqual(self._branches(both.json()), {"feature/login", "fix/logout"})
 
-        scoped = self.client.get(self._runs_url(review_state="clean", search="login"))
+        scoped = self.client.get(self._runs_url(review_state="clean", search="feature"))
         self.assertEqual(scoped.status_code, status.HTTP_200_OK)
         self.assertEqual(self._branches(scoped.json()), {"feature/login"})
 
         # A run that exists but is not in the requested state is excluded even on a match.
-        other_state = self.client.get(self._runs_url(review_state="processing", search="login"))
+        other_state = self.client.get(self._runs_url(review_state="processing", search="feature"))
         self.assertEqual(self._branches(other_state.json()), set())
+
+    def test_team_wide_endpoint_supports_search(self):
+        # The project-wide endpoint (exposed as the MCP tool) shares the same search path.
+        response = self.client.get(self._team_runs_url(search="feature"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(self._branches(response.json()), {"feature/login"})
 
 
 class TestRunFinalizePersonalAPIKeyScopes(VisualReviewTeamScopedTestMixin, APIBaseTest):

@@ -30,6 +30,7 @@ import structlog
 if TYPE_CHECKING:
     from posthog.models.integration import GitHubIntegration
 
+from posthog.helpers.trigram_search import TrigramSearchField, apply_trigram_search, normalize_search_term
 from posthog.models.integration import GitHubRateLimitError
 
 from .classifier import SnapshotClassifier
@@ -266,14 +267,11 @@ REVIEW_STATE_FILTERS: dict[str, Q] = {
 }
 
 
-def _run_search_filter(term: str) -> Q:
-    """Free-text filter over the run fields a reviewer can see in the list:
-    branch, commit SHA, run type, and PR number (when the term is numeric).
-    Expects an already-stripped, non-empty term."""
-    q = Q(branch__icontains=term) | Q(commit_sha__icontains=term) | Q(run_type__icontains=term)
-    if term.isdigit():
-        q |= Q(pr_number=int(term))
-    return q
+# Free-text search over the runs list uses the shared trigram helper for the
+# prose-like fields (branch, run type), where fuzzy/typo matching helps. Commit
+# SHA and PR number are matched exactly (prefix / numeric id) via extra_exact_q —
+# fuzzy matching a hex SHA or an integer is meaningless.
+RUN_SEARCH_FIELDS = (TrigramSearchField("branch"), TrigramSearchField("run_type"))
 
 
 def list_runs_for_team(
@@ -285,7 +283,7 @@ def list_runs_for_team(
     branch: str | None = None,
     search: str | None = None,
 ) -> db_models.QuerySet[Run]:
-    qs = Run.objects.filter(team_id=team_id).select_related("repo").order_by("-created_at")
+    qs = Run.objects.filter(team_id=team_id).select_related("repo")
     if repo_id is not None:
         qs = qs.filter(repo_id=repo_id)
     if review_state and review_state in REVIEW_STATE_FILTERS:
@@ -296,9 +294,20 @@ def list_runs_for_team(
         qs = qs.filter(commit_sha=commit_sha)
     if branch:
         qs = qs.filter(branch=branch)
-    if search and (term := search.strip()):
-        qs = qs.filter(_run_search_filter(term))
-    return qs
+    if search and (term := normalize_search_term(search)):
+        # Commit SHA matches by prefix (reviewers paste the short SHA); PR number by exact id.
+        extra_exact_q = Q(commit_sha__istartswith=term)
+        if term.isdigit():
+            extra_exact_q |= Q(pr_number=int(term))
+        return apply_trigram_search(
+            qs,
+            term,
+            span_prefix="visual_review.runs.search",
+            fields=RUN_SEARCH_FIELDS,
+            extra_exact_q=extra_exact_q,
+            tiebreakers=("-created_at",),
+        )
+    return qs.order_by("-created_at")
 
 
 def get_review_state_counts(team_id: int, repo_id: UUID | None = None) -> dict[str, int]:
