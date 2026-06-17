@@ -2,9 +2,10 @@ import os
 import json
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import ClickHouseUser, get_clickhouse_creds
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import MergeTreeEngine, ReplicationScheme
-from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_PASSWORD
+from posthog.settings import CLICKHOUSE_CLUSTER
 
 CHANNEL_DEFINITION_TABLE_NAME = "channel_definition"
 CHANNEL_DEFINITION_DICTIONARY_NAME = "channel_definition_dict"
@@ -58,6 +59,8 @@ INSERT INTO channel_definition (domain, kind, domain_type, type_if_paid, type_if
 """
 )
 
+CLICKHOUSE_DICT_READER_USER, CLICKHOUSE_DICT_READER_PASSWORD = get_clickhouse_creds(ClickHouseUser.DICT_READER)
+
 # Use COMPLEX_KEY_HASHED, as we have a composite key
 CHANNEL_DEFINITION_DICTIONARY_SQL = lambda on_cluster=True: (
     f"""
@@ -69,7 +72,7 @@ CREATE DICTIONARY IF NOT EXISTS {CHANNEL_DEFINITION_DICTIONARY_NAME} {ON_CLUSTER
     type_if_organic Nullable(String)
 )
 PRIMARY KEY domain, kind
-SOURCE(CLICKHOUSE(TABLE '{CHANNEL_DEFINITION_TABLE_NAME}' PASSWORD '{CLICKHOUSE_PASSWORD}'))
+SOURCE(CLICKHOUSE(TABLE '{CHANNEL_DEFINITION_TABLE_NAME}' USER '{CLICKHOUSE_DICT_READER_USER}' PASSWORD '{CLICKHOUSE_DICT_READER_PASSWORD}'))
 LIFETIME(MIN 3000 MAX 3600)
 LAYOUT(COMPLEX_KEY_HASHED())
 """

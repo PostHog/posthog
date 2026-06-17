@@ -80,6 +80,9 @@ class ClickHouseUser(StrEnum):
     OPS = "ops"
     # Only for migrations - do not normally use
     MIGRATIONS = "migrations"
+    # Low-privilege reader baked into dictionary SOURCE blocks, decoupling
+    # dictionary credentials from the default user.
+    DICT_READER = "dict_reader"
 
 
 __user_dict: Mapping[ClickHouseUser, tuple[str, str]] | None = None
