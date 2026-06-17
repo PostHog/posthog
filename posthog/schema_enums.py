@@ -1769,6 +1769,9 @@ class ExternalDataSourceType(StrEnum):
     YAHOO_FINANCE = "YahooFinance"
     CLARIFAI = "Clarifai"
     ADAPTY = "Adapty"
+    BRAINTRUST = "Braintrust"
+    STREAM_ELEMENTS = "StreamElements"
+    STREAMLABS = "Streamlabs"
     CUSTOM = "Custom"
 
 

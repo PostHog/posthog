@@ -35,12 +35,14 @@ from products.data_warehouse.backend.data_load.service import (
     trigger_external_data_workflow,
     unpause_external_data_schedule,
 )
+from products.data_warehouse.backend.direct_mysql import hide_direct_mysql_table
 from products.data_warehouse.backend.direct_postgres import hide_direct_postgres_table
 from products.data_warehouse.backend.external_data_source.webhooks import (
     create_and_register_webhook,
     get_or_create_webhook_hog_function,
     reconcile_webhook_events,
 )
+from products.data_warehouse.backend.mysql_helpers import reproject_direct_mysql_table
 from products.data_warehouse.backend.postgres_helpers import (
     get_postgres_source_location,
     reproject_direct_postgres_table,
@@ -666,21 +668,27 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             validated_data["enabled_columns"] != instance.enabled_columns
         )
 
-        if source.is_direct_postgres:
+        if source.is_direct_query:
             # Direct-mode lifecycle hooks that need a fresh DataWarehouseTable projection:
             # (1) row is being re-exposed (should_sync flipping False → True);
             # (2) the column-picker selection changed on an already-exposed row.
             newly_exposed = should_sync is True and instance.should_sync is False
             projection_needs_refresh = enabled_columns_changed and instance.table is not None and instance.should_sync
             if newly_exposed or projection_needs_refresh:
-                validated_data["table"] = reproject_direct_postgres_table(
+                reproject = (
+                    reproject_direct_postgres_table if source.is_direct_postgres else reproject_direct_mysql_table
+                )
+                validated_data["table"] = reproject(
                     instance,
                     source=source,
                     enabled_columns=validated_data.get("enabled_columns", instance.enabled_columns),
                 )
 
             if should_sync is False and instance.should_sync is True:
-                hide_direct_postgres_table(instance.table)
+                if source.is_direct_postgres:
+                    hide_direct_postgres_table(instance.table)
+                else:
+                    hide_direct_mysql_table(instance.table)
         elif enabled_columns_changed and instance.table is not None and instance.should_sync:
             # Warehouse mode: hide newly-disabled columns from HogQL immediately. Restoration
             # (reset to None or re-enabling a column) is deferred to the next sync — Delta may
@@ -1049,8 +1057,11 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def delete_data(self, request: Request, *args: Any, **kwargs: Any):
         instance: ExternalDataSchema = self.get_object()
 
-        if instance.source.is_direct_postgres:
-            hide_direct_postgres_table(instance.table)
+        if instance.source.is_direct_query:
+            if instance.source.is_direct_postgres:
+                hide_direct_postgres_table(instance.table)
+            else:
+                hide_direct_mysql_table(instance.table)
             instance.should_sync = False
             instance.save(update_fields=["should_sync", "updated_at"])
             return Response(status=status.HTTP_200_OK)
