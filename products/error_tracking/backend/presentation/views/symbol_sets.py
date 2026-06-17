@@ -680,8 +680,6 @@ def bulk_create_symbol_sets(
         symbol_sets_to_be_created = []
         for chunk_id in missing_sets:
             storage_ptr = generate_symbol_set_file_key()
-            presigned_url = generate_symbol_set_upload_presigned_url(storage_ptr, accelerate=accelerate)
-            id_url_map[chunk_id] = {"presigned_url": presigned_url}
             # Note that on creation, we /do not set/ the content hash. We use content hashes included in
             # the create request only to see if we can skip updated - we set the content hash when we
             # get upload confirmation, during `bulk_finish_upload`, not before
@@ -693,11 +691,22 @@ def bulk_create_symbol_sets(
             )
             symbol_sets_to_be_created.append(to_create)
 
-        # create missing symbol sets
-        created_symbol_sets = ErrorTrackingSymbolSet.objects.bulk_create(symbol_sets_to_be_created)
+        # Create missing symbol sets. Concurrent uploads for the same build can race here: two requests
+        # both read a ref as missing above (the SELECT does not lock) and both try to insert it, so the
+        # loser would violate the (team_id, ref) unique constraint. Ignore the conflict to stay idempotent,
+        # then re-read the rows below — on Postgres `ignore_conflicts` does not return PKs for the rows that
+        # conflicted, so we cannot rely on the return value to map refs to ids.
+        ErrorTrackingSymbolSet.objects.bulk_create(symbol_sets_to_be_created, ignore_conflicts=True)
 
-        for symbol_set in created_symbol_sets:
-            id_url_map[symbol_set.ref]["symbol_set_id"] = str(symbol_set.pk)
+        for symbol_set in ErrorTrackingSymbolSet.objects.filter(team=team, ref__in=missing_sets):
+            # Issue the presigned URL against the row's persisted storage_ptr. For a row created by a
+            # concurrent request that won the race, this differs from the key we generated above, and the
+            # upload must target the key that bulk_finish_upload will later look up.
+            presigned_url = generate_symbol_set_upload_presigned_url(symbol_set.storage_ptr, accelerate=accelerate)
+            id_url_map[symbol_set.ref] = {
+                "presigned_url": presigned_url,
+                "symbol_set_id": str(symbol_set.pk),
+            }
 
         # update existing symbol sets
         to_update = []

@@ -26,6 +26,7 @@ from products.error_tracking.backend.models import (
     ErrorTrackingStackFrame,
     ErrorTrackingSymbolSet,
 )
+from products.error_tracking.backend.presentation.views import symbol_sets as symbol_sets_module
 
 from ee.models.rbac.role import Role
 
@@ -676,6 +677,44 @@ class TestErrorTracking(APIBaseTest):
         assert str(symbol_set.id) == symbol_set_upload_response["symbol_set_id"]
         assert symbol_set_upload_response["presigned_url"]["fields"]["key"] == symbol_set.storage_ptr
         assert symbol_set.last_used is None
+
+    def test_bulk_start_upload_is_idempotent_under_concurrent_insert(self) -> None:
+        # Reproduce the time-of-check/time-of-use race: the existence check reads the ref as missing,
+        # then a concurrent request inserts the same (team, ref) before our bulk_create runs. The
+        # create must not raise unique_ref_per_team, and the response must point at the persisted row.
+        chunk_id = str(uuid7())
+
+        real_generate_key = symbol_sets_module.generate_symbol_set_file_key
+
+        def insert_concurrent_row_then_generate_key() -> str:
+            # Simulate the racing request winning the insert after our existence check, with its own key.
+            if not ErrorTrackingSymbolSet.objects.filter(team=self.team, ref=chunk_id).exists():
+                ErrorTrackingSymbolSet.objects.create(
+                    team=self.team,
+                    ref=chunk_id,
+                    storage_ptr="concurrent_winner",
+                )
+            return real_generate_key()
+
+        with patch.object(
+            symbol_sets_module,
+            "generate_symbol_set_file_key",
+            side_effect=insert_concurrent_row_then_generate_key,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_start_upload",
+                data={"chunk_ids": [chunk_id]},
+            )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        id_map = response.json()["id_map"]
+
+        # Exactly one row exists, and the response points at it via the winner's storage_ptr so the
+        # later bulk_finish_upload looks up the key the client actually uploaded to.
+        symbol_set = ErrorTrackingSymbolSet.objects.get(team=self.team, ref=chunk_id)
+        assert symbol_set.storage_ptr == "concurrent_winner"
+        assert id_map[str(chunk_id)]["symbol_set_id"] == str(symbol_set.id)
+        assert id_map[str(chunk_id)]["presigned_url"]["fields"]["key"] == "concurrent_winner"
 
     def test_bulk_start_upload_skips_uploaded_symbol_sets(self) -> None:
         release = ErrorTrackingRelease.objects.create(
