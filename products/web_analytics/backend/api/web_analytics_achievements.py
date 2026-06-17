@@ -140,7 +140,7 @@ def _collect_pending(rows: list[WebAnalyticsAchievementProgress], user_id: int) 
 
 
 class WebAnalyticsAchievementsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    scope_object = "INTERNAL"
+    scope_object = "web_analytics"
     serializer_class = AchievementsListResponseSerializer
 
     @extend_schema(
