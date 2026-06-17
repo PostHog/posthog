@@ -19,7 +19,7 @@ from prometheus_client import Counter, Histogram
 from posthog.schema import HogQLQueryModifiers, WebAnalyticsOrderByFields, WebStatsBreakdown
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
@@ -152,6 +152,18 @@ def _breakdown_value_expr(runner: "WebStatsTableQueryRunner") -> ast.Expr:
     return ast.Field(chain=["events", "properties", "$pathname"])
 
 
+# Frustration metrics only count `$rageclick` / `$dead_click` / `$exception`, so
+# the insert scans only those — see the INSERT template note for why this is
+# result-identical to also scanning `$pageview` / `$screen` and why it matters
+# for memory. The runner is the single place to widen this list if a future
+# breakdown or filter ever needs other event types.
+_FRUSTRATION_EVENT_TYPES = "('$rageclick', '$dead_click', '$exception')"
+
+
+def _event_scan_filter_expr() -> ast.Expr:
+    return parse_expr(f"events.event IN {_FRUSTRATION_EVENT_TYPES}")
+
+
 # HogQL template for the precompute INSERT — a state-converted version of
 # the live `FRUSTRATION_METRICS_INNER_QUERY` + `FrustrationMetricsStrategy`
 # outer aggregation. The lazy_computation framework substitutes the listed
@@ -161,7 +173,8 @@ def _breakdown_value_expr(runner: "WebStatsTableQueryRunner") -> ast.Expr:
 # `expires_at` to the SELECT.
 #
 # The inner subquery mirrors the live `FRUSTRATION_METRICS_INNER_QUERY`
-# verbatim (per-session counts of rage / dead / exception events), and the
+# (per-session counts of rage / dead / exception events) — bar the narrowed
+# event-scan list noted below, which is result-equivalent — and the
 # outer aggregation mirrors the live `FrustrationMetricsStrategy.build_query`
 # OUTER (sums collapsed by breakdown) — but bucketed hourly so reads can
 # answer arbitrary date ranges via `sumMergeIf`. `sumState(...)` and `sum(...)`
@@ -173,10 +186,19 @@ def _breakdown_value_expr(runner: "WebStatsTableQueryRunner") -> ast.Expr:
 # `HAVING or(metric > 0, ...)` drops. Saves storing the all-zero rows that
 # the read query would only re-filter via its own `HAVING or(rage > 0, ...)`.
 #
-# The `event IN (...)` filter restricts the scan to events that can possibly
-# contribute to any of the three metrics, plus `$pageview` / `$screen` so the
-# session-start anchoring is correct. The forward pad lets sessions that span
-# a UTC-day boundary aggregate cleanly — same reasoning as overview/paths.
+# The event-scan list (`{event_scan_filter}`) is restricted to the three
+# frustration event types. `$pageview` / `$screen` contribute 0 to every metric
+# and any resulting all-zero `(session, breakdown)` group is dropped by the
+# outer `HAVING`, so scanning them only inflates the
+# `GROUP BY session_id, breakdown_value` cardinality — the dominant cost behind
+# insert OOMs on high-traffic teams. Narrowing is result-identical: session
+# start comes from the `session.$start_timestamp` join (not scanned events), and
+# each frustration event carries its own `$pathname`, so the surviving rows and
+# sums are unchanged (verified by parity, with and without user filters). The
+# runner owns the list via `_event_scan_filter_expr`, so a future breakdown or
+# filter that genuinely needs other event types can widen it there. The forward
+# pad lets sessions spanning a UTC-day boundary aggregate cleanly — same
+# reasoning as overview/paths.
 INSERT_QUERY_TEMPLATE = """
 SELECT
     toStartOfHour(start_timestamp) AS time_window_start,
@@ -195,7 +217,7 @@ FROM (
     FROM events
     WHERE and(
         {events_session_id} IS NOT NULL,
-        events.event IN ('$pageview', '$screen', '$rageclick', '$dead_click', '$exception'),
+        {event_scan_filter},
         timestamp >= {time_window_min},
         timestamp < ({time_window_max} + toIntervalMinute({pad_minutes})),
         {user_filter},
@@ -225,6 +247,7 @@ def ensure_web_stats_frustration_precomputed(
     placeholders: dict[str, ast.Expr] = {
         "events_session_id": _events_session_id_expr(runner),
         "breakdown_value_expr": _breakdown_value_expr(runner),
+        "event_scan_filter": _event_scan_filter_expr(),
         "user_filter": host_filter_expr(runner.query.properties or []),
         "test_account_filter": test_account_filter_expr(
             test_account_filters=runner._test_account_filters, team=runner.team
