@@ -59716,6 +59716,10 @@ export namespace Schemas {
     export type SurveysListParams = {
     archived?: boolean;
     /**
+     * Multiple values may be separated by commas.
+     */
+    ids?: string[];
+    /**
      * Number of results to return per page.
      */
     limit?: number;
