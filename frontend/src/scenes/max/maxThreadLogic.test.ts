@@ -11,6 +11,8 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { NotebookTarget } from 'scenes/notebooks/types'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -458,10 +460,13 @@ describe('maxThreadLogic', () => {
             )
         })
 
-        it('sends the first message immediately without gating on dashboard load', async () => {
-            // Regression guard: askMax must not block the send on frontend load state. The open
-            // dashboard reaches Max via dashboardLogic.maxContext + the backend; gating here only
-            // added latency and didn't fix the real (large-dashboard) issue.
+        it('sends the first message immediately even while the dashboard scene is still loading', async () => {
+            // Regression guard for the removed #63208 gate: on a Dashboard scene whose
+            // dashboardLogic.dashboard is still null, askMax must send synchronously (no poll/wait).
+            // If the gate were reinstated, stream would not be called until fake timers advanced.
+            const fakeDashboardLogic: any = { selectors: { maxContext: () => [] }, values: { dashboard: null } }
+            jest.spyOn(sceneLogic.selectors, 'activeSceneId').mockReturnValue(Scene.Dashboard)
+            jest.spyOn(sceneLogic.selectors, 'activeSceneLogic').mockReturnValue(fakeDashboardLogic)
             const streamSpy = mockStream()
 
             maxLogicInstance.actions.setConversationId(MOCK_TEMP_CONVERSATION_ID)

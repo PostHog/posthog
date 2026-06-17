@@ -191,50 +191,97 @@ class TestAssistantContextManager(BaseTest):
         # The insight execution is tested separately - just verify structure here
         self.assertNotIn("# Insights", result)
 
-    @patch("ee.hogai.context.context.DashboardContext")
-    async def test_dashboard_context_falls_back_to_schema_when_results_exceed_budget(self, MockDashboardContext):
-        # A large dashboard's executed results must not be inlined whole — that would overflow the
-        # conversation window and get the dashboard summarized away. Over budget => schema-only.
-        inst = MockDashboardContext.return_value
-        inst.execute_and_format = AsyncMock(return_value="RESULTS " + "x" * (DASHBOARD_CONTEXT_CHAR_BUDGET + 5000))
-        inst.format_schema = AsyncMock(return_value="SCHEMA-ONLY dashboard context")
-
-        ui_context = MaxUIContext(
+    @staticmethod
+    def _dashboard_ui_context(*ids: int) -> MaxUIContext:
+        return MaxUIContext(
             dashboards=[
                 MaxDashboardContext(
-                    id=1,
-                    name="Big",
-                    insights=[MaxInsightContext(id="1", name="I", query=TrendsQuery(series=[EventsNode(event="x")]))],
+                    id=i,
+                    name=f"Dashboard {i}",
+                    insights=[
+                        MaxInsightContext(id=str(i), name="I", query=TrendsQuery(series=[EventsNode(event="x")]))
+                    ],
                     filters=DashboardFilter(),
                 )
+                for i in ids
             ]
         )
-        result = await self.context_manager._format_ui_context(ui_context)
-        inst.format_schema.assert_awaited_once()
+
+    @parameterized.expand(
+        [
+            # (name, execute_result, schema_result, expect_schema_fallback, expected_in, expected_not_in)
+            (
+                "under_budget_keeps_full_results",
+                "Full executed results",
+                "SCHEMA",
+                False,
+                "Full executed results",
+                None,
+            ),
+            (
+                "over_budget_falls_back_to_schema",
+                "x" * (DASHBOARD_CONTEXT_CHAR_BUDGET + 5000),
+                "SCHEMA-ONLY dashboard context",
+                True,
+                "SCHEMA-ONLY dashboard context",
+                "xxxx",
+            ),
+            (
+                "schema_also_over_budget_hard_truncates",
+                "x" * (DASHBOARD_CONTEXT_CHAR_BUDGET + 5000),
+                "y" * (DASHBOARD_CONTEXT_CHAR_BUDGET + 5000),
+                True,
+                "…(dashboard context truncated)",
+                "xxxx",
+            ),
+        ]
+    )
+    @patch("ee.hogai.context.context.DashboardContext")
+    async def test_dashboard_context_budget(
+        self,
+        _name,
+        execute_result,
+        schema_result,
+        expect_schema_fallback,
+        expected_in,
+        expected_not_in,
+        MockDashboardContext,
+    ):
+        # The dashboard's executed results must not overflow the conversation window (which would
+        # summarize the dashboard away). Over budget => schema-only; schema also over => hard-truncate.
+        inst = MockDashboardContext.return_value
+        inst.execute_and_format = AsyncMock(return_value=execute_result)
+        inst.format_schema = AsyncMock(return_value=schema_result)
+
+        result = await self.context_manager._format_ui_context(self._dashboard_ui_context(1))
+
         assert result is not None
-        self.assertIn("SCHEMA-ONLY dashboard context", result)
-        self.assertNotIn("xxxx", result)  # the oversized executed results never reach the prompt
+        if expect_schema_fallback:
+            inst.format_schema.assert_awaited_once()
+        else:
+            inst.format_schema.assert_not_awaited()
+        self.assertIn(expected_in, result)
+        if expected_not_in is not None:
+            self.assertNotIn(expected_not_in, result)
+        if _name == "schema_also_over_budget_hard_truncates":
+            # the oversized schema is capped to (roughly) the budget, not inlined whole
+            self.assertLess(result.count("y"), DASHBOARD_CONTEXT_CHAR_BUDGET + 5000)
 
     @patch("ee.hogai.context.context.DashboardContext")
-    async def test_dashboard_context_keeps_full_results_when_under_budget(self, MockDashboardContext):
+    async def test_dashboard_context_budget_is_aggregate_across_dashboards(self, MockDashboardContext):
+        # Each dashboard at ~80% of budget fits alone, but two together would overflow — the running
+        # budget forces the second to fall back to schema-only rather than blow the window.
         inst = MockDashboardContext.return_value
-        inst.execute_and_format = AsyncMock(return_value="Full executed dashboard results")
-        inst.format_schema = AsyncMock(return_value="SCHEMA-ONLY")
+        inst.execute_and_format = AsyncMock(return_value="r" * int(DASHBOARD_CONTEXT_CHAR_BUDGET * 0.8))
+        inst.format_schema = AsyncMock(return_value="SCHEMA")
 
-        ui_context = MaxUIContext(
-            dashboards=[
-                MaxDashboardContext(
-                    id=1,
-                    name="Small",
-                    insights=[MaxInsightContext(id="1", name="I", query=TrendsQuery(series=[EventsNode(event="x")]))],
-                    filters=DashboardFilter(),
-                )
-            ]
-        )
-        result = await self.context_manager._format_ui_context(ui_context)
-        inst.format_schema.assert_not_awaited()
+        result = await self.context_manager._format_ui_context(self._dashboard_ui_context(1, 2))
+
         assert result is not None
-        self.assertIn("Full executed dashboard results", result)
+        inst.format_schema.assert_awaited()  # the 2nd dashboard exceeded the remaining budget
+        self.assertIn("SCHEMA", result)
+        # only the first dashboard's executed results are inlined; total stays within budget
+        self.assertLessEqual(result.count("r"), DASHBOARD_CONTEXT_CHAR_BUDGET)
 
     @patch("ee.hogai.context.notebook.context.NotebookContext.from_short_id")
     async def test_format_ui_context_with_markdown_notebook_insertion_context(self, mock_from_short_id):

@@ -57,13 +57,13 @@ from .prompts import (
 NOTEBOOK_MARKDOWN_MAX_LENGTH = 100_000
 
 # A dashboard's executed-results context is bounded so it can't overflow the conversation window
-# (compaction_manager.CONVERSATION_WINDOW_SIZE). If it does overflow, the whole conversation —
+# (compaction_manager.CONVERSATION_WINDOW_SIZE = 100k). If it overflows, the whole conversation —
 # including this dashboard — gets summarized down to a few thousand tokens, so Max loses the
-# dashboard it was just asked about. When the executed results exceed this budget we fall back to
-# schema-only (insight names + queries, no result tables), which still lets Max identify and
-# describe the dashboard and fetch specific numbers via the read_data tool. Token count is
-# estimated with the same ~4-chars/token heuristic the compaction manager uses.
+# dashboard it was just asked about. Over budget, we fall back to schema-only (insight names +
+# queries, no result tables), which still lets Max identify and describe the dashboard and fetch
+# specific numbers via the read_data tool.
 DASHBOARD_CONTEXT_TOKEN_BUDGET = 50_000
+# ~4 chars/token, matching compaction_manager.APPROXIMATE_TOKEN_LENGTH.
 DASHBOARD_CONTEXT_CHAR_BUDGET = DASHBOARD_CONTEXT_TOKEN_BUDGET * 4
 
 
@@ -201,6 +201,9 @@ class AssistantContextManager(AssistantContextMixin):
         dashboard_context = ""
         if ui_context.dashboards:
             dashboard_contexts = []
+            # Budget across ALL attached dashboards, not per dashboard, so several attached
+            # dashboards can't collectively overflow the window even if each one fits on its own.
+            remaining_char_budget = DASHBOARD_CONTEXT_CHAR_BUDGET
             for dashboard in ui_context.dashboards:
                 dashboard_filters = (
                     dashboard.filters.model_dump(exclude_none=True)
@@ -242,15 +245,15 @@ class AssistantContextManager(AssistantContextMixin):
 
                 try:
                     dashboard_text = await dashboard_ctx.execute_and_format()
-                    if len(dashboard_text) > DASHBOARD_CONTEXT_CHAR_BUDGET:
-                        # Results too large for the window — drop to schema-only so the dashboard
-                        # still fits and survives un-summarized (Max keeps the read_data tool for
-                        # specific numbers). format_schema runs no queries.
+                    if len(dashboard_text) > remaining_char_budget:
+                        # Too large for the remaining window budget — drop to schema-only (insight
+                        # names + queries, no result tables) so it survives un-summarized; Max keeps
+                        # the read_data tool for specific numbers. format_schema runs no queries.
                         dashboard_text = await dashboard_ctx.format_schema()
-                        if len(dashboard_text) > DASHBOARD_CONTEXT_CHAR_BUDGET:
-                            dashboard_text = (
-                                dashboard_text[:DASHBOARD_CONTEXT_CHAR_BUDGET] + "\n\n…(dashboard context truncated)"
-                            )
+                        if len(dashboard_text) > remaining_char_budget:
+                            marker = "\n\n…(dashboard context truncated)"
+                            dashboard_text = dashboard_text[: max(0, remaining_char_budget - len(marker))] + marker
+                    remaining_char_budget -= len(dashboard_text)
                     dashboard_contexts.append(
                         format_prompt_string(ROOT_DASHBOARD_CONTEXT_PROMPT, content=dashboard_text)
                     )
