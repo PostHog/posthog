@@ -19,7 +19,7 @@ from prometheus_client import Counter, Histogram
 from posthog.schema import HogQLQueryModifiers, WebAnalyticsOrderByFields, WebStatsBreakdown
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
@@ -157,11 +157,19 @@ def _breakdown_value_expr(runner: "WebStatsTableQueryRunner") -> ast.Expr:
 # result-identical to also scanning `$pageview` / `$screen` and why it matters
 # for memory. The runner is the single place to widen this list if a future
 # breakdown or filter ever needs other event types.
-_FRUSTRATION_EVENT_TYPES = "('$rageclick', '$dead_click', '$exception')"
+_FRUSTRATION_EVENT_TYPES = ("$rageclick", "$dead_click", "$exception")
 
 
 def _event_scan_filter_expr() -> ast.Expr:
-    return parse_expr(f"events.event IN {_FRUSTRATION_EVENT_TYPES}")
+    # Built as AST (not string-interpolated into parse_expr) so there's no
+    # injection surface — `events.event IN (<frustration types>)`.
+    return ast.Call(
+        name="in",
+        args=[
+            ast.Field(chain=["events", "event"]),
+            ast.Call(name="tuple", args=[ast.Constant(value=event) for event in _FRUSTRATION_EVENT_TYPES]),
+        ],
+    )
 
 
 # HogQL template for the precompute INSERT — a state-converted version of
