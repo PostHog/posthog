@@ -22494,6 +22494,15 @@ export namespace Schemas {
       has_more: boolean;
     }
 
+    export interface GitHubSource {
+      /** Source id — pass as `source_id` to the other endpoints to read this source. */
+      id: string;
+      /** Connected repository as 'owner/name', or '' if unknown. */
+      repo: string;
+      /** User-chosen warehouse table-name prefix for this source, or '' when none. */
+      prefix: string;
+    }
+
     export interface GitHubTeam {
       /** GitHub team numeric identifier. */
       id: number;
