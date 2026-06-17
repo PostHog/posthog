@@ -7,6 +7,8 @@ from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from products.replay_vision.backend.models import VisionAction, VisionActionRun
 from products.replay_vision.backend.models.vision_action import TriggerType, VisionActionRunStatus
 from products.replay_vision.backend.temporal.vision_actions import activities as act
@@ -63,14 +65,21 @@ class TestEngineActivities(BaseTest):
         self.assertEqual(first, second)
         self.assertEqual(VisionActionRun.all_teams.filter(idempotency_key="key-x").count(), 1)
 
-    def test_validate_reasons(self) -> None:
-        self.assertEqual(act._validate(uuid.uuid4()), "not_found")
-
-        disabled = _action(self.team, name="off", enabled=False)
-        self.assertEqual(act._validate(disabled.id), "disabled")
-
-        no_flow = _action(self.team, name="noflow")
-        self.assertEqual(act._validate(no_flow.id), "no_delivery_flow")
+    @parameterized.expand(
+        [
+            ("not_found",),
+            ("disabled",),
+            ("no_delivery_flow",),
+        ]
+    )
+    def test_validate_reasons(self, case: str) -> None:
+        if case == "not_found":
+            action_id = uuid.uuid4()
+        elif case == "disabled":
+            action_id = _action(self.team, name="off", enabled=False).id
+        else:
+            action_id = _action(self.team, name="noflow").id
+        self.assertEqual(act._validate(action_id), case)
 
     def test_update_run(self) -> None:
         action = _action(self.team)
@@ -167,22 +176,33 @@ def _final_status(mocks: _Mocks) -> str:
 
 
 @pytest.mark.asyncio
-async def test_process_happy_path_emits_and_completes() -> None:
-    run_id = uuid.uuid4()
+@pytest.mark.parametrize(
+    "synth_status, expected_final, expect_emit",
+    [
+        (SynthesisStatus.SYNTHESIZED, VisionActionRunStatus.COMPLETED.value, True),
+        (SynthesisStatus.SKIPPED_EMPTY, VisionActionRunStatus.SKIPPED.value, False),
+        (SynthesisStatus.SKIPPED_OVER_BUDGET, VisionActionRunStatus.SKIPPED.value, False),
+        (SynthesisStatus.ABORTED_NO_CONSENT, VisionActionRunStatus.FAILED.value, False),
+        (SynthesisStatus.ABORTED_NO_USER, VisionActionRunStatus.FAILED.value, False),
+    ],
+)
+async def test_process_maps_synthesis_status(
+    synth_status: SynthesisStatus, expected_final: str, expect_emit: bool
+) -> None:
     mocks = _Mocks(
         results={
-            act.create_vision_action_run_activity: run_id,
+            act.create_vision_action_run_activity: uuid.uuid4(),
             act.validate_vision_action_activity: None,
-            synthesize_action_activity: SynthesizeActionResult(status=SynthesisStatus.SYNTHESIZED, observation_count=3),
+            synthesize_action_activity: SynthesizeActionResult(status=synth_status),
         }
     )
     await _run_process(_process_inputs(), mocks)
 
     call_fns = mocks.calls()
-    assert act.emit_action_ready_activity in call_fns
     assert synthesize_action_activity in call_fns
-    assert _final_status(mocks) == VisionActionRunStatus.COMPLETED.value
-    # always advances
+    assert (act.emit_action_ready_activity in call_fns) is expect_emit
+    assert _final_status(mocks) == expected_final
+    # The schedule is always advanced, whatever the outcome — a stuck run must not hot-loop.
     assert act.advance_next_run_at_activity in call_fns
 
 
@@ -199,36 +219,6 @@ async def test_process_skips_when_validate_returns_reason() -> None:
     assert act.emit_action_ready_activity not in mocks.calls()
     assert _final_status(mocks) == VisionActionRunStatus.SKIPPED.value
     assert act.advance_next_run_at_activity in mocks.calls()
-
-
-@pytest.mark.asyncio
-async def test_process_empty_synthesis_skips_without_emit() -> None:
-    mocks = _Mocks(
-        results={
-            act.create_vision_action_run_activity: uuid.uuid4(),
-            act.validate_vision_action_activity: None,
-            synthesize_action_activity: SynthesizeActionResult(status=SynthesisStatus.SKIPPED_EMPTY),
-        }
-    )
-    await _run_process(_process_inputs(), mocks)
-
-    assert act.emit_action_ready_activity not in mocks.calls()
-    assert _final_status(mocks) == VisionActionRunStatus.SKIPPED.value
-
-
-@pytest.mark.asyncio
-async def test_process_no_consent_marks_failed_without_emit() -> None:
-    mocks = _Mocks(
-        results={
-            act.create_vision_action_run_activity: uuid.uuid4(),
-            act.validate_vision_action_activity: None,
-            synthesize_action_activity: SynthesizeActionResult(status=SynthesisStatus.ABORTED_NO_CONSENT),
-        }
-    )
-    await _run_process(_process_inputs(), mocks)
-
-    assert act.emit_action_ready_activity not in mocks.calls()
-    assert _final_status(mocks) == VisionActionRunStatus.FAILED.value
 
 
 @pytest.mark.asyncio
