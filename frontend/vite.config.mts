@@ -132,7 +132,7 @@ export default defineConfig(({ mode }) => {
             devSourcemap: true,
         },
         optimizeDeps: {
-            include: ['react', 'react-dom', 'buffer', '@marsidev/react-turnstile'],
+            include: ['react', 'react-dom', 'buffer'],
             exclude: ['snappy-wasm'], // Don't pre-bundle snappy-wasm so WASM file stays with JS
         },
     }
