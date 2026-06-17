@@ -2,7 +2,7 @@ name: Master CI Alerts
 
 # Cron-based rolling-window alert for sustained master failures, posted to
 # #alerts-devex. Only alerts on *sustained* breakage — a workflow failing 5+
-# runs in a row OR red for 20+ minutes, or 10+ consecutive red commits across
+# runs in a row OR red for 1+ hour, or 10+ consecutive red commits across
 # gating workflows — so transient flakes that self-heal stay quiet. The
 # wall-clock arm only opens while master is being pushed (ACTIVITY_WINDOW_MINUTES),
 # so a quiet weekend doesn't page.
@@ -29,8 +29,8 @@ env:
     SLACK_CHANNEL: 'C0AS64N6DJL' # #alerts-devex
     WORKFLOW_FAILURE_STREAK_THRESHOLD: '5'
     # Wall-clock arm: a workflow red at least this long blocks even before a full failure
-    # streak — keeps detection fast when commits land slowly.
-    WORKFLOW_FAILURE_MINUTES_THRESHOLD: '20'
+    # streak. ci-backend runs ~28m, so 60m ≈ one red result that stayed red — not a transient flake.
+    WORKFLOW_FAILURE_MINUTES_THRESHOLD: '60'
     # The wall-clock arm only opens an incident if master saw a push within this window, so a
     # quiet weekend doesn't page. Keep it well above the typical gap between master pushes.
     ACTIVITY_WINDOW_MINUTES: '120'
