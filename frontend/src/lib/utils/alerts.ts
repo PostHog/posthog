@@ -8,10 +8,12 @@ import { CyclotronJobFiltersType, HogFunctionType, PropertyFilterType, PropertyO
 
 export const ALERT_NOTIFICATION_TYPE_SLACK = 'slack' as const
 export const ALERT_NOTIFICATION_TYPE_WEBHOOK = 'webhook' as const
+export const ALERT_NOTIFICATION_TYPE_DISCORD = 'discord' as const
 export const ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS = 'microsoft_teams' as const
 export type AlertNotificationType =
     | typeof ALERT_NOTIFICATION_TYPE_SLACK
     | typeof ALERT_NOTIFICATION_TYPE_WEBHOOK
+    | typeof ALERT_NOTIFICATION_TYPE_DISCORD
     | typeof ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS
 
 export const buildAlertFilterConfig = (alertId: string): CyclotronJobFiltersType => ({
@@ -49,6 +51,10 @@ export type PendingAlertNotification =
           webhookUrl: string
       }
     | {
+          type: typeof ALERT_NOTIFICATION_TYPE_DISCORD
+          webhookUrl: string
+      }
+    | {
           type: typeof ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS
           webhookUrl: string
       }
@@ -83,6 +89,15 @@ function buildAlertDestination(
                     ...subTemplateInputs('template-slack'),
                     slack_workspace: { value: notification.slackWorkspaceId },
                     channel: { value: notification.slackChannelId },
+                },
+            }
+        case ALERT_NOTIFICATION_TYPE_DISCORD:
+            return {
+                name: `${alertName}: Discord`,
+                template_id: 'template-discord',
+                inputs: {
+                    ...subTemplateInputs('template-discord'),
+                    webhookUrl: { value: notification.webhookUrl },
                 },
             }
         case ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS:

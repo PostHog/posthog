@@ -514,3 +514,19 @@ class TestMSSQLSourceNonRetryableErrors:
     def test_invalid_object_name_is_non_retryable(self, error_msg):
         non_retryable = MSSQLSource().get_non_retryable_errors()
         assert any(pattern in error_msg for pattern in non_retryable.keys()), error_msg
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # SQL Server error 207 — a referenced column no longer exists (dropped/renamed at the
+            # source, or a view body that selects a column that's gone). Real pymssql message.
+            "SQL Server message 207, severity 16, state 1, procedure b'\\xb0z\\x16,\\xff\\xff', line 39:\n"
+            "Invalid column name 'usr_modelo'.DB-Lib error message 20018, severity 16:\n"
+            "General SQL Server error: Check messages from the SQL Server",
+            # Different column name must still match the stable substring.
+            "Invalid column name 'created_at'.",
+        ],
+    )
+    def test_invalid_column_name_is_non_retryable(self, error_msg):
+        non_retryable = MSSQLSource().get_non_retryable_errors()
+        assert any(pattern in error_msg for pattern in non_retryable.keys()), error_msg

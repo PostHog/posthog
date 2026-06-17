@@ -7,6 +7,7 @@ import { LemonButton, LemonInput, LemonSelect, LemonSkeleton, LemonTag } from '@
 import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/SlackIntegrationHelpers'
 import { slackIntegrationLogic } from 'lib/integrations/slackIntegrationLogic'
 import {
+    ALERT_NOTIFICATION_TYPE_DISCORD,
     ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS,
     ALERT_NOTIFICATION_TYPE_SLACK,
     ALERT_NOTIFICATION_TYPE_WEBHOOK,
@@ -34,6 +35,10 @@ function getHogFunctionDestination(
     }
     if (channelValue) {
         return { type: 'Slack', detail: null }
+    }
+    if (hf.template_id === 'template-discord') {
+        const webhookUrl = hf.inputs?.webhookUrl?.value
+        return { type: 'Discord', detail: typeof webhookUrl === 'string' ? webhookUrl : null }
     }
     if (hf.template_id === 'template-microsoft-teams') {
         const webhookUrl = hf.inputs?.webhookUrl?.value
@@ -93,13 +98,17 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
                 slackChannelName: channelLabel?.replace('#', '') ?? channelId,
             }
         }
-        // Microsoft Teams and generic webhook are both just a single webhook URL
+        // Discord, Microsoft Teams, and the generic webhook are all just a single webhook URL
         if (!webhookUrl) {
             return null
         }
-        return selectedType === ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS
-            ? { type: ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS, webhookUrl }
-            : { type: ALERT_NOTIFICATION_TYPE_WEBHOOK, webhookUrl }
+        if (selectedType === ALERT_NOTIFICATION_TYPE_DISCORD) {
+            return { type: ALERT_NOTIFICATION_TYPE_DISCORD, webhookUrl }
+        }
+        if (selectedType === ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS) {
+            return { type: ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS, webhookUrl }
+        }
+        return { type: ALERT_NOTIFICATION_TYPE_WEBHOOK, webhookUrl }
     }
 
     const handleAdd = (): void => {
@@ -118,6 +127,9 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
     const getNotificationLabel = (notification: PendingAlertNotification): string => {
         if (notification.type === ALERT_NOTIFICATION_TYPE_SLACK) {
             return `Slack: #${notification.slackChannelName ?? 'channel'}`
+        }
+        if (notification.type === ALERT_NOTIFICATION_TYPE_DISCORD) {
+            return `Discord: ${notification.webhookUrl}`
         }
         if (notification.type === ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS) {
             return `Microsoft Teams: ${notification.webhookUrl}`
@@ -223,12 +235,15 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
                 )}
 
                 {(selectedType === ALERT_NOTIFICATION_TYPE_WEBHOOK ||
+                    selectedType === ALERT_NOTIFICATION_TYPE_DISCORD ||
                     selectedType === ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS) && (
                     <LemonInput
                         placeholder={
-                            selectedType === ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS
-                                ? 'Microsoft Teams workflow / webhook URL'
-                                : 'https://example.com/webhook'
+                            selectedType === ALERT_NOTIFICATION_TYPE_DISCORD
+                                ? 'https://discord.com/api/webhooks/...'
+                                : selectedType === ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS
+                                  ? 'Microsoft Teams workflow / webhook URL'
+                                  : 'https://example.com/webhook'
                         }
                         value={webhookUrl}
                         onChange={setWebhookUrl}
@@ -248,9 +263,11 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
                                   ? 'Select a Slack channel'
                                   : undefined
                             : !webhookUrl
-                              ? selectedType === ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS
-                                  ? 'Enter a Microsoft Teams workflow URL'
-                                  : 'Enter a webhook URL'
+                              ? selectedType === ALERT_NOTIFICATION_TYPE_DISCORD
+                                  ? 'Enter a Discord webhook URL'
+                                  : selectedType === ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS
+                                    ? 'Enter a Microsoft Teams workflow URL'
+                                    : 'Enter a webhook URL'
                               : undefined
                     }
                 >

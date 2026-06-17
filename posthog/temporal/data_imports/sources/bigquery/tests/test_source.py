@@ -295,16 +295,39 @@ def test_non_retryable_errors_match_rejected_credentials(observed_error):
 
 
 @pytest.mark.parametrize(
+    "observed_error",
+    [
+        # Raised when the Dataset ID is `project.dataset`, so we build a 4-component table id.
+        'table_id must be a fully-qualified ID in standard SQL format, e.g., "project.dataset.table_id", '
+        "got immortal-407108.immortal-407108.analytics_529249625.events_20260325",
+        'table_id must be a fully-qualified ID in standard SQL format, e.g., "project.dataset.table_id", '
+        "got immortal-407108.immortal-407108.analytics_529249625.__posthog_import_abc_def_123",
+    ],
+)
+def test_bigquery_malformed_table_id_is_non_retryable(observed_error):
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    matching = [key for key in non_retryable_errors if key in observed_error]
+    assert matching, "Malformed table id error should be recognised as non-retryable"
+    assert all(non_retryable_errors[key] is not None for key in matching)
+
+
+@pytest.mark.parametrize(
     "transient_error",
     [
         # A token refresh that failed for a transient reason must stay retryable.
         "RefreshError: ('Failed to retrieve token', {'error': 'internal_failure'})",
         "RefreshError: HTTPError 503 Service Unavailable",
+        "Connection reset by peer",
+        "ReadTimeout: The read operation timed out",
+        "503 Service Unavailable",
     ],
 )
 def test_non_retryable_errors_does_not_match_transient_refresh_failures(transient_error):
+    """Transient errors must not match any non-retryable key, so they stay retryable. Mirrors the
+    real matching mechanism (substring against every key) to guard against an overly broad key."""
     non_retryable_errors = BigQuerySource().get_non_retryable_errors()
-    assert not any(key in transient_error for key in non_retryable_errors)
+    matching = [key for key in non_retryable_errors if key in transient_error]
+    assert not matching, f"Transient error should remain retryable, but matched keys: {matching}"
 
 
 def _run_delete_all_temp_destination_tables(side_effect, logger):
@@ -530,6 +553,34 @@ def test_non_retryable_errors_match_federated_upstream_permission_denied(observe
 
 
 @pytest.mark.parametrize(
+    "observed_error",
+    [
+        # Administrator-set custom cost control on the customer's BigQuery project — surfaced as a
+        # `Forbidden` whose str() is "403 Custom quota exceeded: ...".
+        str(
+            Forbidden(
+                "Custom quota exceeded: Your usage exceeded the custom quota for QueryUsagePerDay, "
+                "which is set by your administrator. For more information, see "
+                "https://docs.cloud.google.com/bigquery/cost-controls.; reason: quotaExceeded"
+            )
+        ),
+        # Per-user variant of the same custom cost control.
+        str(
+            Forbidden(
+                "Custom quota exceeded: Your usage exceeded the custom quota for "
+                "QueryUsagePerUserPerDay, which is set by your administrator.; reason: quotaExceeded"
+            )
+        ),
+    ],
+)
+def test_non_retryable_errors_match_custom_quota_exceeded(observed_error):
+    """An administrator-set custom cost control (e.g. QueryUsagePerDay) can't be recovered by
+    retrying within the sync's window — the user must raise the quota or sync less data."""
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    assert any(key in observed_error for key in non_retryable_errors)
+
+
+@pytest.mark.parametrize(
     "other_error",
     [
         # Transient server / connection errors must stay retryable
@@ -539,6 +590,11 @@ def test_non_retryable_errors_match_federated_upstream_permission_denied(observe
         # A federated-read failure that isn't a permission problem must stay retryable
         "Error while reading data, error message: Failed to fetch row from PostgreSQL server. "
         "Error: ERROR:  connection to server timed out",
+        # Transient rate-limit quota errors ("Quota exceeded" / `rateLimitExceeded`) are NOT the
+        # administrator-set custom cost control and must stay retryable — the "Custom quota
+        # exceeded" key must not catch them.
+        "403 Quota exceeded: Your project exceeded quota for concurrent queries; reason: quotaExceeded",
+        "403 Exceeded rate limits: too many concurrent queries for this project; reason: rateLimitExceeded",
     ],
 )
 def test_non_retryable_errors_does_not_match_transient(other_error):
