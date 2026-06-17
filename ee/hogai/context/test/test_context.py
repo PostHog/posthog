@@ -209,13 +209,16 @@ class TestAssistantContextManager(BaseTest):
 
     @parameterized.expand(
         [
-            # (name, execute_result, schema_result, expect_schema_fallback, expected_in, expected_not_in)
+            # (name, execute_result, schema_result, expect_schema_fallback, expected_in, expected_not_in,
+            #  capped_char) — capped_char, when set, must appear at most DASHBOARD_CONTEXT_CHAR_BUDGET times
+            #  (i.e. the oversized content was bounded, not inlined whole).
             (
                 "under_budget_keeps_full_results",
                 "Full executed results",
                 "SCHEMA",
                 False,
                 "Full executed results",
+                None,
                 None,
             ),
             (
@@ -225,6 +228,7 @@ class TestAssistantContextManager(BaseTest):
                 True,
                 "SCHEMA-ONLY dashboard context",
                 "xxxx",
+                None,
             ),
             (
                 "schema_also_over_budget_hard_truncates",
@@ -233,6 +237,7 @@ class TestAssistantContextManager(BaseTest):
                 True,
                 "…(dashboard context truncated)",
                 "xxxx",
+                "y",
             ),
         ]
     )
@@ -245,6 +250,7 @@ class TestAssistantContextManager(BaseTest):
         expect_schema_fallback,
         expected_in,
         expected_not_in,
+        capped_char,
         MockDashboardContext,
     ):
         # The dashboard's executed results must not overflow the conversation window (which would
@@ -263,9 +269,8 @@ class TestAssistantContextManager(BaseTest):
         self.assertIn(expected_in, result)
         if expected_not_in is not None:
             self.assertNotIn(expected_not_in, result)
-        if _name == "schema_also_over_budget_hard_truncates":
-            # the oversized schema is capped to (roughly) the budget, not inlined whole
-            self.assertLess(result.count("y"), DASHBOARD_CONTEXT_CHAR_BUDGET + 5000)
+        if capped_char is not None:
+            self.assertLessEqual(result.count(capped_char), DASHBOARD_CONTEXT_CHAR_BUDGET)
 
     @patch("ee.hogai.context.context.DashboardContext")
     async def test_dashboard_context_budget_is_aggregate_across_dashboards(self, MockDashboardContext):
