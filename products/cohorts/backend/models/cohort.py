@@ -765,7 +765,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         )
 
         try:
-            # Only person.id is used (to resolve the row to remove), so skip the distinct-id fetch.
+            # Only person.id/uuid are used (to resolve and remove the row), so skip the distinct-id fetch.
             with personhog_caller_tag("cohorts/static-remove"):
                 person = get_person_by_uuid(team_id, str(user_uuid), distinct_id_limit=0)
             if person is None:
