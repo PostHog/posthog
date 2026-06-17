@@ -61,8 +61,10 @@ describe('LineGraph', () => {
 
     describe('Incomplete current day', () => {
         beforeEach(() => {
-            // Set "now" to midday on the last day of the default test data (Mon-Fri, Jun 10-14 2024)
-            jest.useFakeTimers({ advanceTimers: true })
+            // Set "now" to midday on the last day of the default test data (Mon-Fri, Jun 10-14 2024).
+            // Don't fake the microtask/immediate queues MSW v2 uses to drain response streams,
+            // otherwise auto-advancing timers spins those queues and exhausts the heap.
+            jest.useFakeTimers({ advanceTimers: true, doNotFake: ['queueMicrotask', 'setImmediate', 'clearImmediate'] })
             jest.setSystemTime(new Date('2024-06-14T12:00:00Z'))
         })
 
