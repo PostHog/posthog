@@ -158,6 +158,16 @@ jobs:
             - name: Lint with ESLint
               run: pnpm --filter=@posthog/nodejs lint
 
+            # Guards the cdp/ingestion separation: fails on new lane->lane or shared->lane
+            # imports. Presence-checked so branches without the guard yet are unaffected.
+            - name: Check ingestion boundaries
+              run: |
+                  if [ -f nodejs/bin/check-ingestion-boundaries.mjs ]; then
+                      node nodejs/bin/check-ingestion-boundaries.mjs
+                  else
+                      echo "Ingestion boundary guard not present on this branch; skipping."
+                  fi
+
     build:
         if: needs.changes.outputs.nodejs == 'true'
         name: Node.js Build (depot-ubuntu-latest)

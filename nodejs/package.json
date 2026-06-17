@@ -25,6 +25,8 @@
         "typescript:check:tsgo": "tsgo --noEmit -p .",
         "lint": "eslint .",
         "lint:fix": "eslint --fix .",
+        "check:boundaries": "node bin/check-ingestion-boundaries.mjs",
+        "check:boundaries:write": "node bin/check-ingestion-boundaries.mjs --write",
         "format": "prettier --write .",
         "format:check": "prettier --check .",
         "prepublishOnly": "pnpm build",
