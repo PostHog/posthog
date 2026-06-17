@@ -121,6 +121,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'marketing_analytics:write',
     'mcp_analytics:read',
     'mcp_analytics:write',
+    'metrics:read',
+    'metrics:write',
     'notebook:read',
     'notebook:write',
     'organization:read',

@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonBanner } from '@posthog/lemon-ui'
 
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { humanFriendlyDetailedTime } from 'lib/utils'
+import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { getApprovalActionDescription } from 'scenes/approvals/utils'
 
 import { ChangeRequestActions } from './ChangeRequestActions'
