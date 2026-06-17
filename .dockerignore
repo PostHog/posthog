@@ -55,16 +55,13 @@
 !services/agent-janitor
 !services/agent-shared
 !services/agent-tools
-!services/agent-console
 !services/agent-sandbox-host
-!packages/agent-chat
 !packages/quill
 services/agent-*/node_modules
 services/agent-*/dist
 services/agent-*/.next
 services/agents/node_modules
 services/agents/dist
-services/agent-console/.next
 services/agent-tests
 !pnpm-lock.yaml
 !pnpm-workspace.yaml

@@ -52,14 +52,14 @@ authoring API the same way the concierge fixture does.
 
 ## Driving the demo
 
-1. Open the agent console (`pnpm --filter @posthog/agent-console dev`,
-   then http://localhost:3000).
+1. Open PostHog Code and go to the agents view (the agent console now
+   lives in the PostHog Code app).
 2. Open the playground for `agent-approval-demo`.
 3. Send: `save this note: hello world`.
 4. The agent should propose `memory-write` → the dispatcher gates →
    the agent tells you the save is queued and gives you the approval
-   URL.
-5. Open `/approvals` in another tab. The pending row is there.
+   deep link.
+5. Open the approvals inbox. The pending row is there.
 6. Click → drawer opens. Approve, approve with edits, or reject.
 7. The agent's session refreshes with the outcome.
 
