@@ -1,4 +1,4 @@
-import { tryJsonParse } from 'lib/utils'
+import { tryJsonParse } from 'lib/utils/json'
 import { LiquidRenderer } from 'lib/utils/liquid'
 import type { EmailTemplate } from 'scenes/hog-functions/email-templater/types'
 

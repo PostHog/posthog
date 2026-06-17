@@ -378,6 +378,17 @@ def static_varies_origin(headers, path, url):
 
 WHITENOISE_ADD_HEADERS_FUNCTION = static_varies_origin
 
+# Per-IP signup throttle rate (see posthog.rate_limit.SignupIPThrottle). Overridable per-env so
+# non-prod (e.g. dev deploy smoke-tests) can raise it without weakening the prod default.
+SIGNUP_IP_THROTTLE_RATE = get_from_env("SIGNUP_IP_THROTTLE_RATE", "5/day")
+
+# Email domains whose signups are created already-verified (skipping the email round-trip), so
+# non-prod deploy smoke-tests can sign up and act immediately. Empty by default — prod verifies
+# every signup.
+EMAIL_VERIFICATION_SKIP_FOR_DOMAINS = [
+    domain.lower() for domain in get_list(get_from_env("EMAIL_VERIFICATION_SKIP_FOR_DOMAINS", ""))
+]
+
 ####
 # REST framework
 
@@ -495,6 +506,21 @@ SPECTACULAR_SETTINGS = {
         "HeatmapType": "products.web_analytics.backend.models.heatmap_saved.SavedHeatmap.Type",
         # --- Inline value lists (type-hint enums, no x-spec-enum-id) ---
         "PropertyGroupOperator": ["AND", "OR"],
+        # Two serializers now expose an `op` ChoiceField (metrics filters and email-template design
+        # patches). Pin both to stable names so neither gets a component-prefixed auto-name on collision.
+        # "OpEnum" keeps the metrics filter enum at its pre-existing generated name.
+        "OpEnum": ["eq", "neq", "regex", "not_regex"],
+        "EmailTemplateDesignOperationEnum": [
+            "update_content",
+            "update_column",
+            "update_row",
+            "update_body",
+            "add_content",
+            "remove_content",
+            "move_content",
+            "add_row",
+            "remove_row",
+        ],
         "PropertyFilterTypeEnum": [
             "event",
             "event_metadata",
@@ -537,6 +563,7 @@ SPECTACULAR_SETTINGS = {
         # widget_type ChoiceField (one value). drf-spectacular hashes enum value sets — without
         # a per-type override they all collide into one mangled name. Override key is the
         # stable component name; value is the singleton list even though length is 1.
+        "ActivityEventsListWidgetTypeEnum": ["activity_events_list"],
         "ErrorTrackingListWidgetTypeEnum": ["error_tracking_list"],
         "SessionReplayListWidgetTypeEnum": ["session_replay_list"],
         "OrderByEnum": ["latest", "earliest"],

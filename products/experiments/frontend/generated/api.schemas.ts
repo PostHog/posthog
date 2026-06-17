@@ -757,6 +757,150 @@ export interface EndExperimentApi {
     conclusion_comment?: string | null
 }
 
+/**
+ * * `manual` - manual
+ * * `experiment_launch` - experiment_launch
+ * * `experiment_stop` - experiment_stop
+ * * `experiment_update` - experiment_update
+ */
+export type RecalculateMetricsRequestTriggerEnumApi =
+    (typeof RecalculateMetricsRequestTriggerEnumApi)[keyof typeof RecalculateMetricsRequestTriggerEnumApi]
+
+export const RecalculateMetricsRequestTriggerEnumApi = {
+    Manual: 'manual',
+    ExperimentLaunch: 'experiment_launch',
+    ExperimentStop: 'experiment_stop',
+    ExperimentUpdate: 'experiment_update',
+} as const
+
+/**
+ * Request body for triggering a metrics recalculation.
+ */
+export interface RecalculateMetricsRequestApi {
+    /** What triggered this recalculation (manual is the default for user-initiated runs)
+     *
+     * * `manual` - manual
+     * * `experiment_launch` - experiment_launch
+     * * `experiment_stop` - experiment_stop
+     * * `experiment_update` - experiment_update */
+    trigger?: RecalculateMetricsRequestTriggerEnumApi
+}
+
+/**
+ * * `pending` - Pending
+ * * `in_progress` - In Progress
+ * * `completed` - Completed
+ * * `failed` - Failed
+ */
+export type ExperimentMetricsRecalculationStatusEnumApi =
+    (typeof ExperimentMetricsRecalculationStatusEnumApi)[keyof typeof ExperimentMetricsRecalculationStatusEnumApi]
+
+export const ExperimentMetricsRecalculationStatusEnumApi = {
+    Pending: 'pending',
+    InProgress: 'in_progress',
+    Completed: 'completed',
+    Failed: 'failed',
+} as const
+
+/**
+ * * `manual` - Manual
+ * * `experiment_launch` - Experiment Launch
+ * * `experiment_stop` - Experiment Stop
+ * * `experiment_update` - Experiment Update
+ */
+export type ExperimentMetricsRecalculationTriggerEnumApi =
+    (typeof ExperimentMetricsRecalculationTriggerEnumApi)[keyof typeof ExperimentMetricsRecalculationTriggerEnumApi]
+
+export const ExperimentMetricsRecalculationTriggerEnumApi = {
+    Manual: 'manual',
+    ExperimentLaunch: 'experiment_launch',
+    ExperimentStop: 'experiment_stop',
+    ExperimentUpdate: 'experiment_update',
+} as const
+
+/**
+ * * `pending` - pending
+ * * `completed` - completed
+ * * `failed` - failed
+ */
+export type MetricRecalculationResultStatusEnumApi =
+    (typeof MetricRecalculationResultStatusEnumApi)[keyof typeof MetricRecalculationResultStatusEnumApi]
+
+export const MetricRecalculationResultStatusEnumApi = {
+    Pending: 'pending',
+    Completed: 'completed',
+    Failed: 'failed',
+} as const
+
+/**
+ * One metric's recalculated result row, read back from ExperimentMetricResult.
+ */
+export interface MetricRecalculationResultApi {
+    /** UUID of the metric this result belongs to */
+    readonly metric_uuid: string
+    /** Status of this metric's calculation in the run
+     *
+     * * `pending` - pending
+     * * `completed` - completed
+     * * `failed` - failed */
+    readonly status: MetricRecalculationResultStatusEnumApi
+    /** The computed metric result (ExperimentQueryResponse shape); null when status is pending or failed */
+    readonly result: unknown
+    /**
+     * Error message when status is failed; otherwise null
+     * @nullable
+     */
+    readonly error_message: string | null
+}
+
+/**
+ * Serializer for metrics recalculation status responses.
+ */
+export interface ExperimentMetricsRecalculationApi {
+    /** Unique identifier for this recalculation job */
+    readonly id: string
+    /** ID of the experiment being recalculated */
+    readonly experiment_id: number
+    /** Current status of the recalculation job
+     *
+     * * `pending` - Pending
+     * * `in_progress` - In Progress
+     * * `completed` - Completed
+     * * `failed` - Failed */
+    readonly status: ExperimentMetricsRecalculationStatusEnumApi
+    /** Total number of metrics to recalculate */
+    readonly total_metrics: number
+    /** Number of metrics with a COMPLETED result row in this run (derived, not stored) */
+    readonly completed_metrics: number
+    /** Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures that never made it to a result row */
+    readonly failed_metrics: number
+    /** Map of metric_uuid to error details */
+    readonly metric_errors: unknown
+    /** What triggered this recalculation
+     *
+     * * `manual` - Manual
+     * * `experiment_launch` - Experiment Launch
+     * * `experiment_stop` - Experiment Stop
+     * * `experiment_update` - Experiment Update */
+    readonly trigger: ExperimentMetricsRecalculationTriggerEnumApi
+    /** When the job was created */
+    readonly created_at: string
+    /**
+     * When processing started
+     * @nullable
+     */
+    readonly started_at: string | null
+    /**
+     * When processing completed
+     * @nullable
+     */
+    readonly completed_at: string | null
+    /** True if returning an existing job rather than a newly created one */
+    readonly is_existing: boolean
+    /** Per-metric results computed by this run, scoped by the run's recalc fingerprint */
+    readonly results: readonly MetricRecalculationResultApi[]
+}
+
 export interface ShipVariantApi {
     /** The conclusion of the experiment.
      *
@@ -846,9 +990,9 @@ export type ExperimentsListParams = {
      */
     archived?: boolean
     /**
-     * Filter to experiments created by the given user ID.
+     * Filter to experiments created by the given user(s). Accepts a single user ID, or a JSON-encoded / comma-separated list of user IDs to match any of them.
      */
-    created_by_id?: number
+    created_by_id?: string
     /**
      * Filter to experiments whose metrics reference this event name. Matches events used directly in metric queries as well as events behind any actions those metrics reference.
      */
