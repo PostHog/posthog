@@ -743,6 +743,9 @@ tests:
     test:e2e:
         bin_script: e2e-test-runner
         description: Set up test databases and run Playwright E2E tests
+    test:quarantine:
+        click: hogli_commands.quarantine.cli:quarantine
+        description: Manage .test_quarantine.json — quarantine flaky tests so they stop blocking CI
 quality:
     lint:
         cmd: ./bin/ruff.sh check . && pnpm --filter=@posthog/frontend run lint
@@ -825,6 +828,12 @@ tools:
     product:lint:
         click: hogli_commands.product.cli:cmd_lint
         description: Check product structure for misplaced files
+    product:isolate:scan:
+        click: hogli_commands.product.cli:cmd_isolate_scan
+        description: Read-only isolation recon for the facade migration skill
+    product:isolate:move:
+        click: hogli_commands.product.cli:cmd_isolate_move
+        description: Mechanical isolation moves with repo-wide path rewrites
     product:lint:owners:
         click: hogli_commands.product.cli:cmd_lint_owners
         description: Validate product.yaml owners against PostHog/posthog GitHub teams

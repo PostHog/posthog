@@ -291,7 +291,7 @@ class ApplyScannerWorkflow(PostHogWorkflow):
         try:
             await wf.execute_child_workflow(
                 "rasterize-recording",
-                RasterizeRecordingInputs(exported_asset_id=asset_id),
+                RasterizeRecordingInputs(exported_asset_id=asset_id, product="replay_vision"),
                 id=_rasterizer_workflow_id(inputs),
                 task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
                 retry_policy=common.RetryPolicy(maximum_attempts=int(settings.TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),

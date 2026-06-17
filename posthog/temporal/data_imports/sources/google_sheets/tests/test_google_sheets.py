@@ -9,11 +9,23 @@ import gspread
 from posthog.temporal.data_imports.sources.generated_configs import GoogleSheetsSourceConfig
 from posthog.temporal.data_imports.sources.google_sheets.google_sheets import (
     _PERMISSION_DENIED_MESSAGE,
+    _REQUEST_TIMEOUT_SECONDS,
     _get_worksheet,
+    _retry_on_transient_api_error,
+    get_schema_incremental_fields,
     get_schemas,
+    google_sheets_client,
     google_sheets_source,
 )
 from posthog.temporal.data_imports.sources.google_sheets.source import GoogleSheetsSource
+
+
+def _api_error(
+    status_code: int, message: str = "transient", status: str = "UNAVAILABLE"
+) -> gspread.exceptions.APIError:
+    mock_response = mock.MagicMock()
+    mock_response.json.return_value = {"error": {"code": status_code, "message": message, "status": status}}
+    return gspread.exceptions.APIError(mock_response)
 
 
 def test_get_worksheet_backoff():
@@ -212,6 +224,61 @@ def test_reraises_permission_error_with_message(call_site):
         assert "Spreadsheet access denied" in str(exc_info.value)
 
 
+@pytest.mark.parametrize("status_code", [429, 500, 502, 503, 504])
+def test_retry_on_transient_api_error_retries_then_exhausts(status_code):
+    """The shared retry helper must retry transient API errors (quota 429s and 5xx
+    server errors like "[503]: The service is currently unavailable.") with backoff."""
+    with mock.patch("posthog.temporal.data_imports.sources.google_sheets.google_sheets.time"):
+        fn = mock.MagicMock(side_effect=_api_error(status_code))
+
+        with pytest.raises(gspread.exceptions.APIError):
+            _retry_on_transient_api_error(fn)
+
+        assert fn.call_count == 10
+
+
+def test_retry_on_transient_api_error_does_not_retry_non_transient():
+    with mock.patch("posthog.temporal.data_imports.sources.google_sheets.google_sheets.time"):
+        fn = mock.MagicMock(side_effect=_api_error(400, status="INVALID_ARGUMENT"))
+
+        with pytest.raises(gspread.exceptions.APIError):
+            _retry_on_transient_api_error(fn)
+
+        assert fn.call_count == 1
+
+
+def test_google_sheets_source_retries_transient_error_on_data_reads():
+    """A transient 5xx on the cell-reading calls (`get_all_values`/`get_all_records`)
+    must be retried, not surfaced on the first occurrence. These reads issue their own
+    Sheets API requests separate from worksheet acquisition, so they need the same
+    backoff — otherwise a "[503]: The service is currently unavailable." blip fails the
+    sync."""
+    config = GoogleSheetsSourceConfig(spreadsheet_url="https://docs.google.com/spreadsheets/d/fake")
+
+    mock_worksheet = mock.MagicMock()
+    # First header read hits a transient 503, then succeeds on retry.
+    mock_worksheet.get_all_values.side_effect = [_api_error(503), [["id"]]]
+    # The data read also hits a transient 503 once before returning rows.
+    mock_worksheet.get_all_records.side_effect = [_api_error(503), [{"id": 1}]]
+
+    with (
+        mock.patch(
+            "posthog.temporal.data_imports.sources.google_sheets.google_sheets.get_schemas",
+            return_value=[("sheet1", 123)],
+        ),
+        mock.patch(
+            "posthog.temporal.data_imports.sources.google_sheets.google_sheets._get_worksheet",
+            return_value=mock_worksheet,
+        ),
+        mock.patch("posthog.temporal.data_imports.sources.google_sheets.google_sheets.time"),
+    ):
+        response = google_sheets_source(config, "sheet1", db_incremental_field_last_value=None)
+        list(cast(Iterable[Any], response.items()))
+
+    assert mock_worksheet.get_all_values.call_count == 2
+    assert mock_worksheet.get_all_records.call_count == 2
+
+
 def test_google_sheets_source_reads_blank_cells_as_null():
     config = GoogleSheetsSourceConfig(spreadsheet_url="https://docs.google.com/spreadsheets/d/fake")
 
@@ -264,3 +331,69 @@ def test_not_found_api_error_is_non_retryable():
     assert any(key in error_msg for key in non_retryable_errors), (
         f"Google Sheets 404 error {error_msg!r} did not match any non-retryable pattern"
     )
+
+
+def test_get_schema_incremental_fields_skips_unparseable_range():
+    """Google rejects the unbounded "1:2" row range with a 400 'Unable to parse range' for some
+    worksheets (e.g. empty sheets). That deterministic error must not break schema discovery — the
+    worksheet should just report no incremental fields so the rest of the spreadsheet still syncs."""
+    config = GoogleSheetsSourceConfig(spreadsheet_url="https://docs.google.com/spreadsheets/d/fake")
+
+    mock_worksheet = mock.MagicMock()
+    mock_worksheet.get_all_values.side_effect = _api_error(
+        400, "Unable to parse range: 'csm_followups'!1:2", "INVALID_ARGUMENT"
+    )
+
+    with (
+        mock.patch(
+            "posthog.temporal.data_imports.sources.google_sheets.google_sheets.get_schemas",
+            return_value=[("csm_followups", 123)],
+        ),
+        mock.patch(
+            "posthog.temporal.data_imports.sources.google_sheets.google_sheets._get_worksheet",
+            return_value=mock_worksheet,
+        ),
+    ):
+        assert get_schema_incremental_fields(config, "csm_followups") == []
+
+
+def test_get_schema_incremental_fields_reraises_other_api_errors():
+    """Only the deterministic 'Unable to parse range' 400 is swallowed. Transient 5xx errors are
+    retried with backoff and, once retries are exhausted, must still propagate so Temporal can retry
+    the activity rather than schema discovery silently reporting no incremental fields."""
+    config = GoogleSheetsSourceConfig(spreadsheet_url="https://docs.google.com/spreadsheets/d/fake")
+
+    mock_worksheet = mock.MagicMock()
+    mock_worksheet.get_all_values.side_effect = _api_error(500, "Internal error encountered.", "INTERNAL")
+
+    with (
+        mock.patch("posthog.temporal.data_imports.sources.google_sheets.google_sheets.time"),
+        mock.patch(
+            "posthog.temporal.data_imports.sources.google_sheets.google_sheets.get_schemas",
+            return_value=[("sheet1", 123)],
+        ),
+        mock.patch(
+            "posthog.temporal.data_imports.sources.google_sheets.google_sheets._get_worksheet",
+            return_value=mock_worksheet,
+        ),
+        pytest.raises(gspread.exceptions.APIError),
+    ):
+        get_schema_incremental_fields(config, "sheet1")
+
+    assert mock_worksheet.get_all_values.call_count == 10
+
+
+def test_google_sheets_client_sets_request_timeout():
+    """Every gspread client must be built with a bounded (connect, read) timeout. gspread defaults
+    to no timeout, so a stalled Sheets API read blocks the threaded sync activity until Temporal's
+    start_to_close_timeout cancels the thread mid-read — which surfaces as a noisy CancelledError
+    rather than a fast, retryable timeout."""
+    with (
+        mock.patch("posthog.temporal.data_imports.sources.google_sheets.google_sheets.service_account"),
+        mock.patch("posthog.temporal.data_imports.sources.google_sheets.google_sheets.AuthorizedSession"),
+        mock.patch("posthog.temporal.data_imports.sources.google_sheets.google_sheets.make_tracked_adapter"),
+    ):
+        client = google_sheets_client()
+
+    assert client.http_client.timeout == _REQUEST_TIMEOUT_SECONDS
+    assert client.http_client.timeout is not None

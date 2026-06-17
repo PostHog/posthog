@@ -73,6 +73,9 @@ The `PersonHogClient` in `client.py` exposes typed methods for every RPC:
 **Person deletes:**
 `delete_persons`, `delete_persons_batch_for_team`
 
+**Person split:**
+`split_person` — splits distinct_ids off a person onto new persons (max 250 per request); the sole write path for person splits, with no ORM fallback
+
 **Cohort membership:**
 `check_cohort_membership`, `count_cohort_members`, `insert_cohort_members`,
 `delete_cohort_member`, `delete_cohort_members_bulk`, `list_cohort_member_ids`

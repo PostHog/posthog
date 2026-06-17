@@ -218,7 +218,7 @@ def resolve_user_for_workspace(
     and the membership query.
     """
     # The user resolver lives in api.py alongside the Slack-API helpers it
-    # depends on (``_get_slack_user_info`` etc). Inline-imported to break the
+    # depends on (``get_slack_user_info`` etc). Inline-imported to break the
     # cycle until those helpers are factored out into a shared module.
     from products.slack_app.backend.api import get_slack_email_for_user, resolve_posthog_user_from_event
 
