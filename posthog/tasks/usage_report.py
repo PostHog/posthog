@@ -659,6 +659,36 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
     # Check if $lib and $ai_lib are materialized
     lib_expression, _ = get_property_string_expr("events", "$lib", "'$lib'", "properties")
     ai_lib_expression, _ = get_property_string_expr("events", "$ai_lib", "'$ai_lib'", "properties")
+    tracked_libs = (
+        "'web'",
+        "'js'",
+        "'posthog-node'",
+        "'posthog-edge'",
+        "'posthog-convex'",
+        "'posthog-android'",
+        "'posthog-flutter'",
+        "'posthog-ios'",
+        "'posthog-go'",
+        "'posthog-java'",
+        "'posthog-server'",
+        "'posthog-react-native'",
+        "'posthog-ruby'",
+        "'posthog-python'",
+        "'posthog-php'",
+        "'posthog-dotnet'",
+        "'posthog-elixir'",
+        "'posthog-unity'",
+        "'posthog-rs'",
+    )
+    metric_filter = f"""
+        (
+            event LIKE 'helicone%%'
+            OR event LIKE 'langfuse%%'
+            OR event LIKE 'keywords_ai%%'
+            OR event LIKE 'traceloop%%'
+            OR {lib_expression} IN ({", ".join(tracked_libs)})
+        )
+    """
 
     query_template = f"""
         SELECT
@@ -693,9 +723,9 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
             ) AS metric,
             count(1) as count
         FROM events
-        WHERE timestamp >= %(begin)s AND timestamp < %(end)s
+        PREWHERE timestamp >= %(begin)s AND timestamp < %(end)s
+        WHERE {metric_filter}
         GROUP BY team_id, metric
-        HAVING metric != 'other'
     """
 
     # Define a custom function to combine results from multiple queries

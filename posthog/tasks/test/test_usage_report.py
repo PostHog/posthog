@@ -58,6 +58,7 @@ from posthog.tasks.usage_report import (
     _get_team_report,
     _get_teams_for_usage_reports,
     capture_event,
+    get_all_event_metrics_in_period,
     get_instance_metadata,
     get_teams_with_query_metric,
     has_non_zero_usage,
@@ -1362,6 +1363,32 @@ class TestQueryUsageReportSQL:
         assert params["begin"] == begin
         assert params["end"] == end
         assert params["event_time_end"] == end + timedelta(hours=6)
+
+    @patch("posthog.tasks.usage_report._execute_split_query", return_value={})
+    @patch("posthog.tasks.usage_report.get_property_string_expr")
+    def test_get_all_event_metrics_prefilters_tracked_metrics(
+        self,
+        mock_get_property_string_expr: MagicMock,
+        mock_execute_split_query: MagicMock,
+    ) -> None:
+        mock_get_property_string_expr.side_effect = [("lib_expr", True), ("ai_lib_expr", True)]
+        begin = datetime(2026, 6, 15, tzinfo=tzutc())
+        end = begin + timedelta(days=1)
+
+        get_all_event_metrics_in_period(begin, end)
+
+        query = mock_execute_split_query.call_args.kwargs["query_template"]
+        assert "PREWHERE timestamp >= %(begin)s AND timestamp < %(end)s" in query
+        assert "WHERE" in query
+        assert "event LIKE 'helicone%%'" in query
+        assert "event LIKE 'langfuse%%'" in query
+        assert "event LIKE 'keywords_ai%%'" in query
+        assert "event LIKE 'traceloop%%'" in query
+        assert "OR lib_expr IN (" in query
+        assert "'posthog-node'" in query
+        assert "'posthog-rs'" in query
+        assert "HAVING metric != 'other'" not in query
+        assert mock_execute_split_query.call_args.kwargs["num_splits"] == 12
 
 
 @freeze_time("2022-01-10T00:01:00Z")
