@@ -224,6 +224,11 @@ class _TracingTraceRequestSerializer(serializers.Serializer):
         default=False,
         help_text="Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false.",
     )
+    offset = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        help_text="Pagination offset into the trace's spans (ordered by start time ascending). Each page returns up to 2000 spans; pass the response's `nextOffset` to load the next page. Defaults to 0.",
+    )
 
 
 class _TracingServiceNamesQuerySerializer(serializers.Serializer):
@@ -540,6 +545,11 @@ class _SymbolStatsResponseSerializer(serializers.Serializer):
         choices=["line", "symbol"],
         help_text="Bucketing applied: 'line' when no symbols were supplied, 'symbol' otherwise.",
     )
+
+
+# Spans returned per page by the single-trace `trace` endpoint. The waterfall fetches the first page
+# on open and pages through the rest via infinite scroll (offset pagination, earliest spans first).
+TRACE_SPANS_PAGE_SIZE = 2000
 
 
 def _encode_after_cursor(timestamp: str, **secondary: str) -> str:
@@ -1060,14 +1070,22 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         except (ValidationError, ValueError, ParseError):
             filter_group = None
 
+        offset = max(int(query_data.get("offset") or 0), 0)
+
+        # The waterfall loads a trace one page at a time, earliest spans first, with infinite scroll
+        # fetching the next page. Order by start time ASC so a page is the first N spans by start
+        # time; fetch one extra to detect whether more pages remain.
         spans_query = TraceSpansQuery(
             dateRange=date_range,
             traceId=trace_id,
             serviceNames=query_data.get("serviceNames", None),
             statusCodes=query_data.get("statusCodes", None),
             filterGroup=filter_group,
-            limit=1000,
-            prefetchSpans=2000,
+            orderBy="timestamp",
+            orderDirection="ASC",
+            limit=1,
+            offset=offset,
+            prefetchSpans=TRACE_SPANS_PAGE_SIZE + 1,
             rootSpans=False,
             excludeAttributes=query_data.get("excludeAttributes", False),
         )
@@ -1076,13 +1094,20 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
         assert isinstance(response, TraceSpansQueryResponse | CachedTraceSpansQueryResponse)
 
-        # Only this endpoint returns the (practically) full trace, so per-span self-time
-        # is computable here — query results elsewhere see partial traces.
-        if isinstance(response.results, list):
-            annotate_self_time(response.results)
+        all_results = list(response.results) if isinstance(response.results, list) else []
+        has_more = len(all_results) > TRACE_SPANS_PAGE_SIZE
+        results = all_results[:TRACE_SPANS_PAGE_SIZE]
+
+        # Self-time needs a span's children present. On a paged (truncated) trace it overstates for
+        # spans whose children fall on a later page — an accepted bound, same as the prior 2000 cap.
+        annotate_self_time(results)
 
         return Response(
-            {"results": response.results},
+            {
+                "results": results,
+                "hasMore": has_more,
+                "nextOffset": offset + len(results) if has_more else None,
+            },
             status=status.HTTP_200_OK,
         )
 

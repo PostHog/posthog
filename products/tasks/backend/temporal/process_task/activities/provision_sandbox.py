@@ -377,6 +377,7 @@ def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cre
             snapshot_external_id=prepared.snapshot_external_id,
             metadata={"task_id": ctx.task_id},
             vm_runtime=use_vm_sandbox,
+            **ctx.sandbox_resource_overrides(),
         )
 
         # Request a small slice and let the box burst up to the configured size. The decision is
