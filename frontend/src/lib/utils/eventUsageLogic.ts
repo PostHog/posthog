@@ -1256,7 +1256,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             const modelQuery = insightModel.query as Node | null | undefined
             if (modelQuery) {
                 payload.query_kind = modelQuery.kind
-                payload.query_source_kind = isNodeWithSource(modelQuery) ? modelQuery.source.kind : modelQuery.kind
+                payload.query_source_kind = isNodeWithSource(modelQuery) ? modelQuery.source.kind : undefined
             }
 
             const eventName = delay ? 'insight analyzed' : 'insight viewed'
