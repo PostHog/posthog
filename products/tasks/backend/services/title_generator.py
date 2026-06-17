@@ -1,9 +1,6 @@
 import logging
 from typing import Any
 
-from products.ai_observability.backend.llm.client import Client
-from products.ai_observability.backend.llm.types import CompletionRequest
-
 logger = logging.getLogger(__name__)
 
 
@@ -13,6 +10,12 @@ def generate_task_title(description: str) -> str:
 
     Returns a generated title or falls back to truncated description if generation fails.
     """
+    # Deferred: the llm client pulls google.genai (Gemini SDK), and this module is reachable from a
+    # tasks serializer that the file-system registrations import at AppConfig.ready() — a module-level
+    # import here would drag the SDK onto the django.setup() path that every process pays for.
+    from products.ai_observability.backend.llm.client import Client  # noqa: PLC0415
+    from products.ai_observability.backend.llm.types import CompletionRequest  # noqa: PLC0415
+
     if not description or not description.strip():
         return "Untitled Task"
 

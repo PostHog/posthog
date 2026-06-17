@@ -21,6 +21,31 @@ export const ConversationStatusApi = {
 } as const
 
 /**
+ * * `web_analytics` - Web analytics
+ * * `product_analytics` - Product analytics
+ * * `session_replay` - Session replay
+ * * `surveys` - Surveys
+ * * `feature_flags` - Feature flags
+ * * `experiments` - Experiments
+ * * `error_tracking` - Error tracking
+ * * `data_warehouse` - Data warehouse
+ * * `other` - Other
+ */
+export type TopicEnumApi = (typeof TopicEnumApi)[keyof typeof TopicEnumApi]
+
+export const TopicEnumApi = {
+    WebAnalytics: 'web_analytics',
+    ProductAnalytics: 'product_analytics',
+    SessionReplay: 'session_replay',
+    Surveys: 'surveys',
+    FeatureFlags: 'feature_flags',
+    Experiments: 'experiments',
+    ErrorTracking: 'error_tracking',
+    DataWarehouse: 'data_warehouse',
+    Other: 'other',
+} as const
+
+/**
  * * `engineering` - Engineering
  * * `data` - Data
  * * `product` - Product Management
@@ -98,6 +123,18 @@ export interface ConversationMinimalApi {
      * @nullable
      */
     readonly title: string | null
+    /** Product domain the conversation is about, classified from the first question.
+     *
+     * * `web_analytics` - Web analytics
+     * * `product_analytics` - Product analytics
+     * * `session_replay` - Session replay
+     * * `surveys` - Surveys
+     * * `feature_flags` - Feature flags
+     * * `experiments` - Experiments
+     * * `error_tracking` - Error tracking
+     * * `data_warehouse` - Data warehouse
+     * * `other` - Other */
+    readonly topic: TopicEnumApi | null
     readonly user: UserBasicApi
     /** @nullable */
     readonly created_at: string | null
@@ -197,6 +234,18 @@ export interface ConversationApi {
      * @nullable
      */
     readonly title: string | null
+    /** Product domain the conversation is about, classified from the first question.
+     *
+     * * `web_analytics` - Web analytics
+     * * `product_analytics` - Product analytics
+     * * `session_replay` - Session replay
+     * * `surveys` - Surveys
+     * * `feature_flags` - Feature flags
+     * * `experiments` - Experiments
+     * * `error_tracking` - Error tracking
+     * * `data_warehouse` - Data warehouse
+     * * `other` - Other */
+    readonly topic: TopicEnumApi | null
     readonly user: UserBasicApi
     /** @nullable */
     readonly created_at: string | null
@@ -250,6 +299,18 @@ export interface PatchedConversationApi {
      * @nullable
      */
     readonly title?: string | null
+    /** Product domain the conversation is about, classified from the first question.
+     *
+     * * `web_analytics` - Web analytics
+     * * `product_analytics` - Product analytics
+     * * `session_replay` - Session replay
+     * * `surveys` - Surveys
+     * * `feature_flags` - Feature flags
+     * * `experiments` - Experiments
+     * * `error_tracking` - Error tracking
+     * * `data_warehouse` - Data warehouse
+     * * `other` - Other */
+    readonly topic?: TopicEnumApi | null
     readonly user?: UserBasicApi
     /** @nullable */
     readonly created_at?: string | null
@@ -537,6 +598,49 @@ export interface PatchedTicketApi {
     tags?: unknown[]
 }
 
+/**
+ * A single message in a ticket thread (output-only).
+ */
+export interface TicketMessageApi {
+    /** Message (comment) UUID. */
+    readonly id: string
+    /** Plain-text message body. */
+    readonly content: string
+    /** TipTap rich content JSON, if any. */
+    readonly rich_content: unknown
+    /** One of: customer, support, AI. */
+    readonly author_type: string
+    /** Display name of the author. */
+    readonly author_name: string
+    /** True for internal notes not visible to the customer. */
+    readonly is_private: boolean
+    readonly created_at: string
+}
+
+export interface PaginatedTicketMessageListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: TicketMessageApi[]
+}
+
+/**
+ * Payload for posting a reply or internal note to a ticket.
+ */
+export interface TicketReplyRequestApi {
+    /**
+     * Reply content in markdown.
+     * @maxLength 5000
+     */
+    message: string
+    /** If true, store as an internal note (not sent to the customer). If false, the reply is delivered to the customer over the ticket's channel. */
+    is_private?: boolean
+    /** Optional TipTap rich content JSON for formatted messages. */
+    rich_content?: unknown
+}
+
 export interface SuggestReplyResponseApi {
     suggestion: string
 }
@@ -734,9 +838,17 @@ export type ConversationsTicketsListParams = {
      */
     status?: string
     /**
-     * JSON-encoded array of tag names to filter by, e.g. `["billing","urgent"]`.
+     * JSON-encoded array of tag names; returns tickets with ANY of them (OR), e.g. `["billing","urgent"]`.
      */
     tags?: string
+    /**
+     * JSON-encoded array of tag names; returns tickets that have ALL of them (AND), e.g. `["billing","urgent"]`.
+     */
+    tags_all?: string
+    /**
+     * JSON-encoded array of tag names; returns tickets that have NONE of them (NOT), e.g. `["escalated"]`.
+     */
+    tags_exclude?: string
 }
 
 export type ConversationsTicketsListChannelDetail =
@@ -771,6 +883,17 @@ export const ConversationsTicketsListSla = {
     Breached: 'breached',
     OnTrack: 'on-track',
 } as const
+
+export type ConversationsTicketsMessagesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
 
 export type ConversationsViewsListParams = {
     /**

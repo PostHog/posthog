@@ -89,6 +89,16 @@ export interface SignalReportApi {
      * @nullable
      */
     readonly already_addressed: boolean | null
+    /**
+     * Reason code from the latest dismissal artefact, set when the report was suppressed (when present).
+     * @nullable
+     */
+    readonly dismissal_reason: string | null
+    /**
+     * Free-form note captured alongside the dismissal reason (when present).
+     * @nullable
+     */
+    readonly dismissal_note: string | null
     readonly is_suggested_reviewer: boolean
     /** Distinct source products contributing signals to this report (from ClickHouse). */
     readonly source_products: readonly string[]
@@ -141,6 +151,13 @@ export interface SignalReportStateRequestApi {
     snooze_for?: number
 }
 
+export type ScoutOriginEnumApi = (typeof ScoutOriginEnumApi)[keyof typeof ScoutOriginEnumApi]
+
+export const ScoutOriginEnumApi = {
+    Canonical: 'canonical',
+    Custom: 'custom',
+} as const
+
 /**
  * Per-(team, skill) scout config: schedule, enablement, and emit posture.
  *
@@ -151,6 +168,10 @@ export interface SignalScoutConfigApi {
     readonly id: string
     /** The `signals-scout-*` skill this config controls. Set at creation, not editable. */
     readonly skill_name: string
+    /** Human-readable summary of what this scout investigates, sourced from the scout skill's `description` metadata. Use it for a quick steer on the scout's focus without loading the full skill body. Empty if the skill is not currently present on the team or carries no description. */
+    readonly description: string
+    /** Where this scout came from: `canonical` for a scout PostHog ships and maintains (seeded from `products/signals/skills/`), or `custom` for one a team hand-authored on this project. Use it to badge built-in vs custom scouts instead of a hardcoded name list. Defaults to `custom` if the skill is not currently present on the team. */
+    readonly scout_origin: ScoutOriginEnumApi
     /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. */
     enabled?: boolean
     /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
@@ -170,6 +191,30 @@ export interface SignalScoutConfigApi {
 }
 
 /**
+ * Request body for registering a scout config without waiting for the coordinator tick.
+ *
+ * Upsert keyed on `skill_name`: if the coordinator (or a concurrent caller) already
+ * registered the row, the provided tunables are applied to it instead.
+ */
+export interface SignalScoutConfigCreateApi {
+    /**
+     * The `signals-scout-*` skill to register a config for. The skill must already exist on this project — author it via the skills store first.
+     * @maxLength 200
+     */
+    skill_name: string
+    /** Whether this scout runs on its schedule. Defaults to true. */
+    enabled?: boolean
+    /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true. */
+    emit?: boolean
+    /**
+     * Minutes between runs (10–43200). Defaults to 60 (hourly).
+     * @minimum 10
+     * @maximum 43200
+     */
+    run_interval_minutes?: number
+}
+
+/**
  * Per-(team, skill) scout config: schedule, enablement, and emit posture.
  *
  * One row per `signals-scout-*` skill on the team. The coordinator auto-creates a row
@@ -179,6 +224,10 @@ export interface PatchedSignalScoutConfigApi {
     readonly id?: string
     /** The `signals-scout-*` skill this config controls. Set at creation, not editable. */
     readonly skill_name?: string
+    /** Human-readable summary of what this scout investigates, sourced from the scout skill's `description` metadata. Use it for a quick steer on the scout's focus without loading the full skill body. Empty if the skill is not currently present on the team or carries no description. */
+    readonly description?: string
+    /** Where this scout came from: `canonical` for a scout PostHog ships and maintains (seeded from `products/signals/skills/`), or `custom` for one a team hand-authored on this project. Use it to badge built-in vs custom scouts instead of a hardcoded name list. Defaults to `custom` if the skill is not currently present on the team. */
+    readonly scout_origin?: ScoutOriginEnumApi
     /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. */
     enabled?: boolean
     /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
@@ -784,6 +833,16 @@ export interface SignalScoutRunSummaryApi {
     task_url?: string | null
     /** One-paragraph close-out the scout wrote at end-of-run. Empty string for runs that errored before close-out. The dedupe key for non-emitting runs. */
     summary: string
+    /**
+     * Full `error_message` from the linked TaskRun, surfaced only for failed/cancelled runs (null otherwise, including on success). Use `failure_reason` for a concise scan-friendly summary.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Concise derived reason the run didn't complete cleanly — the first line of `error` (bounded), or a status-derived fallback. Null unless the run terminated failed/cancelled. Read this to see at a glance *why* a run emitted nothing without pulling full stack traces.
+     * @nullable
+     */
+    failure_reason?: string | null
     /** Number of findings this run actually emitted to the inbox. 0 for runs that investigated but surfaced nothing, or ran dry-run / before AI approval. `> 0` means the run produced at least one `Signal`. */
     emitted_count: number
     /** The `finding_id`s behind `emitted_count`, in emit order. Each maps to a `Signal` with `source_id = run:<run_id>:finding:<finding_id>`. Empty for non-emitting runs. */
@@ -828,6 +887,16 @@ export interface SignalScoutRunDetailApi {
     task_url?: string | null
     /** One-paragraph close-out the scout wrote at end-of-run. Empty string for runs that errored before close-out. The dedupe key for non-emitting runs. */
     summary: string
+    /**
+     * Full `error_message` from the linked TaskRun, surfaced only for failed/cancelled runs (null otherwise, including on success). Use `failure_reason` for a concise scan-friendly summary.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Concise derived reason the run didn't complete cleanly — the first line of `error` (bounded), or a status-derived fallback. Null unless the run terminated failed/cancelled. Read this to see at a glance *why* a run emitted nothing without pulling full stack traces.
+     * @nullable
+     */
+    failure_reason?: string | null
     /** Number of findings this run actually emitted to the inbox. 0 for runs that investigated but surfaced nothing, or ran dry-run / before AI approval. `> 0` means the run produced at least one `Signal`. */
     emitted_count: number
     /** The `finding_id`s behind `emitted_count`, in emit order. Each maps to a `Signal` with `source_id = run:<run_id>:finding:<finding_id>`. Empty for non-emitting runs. */
@@ -885,10 +954,44 @@ export interface SignalScoutEmissionApi {
      * * `P3` - P3
      * * `P4` - P4 */
     severity: AutonomyPriorityEnumApi | null
+    /** Slug tags the scout attached to this finding (lowercase kebab-case, e.g. `cost-spike`). Empty list when the run set none. */
+    tags: string[]
     /** Deterministic `run:<run_id>:finding:<finding_id>` — the join key into the underlying signal store. */
     source_id: string
     /** ISO-8601 timestamp the finding was emitted. */
     emitted_at: string
+}
+
+/**
+ * Minimal inbox `SignalReport` projection for the scout reverse lookup — just enough
+ * for the scout UI to render a clickable chip and deep-link into the inbox, which loads
+ * the full report itself.
+ */
+export interface LinkedSignalReportApi {
+    /** UUID of the linked `SignalReport`. */
+    id: string
+    /**
+     * LLM-generated report title, or null if the report hasn't been summarised yet.
+     * @nullable
+     */
+    title: string | null
+    /** Current report status (e.g. `potential`, `ready`, `resolved`). */
+    status: string
+}
+
+/**
+ * One finding the run emitted, paired with the inbox report (if any) its signal grouped into.
+ *
+ * Best-effort reverse of the report -> signals link: `report` is null when the finding hasn't
+ * grouped into a report yet, was de-duplicated away, or its signal was deleted.
+ */
+export interface ScoutEmissionReportLinkApi {
+    /** Stable id the finding was emitted under. */
+    finding_id: string
+    /** Deterministic `run:<run_id>:finding:<finding_id>` join key into the signal store. */
+    source_id: string
+    /** The inbox report this finding linked to, or null if none could be resolved. */
+    report: LinkedSignalReportApi | null
 }
 
 /**
@@ -948,6 +1051,12 @@ export interface EmitFindingRequestApi {
     severity?: AutonomyPriorityEnumApi | null
     /** Optional keys for downstream dedupe (e.g. `error_tracking_issue:<id>`). */
     dedupe_keys?: string[]
+    /**
+     * Optional category tags as lowercase kebab-case slugs (e.g. `cost-spike`, `silent-failure`), max 10. Reuse the vocabulary in your `tags:<domain>:taxonomy` scratchpad entry when a tag fits; coin a new slug when a genuinely new category emerges. Near-miss formats are normalized to slugs; persisted in the signal's `extra.tags` and on the emission row.
+     * @maxItems 10
+     * @items.maxLength 50
+     */
+    tags?: string[]
     /** Optional time window the finding refers to. */
     time_range?: TimeRangeApi | null
     /**
@@ -981,7 +1090,7 @@ export interface EmitFindingResponseApi {
 export interface ScratchpadEntryApi {
     /** Agent-chosen semantic key, unique per team. */
     key: string
-    /** Prose content for prompt injection. */
+    /** Prose content for prompt injection. Blank when the search projected it out (`keys_only=true`); truncated to a preview when `content_max_chars` was set. */
     content: string
     /**
      * ISO-8601 creation timestamp.
@@ -1048,6 +1157,9 @@ export interface ForgetResponseApi {
  * * `pganalyze` - pganalyze
  * * `signals_scout` - Signals scout
  * * `logs` - Logs
+ * * `health_checks` - Health checks
+ * * `endpoints` - Endpoints
+ * * `replay_vision` - Replay Vision
  */
 export type SourceProductEnumApi = (typeof SourceProductEnumApi)[keyof typeof SourceProductEnumApi]
 
@@ -1062,6 +1174,9 @@ export const SourceProductEnumApi = {
     Pganalyze: 'pganalyze',
     SignalsScout: 'signals_scout',
     Logs: 'logs',
+    HealthChecks: 'health_checks',
+    Endpoints: 'endpoints',
+    ReplayVision: 'replay_vision',
 } as const
 
 /**
@@ -1074,6 +1189,10 @@ export const SourceProductEnumApi = {
  * * `issue_spiking` - Issue spiking
  * * `cross_source_issue` - Cross source issue
  * * `alert_state_change` - Alert state change
+ * * `health_issue` - Health issue
+ * * `endpoint_execution_failed` - Endpoint execution failed
+ * * `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded
+ * * `scanner_finding` - Scanner finding
  */
 export type SignalSourceConfigSourceTypeEnumApi =
     (typeof SignalSourceConfigSourceTypeEnumApi)[keyof typeof SignalSourceConfigSourceTypeEnumApi]
@@ -1088,6 +1207,10 @@ export const SignalSourceConfigSourceTypeEnumApi = {
     IssueSpiking: 'issue_spiking',
     CrossSourceIssue: 'cross_source_issue',
     AlertStateChange: 'alert_state_change',
+    HealthIssue: 'health_issue',
+    EndpointExecutionFailed: 'endpoint_execution_failed',
+    EndpointBreakdownLimitExceeded: 'endpoint_breakdown_limit_exceeded',
+    ScannerFinding: 'scanner_finding',
 } as const
 
 export interface SignalSourceConfigApi {
@@ -1177,6 +1300,10 @@ export type SignalsProcessingListParams = {
 
 export type SignalsReportsListParams = {
     /**
+     * Filter reports by whether a shipped implementation pull request exists. 'true' keeps only reports with a PR; 'false' keeps only those without. Pair with limit=1 to count PR reports cheaply.
+     */
+    has_implementation_pr?: boolean
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -1201,7 +1328,7 @@ export type SignalsReportsListParams = {
      */
     source_product?: string
     /**
-     * Comma-separated list of statuses to include. Valid values: potential, candidate, in_progress, pending_input, ready, failed, suppressed. Defaults to all statuses except suppressed.
+     * Comma-separated list of statuses to include. Valid values: potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed. Defaults to all statuses except suppressed.
      */
     status?: string
     /**
@@ -1238,6 +1365,16 @@ export type SignalsScoutRunsListParams = {
      */
     limit?: number
     /**
+     * Exact-match filter on the scout skill (e.g. `signals-scout-errors`). Narrows the run dump to a single scout — the primary scoping path when a specialist dedupes against its own past runs. Omit to span every scout on the team.
+     * @minLength 1
+     */
+    skill_name?: string
+    /**
+     * Exact-match filter on the skill version. Pair with `skill_name` to pin one version; omit for all.
+     * @minimum 1
+     */
+    skill_version?: number
+    /**
      * Case-insensitive substring match on the scout's end-of-run `summary`. Omit to skip the filter.
      * @minLength 1
      */
@@ -1245,6 +1382,15 @@ export type SignalsScoutRunsListParams = {
 }
 
 export type SignalsScoutScratchpadSearchParams = {
+    /**
+     * Truncate each entry's `content` to the first N characters (a preview). Omit for the full body. Ignored when `keys_only=true`.
+     * @minimum 0
+     */
+    content_max_chars?: number
+    /**
+     * When true, blank each entry's `content` and return only keys + metadata. Use to scan which memories exist without pulling their (potentially large) bodies, then re-query the ones worth a full read. Takes precedence over `content_max_chars`.
+     */
+    keys_only?: boolean
     /**
      * Max rows to return (default 20, hard cap 100).
      * @minimum 1

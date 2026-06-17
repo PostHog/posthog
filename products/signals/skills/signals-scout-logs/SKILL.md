@@ -6,15 +6,11 @@ description: >
   trace-correlated bursts via the logs ingestion pipeline. Emits findings only when
   they clear the confidence bar; otherwise writes durable memory and closes out empty.
   Self-contained peer in the signals-scout-* fleet — no dependencies on other skills.
-  Picked uniformly at random by the coordinator alongside `signals-scout-general` and
-  other specialists.
 compatibility: >
-  Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes (mostly read-only, plus
-  signal_scout_internal:write for scratchpad-remember/forget and emit-signal). Assumes the signals-scout MCP family is available (project-profile-get, runs-list,
-  scratchpad-search, scratchpad-remember, scratchpad-forget, emit-signal) plus
-  the logs tool family (logs-count, logs-count-ranges, logs-sparkline-query, query-logs,
-  logs-services-create, logs-attributes-list, logs-attribute-values-list, logs-alerts-list,
-  logs-alerts-events-list).
+  Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes
+  (read-only analytics plus signal_scout_internal:write for scratchpad and emit). Assumes
+  the signals-scout MCP tool family plus the logs tool family listed in the body's MCP
+  tools section.
 metadata:
   owner_team: signals
   scope: logs

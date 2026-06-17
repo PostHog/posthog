@@ -20,10 +20,10 @@ import pyarrow as pa
 import structlog
 from psycopg import sql
 from psycopg.adapt import Loader
+from psycopg.pq import TransactionStatus
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
-from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.helpers import (
     incremental_type_to_initial_value,
     incremental_type_to_operator,
@@ -41,11 +41,21 @@ from posthog.temporal.data_imports.sources.common.mixins import open_ssh_tunnel
 from posthog.temporal.data_imports.sources.common.sql import (
     Column,
     Table,
+    ValidatedRowFilter,
     compute_projected_columns,
     project_arrow_columns,
 )
-from posthog.temporal.data_imports.sources.common.sql.implementation import SQLSourceImplementation, TableStats
+from posthog.temporal.data_imports.sources.common.sql.implementation import (
+    SourceMetadata,
+    SQLSourceImplementation,
+    TableStats,
+)
 from posthog.temporal.data_imports.sources.common.sql.incremental import IncrementalFieldFilter
+from posthog.temporal.data_imports.sources.common.sql.location import normalize_namespace, resolve_source_location
+from posthog.temporal.data_imports.sources.common.sql.predicates_psycopg import (
+    and_join,
+    render_psycopg_row_filter_conditions,
+)
 from posthog.temporal.data_imports.sources.generated_configs import RedshiftSourceConfig
 
 from products.data_warehouse.backend.types import IncrementalFieldType
@@ -62,14 +72,67 @@ __all__ = [
 # cert paths are intentionally pointed at non-existent files so psycopg
 # uses the system default verification without picking up an unintended
 # client cert.
+#
+# TCP keepalives bound a *post-connect* socket stall. `connect_timeout` only
+# covers establishing the connection — once connected, a query blocks in
+# psycopg's `wait_c` for as long as the socket stays open with no response.
+# If the Redshift peer goes away mid-query (cluster pause/resize, network
+# drop), that wait would otherwise hang until the Temporal activity hits its
+# `start_to_close_timeout` and cancels the worker thread, surfacing a
+# misleading `CancelledError` and burning the whole activity budget. With
+# keepalives a dead peer is detected in ~30-60s and raised as a fast,
+# retryable `OperationalError` instead. These only fire when the peer stops
+# responding, so they never interrupt a healthy long-running streaming sync.
 _REDSHIFT_CONNECT_OPTS: dict[str, Any] = {
     "sslmode": "require",
     "connect_timeout": 15,
+    "keepalives": 1,
+    "keepalives_idle": 30,
+    "keepalives_interval": 10,
+    "keepalives_count": 3,
+    "tcp_user_timeout": 60000,  # 60s: force-close if sent data stays unacked
     "sslrootcert": "/tmp/no.txt",
     "sslcert": "/tmp/no.txt",
     "sslkey": "/tmp/no.txt",
     "options": "-c client_encoding=UTF8",
 }
+
+
+# Schemas excluded from blank-namespace (all-schema) discovery. Redshift exposes the Postgres
+# system catalogs plus `pg_automv` (auto-materialized views) and per-session `pg_temp_*` schemas.
+SYSTEM_REDSHIFT_SCHEMAS = ["pg_catalog", "information_schema", "pg_internal", "pg_automv"]
+
+
+def _display_name(schema_name: str, table_name: str, *, qualify: bool) -> str:
+    """Discovery key for a table: dotted `schema.table` in multi-schema mode, bare table otherwise."""
+    return f"{schema_name}.{table_name}" if qualify else table_name
+
+
+def _split_display_name(display: str, selected_schema: Optional[str]) -> tuple[Optional[str], str]:
+    """Inverse of `_display_name` — `(schema, unqualified_table)` for a discovery key.
+
+    With a pinned `selected_schema` the key is the bare table. Otherwise it is the dotted
+    `schema.table` that `get_columns` produced; a multi-schema key without a dot isn't expected
+    (every multi-schema key is qualified at discovery), so the schema is reported as unknown
+    (`None`) rather than guessed from the table name — never invent a schema we'd then query.
+    """
+    if selected_schema is not None:
+        return selected_schema, display
+    schema, dot, table = display.partition(".")
+    if not dot:
+        return None, display
+    return schema, table
+
+
+def _named_placeholders(prefix: str, values: list[str]) -> tuple[str, dict[str, str]]:
+    """Render `%(prefix_i)s` placeholders + params for an `IN (...)` list."""
+    placeholders: list[str] = []
+    params: dict[str, str] = {}
+    for index, value in enumerate(values):
+        key = f"{prefix}_{index}"
+        placeholders.append(f"%({key})s")
+        params[key] = value
+    return ", ".join(placeholders), params
 
 
 def filter_redshift_incremental_fields(
@@ -119,8 +182,12 @@ def _build_query(
     add_sampling: Optional[bool] = False,
     enabled_columns: Optional[list[str]] = None,
     primary_keys: Optional[list[str]] = None,
+    row_filters: Optional[list[ValidatedRowFilter]] = None,
 ) -> sql.Composed:
     select_clause = _redshift_select_clause(enabled_columns, primary_keys, incremental_field)
+    # Row filters apply only to the real data path; sampling/row-count queries stay unfiltered
+    # (an over-estimate is harmless).
+    row_filter_conditions = render_psycopg_row_filter_conditions(row_filters or [])
 
     if not should_use_incremental_field:
         if add_sampling:
@@ -128,15 +195,14 @@ def _build_query(
             query = sql.SQL("SELECT {cols} FROM {table} WHERE random() < 0.01").format(
                 cols=select_clause, table=sql.Identifier(schema, table_name)
             )
-        else:
-            query = sql.SQL("SELECT {cols} FROM {table}").format(
-                cols=select_clause, table=sql.Identifier(schema, table_name)
-            )
-
-        if add_sampling:
             query_with_limit = cast(LiteralString, f"{query.as_string()} LIMIT 1000")
             return sql.SQL(query_with_limit).format()
 
+        query = sql.SQL("SELECT {cols} FROM {table}").format(
+            cols=select_clause, table=sql.Identifier(schema, table_name)
+        )
+        if row_filter_conditions:
+            query = query + sql.SQL(" WHERE ") + and_join(row_filter_conditions)
         return query
 
     if incremental_field is None or incremental_field_type is None:
@@ -159,28 +225,30 @@ def _build_query(
             op=operator,
             last_value=sql.Literal(db_incremental_field_last_value),
         )
-    else:
-        query = sql.SQL("SELECT {cols} FROM {schema}.{table} WHERE {incremental_field} {op} {last_value}").format(
-            cols=select_clause,
-            schema=sql.Identifier(schema),
-            table=sql.Identifier(table_name),
-            incremental_field=sql.Identifier(incremental_field),
-            op=operator,
-            last_value=sql.Literal(db_incremental_field_last_value),
-        )
-
-    if add_sampling:
         query_with_limit = cast(LiteralString, f"{query.as_string()} LIMIT 1000")
         return sql.SQL(query_with_limit).format()
-    else:
-        query_str = cast(LiteralString, f"{query.as_string()} ORDER BY {{incremental_field}} ASC")
-        return sql.SQL(query_str).format(incremental_field=sql.Identifier(incremental_field))
+
+    query = sql.SQL("SELECT {cols} FROM {schema}.{table} WHERE {incremental_field} {op} {last_value}").format(
+        cols=select_clause,
+        schema=sql.Identifier(schema),
+        table=sql.Identifier(table_name),
+        incremental_field=sql.Identifier(incremental_field),
+        op=operator,
+        last_value=sql.Literal(db_incremental_field_last_value),
+    )
+    if row_filter_conditions:
+        query = query + sql.SQL(" AND ") + and_join(row_filter_conditions)
+    query_str = cast(LiteralString, f"{query.as_string()} ORDER BY {{incremental_field}} ASC")
+    return sql.SQL(query_str).format(incremental_field=sql.Identifier(incremental_field))
 
 
 def _explain_query(cursor: psycopg.Cursor, query: sql.Composed, logger: FilteringBoundLogger):
     logger.debug(f"Running EXPLAIN on {query.as_string()}")
 
     try:
+        # Debug-only, best-effort: Redshift can't EXPLAIN queries against leader-node-only system
+        # views such as `svv_table_info` (they fail with `UndefinedColumn: column "t" does not
+        # exist in t`), so swallow failures rather than reporting an expected, non-actionable error.
         query_with_explain = sql.SQL("EXPLAIN {}").format(query)
         cursor.execute(query_with_explain)
         rows = cursor.fetchall()
@@ -190,8 +258,16 @@ def _explain_query(cursor: psycopg.Cursor, query: sql.Composed, logger: Filterin
                 explain_result += f"\n{col}"
         logger.debug(f"EXPLAIN result: {explain_result}")
     except Exception as e:
-        capture_exception(e)
         logger.debug(f"EXPLAIN raised an exception: {e}")
+        # A failed EXPLAIN aborts the surrounding transaction, and Redshift has no savepoints to
+        # scope it. Roll back the aborted transaction so the caller's real query — which runs on
+        # the same connection right after this probe — isn't killed by `InFailedSqlTransaction`.
+        # Every caller runs read-only discovery queries, so there is no pending work to lose.
+        try:
+            if cursor.connection.info.transaction_status == TransactionStatus.INERROR:
+                cursor.connection.rollback()
+        except Exception:
+            pass
 
 
 class RedshiftColumn(Column):
@@ -255,7 +331,7 @@ class RedshiftColumn(Column):
         return pa.field(self.name, arrow_type, nullable=self.nullable)
 
 
-class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psycopg.Connection, Any]):  # noqa: type-var
+class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psycopg.Connection, Any]):
     # `psycopg.Cursor` does not satisfy `_CursorLike` (its `execute`
     # signature uses `params` instead of `args`, and accepts `Query`
     # rather than `str`), so the cursor type is widened to `Any` here.
@@ -301,28 +377,71 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         config: RedshiftSourceConfig,
         names: list[str] | None,
     ) -> dict[str, list[tuple[str, str, bool]]]:
+        """List columns, keyed by the discovery display name.
+
+        Pinned `schema` keeps the single-namespace fast path (bare table keys). A blank `schema`
+        enumerates every non-system namespace and returns qualified `schema.table` keys so
+        cross-schema duplicate table names stay distinct.
+        """
+        selected_schema = normalize_namespace(config.schema)
+        qualify = selected_schema is None
+
         with conn.cursor() as cursor:
-            params: dict = {"schema": config.schema}
-            names_filter = ""
+            params: dict = {}
+            where: list[str] = []
+            if selected_schema is not None:
+                params["schema"] = selected_schema
+                where.append("table_schema = %(schema)s")
+            else:
+                placeholders, system_params = _named_placeholders("system_schema", SYSTEM_REDSHIFT_SCHEMAS)
+                params.update(system_params)
+                where.append(f"table_schema NOT IN ({placeholders})")
+                where.append("table_schema NOT LIKE 'pg_temp_%%'")
             if names:
-                params["names"] = names
-                names_filter = "AND table_name = ANY(%(names)s)"
+                name_clause, name_params = self._column_name_predicate(names, selected_schema)
+                params.update(name_params)
+                where.append(name_clause)
 
             cursor.execute(
                 f"""
-                SELECT table_name, column_name, data_type, is_nullable
+                SELECT table_schema, table_name, column_name, data_type, is_nullable
                 FROM information_schema.columns
-                WHERE table_schema = %(schema)s {names_filter}
-                ORDER BY table_name ASC
+                WHERE {" AND ".join(where)}
+                ORDER BY table_schema ASC, table_name ASC
                 """,
                 params,
             )
             result = cursor.fetchall()
 
         schema_list: dict[str, list[tuple[str, str, bool]]] = collections.defaultdict(list)
-        for row in result:
-            schema_list[row[0]].append((row[1], row[2], row[3] == "YES"))
+        for table_schema, table_name, column_name, data_type, is_nullable in result:
+            display = _display_name(table_schema, table_name, qualify=qualify)
+            schema_list[display].append((column_name, data_type, is_nullable == "YES"))
         return dict(schema_list)
+
+    @staticmethod
+    def _column_name_predicate(names: list[str], selected_schema: Optional[str]) -> tuple[str, dict[str, str]]:
+        """Build a WHERE fragment restricting `information_schema.columns` to the requested tables.
+
+        Pinned schema → match by bare `table_name`. Blank schema → match each qualified
+        `schema.table` on both parts (bare names fall back to any-schema for legacy self-heal).
+        """
+        clauses: list[str] = []
+        params: dict[str, str] = {}
+        for index, name in enumerate(names):
+            if selected_schema is not None:
+                params[f"name_{index}"] = name
+                clauses.append(f"table_name = %(name_{index})s")
+                continue
+            schema, _, table = name.partition(".")
+            if table:
+                params[f"sch_{index}"] = schema
+                params[f"tbl_{index}"] = table
+                clauses.append(f"(table_schema = %(sch_{index})s AND table_name = %(tbl_{index})s)")
+            else:
+                params[f"name_{index}"] = name
+                clauses.append(f"table_name = %(name_{index})s")
+        return "(" + " OR ".join(clauses) + ")", params
 
     def get_primary_keys(
         self,
@@ -340,20 +459,23 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         if not tables:
             return result
 
+        selected_schema = normalize_namespace(config.schema)
+        display_by_pair, schemas, bare_tables = self._index_display_names(tables, selected_schema)
+
         try:
             with conn.cursor() as cursor:
                 cursor.execute(
                     sql.SQL("""
-                        SELECT tc.table_name, kcu.column_name
+                        SELECT tc.table_schema, tc.table_name, kcu.column_name
                         FROM information_schema.table_constraints tc
                         JOIN information_schema.key_column_usage kcu
                         ON tc.constraint_name = kcu.constraint_name
                         AND tc.table_schema = kcu.table_schema
                         AND tc.table_name = kcu.table_name
-                        WHERE tc.table_schema = {schema}
+                        WHERE tc.table_schema = ANY({schemas})
                         AND tc.table_name = ANY({names})
                         AND tc.constraint_type = 'PRIMARY KEY'
-                    """).format(schema=sql.Literal(config.schema), names=sql.Literal(tables))
+                    """).format(schemas=sql.Literal(schemas), names=sql.Literal(bare_tables))
                 )
                 rows = cursor.fetchall()
         except Exception as e:
@@ -361,11 +483,37 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
             return result
 
         pks: dict[str, list[str]] = collections.defaultdict(list)
-        for table_name, column_name in rows:
-            pks[table_name].append(column_name)
-        for table_name, pk_cols in pks.items():
-            result[table_name] = pk_cols
+        for table_schema, table_name, column_name in rows:
+            display = display_by_pair.get((table_schema, table_name))
+            if display is not None:
+                pks[display].append(column_name)
+        for display, pk_cols in pks.items():
+            result[display] = pk_cols
         return result
+
+    @staticmethod
+    def _index_display_names(
+        tables: list[str], selected_schema: Optional[str]
+    ) -> tuple[dict[tuple[str, str], str], list[str], list[str]]:
+        """Map `(schema, table)` → display key, plus the distinct schemas and bare table names.
+
+        Lets a single batch query (`schema = ANY(...) AND table = ANY(...)`) cover both the
+        single-namespace and multi-namespace cases; results re-key to the display name by pair.
+        A display whose schema is unknown (bare key in multi-schema mode) is dropped from the
+        queryable schema list — it can't be matched to a result row, so it degrades to no metadata
+        rather than querying a schema that doesn't exist.
+        """
+        display_by_pair: dict[tuple[str, str], str] = {}
+        schemas: set[str] = set()
+        bare_tables: set[str] = set()
+        for display in tables:
+            schema, table = _split_display_name(display, selected_schema)
+            bare_tables.add(table)
+            if schema is None:
+                continue
+            display_by_pair[(schema, table)] = display
+            schemas.add(schema)
+        return display_by_pair, sorted(schemas), sorted(bare_tables)
 
     def get_row_counts(
         self,
@@ -384,6 +532,9 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         if not tables:
             return {}
 
+        selected_schema = normalize_namespace(config.schema)
+        display_by_pair, schemas, bare_tables = self._index_display_names(tables, selected_schema)
+
         result: dict[str, int | None] = {}
         try:
             with conn.cursor() as cursor:
@@ -391,36 +542,47 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                     sql.SQL("SET statement_timeout = {timeout}").format(timeout=sql.Literal(1000 * 30))  # 30 secs
                 )
 
-                params: dict = {"schema": config.schema, "names": tables}
+                params: dict = {"schemas": schemas, "names": bare_tables}
                 cursor.execute(
                     """
-                    SELECT "table" AS table_name, tbl_rows AS row_count
+                    SELECT schema, "table" AS table_name, tbl_rows AS row_count
                     FROM svv_table_info
-                    WHERE schema = %(schema)s AND "table" = ANY(%(names)s)
+                    WHERE schema = ANY(%(schemas)s) AND "table" = ANY(%(names)s)
                     """,
                     params,
                 )
-                for table_name, row_count in cursor.fetchall():
-                    result[table_name] = int(row_count)
+                for schema_name, table_name, row_count in cursor.fetchall():
+                    display = display_by_pair.get((schema_name, table_name))
+                    if display is not None:
+                        result[display] = int(row_count)
 
                 cursor.execute(
-                    "SELECT viewname FROM pg_views WHERE schemaname = %(schema)s AND viewname = ANY(%(names)s)",
+                    "SELECT schemaname, viewname FROM pg_views WHERE schemaname = ANY(%(schemas)s) AND viewname = ANY(%(names)s)",
                     params,
                 )
-                views = cursor.fetchall()
+                view_pairs = [
+                    (schema_name, view_name)
+                    for schema_name, view_name in cursor.fetchall()
+                    if (schema_name, view_name) in display_by_pair
+                ]
 
-                if views:
+                if view_pairs:
                     view_counts = [
-                        sql.SQL("SELECT {view_name} AS table_name, COUNT(*) AS row_count FROM {schema}.{view}").format(
-                            view_name=sql.Literal(view[0]),
-                            schema=sql.Identifier(config.schema),
-                            view=sql.Identifier(view[0]),
+                        sql.SQL(
+                            "SELECT {schema_lit} AS schema_name, {view_lit} AS table_name, COUNT(*) AS row_count FROM {schema}.{view}"
+                        ).format(
+                            schema_lit=sql.Literal(schema_name),
+                            view_lit=sql.Literal(view_name),
+                            schema=sql.Identifier(schema_name),
+                            view=sql.Identifier(view_name),
                         )
-                        for view in views
+                        for schema_name, view_name in view_pairs
                     ]
                     cursor.execute(sql.SQL(" UNION ALL ").join(view_counts))
-                    for row in cursor.fetchall():
-                        result[row[0]] = int(row[1])
+                    for schema_name, table_name, row_count in cursor.fetchall():
+                        display = display_by_pair.get((schema_name, table_name))
+                        if display is not None:
+                            result[display] = int(row_count)
         except Exception:
             return {}
 
@@ -455,6 +617,8 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         if not tables:
             return {}
 
+        selected_schema = normalize_namespace(config.schema)
+        display_by_pair, schemas, bare_tables = self._index_display_names(tables, selected_schema)
         result: dict[str, set[str]] = {table: set() for table in tables}
 
         try:
@@ -462,35 +626,64 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                 # pg_table_def only returns rows for schemas in search_path; without
                 # this SET, schema=anything-other-than-public-or-the-username silently
                 # returns zero rows and the helper marks every sortkey column as
-                # unindexed. Documented behavior: docs.aws.amazon.com/redshift/latest/dg/r_PG_TABLE_DEF.html
-                cursor.execute(sql.SQL("SET search_path TO {schema}").format(schema=sql.Identifier(config.schema)))
+                # unindexed. Multi-schema discovery puts every discovered schema on the
+                # path. Documented behavior: docs.aws.amazon.com/redshift/latest/dg/r_PG_TABLE_DEF.html
+                cursor.execute(
+                    sql.SQL("SET search_path TO {schemas}").format(
+                        schemas=sql.SQL(", ").join(sql.Identifier(schema) for schema in schemas)
+                    )
+                )
                 cursor.execute(
                     sql.SQL("""
-                        SELECT tablename, "column", sortkey
+                        SELECT schemaname, tablename, "column", sortkey
                         FROM pg_table_def
-                        WHERE schemaname = {schema}
+                        WHERE schemaname = ANY({schemas})
                           AND tablename = ANY({names})
                           AND sortkey != 0
-                    """).format(schema=sql.Literal(config.schema), names=sql.Literal(tables))
+                    """).format(schemas=sql.Literal(schemas), names=sql.Literal(bare_tables))
                 )
-                # Group rows by table so we can classify compound vs interleaved
+                # Group rows by display name so we can classify compound vs interleaved
                 # before deciding which columns count as indexed. Negative sortkey
                 # values are the marker Redshift uses for interleaved sortkeys.
-                rows_by_table: dict[str, list[tuple[str, int]]] = {}
-                for table_name, column_name, sortkey_value in cursor.fetchall():
-                    rows_by_table.setdefault(table_name, []).append((column_name, sortkey_value))
+                rows_by_display: dict[str, list[tuple[str, int]]] = {}
+                for schema_name, table_name, column_name, sortkey_value in cursor.fetchall():
+                    display = display_by_pair.get((schema_name, table_name))
+                    if display is None:
+                        continue
+                    rows_by_display.setdefault(display, []).append((column_name, sortkey_value))
 
-                for table_name, sortkey_rows in rows_by_table.items():
+                for display, sortkey_rows in rows_by_display.items():
                     is_interleaved = any(sk < 0 for _, sk in sortkey_rows)
                     if is_interleaved:
-                        result[table_name] = {col for col, _ in sortkey_rows}
+                        result[display] = {col for col, _ in sortkey_rows}
                     else:
-                        result[table_name] = {col for col, sk in sortkey_rows if sk == 1}
+                        result[display] = {col for col, sk in sortkey_rows if sk == 1}
         except Exception as e:
             structlog.get_logger().warning("Failed to detect sortkeys for Redshift schemas", exc_info=e)
             return None
 
         return result
+
+    def get_source_metadata(
+        self,
+        conn: psycopg.Connection,
+        config: RedshiftSourceConfig,
+        tables: list[str],
+    ) -> SourceMetadata:
+        """Stamp per-row namespace onto each schema so sync can route without re-querying.
+
+        Redshift namespaces are connection-scoped (one database), so there is no catalog.
+        Persisted into `schema_metadata` by `reconcile_schema_metadata` and read back by
+        `resolve_source_location` during `build_pipeline`.
+        """
+        selected_schema = normalize_namespace(config.schema)
+        metadata = SourceMetadata()
+        for display in tables:
+            schema, table = _split_display_name(display, selected_schema)
+            metadata.catalog_by_table[display] = None
+            metadata.schema_by_table[display] = schema
+            metadata.table_name_by_table[display] = table
+        return metadata
 
     def get_incremental_filter(self) -> IncrementalFieldFilter:
         return filter_redshift_incremental_fields
@@ -572,6 +765,15 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         except psycopg.errors.QueryCanceled:
             raise
         except Exception as e:
+            # A Redshift system-requested query abort (error code 1020, "system requested abort")
+            # is the cluster's WLM/QMR cancelling the query — the same transient, non-actionable
+            # class as `QueryCanceled`, which psycopg surfaces here as `InternalError_` rather than
+            # `QueryCanceled`. The duplicate-PK check is best-effort (the caller defaults to no
+            # duplicates), so skip gracefully instead of reporting an expected, non-actionable error
+            # to error tracking. Mirrors the graceful-skip probes elsewhere in this driver.
+            if "system requested abort" in str(e):
+                logger.debug(f"has_duplicate_primary_keys: query aborted by Redshift, skipping check: {e}")
+                return False
             capture_exception(e)
             return False
 
@@ -693,6 +895,13 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
             result = cursor.fetchone()
         except psycopg.errors.QueryCanceled:
             raise
+        except psycopg.errors.InsufficientPrivilege as e:
+            # Some Redshift roles aren't granted access to the `svv_table_info` system view. That's
+            # a customer permission-config issue, not an actionable bug — table stats are optional
+            # (we fall back to no partitioning), so skip gracefully without reporting the expected,
+            # non-actionable error to error tracking. Mirrors `_explain_query`/`get_row_counts`.
+            logger.debug(f"fetch_table_stats: no access to svv_table_info, returning None: {e}")
+            return None
         except Exception as e:
             capture_exception(e)
             logger.debug(f"fetch_table_stats: returning None due to error: {e}")
@@ -724,6 +933,10 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         already bound — no separate `inner_query_args` is interpolated
         here, mirroring how the rest of the Redshift driver builds
         queries.
+
+        Best-effort only: Redshift rejects the `pg_column_size(t)` whole-row reference, so this
+        currently returns None on every table and the caller falls back to the default chunk size.
+        Failures are swallowed rather than reported — see the except block below.
         """
         try:
             query = sql.SQL("""
@@ -745,8 +958,13 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         except psycopg.errors.QueryCanceled:
             raise
         except Exception as e:
+            # Best-effort sampling: any failure falls back to the default chunk size, so it must not
+            # be reported to error tracking. Redshift has no portable whole-row size — `pg_column_size(t)`
+            # (like Postgres' `octet_length(t::text)`) relies on a composite whole-row reference that
+            # Redshift rejects with `UndefinedColumn: column "t" does not exist in t`, so this fails on
+            # every table. Mirrors the sibling Postgres `_get_table_chunk_size` and `_explain_query` here,
+            # both of which treat this as expected, non-actionable noise.
             logger.debug(f"fetch_average_row_size: Error: {e}", exc_info=e)
-            capture_exception(e)
             return None
 
     # ------------------------------------------------------------------
@@ -765,19 +983,29 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         # (`RedshiftSource.source_for_pipeline`) — keeping the ORM
         # lookup at the source layer lets the driver stay free of
         # Django model imports.
-        table_name = inputs.schema_name
+        # Route this row to its own namespace: prefer the per-row `schema_metadata`, fall back to
+        # the connection `schema`, then `public`. `response_name` keeps a migrated row on its
+        # legacy Delta subdir (via `dwh_storage_key`) so qualifying the name never orphans data.
+        location = resolve_source_location(inputs, config_namespace=config.schema, default="public")
+        table_name = location.table_name
         if not table_name:
             raise ValueError("Table name is missing")
 
-        schema = config.schema
+        schema = location.schema or "public"
         logger = inputs.logger
         should_use_incremental_field = inputs.should_use_incremental_field
         incremental_field = inputs.incremental_field
         incremental_field_type = inputs.incremental_field_type
         db_incremental_field_last_value = inputs.db_incremental_field_last_value
         enabled_columns = inputs.enabled_columns
+        row_filters = inputs.row_filters
 
         with self.connect(config) as connection:
+            # Autocommit so each best-effort discovery probe runs in its own transaction. A probe
+            # that fails — a permission error, an EXPLAIN the cluster rejects, a cancelled COUNT(*) —
+            # otherwise leaves the shared transaction aborted (INERROR), and every probe after it
+            # raises `InFailedSqlTransaction` until a rollback. Mirrors the postgres source.
+            connection.autocommit = True
             with connection.cursor() as cursor:
                 logger.debug("Getting table types...")
                 full_table = self.get_table_metadata(cursor, schema, table_name, logger)
@@ -823,6 +1051,7 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                         db_incremental_field_last_value,
                         enabled_columns=enabled_columns,
                         primary_keys=primary_keys,
+                        row_filters=row_filters,
                     )
                     logger.debug("Getting table chunk size...")
                     if chunk_size_override is not None:
@@ -877,6 +1106,7 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                         db_incremental_field_last_value,
                         enabled_columns=enabled_columns,
                         primary_keys=primary_keys,
+                        row_filters=row_filters,
                     )
                     logger.debug(f"Redshift query: {query.as_string()}")
 
@@ -891,10 +1121,8 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
 
                         yield table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
 
-        name = NamingConvention.normalize_identifier(table_name)
-
         return SourceResponse(
-            name=name,
+            name=location.response_name,
             items=get_rows,
             primary_keys=primary_keys,
             partition_count=partition_settings.partition_count if partition_settings else None,

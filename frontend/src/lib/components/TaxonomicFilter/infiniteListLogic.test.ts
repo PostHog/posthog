@@ -32,10 +32,11 @@ describe('infiniteListLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/projects/:team/event_definitions': (req) => {
-                    const search = req.url.searchParams.get('search')
-                    const limit = Number(req.url.searchParams.get('limit'))
-                    const offset = Number(req.url.searchParams.get('offset'))
+                '/api/projects/:team/event_definitions': ({ request }) => {
+                    const url = new URL(request.url)
+                    const search = url.searchParams.get('search')
+                    const limit = Number(url.searchParams.get('limit'))
+                    const offset = Number(url.searchParams.get('offset'))
                     const results = search
                         ? mockEventDefinitions.filter((e) => e.name.includes(search))
                         : mockEventDefinitions
@@ -49,13 +50,14 @@ describe('infiniteListLogic', () => {
                         },
                     ]
                 },
-                '/api/projects/:team/property_definitions': (req) => {
-                    const search = req.url.searchParams.get('search')
+                '/api/projects/:team/property_definitions': ({ request }) => {
+                    const url = new URL(request.url)
+                    const search = url.searchParams.get('search')
                     let results = search
                         ? mockEventPropertyDefinitions.filter((e) => e.name.includes(search))
                         : mockEventPropertyDefinitions
-                    if (req.url.searchParams.has('filter_by_event_names')) {
-                        const isEventProperty = req.url.searchParams.get('filter_by_event_names') === 'true'
+                    if (url.searchParams.has('filter_by_event_names')) {
+                        const isEventProperty = url.searchParams.get('filter_by_event_names') === 'true'
                         results = results.filter(
                             (e: PropertyDefinition) => e.is_seen_on_filtered_events === isEventProperty
                         )
@@ -966,10 +968,31 @@ describe('infiniteListLogic', () => {
             const filtered = listLogic.values.contextFilteredRecentItems
             const cohortValues = filtered
                 .filter(onlyWithRecentContext)
-                .filter((i) => i._recentContext.sourceGroupType === TaxonomicFilterGroupType.Cohorts)
+                .filter(
+                    (i) =>
+                        i._recentContext.sourceGroupType === TaxonomicFilterGroupType.Cohorts &&
+                        i._recentContext.propertyFilter
+                )
                 .map((i) => i._recentContext.propertyFilter?.value)
             expect(cohortValues).toEqual([1])
             expect(filtered.some((i) => 'name' in i && i.name === '$browser')).toBe(true)
+        })
+
+        it('surfaces a bare key alongside each complete recent in value mode', () => {
+            seedRecents([recentEventProperty])
+
+            const listLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'recents-bare-key-test',
+                listGroupType: TaxonomicFilterGroupType.RecentFilters,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties, TaxonomicFilterGroupType.RecentFilters],
+                showNumericalPropsOnly: false,
+            })
+            listLogic.mount()
+
+            const items = listLogic.values.contextFilteredRecentItems.filter(onlyWithRecentContext)
+            expect(items).toHaveLength(2)
+            expect(items[0]._recentContext.propertyFilter).toBeUndefined()
+            expect(items[1]._recentContext.propertyFilter).not.toBeUndefined()
         })
 
         it('keeps cohort recents whose operator is undefined even when excludedOperators is set', () => {

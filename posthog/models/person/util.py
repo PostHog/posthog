@@ -56,6 +56,7 @@ PERSONHOG_BATCH_SIZE: int = settings.PERSONHOG_BATCH_SIZE
 
 
 if TYPE_CHECKING:
+    from posthog.personhog_client.client import PersonHogClient
     from posthog.personhog_client.proto.generated.personhog.types.v1 import person_pb2
 
 
@@ -450,20 +451,68 @@ def get_persons_mapped_by_distinct_id(
     )
 
 
-def _fetch_persons_by_uuids_via_personhog(team_id: int, uuids: list[str]) -> list[Person]:
+def get_distinct_ids_for_persons(
+    team_id: int,
+    person_ids: list[int],
+    *,
+    limit_per_person: int | None = None,
+) -> dict[int, list[str]]:
+    """Map each person_id to its distinct_ids via personhog, falling back to ORM.
+
+    With ``limit_per_person`` set, at most that many distinct_ids are returned per
+    person — bounding the fetch for merge-heavy persons whose full set can be huge.
+    """
+    if not person_ids:
+        return {}
+
+    def orm_fn() -> dict[int, list[str]]:
+        result: dict[int, list[str]] = {}
+        for person_id, distinct_id in (
+            PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
+            .filter(team_id=team_id, person_id__in=person_ids)
+            .values_list("person_id", "distinct_id")
+        ):
+            ids = result.setdefault(person_id, [])
+            if limit_per_person is None or len(ids) < limit_per_person:
+                ids.append(distinct_id)
+        return result
+
+    return _personhog_routed(
+        "get_distinct_ids_for_persons",
+        lambda: _batched_get_distinct_ids_for_persons(team_id, person_ids, limit_per_person=limit_per_person),
+        orm_fn,
+        team_id=team_id,
+    )
+
+
+def _fetch_persons_by_uuids_via_personhog(
+    team_id: int, uuids: list[str], *, distinct_id_limit: int | None = None
+) -> list[Person]:
     valid_persons = _batched_get_persons_by_uuids(team_id, uuids, "get_persons_by_uuids")
 
     person_ids = [p.id for p in valid_persons]
     if not person_ids:
         return []
 
-    distinct_ids_by_person = _batched_get_distinct_ids_for_persons(team_id, person_ids)
+    # Callers needing only id/uuid (e.g. cohort membership) pass distinct_id_limit=0 to skip
+    # the per-person distinct-id fetch, which is otherwise unbounded and pulls thousands of
+    # rows for merge-heavy persons.
+    if distinct_id_limit == 0:
+        return [proto_person_to_model(p, distinct_ids=[]) for p in valid_persons]
+
+    distinct_ids_by_person = _batched_get_distinct_ids_for_persons(
+        team_id, person_ids, limit_per_person=distinct_id_limit
+    )
 
     return [proto_person_to_model(p, distinct_ids=distinct_ids_by_person.get(p.id, [])) for p in valid_persons]
 
 
-def get_persons_by_uuids(team_id: int, uuids: list[str]) -> QuerySet | list[Person]:
-    personhog_fn: Callable[[], QuerySet | list[Person]] = lambda: _fetch_persons_by_uuids_via_personhog(team_id, uuids)
+def get_persons_by_uuids(
+    team_id: int, uuids: list[str], *, distinct_id_limit: int | None = None
+) -> QuerySet | list[Person]:
+    personhog_fn: Callable[[], QuerySet | list[Person]] = lambda: _fetch_persons_by_uuids_via_personhog(
+        team_id, uuids, distinct_id_limit=distinct_id_limit
+    )
     orm_fn: Callable[[], QuerySet | list[Person]] = lambda: Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(
         team_id=team_id, uuid__in=uuids
     )
@@ -475,7 +524,22 @@ def get_persons_by_uuids(team_id: int, uuids: list[str]) -> QuerySet | list[Pers
     )
 
 
-def _fetch_person_by_id_via_personhog(team_id: int, person_id: int) -> Optional[Person]:
+def _distinct_ids_for_person(client: PersonHogClient, team_id: int, person_id: int, limit: int | None) -> list[str]:
+    # Callers needing only person fields (not distinct_ids) pass distinct_id_limit=0 to skip the
+    # per-person distinct-id fetch, which is otherwise unbounded and pulls thousands of rows for
+    # merge-heavy persons. A positive limit bounds the fetch; None leaves it unbounded.
+    if limit == 0:
+        return []
+    request = GetDistinctIdsForPersonRequest(team_id=team_id, person_id=person_id)
+    if limit is not None:
+        request.limit = limit
+    resp = client.get_distinct_ids_for_person(request)
+    return [d.distinct_id for d in resp.distinct_ids]
+
+
+def _fetch_person_by_id_via_personhog(
+    team_id: int, person_id: int, *, distinct_id_limit: int | None = None
+) -> Optional[Person]:
     from posthog.personhog_client.client import get_personhog_client
 
     client = get_personhog_client()
@@ -492,23 +556,22 @@ def _fetch_person_by_id_via_personhog(team_id: int, person_id: int) -> Optional[
         logger.warning("personhog_team_mismatch", operation="get_person_by_id", team_id=team_id)
         return None
 
-    did_resp = client.get_distinct_ids_for_person(
-        GetDistinctIdsForPersonRequest(team_id=team_id, person_id=resp.person.id)
-    )
-
-    return proto_person_to_model(resp.person, distinct_ids=[d.distinct_id for d in did_resp.distinct_ids])
+    distinct_ids = _distinct_ids_for_person(client, team_id, resp.person.id, distinct_id_limit)
+    return proto_person_to_model(resp.person, distinct_ids=distinct_ids)
 
 
-def get_person_by_id(team_id: int, person_id: int) -> Optional[Person]:
+def get_person_by_id(team_id: int, person_id: int, *, distinct_id_limit: int | None = None) -> Optional[Person]:
     return _personhog_routed(
         "get_person_by_id",
-        lambda: _fetch_person_by_id_via_personhog(team_id, person_id),
+        lambda: _fetch_person_by_id_via_personhog(team_id, person_id, distinct_id_limit=distinct_id_limit),
         lambda: Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(team_id=team_id, pk=person_id).first(),
         team_id=team_id,
     )
 
 
-def _fetch_person_by_uuid_via_personhog(team_id: int, uuid: str) -> Optional[Person]:
+def _fetch_person_by_uuid_via_personhog(
+    team_id: int, uuid: str, *, distinct_id_limit: int | None = None
+) -> Optional[Person]:
     from posthog.personhog_client.client import get_personhog_client
 
     client = get_personhog_client()
@@ -525,23 +588,22 @@ def _fetch_person_by_uuid_via_personhog(team_id: int, uuid: str) -> Optional[Per
         logger.warning("personhog_team_mismatch", operation="get_person_by_uuid", team_id=team_id)
         return None
 
-    did_resp = client.get_distinct_ids_for_person(
-        GetDistinctIdsForPersonRequest(team_id=team_id, person_id=resp.person.id)
-    )
-
-    return proto_person_to_model(resp.person, distinct_ids=[d.distinct_id for d in did_resp.distinct_ids])
+    distinct_ids = _distinct_ids_for_person(client, team_id, resp.person.id, distinct_id_limit)
+    return proto_person_to_model(resp.person, distinct_ids=distinct_ids)
 
 
-def get_person_by_uuid(team_id: int, uuid: str) -> Optional[Person]:
+def get_person_by_uuid(team_id: int, uuid: str, *, distinct_id_limit: int | None = None) -> Optional[Person]:
     return _personhog_routed(
         "get_person_by_uuid",
-        lambda: _fetch_person_by_uuid_via_personhog(team_id, uuid),
+        lambda: _fetch_person_by_uuid_via_personhog(team_id, uuid, distinct_id_limit=distinct_id_limit),
         lambda: Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(team_id=team_id, uuid=uuid).first(),
         team_id=team_id,
     )
 
 
-def _fetch_person_by_distinct_id_via_personhog(team_id: int, distinct_id: str) -> Optional[Person]:
+def _fetch_person_by_distinct_id_via_personhog(
+    team_id: int, distinct_id: str, *, distinct_id_limit: int | None = None
+) -> Optional[Person]:
     from posthog.personhog_client.client import get_personhog_client
 
     client = get_personhog_client()
@@ -558,32 +620,33 @@ def _fetch_person_by_distinct_id_via_personhog(team_id: int, distinct_id: str) -
         logger.warning("personhog_team_mismatch", operation="get_person_by_distinct_id", team_id=team_id)
         return None
 
-    did_resp = client.get_distinct_ids_for_person(
-        GetDistinctIdsForPersonRequest(team_id=team_id, person_id=resp.person.id)
-    )
-
-    return proto_person_to_model(resp.person, distinct_ids=[d.distinct_id for d in did_resp.distinct_ids])
+    distinct_ids = _distinct_ids_for_person(client, team_id, resp.person.id, distinct_id_limit)
+    return proto_person_to_model(resp.person, distinct_ids=distinct_ids)
 
 
-def get_person_by_distinct_id(team_id: int, distinct_id: str) -> Optional[Person]:
+def get_person_by_distinct_id(
+    team_id: int, distinct_id: str, *, distinct_id_limit: int | None = None
+) -> Optional[Person]:
     return _personhog_routed(
         "get_person_by_distinct_id",
-        lambda: _fetch_person_by_distinct_id_via_personhog(team_id, distinct_id),
-        lambda: Person.objects.db_manager(READ_DB_FOR_PERSONS)
-        .filter(team_id=team_id, persondistinctid__distinct_id=distinct_id)
-        .first(),
+        lambda: _fetch_person_by_distinct_id_via_personhog(team_id, distinct_id, distinct_id_limit=distinct_id_limit),
+        lambda: (
+            Person.objects.db_manager(READ_DB_FOR_PERSONS)
+            .filter(team_id=team_id, persondistinctid__distinct_id=distinct_id)
+            .first()
+        ),
         team_id=team_id,
     )
 
 
-def get_person_by_pk_or_uuid(team_id: int, key: str) -> Optional[Person]:
+def get_person_by_pk_or_uuid(team_id: int, key: str, *, distinct_id_limit: int | None = None) -> Optional[Person]:
     """Look up a person by UUID or integer PK, routing through personhog when enabled."""
     try:
         UUID(key)
-        return get_person_by_uuid(team_id, key)
+        return get_person_by_uuid(team_id, key, distinct_id_limit=distinct_id_limit)
     except ValueError:
         try:
-            return get_person_by_id(team_id, int(key))
+            return get_person_by_id(team_id, int(key), distinct_id_limit=distinct_id_limit)
         except ValueError:
             return None
 

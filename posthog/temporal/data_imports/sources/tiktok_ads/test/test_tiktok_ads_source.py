@@ -9,6 +9,8 @@ from unittest.mock import MagicMock, Mock, patch
 import structlog
 from parameterized import parameterized
 
+from posthog.schema import ReleaseStatus
+
 from posthog.models.integration import Integration
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -63,6 +65,30 @@ class TestTikTokAdsSource:
             f"TikTok non-retryable error '{error_message}' does not match any non-retryable pattern"
         )
 
+    @parameterized.expand(
+        [
+            ("deleted_integration", "ValueError: Integration not found: 173586"),
+            ("missing_integration", "Integration not found: 456"),
+        ]
+    )
+    def test_deleted_integration_is_non_retryable(self, name, observed_error):
+        """A deleted/disconnected integration (get_oauth_integration raising
+        "Integration not found: <id>") must be recognised as non-retryable —
+        retrying can't recreate the row, the customer has to reconnect."""
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert any(pattern in observed_error for pattern in non_retryable_errors)
+
+    @parameterized.expand(
+        [
+            ("server_error", "500 Server Error for url: https://business-api.tiktok.com/open_api/v1.3/campaign/get/"),
+            ("connection_reset", "ConnectionError: Connection reset by peer"),
+        ]
+    )
+    def test_transient_errors_stay_retryable(self, name, observed_error):
+        """Transient infrastructure failures must NOT be classified as non-retryable."""
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert not any(pattern in observed_error for pattern in non_retryable_errors)
+
     def test_retryable_paginator_error_does_not_match_source_pattern(self):
         """Retryable rate-limit/server errors must NOT be classified as non-retryable."""
         paginator = TikTokAdsPaginator()
@@ -84,7 +110,7 @@ class TestTikTokAdsSource:
 
         assert config.name.value == "TikTokAds"
         assert config.label == "TikTok Ads"
-        assert config.releaseStatus == "beta"
+        assert config.releaseStatus == ReleaseStatus.GA
         assert len(config.fields) == 2
 
         advertiser_field = config.fields[0]

@@ -16,6 +16,7 @@ from posthog.api.embedding_worker import emit_embedding_request
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models import Team
 from posthog.temporal.common.scoped import scoped_temporal
+from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.temporal.clickhouse import execute_hogql_query_with_retry
 from products.signals.backend.temporal.types import SignalCandidate, SignalData, SignalTypeExample
@@ -53,7 +54,33 @@ def _deduped_signals_subquery(*, include_embedding: bool = False, extra_where: s
     selected_columns.append("argMax(timestamp, inserted_at) as timestamp")
     selected_columns_sql = ",\n            ".join(selected_columns)
 
-    extra_where_clause = f"\n      AND {extra_where}" if extra_where else ""
+    if extra_where:
+        # `extra_where` filters on the raw `metadata` JSON, but this SELECT also exposes
+        # `metadata` as an `argMax(...)` alias. HogQL resolves the name in WHERE to that
+        # aggregate alias and rejects the query ("aggregate function ... found in WHERE"),
+        # so any caller that filtered on `metadata` silently failed. Apply the predicate in
+        # a non-aggregating inner scan so it binds to the raw column, then dedupe in the
+        # outer aggregate. Pushing the filter down here (vs. the caller's outer query) keeps
+        # the dedup scan bounded to the matching rows.
+        raw_columns = ["document_id", "content", "metadata"]
+        if include_embedding:
+            raw_columns.append("embedding")
+        raw_columns.extend(["inserted_at", "timestamp"])
+        raw_columns_sql = ",\n                ".join(raw_columns)
+        return f"""
+        SELECT
+            {selected_columns_sql}
+        FROM (
+            SELECT
+                {raw_columns_sql}
+            FROM document_embeddings
+            WHERE model_name = {{model_name}}
+              AND product = 'signals'
+              AND document_type = 'signal'
+              AND {extra_where}
+        )
+        GROUP BY document_id
+    """
 
     return f"""
         SELECT
@@ -61,7 +88,7 @@ def _deduped_signals_subquery(*, include_embedding: bool = False, extra_where: s
         FROM document_embeddings
         WHERE model_name = {{model_name}}
           AND product = 'signals'
-          AND document_type = 'signal'{extra_where_clause}
+          AND document_type = 'signal'
         GROUP BY document_id
     """
 
@@ -176,6 +203,7 @@ class FetchSignalTypeExamplesOutput:
 
 @temporalio.activity.defn
 @scoped_temporal()
+@close_db_connections
 async def fetch_signal_type_examples_activity(input: FetchSignalTypeExamplesInput) -> FetchSignalTypeExamplesOutput:
     """Fetch one example signal per unique (source_product, source_type) pair from ClickHouse."""
     try:
@@ -259,6 +287,7 @@ class RunSignalSemanticSearchOutput:
 
 @temporalio.activity.defn
 @scoped_temporal()
+@close_db_connections
 async def run_signal_semantic_search_activity(input: RunSignalSemanticSearchInput) -> RunSignalSemanticSearchOutput:
     """Run a nearest neighbor query against the signal embeddings in ClickHouse."""
     try:
@@ -339,6 +368,7 @@ class WaitForClickHouseInput:
 
 @temporalio.activity.defn
 @scoped_temporal()
+@close_db_connections
 async def wait_for_signal_in_clickhouse_activity(input: WaitForClickHouseInput) -> None:
     """Poll ClickHouse until all emitted signals appear, or give up after max_wait_time_seconds.
 
@@ -442,6 +472,7 @@ class FetchSignalsForReportOutput:
 
 @temporalio.activity.defn
 @scoped_temporal()
+@close_db_connections
 async def fetch_signals_for_report_activity(input: FetchSignalsForReportInput) -> FetchSignalsForReportOutput:
     try:
         team = await Team.objects.aget(pk=input.team_id)
@@ -584,3 +615,70 @@ def fetch_source_products_for_reports(team: Team, report_ids: list[str]) -> dict
     )
 
     return {row[0]: row[1] for row in (result.results or []) if row[0]}
+
+
+# ---------------------------------------------------------------------------
+# fetch_report_ids_for_source_ids — synchronous, for the scout reverse lookup
+# ---------------------------------------------------------------------------
+
+
+def fetch_report_ids_for_source_ids(team: Team, source_ids: list[str]) -> dict[str, str]:
+    """Map each scout `source_id` to the report its emitted signal grouped into.
+
+    Best-effort reverse of the report -> signals link. A scout finding is emitted as a
+    signal whose ClickHouse metadata carries both its deterministic `source_id`
+    (`run:<run_id>:finding:<finding_id>`) and, once grouping matches it, the `report_id`
+    of the report it landed in. This walks that link backwards so the scout UI can show
+    which inbox report (if any) a finding contributed to.
+
+    Only `signals_scout` signals that resolved to a non-empty, non-deleted `report_id`
+    are returned. A non-idempotent re-emit can produce several signals for one
+    `source_id`; the most recent (by signal timestamp) wins. Uses argMax dedup so the
+    result is stable regardless of ReplacingMergeTree merge state.
+    """
+    if not source_ids:
+        return {}
+
+    # Push the source_id filter into the document_embeddings scan so we only dedup the
+    # handful of signals for these findings, not the team's entire signal history.
+    # Resolve the newest signal per source_id FIRST (carrying its deleted/report state),
+    # then decide whether to return a link. Filtering deleted/empty rows before the argMax
+    # would let an older non-deleted report win when the latest signal was deleted or
+    # report-less, surfacing a stale link instead of the documented "most recent wins" null.
+    source_id_scan_filter = "JSONExtractString(metadata, 'source_id') IN ({source_ids})"
+    ch_query = f"""
+        SELECT source_id, report_id
+        FROM (
+            SELECT
+                source_id,
+                argMax(report_id, timestamp) as report_id,
+                argMax(is_deleted, timestamp) as is_deleted
+            FROM (
+                SELECT
+                    JSONExtractString(metadata, 'source_id') as source_id,
+                    JSONExtractString(metadata, 'report_id') as report_id,
+                    JSONExtractBool(metadata, 'deleted') as is_deleted,
+                    JSONExtractString(metadata, 'source_product') as source_product,
+                    timestamp
+                FROM ({_deduped_signals_subquery(extra_where=source_id_scan_filter)})
+            )
+            WHERE source_product = 'signals_scout'
+              AND source_id != ''
+            GROUP BY source_id
+        )
+        WHERE NOT is_deleted
+          AND report_id != ''
+    """
+
+    tag_queries(product=Product.SIGNALS, feature=Feature.QUERY)
+    result = execute_hogql_query(
+        query_type="SignalsFetchReportIdsForSourceIds",
+        query=ch_query,
+        team=team,
+        placeholders={
+            "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
+            "source_ids": ast.Tuple(exprs=[ast.Constant(value=sid) for sid in source_ids]),
+        },
+    )
+
+    return {row[0]: row[1] for row in (result.results or []) if row[0] and row[1]}

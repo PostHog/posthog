@@ -241,6 +241,7 @@ def ensure_web_stats_frustration_precomputed(
         table=LazyComputationTable.WEB_STATS_FRUSTRATION_PREAGGREGATED,
         placeholders=placeholders,
         query_type="web_stats_frustration_lazy_insert",
+        spill_to_disk=True,  # session-level GROUP BY over a sessions join; can build a large hash table
     )
 
 

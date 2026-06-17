@@ -46,9 +46,12 @@ runs can find an entry with a single `text=` search:
 Format: `<prefix>:<domain>:<entity>` (e.g. `pattern:error_tracking:baseline`,
 `noise:logs:rabbitmq-deploy-window`, `dedupe:csp_violations:a1b2c3d4`).
 
-Canonical `<domain>` values: `error_tracking`, `warehouse`, `experiments`,
-`llm_analytics`, `web_analytics`, `feature_flags`, `logs`, `surveys`,
-`revenue_analytics`, `csp_violations`, `observability_gaps`.
+Common `<domain>` values in fleet use: `error_tracking`, `warehouse`, `experiments`,
+`llm_analytics`, `web-analytics`, `feature-flags`, `logs`, `surveys`,
+`revenue_analytics`, `csp_violations`, `observability_gaps`, `session-replay`,
+`pipelines`, `health`, `anomaly_detection`. Not a closed set — a specialist (or a
+custom scout) coins its own label and reuses the prefixes; match the label a
+surface's existing entries already use rather than inventing a variant.
 
 Re-using a key updates the entry in place and refreshes `updated_at` — that's
 the idempotent refresh pattern. Use it to confirm a quiet observation without

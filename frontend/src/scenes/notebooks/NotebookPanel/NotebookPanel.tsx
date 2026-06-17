@@ -13,10 +13,16 @@ import { urls } from 'scenes/urls'
 import { SidePanelPaneHeader } from '~/layout/navigation-3000/sidepanel/components/SidePanelPaneHeader'
 import { SidePanelContentContainer } from '~/layout/navigation-3000/sidepanel/SidePanelContentContainer'
 
+import { isMarkdownNotebookContent } from '../Notebook/markdownNotebookV2'
 import { Notebook } from '../Notebook/Notebook'
 import { NotebookListMini } from '../Notebook/NotebookListMini'
 import { notebookLogic } from '../Notebook/notebookLogic'
-import { NotebookCollabStatus, NotebookExpandButton, NotebookSyncInfo } from '../Notebook/NotebookMeta'
+import {
+    NotebookCollabStatus,
+    NotebookExpandButton,
+    NotebookPresence,
+    NotebookSyncInfo,
+} from '../Notebook/NotebookMeta'
 import { NotebookMenu } from '../NotebookMenu'
 import { NotebookTarget } from '../types'
 import { NotebookPanelDropzone } from './NotebookPanelDropzone'
@@ -25,14 +31,20 @@ import { notebookPanelLogic } from './notebookPanelLogic'
 export function NotebookPanel(): JSX.Element | null {
     const { selectedNotebook, initialAutofocus, droppedResource, dropProperties } = useValues(notebookPanelLogic)
     const { selectNotebook, closeSidePanel } = useActions(notebookPanelLogic)
-    const { notebook } = useValues(notebookLogic({ shortId: selectedNotebook, target: NotebookTarget.Popover }))
+    const { notebook, content } = useValues(
+        notebookLogic({ shortId: selectedNotebook, target: NotebookTarget.Popover })
+    )
     const editable = !notebook?.is_template
     const { ref, size } = useResizeBreakpoints({
         0: 'small',
         832: 'medium',
     })
 
-    const contentWidthHasEffect = useMemo(() => size === 'medium', [size])
+    // Markdown notebooks have no width toggle — they always fill the content width.
+    const contentWidthHasEffect = useMemo(
+        () => size === 'medium' && !isMarkdownNotebookContent(content),
+        [size, content]
+    )
 
     return (
         <div ref={ref} className={cn('NotebookPanel', 'bg-transparent')} {...dropProperties}>
@@ -59,6 +71,7 @@ export function NotebookPanel(): JSX.Element | null {
 
                             <div className="flex-1" />
                             <div className="flex items-center gap-1">
+                                {selectedNotebook && <NotebookPresence shortId={selectedNotebook} />}
                                 <NotebookMenu shortId={selectedNotebook} />
                                 {contentWidthHasEffect && <NotebookExpandButton size="small" inPanel={true} />}
                                 <Link

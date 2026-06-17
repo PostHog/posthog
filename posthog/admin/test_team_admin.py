@@ -1,4 +1,5 @@
 from datetime import timedelta
+from decimal import Decimal
 
 from freezegun import freeze_time
 from posthog.test.base import BaseTest
@@ -34,9 +35,9 @@ class TestTeamAdminSetApiTokenView(BaseTest):
 
         reverse_patcher = patch(
             "posthog.admin.admins.team_admin.reverse",
-            side_effect=lambda name, args=None, kwargs=None: self.team_change_url
-            if name == "admin:posthog_team_change"
-            else self.set_api_token_url,
+            side_effect=lambda name, args=None, kwargs=None: (
+                self.team_change_url if name == "admin:posthog_team_change" else self.set_api_token_url
+            ),
         )
         reverse_patcher.start()
         self.addCleanup(reverse_patcher.stop)
@@ -309,3 +310,34 @@ class TestTeamAdminLLMGateway(BaseTest):
             rendered = str(self.admin.policy_cache_blob(self.team))
         assert "<script>" not in rendered
         assert "&lt;script&gt;" in rendered
+
+
+class TestTeamAdminFormOverspendAllowance(BaseTest):
+    def _form(self, value, instance=None):
+        instance = instance or self.team
+        request = RequestFactory().get("/")
+        request.user = self.user
+        form_class = TeamAdmin(Team, AdminSite()).get_form(request, instance)
+        form = form_class(instance=instance)
+        form.cleaned_data = {"llm_gateway_overspend_allowance_usd": value}
+        return form
+
+    @parameterized.expand([("whole", Decimal("5"), Decimal("5.000000")), ("none_passthrough", None, None)])
+    def test_clean_accepts_valid(self, _name, value, expected) -> None:
+        self.assertEqual(self._form(value).clean_llm_gateway_overspend_allowance_usd(), expected)
+
+    @parameterized.expand(
+        [("negative", Decimal("-1")), ("over_max", Decimal("10001")), ("too_precise", Decimal("1.0000001"))]
+    )
+    def test_clean_rejects_invalid(self, _name, value) -> None:
+        from django.forms import ValidationError
+
+        with self.assertRaises(ValidationError):
+            self._form(value).clean_llm_gateway_overspend_allowance_usd()
+
+    def test_clean_rejects_child_environment(self) -> None:
+        from django.forms import ValidationError
+
+        child = Team.objects.create(organization=self.organization, name="child env", parent_team=self.team)
+        with self.assertRaises(ValidationError):
+            self._form(Decimal("5"), instance=child).clean_llm_gateway_overspend_allowance_usd()

@@ -149,6 +149,7 @@ export enum AvailableFeature {
     SAML = 'saml',
     SCIM = 'scim',
     SSO_ENFORCEMENT = 'sso_enforcement',
+    XAA_AUTHENTICATION = 'xaa_authentication',
     WHITE_LABELLING = 'white_labelling',
     COMMUNITY_SUPPORT = 'community_support',
     DEDICATED_SUPPORT = 'dedicated_support',
@@ -246,6 +247,7 @@ export enum Realm {
 export enum Region {
     US = 'US',
     EU = 'EU',
+    DEV = 'DEV',
 }
 
 export type SSOProvider = 'google-oauth2' | 'github' | 'gitlab' | 'saml'
@@ -293,6 +295,7 @@ export enum AccessControlResourceType {
     WebAnalytics = 'web_analytics',
     ActivityLog = 'activity_log',
     ErrorTracking = 'error_tracking',
+    Tracing = 'tracing',
 }
 
 interface UserBaseType {
@@ -425,6 +428,33 @@ export interface NotificationSettings {
     pipeline_notifications_disabled?: Record<string, boolean>
 }
 
+export interface WebAnalyticsDigestMetricChange {
+    percent: number
+    direction: 'Up' | 'Down'
+    is_good: boolean
+}
+
+export interface WebAnalyticsDigestMetric {
+    key: string
+    label: string
+    value: string
+    change: WebAnalyticsDigestMetricChange | null
+}
+
+export interface WebAnalyticsDigestListItem {
+    label: string
+    value: string
+}
+
+export interface WebAnalyticsDigestMetadata {
+    period_label: string
+    project_name: string
+    dashboard_url: string
+    metrics: WebAnalyticsDigestMetric[]
+    top_pages: WebAnalyticsDigestListItem[]
+    top_sources: WebAnalyticsDigestListItem[]
+}
+
 export interface InAppNotification {
     id: string
     team_id: number | null
@@ -441,6 +471,7 @@ export interface InAppNotification {
     source_url: string
     source_type: string | null
     source_id: string | null
+    metadata: WebAnalyticsDigestMetadata | null
     created_at: string
 }
 
@@ -709,6 +740,7 @@ export interface ConversationsSettings {
     github_enabled?: boolean
     github_integration_id?: number | null
     github_repos?: string[] | null
+    ai_suggestions_enabled?: boolean
 }
 
 export interface LogsSettings {
@@ -1849,7 +1881,7 @@ export interface SavedSessionRecordingPlaylistsFilters {
     page: number
     pinned: boolean
     type?: 'collection' | 'saved_filters'
-    collectionType: 'custom' | 'synthetic' | 'new-urls' | null
+    collectionType: 'custom' | 'synthetic' | null
 }
 
 export interface SavedSessionRecordingPlaylistsResult extends PaginatedResponse<SessionRecordingPlaylistType> {
@@ -1926,6 +1958,8 @@ export interface SessionRecordingType {
     summary_outcome?: { success?: boolean | null; description?: string | null } | null
     /** External references to third party issues. */
     external_references?: SessionRecordingExternalReference[]
+    /** False when the recording was included in list results via a direct link despite not matching the filters. */
+    matches_filters?: boolean
 }
 
 export interface SessionRecordingUpdateType {
@@ -2838,6 +2872,7 @@ export enum ChartDisplayType {
     CalendarHeatmap = 'CalendarHeatmap',
     TwoDimensionalHeatmap = 'TwoDimensionalHeatmap',
     BoxPlot = 'BoxPlot',
+    SlopeGraph = 'SlopeGraph',
 }
 export enum ChartDisplayCategory {
     TimeSeries = 'TimeSeries',
@@ -3281,6 +3316,9 @@ export interface TrendResult {
      * formula index for formula results (uniform across a formula's breakdown rows).
      * Unlike `action.order`, this is always populated — formula results carry `action: null`. */
     order?: number
+    /** Slope graph only: whether the last bucket is the current, still-accumulating period. Set by
+     * SlopeGraphTrendsQueryRunner so the insight and MCP dash the provisional end identically. */
+    incomplete_end?: boolean
 }
 
 interface Person {
@@ -3899,6 +3937,8 @@ export interface Survey extends WithAccessControl {
             thankYouMessageHeader?: string
             thankYouMessageDescription?: string
             thankYouMessageCloseButtonText?: string
+            submitButtonText?: string
+            backButtonText?: string
         }
     > | null
 }
@@ -3974,6 +4014,8 @@ export interface SurveyAppearance {
     zIndex?: string
     shuffleQuestions?: boolean
     surveyPopupDelaySeconds?: number
+    allowGoBack?: boolean
+    backButtonText?: string
     // widget only
     widgetType?: SurveyWidgetType
     widgetSelector?: string
@@ -4165,7 +4207,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     version: number | null
     last_modified_by: UserBasicType | null
     experiment_set: number[] | null
-    experiment_set_metadata: { id: number; name: string }[] | null
+    experiment_set_metadata: { id: number; name: string; is_running: boolean }[] | null
     features: MinimalEarlyAccessFeatureType[] | null
     surveys: Survey[] | null
     can_edit: boolean
@@ -4388,6 +4430,7 @@ export interface PreflightStatus {
     is_test?: boolean
     licensed_users_available?: number | null
     openai_available?: boolean
+    anthropic_available?: boolean
     site_url?: string
     instance_preferences?: InstancePreferencesInterface
     buffer_conversion_seconds?: number
@@ -4636,6 +4679,20 @@ export enum ExperimentStatsMethod {
     Frequentist = 'frequentist',
 }
 
+export interface ExperimentExposureEstimateConfig {
+    conversionRateInputType: ConversionRateInputType
+    manualMetricType?: 'funnel' | 'mean_count' | 'mean_sum_or_avg'
+    manualBaselineValue?: number
+    manualExposureRate?: number
+}
+
+export interface ExperimentRunningTimeCalculationConfig {
+    minimum_detectable_effect?: number
+    recommended_running_time?: number
+    recommended_sample_size?: number
+    exposure_estimate_config?: ExperimentExposureEstimateConfig | null
+}
+
 export interface Experiment {
     id: ExperimentIdType
     name: string
@@ -4656,15 +4713,6 @@ export interface Experiment {
     }[]
     saved_metrics: any[]
     parameters: {
-        exposure_estimate_config?: {
-            conversionRateInputType: ConversionRateInputType
-            manualMetricType?: 'funnel' | 'mean_count' | 'mean_sum_or_avg'
-            manualBaselineValue?: number
-            manualExposureRate?: number
-        } | null
-        minimum_detectable_effect?: number
-        recommended_running_time?: number
-        recommended_sample_size?: number
         feature_flag_variants: MultivariateFlagVariant[]
         custom_exposure_filter?: FilterType
         aggregation_group_type_index?: integer
@@ -4678,6 +4726,7 @@ export interface Experiment {
             versions: number[]
         }
     }
+    running_time_calculation?: ExperimentRunningTimeCalculationConfig
     start_date?: string | null
     end_date?: string | null
     status?: ExperimentStatus | null
@@ -5201,6 +5250,7 @@ export const INTEGRATION_KINDS = [
     'google-cloud-service-account',
     'google-cloud-storage',
     'google-ads',
+    'google-analytics',
     'google-search-console',
     'google-sheets',
     'linkedin-ads',
@@ -5229,6 +5279,48 @@ export const INTEGRATION_KINDS = [
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
+
+// Canonical bot scopes PostHog requests during the Slack OAuth install flow. Single source of
+// truth for both the frontend (app-manifest snippet + IntegrationView scope-mismatch banner)
+// and the backend (`POSTHOG_SLACK_SCOPE` in posthog/models/integration.py, via posthog/schema.py).
+// Widening this list will surface the "Required scopes are missing" banner for any workspace
+// authorized before the change.
+//
+// Declared as an enum (not `as const` + derived type) because ts-json-schema-generator prunes
+// type-alias-only re-exports that aren't referenced as a property type — see ChartDisplayCategory
+// in schema-general.ts for the equivalent value+type re-export pattern that flows cleanly to
+// `class SlackIntegrationScope(StrEnum)` in posthog/schema.py.
+export enum SlackIntegrationScope {
+    APP_MENTIONS_READ = 'app_mentions:read',
+    CHANNELS_HISTORY = 'channels:history',
+    CHANNELS_READ = 'channels:read',
+    CHAT_WRITE = 'chat:write',
+    CHAT_WRITE_CUSTOMIZE = 'chat:write.customize',
+    GROUPS_HISTORY = 'groups:history',
+    GROUPS_READ = 'groups:read',
+    LINKS_READ = 'links:read',
+    LINKS_WRITE = 'links:write',
+    REACTIONS_READ = 'reactions:read',
+    REACTIONS_WRITE = 'reactions:write',
+    TEAM_READ = 'team:read',
+    USERS_READ = 'users:read',
+    USERS_READ_EMAIL = 'users:read.email',
+}
+
+export const SLACK_INTEGRATION_SCOPES = Object.values(SlackIntegrationScope)
+
+// Scopes still pending Slack app-directory review. Requested only on the internal DEV instance
+// (settings.CLOUD_DEPLOYMENT == "DEV", surfaced as `preflight.region === Region.DEV`) where the
+// PostHog Slack app manifest already lists them; requesting them anywhere else fails with
+// `invalid_scope`. Move entries into SlackIntegrationScope once Slack approves the public app.
+export enum SlackIntegrationScopeInReview {
+    ASSISTANT_WRITE = 'assistant:write',
+    CHANNELS_MANAGE = 'channels:manage',
+    IM_HISTORY = 'im:history',
+    MPIM_READ = 'mpim:read',
+}
+
+export const SLACK_INTEGRATION_SCOPES_IN_REVIEW = Object.values(SlackIntegrationScopeInReview)
 
 export interface IntegrationType {
     id: number
@@ -5408,6 +5500,8 @@ export type APIScopeObject =
     | 'access_control'
     | 'account'
     | 'activity_log'
+    | 'agents'
+    | 'agent_approvals'
     | 'alert'
     | 'annotation'
     | 'approvals'
@@ -5452,6 +5546,7 @@ export type APIScopeObject =
     | 'llm_skill'
     | 'logs'
     | 'marketing_analytics'
+    | 'mcp_analytics'
     | 'metrics'
     | 'notebook'
     | 'organization'
@@ -5485,6 +5580,7 @@ export type APIScopeObject =
     | 'web_analytics'
     | 'webhook'
     | 'tracing'
+    | 'field_note'
 
 export type APIScopeAction = 'read' | 'write'
 
@@ -5629,6 +5725,7 @@ export enum ActivityScope {
     ANNOTATION = 'Annotation',
     BATCH_EXPORT = 'BatchExport',
     BATCH_IMPORT = 'BatchImport',
+    EXPORTED_ASSET = 'ExportedAsset',
     FEATURE_FLAG = 'FeatureFlag',
     PERSON = 'Person',
     PERSONAL_API_KEY = 'PersonalAPIKey',
@@ -5657,6 +5754,7 @@ export enum ActivityScope {
     ORGANIZATION_MEMBERSHIP = 'OrganizationMembership',
     ORGANIZATION_INVITE = 'OrganizationInvite',
     ORGANIZATION_DOMAIN = 'OrganizationDomain',
+    OAUTH_APPLICATION = 'OAuthApplication',
     LEGAL_DOCUMENT = 'LegalDocument',
     ERROR_TRACKING_ISSUE = 'ErrorTrackingIssue',
     DATA_WAREHOUSE_SAVED_QUERY = 'DataWarehouseSavedQuery',
@@ -5872,7 +5970,7 @@ export interface ExternalDataSourceCreatePayload {
 export interface ExternalDataSourceConnectionMetadata {
     database?: string | null
     version?: string | null
-    engine?: 'duckdb' | 'postgres' | null
+    engine?: 'duckdb' | 'postgres' | 'mysql' | null
     function_source?: string | null
     available_functions?: string[]
 }
@@ -5880,7 +5978,7 @@ export interface ExternalDataSourceConnectionMetadata {
 export interface ExternalDataSourceConnectionOption {
     id: string
     prefix: string | null
-    engine?: 'duckdb' | 'postgres' | null
+    engine?: 'duckdb' | 'postgres' | 'mysql' | null
 }
 
 export interface ExternalDataSource {
@@ -5893,7 +5991,7 @@ export interface ExternalDataSource {
     description: string | null
     access_method?: 'warehouse' | 'direct'
     created_via: 'web' | 'api' | 'mcp' | null
-    engine?: 'duckdb' | 'postgres' | null
+    engine?: 'duckdb' | 'postgres' | 'mysql' | null
     latest_error: string | null
     last_run_at?: Dayjs
     schemas: ExternalDataSourceSchema[]
@@ -5964,6 +6062,16 @@ export interface AvailableColumn {
     nullable: boolean
 }
 
+/** The comparison operators a row filter may use. Mirrors the backend allowlist. */
+export type RowFilterOperator = '>' | '>=' | '<' | '<=' | '=' | '!=' | 'IN' | 'NOT IN'
+
+/** A `{column, operator, value}` predicate ANDed onto a schema's source query. For `IN` / `NOT IN`, `value` is a comma-separated string. */
+export interface RowFilter {
+    column: string
+    operator: RowFilterOperator
+    value: string | number | boolean
+}
+
 export type SchemaIncrementalFieldsResponse = {
     incremental_fields: IncrementalField[]
     incremental_available: boolean
@@ -6017,10 +6125,21 @@ export interface ExternalDataSourceSyncSchema {
      */
     permission_error?: string | null
     /**
+     * Advisory warning when row-level security is active for the sync role on this table:
+     * the sync may read fewer rows than the table contains, and the gap can't be measured.
+     * `null`/undefined = no warning. Unlike `permission_error` this does NOT block selection.
+     */
+    rls_warning?: string | null
+    /**
      * User-selected source columns to sync. `null`/undefined = sync all columns.
      * PK columns and the active incremental field are always retained server-side.
      */
     enabled_columns?: string[] | null
+    /**
+     * Predicates ANDed onto the source query so only matching rows sync.
+     * `null`/undefined/empty = sync all rows.
+     */
+    row_filters?: RowFilter[] | null
 }
 
 export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema {
@@ -6043,6 +6162,11 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
      */
     enabled_columns?: string[] | null
     available_columns?: { name: string; data_type?: string; is_nullable?: boolean }[]
+    /**
+     * Predicates ANDed onto the source query so only matching rows sync.
+     * `null` means "sync all rows". Applied on the next sync — not retroactive.
+     */
+    row_filters?: RowFilter[] | null
 }
 
 /** Lightweight parent-source summary embedded in the single-schema retrieve endpoint. */
@@ -6115,6 +6239,42 @@ export type BatchExportServiceS3 = {
         file_format: string
         max_file_size_mb: number | null
         use_virtual_style_addressing: boolean
+    }
+}
+
+export type BatchExportServiceAwsS3 = {
+    type: 'AwsS3'
+    config: {
+        bucket_name: string
+        region: string
+        prefix: string
+        aws_access_key_id: string
+        aws_secret_access_key: string
+        exclude_events: string[]
+        include_events: string[]
+        compression: string | null
+        encryption: string | null
+        kms_key_id: string | null
+        file_format: string
+        max_file_size_mb: number | null
+    }
+}
+
+export type BatchExportServiceS3Compatible = {
+    type: 'S3Compatible'
+    config: {
+        bucket_name: string
+        region: string
+        prefix: string
+        aws_access_key_id: string
+        aws_secret_access_key: string
+        exclude_events: string[]
+        include_events: string[]
+        compression: string | null
+        endpoint_url: string
+        use_virtual_style_addressing: boolean
+        file_format: string
+        max_file_size_mb: number | null
     }
 }
 
@@ -6239,7 +6399,11 @@ export type BatchExportServiceAzureBlob = {
 // frontend/public/services/
 // and update RenderBatchExportIcon
 export const BATCH_EXPORT_SERVICE_NAMES: BatchExportService['type'][] = [
+    // 'S3' is the legacy alias kept for reading existing rows and the BatchExportScene validity
+    // guard — it is filtered out of the destination picker in favour of AwsS3 + S3Compatible.
     'S3',
+    'AwsS3',
+    'S3Compatible',
     'Snowflake',
     'Postgres',
     'BigQuery',
@@ -6250,6 +6414,8 @@ export const BATCH_EXPORT_SERVICE_NAMES: BatchExportService['type'][] = [
 ]
 export type BatchExportService =
     | BatchExportServiceS3
+    | BatchExportServiceAwsS3
+    | BatchExportServiceS3Compatible
     | BatchExportServiceSnowflake
     | BatchExportServicePostgres
     | BatchExportServiceBigQuery
@@ -7034,11 +7200,24 @@ export interface ConversationQueueResponse {
     max_queue_messages: number
 }
 
+export type ConversationTopic =
+    | 'web_analytics'
+    | 'product_analytics'
+    | 'session_replay'
+    | 'surveys'
+    | 'feature_flags'
+    | 'experiments'
+    | 'error_tracking'
+    | 'data_warehouse'
+    | 'other'
+
 export interface Conversation {
     id: string
     user: UserBasicType
     status: ConversationStatus
     title: string | null
+    /** Product domain classified from the first question; drives contextual nudges. */
+    topic?: ConversationTopic | null
     created_at: string | null
     updated_at: string | null
     type: ConversationType
@@ -7212,28 +7391,6 @@ export interface DataWarehouseActivityRecord {
     latest_error: string | null
     workflow_run_id?: string
     origin?: DataWarehouseSavedQueryOrigin | null
-}
-
-export type DataWarehouseProvisioningState = 'pending' | 'provisioning' | 'ready' | 'failed' | 'deleting' | 'deleted'
-
-export interface DataWarehouseProvisioningConnection {
-    host: string
-    port: number
-    database: string
-    username: string
-}
-
-export interface DataWarehouseProvisioningStatus {
-    org_id: string
-    state: DataWarehouseProvisioningState
-    status_message: string
-    s3_state: DataWarehouseProvisioningState
-    metadata_store_state: DataWarehouseProvisioningState
-    identity_state: DataWarehouseProvisioningState
-    secrets_state: DataWarehouseProvisioningState
-    ready_at: string | null
-    failed_at: string | null
-    connection: DataWarehouseProvisioningConnection | null
 }
 
 export type HeatmapType = 'screenshot' | 'iframe' | 'recording'

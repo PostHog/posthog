@@ -1601,3 +1601,151 @@ class TestReadDataTool(BaseTest):
         assert "Cost: $0.0100" in result
         assert "Errors: 2" in result
         assert "Tokens: 100 in / 50 out" in result
+
+    @patch("ee.hogai.tools.read_data.tool.has_business_knowledge_feature_flag", return_value=True)
+    @patch("ee.hogai.tools.read_data.tool.has_ready_sources", return_value=True)
+    async def test_create_tool_class_includes_bk_when_flag_enabled(self, _mock_ready: MagicMock, _mock_ff: MagicMock):
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
+
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team, user=self.user, state=state, context_manager=context_manager
+        )
+
+        assert "Business knowledge document" in tool.description
+
+    @patch("ee.hogai.tools.read_data.tool.has_business_knowledge_feature_flag", return_value=False)
+    async def test_create_tool_class_excludes_bk_when_flag_disabled(self, _mock_ff: MagicMock):
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
+
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team, user=self.user, state=state, context_manager=context_manager
+        )
+
+        assert "Business knowledge document" not in tool.description
+
+    @patch("ee.hogai.tools.read_data.tool.get_document_window")
+    @patch("ee.hogai.tools.read_data.tool.has_business_knowledge_feature_flag", return_value=True)
+    @patch("ee.hogai.tools.read_data.tool.has_ready_sources", return_value=True)
+    async def test_read_bk_document_returns_formatted_chunks(
+        self, _mock_ready: MagicMock, _mock_ff: MagicMock, mock_window: MagicMock
+    ):
+        from products.business_knowledge.backend.logic import KnowledgeSearchResult
+
+        doc_id = uuid4()
+        mock_window.return_value = [
+            KnowledgeSearchResult(
+                chunk_id=uuid4(),
+                source_id=uuid4(),
+                source_name="My Source",
+                source_type="text",
+                document_id=doc_id,
+                document_title="My Doc",
+                heading_path="Section A",
+                ordinal=5,
+                content="Hello world content.",
+            )
+        ]
+
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
+
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team, user=self.user, state=state, context_manager=context_manager
+        )
+
+        with patch.object(tool, "user_access_control") as mock_uac:
+            mock_uac.check_access_level_for_resource.return_value = True
+            result, artifact = await tool._arun_impl(
+                {"kind": "business_knowledge_document", "document_id": str(doc_id), "around_ordinal": 5, "radius": 2}
+            )
+
+        assert artifact is None
+        assert "My Source" in result
+        assert "Section A" in result
+        assert "Hello world content." in result
+        assert "[5]" in result
+
+    @patch("ee.hogai.tools.read_data.tool.get_document_window")
+    @patch("ee.hogai.tools.read_data.tool.has_business_knowledge_feature_flag", return_value=True)
+    @patch("ee.hogai.tools.read_data.tool.has_ready_sources", return_value=True)
+    async def test_read_bk_document_empty_raises_retryable(
+        self, _mock_ready: MagicMock, _mock_ff: MagicMock, mock_window: MagicMock
+    ):
+        mock_window.return_value = []
+
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
+
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team, user=self.user, state=state, context_manager=context_manager
+        )
+
+        with patch.object(tool, "user_access_control") as mock_uac:
+            mock_uac.check_access_level_for_resource.return_value = True
+            with pytest.raises(MaxToolRetryableError, match="No content found"):
+                await tool._arun_impl(
+                    {
+                        "kind": "business_knowledge_document",
+                        "document_id": str(uuid4()),
+                        "around_ordinal": 0,
+                        "radius": 5,
+                    }
+                )
+
+    @patch("ee.hogai.tools.read_data.tool.has_business_knowledge_feature_flag", return_value=True)
+    @patch("ee.hogai.tools.read_data.tool.has_ready_sources", return_value=True)
+    async def test_read_bk_document_invalid_uuid_raises_retryable(self, _mock_ready: MagicMock, _mock_ff: MagicMock):
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
+
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team, user=self.user, state=state, context_manager=context_manager
+        )
+
+        with patch.object(tool, "user_access_control") as mock_uac:
+            mock_uac.check_access_level_for_resource.return_value = True
+            with pytest.raises(MaxToolRetryableError, match="Invalid document_id"):
+                await tool._arun_impl(
+                    {
+                        "kind": "business_knowledge_document",
+                        "document_id": "not-a-uuid",
+                        "around_ordinal": 0,
+                        "radius": 5,
+                    }
+                )
+
+    @patch("ee.hogai.tools.read_data.tool.has_business_knowledge_feature_flag", return_value=True)
+    @patch("ee.hogai.tools.read_data.tool.has_ready_sources", return_value=True)
+    async def test_read_bk_document_access_denied(self, _mock_ready: MagicMock, _mock_ff: MagicMock):
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
+
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team, user=self.user, state=state, context_manager=context_manager
+        )
+
+        with patch.object(tool, "user_access_control") as mock_uac:
+            mock_uac.check_access_level_for_resource.return_value = False
+            with pytest.raises(MaxToolAccessDeniedError):
+                await tool._arun_impl(
+                    {
+                        "kind": "business_knowledge_document",
+                        "document_id": str(uuid4()),
+                        "around_ordinal": 0,
+                        "radius": 5,
+                    }
+                )

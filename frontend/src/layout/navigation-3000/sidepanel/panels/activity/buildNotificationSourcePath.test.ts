@@ -19,6 +19,7 @@ function makeNotification(overrides: Partial<InAppNotification> = {}): InAppNoti
         source_url: '',
         source_type: null,
         source_id: null,
+        metadata: null,
         created_at: '2026-04-01T00:00:00Z',
         ...overrides,
     }
@@ -84,6 +85,18 @@ describe('buildNotificationSourcePath', () => {
             })
         )
         expect(result).toBe('/dashboard/legacy')
+    })
+
+    it('uses the source_url deep-link for customer_analytics (no source_id→path mapping)', () => {
+        const deepLink = '/customer_analytics/accounts#open=%7B%22id%22%3A%22acc-9%22%2C%22tab%22%3A%22usage%22%7D'
+        const result = buildNotificationSourcePath(
+            makeNotification({
+                source_type: 'customer_analytics',
+                source_id: 'spike-1',
+                source_url: deepLink,
+            })
+        )
+        expect(result).toBe(deepLink)
     })
 
     it('falls back to source_url when source_type is unrecognized', () => {

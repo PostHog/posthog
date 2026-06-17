@@ -49,10 +49,10 @@ import type {
     PaginatedDashboardBasicListApi,
     PaginatedDashboardTemplateListApi,
     PaginatedDataColorThemeListApi,
-    PatchedDashboardApi,
     PatchedDashboardTemplateApi,
     PatchedDataColorThemeApi,
     PatchedMoveTileRequestApi,
+    PatchedPatchedDashboardOpenApiApi,
     ReorderTilesRequestApi,
     RunInsightsResponseApi,
     RunWidgetsResponseApi,
@@ -410,7 +410,7 @@ export const getDashboardsPartialUpdateUrl = (
 export const dashboardsPartialUpdate = async (
     projectId: string,
     id: number,
-    patchedDashboardApi?: NonReadonly<PatchedDashboardApi>,
+    patchedPatchedDashboardOpenApiApi?: PatchedPatchedDashboardOpenApiApi,
     params?: DashboardsPartialUpdateParams,
     options?: RequestInit
 ): Promise<DashboardApi> => {
@@ -418,7 +418,7 @@ export const dashboardsPartialUpdate = async (
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedDashboardApi),
+        body: JSON.stringify(patchedPatchedDashboardOpenApiApi),
     })
 }
 
@@ -996,7 +996,7 @@ export const getDashboardsWidgetCatalogRetrieveUrl = (
 }
 
 /**
- * List registered dashboard widget types and config hints for agents.
+ * List registered dashboard widget types and per-type config_schema documentation for agents.
  */
 export const dashboardsWidgetCatalogRetrieve = async (
     projectId: string,

@@ -19,7 +19,7 @@ from cryptography.hazmat.primitives import serialization
 from snowflake.connector.connection import SnowflakeConnection
 from snowflake.connector.constants import FIELD_ID_TO_NAME, QueryStatus
 from snowflake.connector.cursor import ResultMetadata
-from snowflake.connector.errors import InterfaceError, OperationalError
+from snowflake.connector.errors import HttpError, InterfaceError, OperationalError
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
@@ -312,7 +312,7 @@ def snowflake_type_to_data_type(type: SnowflakeType) -> pa.DataType:
             base_type = pa.bool_()
         case "VARIANT":
             base_type = JsonType()
-        case "TIMESTAMP" | "TIMESTAMP_NTZ" | "TIMESTAMP_LTZ":
+        case "TIMESTAMP" | "TIMESTAMP_NTZ" | "TIMESTAMP_LTZ" | "TIMESTAMP_TZ":
             base_type = pa.timestamp("ms", tz="UTC")
         case "FLOAT" | "FLOAT4" | "FLOAT8" | "DOUBLE PRECISION" | "REAL":
             base_type = pa.float64()
@@ -604,6 +604,15 @@ class SnowflakeClient:
 
         except InterfaceError as err:
             raise SnowflakeConnectionError(f"Could not connect to Snowflake - {err.errno}: {err.msg}") from err
+
+        # Handle 404 errors (usually indicates the provided account is invalid)
+        except HttpError as err:
+            if err.msg is not None and "404 Not Found" in err.msg:
+                raise SnowflakeConnectionError(
+                    f"Could not establish a connection to Snowflake as the resolved URL does not exist. This usually indicates an invalid Snowflake account."
+                ) from err
+            # allow other errors to raise in case they're temporary connection issues
+            raise
 
         self.logger.debug("Connected to Snowflake")
 
@@ -900,7 +909,7 @@ class SnowflakeClient:
         exists_ok: bool = True,
         delete: bool = True,
         not_found_ok: bool = True,
-    ) -> collections.abc.AsyncGenerator[SnowflakeTable, None]:
+    ) -> collections.abc.AsyncGenerator[SnowflakeTable]:
         """Manage a table in Snowflake by ensure it exists while in context."""
         if create is True:
             await self.create_table(table)
@@ -1018,8 +1027,9 @@ class SnowflakeClient:
             max_attempts=max_attempts,
             retryable_exceptions=(snowflake.connector.errors.ProgrammingError,),
             # 608 = Warehouse suspended error
-            is_exception_retryable=lambda e: isinstance(e, snowflake.connector.errors.ProgrammingError)
-            and (e.errno == 608 or e.errno == 90073),
+            is_exception_retryable=lambda e: (
+                isinstance(e, snowflake.connector.errors.ProgrammingError) and (e.errno == 608 or e.errno == 90073)
+            ),
         )
 
         # We need to explicitly catch exceptions here because otherwise they seem to be swallowed
