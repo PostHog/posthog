@@ -659,13 +659,21 @@ function verifyUiHostReachability(
         })
         .catch((error: unknown) => {
             actions.setAuthStatus('error')
-            captureToolbarException(error, 'ui_host_check', {
-                error_type: classifyFetchError(error),
-            })
+            const errorType = classifyFetchError(error)
+            // The HEAD check is a soft reachability probe: HTTP errors (e.g. a 404 when
+            // uiHost resolves to a reverse proxy that doesn't route /toolbar_oauth/check),
+            // CORS/network rejections, and timeouts are all expected outcomes for
+            // mis-resolved hosts and are already recorded in the analytics event below.
+            // Only surface genuinely unexpected failures to error tracking to avoid noise.
+            if (errorType === 'unknown') {
+                captureToolbarException(error, 'ui_host_check', {
+                    error_type: errorType,
+                })
+            }
             toolbarPosthogJS.capture('toolbar ui host check', {
                 ...checkBaseProps,
                 status: 'error',
-                error_type: classifyFetchError(error),
+                error_type: errorType,
                 duration_ms: Date.now() - checkStart,
             })
 

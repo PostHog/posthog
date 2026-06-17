@@ -8,6 +8,7 @@ import {
     toolbarFetch,
     toolbarUploadMedia,
 } from '~/toolbar/toolbarConfigLogic'
+import * as toolbarPosthogJSModule from '~/toolbar/toolbarPosthogJS'
 import { cleanToolbarAuthHash, OAUTH_LOCALSTORAGE_KEY, PKCE_STORAGE_KEY, readToolbarAuthHash } from '~/toolbar/utils'
 
 global.fetch = jest.fn(() =>
@@ -329,6 +330,38 @@ describe('toolbar toolbarConfigLogic', () => {
                 (c) => typeof c[0] === 'string' && c[0].endsWith('/toolbar_oauth/check')
             )
             expect(headCalls).toHaveLength(1)
+        })
+
+        it('does not capture an exception when the HEAD probe returns a non-ok HTTP status', async () => {
+            // A 404 here is expected when uiHost resolves to a host that doesn't route
+            // /toolbar_oauth/check (e.g. a reverse proxy). It must not flood error tracking.
+            const captureSpy = jest.spyOn(toolbarPosthogJSModule, 'captureToolbarException')
+            ;(global.fetch as jest.Mock).mockImplementation(() => Promise.resolve({ ok: false, status: 404 }))
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
+            logic.mount()
+            await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'error' })
+            expect(captureSpy).not.toHaveBeenCalled()
+            captureSpy.mockRestore()
+        })
+
+        it('does not capture an exception when the HEAD probe is rejected by network/CORS', async () => {
+            const captureSpy = jest.spyOn(toolbarPosthogJSModule, 'captureToolbarException')
+            ;(global.fetch as jest.Mock).mockImplementation(() => Promise.reject(new TypeError('Failed to fetch')))
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
+            logic.mount()
+            await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'error' })
+            expect(captureSpy).not.toHaveBeenCalled()
+            captureSpy.mockRestore()
+        })
+
+        it('captures an exception for genuinely unexpected probe failures', async () => {
+            const captureSpy = jest.spyOn(toolbarPosthogJSModule, 'captureToolbarException')
+            ;(global.fetch as jest.Mock).mockImplementation(() => Promise.reject(new Error('boom')))
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
+            logic.mount()
+            await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'error' })
+            expect(captureSpy).toHaveBeenCalledWith(expect.any(Error), 'ui_host_check', { error_type: 'unknown' })
+            captureSpy.mockRestore()
         })
 
         it('runs the HEAD check when a pending code exchange is present, even if already authenticated', () => {
