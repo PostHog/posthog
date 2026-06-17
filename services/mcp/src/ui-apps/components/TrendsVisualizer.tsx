@@ -5,9 +5,11 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia } from '@posthog/quill
 import {
     BarChart as BarValueChart,
     ciRanges,
+    DefaultTooltip,
     SlopeChart,
     TimeSeriesBarChart,
     TimeSeriesLineChart,
+    type TooltipContext,
 } from '@posthog/quill-charts'
 
 import { buildTrendsBarChartModel } from 'products/product_analytics/frontend/insights/trends/TrendsBarChart/trendsBarChartTransforms'
@@ -32,7 +34,7 @@ import {
     supportsPercentStack,
 } from './chartSettingsConfig'
 import type { TrendsResultItem, TrendsVisualizerProps } from './types'
-import { formatDate, getDisplayType, getSeriesLabel } from './utils'
+import { formatDate, formatTooltipDate, getDisplayType, getSeriesLabel } from './utils'
 
 const CHART_TYPE_OPTIONS = [
     { value: 'line' as const, label: 'Line' },
@@ -46,6 +48,11 @@ const CHART_TYPE_OPTIONS = [
 const SLOPE_TYPE_OPTION = { value: 'slope' as const, label: 'Slope' }
 
 const TOOLTIP_CONFIG = { pinnable: true, placement: 'cursor' as const }
+
+// The default tooltip shows the raw x label (e.g. `2025-05-28`); format the date like the rest of the UI.
+const renderDateTooltip = (ctx: TooltipContext): ReactElement => (
+    <DefaultTooltip {...ctx} label={formatTooltipDate(ctx.label)} />
+)
 
 const TITLE_CLASS = 'text-xs font-semibold uppercase tracking-wider text-muted-foreground'
 
@@ -179,7 +186,15 @@ export function TrendsVisualizer({ query, results, title }: TrendsVisualizerProp
                 xAxisTickFormatter: (value) => formatDate(value),
                 tooltip: TOOLTIP_CONFIG,
             })
-            return <TimeSeriesBarChart series={series} labels={labels} theme={CHART_THEME} config={config} />
+            return (
+                <TimeSeriesBarChart
+                    series={series}
+                    labels={labels}
+                    theme={CHART_THEME}
+                    config={config}
+                    tooltip={renderDateTooltip}
+                />
+            )
         }
         const series = buildTrendsSeries(trendResults, {
             isArea: effectiveType === 'area',
@@ -198,7 +213,15 @@ export function TrendsVisualizer({ query, results, title }: TrendsVisualizerProp
             xAxisTickFormatter: (value) => formatDate(value),
             tooltip: TOOLTIP_CONFIG,
         })
-        return <TimeSeriesLineChart series={series} labels={labels} theme={CHART_THEME} config={config} />
+        return (
+            <TimeSeriesLineChart
+                series={series}
+                labels={labels}
+                theme={CHART_THEME}
+                config={config}
+                tooltip={renderDateTooltip}
+            />
+        )
     }
 
     return (
