@@ -1,5 +1,4 @@
-import { HogFunctionInputSchemaType } from '~/cdp/types'
-import { HogFunctionTemplate } from '~/cdp/types'
+import { HogFunctionInputSchemaType, HogFunctionTemplate } from '~/cdp/types'
 
 // Based on https://learn.microsoft.com/en-us/advertising/campaign-management-service/applyofflineconversions?view=bingads-13
 // (REST endpoint: POST /CampaignManagement/v13/OfflineConversions/Apply)
