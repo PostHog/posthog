@@ -286,6 +286,18 @@ class TestMarketplaceVersion(APIBaseTest):
         version = json.loads(tree[".claude-plugin/marketplace.json"])["plugins"][0]["version"]
         return int(version.rsplit(".", 1)[1])
 
+    def test_plugin_version_query_is_cached_across_requests(self):
+        # The Max(updated_at) query should run once per window, not on every synthesis — a clone is
+        # two requests (info/refs + upload-pack) plus repeated auto-update polls.
+        LLMSkill.objects.create(
+            team=self.team, name="s", description="d", body="x", version=1, is_latest=True, created_by=self.user
+        )
+        cache.clear()
+        with patch.object(adapters, "_team_plugin_version", wraps=adapters._team_plugin_version) as spy:
+            adapters.synthesize_team_marketplace_repo(self.team)
+            adapters.synthesize_team_marketplace_repo(self.team)
+        assert spy.call_count == 1
+
     def test_archiving_newest_skill_does_not_regress_version(self):
         now = timezone.now().replace(microsecond=0)
         older = LLMSkill.objects.create(

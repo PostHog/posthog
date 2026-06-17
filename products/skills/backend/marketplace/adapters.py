@@ -29,6 +29,11 @@ _MARKETPLACE_COMMIT_MESSAGE = "PostHog skills marketplace"
 # The cache key already embeds the content-derived plugin version, so a hit is only ever
 # the current content. The TTL just bounds memory for superseded versions.
 _MARKETPLACE_REPO_CACHE_TTL_SECONDS = 300
+# The plugin version is Max(updated_at) over a team's skill rows — cheap, but it runs on every
+# info/refs, every upload-pack, and every auto-update poll. Briefly cache it so a clone + a burst of
+# polls collapse to one query per window instead of one per request. Auto-update detection lags by
+# at most this TTL (content is never stale — only the version label that triggers a re-pull).
+_MARKETPLACE_VERSION_CACHE_TTL_SECONDS = 15
 
 # Bound the in-memory/cached footprint of a team's marketplace so an outlier team with very many
 # (or very large) skills can't OOM the web worker on clone. Past this cumulative content size we
@@ -65,7 +70,7 @@ def synthesize_team_marketplace_repo(team: Team) -> SynthesizedRepo:
     each time would be wasteful. The cache key embeds ``_team_plugin_version`` (which changes
     exactly when content changes), so a hit is always current and any change invalidates it.
     """
-    version = _team_plugin_version(team)
+    version = _team_plugin_version_cached(team)
     cache_key = f"skills_marketplace_repo:{team.id}:{version}"
     cached = cache.get(cache_key)
     if cached is not None:
@@ -156,6 +161,17 @@ def _files_by_skill_id(skills: list[LLMSkill]) -> dict[str, list[LLMSkillFile]]:
     for skill_file in LLMSkillFile.objects.filter(skill__in=skills).order_by("path"):
         grouped.setdefault(skill_file.skill_id, []).append(skill_file)
     return grouped
+
+
+def _team_plugin_version_cached(team: Team) -> str:
+    """``_team_plugin_version`` behind a short TTL so the Max() query runs ~once per window per team
+    instead of on every clone / upload-pack / auto-update poll."""
+    cache_key = f"skills_marketplace_version:{team.id}"
+    version = cache.get(cache_key)
+    if version is None:
+        version = _team_plugin_version(team)
+        cache.set(cache_key, version, timeout=_MARKETPLACE_VERSION_CACHE_TTL_SECONDS)
+    return version
 
 
 def _team_plugin_version(team: Team) -> str:
