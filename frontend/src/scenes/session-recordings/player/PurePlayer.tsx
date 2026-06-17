@@ -14,6 +14,7 @@ import { HotkeysInterface, useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotke
 import { usePageVisibilityCb } from 'lib/hooks/usePageVisibility'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { Link } from 'lib/lemon-ui/Link'
+import { humanFriendlyDuration } from 'lib/utils/durations'
 import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { PlayerFrameCommentOverlay } from 'scenes/session-recordings/player/commenting/PlayerFrameCommentOverlay'
 import { RecordingDeleted } from 'scenes/session-recordings/player/RecordingDeleted'
@@ -88,6 +89,8 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
         showingClipParams,
         isMuted,
         endReached,
+        hasLateFullSnapshot,
+        leadingUnplayableMs,
     } = useValues(sessionRecordingPlayerLogic)
 
     const {
@@ -146,6 +149,20 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
         },
         // eslint-disable-next-line react-hooks/exhaustive-deps
         [isOldAndInvalid]
+    )
+
+    useEffect(
+        () => {
+            if (hasLateFullSnapshot) {
+                posthog.capture('session loaded with late full snapshot', {
+                    viewedSessionRecording: sessionRecordingId,
+                    recordingStartTime: sessionPlayerData?.start,
+                    leadingUnplayableMs,
+                })
+            }
+        },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [hasLateFullSnapshot]
     )
 
     // Track if the recording has ended to be able to reliably get it from the BE and stop the recording
@@ -323,6 +340,20 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
                             <div className="flex w-full h-full">
                                 <div className="flex flex-col flex-1 w-full relative">
                                     <div className="relative">{showMeta ? <PlayerMetaBar /> : null}</div>
+                                    {hasLateFullSnapshot && !hidePlayerElements ? (
+                                        <LemonBanner
+                                            type="warning"
+                                            dismissKey={`late-full-snapshot-${sessionRecordingId}`}
+                                        >
+                                            The first{' '}
+                                            {humanFriendlyDuration(leadingUnplayableMs / 1000, { maxUnits: 2 })} of this
+                                            recording can't be shown — the initial snapshot of the screen arrived late,
+                                            so playback starts from the first frame we can render.{' '}
+                                            <Link to="https://posthog.com/docs/session-replay/troubleshooting">
+                                                Learn more
+                                            </Link>
+                                        </LemonBanner>
+                                    ) : null}
                                     <div
                                         className="SessionRecordingPlayer__body"
                                         draggable={draggable && !isCommenting}

@@ -560,6 +560,45 @@ describe('sessionRecordingPlayerLogic', () => {
             expect(logic.values.playerError).toBeNull()
             expect(logic.values.currentTimestamp).toBe(START + 61500)
         })
+
+        it.each([
+            {
+                description: 'reports the leading unplayable span when the initial full snapshot is late',
+                firstSourceSnapshots: [inc(START), inc(START + 1000)],
+                secondSourceSnapshots: [fs(LATE_FS_TS)],
+                expectedLeadingUnplayableMs: LATE_FS_TS - START,
+                expectedHasLate: true,
+            },
+            {
+                description: 'reports no unplayable span when a full snapshot exists at the start',
+                firstSourceSnapshots: [fs(START), inc(START + 1000)],
+                secondSourceSnapshots: [inc(LATE_FS_TS)],
+                expectedLeadingUnplayableMs: 0,
+                expectedHasLate: false,
+            },
+            {
+                description: 'reports no unplayable span when no full snapshot exists anywhere',
+                firstSourceSnapshots: [inc(START), inc(START + 1000)],
+                secondSourceSnapshots: [inc(START + 61000), inc(START + 62000)],
+                expectedLeadingUnplayableMs: 0,
+                expectedHasLate: false,
+            },
+            {
+                description: 'measures the span but does not flag a late snapshot below the warning threshold',
+                firstSourceSnapshots: [inc(START), fs(START + 5000)],
+                secondSourceSnapshots: [inc(LATE_FS_TS)],
+                expectedLeadingUnplayableMs: 5000,
+                expectedHasLate: false,
+            },
+        ])(
+            '$description',
+            ({ firstSourceSnapshots, secondSourceSnapshots, expectedLeadingUnplayableMs, expectedHasLate }) => {
+                seedRecording(firstSourceSnapshots, secondSourceSnapshots)
+
+                expect(logic.values.leadingUnplayableMs).toBe(expectedLeadingUnplayableMs)
+                expect(logic.values.hasLateFullSnapshot).toBe(expectedHasLate)
+            }
+        )
     })
 
     describe('delete session recording', () => {

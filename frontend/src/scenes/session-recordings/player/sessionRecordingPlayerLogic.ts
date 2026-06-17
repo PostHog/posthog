@@ -154,6 +154,10 @@ const ReplayIframeDatakeyPrefix = 'ph_replay_fixed_heatmap_'
 // extra seek on nearly every playback.
 const MIN_CLAMPABLE_DEAD_ZONE_MS = 1000
 
+// a leading unplayable region longer than this is worth surfacing to the user (banner + scrubber
+// marker); below it the dead-zone clamp handles things silently and a warning would be noise
+const LATE_FULL_SNAPSHOT_THRESHOLD_MS = 20000
+
 export type SeekRenderability =
     // a FullSnapshot exists at or before the timestamp for its window
     | { kind: 'renderable' }
@@ -1131,6 +1135,35 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     return allSourcesLoaded ? { kind: 'unplayable' } : { kind: 'waitingForData' }
                 }
             },
+        ],
+
+        // The leading span playback can't render — when the initial full snapshot was lost or arrived
+        // late, this is the offset from start to the FullSnapshot the player clamps the playhead to.
+        // Derived from seekRenderability so the scrubber marker matches where playback actually starts,
+        // window-aware and excluding the no-full-snapshot-anywhere case (handled by the unplayable takeover).
+        leadingUnplayableMs: [
+            (s) => [s.sessionPlayerData, s.seekRenderability, s.allSourcesLoaded],
+            (
+                sessionPlayerData: SessionPlayerData,
+                seekRenderability: (timestamp: number) => SeekRenderability,
+                allSourcesLoaded: boolean
+            ): number => {
+                const start = sessionPlayerData.start?.valueOf()
+                if (!allSourcesLoaded || start == null) {
+                    return 0
+                }
+                const firstWindowSegment = sessionPlayerData.segments.find((segment) => segment.kind === 'window')
+                if (!firstWindowSegment) {
+                    return 0
+                }
+                const renderability = seekRenderability(firstWindowSegment.startTimestamp)
+                return renderability.kind === 'clampToFullSnapshot' ? Math.max(0, renderability.timestamp - start) : 0
+            },
+        ],
+
+        hasLateFullSnapshot: [
+            (s) => [s.leadingUnplayableMs],
+            (leadingUnplayableMs: number): boolean => leadingUnplayableMs > LATE_FULL_SNAPSHOT_THRESHOLD_MS,
         ],
 
         debugSnapshots: [
