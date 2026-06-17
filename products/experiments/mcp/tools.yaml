@@ -277,8 +277,8 @@ tools:
             ("Experiment has already ended.").
 
 
-            Other options: use ship_variant to end AND roll out a winner. Use pause to temporarily deactivate the flag
-            without ending.
+            Other options: use experiment-ship-variant to end AND roll out a winner. Use pause to temporarily deactivate
+            the flag without ending.
         param_overrides:
             id:
                 cast: string-int
@@ -803,7 +803,7 @@ tools:
 
 
             Do NOT use this to change lifecycle state — use the dedicated launch, end, pause, resume, archive, or
-            ship_variant tools instead.
+            experiment-ship-variant tools instead.
         include_params:
             - name
             - description
@@ -847,6 +847,15 @@ tools:
         enabled: false
     experiments-eligible-feature-flags:
         operation: experiments_eligible_feature_flags_retrieve
+        enabled: false
+    experiments-metrics-recalculation-create:
+        operation: experiments_metrics_recalculation_create
+        enabled: false
+    experiments-metrics-recalculation-latest-retrieve:
+        operation: experiments_metrics_recalculation_latest_retrieve
+        enabled: false
+    experiments-metrics-recalculation-retrieve:
+        operation: experiments_metrics_recalculation_retrieve
         enabled: false
     experiments-prompt-templates-retrieve:
         operation: experiments_prompt_templates_retrieve

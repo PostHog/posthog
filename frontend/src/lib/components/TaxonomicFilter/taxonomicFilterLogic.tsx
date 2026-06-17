@@ -38,6 +38,7 @@ import {
     ListStorage,
     QuickFilterItem,
     META_GROUP_TYPES,
+    OPEN_AS_SELF_ON_REOPEN,
     SelectedProperties,
     SimpleOption,
     SkeletonItem,
@@ -52,9 +53,12 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { IconCohort } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { capitalizeFirstLetter, isString, objectsEqual, pluralize, toParams } from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
-import { getPrimaryPropertyForEvent } from 'lib/utils/primaryEventProperty'
+import { getPrimaryPropertyForEvent } from 'lib/utils/events'
+import { isString } from 'lib/utils/guards'
+import { objectsEqual } from 'lib/utils/objects'
+import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'
+import { toParams } from 'lib/utils/url'
 import {
     getEventDefinitionIcon,
     getEventMetadataDefinitionIcon,
@@ -1145,8 +1149,12 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         type: TaxonomicFilterGroupType.PageviewUrls,
                         endpoint: `api/environments/${teamId}/events/values/?key=$current_url&event_name=$pageview`,
                         searchAlias: 'value',
-                        getName: (option: SimpleOption) => option.name,
-                        getValue: (option: SimpleOption) => option.name,
+                        getName: (option: SimpleOption | QuickFilterItem) => option.name,
+                        // The collapsed "URL contains <query>" row is a QuickFilterItem whose
+                        // selection value is the typed query, so generic consumers reading the
+                        // committed value get the query (matching the rebuild menu), not the label.
+                        getValue: (option: SimpleOption | QuickFilterItem) =>
+                            isQuickFilterItem(option) ? option.filterValue : option.name,
                         getPopoverHeader: () => `Pageview URL`,
                         minSearchQueryLength: 3,
                         searchDescription: 'URLs seen on pageview events',
@@ -1655,13 +1663,24 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 if (explicitActiveTab && groupTypes.includes(explicitActiveTab)) {
                     return explicitActiveTab
                 }
-                // If there's an existing filter type (e.g., SQL expression being edited),
-                // use that instead of defaulting to SuggestedFilters
-                if (propsGroupType && groupTypes.includes(propsGroupType)) {
+                // Config/edit flows have no simple category "value" to verify on the All
+                // surface — reopen them on their own tab: a SQL/HogQL expression lands in its
+                // editor, a data-warehouse selection in its table/column picker.
+                if (
+                    propsGroupType &&
+                    OPEN_AS_SELF_ON_REOPEN.has(propsGroupType) &&
+                    groupTypes.includes(propsGroupType)
+                ) {
                     return propsGroupType
                 }
+                // Otherwise lead with the All (Suggested filters) surface so reopening on an
+                // existing selection still shows recents/pinned + a cross-category search,
+                // rather than jumping to the selected item's category.
                 if (groupTypes.includes(TaxonomicFilterGroupType.SuggestedFilters)) {
                     return TaxonomicFilterGroupType.SuggestedFilters
+                }
+                if (propsGroupType && groupTypes.includes(propsGroupType)) {
+                    return propsGroupType
                 }
                 return groupTypes.find((t) => !metaGroupTypes.has(t)) ?? groupTypes[0]
             },
@@ -1843,6 +1862,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         filterValue: item.filterValue,
                         propertyFilterType: item.propertyFilterType,
                         eventName: item.eventName,
+                        // Mirrors the rebuild menu's `wasUrlContainsShortcut` so contains-shortcut
+                        // adoption is comparable across arms, not muddied with keyword shortcuts.
+                        wasUrlContainsShortcut: item.isContainsShortcut === true,
                     }),
                 })
 

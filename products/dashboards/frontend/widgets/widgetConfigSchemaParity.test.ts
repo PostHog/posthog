@@ -1,12 +1,14 @@
 // Guards FE Zod config shape against backend/OpenAPI pydantic drift (cheap SSOT check).
 import configPropertyMetadata from '../generated/widget-config-property-keys.json'
 import {
+    activityEventsWidgetConfigSchema,
     errorTrackingWidgetConfigSchema,
     sessionReplayWidgetConfigSchema,
     widgetFilterEntrySchema,
 } from '../generated/widget-configs.zod'
 
 const WIDGET_CONFIG_SCHEMAS = {
+    activity_events_list: activityEventsWidgetConfigSchema,
     error_tracking_list: errorTrackingWidgetConfigSchema,
     session_replay_list: sessionReplayWidgetConfigSchema,
 } as const

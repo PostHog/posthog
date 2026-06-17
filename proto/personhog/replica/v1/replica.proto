@@ -64,4 +64,7 @@ service PersonHogReplica {
   // Person deletes (temporary: should move to leader once it supports deletes)
   rpc DeletePersons(personhog.types.v1.DeletePersonsRequest) returns (personhog.types.v1.DeletePersonsResponse);
   rpc DeletePersonsBatchForTeam(personhog.types.v1.DeletePersonsBatchForTeamRequest) returns (personhog.types.v1.DeletePersonsBatchForTeamResponse);
+
+  // Person split (temporary: same routing caveat as deletes above)
+  rpc SplitPerson(personhog.types.v1.SplitPersonRequest) returns (personhog.types.v1.SplitPersonResponse);
 }

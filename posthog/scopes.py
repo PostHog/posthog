@@ -19,6 +19,7 @@ APIScopeObject = Literal[
     "access_control",
     "account",
     "activity_log",
+    "agents",
     "alert",
     "annotation",
     "approvals",
@@ -70,6 +71,7 @@ APIScopeObject = Literal[
     "llm_skill",
     "logs",
     "marketing_analytics",
+    "mcp_analytics",
     "metrics",
     "notebook",
     "organization",
@@ -127,6 +129,7 @@ API_SCOPE_ACTIONS: tuple[APIScopeActions, ...] = get_args(APIScopeActions)
 PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIScopeActions]] = [
     ("endpoint", "read"),
     ("feature_flag", "read"),
+    ("llm_gateway", "read"),
 ]
 
 # Scope objects minted programmatically only — never via the OAuth consent flow,
@@ -147,8 +150,7 @@ INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
 # OAuth metadata. Used for alpha / not-yet-public products where a user can
 # manually paste the scope into a PAT but where we don't want OAuth-based
 # clients (the consent screen, MCP, third-party apps) to discover it.
-OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset({"metrics", "wizard_session"})
-
+OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset({"wizard_session"})
 # Server-side scope assignment string-set constants (see RFC: server-side scope
 # assignment for OAuthApplications).
 #

@@ -295,8 +295,10 @@ describe('EmailService', () => {
             await waitForExpect(async () => expect(mailDevAPI.getEmails()).resolves.toHaveLength(1))
             const emails = await mailDevAPI.getEmails()
             expect(emails).toHaveLength(1)
-            expect(emails[0].html).toEqual(
-                `<body>Hi! <a href="http://localhost:8010/public/m/redirect?ph_id=ZnVuY3Rpb24tMTppbnZvY2F0aW9uLTE6Mjo6&target=https%3A%2F%2Fexample.com">Click me</a><img src="http://localhost:8010/public/m/pixel?ph_id=ZnVuY3Rpb24tMTppbnZvY2F0aW9uLTE6Mjo6" style="display: none;" /></body>`
+            // ph_id may be unsigned (base64url only) or signed (base64url + `.` + signature) depending on
+            // ENCRYPTION_SALT_KEYS. Match the structure, not the exact value.
+            expect(emails[0].html).toMatch(
+                /^<body>Hi! <a href="http:\/\/localhost:8010\/public\/m\/redirect\?ph_id=[A-Za-z0-9._-]+&target=https%3A%2F%2Fexample\.com">Click me<\/a><img src="http:\/\/localhost:8010\/public\/m\/pixel\?ph_id=[A-Za-z0-9._-]+" style="display: none;" \/><\/body>$/
             )
         })
     })
@@ -345,42 +347,33 @@ describe('EmailService', () => {
             expect(result.error).toBeUndefined()
             expect(sendEmailSpy).toHaveBeenCalledTimes(1)
             const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-            expect(sentCommand.input).toMatchInlineSnapshot(`
-                {
-                  "ConfigurationSetName": "posthog-messaging",
-                  "Content": {
-                    "Simple": {
-                      "Body": {
-                        "Html": {
-                          "Charset": "UTF-8",
-                          "Data": "Test HTML",
+            // The SES tag carries the short unsigned code (no dot); the signed code rides in the header.
+            expect(sentCommand.input).toMatchObject({
+                ConfigurationSetName: 'posthog-messaging',
+                Content: {
+                    Simple: {
+                        Body: {
+                            Html: { Charset: 'UTF-8', Data: 'Test HTML' },
+                            Text: { Charset: 'UTF-8', Data: 'Test Text' },
                         },
-                        "Text": {
-                          "Charset": "UTF-8",
-                          "Data": "Test Text",
-                        },
-                      },
-                      "Subject": {
-                        "Charset": "UTF-8",
-                        "Data": "Test Subject",
-                      },
+                        Subject: { Charset: 'UTF-8', Data: 'Test Subject' },
                     },
-                  },
-                  "Destination": {
-                    "ToAddresses": [
-                      "\"Test User\" <test@example.com>",
-                    ],
-                  },
-                  "EmailTags": [
-                    {
-                      "Name": "ph_id",
-                      "Value": "ZnVuY3Rpb24tMTppbnZvY2F0aW9uLTE6Mjo6",
-                    },
-                  ],
-                  "FeedbackForwardingEmailAddress": "test@posthog-test.com",
-                  "FromEmailAddress": "\"Test User\" <test@posthog-test.com>",
-                }
-            `)
+                },
+                Destination: { ToAddresses: ['"Test User" <test@example.com>'] },
+                EmailTags: [{ Name: 'ph_id', Value: expect.stringMatching(/^[A-Za-z0-9_-]+$/) }],
+                FeedbackForwardingEmailAddress: 'test@posthog-test.com',
+                FromEmailAddress: '"Test User" <test@posthog-test.com>',
+            })
+        })
+
+        it('records a send-time metric for normal sends but not for test sends', async () => {
+            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+
+            const normal = await service.executeSendEmail(invocation)
+            expect(normal.metrics.map((m) => m.metric_name)).toContain('email_sent')
+
+            const testSend = await service.executeSendEmail(invocation, true)
+            expect(testSend.metrics).toEqual([])
         })
 
         it('should include cc addresses in SES destination', async () => {
@@ -532,13 +525,30 @@ describe('EmailService', () => {
             )
         })
 
-        it('should not include unsubscribe headers for transactional emails', async () => {
+        it('should not include unsubscribe headers for transactional emails (but tracking-code header is still set)', async () => {
             sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
             invocation.hogFunction.metadata = { message_category_type: 'transactional' }
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toBeUndefined()
             const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-            expect(sentCommand.input.Content.Simple.Headers).toBeUndefined()
+            const headerNames = (sentCommand.input.Content.Simple.Headers ?? []).map((h: { Name: string }) => h.Name)
+            expect(headerNames).not.toContain('List-Unsubscribe')
+            expect(headerNames).not.toContain('List-Unsubscribe-Post')
+            expect(headerNames).toContain('X-PostHog-Tracking-Code')
+        })
+
+        it('attaches the X-PostHog-Tracking-Code header carrying the full signed code', async () => {
+            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+            invocation.hogFunction.metadata = { message_category_type: 'transactional' }
+            const result = await service.executeSendEmail(invocation)
+            expect(result.error).toBeUndefined()
+            const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
+            const trackingHeader = sentCommand.input.Content.Simple.Headers.find(
+                (h: { Name: string }) => h.Name === 'X-PostHog-Tracking-Code'
+            )
+            expect(trackingHeader).toBeDefined()
+            // The SES tag carries a different (shorter, unsigned) code so it stays under the 256-char cap.
+            expect(sentCommand.input.EmailTags[0].Value).not.toEqual(trackingHeader.Value)
         })
 
         it('should report a missing message id', async () => {

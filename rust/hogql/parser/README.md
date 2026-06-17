@@ -70,6 +70,64 @@ python -c "import hogql_parser_rs; print(hogql_parser_rs.parse_expr_json('1 + 2'
 musllinux 1_2) and macOS arm64/x86_64; see
 [`.github/workflows/build-hogql-parser-rs.yml`](../../../.github/workflows/build-hogql-parser-rs.yml).
 
+## Coverage-instrumented build (for the parser-parity PBT)
+
+A second build path exists for fuzz-driven parser-parity work: build the crate
+with `--features coverage` and SanitizerCoverage's `trace-pc-guard` pass, and
+the resulting wheel exposes two PyO3 functions (`cov_snapshot()`, `cov_reset()`)
+that the pytest PBT
+([`posthog/hogql/test/test_parser_pbt.py`](../../../posthog/hogql/test/test_parser_pbt.py))
+uses to feed a per-example `rust_edges` novelty count into Hypothesis `target()`
+on top of the existing `ast_depth` / `novel_kpaths` signals. See
+[`src/cov.rs`](src/cov.rs) for the callback + bitmap implementation. The
+production wheel is unchanged: without the feature, neither `cov.rs` nor the
+sancov pass are compiled, and the PBT detects the absence via
+`hasattr(hogql_parser_rs, "cov_snapshot")` and silently skips the third
+steering label.
+
+Cargo applies `RUSTFLAGS` globally to every crate it compiles, including
+dependency proc macros and build scripts, and those don't have our
+`__sanitizer_cov_trace_pc_guard*` callbacks linked in, so a naive
+`RUSTFLAGS=… maturin build --features coverage` segfaults the host build
+scripts on macOS (and fails to link on Linux). The fix is a small per-crate
+rustc wrapper that strips the sancov flags from every invocation except the
+one for `hogql_parser_rs`. That wrapper lives at
+[`scripts/cov-rustc-wrapper.py`](scripts/cov-rustc-wrapper.py):
+
+```bash
+WRAPPER=$PWD/rust/hogql/parser/scripts/cov-rustc-wrapper.py
+
+# Build the instrumented wheel into a temp dir.
+RUSTC_WRAPPER="$WRAPPER" \
+RUSTFLAGS="-C passes=sancov-module \
+           -C llvm-args=-sanitizer-coverage-level=3 \
+           -C llvm-args=-sanitizer-coverage-trace-pc-guard" \
+maturin build --release --manifest-path rust/hogql/parser/Cargo.toml \
+              --features coverage --out /tmp/cov-wheel
+
+# Install it into the active venv (in the same shell session — the shared
+# flox venv prunes manually-installed wheels otherwise).
+VIRTUAL_ENV=$PWD/.flox/cache/venv uv pip install --reinstall --no-deps \
+    /tmp/cov-wheel/hogql_parser_rs-*.whl
+
+# Verify the instrumented wheel is loaded.
+python -c "import hogql_parser_rs; print(hasattr(hogql_parser_rs, 'cov_snapshot'))"
+
+# Run the parity PBT; the rust_edges target appears in --hypothesis-show-statistics.
+RUN_PBT=1 hogli test posthog/hogql/test/test_parser_pbt.py::TestParserBackendEquivalence \
+    --hypothesis-show-statistics
+```
+
+`rust_edges` will show up in Hypothesis's per-test target stats alongside
+`ast_depth`. The wrapper has been verified to work locally on macOS aarch64. On
+a normal install (no coverage build) the PBT just doesn't emit the third label;
+nothing else changes.
+
+If you want a production CI job to produce this wheel as a sidecar, mirror the
+above invocation in a separate workflow file and publish it under a separate
+package name (e.g. `hogql_parser_rs_cov`) so production deploys can't
+accidentally pull the instrumented wheel.
+
 ## Publishing
 
 The crate is pinned via the `hogql-parser-rs==X.Y.Z` line in the
@@ -163,14 +221,18 @@ that have already been fixed in the working tree.
       `hog_corpus_diagnostic.py` (the hog corpus has been at 100% for
       a while — usually skip);
     + PBT (`pbt_diagnostic.py --rule expr|select|program`);
-    + thinking hard about edge cases the grammar surface invites.
+    + thinking hard about edge cases the grammar surface invites —
+      pipe each candidate through `shrink_query.py` to confirm it
+      diverges and get the minimal form.
 
     For everything other than regression tests, start with a small
     budget (lower `--n`, less thinking time) and increase until at
     least one divergence surfaces.
-2. **Reduce + pin.** Shrink each divergence to its minimal form and
-   add it as a regression test in `_test_parser.py`'s factory so
-   it runs on all three backends.
+2. **Reduce + pin.** Shrink each divergence to its minimal form via
+   shrinkray — pipe one query through `shrink_query.py`, or use
+   `--shrink-failures` on the corpus runners — and add it as a
+   regression test in `_test_parser.py`'s factory so it runs on all
+   three backends.
 3. **Read before fixing.** Read the grammar AND the cpp visitor for
    the rule. 100% identical behaviour means knowing exactly what cpp
    does — guessing leads to fixes that resurface on a deeper PBT
@@ -190,7 +252,8 @@ in the background:
 + `pbt_diagnostic.py --rule program`
 + `log_corpus_diagnostic.py` (real query corpus)
 + a research subagent grepping for cpp-vs-rust visitor differences
-+ a research subagent brainstorming adversarial edge cases
++ a research subagent brainstorming adversarial edge cases, each
+  confirmed + minimised through `shrink_query.py`
 
 Most of these can stream divergences as they're found. Once at least
 one known divergence is in hand, start fixing it while the parallel
@@ -233,8 +296,9 @@ PYTHONPATH=. python posthog/hogql/scripts/pbt_diagnostic.py \
 
 Generates ~5 000 random grammar surface examples per rule, parses with
 oracle and candidate, buckets divergences by AST shape, and prints
-shrunk reproducers. Use `--shrink-failures` to auto-reduce each
-divergence to a minimal example.
+reproducers. Use `--shrink-failures` to reduce each divergence to a
+minimal example via shrinkray (needs the optional `hogql-parser-parity`
+group — `uv sync --group hogql-parser-parity`).
 
 ### Real-query corpora via `log_corpus_diagnostic.py` / `hog_corpus_diagnostic.py`
 
@@ -250,7 +314,41 @@ PYTHONPATH=. python posthog/hogql/scripts/hog_corpus_diagnostic.py
 Both auto-download via `hogli metabase:query` and cache locally under
 `posthog/hogql/scripts/.local/`. Pass `--skip-download` to reuse the
 existing dump while iterating. Failures are written one block per
-divergence to a `.sql` / `.hog` file the agent can chew through.
+divergence to a `.sql` / `.hog` file the agent can chew through. Add
+`--shrink-failures` to reduce each failing query to a minimal repro via
+shrinkray before it's written.
+
+### Shrink one query via `shrink_query.py`
+
+```bash
+# Pipe in a query that diverges (or that you think might); get the
+# minimal repro back on stdout:
+echo '<query>' | PYTHONPATH=. python posthog/hogql/scripts/shrink_query.py --rule select
+```
+
+The "think hard about edge cases" arm of the loop, and the reducer for
+any single divergence. Reads one query on stdin, writes the smallest
+variant that still triggers the same divergence to stdout (chatter goes
+to stderr, so stdout is exactly the repro). Doubles as a divergence
+check: a query the backends agree on exits non-zero with the reason on
+stderr. An agent brainstorming edge cases pipes each candidate through
+it and keeps the ones that come back shrunk.
+
+### The diagnostics need the optional parity group
+
+Shrinking is powered by [shrinkray](https://github.com/DRMacIver/shrinkray),
+which lives in the `hogql-parser-parity` group rather than the default dev
+install (its transitive deps — textual, libcst, black — are heavy). The
+parity scripts in `posthog/hogql/scripts/` import it at module level, so
+they require that group:
+
+```bash
+uv sync --group hogql-parser-parity
+```
+
+Without it they fail fast at startup with a `ModuleNotFoundError` — these
+are parity-work-only tools, so they just require the parity dependency
+rather than degrading to a no-shrink mode.
 
 ### Perf bench via `posthog/hogql/scripts/parser_bench.py`
 
