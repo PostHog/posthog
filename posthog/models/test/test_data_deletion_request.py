@@ -218,6 +218,41 @@ def test_compile_hogql_predicate_emits_unqualified_materialized_column(team, sna
     assert sql == snapshot
 
 
+def test_compile_hogql_predicate_boolean_person_property_not_coerced(team):
+    """A boolean-typed person property compared to a non-``true``/``false`` string must not be
+    coerced to Bool. The coercion (``accurateCastOrNull(transform(...), 'Bool')``) maps the
+    stored value to NULL, so ``person.properties.isEnterprise = 'yes'`` would silently match
+    nothing. Compiling with the team's modifiers routes it through the property-group map read
+    instead, exactly as a regular HogQL query would.
+    """
+    from posthog.models.data_deletion_request import compile_hogql_predicate
+
+    from products.event_definitions.backend.models import PropertyDefinition
+
+    team.modifiers = {"propertyGroupsMode": "optimized"}
+    team.save()
+
+    PropertyDefinition.objects.create(
+        team=team,
+        name="isEnterprise",
+        type=PropertyDefinition.Type.PERSON,
+        property_type="Boolean",
+    )
+
+    request = DataDeletionRequest(
+        **_base_kwargs(
+            team_id=team.id,
+            events=["$pageview"],
+            hogql_predicate="person.properties.isEnterprise = 'yes'",
+        )
+    )
+    sql, _ = compile_hogql_predicate(request)
+
+    assert "person_properties_map_custom" in sql
+    assert "accurateCastOrNull" not in sql
+    assert "transform(" not in sql
+
+
 def test_rendered_count_query_substitutes_parameters():
     from posthog.admin.admins.data_deletion_request_admin import build_deletion_count_query
     from posthog.clickhouse.client.escape import substitute_params_for_display
