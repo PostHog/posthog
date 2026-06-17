@@ -5,9 +5,7 @@ in a dedicated submodule keeps ``facade/api.py`` free of the heavy ``ee.hogai.to
 import so config-only consumers don't drag it onto the ``django.setup()`` path.
 """
 
-from products.customer_analytics.backend.max_tools.open_account import OpenAccountTool
-from products.customer_analytics.backend.max_tools.upsert_account import UpsertAccountTool
-from products.customer_analytics.backend.max_tools.upsert_account_notebook import UpsertAccountNotebookTool
+from products.customer_analytics.backend.max_tools import OpenAccountTool, UpsertAccountNotebookTool, UpsertAccountTool
 
 __all__ = [
     "OpenAccountTool",

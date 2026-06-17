@@ -15,17 +15,16 @@ from posthog.api.utils import log_activity_from_viewset
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
 from products.customer_analytics.backend.models import Account, CustomerJourney, CustomerProfileConfig
-from products.notebooks.backend.models import Notebook, ResourceNotebook
-
-from ee.hogai.tools.create_notebook.tiptap import markdown_to_tiptap_nodes
-
-from .serializers import (
+from products.customer_analytics.backend.presentation.views.serializers import (
     AccountNotebookSerializer,
     AccountSerializer,
     CustomerJourneySerializer,
     CustomerProfileConfigSerializer,
 )
-from .utils import log_customer_profile_config_activity
+from products.customer_analytics.backend.presentation.views.utils import log_customer_profile_config_activity
+from products.notebooks.backend.models import Notebook, ResourceNotebook
+
+from ee.hogai.tools.create_notebook.tiptap import markdown_to_tiptap_nodes
 
 
 class CustomerProfileConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):

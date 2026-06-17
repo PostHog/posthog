@@ -2,7 +2,7 @@
 
 from django.urls import path
 
-from .external import ExternalAccountView
+from products.customer_analytics.backend.presentation.views.external import ExternalAccountView
 
 urlpatterns = [
     path("external/account", ExternalAccountView.as_view(), name="external-account"),

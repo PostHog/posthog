@@ -22,7 +22,7 @@ class TestExternalAccountAPI(APIBaseTest):
         self.account = create_account(team_id=self.team.id, name="Acme Corp", external_id="acme-1")
         self.url = "/api/customer_analytics/external/account"
         csp_enabled = patch(
-            "products.customer_analytics.backend.api.external.posthoganalytics.feature_enabled",
+            "products.customer_analytics.backend.presentation.views.external.posthoganalytics.feature_enabled",
             return_value=True,
         )
         self.mock_csp_enabled = csp_enabled.start()
