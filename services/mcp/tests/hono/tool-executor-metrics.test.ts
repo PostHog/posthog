@@ -36,6 +36,7 @@ vi.mock('@/resources', () => ({
 
 import { z } from 'zod'
 
+import { PostHogRateLimitError, wrapError } from '@/lib/errors'
 import { InstructionsBuilder } from '@/hono/instructions'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { ToolCatalog } from '@/hono/tool-catalog'
@@ -141,6 +142,43 @@ describe('ToolExecutor metrics', () => {
             expect(mockToolCallsInc).toHaveBeenCalledWith({ tool: 'fail-tool', status: 'error' })
             expect(mockToolErrorsInc).toHaveBeenCalledWith({ tool: 'fail-tool', error_type: 'internal' })
             expect(mockToolDurationStartTimer.mock.results[0]!.value).toHaveBeenCalledWith({ status: 'error' })
+        })
+
+        it('classifies a downstream 429 as rate_limited, keeping it out of the error rate', async () => {
+            vi.spyOn(catalog, 'getToolByName').mockReturnValue(
+                makeFakeTool('execute-sql', async () => {
+                    throw new PostHogRateLimitError({
+                        body: '{}',
+                        url: 'https://us.posthog.com/api/environments/2/mcp_tools/execute_sql/',
+                        method: 'POST',
+                        retryAfterSeconds: 5,
+                    })
+                }) as any
+            )
+
+            await executor.handleToolCall({ name: 'execute-sql', arguments: {} }, makeState([{ name: 'execute-sql' }]))
+
+            expect(mockToolErrorsInc).toHaveBeenCalledWith({ tool: 'execute-sql', error_type: 'rate_limited' })
+        })
+
+        it('classifies a 429 wrapped in a cause chain as rate_limited', async () => {
+            vi.spyOn(catalog, 'getToolByName').mockReturnValue(
+                makeFakeTool('execute-sql', async () => {
+                    throw wrapError(
+                        'Failed to run query',
+                        new PostHogRateLimitError({
+                            body: '{}',
+                            url: 'https://us.posthog.com/api/environments/2/mcp_tools/execute_sql/',
+                            method: 'POST',
+                            retryAfterSeconds: null,
+                        })
+                    )
+                }) as any
+            )
+
+            await executor.handleToolCall({ name: 'execute-sql', arguments: {} }, makeState([{ name: 'execute-sql' }]))
+
+            expect(mockToolErrorsInc).toHaveBeenCalledWith({ tool: 'execute-sql', error_type: 'rate_limited' })
         })
 
         it('records validation_error without starting a timer', async () => {
