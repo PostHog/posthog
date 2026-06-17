@@ -19,7 +19,7 @@ use anyhow::Result;
 use common_types::{CapturedEvent, RawEvent};
 
 use capture::config::CaptureMode;
-use capture::v1::context::Context;
+use capture::v1::context::RequestContext;
 use capture::v1::sinks::event::Event;
 use capture::v1::sinks::kafka::producer::KafkaProducer;
 use capture::v1::sinks::kafka::KafkaSink;
@@ -49,7 +49,7 @@ fn v1_kafka_config(topic: &str) -> capture::v1::sinks::kafka::config::Config {
     envconfig::Envconfig::init_from_hashmap(&env).unwrap()
 }
 
-fn v1_test_context() -> Context {
+fn v1_test_context() -> RequestContext {
     let mut ctx = test_utils::test_context();
     ctx.api_token = "phc_integration_test_token".to_string();
     ctx

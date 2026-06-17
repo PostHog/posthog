@@ -22,7 +22,7 @@ impl io::Write for StringWriter<'_> {
     }
 }
 
-use crate::v1::context::Context;
+use crate::v1::context::RequestContext;
 use crate::v1::sinks::event::Event as SinkEvent;
 use crate::v1::sinks::Destination;
 
@@ -137,7 +137,7 @@ impl SinkEvent for WrappedEvent {
     // fields. Sinks convert the returned CapturedEventHeaders to their
     // backend-specific format (e.g. OwnedHeaders for Kafka) via the From impl
     // in common_types — same conversion legacy capture uses.
-    fn headers(&self, ctx: &Context) -> CapturedEventHeaders {
+    fn headers(&self, ctx: &RequestContext) -> CapturedEventHeaders {
         // v0 compat: downstream consumers key on "force_disable_person_processing".
         // v1 decouples overflow routing from person-processing (unlike v0 where
         // overflow ForceLimited unconditionally sets this); operators configure
@@ -189,7 +189,7 @@ impl SinkEvent for WrappedEvent {
         }
     }
 
-    fn partition_key(&self, ctx: &Context) -> String {
+    fn partition_key(&self, ctx: &RequestContext) -> String {
         use std::fmt::Write;
         let mut buf = String::with_capacity(128);
         match (
@@ -209,7 +209,7 @@ impl SinkEvent for WrappedEvent {
         buf
     }
 
-    fn serialize(&self, ctx: &Context) -> anyhow::Result<String> {
+    fn serialize(&self, ctx: &RequestContext) -> anyhow::Result<String> {
         let spliced = self.build_spliced_properties(ctx)?;
         let properties: &RawValue = spliced.as_deref().unwrap_or(&self.event.properties);
         let ingestion_data = IngestionData {
@@ -258,7 +258,7 @@ impl SinkEvent for WrappedEvent {
 
 impl WrappedEvent {
     #[allow(unused_assignments)]
-    fn build_property_injections(&self, ctx: &Context) -> anyhow::Result<String> {
+    fn build_property_injections(&self, ctx: &RequestContext) -> anyhow::Result<String> {
         let mut buf = String::with_capacity(256);
         let mut first = true;
 
@@ -310,7 +310,10 @@ impl WrappedEvent {
 
     /// Build spliced properties if injection is needed, or return None
     /// to signal the caller should borrow `self.event.properties` directly.
-    fn build_spliced_properties(&self, ctx: &Context) -> anyhow::Result<Option<Box<RawValue>>> {
+    fn build_spliced_properties(
+        &self,
+        ctx: &RequestContext,
+    ) -> anyhow::Result<Option<Box<RawValue>>> {
         let injection = self.build_property_injections(ctx)?;
         if injection.is_empty() {
             return Ok(None);
@@ -1024,7 +1027,7 @@ mod tests {
         DateTime::parse_from_rfc3339(s).unwrap().with_timezone(&Utc)
     }
 
-    fn serialize_ctx() -> crate::v1::context::Context {
+    fn serialize_ctx() -> crate::v1::context::RequestContext {
         let mut ctx = test_utils::test_context();
         ctx.api_token = "phc_project_abc123".to_string();
         ctx.client_ip = IpAddr::V4(Ipv4Addr::new(203, 0, 113, 42));
@@ -1066,7 +1069,7 @@ mod tests {
 
     fn serialize_and_parse(
         wrapped: &WrappedEvent,
-        ctx: &crate::v1::context::Context,
+        ctx: &crate::v1::context::RequestContext,
     ) -> (CapturedEvent, RawEvent) {
         let buf = wrapped.serialize(ctx).expect("serialize failed");
         let captured: CapturedEvent =

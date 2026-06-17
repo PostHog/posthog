@@ -8,9 +8,10 @@ use serde_json::value::RawValue;
 use uuid::Uuid;
 
 use crate::v1::analytics::constants::CAPTURE_V1_PATH;
+use crate::v1::analytics::context::Context as AnalyticsContext;
 use crate::v1::analytics::query::Query;
 use crate::v1::analytics::types::{Event, EventResult, Options, WrappedEvent};
-use crate::v1::context::Context;
+use crate::v1::context::RequestContext;
 use crate::v1::sinks::Destination;
 
 pub fn raw_obj(s: &str) -> Box<RawValue> {
@@ -26,8 +27,8 @@ pub fn default_options() -> Options {
     }
 }
 
-pub fn test_context() -> Context {
-    Context {
+pub fn test_context() -> RequestContext {
+    RequestContext {
         api_token: "phc_test_token".to_string(),
         user_agent: "test-agent/1.0".to_string(),
         content_type: "application/json".to_string(),
@@ -37,13 +38,22 @@ pub fn test_context() -> Context {
         request_id: Uuid::new_v4(),
         client_timestamp: Utc::now(),
         client_ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
-        query: Query::default(),
+        raw_query: None,
         method: Method::POST,
         path: CAPTURE_V1_PATH,
         server_received_at: Utc::now(),
         created_at: Some("2026-03-19T14:30:00.000Z".to_string()),
         capture_internal: false,
         historical_migration: false,
+    }
+}
+
+/// Analytics-mode context wrapping [`test_context`] for tests that drive
+/// `process_batch` (which takes `&mut analytics::Context`).
+pub fn test_analytics_context() -> AnalyticsContext {
+    AnalyticsContext {
+        req: test_context(),
+        query: Query::default(),
     }
 }
 
@@ -386,7 +396,7 @@ impl WrappedEventMut for WrappedEvent {
 /// and its inner data field round-trips through RawEvent.
 pub fn assert_round_trip(
     wrapped: &WrappedEvent,
-    ctx: &Context,
+    ctx: &RequestContext,
 ) -> (common_types::CapturedEvent, common_types::RawEvent) {
     use crate::v1::sinks::event::Event as SinkEvent;
 

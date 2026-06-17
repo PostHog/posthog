@@ -22,6 +22,15 @@ pub const POSTHOG_REQUEST_ID: &str = "PostHog-Request-Id";
 pub const POSTHOG_REQUEST_TIMESTAMP: &str = "PostHog-Request-Timestamp";
 
 // ---------------------------------------------------------------------------
+// Supported content encodings
+// ---------------------------------------------------------------------------
+
+/// Allowlist of content encodings the capture endpoint will decompress.
+/// Lives at the v1 level (not in analytics/) so request-context decoding is
+/// CaptureMode-agnostic.
+pub const SUPPORTED_ENCODINGS: &[&str] = &["gzip", "deflate", "br", "zstd"];
+
+// ---------------------------------------------------------------------------
 // Required request headers
 // ---------------------------------------------------------------------------
 

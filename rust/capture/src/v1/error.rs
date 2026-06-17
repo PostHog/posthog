@@ -8,7 +8,7 @@ use tracing::Level;
 
 use crate::v1::analytics::constants::DEFAULT_RETRY_AFTER_SECS;
 use crate::v1::constants::{CAPTURE_V1_ERROR_METRIC, CAPTURE_V1_UNKNOWN_PATH};
-use crate::v1::context::Context;
+use crate::v1::context::RequestContext;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ErrorResponse {
@@ -206,7 +206,7 @@ impl Error {
         }
     }
 
-    pub(crate) fn stat_error(&self, ctx: Option<&Context>) {
+    pub(crate) fn stat_error(&self, ctx: Option<&RequestContext>) {
         let path = ctx.map(|c| c.path).unwrap_or(CAPTURE_V1_UNKNOWN_PATH);
         let status = self.status_code().as_str().to_owned();
         counter!(
@@ -278,7 +278,7 @@ impl Error {
     }
 }
 
-/// Emits a `tracing::event!` at the given level with all `v1::Context`
+/// Emits a `tracing::event!` at the given level with all `RequestContext`
 /// fields expanded as structured log tags.
 ///
 /// Usage:
@@ -301,18 +301,18 @@ macro_rules! ctx_log {
             content_encoding = ?ctx.content_encoding,
             client_ip = %ctx.client_ip,
             method = %ctx.method,
-            query = ?ctx.query,
+            query = ?ctx.raw_query,
             path = %ctx.path,
             $($rest)+
         )
     }};
 }
 
-/// Logs at the error's `log_level()` with all `v1::Context` fields,
+/// Logs at the error's `log_level()` with all `RequestContext` fields,
 /// then bumps the error metric counter via `stat_error()`.
 ///
-/// Always requires a `&Context`. For the pre-Context header-error path,
-/// inline the tracing call directly.
+/// Always requires a context that derefs to `&RequestContext`. For the
+/// pre-context header-error path, inline the tracing call directly.
 ///
 /// Usage:
 ///   `log_stat_error!(err, &context)`

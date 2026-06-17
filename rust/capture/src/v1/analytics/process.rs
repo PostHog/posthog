@@ -21,8 +21,9 @@ use crate::v0_request::DataType;
 use limiters::overflow::{OverflowLimiter, OverflowLimiterResult};
 use tracing::Level;
 
+use super::context::Context;
 use crate::router;
-use crate::v1::context::Context;
+use crate::v1::context::RequestContext;
 use crate::v1::sinks::event::Event as SinkEvent;
 use crate::v1::sinks::types::SinkResult;
 use crate::v1::sinks::Destination;
@@ -183,7 +184,7 @@ fn validate_batch(batch: &Batch) -> Result<(), Error> {
     Ok(())
 }
 
-fn validate_events(context: &Context, batch: Batch) -> Result<Vec<WrappedEvent>, Error> {
+fn validate_events(context: &RequestContext, batch: Batch) -> Result<Vec<WrappedEvent>, Error> {
     let mut events: Vec<WrappedEvent> = Vec::with_capacity(batch.batch.len());
     let mut seen: HashSet<Uuid> = HashSet::with_capacity(batch.batch.len());
     let mut illegal_distinct_id_count: u64 = 0;
@@ -254,7 +255,7 @@ fn validate_events(context: &Context, batch: Batch) -> Result<Vec<WrappedEvent>,
     Ok(events)
 }
 
-fn observe_malformed_events(context: &Context, events: &[WrappedEvent]) {
+fn observe_malformed_events(context: &RequestContext, events: &[WrappedEvent]) {
     let mut malformed: HashMap<&'static str, u64> = HashMap::new();
 
     for event in events.iter() {
@@ -316,7 +317,7 @@ fn validate_event(event: &Event) -> Result<DateTime<Utc>, Error> {
 }
 
 fn normalize_timestamp(
-    context: &Context,
+    context: &RequestContext,
     event: &Event,
     raw_event_ts: DateTime<Utc>,
 ) -> DateTime<Utc> {
@@ -336,7 +337,7 @@ fn normalize_timestamp(
 
 fn apply_historical_rerouting(
     cfg: &router::HistoricalConfig,
-    context: &Context,
+    context: &RequestContext,
     events: &mut [WrappedEvent],
 ) {
     for event in events.iter_mut() {
@@ -366,7 +367,11 @@ fn apply_historical_rerouting(
     }
 }
 
-fn apply_overflow_stamping(limiter: &OverflowLimiter, ctx: &Context, events: &mut [WrappedEvent]) {
+fn apply_overflow_stamping(
+    limiter: &OverflowLimiter,
+    ctx: &RequestContext,
+    events: &mut [WrappedEvent],
+) {
     for event in events.iter_mut() {
         if event.destination != Destination::AnalyticsMain {
             continue;
@@ -468,7 +473,7 @@ async fn apply_restrictions(
 
 async fn apply_token_distinct_id_limits(
     limiter: &GlobalRateLimiter,
-    context: &Context,
+    context: &RequestContext,
     events: &mut [WrappedEvent],
 ) {
     let mut limited_distinct_ids: HashSet<&str> = HashSet::new();
@@ -989,8 +994,8 @@ mod tests {
         DateTime::parse_from_rfc3339(s).unwrap().with_timezone(&Utc)
     }
 
-    fn ctx_with_skew(server_received_at: DateTime<Utc>, skew: Duration) -> Context {
-        Context {
+    fn ctx_with_skew(server_received_at: DateTime<Utc>, skew: Duration) -> RequestContext {
+        RequestContext {
             api_token: "phc_test".to_string(),
             user_agent: "test/1.0".to_string(),
             content_type: "application/json".to_string(),
@@ -1000,7 +1005,7 @@ mod tests {
             request_id: Uuid::new_v4(),
             client_timestamp: server_received_at + skew,
             client_ip: std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
-            query: crate::v1::analytics::query::Query::default(),
+            raw_query: None,
             method: axum::http::Method::POST,
             path: CAPTURE_V1_PATH,
             server_received_at,
@@ -1646,7 +1651,7 @@ mod tests {
         GlobalRateLimiter::new_with(MockLimiter::new(keys))
     }
 
-    fn td_context() -> Context {
+    fn td_context() -> RequestContext {
         let mut ctx = test_utils::test_context();
         ctx.api_token = "phc_tok".to_string();
         ctx
@@ -2464,7 +2469,7 @@ mod tests {
         let mut state = test_state.state;
         state.v1_sink_router = None;
 
-        let mut ctx = test_utils::test_context();
+        let mut ctx = test_utils::test_analytics_context();
         let batch = valid_batch(vec![valid_event()]);
 
         let err = process_batch(&state, &mut ctx, batch).await.unwrap_err();
@@ -2479,7 +2484,7 @@ mod tests {
         let test_state = crate::v1::test_utils::TestStateBuilder::new().build();
         let state = test_state.state;
 
-        let mut ctx = test_utils::test_context();
+        let mut ctx = test_utils::test_analytics_context();
         // Every event is invalid — empty name, empty distinct_id, bad timestamp.
         let batch = valid_batch(vec![
             Event {

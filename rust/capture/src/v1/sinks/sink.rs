@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 
-use crate::v1::context::Context;
+use crate::v1::context::RequestContext;
 use crate::v1::sinks::event::Event;
 use crate::v1::sinks::types::SinkResult;
 use crate::v1::sinks::SinkName;
@@ -15,7 +15,7 @@ pub trait Sink: Send + Sync {
     /// skipped events (should_publish false / Destination::Drop) produce no result.
     async fn publish_batch(
         &self,
-        ctx: &Context,
+        ctx: &RequestContext,
         events: &[&(dyn Event + Send + Sync)],
     ) -> Vec<Box<dyn SinkResult>>;
 

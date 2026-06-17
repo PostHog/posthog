@@ -13,7 +13,7 @@ use tracing::Level;
 use uuid::Uuid;
 
 use crate::config::CaptureMode;
-use crate::v1::context::Context;
+use crate::v1::context::RequestContext;
 use crate::v1::sinks::event::Event;
 use crate::v1::sinks::sink::Sink;
 use crate::v1::sinks::types::{BatchSummary, Destination, Outcome, SinkResult};
@@ -159,7 +159,7 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
     #[allow(clippy::too_many_arguments)]
     async fn enqueue_events(
         &self,
-        ctx: &Context,
+        ctx: &RequestContext,
         events: &[&(dyn Event + Send + Sync)],
         labels: &MetricLabels,
         enqueued_at: DateTime<Utc>,
@@ -408,7 +408,7 @@ impl<P: KafkaProducerTrait + 'static> Sink for KafkaSink<P> {
 
     async fn publish_batch(
         &self,
-        ctx: &Context,
+        ctx: &RequestContext,
         events: &[&(dyn Event + Send + Sync)],
     ) -> Vec<Box<dyn SinkResult>> {
         let labels = MetricLabels {

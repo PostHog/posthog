@@ -8,7 +8,7 @@ use rstest::rstest;
 use uuid::Uuid;
 
 use crate::config::CaptureMode;
-use crate::v1::context::Context;
+use crate::v1::context::RequestContext;
 use crate::v1::sinks::event::Event;
 use crate::v1::sinks::sink::Sink;
 use crate::v1::sinks::types::{BatchSummary, Outcome};
@@ -105,15 +105,15 @@ impl Event for FakeEvent {
         &self.destination
     }
 
-    fn headers(&self, _ctx: &Context) -> CapturedEventHeaders {
+    fn headers(&self, _ctx: &RequestContext) -> CapturedEventHeaders {
         self.event_headers.clone()
     }
 
-    fn partition_key(&self, _ctx: &Context) -> String {
+    fn partition_key(&self, _ctx: &RequestContext) -> String {
         self.partition_key.clone().unwrap_or_default()
     }
 
-    fn serialize(&self, _ctx: &Context) -> anyhow::Result<String> {
+    fn serialize(&self, _ctx: &RequestContext) -> anyhow::Result<String> {
         match &self.payload {
             Ok(p) => Ok(p.clone()),
             Err(e) => Err(anyhow::anyhow!(e.clone())),
@@ -129,7 +129,7 @@ struct TestHarness {
     sink: KafkaSink<MockProducer>,
     producer: Arc<MockProducer>,
     handle: lifecycle::Handle,
-    ctx: Context,
+    ctx: RequestContext,
     _monitor: lifecycle::MonitorGuard,
 }
 

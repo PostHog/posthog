@@ -4,7 +4,7 @@ use std::fmt;
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
 
-use crate::v1::context::Context;
+use crate::v1::context::RequestContext;
 use crate::v1::sinks::event::Event;
 use crate::v1::sinks::sink::Sink;
 use crate::v1::sinks::types::SinkResult;
@@ -61,7 +61,7 @@ impl Router {
     pub async fn publish_batch(
         &self,
         sink: SinkName,
-        ctx: &Context,
+        ctx: &RequestContext,
         events: &[&(dyn Event + Send + Sync)],
     ) -> Result<Vec<Box<dyn SinkResult>>, RouterError> {
         let target = self
@@ -75,7 +75,7 @@ impl Router {
     pub async fn publish(
         &self,
         sink: SinkName,
-        ctx: &Context,
+        ctx: &RequestContext,
         event: &(dyn Event + Send + Sync),
     ) -> Result<Option<Box<dyn SinkResult>>, RouterError> {
         let results = self.publish_batch(sink, ctx, &[event]).await?;
@@ -117,7 +117,7 @@ mod tests {
     use uuid::Uuid;
 
     use crate::config::CaptureMode;
-    use crate::v1::context::Context;
+    use crate::v1::context::RequestContext;
     use crate::v1::sinks::event::Event;
     use crate::v1::sinks::kafka::mock::MockProducer;
     use crate::v1::sinks::kafka::sink::KafkaSink;
@@ -161,7 +161,7 @@ mod tests {
         fn destination(&self) -> &Destination {
             &self.destination
         }
-        fn headers(&self, _ctx: &Context) -> CapturedEventHeaders {
+        fn headers(&self, _ctx: &RequestContext) -> CapturedEventHeaders {
             CapturedEventHeaders {
                 token: None,
                 distinct_id: None,
@@ -179,10 +179,10 @@ mod tests {
                 content_encoding: None,
             }
         }
-        fn partition_key(&self, _ctx: &Context) -> String {
+        fn partition_key(&self, _ctx: &RequestContext) -> String {
             format!("key:{}", self.uuid())
         }
-        fn serialize(&self, _ctx: &Context) -> anyhow::Result<String> {
+        fn serialize(&self, _ctx: &RequestContext) -> anyhow::Result<String> {
             Ok(r#"{"event":"test"}"#.to_string())
         }
     }
@@ -222,7 +222,7 @@ mod tests {
         (router, handle, monitor)
     }
 
-    fn test_ctx() -> Context {
+    fn test_ctx() -> RequestContext {
         let mut ctx = crate::v1::test_utils::test_context();
         ctx.created_at = None;
         ctx

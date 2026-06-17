@@ -9,13 +9,6 @@ use axum::http::HeaderValue;
 pub const DEFAULT_RETRY_AFTER_SECS: HeaderValue = HeaderValue::from_static("1");
 
 // ---------------------------------------------------------------------------
-// Supported content encodings
-// ---------------------------------------------------------------------------
-
-/// Allowlist of content encodings the capture endpoint will decompress.
-pub const SUPPORTED_ENCODINGS: &[&str] = &["gzip", "deflate", "br", "zstd"];
-
-// ---------------------------------------------------------------------------
 // Route paths
 // ---------------------------------------------------------------------------
 
