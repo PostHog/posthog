@@ -3145,7 +3145,7 @@
         }
     },
     "external-data-sources-connections-list": {
-        "description": "List external data sources that can be used as a connectionId when running execute-sql against an external source (direct-query Postgres connections). Returns a lightweight id, prefix, and engine for each — unlike external-data-sources-list, it does not include warehouse import sources or table schemas. Use this to discover valid connectionId values.",
+        "description": "List external data sources that can be used as a connectionId when running execute-sql against an external source (direct-query Postgres and MySQL connections). Returns a lightweight id, prefix, and engine for each — unlike external-data-sources-list, it does not include warehouse import sources or table schemas. Use this to discover valid connectionId values.",
         "category": "Warehouse sources",
         "feature": "warehouse_sources",
         "summary": "List direct-query connections",
