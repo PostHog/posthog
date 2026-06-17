@@ -43,9 +43,31 @@ class TestSummarize:
             RuntimeError("ch timeout"),
             ChunkResult(chunk_id=2, scored=7),
         ]
-        with mock.patch("posthog.temporal.session_replay.surfacing_scoring_sweep.workflow.workflow.logger"):
+        with (
+            mock.patch("posthog.temporal.session_replay.surfacing_scoring_sweep.workflow.workflow.logger"),
+            mock.patch(
+                "posthog.temporal.session_replay.surfacing_scoring_sweep.workflow.record_tick_summary",
+            ) as mock_record_tick_summary,
+        ):
             summary = _summarize(chunks, results)
         assert summary == ScoreSessionsBatchResult(total_scored=10, chunks_dispatched=3, chunks_failed=1)
+        mock_record_tick_summary.assert_called_once_with(total_scored=10, chunks_failed=1)
+
+    def test_record_tick_summary_noops_when_tick_has_no_positive_counts(self) -> None:
+        chunks = [_chunk(0), _chunk(1)]
+        results: list[ChunkResult | BaseException] = [
+            ChunkResult(chunk_id=0, scored=0),
+            ChunkResult(chunk_id=1, scored=0),
+        ]
+        with (
+            mock.patch("posthog.temporal.session_replay.surfacing_scoring_sweep.workflow.workflow.logger"),
+            mock.patch(
+                "posthog.temporal.session_replay.surfacing_scoring_sweep.workflow.record_tick_summary",
+            ) as mock_record_tick_summary,
+        ):
+            summary = _summarize(chunks, results)
+        assert summary == ScoreSessionsBatchResult(total_scored=0, chunks_dispatched=2, chunks_failed=0)
+        mock_record_tick_summary.assert_called_once_with(total_scored=0, chunks_failed=0)
 
 
 @pytest.mark.asyncio

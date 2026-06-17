@@ -274,6 +274,18 @@ The schedule fires every 5 min with `ScheduleOverlapPolicy.SKIP` — if a tick
 is still running when the next is due, the new one is dropped (the next
 tick's CH `IS NULL` filter naturally picks up whatever the slow tick missed).
 
+## Metrics
+
+Temporal SDK metrics (Prometheus on the worker metrics port):
+
+| Metric                                                     | Type      | When                                   |
+| ---------------------------------------------------------- | --------- | -------------------------------------- |
+| `surfacing_scoring_total_scored`                           | counter   | end of each tick (`total_scored > 0`)  |
+| `surfacing_scoring_chunks_failed`                          | counter   | end of each tick (`chunks_failed > 0`) |
+| `surfacing_scoring_score_chunk_activity_execution_latency` | histogram | each `score_chunk_activity` run        |
+
+Emitted via `SurfacingScoringMetricsInterceptor` on `SURFACING_SCORING_SWEEP_TASK_QUEUE`.
+
 ## Open follow-ups
 
 These are deliberately out of scope for the initial PR:
@@ -294,6 +306,3 @@ These are deliberately out of scope for the initial PR:
   sessions, write a one-off Dagster job that walks
   `cityHash64(session_id) % N` buckets and triggers the same
   `score_chunk_activity` per bucket.
-- **Metrics.** Expose `total_scored`, `chunks_failed`, and the chunk-wall-time
-  histogram to whatever observability stack the `SURFACING_SCORING_SWEEP_TASK_QUEUE`
-  worker pool uses.

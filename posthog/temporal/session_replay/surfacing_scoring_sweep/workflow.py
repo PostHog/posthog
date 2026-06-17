@@ -45,6 +45,7 @@ with workflow.unsafe.imports_passed_through():
         list_chunks_activity,
         score_chunk_activity,
     )
+    from posthog.temporal.session_replay.surfacing_scoring_sweep.metrics import record_tick_summary
 
 
 @workflow.defn(name=WORKFLOW_NAME)
@@ -115,4 +116,5 @@ def _summarize(chunks: list[ChunkSpec], results: list[ChunkResult | BaseExceptio
         chunks_failed=summary.chunks_failed,
         total_scored=summary.total_scored,
     )
+    record_tick_summary(total_scored=summary.total_scored, chunks_failed=summary.chunks_failed)
     return summary
