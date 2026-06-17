@@ -1,1 +1,1 @@
-1224_columnconfiguration_properties
+1219_teamprovisioningconfig_application_idx
