@@ -243,7 +243,6 @@ def _build_sandbox_tags(
         "task_run_id": ctx.run_id,
         "origin_product": ctx.origin_product,
         "team_id": ctx.team_id,
-        # Links a sandbox straight back to its Temporal workflow.
         "workflow_id": TaskRun.get_workflow_id(ctx.task_id, ctx.run_id),
         "image_source": prepared.image_source,
         "sandbox_runtime": "vm" if use_vm_sandbox else "gvisor",
