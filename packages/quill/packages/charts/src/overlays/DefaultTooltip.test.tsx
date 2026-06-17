@@ -9,7 +9,15 @@ const SCALES = { x: () => 0, y: (v: number) => v, yTicks: () => [] }
 const SERIES_DATA: TooltipContext['seriesData'] = [{ series: { key: 'a', label: 'A', data: [] }, value: 19402, color: '#000' }]
 
 function renderTooltip(valueFormatter?: (v: number) => string): void {
-    const ctx: TooltipContext = { label: 'When', seriesData: SERIES_DATA }
+    const ctx: TooltipContext = {
+        dataIndex: 0,
+        label: 'When',
+        seriesData: SERIES_DATA,
+        position: { x: 0, y: 0 },
+        hoverPosition: null,
+        canvasBounds: new DOMRect(),
+        isPinned: false,
+    }
     renderOverlayInChart(<DefaultTooltip {...ctx} valueFormatter={valueFormatter} />, makeOverlayContext(SCALES))
 }
 
