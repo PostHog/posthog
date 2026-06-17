@@ -1306,7 +1306,7 @@ class TestMultiTurnSessionJSONCorrection:
             return "\n".join(all_lines[:visible])
 
         session = self._make_session()
-        session._workflow_handle.signal = AsyncMock(side_effect=record_signal)  # type: ignore[union-attr,method-assign]
+        session._workflow_handle.signal = AsyncMock(side_effect=record_signal)  # type: ignore[union-attr,method-assign]  # ty: ignore[invalid-assignment]
         # Session state as if start() already consumed the prior turn.
         session.log_lines_seen = len(prior_turn)
         session.printed_lines = len(prior_turn)
