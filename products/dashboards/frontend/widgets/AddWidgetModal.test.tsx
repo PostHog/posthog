@@ -2,7 +2,7 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BindLogic } from 'kea'
 
@@ -114,27 +114,25 @@ describe('AddWidgetModal', () => {
         expect(screen.queryByText("You haven't captured any exceptions")).not.toBeInTheDocument()
     })
 
-    it('highlights products the team has not adopted as new with a learn-more link', () => {
+    it('shows a group-level learn-more banner for products the team has not adopted', () => {
         renderAddWidgetModal()
 
-        const topIssuesCard = screen.getByRole('checkbox', { name: 'Top issues' })
-        expect(within(topIssuesCard).getByText('New')).toBeInTheDocument()
-        expect(within(topIssuesCard).getByRole('link', { name: /Learn more/i })).toHaveAttribute(
-            'href',
-            'https://posthog.com/docs/error-tracking'
-        )
+        expect(screen.getByText('Error tracking is new for your team.')).toBeInTheDocument()
+
+        const docsLink = screen
+            .getAllByRole('link', { name: /Learn more/i })
+            .find((link) => link.getAttribute('href') === 'https://posthog.com/docs/error-tracking')
+        expect(docsLink).toBeDefined()
     })
 
-    it('does not highlight products the team has already adopted', () => {
+    it('does not show the banner for products the team has already adopted', () => {
         initKeaTests(true, {
             ...MOCK_DEFAULT_TEAM,
             has_completed_onboarding_for: { ...MOCK_DEFAULT_TEAM.has_completed_onboarding_for, error_tracking: true },
         })
         renderAddWidgetModal()
 
-        const topIssuesCard = screen.getByRole('checkbox', { name: 'Top issues' })
-        expect(within(topIssuesCard).queryByText('New')).not.toBeInTheDocument()
-        expect(within(topIssuesCard).queryByRole('link', { name: /Learn more/i })).not.toBeInTheDocument()
+        expect(screen.queryByText('Error tracking is new for your team.')).not.toBeInTheDocument()
     })
 
     it('treats a product as adopted when the team has shown intent for it', () => {
@@ -144,16 +142,6 @@ describe('AddWidgetModal', () => {
         })
         renderAddWidgetModal()
 
-        const topIssuesCard = screen.getByRole('checkbox', { name: 'Top issues' })
-        expect(within(topIssuesCard).queryByText('New')).not.toBeInTheDocument()
-    })
-
-    it('opening the learn-more link does not toggle the widget selection', async () => {
-        renderAddWidgetModal()
-
-        const topIssuesCard = screen.getByRole('checkbox', { name: 'Top issues' })
-        await userEvent.click(within(topIssuesCard).getByRole('link', { name: /Learn more/i }))
-
-        expect(topIssuesCard).toHaveAttribute('aria-checked', 'false')
+        expect(screen.queryByText('Error tracking is new for your team.')).not.toBeInTheDocument()
     })
 })
