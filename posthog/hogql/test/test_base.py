@@ -62,7 +62,7 @@ def _assert_independent(original: Any, clone: Any, seen: set | None = None) -> N
         for x, y in zip(original, clone):
             _assert_independent(x, y, seen)
     elif isinstance(original, tuple):
-        # stdlib shares an unchanged immutable tuple (all elements identity-preserved), which is safe -- no mutable state shared; if any element was cloned the tuple is rebuilt.
+        # stdlib shares an unchanged immutable tuple (safe -- no mutable state); a cloned element forces a rebuild.
         if original is clone:
             return
         assert len(original) == len(clone), "clone changed a tuple's length"
@@ -100,7 +100,7 @@ def _count_distinct_nodes(node: Any) -> int:
 
 
 def _stock_deepcopy(node: Any) -> Any:
-    # Temporarily drop the fast path so copy.deepcopy falls back to stdlib. Mutates AST globally (restored in finally), so single-threaded test use only.
+    # Drop the fast path so copy.deepcopy uses stdlib; mutates AST globally (restored in finally), single-threaded only.
     impl = AST.__dict__["__deepcopy__"]
     del AST.__deepcopy__
     try:
@@ -165,7 +165,7 @@ def test_deepcopy_handles_self_referential_container_value():
 
 
 def test_deepcopy_handles_tuple_rooted_cycle_like_stdlib():
-    # A reference cycle that re-enters a tuple must preserve the tuple's identity, exactly as stdlib deepcopy does (returns the in-progress copy, not a second tuple).
+    # A cycle re-entering a tuple must keep the tuple's identity, like stdlib (returns the in-progress copy).
     inner: list = []
     cyclic_tuple = (inner,)
     inner.append(cyclic_tuple)
@@ -338,7 +338,7 @@ def _all_concrete_ast_classes():
 
 
 def test_node_coverage_guard_sees_all_node_types():
-    # __subclasses__() only sees imported classes (the `from posthog.hogql import ast` above pulls them all in); pin a floor so a node module silently dropping out of the import graph fails loudly instead of skipping.
+    # __subclasses__() sees only imported classes; this floor catches a node module dropping out of the import graph.
     assert len(_all_concrete_ast_classes()) >= 100
 
 
