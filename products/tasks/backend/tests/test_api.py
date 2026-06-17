@@ -1797,6 +1797,34 @@ class TestTaskAPI(BaseTaskAPITest):
         assert latest_run["reasoning_effort"] == reasoning_effort
         mock_workflow.assert_called_once()
 
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_accepts_xhigh_reasoning_effort_for_codex_gpt_5_5(self, mock_workflow):
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "mode": "interactive",
+                "runtime_adapter": "codex",
+                "model": "gpt-5.5",
+                "reasoning_effort": "xhigh",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        latest_run = response.json()["latest_run"]
+        task_run = TaskRun.objects.get(id=latest_run["id"])
+        assert task_run.state["runtime_adapter"] == "codex"
+        assert task_run.state["provider"] == "openai"
+        assert task_run.state["model"] == "gpt-5.5"
+        assert task_run.state["reasoning_effort"] == "xhigh"
+        assert latest_run["runtime_adapter"] == "codex"
+        assert latest_run["provider"] == "openai"
+        assert latest_run["model"] == "gpt-5.5"
+        assert latest_run["reasoning_effort"] == "xhigh"
+        mock_workflow.assert_called_once()
+
     @parameterized.expand([("auto",), ("read-only",), ("full-access",)])
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
     def test_run_endpoint_preserves_codex_initial_permission_mode(self, initial_permission_mode, mock_workflow):
@@ -1989,16 +2017,25 @@ class TestTaskAPI(BaseTaskAPITest):
         }
         mock_workflow.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("gpt_5_4_xhigh", "gpt-5.4", "xhigh", "low, medium, high"),
+            ("gpt_5_4_max", "gpt-5.4", "max", "low, medium, high"),
+            ("gpt_5_5_max", "gpt-5.5", "max", "low, medium, high, xhigh"),
+        ]
+    )
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
-    def test_run_endpoint_rejects_unsupported_codex_reasoning_effort(self, mock_workflow):
+    def test_run_endpoint_rejects_unsupported_codex_reasoning_effort(
+        self, _case_name, model, reasoning_effort, supported_values, mock_workflow
+    ):
         task = self.create_task()
 
         response = self.client.post(
             f"/api/projects/@current/tasks/{task.id}/run/",
             {
                 "runtime_adapter": "codex",
-                "model": "gpt-5.4",
-                "reasoning_effort": "max",
+                "model": model,
+                "reasoning_effort": reasoning_effort,
             },
             format="json",
         )
@@ -2008,8 +2045,8 @@ class TestTaskAPI(BaseTaskAPITest):
             "type": "validation_error",
             "code": "invalid_input",
             "detail": (
-                "Reasoning effort 'max' is not supported for runtime_adapter 'codex' "
-                "and model 'gpt-5.4'. Supported values: low, medium, high."
+                f"Reasoning effort '{reasoning_effort}' is not supported for runtime_adapter 'codex' "
+                f"and model '{model}'. Supported values: {supported_values}."
             ),
             "attr": "reasoning_effort",
         }
