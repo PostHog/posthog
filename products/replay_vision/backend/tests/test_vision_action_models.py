@@ -232,9 +232,21 @@ class TestRruleHelper(BaseTest):
         with self.assertRaises(ValueError):
             validate_rrule("dtstart:20260101T090000\nFREQ=DAILY")
 
-    def test_validate_rejects_garbage(self) -> None:
+    @parameterized.expand(
+        [
+            ("bad_freq", "FREQ=NONSENSE;INTERVAL=banana"),  # rrulestr -> ValueError
+            ("bad_byday", "FREQ=DAILY;BYDAY=XX"),  # rrulestr -> ValueError
+            ("bad_interval", "FREQ=DAILY;INTERVAL=abc"),  # rrulestr -> ValueError
+            ("empty", ""),  # rrulestr -> ValueError
+            ("not_an_rrule", "not an rrule at all"),  # rrulestr -> ValueError
+            ("missing_freq", "COUNT=5"),  # rrulestr -> TypeError (the case the narrow catch handled)
+        ]
+    )
+    def test_validate_normalizes_malformed_to_value_error(self, _label: str, rrule: str) -> None:
+        # rrulestr raises ValueError for most malformed input and TypeError only for missing FREQ —
+        # both must surface as the documented ValueError, never leak as an unhandled TypeError.
         with self.assertRaises(ValueError):
-            validate_rrule("FREQ=NONSENSE;INTERVAL=banana")
+            validate_rrule(rrule)
 
     def test_validate_accepts_valid(self) -> None:
         validate_rrule("FREQ=WEEKLY;BYDAY=MO,WE,FR;BYHOUR=9")

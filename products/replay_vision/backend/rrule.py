@@ -20,7 +20,9 @@ def validate_rrule(rrule_string: str) -> None:
         raise ValueError("RRULE must not contain DTSTART (starts_at is managed separately)")
     try:
         rrulestr(rrule_string)
-    except TypeError as e:
+    except (TypeError, ValueError) as e:
+        # rrulestr raises ValueError for most malformed input (bad FREQ/BYDAY/INTERVAL, empty
+        # string) and TypeError only for the missing-FREQ case — normalize both to ValueError.
         raise ValueError(str(e)) from e
 
 
