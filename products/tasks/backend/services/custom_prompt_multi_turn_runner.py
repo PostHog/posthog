@@ -46,7 +46,9 @@ def _correction_message(parse_error: Exception) -> str:
     """Build the corrective follow-up, appending the validation error summary for the
     pydantic case so the agent knows which fields were wrong."""
     if isinstance(parse_error, ValidationError):
-        return f"{_JSON_CORRECTION_PREAMBLE}\n\nValidation errors:\n{parse_error}"
+        # Use errors(include_url=False) so the prompt stays stable and free of
+        # pydantic's help URLs, matching how the rest of the codebase formats these.
+        return f"{_JSON_CORRECTION_PREAMBLE}\n\nValidation errors:\n{parse_error.errors(include_url=False)}"
     return _JSON_CORRECTION_PREAMBLE
 
 
@@ -348,13 +350,19 @@ class MultiTurnSession:
             return self._parse_and_validate(corrected, model, label=f"{label} (corrected)")
 
     async def _terminal_failure_error(self) -> str | None:
-        """Return the run's error message if it reached terminal FAILED status, else None.
+        """Return the run's error message if it reached a terminal status, else None.
 
-        Used to short-circuit the corrective re-prompt: a run already failed upstream
-        (rate limit, provider error) won't produce valid JSON on a retry."""
-        refreshed = await sync_to_async(TaskRun.objects.get)(id=self.task_run.id)
-        if refreshed.status == TaskRun.Status.FAILED:
-            return refreshed.error_message or f"TaskRun {self.task_run.id} reached terminal status=failed"
+        Used to short-circuit the corrective re-prompt: a run already failed or was
+        cancelled upstream (rate limit, provider error, cancellation) won't produce
+        valid JSON on a retry. If the row is gone (admin deletion, cleanup race),
+        return None so the original parse error keeps driving the corrective path
+        rather than being masked by a confusing DoesNotExist."""
+        try:
+            refreshed = await sync_to_async(TaskRun.objects.get)(id=self.task_run.id)
+        except TaskRun.DoesNotExist:
+            return None
+        if refreshed.status in (TaskRun.Status.FAILED, TaskRun.Status.CANCELLED):
+            return refreshed.error_message or f"TaskRun {self.task_run.id} reached terminal status={refreshed.status}"
         return None
 
     async def end(self, *, status: str = "completed", error: str | None = None) -> None:

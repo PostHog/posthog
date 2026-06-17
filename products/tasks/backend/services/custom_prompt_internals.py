@@ -116,8 +116,9 @@ class AgentOutputNotJSONError(ValueError):
     string, there is no JSON to extract. Carries the step `label` and a bounded
     snippet of the offending text so callers can re-prompt or surface the failure
     without dumping the whole (possibly large) reply into logs. Subclasses
-    ``ValueError`` so existing ``except ValueError`` / ``except json.JSONDecodeError``
-    callers keep catching it.
+    ``ValueError`` so existing ``except ValueError`` callers keep catching it (note:
+    this is *not* a ``json.JSONDecodeError`` subclass, so ``except json.JSONDecodeError``
+    will not catch it — catch ``ValueError`` or ``AgentOutputNotJSONError``).
     """
 
     SNIPPET_CHARS = 200
