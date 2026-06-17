@@ -18,6 +18,9 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2025-01-27',
         pageUrl: urls.experiment(EXPERIMENT_WITH_TRENDS_QUERY.id),
+        // Suppress the result chart's async canvas paint so this scene snapshot is deterministic;
+        // chart pixels are covered by the isolated chart stories.
+        testOptions: { skipCanvasDraw: true },
     },
     decorators: [
         mswDecorator({

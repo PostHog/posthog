@@ -106,6 +106,10 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2023-02-01',
         pageUrl: urls.dashboards(),
+        // Dashboard tiles render quill insight charts that paint asynchronously — suppress their
+        // canvas draw so these full-scene snapshots are deterministic. Chart pixels are covered by
+        // the isolated chart stories.
+        testOptions: { skipCanvasDraw: true },
     },
 }
 export default meta
