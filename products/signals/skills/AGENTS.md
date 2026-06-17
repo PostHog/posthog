@@ -134,6 +134,19 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
   resolved status's promise against the post-deploy data stream. Emits only
   failed validations; confirmations are scratchpad memory. It never detects new
   problems — that's the rest of the fleet's territory.
+- `signals-scout-inbox-report-discuss/` — internal, project-2-only theme miner over the
+  optional free text users type when they press "Discuss" on a Code Signals inbox report
+  (`signals_reports_discuss.question_text`, cross-team). Aggregates that text into
+  recurring shapes — confusions, missing context, repeated requests, automation gaps the
+  report should have answered itself — and emits one themed P3 recommendation per pattern
+  that recurs across enough distinct reports/users; everything else is memory. Its
+  discriminator is recurrence-across-distinct-users-and-reports: a single typed question
+  is the Discuss feature working, the same shape repeated is a product gap in the report.
+  Supports an optional focus prompt (scratchpad `config:inbox_discuss:focus` or a FOCUS
+  line in the body). Data-bound to project 2 — on any team without the `signals_reports_*`
+  warehouse views it closes out not-in-use, so it's a cheap no-op across the rest of the
+  fleet's footprint. Adjacent to `signals-scout-inbox-validation` (which re-probes whether
+  resolved reports' fixes held) but reads user voice, not the data streams.
 - `signals-scout-product-analytics/` — behavioral-regression watcher for the core
   product-analytics primitives (funnels, retention, lifecycle, stickiness, paths).
   Curates a watchlist of the team's saved funnel / retention / lifecycle insights
