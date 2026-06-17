@@ -1,9 +1,17 @@
 ---
 name: establishing-code-ownership
 description: Determine which PostHog team owns a file, directory, or code path, or enumerate all code a team owns (via `products/*/product.yaml` and `.github/CODEOWNERS(-soft)?`). Use when assigning a reviewer, attributing a bug or slow query to a team, routing work, scoping a team-wide audit, or answering "who owns X" / "what does team Y own".
+context: fork
+agent: Explore
 ---
 
 # Establishing code ownership
+
+This skill runs in a forked subagent (`context: fork`). The lookups below are read-only and
+can emit large `git ls-files` / CODEOWNERS dumps; keeping them out of the main conversation is
+the point. Do the resolution here and return only the conclusion — the owning team(s), the
+source that decided it, and any stale-entry or generated-file caveats — not the raw file lists
+(include those only when the caller explicitly asked to enumerate a team's files).
 
 Two sources, checked in order:
 
