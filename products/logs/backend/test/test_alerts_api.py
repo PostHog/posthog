@@ -12,9 +12,7 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog.clickhouse.client import sync_execute
-from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
-from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.logs.backend.alert_check_query import AlertCheckQuery, BucketedCount
 from products.logs.backend.alert_utils import compute_shard_offset_seconds
@@ -1977,16 +1975,6 @@ class TestLogsAlertAPIPersonalAPIKeyScopes(APIBaseTest):
         self.addCleanup(self._ff_patcher.stop)
         self.base_url = f"/api/projects/{self.team.pk}/logs/alerts/"
 
-    def _make_key(self, scopes: list[str]) -> str:
-        value = generate_random_token_personal()
-        PersonalAPIKey.objects.create(
-            label="test",
-            user=self.user,
-            secure_value=hash_key_value(value),
-            scopes=scopes,
-        )
-        return value
-
     def _auth(self, value: str) -> dict:
         return {"HTTP_AUTHORIZATION": f"Bearer {value}"}
 
@@ -1999,12 +1987,13 @@ class TestLogsAlertAPIPersonalAPIKeyScopes(APIBaseTest):
         ]
     )
     def test_events_action_allowed(self, _name: str, scopes: list[str]):
-        key = self._make_key(scopes)
-        # Target a non-existent UUID so the action body doesn't run; a 404
-        # proves the scope gate was passed (403 = gate rejected the key).
+        key = self.create_personal_api_key_with_scopes(scopes)
+        # Target a non-existent UUID so the action body doesn't run; a 404 proves the scope
+        # gate was passed cleanly (403 = gate rejected the key; a 401/500 would also slip past
+        # a bare `!= 403` check, so assert the exact code).
         url = f"{self.base_url}{uuid4()}/events/"
         response = self.client.get(url, **self._auth(key))
-        assert response.status_code != 403, response.json()
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
 
     @parameterized.expand(
         [
@@ -2013,7 +2002,7 @@ class TestLogsAlertAPIPersonalAPIKeyScopes(APIBaseTest):
         ]
     )
     def test_events_action_rejected_without_logs_scope(self, _name: str, scopes: list[str]):
-        key = self._make_key(scopes)
+        key = self.create_personal_api_key_with_scopes(scopes)
         url = f"{self.base_url}{uuid4()}/events/"
         response = self.client.get(url, **self._auth(key))
         assert response.status_code == 403, response.json()
@@ -2027,11 +2016,12 @@ class TestLogsAlertAPIPersonalAPIKeyScopes(APIBaseTest):
         ]
     )
     def test_simulate_action_allowed(self, _name: str, scopes: list[str]):
-        key = self._make_key(scopes)
+        key = self.create_personal_api_key_with_scopes(scopes)
         url = f"{self.base_url}simulate/"
-        # Empty body triggers 400 from serializer validation — proves scope gate passed.
+        # Empty body triggers 400 from serializer validation — proves the scope gate passed
+        # (asserting the exact code rules out a 401/500 sneaking past a bare `!= 403`).
         response = self.client.post(url, {}, format="json", **self._auth(key))
-        assert response.status_code != 403, response.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
 
     @parameterized.expand(
         [
@@ -2040,7 +2030,7 @@ class TestLogsAlertAPIPersonalAPIKeyScopes(APIBaseTest):
         ]
     )
     def test_simulate_action_rejected_without_logs_scope(self, _name: str, scopes: list[str]):
-        key = self._make_key(scopes)
+        key = self.create_personal_api_key_with_scopes(scopes)
         url = f"{self.base_url}simulate/"
         response = self.client.post(url, {}, format="json", **self._auth(key))
         assert response.status_code == 403, response.json()
@@ -2048,10 +2038,12 @@ class TestLogsAlertAPIPersonalAPIKeyScopes(APIBaseTest):
     # --- create_destination action (POST detail, requires logs:write) ---
 
     def test_create_destination_allowed_with_logs_write_scope(self):
-        key = self._make_key(["logs:write"])
+        key = self.create_personal_api_key_with_scopes(["logs:write"])
+        # Detail action against a non-existent UUID: get_object 404s before the body runs,
+        # proving the scope gate passed (a bare `!= 403` would also pass on a 401/500).
         url = f"{self.base_url}{uuid4()}/destinations/"
         response = self.client.post(url, {}, format="json", **self._auth(key))
-        assert response.status_code != 403, response.json()
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
 
     @parameterized.expand(
         [
@@ -2061,7 +2053,7 @@ class TestLogsAlertAPIPersonalAPIKeyScopes(APIBaseTest):
         ]
     )
     def test_create_destination_rejected_without_logs_write_scope(self, _name: str, scopes: list[str]):
-        key = self._make_key(scopes)
+        key = self.create_personal_api_key_with_scopes(scopes)
         url = f"{self.base_url}{uuid4()}/destinations/"
         response = self.client.post(url, {}, format="json", **self._auth(key))
         assert response.status_code == 403, response.json()
@@ -2069,10 +2061,10 @@ class TestLogsAlertAPIPersonalAPIKeyScopes(APIBaseTest):
     # --- delete_destination action (POST detail, requires logs:write) ---
 
     def test_delete_destination_allowed_with_logs_write_scope(self):
-        key = self._make_key(["logs:write"])
+        key = self.create_personal_api_key_with_scopes(["logs:write"])
         url = f"{self.base_url}{uuid4()}/destinations/delete/"
         response = self.client.post(url, {}, format="json", **self._auth(key))
-        assert response.status_code != 403, response.json()
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
 
     @parameterized.expand(
         [
@@ -2082,7 +2074,30 @@ class TestLogsAlertAPIPersonalAPIKeyScopes(APIBaseTest):
         ]
     )
     def test_delete_destination_rejected_without_logs_write_scope(self, _name: str, scopes: list[str]):
-        key = self._make_key(scopes)
+        key = self.create_personal_api_key_with_scopes(scopes)
         url = f"{self.base_url}{uuid4()}/destinations/delete/"
+        response = self.client.post(url, {}, format="json", **self._auth(key))
+        assert response.status_code == 403, response.json()
+
+    # --- reset action (POST detail, requires logs:write) ---
+
+    def test_reset_allowed_with_logs_write_scope(self):
+        key = self.create_personal_api_key_with_scopes(["logs:write"])
+        # Detail action against a non-existent UUID: get_object 404s before the body runs,
+        # proving the scope gate passed (a bare `!= 403` would also pass on a 401/500).
+        url = f"{self.base_url}{uuid4()}/reset/"
+        response = self.client.post(url, {}, format="json", **self._auth(key))
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
+
+    @parameterized.expand(
+        [
+            ("read_scope_cannot_satisfy_write", ["logs:read"]),
+            ("unrelated_scope", ["insight:read"]),
+            ("no_scopes", []),
+        ]
+    )
+    def test_reset_rejected_without_logs_write_scope(self, _name: str, scopes: list[str]):
+        key = self.create_personal_api_key_with_scopes(scopes)
+        url = f"{self.base_url}{uuid4()}/reset/"
         response = self.client.post(url, {}, format="json", **self._auth(key))
         assert response.status_code == 403, response.json()

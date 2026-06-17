@@ -6,8 +6,6 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework import serializers, status
 
-from posthog.models.personal_api_key import PersonalAPIKey
-from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rbac.user_access_control import UserAccessControl
 
 from products.feature_flags.backend.api.scheduled_change import ScheduledChangeSerializer
@@ -636,6 +634,33 @@ class TestScheduledChange(APIBaseTest):
         assert response.status_code == expected_status, getattr(response, "data", response)
         assert ScheduledChange.objects.filter(id=scheduled_change.id).exists() is should_still_exist
 
+    def test_destroy_allowed_for_orphaned_schedule_even_without_edit_permission(self):
+        """An orphaned schedule (target flag gone) stays deletable: the orphan branch returns before the
+        CanEditFeatureFlag check, so DELETE still succeeds even when that check would otherwise deny."""
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team, created_by=self.user, key="orphan-flag", name="Orphan Flag"
+        )
+        scheduled_change = ScheduledChange.objects.create(
+            team=self.team,
+            record_id=feature_flag.id,
+            model_name="FeatureFlag",
+            payload={"operation": "update_status", "value": False},
+            scheduled_at="2024-01-15T09:00:00Z",
+            created_by=self.user,
+        )
+        feature_flag.delete()
+
+        with patch(
+            "products.feature_flags.backend.api.scheduled_change.CanEditFeatureFlag.has_object_permission",
+            return_value=False,
+        ):
+            response = self.client.delete(
+                f"/api/projects/{self.team.id}/scheduled_changes/{scheduled_change.id}/",
+            )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT, getattr(response, "data", response)
+        assert not ScheduledChange.objects.filter(id=scheduled_change.id).exists()
+
     def test_reads_exclude_schedules_for_flags_the_caller_cannot_read(self):
         """List/retrieve must hide schedules whose target flag the caller has no read access to."""
         readable_flag = FeatureFlag.objects.create(
@@ -705,27 +730,17 @@ class TestScheduledChangePersonalAPIKey(APIBaseTest):
             created_by=self.user,
         )
 
-    def _create_key(self, scopes: list[str]) -> str:
-        value = generate_random_token_personal()
-        PersonalAPIKey.objects.create(
-            label="test",
-            user=self.user,
-            secure_value=hash_key_value(value),
-            scopes=scopes,
-        )
-        return value
-
     def _headers(self, value: str) -> dict:
         return {"authorization": f"Bearer {value}"}
 
     def test_list_allowed_with_read_scope(self):
-        value = self._create_key(scopes=["feature_flag:read"])
+        value = self.create_personal_api_key_with_scopes(["feature_flag:read"])
         response = self.client.get(f"/api/projects/{self.team.id}/scheduled_changes/", headers=self._headers(value))
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert any(item["id"] == self.scheduled_change.id for item in response.json()["results"])
 
     def test_retrieve_allowed_with_read_scope(self):
-        value = self._create_key(scopes=["feature_flag:read"])
+        value = self.create_personal_api_key_with_scopes(["feature_flag:read"])
         response = self.client.get(
             f"/api/projects/{self.team.id}/scheduled_changes/{self.scheduled_change.id}/",
             headers=self._headers(value),
@@ -734,7 +749,7 @@ class TestScheduledChangePersonalAPIKey(APIBaseTest):
         assert response.json()["id"] == self.scheduled_change.id
 
     def test_create_allowed_with_write_scope(self):
-        value = self._create_key(scopes=["feature_flag:write"])
+        value = self.create_personal_api_key_with_scopes(["feature_flag:write"])
         response = self.client.post(
             f"/api/projects/{self.team.id}/scheduled_changes/",
             data={
@@ -758,7 +773,7 @@ class TestScheduledChangePersonalAPIKey(APIBaseTest):
         ]
     )
     def test_create_rejected_without_write_scope(self, _name, scopes):
-        value = self._create_key(scopes=scopes)
+        value = self.create_personal_api_key_with_scopes(scopes)
         response = self.client.post(
             f"/api/projects/{self.team.id}/scheduled_changes/",
             data={
@@ -780,6 +795,6 @@ class TestScheduledChangePersonalAPIKey(APIBaseTest):
         ]
     )
     def test_list_rejected_without_read_scope(self, _name, scopes):
-        value = self._create_key(scopes=scopes)
+        value = self.create_personal_api_key_with_scopes(scopes)
         response = self.client.get(f"/api/projects/{self.team.id}/scheduled_changes/", headers=self._headers(value))
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()

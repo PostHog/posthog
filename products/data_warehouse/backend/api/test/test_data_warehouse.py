@@ -9,9 +9,6 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models.personal_api_key import PersonalAPIKey
-from posthog.models.utils import generate_random_token_personal, hash_key_value
-
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
@@ -669,16 +666,6 @@ class TestDataHealthIssuesPersonalAPIKey(APIBaseTest):
 
     CONFIG_AUTO_LOGIN = False
 
-    def _create_key(self, scopes: list[str]) -> str:
-        value = generate_random_token_personal()
-        PersonalAPIKey.objects.create(
-            label="test",
-            user=self.user,
-            secure_value=hash_key_value(value),
-            scopes=scopes,
-        )
-        return value
-
     def _get(self, value: str):
         return self.client.get(
             f"/api/projects/{self.team.id}/data_warehouse/data_health_issues/",
@@ -692,7 +679,7 @@ class TestDataHealthIssuesPersonalAPIKey(APIBaseTest):
         ]
     )
     def test_allowed_with_required_scopes(self, _name, scopes):
-        value = self._create_key(scopes=scopes)
+        value = self.create_personal_api_key_with_scopes(scopes)
         response = self._get(value)
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert "results" in response.json()
@@ -706,6 +693,6 @@ class TestDataHealthIssuesPersonalAPIKey(APIBaseTest):
         ]
     )
     def test_rejected_without_all_required_scopes(self, _name, scopes):
-        value = self._create_key(scopes=scopes)
+        value = self.create_personal_api_key_with_scopes(scopes)
         response = self._get(value)
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
