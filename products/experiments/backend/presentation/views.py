@@ -28,7 +28,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.approvals.mixins import ApprovalHandlingMixin
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.auth import IDJagAccessTokenAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.models.filters.filter import Filter
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
@@ -288,6 +288,8 @@ class EnterpriseExperimentsViewSet(
             scopes = authenticator.personal_api_key.scopes or []
         elif isinstance(authenticator, OAuthAccessTokenAuthentication):
             scopes = (authenticator.access_token.scope or "").split()
+        elif isinstance(authenticator, IDJagAccessTokenAuthentication):
+            scopes = list(authenticator.scopes or [])
         else:
             return True
         return "*" in scopes or "feature_flag:write" in scopes
