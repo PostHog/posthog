@@ -7,6 +7,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.conf import settings
+from django.db import IntegrityError, transaction
 from django.test import override_settings
 from django.utils import timezone
 
@@ -226,6 +227,20 @@ class TestOverspendAllowanceFormatting(BaseTest):
     def test_validate_rejects_out_of_contract(self, _name, value):
         with self.assertRaises(ValueError):
             validate_overspend_allowance_usd(value)
+
+
+class TestOverspendAllowanceDBConstraint(BaseTest):
+    # The CHECK constraint backstops update/bulk_update/shell/raw writes that bypass the validators.
+    @parameterized.expand([("negative", Decimal("-1")), ("over_max", Decimal("10001"))])
+    def test_db_rejects_out_of_range_update(self, _name, value):
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            Team.objects.filter(pk=self.team.pk).update(llm_gateway_overspend_allowance_usd=value)
+
+    @parameterized.expand([("zero", Decimal("0")), ("max", Decimal("10000")), ("unset", None)])
+    def test_db_accepts_in_range_update(self, _name, value):
+        Team.objects.filter(pk=self.team.pk).update(llm_gateway_overspend_allowance_usd=value)
+        self.team.refresh_from_db()
+        self.assertEqual(self.team.llm_gateway_overspend_allowance_usd, value)
 
 
 class TestGatewayCredentialScopeGating(GatewayCredentialTestMixin):

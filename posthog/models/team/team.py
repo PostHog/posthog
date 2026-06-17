@@ -268,7 +268,17 @@ class Team(UUIDTClassicModel):
                 # be done without locking the table. By adding this constraint using Postgres's `NOT VALID` option
                 # (via Django `AddConstraintNotValid()`) and subsequent `VALIDATE CONSTRAINT`, we avoid locking.
                 condition=models.Q(project_id__isnull=False),
-            )
+            ),
+            models.CheckConstraint(
+                name="llm_gateway_overspend_allowance_usd_in_range",
+                # Mirrors OVERSPEND_ALLOWANCE_MIN/MAX_USD; null = unset stays valid. The Python
+                # write surfaces validate too, but update/bulk_update/shell/raw bypass them.
+                condition=models.Q(llm_gateway_overspend_allowance_usd__isnull=True)
+                | models.Q(
+                    llm_gateway_overspend_allowance_usd__gte=0,
+                    llm_gateway_overspend_allowance_usd__lte=10000,
+                ),
+            ),
         ]
 
     objects: TeamManager = TeamManager()
