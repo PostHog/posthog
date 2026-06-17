@@ -542,7 +542,6 @@ ignore_imports = [
     "products.error_tracking.backend.presentation.views.recommendations -> products.error_tracking.backend.logic.recommendations.refresh",
     "products.error_tracking.backend.presentation.views.recommendations -> products.error_tracking.backend.models",
     "products.error_tracking.backend.presentation.views.recommendations -> products.error_tracking.backend.tasks",
-    "products.error_tracking.backend.presentation.views.releases -> products.error_tracking.backend.models",
     "products.error_tracking.backend.presentation.views.suppression_rules -> products.error_tracking.backend.models",
     "products.error_tracking.backend.presentation.views.symbol_sets -> products.error_tracking.backend.models",
     "products.error_tracking.backend.presentation.views.utils -> products.error_tracking.backend.hogvm_stl",

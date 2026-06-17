@@ -11,18 +11,25 @@ from posthog.models.integration import (
     JiraIntegration,
     LinearIntegration,
 )
+from posthog.models.utils import UUIDT
 
 from products.error_tracking.backend.models import (
     ErrorTrackingExternalReference,
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
     ErrorTrackingIssueFingerprintV2,
+    ErrorTrackingRelease,
     ErrorTrackingSettings,
     ErrorTrackingSpikeDetectionConfig,
     ErrorTrackingSpikeEvent,
     ErrorTrackingStackFrame,
     ErrorTrackingSymbolSet,
 )
+
+
+class ErrorTrackingReleaseHashInUseError(Exception):
+    pass
+
 
 SPIKE_EVENT_ORDER_FIELDS = (
     "detected_at",
@@ -321,3 +328,72 @@ def batch_get_stack_frames(
     if symbol_set:
         qs = qs.filter(symbol_set=symbol_set)
     return qs
+
+
+def list_releases(team_id: int) -> QuerySet[ErrorTrackingRelease]:
+    return ErrorTrackingRelease.objects.filter(team_id=team_id).order_by("-created_at")
+
+
+def get_release(team_id: int, release_id: str) -> ErrorTrackingRelease | None:
+    return ErrorTrackingRelease.objects.filter(team_id=team_id, id=release_id).first()
+
+
+def get_release_by_hash(team_id: int, hash_id: str) -> ErrorTrackingRelease | None:
+    return ErrorTrackingRelease.objects.filter(team_id=team_id, hash_id=hash_id).first()
+
+
+def release_hash_exists(team_id: int, hash_id: str) -> bool:
+    return ErrorTrackingRelease.objects.filter(team_id=team_id, hash_id=hash_id).exists()
+
+
+def create_release(
+    team_id: int,
+    *,
+    version: str,
+    project: str,
+    hash_id: str | None = None,
+    metadata: dict | None = None,
+) -> ErrorTrackingRelease:
+    release_id = UUIDT()
+    resolved_hash_id = hash_id or str(release_id)
+    if release_hash_exists(team_id, resolved_hash_id):
+        raise ErrorTrackingReleaseHashInUseError(resolved_hash_id)
+    return ErrorTrackingRelease.objects.create(
+        id=release_id,
+        team_id=team_id,
+        hash_id=resolved_hash_id,
+        metadata=metadata,
+        project=str(project),
+        version=str(version),
+    )
+
+
+def update_release(
+    team_id: int,
+    release_id: str,
+    *,
+    metadata: dict | None = None,
+    hash_id: str | None = None,
+    version: str | None = None,
+    project: str | None = None,
+) -> ErrorTrackingRelease | None:
+    release = get_release(team_id, release_id)
+    if release is None:
+        return None
+    if metadata:
+        release.metadata = metadata
+    if version:
+        release.version = str(version)
+    if project:
+        release.project = str(project)
+    if hash_id and hash_id != release.hash_id:
+        if release_hash_exists(team_id, hash_id):
+            raise ErrorTrackingReleaseHashInUseError(hash_id)
+        release.hash_id = str(hash_id)
+    release.save()
+    return release
+
+
+def delete_release(team_id: int, release_id: str) -> bool:
+    deleted, _ = ErrorTrackingRelease.objects.filter(team_id=team_id, id=release_id).delete()
+    return deleted > 0

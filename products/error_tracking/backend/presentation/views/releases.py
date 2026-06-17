@@ -1,98 +1,101 @@
-from django.shortcuts import get_object_or_404
-
-import structlog
-from rest_framework import serializers, status, viewsets
-from rest_framework.exceptions import ValidationError
+from rest_framework import status, viewsets
+from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.response import Response
+from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
-from posthog.models.utils import UUIDT
 
-from products.error_tracking.backend.models import ErrorTrackingRelease
+from products.error_tracking.backend.facade import (
+    api as error_tracking_api,
+    contracts,
+)
 
-logger = structlog.get_logger(__name__)
+MAX_HASH_ID_LENGTH = 128
 
 
-class ErrorTrackingReleaseSerializer(serializers.ModelSerializer):
+class ErrorTrackingReleaseSerializer(DataclassSerializer):
     class Meta:
-        model = ErrorTrackingRelease
-        fields = ["id", "hash_id", "team_id", "created_at", "metadata", "version", "project"]
-        read_only_fields = ["team_id"]
+        dataclass = contracts.ErrorTrackingRelease
 
 
-class ErrorTrackingReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class ErrorTrackingReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "error_tracking"
-    queryset = ErrorTrackingRelease.objects.all()
     scope_object_read_actions = ["list", "retrieve", "by_hash"]
     serializer_class = ErrorTrackingReleaseSerializer
 
-    def safely_get_queryset(self, queryset):
-        queryset = queryset.filter(team_id=self.team.id).order_by("-created_at")
-
-        return queryset
-
-    def validate_hash_id(self, hash_id: str, assert_new: bool) -> str:
-        if len(hash_id) > 128:
+    def _validated_hash_id(self, hash_id) -> str | None:
+        if not hash_id:
+            return None
+        hash_id = str(hash_id)
+        if len(hash_id) > MAX_HASH_ID_LENGTH:
             raise ValidationError("Hash id length cannot exceed 128 bytes")
-
-        if assert_new and ErrorTrackingRelease.objects.filter(team=self.team, hash_id=hash_id).exists():
-            raise ValidationError(f"Hash id {hash_id} already in use")
-
         return hash_id
 
-    def update(self, request, *args, **kwargs) -> Response:
-        release = self.get_object()
+    def list(self, request, *args, **kwargs) -> Response:
+        releases = error_tracking_api.list_releases(self.team.id)
+        page = self.paginate_queryset(releases)
+        if page is not None:
+            return self.get_paginated_response(self.get_serializer(page, many=True).data)
+        return Response(self.get_serializer(releases, many=True).data)
 
-        metadata = request.data.get("metadata")
-        hash_id = request.data.get("hash_id")
-        version = request.data.get("version")
-        project = request.data.get("project")
-
-        if metadata:
-            release.metadata = metadata
-
-        if version:
-            version = str(version)
-            release.version = version
-
-        if project:
-            project = str(project)
-            release.project = project
-
-        if hash_id and hash_id != release.hash_id:
-            hash_id = str(hash_id)
-            hash_id = self.validate_hash_id(hash_id, True)
-            release.hash_id = hash_id
-
-        release.save()
-        return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
+    def retrieve(self, request, *args, pk=None, **kwargs) -> Response:
+        release = error_tracking_api.get_release(self.team.id, pk)
+        if release is None:
+            raise NotFound()
+        return Response(self.get_serializer(release).data)
 
     def create(self, request, *args, **kwargs) -> Response:
-        id = UUIDT()  # We use this in the hash if one isn't set, and also as the id of the model
-        metadata = request.data.get("metadata")
-        hash_id = str(request.data.get("hash_id") or id)
-        hash_id = self.validate_hash_id(hash_id, True)
         version = request.data.get("version")
         project = request.data.get("project")
-
         if not version:
             raise ValidationError("Version is required")
-
         if not project:
             raise ValidationError("Project is required")
+        hash_id = self._validated_hash_id(request.data.get("hash_id"))
+        try:
+            release = error_tracking_api.create_release(
+                self.team.id,
+                version=str(version),
+                project=str(project),
+                hash_id=hash_id,
+                metadata=request.data.get("metadata"),
+            )
+        except error_tracking_api.ReleaseHashInUseError as err:
+            raise ValidationError(f"Hash id {err} already in use")
+        return Response(self.get_serializer(release).data, status=status.HTTP_201_CREATED)
 
-        version = str(version)
+    def _apply_update(self, pk: str | None, data) -> Response:
+        hash_id = self._validated_hash_id(data.get("hash_id"))
+        try:
+            release = error_tracking_api.update_release(
+                self.team.id,
+                pk,
+                metadata=data.get("metadata"),
+                hash_id=hash_id,
+                version=data.get("version"),
+                project=data.get("project"),
+            )
+        except error_tracking_api.ReleaseHashInUseError as err:
+            raise ValidationError(f"Hash id {err} already in use")
+        if release is None:
+            raise NotFound()
+        return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
 
-        release = ErrorTrackingRelease.objects.create(
-            id=id, team=self.team, hash_id=hash_id, metadata=metadata, project=project, version=version
-        )
+    def update(self, request, *args, pk=None, **kwargs) -> Response:
+        return self._apply_update(pk, request.data)
 
-        serializer = ErrorTrackingReleaseSerializer(release)
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
+    def partial_update(self, request, *args, pk=None, **kwargs) -> Response:
+        return self._apply_update(pk, request.data)
+
+    def destroy(self, request, *args, pk=None, **kwargs) -> Response:
+        if not error_tracking_api.delete_release(self.team.id, pk):
+            raise NotFound()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(detail=False, methods=["get"], url_path="hash/(?P<hash_id>[^/.]+)")
-    def by_hash(self, request, hash_id=None, **kwargs):
-        obj = get_object_or_404(self.get_queryset(), hash_id=hash_id)
-        serializer = self.get_serializer(obj)
-        return Response(serializer.data)
+    def by_hash(self, request, hash_id=None, **kwargs) -> Response:
+        release = error_tracking_api.get_release_by_hash(self.team.id, hash_id)
+        if release is None:
+            raise NotFound()
+        return Response(self.get_serializer(release).data)

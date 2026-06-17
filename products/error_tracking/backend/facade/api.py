@@ -16,6 +16,7 @@ from . import contracts
 
 IssueNotFoundError = logic.ErrorTrackingIssueNotFoundError
 ExternalReferenceValidationError = logic.ErrorTrackingExternalReferenceValidationError
+ReleaseHashInUseError = logic.ErrorTrackingReleaseHashInUseError
 
 
 def _to_issue_assignee(assignment) -> contracts.ErrorTrackingIssueAssignee | None:
@@ -216,6 +217,51 @@ def batch_get_stack_frames(
     team_id: int, raw_ids: list[str] | None = None, symbol_set: str | None = None
 ) -> list[contracts.ErrorTrackingStackFrame]:
     return [_to_stack_frame(frame) for frame in logic.batch_get_stack_frames(team_id, raw_ids, symbol_set)]
+
+
+def list_releases(team_id: int) -> list[contracts.ErrorTrackingRelease]:
+    return [_to_release(release) for release in logic.list_releases(team_id)]
+
+
+def get_release(team_id: int, release_id: str) -> contracts.ErrorTrackingRelease | None:
+    release = logic.get_release(team_id, release_id)
+    return _to_release(release) if release is not None else None
+
+
+def get_release_by_hash(team_id: int, hash_id: str) -> contracts.ErrorTrackingRelease | None:
+    release = logic.get_release_by_hash(team_id, hash_id)
+    return _to_release(release) if release is not None else None
+
+
+def create_release(
+    team_id: int,
+    *,
+    version: str,
+    project: str,
+    hash_id: str | None = None,
+    metadata: dict | None = None,
+) -> contracts.ErrorTrackingRelease:
+    release = logic.create_release(team_id, version=version, project=project, hash_id=hash_id, metadata=metadata)
+    return _to_release(release)
+
+
+def update_release(
+    team_id: int,
+    release_id: str,
+    *,
+    metadata: dict | None = None,
+    hash_id: str | None = None,
+    version: str | None = None,
+    project: str | None = None,
+) -> contracts.ErrorTrackingRelease | None:
+    release = logic.update_release(
+        team_id, release_id, metadata=metadata, hash_id=hash_id, version=version, project=project
+    )
+    return _to_release(release) if release is not None else None
+
+
+def delete_release(team_id: int, release_id: str) -> bool:
+    return logic.delete_release(team_id, release_id)
 
 
 def get_issue_id_for_fingerprint(team_id: int, fingerprint: str) -> UUID | None:
