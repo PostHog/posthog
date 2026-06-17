@@ -1,20 +1,26 @@
 """Hogland preview layer, driven by the ``posthog-hogland`` SDK.
 
 Restore a warmed golden snapshot into a hogbox (Firecracker microVM), run the
-stack inside it, and reach its web over hogplane's authenticated proxy.
+stack inside it, and reach its web over the box's own edge hostname. The box is
+fronted by a **pen** — the stable named identity that outlives the box. Boxes
+rotate IDs on every restore (a fresh golden restore per push); the pen, keyed on
+a deterministic name (``preview-pr-1234``), persists and carries the
+``current_box_id`` pointer plus repo/PR attribution. See ``docs/PENS.md`` in the
+hogland repo.
 
 Why the SDK and not the ``hogland`` CLI: the SDK is the whole PreviewBackend
 surface, keyless, with one ``pip install``. ``client.create(snapshot_id=...)``
 restores; ``box.exec`` / ``box.write_file`` run commands and write files over
-hogplane's HTTP API (no SSH); ``box.destroy`` tears down. CI already proves this
-path (``bin/hogbox-ci.py``). The CLI route meant shipping a private-repo binary
-to the runner plus an SSH-key secret for exec — neither is needed.
+hogplane's HTTP API (no SSH); ``box.destroy`` tears down; ``create_pen`` /
+``update_pen`` track the stable identity. CI already proves the box path
+(``bin/hogbox-ci.py``). The CLI route meant shipping a private-repo binary to the
+runner plus an SSH-key secret for exec — neither is needed.
 
-The box's web is reached via ``box.proxy_url(web_port)`` — an authenticated
-hogplane URL (tailnet creds, nothing public). Note it's *path-prefixed*
-(``/v1/hogboxes/<id>/proxy/<port>/``), not the box-front subdomain: the SDK
-0.1.0 ``create`` doesn't surface the ``Expose`` spec. Fine for a tailnet-only
-preview; a clean per-box subdomain is a later SDK addition (mirror ``--web-port``).
+``create(web_port=...)`` opts the box into HTTP exposure, and ``box.web_url()``
+returns its own per-box edge hostname (``https://<box>.<box-edge>/``, TLS
+terminated at the edge, plain HTTP inside) — the clean URL posted to the PR.
+``proxy_url`` (the authenticated path proxy) is only the fallback for a reused,
+un-exposed ``--box-id`` box.
 """
 
 from __future__ import annotations
@@ -27,7 +33,14 @@ import tempfile
 import subprocess
 import urllib.request
 
-from hogland import AccessType, AuthenticationError, ConflictError, Hogland
+from hogland import (
+    AccessType,
+    AuthenticationError,
+    BoxSpec,
+    ConflictError,
+    Hogland,
+    NotFoundError,
+)
 
 from .backend import ExecResult, PreviewBackend
 
@@ -37,7 +50,8 @@ def _ephemeral_ssh_pubkey() -> str:
 
     ``access_type=ssh_public`` still requires *a* key at restore time, but
     exec/write_file go over the HTTP API, so this key never reaches the box.
-    Drop once hogland ships a keyless access type.
+    Keyless (``access_type=none``, shipped for service kinds like ``preview``)
+    is the clean follow-up — switching drops this whole helper.
     """
     with tempfile.TemporaryDirectory() as d:
         key = pathlib.Path(d) / "id_ed25519"
@@ -60,7 +74,7 @@ class HoglandBackend(PreviewBackend):
         disk_class: str = "mirrored",
         web_port: int = 8000,
         name: str = "posthog-preview",
-        kind: str = "sandbox",
+        kind: str = "preview",
         ttl_seconds: int | None = None,
         box_id: str | None = None,
         token: str | None = None,
@@ -85,7 +99,11 @@ class HoglandBackend(PreviewBackend):
         self.memory_mib = memory_mib
         self.disk_gib = disk_gib
         self.disk_class = disk_class
+        # `name` is the deterministic PEN name (e.g. preview-pr-123) AND the box
+        # name. The pen persists across pushes; the box behind it rotates.
         self.name = name
+        # kind="preview" gives the box hogland's 24h preview idle-TTL default
+        # (sandbox is immortal — a leaked preview would never be reaped).
         self.kind = kind
         self.ttl_seconds = ttl_seconds
         self._box_id = box_id
@@ -95,14 +113,21 @@ class HoglandBackend(PreviewBackend):
     def provision(self) -> None:
         if self._box is not None:
             return
-        if self._box_id:  # reuse an existing box
+        if self._box_id:  # explicit reuse (debug / staged CI)
             self._box = self._client.get(self._box_id)
-        else:
-            self._box = self._restore_fresh()
-            self._box_id = self._box.id
+            self._wait_exec_ready()
+            return
+        # Stable identity first, then a fresh box from the golden. _restore_fresh
+        # reaps a stale same-named box (a leaked prior run) via its ConflictError
+        # path, so at most one box holds the name at a time; we then point the pen
+        # at the new box. The pen outlives the box across pushes.
+        self._ensure_pen()
+        self._box = self._restore_fresh()
+        self._box_id = self._box.id
         # `running` means the VM resumed, not that hogpanion's HTTP API answers
         # yet — a restored box needs a beat before the first exec.
         self._wait_exec_ready()
+        self._client.update_pen(self.name, current_box_id=self._box_id)
 
     def _create_kwargs(self) -> dict:
         # The golden is pinned to this sizing; restore must MATCH it exactly.
@@ -179,9 +204,92 @@ class HoglandBackend(PreviewBackend):
         return self._box_id
 
     def destroy(self) -> None:
+        # PR-close teardown: drop the live box, then release the stable identity.
+        # delete_pen does NOT cascade, so the box must go first. Each step is
+        # best-effort — a half-torn-down preview shouldn't wedge cleanup.
         box = self._resolve_box()
         if box is not None:
             box.destroy()
+        try:
+            self._client.delete_pen(self.name)
+        except NotFoundError:
+            pass
+
+    # --- pen: the stable identity over the box lifecycle ---------------------
+    def _ensure_pen(self) -> None:
+        """Get-or-create the pen. Keyed on the deterministic name, it persists
+        across pushes while the box rotates, carrying the ``current_box_id``
+        pointer + attribution. Idempotent and race-safe: a concurrent CI re-run
+        that wins the create is simply found on the retry.
+
+        ``on_idle=hibernate`` / ``wake=on-request`` are recorded but inert today
+        — hibernate/wake orchestration is the next hogland server rung. They
+        encode the intent so it lights up for free when that lands; ``wake`` also
+        requires an exposed spec, which ``_pen_spec`` provides."""
+        try:
+            self._client.get_pen(self.name)
+            return
+        except NotFoundError:
+            pass
+        try:
+            self._client.create_pen(
+                self.name,
+                source_alias=self._source_alias(),
+                spec=self._pen_spec(),
+                on_idle="hibernate",
+                wake="on-request",
+                metadata=self._pen_metadata(),
+            )
+        except ConflictError:
+            # A racing run created it between our get and create — that's fine.
+            pass
+
+    def _pen_spec(self) -> BoxSpec:
+        """The BoxSpec the pen remembers — sizing, the golden it seeds from, and
+        the exposed web port. Not enforced server-side yet (that's the
+        hibernate/wake rung), but it records enough for a future EnsureUp/wake to
+        rebuild the box from the pen alone, and the exposed port is what makes
+        ``wake=on-request`` a valid policy."""
+        return BoxSpec(
+            snapshot_id=self.snapshot,
+            cpus=self.cpus,
+            memory_mib=self.memory_mib,
+            disk_gib=self.disk_gib,
+            disk_class=self.disk_class,
+            kind=self.kind,
+            expose={"http_port": self.web_port},
+            ttl_seconds=self.ttl_seconds,
+        )
+
+    def _source_alias(self) -> str | None:
+        """The seed alias the pen can re-restore from if its snapshots are GC'd.
+        ``snapshot`` carries the ``alias:`` resolve hint; the pen stores the bare
+        name (None when a concrete snap id was passed)."""
+        prefix = "alias:"
+        return self.snapshot[len(prefix):] if self.snapshot.startswith(prefix) else None
+
+    def _pen_metadata(self) -> dict[str, str] | None:
+        """Display-only attribution (repo / PR / author / backlink) read from the
+        GitHub Actions env, best-effort — it's the "who is this preview for" shown
+        in pen listings, never used in a server decision. Empty on local runs ->
+        omit the field."""
+        env = os.environ
+        repo = env.get("GITHUB_REPOSITORY")
+        actor = env.get("GITHUB_ACTOR")
+        server = env.get("GITHUB_SERVER_URL", "https://github.com")
+        pr = env.get("PR") or env.get("PR_NUMBER")
+        if not pr and self.name.startswith("preview-pr-"):
+            pr = self.name[len("preview-pr-"):]
+        md: dict[str, str] = {}
+        if repo:
+            md["repo"] = repo
+        if pr:
+            md["pr"] = pr
+        if actor:
+            md["author"] = actor
+        if repo and pr:
+            md["url"] = f"{server}/{repo}/pull/{pr}"
+        return md or None
 
     # --- CI token refresh ----------------------------------------------------
     def _mint_oidc(self) -> str | None:
@@ -221,21 +329,25 @@ class HoglandBackend(PreviewBackend):
         return self._box
 
     def _resolve_box(self):
-        """Find the box to destroy: the live handle, an explicit id, or — for CI
-        cleanup that only knows the deterministic name — a name lookup."""
+        """Find the box to act on: the live handle, an explicit id, the pen's
+        current pointer, or — last resort — a name lookup over live boxes."""
         if self._box is not None:
             return self._box
         if self._box_id:
             return self._client.get(self._box_id)
         if self.name:
+            try:
+                pen = self._client.get_pen(self.name)
+                if pen.current_box_id:
+                    return self._client.get(pen.current_box_id)
+            except NotFoundError:
+                pass  # no pen, or its box was already reaped — fall through
             for v in self._client.iter_boxes():
                 if getattr(v.spec, "name", None) == self.name:
                     return self._client.get(v.id)
         return None
 
     def _wait_exec_ready(self, *, timeout: int = 300, interval: int = 5) -> None:
-        import time
-
         deadline = time.time() + timeout
         last = ""
         while time.time() < deadline:
