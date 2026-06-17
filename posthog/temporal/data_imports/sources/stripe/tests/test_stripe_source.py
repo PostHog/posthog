@@ -40,22 +40,24 @@ class TestStripeSource:
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable_errors)
 
-    def test_validate_credentials_missing_integration_id_returns_friendly_message(self):
-        # OAuth selected but the integration was never linked (or was deleted): `_get_api_key`
-        # raises ValueError("Missing Stripe integration ID"), an internal string the user can't
-        # act on. validate_credentials must translate it to the reconnect guidance.
-        config = StripeSourceConfig(auth_method=StripeAuthMethodConfig(selection="oauth", stripe_integration_id=None))
-
+    @pytest.mark.parametrize(
+        "config,expected_message",
+        [
+            # OAuth selected but the integration was never linked (or was deleted): `_get_api_key`
+            # raises ValueError("Missing Stripe integration ID"), an internal string the user can't
+            # act on. validate_credentials must translate it to the reconnect guidance.
+            (
+                StripeSourceConfig(auth_method=StripeAuthMethodConfig(selection="oauth", stripe_integration_id=None)),
+                "Stripe integration ID is not configured. Please reconnect your Stripe account.",
+            ),
+            (
+                StripeSourceConfig(auth_method=StripeAuthMethodConfig(selection="api_key", stripe_secret_key=None)),
+                "Stripe API key is not configured. Please update the source configuration.",
+            ),
+        ],
+    )
+    def test_validate_credentials_missing_config_returns_friendly_message(self, config, expected_message):
         ok, message = self.source.validate_credentials(config, team_id=1)
 
         assert ok is False
-        assert message == "Stripe integration ID is not configured. Please reconnect your Stripe account."
-        assert "Missing Stripe integration ID" not in (message or "")
-
-    def test_validate_credentials_missing_api_key_returns_friendly_message(self):
-        config = StripeSourceConfig(auth_method=StripeAuthMethodConfig(selection="api_key", stripe_secret_key=None))
-
-        ok, message = self.source.validate_credentials(config, team_id=1)
-
-        assert ok is False
-        assert message == "Stripe API key is not configured. Please update the source configuration."
+        assert message == expected_message
