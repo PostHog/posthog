@@ -13,6 +13,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     Author,
     CICardSummary,
     CIStatusRollup,
+    GitHubSource,
     PRLifecycle,
     PRLifecycleEvent,
     PullRequest,
@@ -22,6 +23,16 @@ from products.engineering_analytics.backend.facade.contracts import (
     WorkflowHealthDay,
     WorkflowHealthItem,
 )
+
+
+class GitHubSourceSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = GitHubSource
+        extra_kwargs = {
+            "id": {"help_text": "Source id — pass as `source_id` to the other endpoints to read this source."},
+            "repo": {"help_text": "Connected repository as 'owner/name', or '' if unknown."},
+            "prefix": {"help_text": "User-chosen warehouse table-name prefix for this source, or '' when none."},
+        }
 
 
 class RepoRefSerializer(DataclassSerializer):

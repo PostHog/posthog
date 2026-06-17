@@ -206,15 +206,17 @@ type SceneMenuBarItemProps = ComponentProps<typeof MenubarItem> & {
      * direct actions ("Delete feature flag") and same-page navigations.
      */
     opensFloatingUi?: boolean
+    /** Hover hint, typically the reason a disabled item can't be used. Applied as the native title. */
+    tooltip?: string
 }
 
 /**
  * Pass `variant="destructive"` for any "Delete X" / "Archive X" / "Remove X" action so the
  * visual signal (red text + icon) is consistent across PostHog scenes.
  */
-export function SceneMenuBarItem({ opensFloatingUi, children, ...props }: SceneMenuBarItemProps): JSX.Element {
+export function SceneMenuBarItem({ opensFloatingUi, tooltip, children, ...props }: SceneMenuBarItemProps): JSX.Element {
     return (
-        <MenubarItem {...props}>
+        <MenubarItem title={tooltip} {...props}>
             {children}
             {/*
               `-ms-2` cancels MenubarItem's parent flex `gap-2` so the ellipsis sits flush

@@ -86,6 +86,14 @@ _AUTH_CONFIG_JSON_SCHEMA: dict[str, Any] = {
                         "properties": {
                             "type": {"type": "string", "const": "posthog"},
                             "scopes": {"default": [], "type": "array", "items": {"type": "string"}},
+                            # Invocation boundary: bind to the agent's owning project
+                            # (default) or its owning organization. Mirrors the
+                            # `audience` field on `AuthModeSchema`'s posthog variant.
+                            "audience": {
+                                "default": "project",
+                                "type": "string",
+                                "enum": ["project", "organization"],
+                            },
                         },
                         "required": ["type"],
                         "additionalProperties": False,
@@ -144,6 +152,7 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                                     "auto_resume_threads": {"default": False, "type": "boolean"},
                                     "allow_workspace_participants": {"default": False, "type": "boolean"},
                                     "ack_reaction": {"type": "string"},
+                                    "allow_direct_messages": {"default": False, "type": "boolean"},
                                     "trusted_workspaces": {
                                         "anyOf": [
                                             {"minItems": 1, "type": "array", "items": {"type": "string"}},
@@ -155,6 +164,7 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                                     "mention_only",
                                     "auto_resume_threads",
                                     "allow_workspace_participants",
+                                    "allow_direct_messages",
                                     "trusted_workspaces",
                                 ],
                                 "additionalProperties": False,
@@ -330,8 +340,7 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
             "default": [],
             "type": "array",
             # Single flat shape — third-party MCP server reachable over HTTP.
-            # The `kind: 'agent'` agent-to-agent variant was removed; see
-            # `docs/agent-platform/plans/agent-as-mcp-server.md` for re-add.
+            # The `kind: 'agent'` agent-to-agent variant was removed.
             "items": {
                 "type": "object",
                 "properties": {
@@ -433,9 +442,43 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
             },
         },
         "integrations": {"default": [], "type": "array", "items": {"type": "string"}},
-        "secrets": {"default": [], "type": "array", "items": {"type": "string"}},
+        # Two accepted forms — mirrors `SecretRefSchema` in
+        # services/agent-shared/src/spec/spec.ts. The bare-string form
+        # declares a resolvable name without authority to be sent over the
+        # wire by `@posthog/http-request`; the object form pins the secret
+        # to a fixed set of hosts (`allowed_hosts`), and only then does the
+        # runner substitute it into outbound URL/headers/body. Keep this in
+        # lockstep with the zod schema; the runner is the source of truth.
+        "secrets": {
+            "default": [],
+            "type": "array",
+            "items": {
+                "oneOf": [
+                    {"type": "string", "minLength": 1},
+                    {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string", "minLength": 1},
+                            "allowed_hosts": {
+                                "type": "array",
+                                "minItems": 1,
+                                "items": {"type": "string", "minLength": 1},
+                            },
+                        },
+                        "required": ["name", "allowed_hosts"],
+                        "additionalProperties": False,
+                    },
+                ],
+            },
+        },
         "limits": {
-            "default": {"max_turns": 50, "max_tool_calls": 200, "max_wall_seconds": 900},
+            "default": {
+                "max_turns": 50,
+                "max_tool_calls": 200,
+                "max_wall_seconds": 900,
+                "max_memory_mb": 512,
+                "max_cpu_cores": 0.25,
+            },
             "type": "object",
             "properties": {
                 "max_turns": {"default": 50, "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991},
@@ -456,12 +499,55 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                     "exclusiveMinimum": 0,
                     "maximum": 200000,
                 },
+                "max_memory_mb": {
+                    "default": 512,
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 16384,
+                },
+                "max_cpu_cores": {"default": 0.25, "type": "number", "exclusiveMinimum": 0, "maximum": 8},
             },
-            "required": ["max_turns", "max_tool_calls", "max_wall_seconds"],
+            "required": ["max_turns", "max_tool_calls", "max_wall_seconds", "max_memory_mb", "max_cpu_cores"],
             "additionalProperties": False,
         },
         "entrypoint": {"default": "agent.md", "type": "string"},
         "reasoning": {"type": "string", "enum": ["minimal", "low", "medium", "high", "xhigh"]},
+        "framework_prompt": {
+            "type": "object",
+            "properties": {
+                "omit": {
+                    "default": [],
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "enum": [
+                            "meta_tool_guidance",
+                            "state_contract",
+                            "tool_failure_guidance",
+                            "approval_guidance",
+                            "reasoning_hint",
+                        ],
+                    },
+                },
+                "version_pin": {"type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991},
+            },
+            "required": ["omit"],
+            "additionalProperties": False,
+        },
+        "resume": {
+            "type": "object",
+            "properties": {
+                "enabled": {"default": False, "type": "boolean"},
+                "max_completed_age_ms": {
+                    "default": 604800000,
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991,
+                },
+            },
+            "required": ["enabled", "max_completed_age_ms"],
+            "additionalProperties": False,
+        },
     },
     "required": [
         "model",

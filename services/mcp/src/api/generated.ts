@@ -7817,6 +7817,7 @@ export namespace Schemas {
       auto_resume_threads: boolean;
       allow_workspace_participants: boolean;
       ack_reaction?: string;
+      allow_direct_messages: boolean;
       trusted_workspaces: string[] | '*';
     };
     } | {
@@ -7831,6 +7832,7 @@ export namespace Schemas {
     } | {
       type: 'posthog';
       scopes?: string[];
+      audience?: 'project' | 'organization';
     } | {
       type: 'jwt';
       /** @minLength 1 */
@@ -7878,6 +7880,7 @@ export namespace Schemas {
     } | {
       type: 'posthog';
       scopes?: string[];
+      audience?: 'project' | 'organization';
     } | {
       type: 'jwt';
       /** @minLength 1 */
@@ -7904,6 +7907,7 @@ export namespace Schemas {
     } | {
       type: 'posthog';
       scopes?: string[];
+      audience?: 'project' | 'organization';
     } | {
       type: 'jwt';
       /** @minLength 1 */
@@ -8016,6 +8020,16 @@ export namespace Schemas {
       version?: number;
     };
 
+    export type AgentRevisionSpecSecretsItem = string | {
+      /** @minLength 1 */
+      name: string;
+      /**
+         * @minItems 1
+         * @items.minLength 1
+         */
+      allowed_hosts: string[];
+    };
+
     export type AgentRevisionSpecLimits = {
       /**
          * @maximum 2147483647
@@ -8037,6 +8051,16 @@ export namespace Schemas {
          * @exclusiveMinimum 0
          */
       max_output_tokens?: number;
+      /**
+         * @maximum 16384
+         * @exclusiveMinimum 0
+         */
+      max_memory_mb: number;
+      /**
+         * @maximum 8
+         * @exclusiveMinimum 0
+         */
+      max_cpu_cores: number;
     };
 
     export type AgentRevisionSpecReasoning = typeof AgentRevisionSpecReasoning[keyof typeof AgentRevisionSpecReasoning];
@@ -8050,6 +8074,35 @@ export namespace Schemas {
       Xhigh: 'xhigh',
     } as const;
 
+    export type AgentRevisionSpecFrameworkPromptOmitItem = typeof AgentRevisionSpecFrameworkPromptOmitItem[keyof typeof AgentRevisionSpecFrameworkPromptOmitItem];
+
+
+    export const AgentRevisionSpecFrameworkPromptOmitItem = {
+      MetaToolGuidance: 'meta_tool_guidance',
+      StateContract: 'state_contract',
+      ToolFailureGuidance: 'tool_failure_guidance',
+      ApprovalGuidance: 'approval_guidance',
+      ReasoningHint: 'reasoning_hint',
+    } as const;
+
+    export type AgentRevisionSpecFrameworkPrompt = {
+      omit: AgentRevisionSpecFrameworkPromptOmitItem[];
+      /**
+         * @maximum 2147483647
+         * @exclusiveMinimum 0
+         */
+      version_pin?: number;
+    };
+
+    export type AgentRevisionSpecResume = {
+      enabled: boolean;
+      /**
+         * @maximum 2147483647
+         * @exclusiveMinimum 0
+         */
+      max_completed_age_ms: number;
+    };
+
     export type AgentRevisionSpec = {
       /** @minLength 1 */
       model: string;
@@ -8058,10 +8111,12 @@ export namespace Schemas {
       mcps: AgentRevisionSpecMcpsItem[];
       skills: AgentRevisionSpecSkillsItem[];
       integrations: string[];
-      secrets: string[];
+      secrets: AgentRevisionSpecSecretsItem[];
       limits: AgentRevisionSpecLimits;
       entrypoint: string;
       reasoning?: AgentRevisionSpecReasoning;
+      framework_prompt?: AgentRevisionSpecFrameworkPrompt;
+      resume?: AgentRevisionSpecResume;
     };
 
     /**
@@ -8156,7 +8211,7 @@ export namespace Schemas {
       revision_id: string;
       /** Active framework preamble version. Bumps when the platform's `# Platform guidance` content changes meaningfully (decision rules, sections renamed, behavioural defaults flipped). Authors can pin to a specific version via `spec.framework_prompt.version_pin`. */
       framework_prompt_version: number;
-      /** Fully-assembled system prompt the runner would pass to pi-ai for a session against this revision. Concatenates the platform framework preamble, the bundle's `agent.md` (or `spec.entrypoint`), and the skills index. Inspect before promotion to confirm the model will see what you expect — see docs/agent-platform/plans/framework-system-prompt.md §4. */
+      /** Fully-assembled system prompt the runner would pass to pi-ai for a session against this revision. Concatenates the platform framework preamble, the bundle's `agent.md` (or `spec.entrypoint`), and the skills index. Inspect before promotion to confirm the model will see what you expect. */
       system_prompt: string;
     }
 
@@ -16460,8 +16515,6 @@ export namespace Schemas {
 
     /**
      * Body shape for POST /agent_applications/<id>/approvals/<approval_id>/decide/.
-     *
-     * See docs/agent-platform/plans/approval-gated-tools.md.
      */
     export interface DecideApprovalRequest {
       /** The approver's decision. `approve` runs the tool platform-side with the (possibly edited) args; `reject` records a terminal rejection and wakes the session with a synthetic rejected tool_result.
@@ -22217,6 +22270,11 @@ export namespace Schemas {
 
     export interface Run {
       approved_by?: UserBasicInfo | null;
+      /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of branch/run type, a commit SHA prefix, or an exact PR number) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`.
+       *
+       * * `exact` - exact
+       * * `similar` - similar */
+      readonly search_match_type: SearchMatchTypeEnum | null;
       id: string;
       repo_id: string;
       status: string;
@@ -22439,6 +22497,15 @@ export namespace Schemas {
       repositories: GitHubRepo[];
       /** Whether more repositories are available beyond this page. */
       has_more: boolean;
+    }
+
+    export interface GitHubSource {
+      /** Source id — pass as `source_id` to the other endpoints to read this source. */
+      id: string;
+      /** Connected repository as 'owner/name', or '' if unknown. */
+      repo: string;
+      /** User-chosen warehouse table-name prefix for this source, or '' when none. */
+      prefix: string;
     }
 
     export interface GitHubTeam {
@@ -29156,7 +29223,10 @@ export namespace Schemas {
          * @maxLength 255
          */
       name: string;
-      /** Raw YAML recipe source, compiled and validated client-side. */
+      /**
+         * Raw YAML recipe source. Must parse as YAML; recipe semantics are compiled and validated client-side.
+         * @maxLength 100000
+         */
       source: string;
       /** User who created the recipe. */
       readonly created_by: UserBasic | null;
@@ -29492,6 +29562,112 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: QuickFilter[];
+    }
+
+    /**
+     * * `daily` - Daily
+     * * `weekly` - Weekly
+     * * `monthly` - Monthly
+     * * `yearly` - Yearly
+     */
+    export type RecurrenceIntervalEnum = typeof RecurrenceIntervalEnum[keyof typeof RecurrenceIntervalEnum];
+
+
+    export const RecurrenceIntervalEnum = {
+      Daily: 'daily',
+      Weekly: 'weekly',
+      Monthly: 'monthly',
+      Yearly: 'yearly',
+    } as const;
+
+    /**
+     * * `active` - Active
+     * * `completed` - Completed
+     * * `errored` - Errored
+     */
+    export type ReminderStatusEnum = typeof ReminderStatusEnum[keyof typeof ReminderStatusEnum];
+
+
+    export const ReminderStatusEnum = {
+      Active: 'active',
+      Completed: 'completed',
+      Errored: 'errored',
+    } as const;
+
+    export interface Reminder {
+      readonly id: string;
+      /** ID of the organization this reminder belongs to. You must be a member of it. */
+      organization: string;
+      /**
+         * Optional ID of the project this reminder is scoped to. Required when targeting a specific resource. Must belong to the chosen organization.
+         * @nullable
+         */
+      team?: number | null;
+      /**
+         * Short text shown as the notification title when the reminder fires.
+         * @maxLength 255
+         */
+      title: string;
+      /** Optional longer body for the notification. */
+      message?: string;
+      /**
+         * Optional PostHog resource this reminder is about. One of: dashboard, insight, experiment, feature_flag, survey, notebook, replay, error_tracking. Resources are project-scoped, so a team must be set when this is provided.
+         * @maxLength 50
+         * @nullable
+         */
+      resource_type?: string | null;
+      /**
+         * ID of the referenced resource; must exist in the chosen project.
+         * @maxLength 200
+         * @nullable
+         */
+      resource_id?: string | null;
+      /**
+         * For a one-off reminder: when it should fire (ISO 8601, future).
+         * @nullable
+         */
+      scheduled_at?: string | null;
+      /** For a recurring reminder: daily, weekly, monthly, or yearly.
+       *
+       * * `daily` - Daily
+       * * `weekly` - Weekly
+       * * `monthly` - Monthly
+       * * `yearly` - Yearly */
+      recurrence_interval?: RecurrenceIntervalEnum | BlankEnum | null;
+      /**
+         * For a recurring reminder: a 5-field cron expression (e.g. '0 9 * * 1' = Mondays 9am). May fire at most 4 times per day. Mutually exclusive with recurrence_interval.
+         * @maxLength 100
+         * @nullable
+         */
+      cron_expression?: string | null;
+      /**
+         * IANA timezone the schedule resolves in (e.g. 'America/New_York'). Defaults to the project timezone when a team is set, otherwise UTC.
+         * @maxLength 64
+         */
+      timezone?: string;
+      /**
+         * Optional: recurring reminders stop (status=completed) after this time.
+         * @nullable
+         */
+      end_date?: string | null;
+      /** @nullable */
+      readonly next_fire_at: string | null;
+      /** @nullable */
+      readonly last_fired_at: string | null;
+      readonly status: ReminderStatusEnum;
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+    }
+
+    export interface PaginatedReminderList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: Reminder[];
     }
 
     /**
@@ -29884,10 +30060,10 @@ export namespace Schemas {
      * * `monthly` - monthly
      * * `yearly` - yearly
      */
-    export type RecurrenceIntervalEnum = typeof RecurrenceIntervalEnum[keyof typeof RecurrenceIntervalEnum];
+    export type ScheduledChangeRecurrenceIntervalEnum = typeof ScheduledChangeRecurrenceIntervalEnum[keyof typeof ScheduledChangeRecurrenceIntervalEnum];
 
 
-    export const RecurrenceIntervalEnum = {
+    export const ScheduledChangeRecurrenceIntervalEnum = {
       Daily: 'daily',
       Weekly: 'weekly',
       Monthly: 'monthly',
@@ -29928,7 +30104,7 @@ export namespace Schemas {
        * * `weekly` - weekly
        * * `monthly` - monthly
        * * `yearly` - yearly */
-      recurrence_interval?: RecurrenceIntervalEnum | null;
+      recurrence_interval?: ScheduledChangeRecurrenceIntervalEnum | null;
       /**
          * @maxLength 100
          * @nullable
@@ -30273,6 +30449,7 @@ export namespace Schemas {
      * * `signals_scout` - Signals scout
      * * `logs` - Logs
      * * `health_checks` - Health checks
+     * * `endpoints` - Endpoints
      */
     export type SourceProductEnum = typeof SourceProductEnum[keyof typeof SourceProductEnum];
 
@@ -30289,6 +30466,7 @@ export namespace Schemas {
       SignalsScout: 'signals_scout',
       Logs: 'logs',
       HealthChecks: 'health_checks',
+      Endpoints: 'endpoints',
     } as const;
 
     /**
@@ -30302,6 +30480,8 @@ export namespace Schemas {
      * * `cross_source_issue` - Cross source issue
      * * `alert_state_change` - Alert state change
      * * `health_issue` - Health issue
+     * * `endpoint_execution_failed` - Endpoint execution failed
+     * * `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded
      */
     export type SignalSourceConfigSourceTypeEnum = typeof SignalSourceConfigSourceTypeEnum[keyof typeof SignalSourceConfigSourceTypeEnum];
 
@@ -30317,6 +30497,8 @@ export namespace Schemas {
       CrossSourceIssue: 'cross_source_issue',
       AlertStateChange: 'alert_state_change',
       HealthIssue: 'health_issue',
+      EndpointExecutionFailed: 'endpoint_execution_failed',
+      EndpointBreakdownLimitExceeded: 'endpoint_breakdown_limit_exceeded',
     } as const;
 
     export interface SignalSourceConfig {
@@ -30589,22 +30771,6 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `daily` - Daily
-     * * `weekly` - Weekly
-     * * `monthly` - Monthly
-     * * `yearly` - Yearly
-     */
-    export type SubscriptionFrequencyEnum = typeof SubscriptionFrequencyEnum[keyof typeof SubscriptionFrequencyEnum];
-
-
-    export const SubscriptionFrequencyEnum = {
-      Daily: 'daily',
-      Weekly: 'weekly',
-      Monthly: 'monthly',
-      Yearly: 'yearly',
-    } as const;
-
-    /**
      * * `monday` - Monday
      * * `tuesday` - Tuesday
      * * `wednesday` - Wednesday
@@ -30671,7 +30837,7 @@ export namespace Schemas {
        * * `weekly` - Weekly
        * * `monthly` - Monthly
        * * `yearly` - Yearly */
-      frequency: SubscriptionFrequencyEnum;
+      frequency: RecurrenceIntervalEnum;
       /**
          * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Required on create; must be 1 or greater.
          * @minimum 1
@@ -32520,6 +32686,7 @@ export namespace Schemas {
       auto_resume_threads: boolean;
       allow_workspace_participants: boolean;
       ack_reaction?: string;
+      allow_direct_messages: boolean;
       trusted_workspaces: string[] | '*';
     };
     } | {
@@ -32534,6 +32701,7 @@ export namespace Schemas {
     } | {
       type: 'posthog';
       scopes?: string[];
+      audience?: 'project' | 'organization';
     } | {
       type: 'jwt';
       /** @minLength 1 */
@@ -32581,6 +32749,7 @@ export namespace Schemas {
     } | {
       type: 'posthog';
       scopes?: string[];
+      audience?: 'project' | 'organization';
     } | {
       type: 'jwt';
       /** @minLength 1 */
@@ -32607,6 +32776,7 @@ export namespace Schemas {
     } | {
       type: 'posthog';
       scopes?: string[];
+      audience?: 'project' | 'organization';
     } | {
       type: 'jwt';
       /** @minLength 1 */
@@ -32719,6 +32889,16 @@ export namespace Schemas {
       version?: number;
     };
 
+    export type PatchedAgentRevisionSpecSecretsItem = string | {
+      /** @minLength 1 */
+      name: string;
+      /**
+         * @minItems 1
+         * @items.minLength 1
+         */
+      allowed_hosts: string[];
+    };
+
     export type PatchedAgentRevisionSpecLimits = {
       /**
          * @maximum 2147483647
@@ -32740,6 +32920,16 @@ export namespace Schemas {
          * @exclusiveMinimum 0
          */
       max_output_tokens?: number;
+      /**
+         * @maximum 16384
+         * @exclusiveMinimum 0
+         */
+      max_memory_mb: number;
+      /**
+         * @maximum 8
+         * @exclusiveMinimum 0
+         */
+      max_cpu_cores: number;
     };
 
     export type PatchedAgentRevisionSpecReasoning = typeof PatchedAgentRevisionSpecReasoning[keyof typeof PatchedAgentRevisionSpecReasoning];
@@ -32753,6 +32943,35 @@ export namespace Schemas {
       Xhigh: 'xhigh',
     } as const;
 
+    export type PatchedAgentRevisionSpecFrameworkPromptOmitItem = typeof PatchedAgentRevisionSpecFrameworkPromptOmitItem[keyof typeof PatchedAgentRevisionSpecFrameworkPromptOmitItem];
+
+
+    export const PatchedAgentRevisionSpecFrameworkPromptOmitItem = {
+      MetaToolGuidance: 'meta_tool_guidance',
+      StateContract: 'state_contract',
+      ToolFailureGuidance: 'tool_failure_guidance',
+      ApprovalGuidance: 'approval_guidance',
+      ReasoningHint: 'reasoning_hint',
+    } as const;
+
+    export type PatchedAgentRevisionSpecFrameworkPrompt = {
+      omit: PatchedAgentRevisionSpecFrameworkPromptOmitItem[];
+      /**
+         * @maximum 2147483647
+         * @exclusiveMinimum 0
+         */
+      version_pin?: number;
+    };
+
+    export type PatchedAgentRevisionSpecResume = {
+      enabled: boolean;
+      /**
+         * @maximum 2147483647
+         * @exclusiveMinimum 0
+         */
+      max_completed_age_ms: number;
+    };
+
     export type PatchedAgentRevisionSpec = {
       /** @minLength 1 */
       model: string;
@@ -32761,10 +32980,12 @@ export namespace Schemas {
       mcps: PatchedAgentRevisionSpecMcpsItem[];
       skills: PatchedAgentRevisionSpecSkillsItem[];
       integrations: string[];
-      secrets: string[];
+      secrets: PatchedAgentRevisionSpecSecretsItem[];
       limits: PatchedAgentRevisionSpecLimits;
       entrypoint: string;
       reasoning?: PatchedAgentRevisionSpecReasoning;
+      framework_prompt?: PatchedAgentRevisionSpecFrameworkPrompt;
+      resume?: PatchedAgentRevisionSpecResume;
     };
 
     /**
@@ -35728,7 +35949,10 @@ export namespace Schemas {
          * @maxLength 255
          */
       name?: string;
-      /** Raw YAML recipe source, compiled and validated client-side. */
+      /**
+         * Raw YAML recipe source. Must parse as YAML; recipe semantics are compiled and validated client-side.
+         * @maxLength 100000
+         */
       source?: string;
       /** User who created the recipe. */
       readonly created_by?: UserBasic | null;
@@ -36860,6 +37084,73 @@ export namespace Schemas {
       readonly updated_at?: string;
     }
 
+    export interface PatchedReminder {
+      readonly id?: string;
+      /** ID of the organization this reminder belongs to. You must be a member of it. */
+      organization?: string;
+      /**
+         * Optional ID of the project this reminder is scoped to. Required when targeting a specific resource. Must belong to the chosen organization.
+         * @nullable
+         */
+      team?: number | null;
+      /**
+         * Short text shown as the notification title when the reminder fires.
+         * @maxLength 255
+         */
+      title?: string;
+      /** Optional longer body for the notification. */
+      message?: string;
+      /**
+         * Optional PostHog resource this reminder is about. One of: dashboard, insight, experiment, feature_flag, survey, notebook, replay, error_tracking. Resources are project-scoped, so a team must be set when this is provided.
+         * @maxLength 50
+         * @nullable
+         */
+      resource_type?: string | null;
+      /**
+         * ID of the referenced resource; must exist in the chosen project.
+         * @maxLength 200
+         * @nullable
+         */
+      resource_id?: string | null;
+      /**
+         * For a one-off reminder: when it should fire (ISO 8601, future).
+         * @nullable
+         */
+      scheduled_at?: string | null;
+      /** For a recurring reminder: daily, weekly, monthly, or yearly.
+       *
+       * * `daily` - Daily
+       * * `weekly` - Weekly
+       * * `monthly` - Monthly
+       * * `yearly` - Yearly */
+      recurrence_interval?: RecurrenceIntervalEnum | BlankEnum | null;
+      /**
+         * For a recurring reminder: a 5-field cron expression (e.g. '0 9 * * 1' = Mondays 9am). May fire at most 4 times per day. Mutually exclusive with recurrence_interval.
+         * @maxLength 100
+         * @nullable
+         */
+      cron_expression?: string | null;
+      /**
+         * IANA timezone the schedule resolves in (e.g. 'America/New_York'). Defaults to the project timezone when a team is set, otherwise UTC.
+         * @maxLength 64
+         */
+      timezone?: string;
+      /**
+         * Optional: recurring reminders stop (status=completed) after this time.
+         * @nullable
+         */
+      end_date?: string | null;
+      /** @nullable */
+      readonly next_fire_at?: string | null;
+      /** @nullable */
+      readonly last_fired_at?: string | null;
+      readonly status?: ReminderStatusEnum;
+      readonly created_by?: UserBasic;
+      readonly created_at?: string;
+      /** @nullable */
+      readonly updated_at?: string | null;
+    }
+
     export interface PatchedRemovePersonRequest {
       /** Person UUID to remove from the cohort */
       person_id?: string;
@@ -37046,7 +37337,7 @@ export namespace Schemas {
        * * `weekly` - weekly
        * * `monthly` - monthly
        * * `yearly` - yearly */
-      recurrence_interval?: RecurrenceIntervalEnum | null;
+      recurrence_interval?: ScheduledChangeRecurrenceIntervalEnum | null;
       /**
          * @maxLength 100
          * @nullable
@@ -37359,7 +37650,7 @@ export namespace Schemas {
        * * `weekly` - Weekly
        * * `monthly` - Monthly
        * * `yearly` - Yearly */
-      frequency?: SubscriptionFrequencyEnum;
+      frequency?: RecurrenceIntervalEnum;
       /**
          * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Required on create; must be 1 or greater.
          * @minimum 1
@@ -48143,7 +48434,7 @@ export namespace Schemas {
 
     /**
      * Body shape for PUT /revisions/<id>/bundle/ — the full-replace typed
-     * payload. See docs/agent-platform/plans/typed-bundle-authoring-api.md §3.
+     * payload.
      */
     export interface WriteTypedBundleRequest {
       agent_md: string;
@@ -54168,6 +54459,7 @@ export namespace Schemas {
      * * `UserGroup` - UserGroup
      * * `BatchExport` - BatchExport
      * * `BatchImport` - BatchImport
+     * * `ExportedAsset` - ExportedAsset
      * * `Integration` - Integration
      * * `Annotation` - Annotation
      * * `Tag` - Tag
@@ -54248,6 +54540,7 @@ export namespace Schemas {
       UserGroup: 'UserGroup',
       BatchExport: 'BatchExport',
       BatchImport: 'BatchImport',
+      ExportedAsset: 'ExportedAsset',
       Integration: 'Integration',
       Annotation: 'Annotation',
       Tag: 'Tag',
@@ -54314,6 +54607,7 @@ export namespace Schemas {
      * * `UserGroup` - UserGroup
      * * `BatchExport` - BatchExport
      * * `BatchImport` - BatchImport
+     * * `ExportedAsset` - ExportedAsset
      * * `Integration` - Integration
      * * `Annotation` - Annotation
      * * `Tag` - Tag
@@ -54382,6 +54676,7 @@ export namespace Schemas {
       UserGroup: 'UserGroup',
       BatchExport: 'BatchExport',
       BatchImport: 'BatchImport',
+      ExportedAsset: 'ExportedAsset',
       Integration: 'Integration',
       Annotation: 'Annotation',
       Tag: 'Tag',
@@ -60513,6 +60808,10 @@ export namespace Schemas {
      * Filter by review state
      */
     review_state?: string;
+    /**
+     * Free-text search over branch, commit SHA, run type, and PR number
+     */
+    search?: string;
     };
 
     export type VisualReviewReposSnapshotsListParams = {
@@ -60551,6 +60850,10 @@ export namespace Schemas {
      * Filter by review state
      */
     review_state?: string;
+    /**
+     * Free-text search over branch, commit SHA, run type, and PR number
+     */
+    search?: string;
     };
 
     export type VisualReviewRunsSnapshotHistoryListParams = {
@@ -60776,6 +61079,17 @@ export namespace Schemas {
      * Comma-separated list of template types to include (e.g. destination,email,sms_provider).
      */
     types?: string;
+    };
+
+    export type RemindersListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type UsersListParams = {

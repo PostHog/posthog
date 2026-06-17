@@ -358,8 +358,18 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     if (values.traceLoadContext?.traceId !== traceId) {
                         return values.traceSpans
                     }
+                    // Dedupe against what's already loaded: the waterfall keys its tree by span_id,
+                    // so a page that overlaps prior pages wouldn't grow the rendered rows but would
+                    // still balloon this array (and pin the infinite-scroll trigger at the bottom,
+                    // spinning the CPU). If a page adds nothing new, stop paging.
+                    const seen = new Set(values.traceSpans.map((s) => s.span_id))
+                    const newSpans = (response.results as Span[]).filter((s) => !seen.has(s.span_id))
+                    if (newSpans.length === 0) {
+                        actions.setTracePagination(false, null)
+                        return values.traceSpans
+                    }
                     actions.setTracePagination(!!response.hasMore, response.nextOffset ?? null)
-                    return [...values.traceSpans, ...(response.results as Span[])]
+                    return [...values.traceSpans, ...newSpans]
                 },
             },
         ],
