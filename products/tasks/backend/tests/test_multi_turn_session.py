@@ -1273,6 +1273,60 @@ class TestMultiTurnSessionJSONCorrection:
         # Only the original followup was signalled — no wasted corrective re-prompt.
         assert session._workflow_handle.signal.await_count == 1  # type: ignore[union-attr]
 
+    @pytest.mark.asyncio
+    async def test_full_correction_path_with_real_poll_loop(self):
+        """End-to-end integration: send_followup → real poll_for_turn → real _check_logs
+        finds a prose (non-JSON) agent_message → AgentOutputNotJSONError → corrective
+        re-prompt → real _check_logs finds the JSON reply → parsed. Exercises the actual
+        poll/parse code, not a mocked poll_for_turn, so the re-prompt is proven to drive a
+        real second turn and recover. Log visibility grows as followup signals arrive."""
+        prior_turn = [_agent_message_line("prior done"), _end_turn_line()]
+        prose_turn = [_user_message_line("question"), _agent_message_line("Sorry, I can't do JSON."), _end_turn_line()]
+        json_turn = [
+            _user_message_line("correction"),
+            _agent_message_line(json.dumps({"value": "recovered-after-correction"})),
+            _end_turn_line(),
+        ]
+        all_lines = prior_turn + prose_turn + json_turn
+
+        followup_signals = {"count": 0}
+
+        async def record_signal(*args, **kwargs):
+            if len(args) >= 2:  # send_followup_message carries the message; heartbeats don't
+                followup_signals["count"] += 1
+
+        def current_log(*_args, **_kwargs):
+            n = followup_signals["count"]
+            if n == 0:
+                visible = len(prior_turn)
+            elif n == 1:
+                visible = len(prior_turn) + len(prose_turn)  # prose reply appended
+            else:
+                visible = len(all_lines)  # JSON reply appended after the correction
+            return "\n".join(all_lines[:visible])
+
+        session = self._make_session()
+        session._workflow_handle.signal = AsyncMock(side_effect=record_signal)  # type: ignore[union-attr,method-assign]
+        # Session state as if start() already consumed the prior turn.
+        session.log_lines_seen = len(prior_turn)
+        session.printed_lines = len(prior_turn)
+
+        with (
+            patch("posthog.storage.object_storage.read", side_effect=current_log),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=FakeTaskRun(status="running")),
+        ):
+            result = await session.send_followup("question", _Resp, label="signal_2_of_3")
+
+        assert result == _Resp(value="recovered-after-correction")
+        # Two followup signals: the original prompt + exactly one corrective re-prompt.
+        assert followup_signals["count"] == 2
+        correction = [c for c in session._workflow_handle.signal.await_args_list if len(c.args) >= 2][1].args[1]  # type: ignore[union-attr]
+        assert _JSON_CORRECTION_PREAMBLE in correction
+        # Offsets advanced past the recovered JSON turn so a later followup reads from the tail.
+        assert session.log_lines_seen == len(all_lines)
+
 
 @pytest.mark.django_db(transaction=True)
 class TestMultiTurnSessionStartBranch:
