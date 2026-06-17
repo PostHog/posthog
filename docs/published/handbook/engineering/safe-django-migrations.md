@@ -345,14 +345,8 @@ analyzer blocks any migration that uses `AddIndexConcurrently`,
 
 ### Safe Approach: `SafeAddIndexConcurrently` Helper (Recommended)
 
-`posthog.migration_helpers.SafeAddIndexConcurrently` takes a `model_name` +
-Django `Index`, exactly like Django's own `AddIndexConcurrently`. It tracks
-Django state itself — so there's **no `SeparateDatabaseAndState` wrapper and
-no re-specifying the index as raw SQL** — while adding the safety the bare
-Django op lacks: it disables `lock_timeout` / `statement_timeout`, skips when
-a valid index of that name already exists, and drops + rebuilds an
-`indisvalid = false` leftover from a prior interrupted build (logging a
-breadcrumb so the recovery is visible).
+**Adding an index? Use `SafeAddIndexConcurrently`.**
+It takes a `model_name` + Django `Index` (like Django's `AddIndexConcurrently`), tracks state itself — no `SeparateDatabaseAndState`, no re-spelling the index as raw SQL — and adds the safety the bare Django op lacks: disables `lock_timeout`/`statement_timeout`, skips an already-valid index, and rebuilds an `indisvalid = false` leftover from an interrupted build.
 
 ```python
 from django.db import migrations, models
